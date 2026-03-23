@@ -151,15 +151,6 @@ pub struct ProtoNode {
     /// to detect equivocations at the parent's slot.
     #[superstruct(only(V29), partial_getter(copy))]
     pub proposer_index: u64,
-    /// Best child whose `parent_payload_status == Full`.
-    /// Maintained alongside `best_child` to avoid O(n) scans during the V29 head walk.
-    #[superstruct(only(V29), partial_getter(copy))]
-    #[ssz(with = "four_byte_option_usize")]
-    pub best_full_child: Option<usize>,
-    /// Best child whose `parent_payload_status == Empty`.
-    #[superstruct(only(V29), partial_getter(copy))]
-    #[ssz(with = "four_byte_option_usize")]
-    pub best_empty_child: Option<usize>,
 }
 
 #[derive(PartialEq, Debug, Encode, Decode, Serialize, Deserialize, Copy, Clone)]
@@ -180,9 +171,10 @@ impl Default for ProposerBoost {
 /// Accumulated score changes for a single proto-array node during a `find_head` pass.
 ///
 /// `delta` tracks the ordinary LMD-GHOST balance change applied to the concrete block node.
-/// This is the same notion of weight that pre-GLOAS fork choice used.
+/// This is the same notion of weight that pre-gloas fork choice used.
 ///
-/// Under GLOAS we also need to track how votes contribute to the parent's virtual payload
+///
+/// Under gloas we also need to track how votes contribute to the parent's virtual payload
 /// branches:
 ///
 /// - `empty_delta` is the balance change attributable to votes that support the `Empty` payload
@@ -206,7 +198,7 @@ pub struct NodeDelta {
 impl NodeDelta {
     /// Classify a vote into the payload bucket it contributes to for `block_slot`.
     ///
-    /// Per the GLOAS model:
+    /// Per the gloas model:
     ///
     /// - a same-slot vote is `Pending`
     /// - a later vote with `payload_present = true` is `Full`
@@ -681,8 +673,6 @@ impl ProtoArray {
                 },
                 payload_received: is_genesis,
                 proposer_index: block.proposer_index.unwrap_or(0),
-                best_full_child: None,
-                best_empty_child: None,
             })
         };
 
@@ -1124,7 +1114,12 @@ impl ProtoArray {
 
         // For V29 (Gloas) justified nodes, use the virtual tree walk directly.
         if justified_node.as_v29().is_ok() {
-            return self.find_head_v29_walk::<E>(justified_index, current_slot);
+            return self.find_head_v29_walk::<E>(
+                justified_index,
+                current_slot,
+                best_justified_checkpoint,
+                best_finalized_checkpoint,
+            );
         }
 
         // Pre-Gloas justified node, but descendants may be V29.
@@ -1139,7 +1134,12 @@ impl ProtoArray {
 
                 // Hit a V29 node — switch to virtual tree walk.
                 if node.as_v29().is_ok() {
-                    return self.find_head_v29_walk::<E>(current_index, current_slot);
+                    return self.find_head_v29_walk::<E>(
+                        current_index,
+                        current_slot,
+                        best_justified_checkpoint,
+                        best_finalized_checkpoint,
+                    );
                 }
 
                 // V17 node: follow best_child.
@@ -1189,12 +1189,15 @@ impl ProtoArray {
     /// V29 virtual tree walk for `find_head`.
     ///
     /// At each V29 node, determine the preferred payload direction (FULL or EMPTY)
-    /// by comparing weights, then follow the direction-specific best_child pointer.
-    /// O(depth) — no scanning.
+    /// by comparing weights. If `best_child` matches the preferred direction, follow
+    /// it directly. Otherwise, scan all nodes to find the best child matching
+    /// the preferred direction.
     fn find_head_v29_walk<E: EthSpec>(
         &self,
         start_index: usize,
         current_slot: Slot,
+        best_justified_checkpoint: Checkpoint,
+        best_finalized_checkpoint: Checkpoint,
     ) -> Result<Hash256, Error> {
         let ptc_size = E::ptc_size();
         let mut current_index = start_index;
@@ -1208,15 +1211,38 @@ impl ProtoArray {
             let Ok(v29) = node.as_v29() else { break };
 
             let prefer_full = Self::v29_prefer_full(v29, node.slot(), current_slot, ptc_size);
-
-            // O(1) lookup via direction-specific best_child pointers.
-            let next = if prefer_full {
-                v29.best_full_child
+            let preferred_status = if prefer_full {
+                PayloadStatus::Full
             } else {
-                v29.best_empty_child
+                PayloadStatus::Empty
             };
 
-            if let Some(child_index) = next {
+            // Fast path: check if best_child already matches the preferred direction.
+            let next_index = if let Some(best_child_index) = node.best_child() {
+                let best_child_node = self
+                    .nodes
+                    .get(best_child_index)
+                    .ok_or(Error::InvalidNodeIndex(best_child_index))?;
+                if best_child_node
+                    .as_v29()
+                    .is_ok_and(|v| v.parent_payload_status == preferred_status)
+                {
+                    Some(best_child_index)
+                } else {
+                    // best_child is on the wrong direction. Scan for the best matching child.
+                    self.find_best_child_with_status::<E>(
+                        current_index,
+                        preferred_status,
+                        current_slot,
+                        best_justified_checkpoint,
+                        best_finalized_checkpoint,
+                    )?
+                }
+            } else {
+                None
+            };
+
+            if let Some(child_index) = next_index {
                 current_index = child_index;
             } else {
                 break;
@@ -1228,6 +1254,53 @@ impl ProtoArray {
             .get(current_index)
             .ok_or(Error::InvalidNodeIndex(current_index))?;
         Ok(head_node.root())
+    }
+
+    /// Find the best viable child of `parent_index` whose `parent_payload_status` matches
+    /// `target_status`. Returns `None` if no matching viable child exists.
+    fn find_best_child_with_status<E: EthSpec>(
+        &self,
+        parent_index: usize,
+        target_status: PayloadStatus,
+        current_slot: Slot,
+        best_justified_checkpoint: Checkpoint,
+        best_finalized_checkpoint: Checkpoint,
+    ) -> Result<Option<usize>, Error> {
+        let mut best: Option<(usize, u64, Hash256)> = None;
+        for (node_index, node) in self.nodes.iter().enumerate() {
+            if node.parent() != Some(parent_index) {
+                continue;
+            }
+            if !node
+                .as_v29()
+                .is_ok_and(|v| v.parent_payload_status == target_status)
+            {
+                continue;
+            }
+            if !self.node_leads_to_viable_head::<E>(
+                node,
+                current_slot,
+                best_justified_checkpoint,
+                best_finalized_checkpoint,
+            )? {
+                continue;
+            }
+
+            let child_weight = node.weight();
+            let child_root = node.root();
+            let replace = if let Some((_, best_weight, best_root)) = best {
+                child_weight > best_weight
+                    || (child_weight == best_weight && child_root >= best_root)
+            } else {
+                true
+            };
+
+            if replace {
+                best = Some((node_index, child_weight, child_root));
+            }
+        }
+
+        Ok(best.map(|(index, _, _)| index))
     }
 
     /// Determine whether a V29 node prefers the FULL or EMPTY direction.
@@ -1326,20 +1399,6 @@ impl ProtoArray {
                         .ok_or(Error::IndexOverflow("best_descendant"))?,
                 );
             }
-            if let Ok(v29) = node.as_v29_mut() {
-                if let Some(idx) = v29.best_full_child {
-                    v29.best_full_child = Some(
-                        idx.checked_sub(finalized_index)
-                            .ok_or(Error::IndexOverflow("best_full_child"))?,
-                    );
-                }
-                if let Some(idx) = v29.best_empty_child {
-                    v29.best_empty_child = Some(
-                        idx.checked_sub(finalized_index)
-                            .ok_or(Error::IndexOverflow("best_empty_child"))?,
-                    );
-                }
-            }
         }
 
         Ok(())
@@ -1382,43 +1441,14 @@ impl ProtoArray {
             best_finalized_checkpoint,
         )?;
 
-        // Per spec `should_extend_payload`: if the proposer-boosted block is a child of
-        // this parent and extends Empty, force Empty preference regardless of
-        // weights/tiebreaker.
-        let proposer_boost_root = self.previous_proposer_boost.root;
-        let proposer_boost = !proposer_boost_root.is_zero()
-            && self
-                .indices
-                .get(&proposer_boost_root)
-                .and_then(|&idx| self.nodes.get(idx))
-                .is_some_and(|boost_node| {
-                    boost_node.parent() == Some(parent_index)
-                        && boost_node
-                            .parent_payload_status()
-                            .is_ok_and(|s| s != PayloadStatus::Full)
-                });
-
         // These three variables are aliases to the three options that we may set the
         // `parent.best_child` and `parent.best_descendant` to.
-        //
-        // I use the aliases to assist readability.
         let change_to_none = (None, None);
         let change_to_child = (
             Some(child_index),
             child.best_descendant().or(Some(child_index)),
         );
         let no_change = (parent.best_child(), parent.best_descendant());
-
-        // For V29 (GLOAS) parents, the spec's virtual tree model determines a preferred
-        // FULL or EMPTY direction at each node. Weight is the primary selector among
-        // viable children; direction matching is the tiebreaker when weights are equal.
-        let child_matches_dir = child_matches_parent_payload_preference(
-            parent,
-            child,
-            current_slot,
-            E::ptc_size(),
-            proposer_boost,
-        );
 
         let (new_best_child, new_best_descendant) =
             if let Some(best_child_index) = parent.best_child() {
@@ -1443,55 +1473,26 @@ impl ProtoArray {
                         best_finalized_checkpoint,
                     )?;
 
-                    let best_child_matches_dir = child_matches_parent_payload_preference(
-                        parent,
-                        best_child,
-                        current_slot,
-                        E::ptc_size(),
-                        proposer_boost,
-                    );
-
                     if child_leads_to_viable_head && !best_child_leads_to_viable_head {
-                        // The child leads to a viable head, but the current best-child doesn't.
                         change_to_child
                     } else if !child_leads_to_viable_head && best_child_leads_to_viable_head {
-                        // The best child leads to a viable head, but the child doesn't.
                         no_change
                     } else if child.weight() > best_child.weight() {
-                        // Weight is the primary selector after viability.
                         change_to_child
                     } else if child.weight() < best_child.weight() {
                         no_change
-                    } else if child_matches_dir && !best_child_matches_dir {
-                        // Equal weight: direction matching is the tiebreaker.
-                        change_to_child
-                    } else if !child_matches_dir && best_child_matches_dir {
-                        no_change
                     } else if *child.root() >= *best_child.root() {
-                        // Final tie-breaker: break by root hash.
                         change_to_child
                     } else {
                         no_change
                     }
                 }
             } else if child_leads_to_viable_head {
-                // No current best-child: set if child is viable.
                 change_to_child
             } else {
-                // Child is not viable.
                 no_change
             };
 
-        // Capture child info before mutable borrows.
-        let child = self
-            .nodes
-            .get(child_index)
-            .ok_or(Error::InvalidNodeIndex(child_index))?;
-        let child_payload_dir = child.parent_payload_status().ok();
-        let child_weight = child.weight();
-        let child_root = child.root();
-
-        // Update general best_child/best_descendant.
         let parent = self
             .nodes
             .get_mut(parent_index)
@@ -1499,109 +1500,6 @@ impl ProtoArray {
 
         *parent.best_child_mut() = new_best_child;
         *parent.best_descendant_mut() = new_best_descendant;
-
-        // For V29 parents: also maintain direction-specific best_child pointers
-        // so the V29 head walk can pick the right child in O(1).
-        if parent.as_v29().is_ok()
-            && let Some(dir) = child_payload_dir
-        {
-            self.update_directional_best_child::<E>(
-                parent_index,
-                child_index,
-                dir,
-                child_leads_to_viable_head,
-                child_weight,
-                child_root,
-                current_slot,
-                best_justified_checkpoint,
-                best_finalized_checkpoint,
-            )?;
-        }
-
-        Ok(())
-    }
-
-    /// Update `best_full_child` or `best_empty_child` on a V29 parent.
-    #[allow(clippy::too_many_arguments)]
-    fn update_directional_best_child<E: EthSpec>(
-        &mut self,
-        parent_index: usize,
-        child_index: usize,
-        dir: PayloadStatus,
-        child_viable: bool,
-        child_weight: u64,
-        child_root: Hash256,
-        current_slot: Slot,
-        best_justified_checkpoint: Checkpoint,
-        best_finalized_checkpoint: Checkpoint,
-    ) -> Result<(), Error> {
-        let parent_v29 = self
-            .nodes
-            .get(parent_index)
-            .ok_or(Error::InvalidNodeIndex(parent_index))?
-            .as_v29()
-            .map_err(|_| Error::InvalidNodeIndex(parent_index))?;
-
-        let current_best = match dir {
-            PayloadStatus::Full => parent_v29.best_full_child,
-            PayloadStatus::Empty => parent_v29.best_empty_child,
-            PayloadStatus::Pending => return Ok(()),
-        };
-
-        if !child_viable {
-            // Remove if this child was the directional best but is no longer viable.
-            if current_best == Some(child_index) {
-                let parent_v29 = self
-                    .nodes
-                    .get_mut(parent_index)
-                    .ok_or(Error::InvalidNodeIndex(parent_index))?
-                    .as_v29_mut()
-                    .map_err(|_| Error::InvalidNodeIndex(parent_index))?;
-                match dir {
-                    PayloadStatus::Full => parent_v29.best_full_child = None,
-                    PayloadStatus::Empty => parent_v29.best_empty_child = None,
-                    PayloadStatus::Pending => {}
-                }
-            }
-            return Ok(());
-        }
-
-        let replace = match current_best {
-            None => true,
-            Some(best_idx) => {
-                let best_node = self
-                    .nodes
-                    .get(best_idx)
-                    .ok_or(Error::InvalidNodeIndex(best_idx))?;
-                let best_viable = self.node_leads_to_viable_head::<E>(
-                    best_node,
-                    current_slot,
-                    best_justified_checkpoint,
-                    best_finalized_checkpoint,
-                )?;
-                if !best_viable {
-                    true
-                } else if child_weight != best_node.weight() {
-                    child_weight > best_node.weight()
-                } else {
-                    *child_root >= *best_node.root()
-                }
-            }
-        };
-
-        if replace {
-            let parent_v29 = self
-                .nodes
-                .get_mut(parent_index)
-                .ok_or(Error::InvalidNodeIndex(parent_index))?
-                .as_v29_mut()
-                .map_err(|_| Error::InvalidNodeIndex(parent_index))?;
-            match dir {
-                PayloadStatus::Full => parent_v29.best_full_child = Some(child_index),
-                PayloadStatus::Empty => parent_v29.best_empty_child = Some(child_index),
-                PayloadStatus::Pending => {}
-            }
-        }
 
         Ok(())
     }
@@ -1839,65 +1737,6 @@ impl ProtoArray {
                     )
             })
             .collect()
-    }
-}
-
-/// For V29 parents, returns `true` if the child's `parent_payload_status` matches the parent's
-/// preferred payload status per spec `should_extend_payload`.
-///
-/// If `proposer_boost` is set, the parent unconditionally prefers Empty (the proposer-boosted
-/// block is a child of this parent and extends Empty). Otherwise, when full and empty weights
-/// are unequal the higher weight wins; when equal, the tiebreaker uses PTC votes.
-///
-/// For V17 parents (or mixed), always returns `true` (no payload preference).
-fn child_matches_parent_payload_preference(
-    parent: &ProtoNode,
-    child: &ProtoNode,
-    current_slot: Slot,
-    ptc_size: usize,
-    proposer_boost: bool,
-) -> bool {
-    let (Ok(parent_v29), Ok(child_v29)) = (parent.as_v29(), child.as_v29()) else {
-        return true;
-    };
-
-    // Per spec `should_extend_payload`: if the proposer-boosted block extends Empty from
-    // this parent, unconditionally prefer Empty.
-    if proposer_boost {
-        return child_v29.parent_payload_status == PayloadStatus::Empty;
-    }
-
-    // Per spec `get_weight`: FULL/EMPTY virtual nodes at `current_slot - 1` have weight 0.
-    // The PTC is still voting, so payload preference is determined solely by the tiebreaker.
-    let use_tiebreaker_only = parent.slot() + 1 == current_slot;
-    let prefers_full = if !use_tiebreaker_only
-        && parent_v29.full_payload_weight > parent_v29.empty_payload_weight
-    {
-        true
-    } else if !use_tiebreaker_only
-        && parent_v29.empty_payload_weight > parent_v29.full_payload_weight
-    {
-        false
-    } else if use_tiebreaker_only {
-        // Previous slot: should_extend_payload = is_payload_timely && is_payload_data_available.
-        is_payload_timely(
-            &parent_v29.payload_timeliness_votes,
-            ptc_size,
-            parent_v29.payload_received,
-        ) && is_payload_data_available(
-            &parent_v29.payload_data_availability_votes,
-            ptc_size,
-            parent_v29.payload_received,
-        )
-    } else {
-        // Not previous slot: should_extend_payload = true.
-        // Full wins the tiebreaker (1 > 0) when the payload has been received.
-        parent_v29.payload_received
-    };
-    if prefers_full {
-        child_v29.parent_payload_status == PayloadStatus::Full
-    } else {
-        child_v29.parent_payload_status == PayloadStatus::Empty
     }
 }
 

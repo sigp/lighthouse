@@ -117,12 +117,6 @@ pub fn get_gloas_payload_probe_test_definition() -> ForkChoiceTestDefinition {
         execution_payload_block_hash: Some(get_hash(1)),
     });
 
-    // Mark root_1 as having received its execution payload so that
-    // its FULL virtual node exists in the GLOAS fork choice tree.
-    ops.push(Operation::ProcessExecutionPayload {
-        block_root: get_root(1),
-    });
-
     // One Full and one Empty vote for the same head block: tie probes via runtime tiebreak,
     // which defaults to Empty unless timely+data-available evidence is set.
     ops.push(Operation::ProcessPayloadAttestation {
@@ -187,13 +181,15 @@ pub fn get_gloas_payload_probe_test_definition() -> ForkChoiceTestDefinition {
     });
 
     // Same-slot attestation to a new head candidate should be Pending (no payload bucket change).
+    // Root 5 is an Empty child of root_1 (parent_hash doesn't match root_1's block_hash),
+    // so it's reachable through root_1's Empty direction (root_1 has no payload_received).
     ops.push(Operation::ProcessBlock {
         slot: Slot::new(3),
         root: get_root(5),
         parent_root: get_root(1),
         justified_checkpoint: get_checkpoint(0),
         finalized_checkpoint: get_checkpoint(0),
-        execution_payload_parent_hash: Some(get_hash(1)),
+        execution_payload_parent_hash: Some(get_hash(101)),
         execution_payload_block_hash: Some(get_hash(5)),
     });
     ops.push(Operation::ProcessPayloadAttestation {
