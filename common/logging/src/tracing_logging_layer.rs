@@ -145,6 +145,8 @@ where
 
         if self.log_format.as_deref() == Some("JSON") {
             build_log_json(&visitor, plain_level_str, meta, &span_data, &mut writer);
+        } else if self.log_format.as_deref() == Some("LOGFMT") {
+            build_log_logfmt(&visitor, plain_level_str, &span_data, &mut writer);
         } else {
             build_log_text(
                 &visitor,
@@ -284,6 +286,68 @@ fn build_log_json(
 
     if let Err(e) = writer.write_all(output.as_bytes()) {
         eprintln!("Failed to write log: {}", e);
+    }
+}
+
+fn build_log_logfmt(
+    visitor: &FieldVisitor,
+    plain_level_str: &str,
+    span_fields: &[(String, String)],
+    writer: &mut impl Write,
+) {
+    let utc_timestamp = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let mut output = format!(
+        "ts={} level={} msg={}",
+        utc_timestamp,
+        plain_level_str,
+        logfmt_value(&visitor.message),
+    );
+
+    // Event fields take priority over span fields.
+    let mut seen_keys = HashSet::new();
+    for (key, val) in &visitor.fields {
+        seen_keys.insert(key.clone());
+        output.push(' ');
+        output.push_str(key);
+        output.push('=');
+        output.push_str(&logfmt_value(logfmt_strip_quotes(val)));
+    }
+
+    for (key, val) in span_fields {
+        if !seen_keys.contains(key) {
+            output.push(' ');
+            output.push_str(key);
+            output.push('=');
+            output.push_str(&logfmt_value(logfmt_strip_quotes(val)));
+        }
+    }
+
+    output.push('\n');
+
+    if let Err(e) = writer.write_all(output.as_bytes()) {
+        eprintln!("Failed to write log: {}", e);
+    }
+}
+
+/// Quotes a logfmt value if it contains spaces, `=`, `"`, or newlines; otherwise returns it as-is.
+fn logfmt_value(val: &str) -> String {
+    if val.is_empty()
+        || val
+            .chars()
+            .any(|c| c == ' ' || c == '"' || c == '=' || c == '\n' || c == '\r')
+    {
+        format!("\"{}\"", val.replace('\\', "\\\\").replace('"', "\\\""))
+    } else {
+        val.to_string()
+    }
+}
+
+/// Strips surrounding quotes added by `FieldVisitor` for string values.
+fn logfmt_strip_quotes(val: &str) -> &str {
+    if val.starts_with('"') && val.ends_with('"') && val.len() >= 2 {
+        &val[1..val.len() - 1]
+    } else {
+        val
     }
 }
 
