@@ -173,7 +173,7 @@ jobs:
 
           # For version tags, also create/update the latest tag to keep stable up to date
           # Only create latest tag for proper release versions (e.g. v1.2.3, not v1.2.3-alpha)
-          if [[ "${GITHUB_REF}" == refs/tags/* ]] && [[ "${VERSION}" =~ ^v\d{1,2}\.\d{1,2}\.\d{1,2}$ ]]; then
+          if [[ "${GITHUB_REF}" == refs/tags/* ]] && [[ "${VERSION}" =~ ^v[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
             docker manifest create \
               ${IMAGE_NAME}:latest \
               ${IMAGE_NAME}:${VERSION}-amd64 \
