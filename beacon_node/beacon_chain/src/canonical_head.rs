@@ -319,6 +319,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
 
         let snapshot = BeaconSnapshot {
             beacon_block_root,
+            execution_envelope: None,
             beacon_block: Arc::new(beacon_block),
             beacon_state,
         };
@@ -695,6 +696,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 BeaconSnapshot {
                     beacon_block: Arc::new(beacon_block),
+                    execution_envelope: None,
                     beacon_block_root: new_view.head_block_root,
                     beacon_state,
                 }

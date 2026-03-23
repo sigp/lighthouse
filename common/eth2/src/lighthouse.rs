@@ -1,7 +1,5 @@
 //! This module contains endpoints that are non-standard and only available on Lighthouse servers.
 
-mod attestation_performance;
-mod block_packing_efficiency;
 mod custody;
 pub mod sync_state;
 
@@ -15,12 +13,6 @@ use serde::{Deserialize, Serialize};
 use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
 
-pub use attestation_performance::{
-    AttestationPerformance, AttestationPerformanceQuery, AttestationPerformanceStatistics,
-};
-pub use block_packing_efficiency::{
-    BlockPackingEfficiency, BlockPackingEfficiencyQuery, ProposerInfo, UniqueAttestation,
-};
 pub use custody::CustodyInfo;
 
 // Define "legacy" implementations of `Option<T>` which use four bytes for encoding the union
@@ -309,53 +301,5 @@ impl BeaconNodeHttpClient {
             .push("remove_peer");
 
         self.post_with_response(path, &req).await
-    }
-
-    /*
-     Analysis endpoints.
-    */
-
-    /// `GET` lighthouse/analysis/block_packing?start_epoch,end_epoch
-    pub async fn get_lighthouse_analysis_block_packing(
-        &self,
-        start_epoch: Epoch,
-        end_epoch: Epoch,
-    ) -> Result<Vec<BlockPackingEfficiency>, Error> {
-        let mut path = self.server.expose_full().clone();
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("lighthouse")
-            .push("analysis")
-            .push("block_packing_efficiency");
-
-        path.query_pairs_mut()
-            .append_pair("start_epoch", &start_epoch.to_string())
-            .append_pair("end_epoch", &end_epoch.to_string());
-
-        self.get(path).await
-    }
-
-    /// `GET` lighthouse/analysis/attestation_performance/{index}?start_epoch,end_epoch
-    pub async fn get_lighthouse_analysis_attestation_performance(
-        &self,
-        start_epoch: Epoch,
-        end_epoch: Epoch,
-        target: String,
-    ) -> Result<Vec<AttestationPerformance>, Error> {
-        let mut path = self.server.expose_full().clone();
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("lighthouse")
-            .push("analysis")
-            .push("attestation_performance")
-            .push(&target);
-
-        path.query_pairs_mut()
-            .append_pair("start_epoch", &start_epoch.to_string())
-            .append_pair("end_epoch", &end_epoch.to_string());
-
-        self.get(path).await
     }
 }
