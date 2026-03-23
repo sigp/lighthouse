@@ -26,7 +26,7 @@ use std::vec::Vec;
 use strum::VariantNames;
 use task_executor::TaskExecutor;
 use tokio::{
-    sync::{RwLock, mpsc},
+    sync::{RwLock, mpsc, watch},
     time::sleep,
 };
 use tracing::{debug, error, warn};
@@ -416,6 +416,11 @@ pub struct BeaconNodeFallback<T> {
     slot_clock: Option<T>,
     beacon_head_cache: Option<Arc<BeaconHeadCache>>,
     head_monitor_send: Option<Arc<mpsc::Sender<HeadEvent>>>,
+    /// Bumped each time `update_candidates_list` changes the list of candidates.
+    ///
+    /// The head monitoring service uses this to restart itself and avoid dangling index
+    /// references when candidates are re-enumerated.
+    head_monitor_generation_tx: Option<watch::Sender<u64>>,
     broadcast_topics: Vec<ApiTopic>,
     spec: Arc<ChainSpec>,
 }
@@ -434,6 +439,7 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
             slot_clock: None,
             beacon_head_cache: None,
             head_monitor_send: None,
+            head_monitor_generation_tx: None,
             broadcast_topics,
             spec,
         }
@@ -455,6 +461,8 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
     pub fn set_head_send(&mut self, head_monitor_send: Arc<mpsc::Sender<HeadEvent>>) {
         self.head_monitor_send = Some(head_monitor_send);
         self.beacon_head_cache = Some(Arc::new(BeaconHeadCache::new()));
+        let (tx, _rx) = watch::channel(0u64);
+        self.head_monitor_generation_tx = Some(tx);
     }
 
     /// The count of candidates, regardless of their state.
@@ -537,11 +545,20 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
             })
             .collect();
 
-        let mut candidates = self.candidates.write().await;
-        *candidates = new_candidates;
+        {
+            let mut candidates = self.candidates.write().await;
+            *candidates = new_candidates;
+        }
 
         if let Some(cache) = &self.beacon_head_cache {
             cache.purge_cache().await;
+        }
+
+        if let Some(tx) = &self.head_monitor_generation_tx {
+            // Bump a generation counter so the head monitor can restart and pick up the new
+            // candidate indices.
+            let next = tx.borrow().wrapping_add(1);
+            tx.send_replace(next);
         }
 
         Ok(new_list)
@@ -1015,6 +1032,86 @@ mod tests {
         ));
 
         beacon_node_fallback
+    }
+
+    #[tokio::test]
+    async fn update_candidates_list_should_bump_head_monitor_generation() {
+        let spec = Arc::new(MainnetEthSpec::default_spec());
+        let mut beacon_node_fallback = create_beacon_node_fallback(vec![], vec![], spec.clone());
+
+        // Enable the head monitor so we get a generation counter.
+        let (tx, _rx) = mpsc::channel(8);
+        beacon_node_fallback.set_head_send(Arc::new(tx));
+
+        let initial_generation = *beacon_node_fallback
+            .head_monitor_generation_tx
+            .as_ref()
+            .expect("generation tx must be initialized by set_head_send")
+            .borrow();
+        assert_eq!(initial_generation, 0);
+
+        let new_list = vec![
+            SensitiveUrl::parse("http://example_1.com").unwrap(),
+            SensitiveUrl::parse("http://example_2.com").unwrap(),
+        ];
+
+        beacon_node_fallback
+            .update_candidates_list(new_list, false)
+            .await
+            .unwrap();
+
+        let updated_generation = *beacon_node_fallback
+            .head_monitor_generation_tx
+            .as_ref()
+            .expect("generation tx must exist")
+            .borrow();
+        assert_eq!(updated_generation, 1);
+    }
+
+    #[tokio::test]
+    async fn head_monitor_should_exit_ok_on_generation_change() {
+        let spec = Arc::new(MainnetEthSpec::default_spec());
+        let (_mock_beacon_node, beacon_node) = new_mock_beacon_node(0, &spec).await;
+
+        let mut beacon_node_fallback =
+            create_beacon_node_fallback(vec![beacon_node], vec![], spec.clone());
+
+        // Enable the head monitor so we get a generation counter + cache.
+        let (tx, _rx) = mpsc::channel(8);
+        beacon_node_fallback.set_head_send(Arc::new(tx));
+
+        let beacon_node_fallback = Arc::new(beacon_node_fallback);
+
+        let generation_tx = beacon_node_fallback
+            .head_monitor_generation_tx
+            .as_ref()
+            .expect("generation tx must exist")
+            .clone();
+
+        let poll_task = {
+            let beacon_node_fallback = beacon_node_fallback.clone();
+            tokio::spawn(async move {
+                poll_head_event_from_beacon_nodes::<E, TestingSlotClock>(beacon_node_fallback).await
+            })
+        };
+
+        // Ensure the poller has subscribed before we bump the generation.
+        for _ in 0..20 {
+            if generation_tx.receiver_count() > 0 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert!(generation_tx.receiver_count() > 0);
+
+        generation_tx.send_replace(1);
+
+        let res = tokio::time::timeout(Duration::from_secs(1), poll_task)
+            .await
+            .expect("poll task should exit quickly on generation change")
+            .expect("poll task should not panic");
+
+        assert_eq!(res, Ok(()));
     }
 
     #[tokio::test]
