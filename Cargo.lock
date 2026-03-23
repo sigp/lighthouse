@@ -8128,8 +8128,7 @@ checksum = "f638d531eccd6e23b980caf34876660d38e265409d8e99b397ab71eb3612fad0"
 [[package]]
 name = "sensitive_url"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb7b0221fa9905eec4163dbf7660b1876cc95663af1deddc3e19ebe49167c58c"
+source = "git+https://github.com/sigp/sensitive_url?branch=main#1a531b8072c95c7fc6d9610f59e598c4653f8dec"
 dependencies = [
  "serde",
  "url",
