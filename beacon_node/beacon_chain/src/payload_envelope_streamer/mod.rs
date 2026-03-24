@@ -175,7 +175,7 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
         }
     }
 
-    fn launch_stream(
+    pub fn launch_stream(
         self: Arc<Self>,
         block_roots: Vec<Hash256>,
     ) -> impl Stream<Item = (Hash256, Arc<PayloadEnvelopeResult<T::EthSpec>>)> {
@@ -191,6 +191,17 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
         );
         UnboundedReceiverStream::new(envelope_rx)
     }
+}
+
+/// Create a `PayloadEnvelopeStreamer` from a `BeaconChain` and launch a stream.
+#[cfg(not(test))]
+pub fn launch_payload_envelope_stream<T: BeaconChainTypes>(
+    chain: Arc<BeaconChain<T>>,
+    block_roots: Vec<Hash256>,
+    request_source: EnvelopeRequestSource,
+) -> impl Stream<Item = (Hash256, Arc<PayloadEnvelopeResult<T::EthSpec>>)> {
+    let adapter = beacon_chain_adapter::EnvelopeStreamerBeaconAdapter::new(chain);
+    PayloadEnvelopeStreamer::new(adapter, request_source).launch_stream(block_roots)
 }
 
 async fn send_errors<E: EthSpec>(
