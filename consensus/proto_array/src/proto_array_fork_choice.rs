@@ -68,6 +68,13 @@ pub enum PayloadStatus {
     Pending = 2,
 }
 
+/// Spec's `ForkChoiceNode` augmented with ProtoNode index.
+pub struct IndexedForkChoiceNode {
+    root: Hash256,
+    node_index: usize,
+    payload_status: PayloadStatus,
+}
+
 impl ExecutionStatus {
     pub fn is_execution_enabled(&self) -> bool {
         !matches!(self, ExecutionStatus::Irrelevant(_))
