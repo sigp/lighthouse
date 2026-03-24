@@ -110,9 +110,9 @@ pub struct RPCRateLimiter {
     /// BlobsByRoot rate limiter.
     blbroot_rl: Limiter<PeerId>,
     /// PayloadEnvelopesByRange rate limiter.
-    perange_rl: Limiter<PeerId>,
+    envrange_rl: Limiter<PeerId>,
     /// PayloadEnvelopesByRoot rate limiter.
-    peroots_rl: Limiter<PeerId>,
+    envroots_rl: Limiter<PeerId>,
     /// DataColumnsByRoot rate limiter.
     dcbroot_rl: Limiter<PeerId>,
     /// DataColumnsByRange rate limiter.
@@ -252,8 +252,8 @@ impl RPCRateLimiterBuilder {
         let goodbye_rl = Limiter::from_quota(goodbye_quota)?;
         let bbroots_rl = Limiter::from_quota(bbroots_quota)?;
         let bbrange_rl = Limiter::from_quota(bbrange_quota)?;
-        let perange_rl = Limiter::from_quota(perange_quota)?;
-        let peroots_rl = Limiter::from_quota(peroots_quota)?;
+        let envrange_rl = Limiter::from_quota(perange_quota)?;
+        let envroots_rl = Limiter::from_quota(peroots_quota)?;
         let blbrange_rl = Limiter::from_quota(blbrange_quota)?;
         let blbroot_rl = Limiter::from_quota(blbroots_quota)?;
         let dcbroot_rl = Limiter::from_quota(dcbroot_quota)?;
@@ -277,8 +277,8 @@ impl RPCRateLimiterBuilder {
             goodbye_rl,
             bbroots_rl,
             bbrange_rl,
-            perange_rl,
-            peroots_rl,
+            envrange_rl,
+            envroots_rl,
             blbrange_rl,
             blbroot_rl,
             dcbroot_rl,
@@ -406,8 +406,8 @@ impl RPCRateLimiter {
             Protocol::Goodbye => &mut self.goodbye_rl,
             Protocol::BlocksByRange => &mut self.bbrange_rl,
             Protocol::BlocksByRoot => &mut self.bbroots_rl,
-            Protocol::PayloadEnvelopesByRange => &mut self.perange_rl,
-            Protocol::PayloadEnvelopesByRoot => &mut self.peroots_rl,
+            Protocol::PayloadEnvelopesByRange => &mut self.envrange_rl,
+            Protocol::PayloadEnvelopesByRoot => &mut self.envroots_rl,
             Protocol::BlobsByRange => &mut self.blbrange_rl,
             Protocol::BlobsByRoot => &mut self.blbroot_rl,
             Protocol::DataColumnsByRoot => &mut self.dcbroot_rl,
@@ -432,8 +432,8 @@ impl RPCRateLimiter {
             status_rl,
             bbrange_rl,
             bbroots_rl,
-            perange_rl,
-            peroots_rl,
+            envrange_rl,
+            envroots_rl,
             blbrange_rl,
             blbroot_rl,
             dcbroot_rl,
@@ -451,8 +451,8 @@ impl RPCRateLimiter {
         status_rl.prune(time_since_start);
         bbrange_rl.prune(time_since_start);
         bbroots_rl.prune(time_since_start);
-        perange_rl.prune(time_since_start);
-        peroots_rl.prune(time_since_start);
+        envrange_rl.prune(time_since_start);
+        envroots_rl.prune(time_since_start);
         blbrange_rl.prune(time_since_start);
         blbroot_rl.prune(time_since_start);
         dcbrange_rl.prune(time_since_start);
