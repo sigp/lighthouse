@@ -490,7 +490,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             &self.kzg,
             &verified_data_columns,
             &self.spec,
-            // TODO(das): what timestamp to use when reconstructing columns?
             timestamp_now(),
         )
         .map_err(|e| {
