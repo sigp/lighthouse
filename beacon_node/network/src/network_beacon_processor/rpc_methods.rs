@@ -1127,6 +1127,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             "Received ExecutionPayloadEnvelopesByRange Request"
         );
 
+        let request_start_slot = Slot::from(req_start_slot);
+        let fork_name = self
+            .chain
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(request_start_slot);
+
+        if !fork_name.gloas_enabled() {
+            return Err((
+                RpcErrorResponse::InvalidRequest,
+                "Requested envelopes for pre-gloas slots",
+            ));
+        }
+
         // Spawn a blocking handle since get_block_roots_for_slot_range takes a sync lock on the
         // fork-choice.
         let network_beacon_processor = self.clone();
