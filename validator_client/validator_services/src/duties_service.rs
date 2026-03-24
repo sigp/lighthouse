@@ -1513,9 +1513,10 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
 /// through the slow path every time. I.e., the proposal will only happen after we've been able to
 /// download and process the duties from the BN.
 ///
-/// To reduce BN load, the HTTP download is skipped when duties for the current epoch are already
-/// cached. This reduces polling from 32 HTTP requests/epoch to 1, since proposer shuffling does
-/// not change within an epoch.
+/// To reduce redundant work, the response processing is skipped when the `dependent_root` from
+/// the beacon node matches the cached value. Proposer shuffling does not change within an epoch
+/// unless a re-org alters the `dependent_root`, so this avoids re-filtering and re-inserting
+/// identical duties on every slot while still detecting re-orgs.
 async fn poll_beacon_proposers<S: ValidatorStore, T: SlotClock + 'static>(
     duties_service: &DutiesService<S, T>,
     block_service_tx: &mut Sender<BlockServiceNotification>,
@@ -1542,18 +1543,6 @@ async fn poll_beacon_proposers<S: ValidatorStore, T: SlotClock + 'static>(
         duties_service.validator_store.as_ref(),
     )
     .await;
-
-    // Skip the HTTP download if we already have proposer duties for the current epoch.
-    // Proposer shuffling is determined at the epoch boundary and does not change within
-    // an epoch, so downloading again would return identical data. The cache notification
-    // above still fires every slot to ensure the block service produces blocks on time.
-    if duties_service.proposers.read().contains_key(&current_epoch) {
-        duties_service
-            .proposers
-            .write()
-            .retain(|&epoch, _| epoch + HISTORICAL_DUTIES_EPOCHS >= current_epoch);
-        return Ok(());
-    }
 
     // Collect *all* pubkeys, even those undergoing doppelganger protection.
     //
@@ -1582,6 +1571,26 @@ async fn poll_beacon_proposers<S: ValidatorStore, T: SlotClock + 'static>(
         match download_result {
             Ok(response) => {
                 let dependent_root = response.dependent_root;
+
+                // If we already have duties for this epoch with the same dependent_root,
+                // skip re-processing — the data is identical. This avoids redundant
+                // filtering and cache insertion on every slot while still detecting
+                // re-orgs that change the dependent_root.
+                //
+                // Skipping the additional block proposer notification below is safe:
+                // unchanged duties mean `block_proposers(current_slot)` returns the
+                // same set as `initial_block_proposers`, so the diff would be empty.
+                {
+                    let mut proposers = duties_service.proposers.write();
+                    if proposers
+                        .get(&current_epoch)
+                        .is_some_and(|(cached_root, _)| *cached_root == dependent_root)
+                    {
+                        proposers
+                            .retain(|&epoch, _| epoch + HISTORICAL_DUTIES_EPOCHS >= current_epoch);
+                        return Ok(());
+                    }
+                }
 
                 let relevant_duties = response
                     .data
