@@ -763,8 +763,12 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
     let latest_execution_block_hash = *state.latest_block_hash()?;
     let latest_gas_limit = state.latest_execution_payload_bid()?.gas_limit;
 
-    let withdrawals =
-        Withdrawals::<T::EthSpec>::from(get_expected_withdrawals(state, spec)?).into();
+    let withdrawals = if state.is_parent_block_full() {
+        Withdrawals::<T::EthSpec>::from(get_expected_withdrawals(state, spec)?).into()
+    } else {
+        // If the previous payload was missed, carry forward the withdrawals from the state.
+        state.payload_expected_withdrawals()?.to_vec()
+    };
 
     // Spawn a task to obtain the execution payload from the EL via a series of async calls. The
     // `join_handle` can be used to await the result of the function.
