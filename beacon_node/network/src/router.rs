@@ -330,7 +330,7 @@ impl<T: BeaconChainTypes> Router<T> {
             // TODO(EIP-7732): implement outgoing payload envelopes by range and root
             // responses once sync manager requests them.
             Response::PayloadEnvelopesByRoot(_) | Response::PayloadEnvelopesByRange(_) => {
-                unreachable!()
+                debug!("Requesting envelopes by root and by range not supported yet");
             }
             // Light client responses should not be received
             Response::LightClientBootstrap(_)
