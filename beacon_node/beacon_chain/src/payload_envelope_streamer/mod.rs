@@ -11,7 +11,7 @@ use futures::Stream;
 use mockall_double::double;
 use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 use types::{EthSpec, Hash256, SignedExecutionPayloadEnvelope};
 
 #[cfg(not(test))]
@@ -103,7 +103,9 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
                         };
 
                         if streamer.request_source == EnvelopeRequestSource::ByRoot {
-                            // No envelope verification required for `ENVELOPE_BY_ROOT` requests
+                            // No envelope verification required for `ENVELOPE_BY_ROOT` requests.
+                            // If we only served envelopes that match our canonical view, nodes
+                            // wouldn't be able to sync other branches.
                             results.push((*root, Ok(opt_envelope)));
                             continue;
                         }
@@ -173,7 +175,7 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
         }
     }
 
-    pub fn launch_stream(
+    fn launch_stream(
         self: Arc<Self>,
         block_roots: Vec<Hash256>,
     ) -> impl Stream<Item = (Hash256, Arc<PayloadEnvelopeResult<T::EthSpec>>)> {
@@ -191,17 +193,6 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
     }
 }
 
-/// Create a `PayloadEnvelopeStreamer` from a `BeaconChain` and launch a stream.
-#[cfg(not(test))]
-pub fn launch_payload_envelope_stream<T: BeaconChainTypes>(
-    chain: Arc<BeaconChain<T>>,
-    block_roots: Vec<Hash256>,
-    request_source: EnvelopeRequestSource,
-) -> impl Stream<Item = (Hash256, Arc<PayloadEnvelopeResult<T::EthSpec>>)> {
-    let adapter = beacon_chain_adapter::EnvelopeStreamerBeaconAdapter::new(chain);
-    PayloadEnvelopeStreamer::new(adapter, request_source).launch_stream(block_roots)
-}
-
 async fn send_errors<E: EthSpec>(
     block_roots: &[Hash256],
     sender: UnboundedSender<(Hash256, Arc<PayloadEnvelopeResult<E>>)>,
@@ -210,6 +201,7 @@ async fn send_errors<E: EthSpec>(
     let result = Arc::new(Err(beacon_chain_error));
     for beacon_block_root in block_roots {
         if sender.send((*beacon_block_root, result.clone())).is_err() {
+            error!("EnvelopeStreamer channel closed unexpectedly");
             break;
         }
     }
