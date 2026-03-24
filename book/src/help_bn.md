@@ -241,7 +241,7 @@ Options:
           both IPv4 and IPv6.
       --log-format <FORMAT>
           Specifies the log format used when emitting logs to the terminal.
-          [possible values: JSON]
+          [possible values: JSON, LOGFMT]
       --logfile-debug-level <LEVEL>
           The verbosity level used when emitting logs to the log file. [default:
           debug] [possible values: info, debug, trace, warn, error]
@@ -249,7 +249,7 @@ Options:
           Directory path where the log file will be stored
       --logfile-format <FORMAT>
           Specifies the log format used when emitting logs to the logfile.
-          [possible values: DEFAULT, JSON]
+          [possible values: DEFAULT, JSON, LOGFMT]
       --logfile-max-number <COUNT>
           The maximum number of log files that will be stored. If set to 0,
           background file logging is disabled. [default: 10]
