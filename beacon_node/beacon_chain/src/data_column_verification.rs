@@ -5,6 +5,7 @@ use crate::kzg_utils::{reconstruct_data_columns, validate_data_columns};
 use crate::observed_data_sidecars::{
     Error as ObservedDataSidecarsError, ObservationKey, ObservationStrategy, Observe,
 };
+use crate::validator_monitor::timestamp_now;
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, metrics};
 use educe::Educe;
 use fork_choice::ProtoBlock;
@@ -337,12 +338,18 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
     /// Mark a data column as KZG verified. Caller must ONLY use this on columns constructed
     /// from EL blobs.
     pub fn from_execution_verified(data_column: Arc<DataColumnSidecar<E>>) -> Self {
-        Self { data: data_column }
+        Self {
+            data: data_column,
+            seen_timestamp: timestamp_now(),
+        }
     }
 
     /// Create a `KzgVerifiedDataColumn` from `DataColumnSidecar` for testing ONLY.
     pub(crate) fn __new_for_testing(data_column: Arc<DataColumnSidecar<E>>) -> Self {
-        Self { data: data_column }
+        Self {
+            data: data_column,
+            seen_timestamp: timestamp_now(),
+        }
     }
 
     pub fn from_batch_with_scoring(
@@ -352,7 +359,10 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
         verify_kzg_for_data_column_list(data_columns.iter(), kzg)?;
         Ok(data_columns
             .into_iter()
-            .map(|column| Self { data: column })
+            .map(|column| Self {
+                data: column,
+                seen_timestamp: timestamp_now(),
+            })
             .collect())
     }
 
@@ -560,7 +570,7 @@ pub fn validate_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes, O: Obse
     verify_proposer_and_signature(data_column_fulu, &parent_block, chain)?;
     let kzg = &chain.kzg;
     let kzg_verified_data_column =
-        verify_kzg_for_data_column(data_column.clone(), kzg, seen_timestamp)
+        verify_kzg_for_data_column(data_column.clone(), kzg, timestamp_now())
             .map_err(|(_, e)| GossipDataColumnError::InvalidKzgProof(e))?;
 
     chain
