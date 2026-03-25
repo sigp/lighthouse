@@ -1961,13 +1961,13 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
             {
                 if block.as_block().is_parent_block_full(parent_bid_block_hash) {
                     // TODO(gloas): loading the envelope here is not very efficient
-                    if let Some(envelope) = chain.store.get_payload_envelope(&root)? {
-                        (StatePayloadStatus::Full, envelope.message.state_root)
-                    } else {
-                        // The envelope hasn't been stored yet (e.g. genesis block, or payload
-                        // not yet delivered). Fall back to the pending/empty state.
-                        (StatePayloadStatus::Pending, parent_block.state_root())
-                    }
+                    // TODO(gloas): check parent payload existence prior to this point?
+                    let envelope = chain.store.get_payload_envelope(&root)?.ok_or_else(|| {
+                        BeaconChainError::DBInconsistent(format!(
+                            "Missing envelope for parent block {root:?}",
+                        ))
+                    })?;
+                    (StatePayloadStatus::Full, envelope.message.state_root)
                 } else {
                     (StatePayloadStatus::Pending, parent_block.state_root())
                 }
