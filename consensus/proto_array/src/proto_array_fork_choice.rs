@@ -658,10 +658,7 @@ impl ProtoArrayForkChoice {
                 deltas,
                 justified_checkpoint,
                 finalized_checkpoint,
-                new_balances,
-                proposer_boost_root,
                 current_slot,
-                spec,
             )
             .map_err(|e| format!("find_head apply_score_changes failed: {:?}", e))?;
 

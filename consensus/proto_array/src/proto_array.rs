@@ -391,10 +391,7 @@ impl ProtoArray {
         mut deltas: Vec<NodeDelta>,
         best_justified_checkpoint: Checkpoint,
         best_finalized_checkpoint: Checkpoint,
-        _new_justified_balances: &JustifiedBalances,
-        _proposer_boost_root: Hash256,
         current_slot: Slot,
-        _spec: &ChainSpec,
     ) -> Result<(), Error> {
         if deltas.len() != self.indices.len() {
             return Err(Error::InvalidDeltaLen {
