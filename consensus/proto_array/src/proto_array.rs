@@ -1380,8 +1380,6 @@ impl ProtoArray {
         } else {
             let children = self
                 .nodes
-                .get(node.proto_node_index..)
-                .ok_or(Error::InvalidNodeIndex(node.proto_node_index))?
                 .iter()
                 .enumerate()
                 .filter(|(_, child_node)| {
