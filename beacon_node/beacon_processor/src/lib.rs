@@ -426,6 +426,8 @@ pub enum Work<E: EthSpec> {
     Status(BlockingFn),
     BlocksByRangeRequest(AsyncFn),
     BlocksByRootsRequest(AsyncFn),
+    PayloadEnvelopesByRangeRequest(AsyncFn),
+    PayloadEnvelopesByRootRequest(AsyncFn),
     BlobsByRangeRequest(BlockingFn),
     BlobsByRootsRequest(BlockingFn),
     DataColumnsByRootsRequest(BlockingFn),
@@ -483,6 +485,8 @@ pub enum WorkType {
     Status,
     BlocksByRangeRequest,
     BlocksByRootsRequest,
+    PayloadEnvelopesByRangeRequest,
+    PayloadEnvelopesByRootRequest,
     BlobsByRangeRequest,
     BlobsByRootsRequest,
     DataColumnsByRootsRequest,
@@ -542,6 +546,8 @@ impl<E: EthSpec> Work<E> {
             Work::Status(_) => WorkType::Status,
             Work::BlocksByRangeRequest(_) => WorkType::BlocksByRangeRequest,
             Work::BlocksByRootsRequest(_) => WorkType::BlocksByRootsRequest,
+            Work::PayloadEnvelopesByRangeRequest(_) => WorkType::PayloadEnvelopesByRangeRequest,
+            Work::PayloadEnvelopesByRootRequest(_) => WorkType::PayloadEnvelopesByRootRequest,
             Work::BlobsByRangeRequest(_) => WorkType::BlobsByRangeRequest,
             Work::BlobsByRootsRequest(_) => WorkType::BlobsByRootsRequest,
             Work::DataColumnsByRootsRequest(_) => WorkType::DataColumnsByRootsRequest,
@@ -991,6 +997,12 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Some(item)
                         } else if let Some(item) = work_queues.dcbrange_queue.pop() {
                             Some(item)
+                        } else if let Some(item) = work_queues.payload_envelopes_brange_queue.pop()
+                        {
+                            Some(item)
+                        } else if let Some(item) = work_queues.payload_envelopes_broots_queue.pop()
+                        {
+                            Some(item)
                         // Check slashings after all other consensus messages so we prioritize
                         // following head.
                         //
@@ -1180,6 +1192,12 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::BlocksByRootsRequest { .. } => {
                                 work_queues.block_broots_queue.push(work, work_id)
                             }
+                            Work::PayloadEnvelopesByRangeRequest { .. } => work_queues
+                                .payload_envelopes_brange_queue
+                                .push(work, work_id),
+                            Work::PayloadEnvelopesByRootRequest { .. } => work_queues
+                                .payload_envelopes_broots_queue
+                                .push(work, work_id),
                             Work::BlobsByRangeRequest { .. } => {
                                 work_queues.blob_brange_queue.push(work, work_id)
                             }
@@ -1296,6 +1314,12 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::Status => work_queues.status_queue.len(),
                         WorkType::BlocksByRangeRequest => work_queues.block_brange_queue.len(),
                         WorkType::BlocksByRootsRequest => work_queues.block_broots_queue.len(),
+                        WorkType::PayloadEnvelopesByRangeRequest => {
+                            work_queues.payload_envelopes_brange_queue.len()
+                        }
+                        WorkType::PayloadEnvelopesByRootRequest => {
+                            work_queues.payload_envelopes_broots_queue.len()
+                        }
                         WorkType::BlobsByRangeRequest => work_queues.blob_brange_queue.len(),
                         WorkType::BlobsByRootsRequest => work_queues.blob_broots_queue.len(),
                         WorkType::DataColumnsByRootsRequest => work_queues.dcbroots_queue.len(),
@@ -1487,9 +1511,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
             | Work::DataColumnsByRangeRequest(process_fn) => {
                 task_spawner.spawn_blocking(process_fn)
             }
-            Work::BlocksByRangeRequest(work) | Work::BlocksByRootsRequest(work) => {
-                task_spawner.spawn_async(work)
-            }
+            Work::BlocksByRangeRequest(work)
+            | Work::BlocksByRootsRequest(work)
+            | Work::PayloadEnvelopesByRangeRequest(work)
+            | Work::PayloadEnvelopesByRootRequest(work) => task_spawner.spawn_async(work),
             Work::ChainSegmentBackfill(process_fn) => {
                 if self.config.enable_backfill_rate_limiting {
                     task_spawner.spawn_blocking_with_rayon(RayonPoolType::LowPriority, process_fn)
