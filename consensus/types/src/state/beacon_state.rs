@@ -3186,6 +3186,41 @@ impl<E: EthSpec> BeaconState<E> {
         Ok(effective_balance.safe_mul(MAX_RANDOM_VALUE)?
             >= max_effective_balance.safe_mul(random_value)?)
     }
+
+    pub fn can_builder_cover_bid(
+        &self,
+        builder_index: BuilderIndex,
+        bid_amount: u64,
+        spec: &ChainSpec,
+    ) -> Result<bool, BeaconStateError> {
+        let Some(builder) = self.builders()?.get(builder_index as usize) else {
+            return Ok(false);
+        };
+
+        let builder_balance = builder.balance;
+        let pending_withdrawals_amount =
+            self.get_pending_balance_to_withdraw_for_builder(builder_index)?;
+        let min_balance = spec
+            .min_deposit_amount
+            .saturating_add(pending_withdrawals_amount);
+        if builder_balance < min_balance {
+            return Ok(false);
+        }
+        return Ok(builder_balance.saturating_sub(min_balance) >= bid_amount);
+    }
+
+    pub fn is_active_builder(
+        &self,
+        builder_index: BuilderIndex,
+        spec: &ChainSpec,
+    ) -> Result<bool, BeaconStateError> {
+        let Some(builder) = self.builders()?.get(builder_index as usize) else {
+            return Ok(false);
+        };
+
+        return Ok(builder.deposit_epoch < self.finalized_checkpoint().epoch
+            && builder.withdrawable_epoch == spec.far_future_epoch);
+    }
 }
 
 impl<E: EthSpec> ForkVersionDecode for BeaconState<E> {
