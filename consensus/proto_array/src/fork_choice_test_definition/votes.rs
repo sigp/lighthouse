@@ -357,17 +357,18 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
         execution_payload_block_hash: None,
     });
 
-    // Ensure that 5 is filtered out and the head stays at 4.
+    // Block 5 has incompatible finalized checkpoint, so `get_filtered_block_tree`
+    // excludes the entire 1->3->4->5 branch (no viable leaf). Head moves to 2.
     //
     //          0
     //         / \
-    //        2   1
+    // head-> 2   1
     //            |
     //            3
     //            |
-    //            4 <- head
+    //            4
     //           /
-    //          5
+    //          5 <- incompatible finalized checkpoint
     ops.push(Operation::FindHead {
         justified_checkpoint: Checkpoint {
             epoch: Epoch::new(1),
@@ -378,7 +379,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
             root: get_root(0),
         },
         justified_state_balances: balances.clone(),
-        expected_head: get_root(4),
+        expected_head: get_root(2),
         current_slot: Slot::new(0),
         expected_payload_status: None,
     });

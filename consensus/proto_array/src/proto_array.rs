@@ -193,8 +193,12 @@ impl ProtoNode {
     pub fn attestation_score(&self, payload_status: PayloadStatus) -> u64 {
         match payload_status {
             PayloadStatus::Pending => self.weight(),
-            PayloadStatus::Empty => self.empty_payload_weight().unwrap_or(0),
-            PayloadStatus::Full => self.full_payload_weight().unwrap_or(0),
+            // Pre-Gloas (V17) nodes have no payload separation — all weight
+            // is in `weight()`. Post-Gloas (V29) nodes track per-status weights.
+            PayloadStatus::Empty => self
+                .empty_payload_weight()
+                .unwrap_or_else(|_| self.weight()),
+            PayloadStatus::Full => self.full_payload_weight().unwrap_or_else(|_| self.weight()),
         }
     }
 
@@ -1181,6 +1185,100 @@ impl ProtoArray {
         Ok((best_fc_node.root, best_fc_node.payload_status))
     }
 
+    /// Spec: `get_filtered_block_tree`.
+    ///
+    /// Returns the set of node indices on viable branches — those with at least
+    /// one leaf descendant with correct justified/finalized checkpoints.
+    fn get_filtered_block_tree<E: EthSpec>(
+        &self,
+        start_index: usize,
+        current_slot: Slot,
+        best_justified_checkpoint: Checkpoint,
+        best_finalized_checkpoint: Checkpoint,
+    ) -> HashSet<usize> {
+        let mut viable = HashSet::new();
+        self.filter_block_tree::<E>(
+            start_index,
+            current_slot,
+            best_justified_checkpoint,
+            best_finalized_checkpoint,
+            &mut viable,
+        );
+        viable
+    }
+
+    /// Spec: `filter_block_tree`.
+    fn filter_block_tree<E: EthSpec>(
+        &self,
+        node_index: usize,
+        current_slot: Slot,
+        best_justified_checkpoint: Checkpoint,
+        best_finalized_checkpoint: Checkpoint,
+        viable: &mut HashSet<usize>,
+    ) -> bool {
+        let Some(node) = self.nodes.get(node_index) else {
+            return false;
+        };
+
+        // Nodes with invalid execution payloads are never viable.
+        // (The spec doesn't need this check because invalid blocks aren't in store.blocks.)
+        if node
+            .execution_status()
+            .is_ok_and(|status| status.is_invalid())
+        {
+            return false;
+        }
+
+        // Skip invalid children — they aren't in store.blocks in the spec.
+        let children: Vec<usize> = self
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, child)| {
+                child.parent() == Some(node_index)
+                    && !child
+                        .execution_status()
+                        .is_ok_and(|status| status.is_invalid())
+            })
+            .map(|(i, _)| i)
+            .collect();
+
+        if !children.is_empty() {
+            // Evaluate ALL children (no short-circuit) to mark all viable branches.
+            let any_viable = children
+                .iter()
+                .map(|&child_index| {
+                    self.filter_block_tree::<E>(
+                        child_index,
+                        current_slot,
+                        best_justified_checkpoint,
+                        best_finalized_checkpoint,
+                        viable,
+                    )
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+                .any(|v| v);
+            if any_viable {
+                viable.insert(node_index);
+                return true;
+            }
+            return false;
+        }
+
+        // Leaf node: check viability.
+        if self.node_is_viable_for_head::<E>(
+            node,
+            current_slot,
+            best_justified_checkpoint,
+            best_finalized_checkpoint,
+        ) {
+            viable.insert(node_index);
+            return true;
+        }
+        false
+    }
+
     /// Spec: `get_head`.
     #[allow(clippy::too_many_arguments)]
     fn find_head_walk<E: EthSpec>(
@@ -1199,6 +1297,14 @@ impl ProtoArray {
             payload_status: PayloadStatus::Pending,
         };
 
+        // Spec: `get_filtered_block_tree`.
+        let viable_nodes = self.get_filtered_block_tree::<E>(
+            start_index,
+            current_slot,
+            best_justified_checkpoint,
+            best_finalized_checkpoint,
+        );
+
         // Compute once rather than per-child per-level.
         let apply_proposer_boost =
             self.should_apply_proposer_boost::<E>(proposer_boost_root, justified_balances, spec)?;
@@ -1207,17 +1313,7 @@ impl ProtoArray {
             let children: Vec<_> = self
                 .get_node_children(&head)?
                 .into_iter()
-                .filter(|(_, proto_node)| {
-                    // Spec: `get_filtered_block_tree` pre-filters to only include
-                    // blocks on viable branches. We approximate this by checking
-                    // viability of each child during the walk.
-                    self.node_is_viable_for_head::<E>(
-                        proto_node,
-                        current_slot,
-                        best_justified_checkpoint,
-                        best_finalized_checkpoint,
-                    )
-                })
+                .filter(|(fc_node, _)| viable_nodes.contains(&fc_node.proto_node_index))
                 .collect();
 
             if children.is_empty() {
