@@ -1053,13 +1053,15 @@ pub fn get_execution_status_test_definition_03() -> ForkChoiceTestDefinition {
         proposer_boost_root: get_root(3),
     });
 
+    // Stored weights are pure attestation scores (proposer boost is applied
+    // on-the-fly in the walk's `get_weight`, not baked into `node.weight()`).
     ops.push(Operation::AssertWeight {
         block_root: get_root(0),
-        weight: 33_250,
+        weight: 2_000,
     });
     ops.push(Operation::AssertWeight {
         block_root: get_root(1),
-        weight: 33_250,
+        weight: 2_000,
     });
     ops.push(Operation::AssertWeight {
         block_root: get_root(2),
@@ -1067,8 +1069,7 @@ pub fn get_execution_status_test_definition_03() -> ForkChoiceTestDefinition {
     });
     ops.push(Operation::AssertWeight {
         block_root: get_root(3),
-        // This is a "magic number" generated from `calculate_committee_fraction`.
-        weight: 31_250,
+        weight: 0,
     });
 
     // Invalidate the payload of 3.
