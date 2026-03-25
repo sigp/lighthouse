@@ -328,6 +328,15 @@ fn dequeue_payload_attestations(
 }
 
 /// Denotes whether an attestation we are processing was received from a block or from gossip.
+/// Equivalent to the `is_from_block` `bool` in:
+///
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#validate_on_attestation
+#[derive(Clone, Copy)]
+pub enum AttestationFromBlock {
+    True,
+    False,
+}
+
 /// Parameters which are cached between calls to `ForkChoice::get_head`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ForkchoiceUpdateParameters {
@@ -1082,7 +1091,7 @@ where
     fn validate_on_attestation(
         &self,
         indexed_attestation: IndexedAttestationRef<E>,
-        is_from_block: bool,
+        is_from_block: AttestationFromBlock,
         spec: &ChainSpec,
     ) -> Result<(), InvalidAttestation> {
         // There is no point in processing an attestation with an empty bitfield. Reject
@@ -1096,7 +1105,7 @@ where
 
         let target = indexed_attestation.data().target;
 
-        if !is_from_block {
+        if matches!(is_from_block, AttestationFromBlock::False) {
             self.validate_target_epoch_against_current_time(target.epoch)?;
         }
 
@@ -1193,7 +1202,7 @@ where
     fn validate_on_payload_attestation(
         &self,
         indexed_payload_attestation: &IndexedPayloadAttestation<E>,
-        is_from_block: bool,
+        is_from_block: AttestationFromBlock,
     ) -> Result<(), InvalidAttestation> {
         if indexed_payload_attestation.attesting_indices.is_empty() {
             return Err(InvalidAttestation::EmptyAggregationBitfield);
@@ -1215,7 +1224,7 @@ where
 
         // Gossip payload attestations must be for the current slot.
         // https://github.com/ethereum/consensus-specs/blob/master/specs/gloas/fork-choice.md
-        if !is_from_block
+        if matches!(is_from_block, AttestationFromBlock::False)
             && indexed_payload_attestation.data.slot != self.fc_store.get_current_slot()
         {
             return Err(InvalidAttestation::PayloadAttestationNotCurrentSlot {
@@ -1227,7 +1236,7 @@ where
         // A payload attestation voting payload_present for a block in the current slot is
         // invalid: the payload cannot be known yet. This only applies to gossip attestations;
         // payload attestations from blocks have already been validated by the block producer.
-        if !is_from_block
+        if matches!(is_from_block, AttestationFromBlock::False)
             && self.fc_store.get_current_slot() == block.slot
             && indexed_payload_attestation.data.payload_present
         {
@@ -1258,7 +1267,7 @@ where
         &mut self,
         system_time_current_slot: Slot,
         attestation: IndexedAttestationRef<E>,
-        is_from_block: bool,
+        is_from_block: AttestationFromBlock,
         spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_ON_ATTESTATION_TIMES);
@@ -1319,7 +1328,7 @@ where
         &mut self,
         system_time_current_slot: Slot,
         attestation: &IndexedPayloadAttestation<E>,
-        is_from_block: bool,
+        is_from_block: AttestationFromBlock,
         ptc: &[usize],
     ) -> Result<(), Error<T::Error>> {
         self.update_time(system_time_current_slot)?;
@@ -1339,10 +1348,11 @@ where
         let processing_slot = self.fc_store.get_current_slot();
         // Payload attestations from blocks can be applied in the next slot (S+1 for data.slot=S),
         // while gossiped payload attestations are delayed one extra slot.
-        let should_process_now = if is_from_block {
-            attestation.data.slot < processing_slot
-        } else {
-            attestation.data.slot.saturating_add(1_u64) < processing_slot
+        let should_process_now = match is_from_block {
+            AttestationFromBlock::True => attestation.data.slot < processing_slot,
+            AttestationFromBlock::False => {
+                attestation.data.slot.saturating_add(1_u64) < processing_slot
+            }
         };
 
         if should_process_now {

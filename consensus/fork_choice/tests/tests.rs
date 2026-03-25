@@ -10,8 +10,8 @@ use beacon_chain::{
 use bls::AggregateSignature;
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::{
-    ForkChoiceStore, InvalidAttestation, InvalidBlock, PayloadVerificationStatus,
-    QueuedAttestation, QueuedPayloadAttestation,
+    AttestationFromBlock, ForkChoiceStore, InvalidAttestation, InvalidBlock,
+    PayloadVerificationStatus, QueuedAttestation, QueuedPayloadAttestation,
 };
 use state_processing::state_advance::complete_state_advance;
 use std::fmt;
@@ -1033,7 +1033,12 @@ async fn payload_attestation_for_previous_slot_is_accepted_at_next_slot() {
     let result = chain
         .canonical_head
         .fork_choice_write_lock()
-        .on_payload_attestation(current_slot, &payload_attestation, true, ptc);
+        .on_payload_attestation(
+            current_slot,
+            &payload_attestation,
+            AttestationFromBlock::True,
+            ptc,
+        );
 
     assert!(
         result.is_ok(),
@@ -1082,7 +1087,12 @@ async fn non_block_payload_attestation_for_previous_slot_is_rejected() {
     let result = chain
         .canonical_head
         .fork_choice_write_lock()
-        .on_payload_attestation(s_plus_1, &payload_attestation, false, ptc);
+        .on_payload_attestation(
+            s_plus_1,
+            &payload_attestation,
+            AttestationFromBlock::False,
+            ptc,
+        );
     assert!(
         matches!(
             result,

@@ -85,8 +85,8 @@ use execution_layer::{
 };
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::{
-    ExecutionStatus, ForkChoice, ForkchoiceUpdateParameters, InvalidationOperation,
-    PayloadVerificationStatus, ResetPayloadStatuses,
+    AttestationFromBlock, ExecutionStatus, ForkChoice, ForkchoiceUpdateParameters,
+    InvalidationOperation, PayloadVerificationStatus, ResetPayloadStatuses,
 };
 use futures::channel::mpsc::Sender;
 use itertools::Itertools;
@@ -2297,7 +2297,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .on_attestation(
                 self.slot()?,
                 verified.indexed_attestation().to_ref(),
-                false,
+                AttestationFromBlock::False,
                 &self.spec,
             )
             .map_err(Into::into)
@@ -4757,6 +4757,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             })
     }
 
+    // TODO(gloas): wrong for Gloas, needs an update
     pub fn overridden_forkchoice_update_params_or_failure_reason(
         &self,
         canonical_forkchoice_params: &ForkchoiceUpdateParameters,

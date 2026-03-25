@@ -1217,8 +1217,6 @@ impl ProtoArray {
             return false;
         };
 
-
-
         // Skip invalid children — they aren't in store.blocks in the spec.
         let children: Vec<usize> = self
             .nodes
