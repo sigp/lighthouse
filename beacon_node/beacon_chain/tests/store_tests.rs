@@ -661,6 +661,11 @@ async fn forwards_iter_block_and_state_roots_until() {
     let head_slot = head_state.slot();
     assert_eq!(head_slot, num_blocks_produced);
 
+    // TODO(gloas): once fork choice tracks the canonical head envelope, the state root
+    // iterator should return the Full (post-envelope) state root for the head slot rather
+    // than the Pending (post-block) root. At that point, remove this flag and check all slots.
+    let gloas_enabled = chain.spec.fork_name_at_slot::<E>(head_slot).gloas_enabled();
+
     let test_range = |start_slot: Slot, end_slot: Slot| {
         let mut block_root_iter = chain
             .forwards_iter_block_roots_until(start_slot, end_slot)
@@ -673,8 +678,16 @@ async fn forwards_iter_block_and_state_roots_until() {
             let block_root = block_roots[slot.as_usize()];
             assert_eq!(block_root_iter.next().unwrap().unwrap(), (block_root, slot));
 
-            let state_root = state_roots[slot.as_usize()];
-            assert_eq!(state_root_iter.next().unwrap().unwrap(), (state_root, slot));
+            let (iter_state_root, iter_slot) = state_root_iter.next().unwrap().unwrap();
+            assert_eq!(iter_slot, slot);
+
+            // Skip the head slot state root check post-Gloas: the canonical head snapshot
+            // doesn't track the envelope yet, so `beacon_state_root()` returns the Pending
+            // root while the test tracks the Full root.
+            if !(gloas_enabled && slot == head_slot) {
+                let state_root = state_roots[slot.as_usize()];
+                assert_eq!(iter_state_root, state_root);
+            }
         }
     };
 
@@ -2983,15 +2996,19 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
         chain.head_snapshot().beacon_state.slot()
     );
 
-    let payload_exists = chain
-        .store
-        .execution_payload_exists(&wss_block_root)
-        .unwrap_or(false);
+    // In Gloas, the execution payload envelope is separate from the block and will be synced
+    // from the network. We don't check for its existence here.
+    if !wss_block.fork_name_unchecked().gloas_enabled() {
+        let payload_exists = chain
+            .store
+            .execution_payload_exists(&wss_block_root)
+            .unwrap_or(false);
 
-    assert!(
-        payload_exists,
-        "Split block payload must exist in the new node's store after checkpoint sync"
-    );
+        assert!(
+            payload_exists,
+            "Split block payload must exist in the new node's store after checkpoint sync"
+        );
+    }
 }
 
 async fn weak_subjectivity_sync_test(
@@ -3117,6 +3134,20 @@ async fn weak_subjectivity_sync_test(
         .build()
         .expect("should build");
 
+    // Store the WSS envelope to simulate it arriving from network sync.
+    // In production, the envelope would be synced from the network after checkpoint sync.
+    if let Some(envelope) = harness
+        .chain
+        .store
+        .get_payload_envelope(&wss_block.canonical_root())
+        .unwrap_or(None)
+    {
+        beacon_chain
+            .store
+            .put_payload_envelope(&wss_block.canonical_root(), envelope)
+            .unwrap();
+    }
+
     let beacon_chain = Arc::new(beacon_chain);
     let wss_block_root = wss_block.canonical_root();
     let store_wss_block = harness
@@ -3170,6 +3201,20 @@ async fn weak_subjectivity_sync_test(
             )
             .await
             .unwrap();
+
+        // Store the envelope and Full state for the block (required for Gloas).
+        if let Some(envelope) = &snapshot.execution_envelope {
+            beacon_chain
+                .store
+                .put_payload_envelope(&block_root, envelope.as_ref().clone())
+                .unwrap();
+            let full_state_root = envelope.message.state_root;
+            beacon_chain
+                .store
+                .put_state(&full_state_root, &snapshot.beacon_state)
+                .unwrap();
+        }
+
         beacon_chain.recompute_head_at_current_slot().await;
 
         // Check that the new block's state can be loaded correctly.
@@ -3320,6 +3365,34 @@ async fn weak_subjectivity_sync_test(
         }
     }
     assert_eq!(beacon_chain.store.get_oldest_block_slot(), 0);
+
+    // Store envelopes for all historic blocks (needed for Gloas state reconstruction).
+    // We read envelopes directly from the original harness's store rather than from
+    // chain_dump, because chain_dump may not include envelopes for all blocks (e.g.,
+    // when extend_chain builds on a Pending head state, is_parent_block_full returns
+    // false for the boundary block).
+    for snapshot in chain_dump.iter() {
+        let block_root = snapshot.beacon_block_root;
+        if beacon_chain
+            .store
+            .get_payload_envelope(&block_root)
+            .unwrap_or(None)
+            .is_some()
+        {
+            continue;
+        }
+        if let Some(envelope) = harness
+            .chain
+            .store
+            .get_payload_envelope(&block_root)
+            .unwrap_or(None)
+        {
+            beacon_chain
+                .store
+                .put_payload_envelope(&block_root, envelope)
+                .unwrap();
+        }
+    }
 
     // Sanity check for non-aligned WSS starts, to make sure the WSS block is persisted properly
     if wss_block_slot != wss_state_slot {

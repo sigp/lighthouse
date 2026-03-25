@@ -1867,6 +1867,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// migration. For now we use an extra read from the DB to determine it.
     fn get_hot_state_summary_payload_status(
         &self,
+        state_root: &Hash256,
         summary: &HotStateSummary,
     ) -> Result<StatePayloadStatus, Error> {
         // Treat pre-Gloas states as `Pending`.
@@ -1881,6 +1882,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // Treat genesis state as `Pending` (`BeaconBlock` state).
         let previous_state_root = summary.previous_state_root;
         if previous_state_root.is_zero() {
+            return Ok(StatePayloadStatus::Pending);
+        }
+
+        // If this state is the split state, it is always Pending.
+        let split = self.get_split_info();
+        if *state_root == split.state_root {
             return Ok(StatePayloadStatus::Pending);
         }
 
@@ -1906,7 +1913,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         } else if summary.slot == summary.latest_block_slot {
             Ok(StatePayloadStatus::Pending)
         } else {
-            self.get_hot_state_summary_payload_status(&previous_state_summary)
+            self.get_hot_state_summary_payload_status(&previous_state_root, &previous_state_summary)
         }
     }
 
@@ -2039,7 +2046,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             },
         ) = self.load_hot_state_summary(state_root)?
         {
-            let payload_status = self.get_hot_state_summary_payload_status(&summary)?;
+            let payload_status = self.get_hot_state_summary_payload_status(state_root, &summary)?;
             debug!(
                 %slot,
                 ?state_root,

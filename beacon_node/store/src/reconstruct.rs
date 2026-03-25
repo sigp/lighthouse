@@ -111,20 +111,21 @@ where
                 // Apply payload envelope for Gloas blocks (post-block, to transition
                 // state from Pending to Full).
                 if let Some(ref block) = block
-                    && let Some(envelope) = self.get_payload_envelope(&block_root)? {
-                        let block_state_root = block.state_root();
-                        process_execution_payload_envelope(
-                            &mut state,
-                            Some(block_state_root),
-                            &envelope,
-                            VerifySignatures::False,
-                            VerifyStateRoot::True,
-                            &self.spec,
-                        )
-                        .map_err(|e| HotColdDBError::BlockReplayEnvelopeError(format!("{e:?}")))?;
+                    && let Some(envelope) = self.get_payload_envelope(&block_root)?
+                {
+                    let block_state_root = block.state_root();
+                    process_execution_payload_envelope(
+                        &mut state,
+                        Some(block_state_root),
+                        &envelope,
+                        VerifySignatures::False,
+                        VerifyStateRoot::True,
+                        &self.spec,
+                    )
+                    .map_err(|e| HotColdDBError::BlockReplayEnvelopeError(format!("{e:?}")))?;
 
-                        prev_state_root = Some(envelope.message.state_root);
-                    }
+                    prev_state_root = Some(envelope.message.state_root);
+                }
 
                 let state_root = prev_state_root
                     .ok_or(())

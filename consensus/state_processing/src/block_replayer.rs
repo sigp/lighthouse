@@ -325,8 +325,20 @@ where
                     // not-yet-applied `block`. The slot 0 case covers genesis (no block replay reqd).
                     if self.state.slot() != 0 && block.is_parent_block_full(latest_bid_block_hash) {
                         let envelope = next_envelope_at_slot(self.state.slot())?;
+
+                        // The envelope needs the Pending (post-block) state root to fill
+                        // `latest_block_header.state_root` for block header hash verification.
+                        // Source this from the block at this slot, as `get_state_root` may return
+                        // the Full (post-envelope) root from a state root iterator.
+                        let pending_state_root = i
+                            .checked_sub(1)
+                            .and_then(|prev_i| blocks.get(prev_i))
+                            .filter(|prev_block| prev_block.slot() == self.state.slot())
+                            .map(|prev_block| prev_block.state_root())
+                            .unwrap_or(state_root);
+
                         // State root for the next slot processing is now the envelope's state root.
-                        self.apply_payload_envelope(&envelope, state_root)?
+                        self.apply_payload_envelope(&envelope, pending_state_root)?
                     } else {
                         // Empty payload at this slot, the state root is unchanged from when the
                         // beacon block was applied.
