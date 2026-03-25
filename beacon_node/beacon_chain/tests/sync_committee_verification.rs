@@ -2,6 +2,8 @@
 
 use beacon_chain::sync_committee_verification::{Error as SyncCommitteeError, SyncCommitteeData};
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee};
+use bls::{AggregateSignature, Keypair, SecretKey};
+use fixed_bytes::FixedBytesExtended;
 use int_to_bytes::int_to_bytes32;
 use safe_arith::SafeArith;
 use state_processing::{
@@ -11,10 +13,11 @@ use state_processing::{
 use std::sync::LazyLock;
 use store::{SignedContributionAndProof, SyncCommitteeMessage};
 use tree_hash::TreeHash;
+use typenum::Unsigned;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::{
-    AggregateSignature, Epoch, EthSpec, FixedBytesExtended, Hash256, Keypair, MainnetEthSpec,
-    SecretKey, Slot, SyncContributionData, SyncSelectionProof, SyncSubnetId, Unsigned,
+    Epoch, EthSpec, Hash256, MainnetEthSpec, Slot, SyncContributionData, SyncSelectionProof,
+    SyncSubnetId,
 };
 
 pub type E = MainnetEthSpec;

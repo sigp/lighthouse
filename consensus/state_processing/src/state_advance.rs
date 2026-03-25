@@ -5,7 +5,9 @@
 //! duplication and protect against some easy-to-make mistakes when performing state advances.
 
 use crate::*;
-use types::{BeaconState, ChainSpec, EthSpec, FixedBytesExtended, Hash256, Slot};
+use fixed_bytes::FixedBytesExtended;
+use tracing::instrument;
+use types::{BeaconState, ChainSpec, EthSpec, Hash256, Slot};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -58,6 +60,7 @@ pub fn complete_state_advance<E: EthSpec>(
 ///
 /// - If `state.slot > target_slot`, an error will be returned.
 /// - If `state_root_opt.is_none()` but the latest block header requires a state root.
+#[instrument(skip_all, level = "debug")]
 pub fn partial_state_advance<E: EthSpec>(
     state: &mut BeaconState<E>,
     state_root_opt: Option<Hash256>,
@@ -74,6 +77,11 @@ pub fn partial_state_advance<E: EthSpec>(
     // (all-zeros) state root.
     let mut initial_state_root = Some(if state.slot() > state.latest_block_header().slot {
         state_root_opt.unwrap_or_else(Hash256::zero)
+    } else if state.slot() == state.latest_block_header().slot
+        && !state.latest_block_header().state_root.is_zero()
+    {
+        // Post-Gloas Full state case.
+        state.latest_block_header().state_root
     } else {
         state_root_opt.ok_or(Error::StateRootNotProvided)?
     });

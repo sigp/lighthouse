@@ -2,6 +2,7 @@ use beacon_chain::store::metadata::CURRENT_SCHEMA_VERSION;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use serde::Serialize;
 use std::sync::Arc;
+use store::invariants::InvariantCheckResult;
 use store::{AnchorInfo, BlobInfo, Split, StoreConfig};
 
 #[derive(Debug, Serialize)]
@@ -28,5 +29,13 @@ pub fn info<T: BeaconChainTypes>(
         split,
         anchor,
         blob_info,
+    })
+}
+
+pub fn check_invariants<T: BeaconChainTypes>(
+    chain: Arc<BeaconChain<T>>,
+) -> Result<InvariantCheckResult, warp::Rejection> {
+    chain.check_database_invariants().map_err(|e| {
+        warp_utils::reject::custom_bad_request(format!("error checking database invariants: {e:?}"))
     })
 }

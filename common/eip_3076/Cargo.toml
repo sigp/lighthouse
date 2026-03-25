@@ -6,12 +6,14 @@ edition = { workspace = true }
 
 [features]
 default = []
-arbitrary-fuzz = ["dep:arbitrary", "types/arbitrary"]
+arbitrary = ["dep:arbitrary", "types/arbitrary"]
 json = ["dep:serde_json"]
 
 [dependencies]
 arbitrary = { workspace = true, features = ["derive"], optional = true }
+bls = { workspace = true }
 ethereum_serde_utils = { workspace = true }
+fixed_bytes = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true, optional = true }
 types = { workspace = true }

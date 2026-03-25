@@ -1,5 +1,5 @@
-use c_kzg::BYTES_PER_COMMITMENT;
-use derivative::Derivative;
+use crate::{Bytes48, BYTES_PER_COMMITMENT};
+use educe::Educe;
 use ethereum_hashing::hash_fixed;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
@@ -11,10 +11,10 @@ use tree_hash::{Hash256, PackedEncoding, TreeHash};
 
 pub const VERSIONED_HASH_VERSION_KZG: u8 = 0x01;
 
-#[derive(Derivative, Clone, Copy, Encode, Decode)]
-#[derivative(PartialEq, Eq, Hash)]
+#[derive(Educe, Clone, Copy, Encode, Decode)]
+#[educe(PartialEq, Eq, Hash)]
 #[ssz(struct_behaviour = "transparent")]
-pub struct KzgCommitment(pub [u8; c_kzg::BYTES_PER_COMMITMENT]);
+pub struct KzgCommitment(pub [u8; BYTES_PER_COMMITMENT]);
 
 impl KzgCommitment {
     pub fn calculate_versioned_hash(&self) -> Hash256 {
@@ -24,13 +24,13 @@ impl KzgCommitment {
     }
 
     pub fn empty_for_testing() -> Self {
-        KzgCommitment([0; c_kzg::BYTES_PER_COMMITMENT])
+        KzgCommitment([0; BYTES_PER_COMMITMENT])
     }
 }
 
-impl From<KzgCommitment> for c_kzg::Bytes48 {
+impl From<KzgCommitment> for Bytes48 {
     fn from(value: KzgCommitment) -> Self {
-        value.0.into()
+        value.0
     }
 }
 
@@ -114,6 +114,7 @@ impl Debug for KzgCommitment {
     }
 }
 
+#[cfg(feature = "arbitrary")]
 impl arbitrary::Arbitrary<'_> for KzgCommitment {
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         let mut bytes = [0u8; BYTES_PER_COMMITMENT];

@@ -3,13 +3,14 @@ use crate::version::{
     beacon_response,
 };
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use eth2::beacon_response::BeaconResponse;
 use eth2::types::{
     self as api_types, LightClientUpdate, LightClientUpdateResponseChunk,
     LightClientUpdateResponseChunkInner, LightClientUpdatesQuery,
 };
 use ssz::Encode;
 use std::sync::Arc;
-use types::{BeaconResponse, EthSpec, ForkName, Hash256, LightClientBootstrap};
+use types::{EthSpec, ForkName, Hash256, LightClientBootstrap};
 use warp::{
     Rejection,
     hyper::{Body, Response},

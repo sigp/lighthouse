@@ -1,4 +1,5 @@
 use crate::duties_service::{DutiesService, Error, SelectionProofConfig};
+use bls::PublicKeyBytes;
 use eth2::types::SyncCommitteeSelection;
 use futures::future::join_all;
 use futures::stream::{FuturesUnordered, StreamExt};
@@ -8,7 +9,7 @@ use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
-use types::{ChainSpec, EthSpec, PublicKeyBytes, Slot, SyncDuty, SyncSelectionProof, SyncSubnetId};
+use types::{ChainSpec, EthSpec, Slot, SyncDuty, SyncSelectionProof, SyncSubnetId};
 use validator_store::{DoppelgangerStatus, Error as ValidatorStoreError, ValidatorStore};
 
 /// Top-level data-structure containing sync duty information.

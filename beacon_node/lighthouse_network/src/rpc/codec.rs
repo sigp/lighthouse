@@ -8,20 +8,21 @@ use libp2p::bytes::BytesMut;
 use snap::read::FrameDecoder;
 use snap::write::FrameEncoder;
 use ssz::{Decode, Encode};
-use ssz_types::VariableList;
+use ssz_types::{RuntimeVariableList, VariableList};
 use std::io::Cursor;
 use std::io::ErrorKind;
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
+use types::SignedExecutionPayloadEnvelope;
 use types::{
     BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EthSpec, ForkContext,
     ForkName, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, LightClientUpdate, RuntimeVariableList, SignedBeaconBlock,
-    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
-    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
-    SignedBeaconBlockFulu, SignedBeaconBlockGloas,
+    LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock, SignedBeaconBlockAltair,
+    SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
+    SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockFulu,
+    SignedBeaconBlockGloas,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -76,6 +77,8 @@ impl<E: EthSpec> SSZSnappyInboundCodec<E> {
                 },
                 RpcSuccessResponse::BlocksByRange(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
+                RpcSuccessResponse::PayloadEnvelopesByRange(res) => res.as_ssz_bytes(),
+                RpcSuccessResponse::PayloadEnvelopesByRoot(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::BlobsByRange(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::BlobsByRoot(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::DataColumnsByRoot(res) => res.as_ssz_bytes(),
@@ -356,6 +359,8 @@ impl<E: EthSpec> Encoder<RequestType<E>> for SSZSnappyOutboundCodec<E> {
                 BlocksByRootRequest::V1(req) => req.block_roots.as_ssz_bytes(),
                 BlocksByRootRequest::V2(req) => req.block_roots.as_ssz_bytes(),
             },
+            RequestType::PayloadEnvelopesByRange(req) => req.as_ssz_bytes(),
+            RequestType::PayloadEnvelopesByRoot(req) => req.beacon_block_roots.as_ssz_bytes(),
             RequestType::BlobsByRange(req) => req.as_ssz_bytes(),
             RequestType::BlobsByRoot(req) => req.blob_ids.as_ssz_bytes(),
             RequestType::DataColumnsByRange(req) => req.as_ssz_bytes(),
@@ -457,6 +462,9 @@ fn handle_error<T>(
                 Ok(None)
             }
         }
+        // All snappy errors from the snap crate bubble up as `Other` kind errors
+        // that imply invalid response
+        ErrorKind::Other => Err(RPCError::InvalidData(err.to_string())),
         _ => Err(RPCError::from(err)),
     }
 }
@@ -545,6 +553,19 @@ fn handle_rpc_request<E: EthSpec>(
                 )?,
             }),
         ))),
+        SupportedProtocol::PayloadEnvelopesByRangeV1 => {
+            Ok(Some(RequestType::PayloadEnvelopesByRange(
+                PayloadEnvelopesByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+            )))
+        }
+        SupportedProtocol::PayloadEnvelopesByRootV1 => Ok(Some(
+            RequestType::PayloadEnvelopesByRoot(PayloadEnvelopesByRootRequest {
+                beacon_block_roots: RuntimeVariableList::from_ssz_bytes(
+                    decoded_buffer,
+                    spec.max_request_payloads(),
+                )?,
+            }),
+        )),
         SupportedProtocol::BlobsByRangeV1 => Ok(Some(RequestType::BlobsByRange(
             BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
         ))),
@@ -647,6 +668,48 @@ fn handle_rpc_response<E: EthSpec>(
         SupportedProtocol::BlocksByRootV1 => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
             SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
         )))),
+        SupportedProtocol::PayloadEnvelopesByRangeV1 => match fork_name {
+            Some(fork_name) => {
+                if fork_name.gloas_enabled() {
+                    Ok(Some(RpcSuccessResponse::PayloadEnvelopesByRange(Arc::new(
+                        SignedExecutionPayloadEnvelope::from_ssz_bytes(decoded_buffer)?,
+                    ))))
+                } else {
+                    Err(RPCError::ErrorResponse(
+                        RpcErrorResponse::InvalidRequest,
+                        "Invalid fork name for payload envelopes by range".to_string(),
+                    ))
+                }
+            }
+            None => Err(RPCError::ErrorResponse(
+                RpcErrorResponse::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
+        SupportedProtocol::PayloadEnvelopesByRootV1 => match fork_name {
+            Some(fork_name) => {
+                if fork_name.gloas_enabled() {
+                    Ok(Some(RpcSuccessResponse::PayloadEnvelopesByRoot(Arc::new(
+                        SignedExecutionPayloadEnvelope::from_ssz_bytes(decoded_buffer)?,
+                    ))))
+                } else {
+                    Err(RPCError::ErrorResponse(
+                        RpcErrorResponse::InvalidRequest,
+                        "Invalid fork name for payload envelopes by root".to_string(),
+                    ))
+                }
+            }
+            None => Err(RPCError::ErrorResponse(
+                RpcErrorResponse::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
         SupportedProtocol::BlobsByRangeV1 => match fork_name {
             Some(fork_name) => {
                 if fork_name.deneb_enabled() {
@@ -693,7 +756,7 @@ fn handle_rpc_response<E: EthSpec>(
             Some(fork_name) => {
                 if fork_name.fulu_enabled() {
                     Ok(Some(RpcSuccessResponse::DataColumnsByRoot(Arc::new(
-                        DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
+                        DataColumnSidecar::from_ssz_bytes_for_fork(decoded_buffer, fork_name)?,
                     ))))
                 } else {
                     Err(RPCError::ErrorResponse(
@@ -714,7 +777,7 @@ fn handle_rpc_response<E: EthSpec>(
             Some(fork_name) => {
                 if fork_name.fulu_enabled() {
                     Ok(Some(RpcSuccessResponse::DataColumnsByRange(Arc::new(
-                        DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
+                        DataColumnSidecar::from_ssz_bytes_for_fork(decoded_buffer, fork_name)?,
                     ))))
                 } else {
                     Err(RPCError::ErrorResponse(
@@ -908,12 +971,15 @@ mod tests {
     use super::*;
     use crate::rpc::protocol::*;
     use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
+    use bls::Signature;
+    use fixed_bytes::FixedBytesExtended;
     use types::{
         BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
-        DataColumnsByRootIdentifier, EmptyBlock, Epoch, FixedBytesExtended, FullPayload,
-        KzgCommitment, KzgProof, Signature, SignedBeaconBlockHeader, Slot,
-        blob_sidecar::BlobIdentifier, data_column_sidecar::Cell,
+        DataColumnsByRootIdentifier, EmptyBlock, Epoch, FullPayload, KzgCommitment, KzgProof,
+        SignedBeaconBlockHeader, Slot,
+        data::{BlobIdentifier, Cell},
     };
+    use types::{BlobSidecar, DataColumnSidecarFulu};
 
     type Spec = types::MainnetEthSpec;
 
@@ -975,7 +1041,7 @@ mod tests {
     fn empty_data_column_sidecar(spec: &ChainSpec) -> Arc<DataColumnSidecar<Spec>> {
         // The context bytes are now derived from the block epoch, so we need to have the slot set
         // here.
-        let data_column_sidecar = DataColumnSidecar {
+        let data_column_sidecar = DataColumnSidecar::Fulu(DataColumnSidecarFulu {
             index: 0,
             column: VariableList::new(vec![Cell::<Spec>::default()]).unwrap(),
             kzg_commitments: VariableList::new(vec![KzgCommitment::empty_for_testing()]).unwrap(),
@@ -991,7 +1057,7 @@ mod tests {
                 signature: Signature::empty(),
             },
             kzg_commitments_inclusion_proof: Default::default(),
-        };
+        });
         Arc::new(data_column_sidecar)
     }
 
@@ -1002,8 +1068,9 @@ mod tests {
         let mut block: BeaconBlockBellatrix<_, FullPayload<Spec>> =
             BeaconBlockBellatrix::empty(spec);
 
-        let tx = VariableList::from(vec![0; 1024]);
-        let txs = VariableList::from(std::iter::repeat_n(tx, 5000).collect::<Vec<_>>());
+        let tx = VariableList::try_from(vec![0; 1024]).unwrap();
+        let txs =
+            VariableList::try_from(std::iter::repeat_n(tx, 5000).collect::<Vec<_>>()).unwrap();
 
         block.body.execution_payload.execution_payload.transactions = txs;
 
@@ -1021,8 +1088,9 @@ mod tests {
         let mut block: BeaconBlockBellatrix<_, FullPayload<Spec>> =
             BeaconBlockBellatrix::empty(spec);
 
-        let tx = VariableList::from(vec![0; 1024]);
-        let txs = VariableList::from(std::iter::repeat_n(tx, 100000).collect::<Vec<_>>());
+        let tx = VariableList::try_from(vec![0; 1024]).unwrap();
+        let txs =
+            VariableList::try_from(std::iter::repeat_n(tx, 100000).collect::<Vec<_>>()).unwrap();
 
         block.body.execution_payload.execution_payload.transactions = txs;
 
@@ -1080,7 +1148,7 @@ mod tests {
             data_column_ids: RuntimeVariableList::new(
                 vec![DataColumnsByRootIdentifier {
                     block_root: Hash256::zero(),
-                    columns: VariableList::from(vec![0, 1, 2]),
+                    columns: VariableList::try_from(vec![0, 1, 2]).unwrap(),
                 }],
                 spec.max_request_blocks(fork_name),
             )
@@ -1251,6 +1319,12 @@ mod tests {
             }
             RequestType::BlobsByRange(blbrange) => {
                 assert_eq!(decoded, RequestType::BlobsByRange(blbrange))
+            }
+            RequestType::PayloadEnvelopesByRange(perange) => {
+                assert_eq!(decoded, RequestType::PayloadEnvelopesByRange(perange))
+            }
+            RequestType::PayloadEnvelopesByRoot(peroot) => {
+                assert_eq!(decoded, RequestType::PayloadEnvelopesByRoot(peroot))
             }
             RequestType::BlobsByRoot(bbroot) => {
                 assert_eq!(decoded, RequestType::BlobsByRoot(bbroot))
@@ -2311,5 +2385,44 @@ mod tests {
             codec.decode_response(&mut min).unwrap_err(),
             RPCError::InvalidData(_)
         ));
+    }
+
+    /// Test invalid snappy response.
+    #[test]
+    fn test_invalid_snappy_response() {
+        let spec = spec_with_all_forks_enabled();
+        let fork_ctx = Arc::new(fork_context(ForkName::latest(), &spec));
+        let max_packet_size = spec.max_payload_size as usize; // 10 MiB.
+
+        let protocol = ProtocolId::new(SupportedProtocol::BlocksByRangeV2, Encoding::SSZSnappy);
+
+        let mut codec = SSZSnappyOutboundCodec::<Spec>::new(
+            protocol.clone(),
+            max_packet_size,
+            fork_ctx.clone(),
+        );
+
+        let mut payload = BytesMut::new();
+        payload.extend_from_slice(&[0u8]);
+        let deneb_epoch = spec.deneb_fork_epoch.unwrap();
+        payload.extend_from_slice(&fork_ctx.context_bytes(deneb_epoch));
+
+        // Claim the MAXIMUM allowed size (10 MiB)
+        let claimed_size = max_packet_size;
+        let mut uvi_codec: Uvi<usize> = Uvi::default();
+        uvi_codec.encode(claimed_size, &mut payload).unwrap();
+        payload.extend_from_slice(&[0xBB; 16]); // Junk snappy.
+
+        let result = codec.decode(&mut payload);
+
+        assert!(result.is_err(), "Expected decode to fail");
+
+        // IoError = reached snappy decode (allocation happened).
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, RPCError::InvalidData(_)),
+            "Should return invalid data variant {}",
+            err
+        );
     }
 }

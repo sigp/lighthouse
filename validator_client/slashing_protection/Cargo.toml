@@ -6,22 +6,24 @@ edition = { workspace = true }
 autotests = false
 
 [features]
-arbitrary-fuzz = ["types/arbitrary-fuzz", "eip_3076/arbitrary-fuzz"]
+arbitrary = ["dep:arbitrary", "types/arbitrary", "eip_3076/arbitrary"]
 portable = ["types/portable"]
 
 [dependencies]
-arbitrary = { workspace = true, features = ["derive"] }
+arbitrary = { workspace = true, features = ["derive"], optional = true }
+bls = { workspace = true }
 eip_3076 = { workspace = true, features = ["json"] }
 ethereum_serde_utils = { workspace = true }
 filesystem = { workspace = true }
+fixed_bytes = { workspace = true }
 r2d2 = { workspace = true }
-r2d2_sqlite = "0.21.0"
+r2d2_sqlite = "0.32"
 rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
 tracing = { workspace = true }
-types = { workspace = true }
+types = { workspace = true, features = ["sqlite"] }
 
 [dev-dependencies]
 rayon = { workspace = true }

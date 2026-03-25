@@ -2,14 +2,16 @@ use crate::{
     SigningRoot, SlashingDatabase,
     test_utils::{DEFAULT_GENESIS_VALIDATORS_ROOT, pubkey},
 };
+use bls::PublicKeyBytes;
 use eip_3076::{Interchange, SignedAttestation, SignedBlock};
+use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use tempfile::tempdir;
-use types::{Epoch, FixedBytesExtended, Hash256, PublicKeyBytes, Slot};
+use types::{Epoch, Hash256, Slot};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct MultiTestCase {
     pub name: String,
     pub genesis_validators_root: Hash256,
@@ -17,7 +19,7 @@ pub struct MultiTestCase {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct TestCase {
     pub should_succeed: bool,
     pub contains_slashable_data: bool,
@@ -27,7 +29,7 @@ pub struct TestCase {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct TestBlock {
     pub pubkey: PublicKeyBytes,
     pub slot: Slot,
@@ -37,7 +39,7 @@ pub struct TestBlock {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct TestAttestation {
     pub pubkey: PublicKeyBytes,
     pub source_epoch: Epoch,
@@ -133,12 +135,15 @@ impl MultiTestCase {
             }
 
             for (i, att) in test_case.attestations.iter().enumerate() {
-                match slashing_db.check_and_insert_attestation_signing_root(
-                    &att.pubkey,
-                    att.source_epoch,
-                    att.target_epoch,
-                    SigningRoot::from(att.signing_root),
-                ) {
+                match slashing_db.with_transaction(|txn| {
+                    slashing_db.check_and_insert_attestation_signing_root(
+                        &att.pubkey,
+                        att.source_epoch,
+                        att.target_epoch,
+                        SigningRoot::from(att.signing_root),
+                        txn,
+                    )
+                }) {
                     Ok(safe) if !att.should_succeed => {
                         panic!(
                             "attestation {} from `{}` succeeded when it should have failed: {:?}",

@@ -1,13 +1,19 @@
 use crate::NetworkMessage;
 use crate::sync::SyncMessage;
+use crate::sync::block_lookups::BlockLookupsMetrics;
 use crate::sync::manager::SyncManager;
-use crate::sync::range_sync::RangeSyncType;
+use crate::sync::tests::lookups::SimulateConfig;
+use beacon_chain::block_verification_types::RangeSyncBlock;
 use beacon_chain::builder::Witness;
+use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_processor::WorkEvent;
-use lighthouse_network::NetworkGlobals;
+use lighthouse_network::rpc::RequestType;
+use lighthouse_network::service::api_types::{AppRequestId, Id};
+use lighthouse_network::{NetworkGlobals, PeerId};
 use rand_chacha::ChaCha20Rng;
 use slot_clock::ManualSlotClock;
+use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::sync::{Arc, Once};
@@ -16,7 +22,7 @@ use tokio::sync::mpsc;
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use types::{ChainSpec, ForkName, MinimalEthSpec as E};
+use types::{ForkName, Hash256, MinimalEthSpec as E, Slot};
 
 mod lookups;
 mod range;
@@ -58,6 +64,8 @@ struct TestRig {
     network_rx_queue: Vec<NetworkMessage<E>>,
     /// Receiver for `SyncMessage` from the network
     sync_rx: mpsc::UnboundedReceiver<SyncMessage<E>>,
+    /// Stores all `SyncMessage`s received from `sync_rx`
+    sync_rx_queue: Vec<SyncMessage<E>>,
     /// To send `SyncMessage`. For sending RPC responses or block processing results to sync.
     sync_manager: SyncManager<T>,
     /// To manipulate sync state and peer connection status
@@ -68,7 +76,65 @@ struct TestRig {
     rng_08: rand_chacha_03::ChaCha20Rng,
     rng: ChaCha20Rng,
     fork_name: ForkName,
-    spec: Arc<ChainSpec>,
+    /// Blocks that will be used in the test but may not be known to `harness` yet.
+    network_blocks_by_root: HashMap<Hash256, RangeSyncBlock<E>>,
+    network_blocks_by_slot: HashMap<Slot, RangeSyncBlock<E>>,
+    penalties: Vec<ReportedPenalty>,
+    /// All seen lookups through the test run
+    seen_lookups: HashMap<Id, SeenLookup>,
+    /// Registry of all requests done by the test
+    requests: Vec<(RequestType<E>, AppRequestId)>,
+    /// Persistent config on how to complete request
+    complete_strategy: SimulateConfig,
+    /// Metrics values to allow a reset
+    initial_block_lookups_metrics: BlockLookupsMetrics,
+    /// Fulu test type
+    fulu_test_type: FuluTestType,
+}
+
+enum FuluTestType {
+    WeSupernodeThemSupernode,
+    WeSupernodeThemFullnodes,
+    WeFullnodeThemSupernode,
+    WeFullnodeThemFullnodes,
+}
+
+impl FuluTestType {
+    fn we_node_custody_type(&self) -> NodeCustodyType {
+        match self {
+            Self::WeSupernodeThemSupernode | Self::WeSupernodeThemFullnodes => {
+                NodeCustodyType::Supernode
+            }
+            Self::WeFullnodeThemSupernode | Self::WeFullnodeThemFullnodes => {
+                NodeCustodyType::Fullnode
+            }
+        }
+    }
+
+    fn them_node_custody_type(&self) -> NodeCustodyType {
+        match self {
+            Self::WeSupernodeThemSupernode | Self::WeFullnodeThemSupernode => {
+                NodeCustodyType::Supernode
+            }
+            Self::WeSupernodeThemFullnodes | Self::WeFullnodeThemFullnodes => {
+                NodeCustodyType::Fullnode
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+struct SeenLookup {
+    /// Lookup's Id
+    id: Id,
+    block_root: Hash256,
+    seen_peers: HashSet<PeerId>,
+}
+
+#[derive(Debug)]
+struct ReportedPenalty {
+    pub peer_id: PeerId,
+    pub msg: &'static str,
 }
 
 // Environment variable to read if `fork_from_env` feature is enabled.

@@ -22,6 +22,34 @@ pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_MISS_TOTAL: &s
     "validator_monitor_attestation_simulator_source_attester_miss_total";
 
 /*
+* Execution Payload Envelope Processing
+*/
+
+pub static ENVELOPE_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "payload_envelope_processing_requests_total",
+        "Count of payload envelopes submitted for processing",
+    )
+});
+pub static ENVELOPE_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "payload_envelope_processing_successes_total",
+        "Count of payload envelopes processed without error",
+    )
+});
+pub static ENVELOPE_PROCESSING_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "payload_envelope_processing_seconds",
+        "Full runtime of payload envelope processing",
+    )
+});
+pub static ENVELOPE_PROCESSING_DB_WRITE: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "payload_envelope_processing_db_write_seconds",
+        "Time spent writing a newly processed payload envelope and state to DB",
+    )
+});
+/*
  * Block Processing
  */
 pub static BLOCK_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
@@ -480,20 +508,6 @@ pub static ATTESTATION_PRODUCTION_HEAD_SCRAPE_SECONDS: LazyLock<Result<Histogram
         try_create_histogram(
             "attestation_production_head_scrape_seconds",
             "Time taken to read the head state",
-        )
-    });
-pub static ATTESTATION_PRODUCTION_CACHE_INTERACTION_SECONDS: LazyLock<Result<Histogram>> =
-    LazyLock::new(|| {
-        try_create_histogram(
-            "attestation_production_cache_interaction_seconds",
-            "Time spent interacting with the attester cache",
-        )
-    });
-pub static ATTESTATION_PRODUCTION_CACHE_PRIME_SECONDS: LazyLock<Result<Histogram>> =
-    LazyLock::new(|| {
-        try_create_histogram(
-            "attestation_production_cache_prime_seconds",
-            "Time spent loading a new state from the disk due to a cache miss",
         )
     });
 
@@ -1185,7 +1199,7 @@ pub static VALIDATOR_MONITOR_UNAGGREGATED_ATTESTATION_DELAY_SECONDS: LazyLock<
 > = LazyLock::new(|| {
     try_create_histogram_vec(
         "validator_monitor_unaggregated_attestation_delay_seconds",
-        "The delay between when the validator should send the attestation and when it was received.",
+        "The delay between when the validator sent the attestation and the start of the slot.",
         &["src", "validator"],
     )
 });
@@ -1627,10 +1641,9 @@ pub static BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION: LazyLock<Result<Histogram>>
         )
     });
 pub static DATA_COLUMN_SIDECAR_COMPUTATION: LazyLock<Result<HistogramVec>> = LazyLock::new(|| {
-    try_create_histogram_vec_with_buckets(
+    try_create_histogram_vec(
         "beacon_data_column_sidecar_computation_seconds",
         "Time taken to compute data column sidecar, including cells, proofs and inclusion proof",
-        Ok(vec![0.1, 0.15, 0.25, 0.35, 0.5, 0.7, 1.0, 2.5, 5.0, 10.0]),
         &["blob_count"],
     )
 });
@@ -1703,6 +1716,33 @@ pub static BLOBS_FROM_EL_RECEIVED: LazyLock<Result<Histogram>> = LazyLock::new(|
         ]),
     )
 });
+
+/*
+ * Standardized getBlobs metrics across clients from https://github.com/ethereum/beacon-metrics
+ */
+pub static BEACON_ENGINE_GET_BLOBS_V2_REQUESTS_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_engine_getBlobsV2_requests_total",
+            "Total number of engine_getBlobsV2 requests made to the execution layer",
+        )
+    });
+
+pub static BEACON_ENGINE_GET_BLOBS_V2_RESPONSES_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_engine_getBlobsV2_responses_total",
+            "Total number of successful engine_getBlobsV2 responses from the execution layer",
+        )
+    });
+
+pub static BEACON_ENGINE_GET_BLOBS_V2_REQUEST_DURATION_SECONDS: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "beacon_engine_getBlobsV2_request_duration_seconds",
+            "Duration of engine_getBlobsV2 requests to the execution layer in seconds",
+        )
+    });
 
 /*
  * Light server message verification
@@ -1857,13 +1897,6 @@ pub static DATA_AVAILABILITY_OVERFLOW_MEMORY_BLOCK_CACHE_SIZE: LazyLock<Result<I
             "Number of entries in the data availability overflow block memory cache.",
         )
     });
-pub static DATA_AVAILABILITY_OVERFLOW_MEMORY_STATE_CACHE_SIZE: LazyLock<Result<IntGauge>> =
-    LazyLock::new(|| {
-        try_create_int_gauge(
-            "data_availability_overflow_memory_state_cache_size",
-            "Number of entries in the data availability overflow state memory cache.",
-        )
-    });
 pub static DATA_AVAILABILITY_RECONSTRUCTION_TIME: LazyLock<Result<Histogram>> =
     LazyLock::new(|| {
         try_create_histogram(
@@ -1970,10 +2003,6 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     set_gauge_by_usize(
         &DATA_AVAILABILITY_OVERFLOW_MEMORY_BLOCK_CACHE_SIZE,
         da_checker_metrics.block_cache_size,
-    );
-    set_gauge_by_usize(
-        &DATA_AVAILABILITY_OVERFLOW_MEMORY_STATE_CACHE_SIZE,
-        da_checker_metrics.state_cache_size,
     );
 
     if let Some((size, num_lookups)) = beacon_chain.pre_finalization_block_cache.metrics() {

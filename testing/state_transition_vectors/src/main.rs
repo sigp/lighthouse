@@ -3,6 +3,8 @@ mod macros;
 mod exit;
 
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+use bls::Keypair;
+use fixed_bytes::FixedBytesExtended;
 use ssz::Encode;
 use std::env;
 use std::fs::{self, File};
@@ -10,10 +12,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::exit;
 use std::sync::LazyLock;
-use types::{
-    BeaconState, EthSpec, Keypair, SignedBeaconBlock, test_utils::generate_deterministic_keypairs,
-};
-use types::{FixedBytesExtended, Hash256, MainnetEthSpec, Slot};
+use types::{BeaconState, EthSpec, SignedBeaconBlock, test_utils::generate_deterministic_keypairs};
+use types::{Hash256, MainnetEthSpec, Slot};
 
 type E = MainnetEthSpec;
 
@@ -57,6 +57,7 @@ async fn get_harness<E: EthSpec>(
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
     let skip_to_slot = slot - SLOT_OFFSET;
     if skip_to_slot > Slot::new(0) {

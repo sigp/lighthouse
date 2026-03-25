@@ -1,14 +1,14 @@
 #![cfg(not(debug_assertions))]
 
 use beacon_chain::attestation_simulator::produce_unaggregated_attestation;
+use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
 use beacon_chain::validator_monitor::UNAGGREGATED_ATTESTATION_LAG_SLOTS;
 use beacon_chain::{StateSkipConfig, WhenSlotSkipped, metrics};
+use bls::{AggregateSignature, Keypair};
 use std::sync::{Arc, LazyLock};
 use tree_hash::TreeHash;
-use types::{
-    AggregateSignature, Attestation, EthSpec, Keypair, MainnetEthSpec, RelativeEpoch, Slot,
-};
+use types::{Attestation, EthSpec, MainnetEthSpec, RelativeEpoch, Slot};
 
 pub const VALIDATOR_COUNT: usize = 16;
 
@@ -115,6 +115,8 @@ async fn produces_attestations() {
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
+        // SemiSupernode ensures enough columns are stored for sampling + custody validation for RpcBlock
+        .node_custody_type(NodeCustodyType::SemiSupernode)
         .build();
 
     let chain = &harness.chain;
@@ -220,17 +222,9 @@ async fn produces_attestations() {
             assert_eq!(data.target.epoch, state.current_epoch(), "bad target epoch");
             assert_eq!(data.target.root, target_root, "bad target root");
 
-            let rpc_block =
-                harness.build_rpc_block_from_store_blobs(Some(block_root), Arc::new(block.clone()));
-            let beacon_chain::data_availability_checker::MaybeAvailableBlock::Available(
-                available_block,
-            ) = chain
-                .data_availability_checker
-                .verify_kzg_for_rpc_block(rpc_block)
-                .unwrap()
-            else {
-                panic!("block should be available")
-            };
+            let range_sync_block = harness
+                .build_range_sync_block_from_store_blobs(Some(block_root), Arc::new(block.clone()));
+            let available_block = range_sync_block.into_available_block();
 
             let early_attestation = {
                 let proto_block = chain
@@ -240,13 +234,7 @@ async fn produces_attestations() {
                     .unwrap();
                 chain
                     .early_attester_cache
-                    .add_head_block(
-                        block_root,
-                        &available_block,
-                        proto_block,
-                        &state,
-                        &chain.spec,
-                    )
+                    .add_head_block(block_root, &available_block, proto_block, &state)
                     .unwrap();
                 chain
                     .early_attester_cache
@@ -293,17 +281,12 @@ async fn early_attester_cache_old_request() {
         .get_block(&head.beacon_block_root)
         .unwrap();
 
-    let rpc_block = harness
-        .build_rpc_block_from_store_blobs(Some(head.beacon_block_root), head.beacon_block.clone());
-    let beacon_chain::data_availability_checker::MaybeAvailableBlock::Available(available_block) =
-        harness
-            .chain
-            .data_availability_checker
-            .verify_kzg_for_rpc_block(rpc_block)
-            .unwrap()
-    else {
-        panic!("block should be available")
-    };
+    let available_block = harness
+        .build_range_sync_block_from_store_blobs(
+            Some(head.beacon_block_root),
+            head.beacon_block.clone(),
+        )
+        .into_available_block();
 
     harness
         .chain
@@ -313,7 +296,6 @@ async fn early_attester_cache_old_request() {
             &available_block,
             head_proto_block,
             &head.beacon_state,
-            &harness.chain.spec,
         )
         .unwrap();
 

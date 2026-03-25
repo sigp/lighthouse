@@ -14,7 +14,6 @@ use rayon::prelude::*;
 use std::cmp::max;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
 use environment::tracing_common;
 use tracing_subscriber::prelude::*;
@@ -175,8 +174,11 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     let latest_fork_version = spec.electra_fork_version;
     let latest_fork_start_epoch = ELECTRA_FORK_EPOCH;
 
-    spec.seconds_per_slot /= speed_up_factor;
-    spec.seconds_per_slot = max(1, spec.seconds_per_slot);
+    let mut slot_duration_ms = spec.get_slot_duration().as_millis() as u64;
+    slot_duration_ms /= speed_up_factor;
+    slot_duration_ms = max(1_000, slot_duration_ms);
+    spec = spec.set_slot_duration_ms::<MinimalEthSpec>(slot_duration_ms);
+
     spec.genesis_delay = genesis_delay;
     spec.min_genesis_time = 0;
     spec.min_genesis_active_validator_count = total_validator_count as u64;
@@ -188,7 +190,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     let spec = Arc::new(spec);
     env.eth2_config.spec = spec.clone();
 
-    let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+    let slot_duration = spec.get_slot_duration();
     let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
     let initial_validator_count = spec.min_genesis_active_validator_count as usize;
 
@@ -253,7 +255,6 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
                         network_1
                             .add_validator_client_with_fallbacks(
                                 validator_config,
-                                i,
                                 beacon_nodes,
                                 files,
                             )
@@ -362,7 +363,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
             network_1.add_beacon_node_with_delay(
                 beacon_config.clone(),
                 mock_execution_config.clone(),
-                END_EPOCH - 1,
+                END_EPOCH - 3,
                 slot_duration,
                 slots_per_epoch
             ),

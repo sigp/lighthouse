@@ -66,11 +66,12 @@ pub fn get_state_before_applying_block<T: BeaconChainTypes>(
         })
         .map_err(|e| custom_not_found(format!("Parent state is not available! {:?}", e)))?;
 
+    // TODO(gloas): handle payloads?
     let replayer = BlockReplayer::new(parent_state, &chain.spec)
         .no_signature_verification()
         .state_root_iter([Ok((parent_block.state_root(), parent_block.slot()))].into_iter())
         .minimal_block_root_verification()
-        .apply_blocks(vec![], Some(block.slot()))
+        .apply_blocks(vec![], vec![], Some(block.slot()))
         .map_err(unhandled_error::<BeaconChainError>)?;
 
     Ok(replayer.into_state())

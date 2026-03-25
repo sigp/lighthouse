@@ -1,9 +1,10 @@
+use bls::PublicKeyBytes;
 use serde::{Deserialize, Serialize};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 #[cfg(feature = "json")]
 use std::io;
-use types::{Epoch, Hash256, PublicKeyBytes, Slot};
+use types::{Epoch, Hash256, Slot};
 
 #[derive(Debug)]
 pub enum Error {
@@ -12,7 +13,7 @@ pub enum Error {
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct InterchangeMetadata {
     #[serde(with = "serde_utils::quoted_u64::require_quotes")]
     pub interchange_format_version: u64,
@@ -21,7 +22,7 @@ pub struct InterchangeMetadata {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct InterchangeData {
     pub pubkey: PublicKeyBytes,
     pub signed_blocks: Vec<SignedBlock>,
@@ -30,7 +31,7 @@ pub struct InterchangeData {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct SignedBlock {
     #[serde(with = "serde_utils::quoted_u64::require_quotes")]
     pub slot: Slot,
@@ -40,7 +41,7 @@ pub struct SignedBlock {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct SignedAttestation {
     #[serde(with = "serde_utils::quoted_u64::require_quotes")]
     pub source_epoch: Epoch,
@@ -51,7 +52,7 @@ pub struct SignedAttestation {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Interchange {
     pub metadata: InterchangeMetadata,
     pub data: Vec<InterchangeData>,
@@ -170,9 +171,9 @@ impl Interchange {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fixed_bytes::FixedBytesExtended;
     use std::fs::File;
     use tempfile::tempdir;
-    use types::FixedBytesExtended;
 
     fn get_interchange() -> Interchange {
         Interchange {

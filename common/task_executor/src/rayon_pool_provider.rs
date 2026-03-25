@@ -15,7 +15,7 @@ pub struct RayonPoolProvider {
     /// By default ~25% of CPUs or a minimum of 1 thread.
     low_priority_thread_pool: Arc<ThreadPool>,
     /// Larger rayon thread pool for high-priority, compute-intensive tasks.
-    /// By default ~80% of CPUs or a minimum of 1 thread. Citical/highest
+    /// By default ~80% of CPUs or a minimum of 1 thread. Critical/highest
     /// priority tasks should use the global pool instead.
     high_priority_thread_pool: Arc<ThreadPool>,
 }

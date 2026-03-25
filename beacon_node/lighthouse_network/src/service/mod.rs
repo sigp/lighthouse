@@ -21,11 +21,11 @@ use crate::types::{
 use crate::{Enr, NetworkGlobals, PubsubMessage, TopicHash, metrics};
 use api_types::{AppRequestId, Response};
 use futures::stream::StreamExt;
-use gossipsub::{
-    IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
+use gossipsub_scoring_parameters::{PeerScoreSettings, lighthouse_gossip_thresholds};
+use libp2p::gossipsub::{
+    self, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
     TopicScoreParams,
 };
-use gossipsub_scoring_parameters::{PeerScoreSettings, lighthouse_gossip_thresholds};
 use libp2p::identity::Keypair;
 use libp2p::multiaddr::{self, Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::behaviour::toggle::Toggle;
@@ -187,10 +187,9 @@ impl<E: EthSpec> Network<E> {
 
         // set up a collection of variables accessible outside of the network crate
         // Create an ENR or load from disk if appropriate
-        let next_fork_digest = ctx
-            .fork_context
-            .next_fork_digest()
-            .unwrap_or_else(|| ctx.fork_context.current_fork_digest());
+        // Per [spec](https://github.com/ethereum/consensus-specs/blob/1baa05e71148b0975e28918ac6022d2256b56f4a/specs/fulu/p2p-interface.md?plain=1#L636-L637)
+        // `nfd` must be zero-valued when no next fork is scheduled.
+        let next_fork_digest = ctx.fork_context.next_fork_digest().unwrap_or_default();
 
         let advertised_cgc = config
             .advertise_false_custody_group_count
@@ -199,7 +198,7 @@ impl<E: EthSpec> Network<E> {
             local_keypair.clone(),
             &config,
             &ctx.enr_fork_id,
-            Some(advertised_cgc),
+            advertised_cgc,
             next_fork_digest,
             &ctx.chain_spec,
         )?;
@@ -232,7 +231,7 @@ impl<E: EthSpec> Network<E> {
             config.network_load,
             ctx.fork_context.clone(),
             gossipsub_config_params,
-            ctx.chain_spec.seconds_per_slot,
+            ctx.chain_spec.get_slot_duration(),
             E::slots_per_epoch(),
             config.idontwant_message_size_threshold,
         );
@@ -240,13 +239,12 @@ impl<E: EthSpec> Network<E> {
         let score_settings = PeerScoreSettings::new(&ctx.chain_spec, gs_config.mesh_n());
 
         let gossip_cache = {
-            let slot_duration = std::time::Duration::from_secs(ctx.chain_spec.seconds_per_slot);
-            let half_epoch = std::time::Duration::from_secs(
-                ctx.chain_spec.seconds_per_slot * E::slots_per_epoch() / 2,
+            let half_epoch = std::time::Duration::from_millis(
+                (ctx.chain_spec.get_slot_duration().as_millis() as u64) * E::slots_per_epoch() / 2,
             );
 
             GossipCache::builder()
-                .beacon_block_timeout(slot_duration)
+                .beacon_block_timeout(ctx.chain_spec.get_slot_duration())
                 .aggregates_timeout(half_epoch)
                 .attestation_timeout(half_epoch)
                 .voluntary_exit_timeout(half_epoch * 2)
@@ -574,6 +572,7 @@ impl<E: EthSpec> Network<E> {
         };
 
         // attempt to connect to user-input libp2p nodes
+        // DEPRECATED: can be removed in v8.2.0./v9.0.0
         for multiaddr in &config.libp2p_nodes {
             dial(multiaddr.clone());
         }
@@ -1525,6 +1524,28 @@ impl<E: EthSpec> Network<E> {
                             request_type,
                         })
                     }
+                    RequestType::PayloadEnvelopesByRange(_) => {
+                        metrics::inc_counter_vec(
+                            &metrics::TOTAL_RPC_REQUESTS,
+                            &["payload_envelopes_by_range"],
+                        );
+                        Some(NetworkEvent::RequestReceived {
+                            peer_id,
+                            inbound_request_id,
+                            request_type,
+                        })
+                    }
+                    RequestType::PayloadEnvelopesByRoot(_) => {
+                        metrics::inc_counter_vec(
+                            &metrics::TOTAL_RPC_REQUESTS,
+                            &["payload_envelopes_by_root"],
+                        );
+                        Some(NetworkEvent::RequestReceived {
+                            peer_id,
+                            inbound_request_id,
+                            request_type,
+                        })
+                    }
                     RequestType::BlobsByRange(_) => {
                         metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_range"]);
                         Some(NetworkEvent::RequestReceived {
@@ -1639,6 +1660,16 @@ impl<E: EthSpec> Network<E> {
                     RpcSuccessResponse::BlocksByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRoot(Some(resp)))
                     }
+                    RpcSuccessResponse::PayloadEnvelopesByRange(resp) => self.build_response(
+                        id,
+                        peer_id,
+                        Response::PayloadEnvelopesByRange(Some(resp)),
+                    ),
+                    RpcSuccessResponse::PayloadEnvelopesByRoot(resp) => self.build_response(
+                        id,
+                        peer_id,
+                        Response::PayloadEnvelopesByRoot(Some(resp)),
+                    ),
                     RpcSuccessResponse::BlobsByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlobsByRoot(Some(resp)))
                     }
@@ -1673,6 +1704,12 @@ impl<E: EthSpec> Network<E> {
                 let response = match termination {
                     ResponseTermination::BlocksByRange => Response::BlocksByRange(None),
                     ResponseTermination::BlocksByRoot => Response::BlocksByRoot(None),
+                    ResponseTermination::PayloadEnvelopesByRange => {
+                        Response::PayloadEnvelopesByRange(None)
+                    }
+                    ResponseTermination::PayloadEnvelopesByRoot => {
+                        Response::PayloadEnvelopesByRoot(None)
+                    }
                     ResponseTermination::BlobsByRange => Response::BlobsByRange(None),
                     ResponseTermination::BlobsByRoot => Response::BlobsByRoot(None),
                     ResponseTermination::DataColumnsByRoot => Response::DataColumnsByRoot(None),
@@ -1764,9 +1801,9 @@ impl<E: EthSpec> Network<E> {
 
     fn inject_upnp_event(&mut self, event: libp2p::upnp::Event) {
         match event {
-            libp2p::upnp::Event::NewExternalAddr(addr) => {
-                info!(%addr, "UPnP route established");
-                let mut iter = addr.iter();
+            libp2p::upnp::Event::NewExternalAddr { external_addr, .. } => {
+                info!(%external_addr, "UPnP route established");
+                let mut iter = external_addr.iter();
                 let is_ip6 = {
                     let addr = iter.next();
                     matches!(addr, Some(MProtocol::Ip6(_)))
@@ -1781,7 +1818,7 @@ impl<E: EthSpec> Network<E> {
                             }
                         }
                         _ => {
-                            trace!(%addr, "UPnP address mapped multiaddr from unknown transport");
+                            trace!(%external_addr, "UPnP address mapped multiaddr from unknown transport");
                         }
                     },
                     Some(multiaddr::Protocol::Tcp(tcp_port)) => {
@@ -1790,11 +1827,11 @@ impl<E: EthSpec> Network<E> {
                         }
                     }
                     _ => {
-                        trace!(%addr, "UPnP address mapped multiaddr from unknown transport");
+                        trace!(%external_addr, "UPnP address mapped multiaddr from unknown transport");
                     }
                 }
             }
-            libp2p::upnp::Event::ExpiredExternalAddr(_) => {}
+            libp2p::upnp::Event::ExpiredExternalAddr { .. } => {}
             libp2p::upnp::Event::GatewayNotFound => {
                 info!("UPnP not available");
             }
@@ -1861,8 +1898,6 @@ impl<E: EthSpec> Network<E> {
                     self.inject_upnp_event(e);
                     None
                 }
-                #[allow(unreachable_patterns)]
-                BehaviourEvent::ConnectionLimits(le) => libp2p::core::util::unreachable(le),
             },
             SwarmEvent::ConnectionEstablished { .. } => None,
             SwarmEvent::ConnectionClosed { .. } => None,
