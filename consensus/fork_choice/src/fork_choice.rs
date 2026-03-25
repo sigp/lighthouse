@@ -1285,7 +1285,7 @@ where
         //  2. Ignore all attestations to the zero hash.
         //
         // (1) becomes weird once we hit finality and fork choice drops the genesis block. (2) is
-        // fine because votes to the genesis block are not useful; all validators implicitly attest
+        // fine because votes.gloas_enabled() to the genesis block are not useful; all validators implicitly attest
         // to genesis just by being present in the chain.
         if attestation.data().beacon_block_root == Hash256::zero() {
             return Ok(());
@@ -1293,8 +1293,11 @@ where
 
         self.validate_on_attestation(attestation, is_from_block, spec)?;
 
-        // Per GLOAS spec: `payload_present = attestation.data.index == 1`.
-        let payload_present = attestation.data().index == 1;
+        // Per Gloas spec: `payload_present = attestation.data.index == 1`.
+        let payload_present = spec
+            .fork_name_at_slot::<E>(attestation.data().slot)
+            .gloas_enabled()
+            && attestation.data().index == 1;
 
         if attestation.data().slot < self.fc_store.get_current_slot() {
             for validator_index in attestation.attesting_indices_iter() {
