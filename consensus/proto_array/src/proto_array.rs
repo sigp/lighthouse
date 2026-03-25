@@ -1217,14 +1217,7 @@ impl ProtoArray {
             return false;
         };
 
-        // Nodes with invalid execution payloads are never viable.
-        // (The spec doesn't need this check because invalid blocks aren't in store.blocks.)
-        if node
-            .execution_status()
-            .is_ok_and(|status| status.is_invalid())
-        {
-            return false;
-        }
+
 
         // Skip invalid children — they aren't in store.blocks in the spec.
         let children: Vec<usize> = self
