@@ -608,6 +608,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // was last run.
         let old_view = ForkChoiceView {
             head_block_root: old_cached_head.head_block_root(),
+            head_payload_status: old_cached_head.head_payload_status(),
             justified_checkpoint: old_cached_head.justified_checkpoint(),
             finalized_checkpoint: old_cached_head.finalized_checkpoint(),
         };

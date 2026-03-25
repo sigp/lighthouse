@@ -1200,11 +1200,8 @@ impl ProtoArray {
         };
 
         // Compute once rather than per-child per-level.
-        let apply_proposer_boost = self.should_apply_proposer_boost::<E>(
-            proposer_boost_root,
-            justified_balances,
-            spec,
-        )?;
+        let apply_proposer_boost =
+            self.should_apply_proposer_boost::<E>(proposer_boost_root, justified_balances, spec)?;
 
         loop {
             let children: Vec<_> = self
@@ -1373,9 +1370,7 @@ impl ProtoArray {
             }
 
             child_index = current_index;
-            current_index = current
-                .parent()
-                .ok_or(Error::NodeUnknown(current.root()))?;
+            current_index = current.parent().ok_or(Error::NodeUnknown(current.root()))?;
         }
     }
 

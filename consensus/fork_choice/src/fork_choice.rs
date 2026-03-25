@@ -342,6 +342,7 @@ pub struct ForkchoiceUpdateParameters {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ForkChoiceView {
     pub head_block_root: Hash256,
+    pub head_payload_status: PayloadStatus,
     pub justified_checkpoint: Checkpoint,
     pub finalized_checkpoint: Checkpoint,
 }
@@ -674,6 +675,7 @@ where
     pub fn cached_fork_choice_view(&self) -> ForkChoiceView {
         ForkChoiceView {
             head_block_root: self.forkchoice_update_parameters.head_root,
+            head_payload_status: self.forkchoice_update_parameters.head_payload_status,
             justified_checkpoint: self.justified_checkpoint(),
             finalized_checkpoint: self.finalized_checkpoint(),
         }
