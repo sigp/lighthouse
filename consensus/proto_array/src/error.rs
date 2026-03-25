@@ -60,6 +60,7 @@ pub enum Error {
     BrokenBlock {
         block_root: Hash256,
     },
+    NoViableChildren,
 }
 
 impl From<ArithError> for Error {

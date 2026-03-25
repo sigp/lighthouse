@@ -1338,7 +1338,7 @@ impl ProtoArray {
                     (*weight, child.root, *payload_status_tiebreaker)
                 })
                 .map(|(child, _, _)| child)
-                .expect("children is non-empty");
+                .ok_or(Error::NoViableChildren)?;
         }
     }
 
