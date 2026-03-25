@@ -503,6 +503,10 @@ impl ProtoArray {
             }
         }
 
+        // Proposer boost is now applied on-the-fly in `get_weight` during the
+        // walk, so clear any stale boost from a prior call.
+        self.previous_proposer_boost = ProposerBoost::default();
+
         // A second time, iterate backwards through all indices in `self.nodes`.
         //
         // We _must_ perform these functions separate from the weight-updating loop above to ensure
@@ -1195,6 +1199,13 @@ impl ProtoArray {
             payload_status: PayloadStatus::Pending,
         };
 
+        // Compute once rather than per-child per-level.
+        let apply_proposer_boost = self.should_apply_proposer_boost::<E>(
+            proposer_boost_root,
+            justified_balances,
+            spec,
+        )?;
+
         loop {
             let children: Vec<_> = self
                 .get_node_children(&head)?
@@ -1226,6 +1237,7 @@ impl ProtoArray {
                     let weight = self.get_weight::<E>(
                         &child,
                         proto_node,
+                        apply_proposer_boost,
                         proposer_boost_root,
                         current_slot,
                         justified_balances,
@@ -1250,10 +1262,12 @@ impl ProtoArray {
     }
 
     /// Spec: `get_weight`.
+    #[allow(clippy::too_many_arguments)]
     fn get_weight<E: EthSpec>(
         &self,
         fc_node: &IndexedForkChoiceNode,
         proto_node: &ProtoNode,
+        apply_proposer_boost: bool,
         proposer_boost_root: Hash256,
         current_slot: Slot,
         justified_balances: &JustifiedBalances,
@@ -1264,11 +1278,7 @@ impl ProtoArray {
         {
             let attestation_score = proto_node.attestation_score(fc_node.payload_status);
 
-            if !self.should_apply_proposer_boost::<E>(
-                proposer_boost_root,
-                justified_balances,
-                spec,
-            )? {
+            if !apply_proposer_boost {
                 return Ok(attestation_score);
             }
 
@@ -1305,6 +1315,9 @@ impl ProtoArray {
             if node.payload_status == PayloadStatus::Pending {
                 return Ok(true);
             }
+            // For the proposer boost case: message.slot == current_slot == block.slot,
+            // so this returns false — boost does not support EMPTY/FULL of the
+            // boosted block itself, only its ancestors.
             if message.slot <= block.slot() {
                 return Ok(false);
             }
@@ -1339,7 +1352,7 @@ impl ProtoArray {
 
         // Walk up until we find the ancestor at `slot`.
         let mut child_index = index;
-        let mut current_index = block.parent().ok_or(Error::NodeUnknown(root))?;
+        let mut current_index = block.parent().ok_or(Error::NodeUnknown(block.root()))?;
 
         loop {
             let current = self
@@ -1360,7 +1373,9 @@ impl ProtoArray {
             }
 
             child_index = current_index;
-            current_index = current.parent().ok_or(Error::NodeUnknown(root))?;
+            current_index = current
+                .parent()
+                .ok_or(Error::NodeUnknown(current.root()))?;
         }
     }
 
