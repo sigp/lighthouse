@@ -797,6 +797,11 @@ where
         let attestation_threshold = spec.get_unaggregated_attestation_due();
 
         // Add proposer score boost if the block is timely.
+        // TODO(gloas): the spec's `update_proposer_boost_root` additionally checks that
+        // `block.proposer_index == get_beacon_proposer_index(head_state)` — i.e. that
+        // the block's proposer matches the expected proposer on the canonical chain.
+        // This requires calling `get_head` and advancing the head state to the current
+        // slot, which is expensive. Implement once we have a cached proposer index.
         let is_before_attesting_interval = block_delay < attestation_threshold;
 
         let is_first_block = self.fc_store.proposer_boost_root().is_zero();
@@ -1001,6 +1006,7 @@ where
             self.justified_checkpoint(),
             self.finalized_checkpoint(),
             spec,
+            block_delay,
         )?;
 
         Ok(())

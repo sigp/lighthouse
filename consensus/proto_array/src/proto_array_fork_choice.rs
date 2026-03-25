@@ -14,6 +14,7 @@ use ssz_derive::{Decode, Encode};
 use std::{
     collections::{BTreeSet, HashMap},
     fmt,
+    time::Duration,
 };
 use types::{
     AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
@@ -73,6 +74,16 @@ pub struct IndexedForkChoiceNode {
     pub root: Hash256,
     pub proto_node_index: usize,
     pub payload_status: PayloadStatus,
+}
+
+impl IndexedForkChoiceNode {
+    pub fn with_status(&self, payload_status: PayloadStatus) -> Self {
+        Self {
+            root: self.root,
+            proto_node_index: self.proto_node_index,
+            payload_status,
+        }
+    }
 }
 
 impl ExecutionStatus {
@@ -491,6 +502,10 @@ impl ProtoArrayForkChoice {
                 justified_checkpoint,
                 finalized_checkpoint,
                 spec,
+                // Anchor block is always timely (delay=0 ensures both timeliness
+                // checks pass). Combined with `is_genesis` override in on_block,
+                // this matches spec's `block_timeliness = {anchor: [True, True]}`.
+                Duration::ZERO,
             )
             .map_err(|e| format!("Failed to add finalized block to proto_array: {:?}", e))?;
 
@@ -590,6 +605,7 @@ impl ProtoArrayForkChoice {
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
         spec: &ChainSpec,
+        time_into_slot: Duration,
     ) -> Result<(), String> {
         if block.parent_root.is_none() {
             return Err("Missing parent root".to_string());
@@ -602,6 +618,7 @@ impl ProtoArrayForkChoice {
                 justified_checkpoint,
                 finalized_checkpoint,
                 spec,
+                time_into_slot,
             )
             .map_err(|e| format!("process_block_error: {:?}", e))
     }
@@ -705,8 +722,10 @@ impl ProtoArrayForkChoice {
             .into());
         }
 
-        // Only re-org if the parent's weight is greater than the parents configured committee fraction.
-        let parent_weight = info.parent_node.weight();
+        // Spec: `is_parent_strong`. Use payload-aware weight matching the
+        // payload path the head node is on from its parent.
+        let parent_payload_status = info.head_node.get_parent_payload_status();
+        let parent_weight = info.parent_node.attestation_score(parent_payload_status);
         let re_org_parent_weight_threshold = info.re_org_parent_weight_threshold;
         let parent_strong = parent_weight > re_org_parent_weight_threshold;
         if !parent_strong {
@@ -1130,6 +1149,7 @@ fn compute_deltas(
             delta: 0,
             empty_delta: 0,
             full_delta: 0,
+            equivocating_attestation_delta: 0,
         };
         indices.len()
     ];
@@ -1171,6 +1191,11 @@ fn compute_deltas(
                         block_slot(current_delta_index)?,
                     );
                     node_delta.sub_payload_delta(status, old_balance, current_delta_index)?;
+
+                    // Track equivocating weight for `is_head_weak` monotonicity.
+                    node_delta.equivocating_attestation_delta = node_delta
+                        .equivocating_attestation_delta
+                        .saturating_add(old_balance);
                 }
 
                 vote.current_root = Hash256::zero();
@@ -1322,6 +1347,7 @@ mod test_compute_deltas {
                 genesis_checkpoint,
                 genesis_checkpoint,
                 &spec,
+                Duration::ZERO,
             )
             .unwrap();
 
@@ -1351,6 +1377,7 @@ mod test_compute_deltas {
                 genesis_checkpoint,
                 genesis_checkpoint,
                 &spec,
+                Duration::ZERO,
             )
             .unwrap();
 
@@ -1487,6 +1514,7 @@ mod test_compute_deltas {
                     genesis_checkpoint,
                     genesis_checkpoint,
                     &spec,
+                    Duration::ZERO,
                 )
                 .unwrap();
         };

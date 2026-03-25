@@ -10,6 +10,7 @@ use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
 use ssz::BitVector;
 use std::collections::BTreeSet;
+use std::time::Duration;
 use types::{
     AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
     MainnetEthSpec, Slot,
@@ -288,6 +289,7 @@ impl ForkChoiceTestDefinition {
                             self.justified_checkpoint,
                             self.finalized_checkpoint,
                             &spec,
+                            Duration::ZERO,
                         )
                         .unwrap_or_else(|e| {
                             panic!(

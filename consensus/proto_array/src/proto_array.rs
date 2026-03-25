@@ -1,6 +1,8 @@
 use crate::error::InvalidBestNodeInfo;
 use crate::proto_array_fork_choice::IndexedForkChoiceNode;
-use crate::{Block, ExecutionStatus, JustifiedBalances, PayloadStatus, error::Error};
+use crate::{
+    Block, ExecutionStatus, JustifiedBalances, LatestMessage, PayloadStatus, error::Error,
+};
 use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
 use ssz::BitVector;
@@ -8,6 +10,7 @@ use ssz::Encode;
 use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
 use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 use superstruct::superstruct;
 use typenum::U512;
 use types::{
@@ -19,6 +22,14 @@ use types::{
 // selector.
 four_byte_option_impl!(four_byte_option_usize, usize);
 four_byte_option_impl!(four_byte_option_checkpoint, Checkpoint);
+
+fn all_true_bitvector<N: typenum::Unsigned + Clone>() -> BitVector<N> {
+    let mut bv = BitVector::new();
+    for i in 0..bv.len() {
+        let _ = bv.set(i, true);
+    }
+    bv
+}
 
 /// Defines an operation which may invalidate the `execution_status` of some nodes.
 #[derive(Clone, Debug)]
@@ -160,22 +171,27 @@ pub struct ProtoNode {
     /// to detect equivocations at the parent's slot.
     #[superstruct(only(V29), partial_getter(copy))]
     pub proposer_index: u64,
+    /// Weight from equivocating validators that voted for this block.
+    /// Used by `is_head_weak` to match the spec's monotonicity guarantee:
+    /// more attestations can only increase head weight, never decrease it.
+    #[superstruct(only(V29), partial_getter(copy))]
+    pub equivocating_attestation_score: u64,
 }
 
 impl ProtoNode {
     /// Generic version of spec's `parent_payload_status` that works for pre-Gloas nodes by
     /// considering their parents Empty.
-    fn get_parent_payload_status(&self) -> PayloadStatus {
+    /// Pre-Gloas nodes have no ePBS, default to Empty.
+    pub fn get_parent_payload_status(&self) -> PayloadStatus {
         self.parent_payload_status().unwrap_or(PayloadStatus::Empty)
     }
 
-    fn is_parent_node_full(&self) -> bool {
+    pub fn is_parent_node_full(&self) -> bool {
         self.get_parent_payload_status() == PayloadStatus::Full
     }
 
-    fn attestation_score(&self, payload_status: PayloadStatus) -> u64 {
+    pub fn attestation_score(&self, payload_status: PayloadStatus) -> u64 {
         match payload_status {
-            // TODO(gloas): rename weight and remove proposer boost from it?
             PayloadStatus::Pending => self.weight(),
             PayloadStatus::Empty => self.empty_payload_weight().unwrap_or(0),
             PayloadStatus::Full => self.full_payload_weight().unwrap_or(0),
@@ -187,8 +203,7 @@ impl ProtoNode {
             return false;
         };
 
-        // If the payload is not locally available, the payload
-        // is not considered available regardless of the PTC vote
+        // Equivalent to `if root not in store.payload_states` in the spec.
         if !node.payload_received {
             return false;
         }
@@ -201,8 +216,7 @@ impl ProtoNode {
             return false;
         };
 
-        // If the payload is not locally available, the payload
-        // is not considered available regardless of the PTC vote
+        // Equivalent to `if root not in store.payload_states` in the spec.
         if !node.payload_received {
             return false;
         }
@@ -252,6 +266,8 @@ pub struct NodeDelta {
     pub empty_delta: i64,
     /// Weight change from `PayloadStatus::Full` votes.
     pub full_delta: i64,
+    /// Weight from equivocating validators that voted for this node.
+    pub equivocating_attestation_delta: u64,
 }
 
 impl NodeDelta {
@@ -308,6 +324,7 @@ impl NodeDelta {
             delta,
             empty_delta: 0,
             full_delta: 0,
+            equivocating_attestation_delta: 0,
         }
     }
 
@@ -370,10 +387,10 @@ impl ProtoArray {
         mut deltas: Vec<NodeDelta>,
         best_justified_checkpoint: Checkpoint,
         best_finalized_checkpoint: Checkpoint,
-        new_justified_balances: &JustifiedBalances,
-        proposer_boost_root: Hash256,
+        _new_justified_balances: &JustifiedBalances,
+        _proposer_boost_root: Hash256,
         current_slot: Slot,
-        spec: &ChainSpec,
+        _spec: &ChainSpec,
     ) -> Result<(), Error> {
         if deltas.len() != self.indices.len() {
             return Err(Error::InvalidDeltaLen {
@@ -381,9 +398,6 @@ impl ProtoArray {
                 indices: self.indices.len(),
             });
         }
-
-        // Default the proposer boost score to zero.
-        let mut proposer_score = 0;
 
         // Iterate backwards through all indices in `self.nodes`.
         for node_index in (0..self.nodes.len()).rev() {
@@ -412,7 +426,7 @@ impl ProtoArray {
                 .copied()
                 .ok_or(Error::InvalidNodeDelta(node_index))?;
 
-            let mut delta = if execution_status_is_invalid {
+            let delta = if execution_status_is_invalid {
                 // If the node has an invalid execution payload, reduce its weight to zero.
                 0_i64
                     .checked_sub(node.weight() as i64)
@@ -427,37 +441,9 @@ impl ProtoArray {
                 (0, 0)
             };
 
-            // If we find the node for which the proposer boost was previously applied, decrease
-            // the delta by the previous score amount.
-            // TODO(gloas): implement `should_apply_proposer_boost` from the Gloas spec.
-            // The spec conditionally applies proposer boost based on parent weakness and
-            // early equivocations. Currently boost is applied unconditionally.
-            if self.previous_proposer_boost.root != Hash256::zero()
-                && self.previous_proposer_boost.root == node.root()
-                // Invalid nodes will always have a weight of zero so there's no need to subtract
-                // the proposer boost delta.
-                && !execution_status_is_invalid
-            {
-                delta = delta
-                    .checked_sub(self.previous_proposer_boost.score as i64)
-                    .ok_or(Error::DeltaOverflow(node_index))?;
-            }
-            // If we find the node matching the current proposer boost root, increase
-            // the delta by the new score amount (unless the block has an invalid execution status).
-            // For Gloas (V29), `should_apply_proposer_boost` is checked after the loop
-            // with final weights, and the boost is removed if needed.
-            if let Some(proposer_score_boost) = spec.proposer_score_boost
-                && proposer_boost_root != Hash256::zero()
-                && proposer_boost_root == node.root()
-                && !execution_status_is_invalid
-            {
-                proposer_score =
-                    calculate_committee_fraction::<E>(new_justified_balances, proposer_score_boost)
-                        .ok_or(Error::ProposerBoostOverflow(node_index))?;
-                delta = delta
-                    .checked_add(proposer_score as i64)
-                    .ok_or(Error::DeltaOverflow(node_index))?;
-            }
+            // Proposer boost is NOT applied here. It is computed on-the-fly
+            // during the virtual tree walk in `get_weight`, matching the spec's
+            // `get_weight` which adds boost separately from `get_attestation_score`.
 
             // Apply the delta to the node.
             if execution_status_is_invalid {
@@ -473,6 +459,9 @@ impl ProtoArray {
                     apply_delta(node.empty_payload_weight, node_empty_delta, node_index)?;
                 node.full_payload_weight =
                     apply_delta(node.full_payload_weight, node_full_delta, node_index)?;
+                node.equivocating_attestation_score = node
+                    .equivocating_attestation_score
+                    .saturating_add(node_delta.equivocating_attestation_delta);
             }
 
             // Update the parent delta (if any).
@@ -514,67 +503,6 @@ impl ProtoArray {
             }
         }
 
-        // Gloas: now that all weights are final, check `should_apply_proposer_boost`.
-        // If the boost should NOT apply, walk from the boosted node to root and subtract
-        // `proposer_score` from weight and payload weights in a single pass.
-        // We detect Gloas by checking the boosted node's variant (V29) directly.
-        if proposer_score > 0
-            && let Some(&boost_index) = self.indices.get(&proposer_boost_root)
-            && self
-                .nodes
-                .get(boost_index)
-                .is_some_and(|n| n.as_v29().is_ok())
-            && !self.should_apply_proposer_boost::<E>(
-                proposer_boost_root,
-                new_justified_balances,
-                spec,
-            )?
-        {
-            // Single walk: subtract proposer_score from weight and payload weights.
-            let mut walk_index = Some(boost_index);
-            let mut child_payload_status: Option<PayloadStatus> = None;
-            while let Some(idx) = walk_index {
-                let node = self
-                    .nodes
-                    .get_mut(idx)
-                    .ok_or(Error::InvalidNodeIndex(idx))?;
-
-                *node.weight_mut() = node
-                    .weight()
-                    .checked_sub(proposer_score)
-                    .ok_or(Error::DeltaOverflow(idx))?;
-
-                // Subtract from the payload bucket that the child-on-path
-                // contributed to (based on the child's parent_payload_status).
-                if let Some(child_ps) = child_payload_status
-                    && let Ok(v29) = node.as_v29_mut()
-                {
-                    if child_ps == PayloadStatus::Full {
-                        v29.full_payload_weight = v29
-                            .full_payload_weight
-                            .checked_sub(proposer_score)
-                            .ok_or(Error::DeltaOverflow(idx))?;
-                    } else {
-                        v29.empty_payload_weight = v29
-                            .empty_payload_weight
-                            .checked_sub(proposer_score)
-                            .ok_or(Error::DeltaOverflow(idx))?;
-                    }
-                }
-
-                child_payload_status = node.parent_payload_status().ok();
-                walk_index = node.parent();
-            }
-
-            proposer_score = 0;
-        }
-
-        // After applying all deltas, update the `previous_proposer_boost`.
-        self.previous_proposer_boost = ProposerBoost {
-            root: proposer_boost_root,
-            score: proposer_score,
-        };
-
         // A second time, iterate backwards through all indices in `self.nodes`.
         //
         // We _must_ perform these functions separate from the weight-updating loop above to ensure
@@ -611,6 +539,7 @@ impl ProtoArray {
         best_justified_checkpoint: Checkpoint,
         best_finalized_checkpoint: Checkpoint,
         spec: &ChainSpec,
+        time_into_slot: Duration,
     ) -> Result<(), Error> {
         // If the block is already known, simply ignore it.
         if self.indices.contains_key(&block.root) {
@@ -642,6 +571,8 @@ impl ProtoArray {
                 unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint,
             })
         } else {
+            let is_current_slot = current_slot == block.slot;
+
             let execution_payload_block_hash =
                 block
                     .execution_payload_block_hash
@@ -712,28 +643,27 @@ impl ProtoArray {
                 // initialized to all-True, ensuring `is_payload_timely` and
                 // `is_payload_data_available` return true for the anchor.
                 payload_timeliness_votes: if is_genesis {
-                    let mut bv = BitVector::new();
-                    for i in 0..bv.len() {
-                        let _ = bv.set(i, true);
-                    }
-                    bv
+                    all_true_bitvector()
                 } else {
                     BitVector::default()
                 },
                 payload_data_availability_votes: if is_genesis {
-                    let mut bv = BitVector::new();
-                    for i in 0..bv.len() {
-                        let _ = bv.set(i, true);
-                    }
-                    bv
+                    all_true_bitvector()
                 } else {
                     BitVector::default()
                 },
                 payload_received: is_genesis,
                 proposer_index: block.proposer_index.unwrap_or(0),
-                // TODO(gloas): initialise these based on block timing
-                block_timeliness_attestation_threshold: false,
-                block_timeliness_ptc_threshold: false,
+                // Spec: `record_block_timeliness` + `get_forkchoice_store`.
+                // Anchor gets [True, True]. Others computed from time_into_slot.
+                block_timeliness_attestation_threshold: is_genesis
+                    || (is_current_slot
+                        && time_into_slot < spec.get_unaggregated_attestation_due()),
+                // TODO(gloas): use GLOAS-specific PTC due threshold once
+                // `get_payload_attestation_due_ms` is on ChainSpec.
+                block_timeliness_ptc_threshold: is_genesis
+                    || (is_current_slot && time_into_slot < spec.get_slot_duration() / 2),
+                equivocating_attestation_score: 0,
             })
         };
 
@@ -776,6 +706,12 @@ impl ProtoArray {
         Ok(())
     }
 
+    /// Spec: `is_head_weak`.
+    ///
+    /// The spec adds weight from equivocating validators in the head slot's
+    /// committees. We approximate this with `equivocating_attestation_score`
+    /// which tracks equivocating validators that voted for this block (close
+    /// but not identical to committee membership).
     fn is_head_weak<E: EthSpec>(
         &self,
         head_node: &ProtoNode,
@@ -788,11 +724,10 @@ impl ProtoArray {
         )
         .unwrap_or(0);
 
-        let head_weight = head_node.attestation_score(PayloadStatus::Pending);
+        let head_weight = head_node
+            .attestation_score(PayloadStatus::Pending)
+            .saturating_add(head_node.equivocating_attestation_score().unwrap_or(0));
 
-        // TODO(gloas): missing equivocating weight from spec
-        // idea: add equivocating_attestation_score on the proto node that is updated whenever
-        // an equivocation is processed.
         head_weight < reorg_threshold
     }
 
@@ -1207,7 +1142,7 @@ impl ProtoArray {
         // In the post-Gloas world, always use a virtual tree walk.
         //
         // Best child/best descendant is dead.
-        let (best_fc_node, best_node) = self.find_head_walk::<E>(
+        let best_fc_node = self.find_head_walk::<E>(
             justified_index,
             current_slot,
             best_justified_checkpoint,
@@ -1218,8 +1153,12 @@ impl ProtoArray {
         )?;
 
         // Perform a sanity check that the node is indeed valid to be the head.
+        let best_node = self
+            .nodes
+            .get(best_fc_node.proto_node_index)
+            .ok_or(Error::InvalidNodeIndex(best_fc_node.proto_node_index))?;
         if !self.node_is_viable_for_head::<E>(
-            &best_node,
+            best_node,
             current_slot,
             best_justified_checkpoint,
             best_finalized_checkpoint,
@@ -1238,80 +1177,79 @@ impl ProtoArray {
         Ok((best_fc_node.root, best_fc_node.payload_status))
     }
 
-    /// Virtual tree walk for `find_head`.
-    ///
-    /// At each node, determine the preferred payload direction (FULL or EMPTY)
-    /// by comparing weights. Scan all nodes to find the best child matching
-    /// the preferred direction.
+    /// Spec: `get_head`.
     #[allow(clippy::too_many_arguments)]
     fn find_head_walk<E: EthSpec>(
         &self,
         start_index: usize,
         current_slot: Slot,
         best_justified_checkpoint: Checkpoint,
-        _best_finalized_checkpoint: Checkpoint,
+        best_finalized_checkpoint: Checkpoint,
         proposer_boost_root: Hash256,
         justified_balances: &JustifiedBalances,
         spec: &ChainSpec,
-    ) -> Result<(IndexedForkChoiceNode, ProtoNode), Error> {
+    ) -> Result<IndexedForkChoiceNode, Error> {
         let mut head = IndexedForkChoiceNode {
             root: best_justified_checkpoint.root,
             proto_node_index: start_index,
             payload_status: PayloadStatus::Pending,
         };
-        let mut head_proto_node = self
-            .nodes
-            .get(start_index)
-            .ok_or(Error::NodeUnknown(best_justified_checkpoint.root))?
-            .clone();
 
         loop {
-            let children = self.get_node_children(&head)?;
+            let children: Vec<_> = self
+                .get_node_children(&head)?
+                .into_iter()
+                .filter(|(_, proto_node)| {
+                    // Spec: `get_filtered_block_tree` pre-filters to only include
+                    // blocks on viable branches. We approximate this by checking
+                    // viability of each child during the walk.
+                    self.node_is_viable_for_head::<E>(
+                        proto_node,
+                        current_slot,
+                        best_justified_checkpoint,
+                        best_finalized_checkpoint,
+                    )
+                })
+                .collect();
 
             if children.is_empty() {
-                break;
+                return Ok(head);
             }
 
-            let scores = children
+            head = children
                 .into_iter()
-                .map(|(child_fc_node, child_proto_node)| {
+                .map(|(child, _)| -> Result<_, Error> {
+                    let proto_node = self
+                        .nodes
+                        .get(child.proto_node_index)
+                        .ok_or(Error::InvalidNodeIndex(child.proto_node_index))?;
                     let weight = self.get_weight::<E>(
-                        &child_fc_node,
-                        &child_proto_node,
+                        &child,
+                        proto_node,
                         proposer_boost_root,
                         current_slot,
                         justified_balances,
                         spec,
                     )?;
                     let payload_status_tiebreaker = self.get_payload_status_tiebreaker::<E>(
-                        &child_fc_node,
-                        &child_proto_node,
+                        &child,
+                        proto_node,
                         current_slot,
                         proposer_boost_root,
                     )?;
-                    Ok((
-                        child_fc_node,
-                        child_proto_node,
-                        weight,
-                        payload_status_tiebreaker,
-                    ))
+                    Ok((child, weight, payload_status_tiebreaker))
                 })
-                .collect::<Result<Vec<_>, Error>>()?;
-            // TODO(gloas): proper error
-            (head, head_proto_node) = scores
+                .collect::<Result<Vec<_>, Error>>()?
                 .into_iter()
-                .max_by_key(
-                    |(child_fc_node, _proto_node, weight, payload_status_tiebreaker)| {
-                        (*weight, child_fc_node.root, *payload_status_tiebreaker)
-                    },
-                )
-                .map(|(child_fc_node, child_proto_node, _, _)| (child_fc_node, child_proto_node))
-                .unwrap();
+                .max_by_key(|(child, weight, payload_status_tiebreaker)| {
+                    (*weight, child.root, *payload_status_tiebreaker)
+                })
+                .map(|(child, _, _)| child)
+                .expect("children is non-empty");
         }
-
-        Ok((head, head_proto_node))
     }
 
+    /// Spec: `get_weight`.
     fn get_weight<E: EthSpec>(
         &self,
         fc_node: &IndexedForkChoiceNode,
@@ -1334,19 +1272,99 @@ impl ProtoArray {
                 return Ok(attestation_score);
             }
 
-            // TODO(gloas): I don't think `is_supporting_vote` is necessary here, confirm by
-            // checking spec tests or with spec authors.
-            let proposer_score = if proto_node.root() == proposer_boost_root {
+            // Spec: proposer boost is treated as a synthetic vote.
+            let message = LatestMessage {
+                slot: current_slot,
+                root: proposer_boost_root,
+                payload_present: false,
+            };
+            let proposer_score = if self.is_supporting_vote(fc_node, &message)? {
                 get_proposer_score::<E>(justified_balances, spec)?
             } else {
                 0
             };
+
             Ok(attestation_score.saturating_add(proposer_score))
         } else {
             Ok(0)
         }
     }
 
+    /// Spec: `is_supporting_vote`.
+    fn is_supporting_vote(
+        &self,
+        node: &IndexedForkChoiceNode,
+        message: &LatestMessage,
+    ) -> Result<bool, Error> {
+        let block = self
+            .nodes
+            .get(node.proto_node_index)
+            .ok_or(Error::InvalidNodeIndex(node.proto_node_index))?;
+
+        if node.root == message.root {
+            if node.payload_status == PayloadStatus::Pending {
+                return Ok(true);
+            }
+            if message.slot <= block.slot() {
+                return Ok(false);
+            }
+            if message.payload_present {
+                Ok(node.payload_status == PayloadStatus::Full)
+            } else {
+                Ok(node.payload_status == PayloadStatus::Empty)
+            }
+        } else {
+            let ancestor = self.get_ancestor_node(message.root, block.slot())?;
+            Ok(node.root == ancestor.root
+                && (node.payload_status == PayloadStatus::Pending
+                    || node.payload_status == ancestor.payload_status))
+        }
+    }
+
+    /// Spec: `get_ancestor` (modified to return ForkChoiceNode with payload_status).
+    fn get_ancestor_node(&self, root: Hash256, slot: Slot) -> Result<IndexedForkChoiceNode, Error> {
+        let index = *self.indices.get(&root).ok_or(Error::NodeUnknown(root))?;
+        let block = self
+            .nodes
+            .get(index)
+            .ok_or(Error::InvalidNodeIndex(index))?;
+
+        if block.slot() <= slot {
+            return Ok(IndexedForkChoiceNode {
+                root,
+                proto_node_index: index,
+                payload_status: PayloadStatus::Pending,
+            });
+        }
+
+        // Walk up until we find the ancestor at `slot`.
+        let mut child_index = index;
+        let mut current_index = block.parent().ok_or(Error::NodeUnknown(root))?;
+
+        loop {
+            let current = self
+                .nodes
+                .get(current_index)
+                .ok_or(Error::InvalidNodeIndex(current_index))?;
+
+            if current.slot() <= slot {
+                let child = self
+                    .nodes
+                    .get(child_index)
+                    .ok_or(Error::InvalidNodeIndex(child_index))?;
+                return Ok(IndexedForkChoiceNode {
+                    root: current.root(),
+                    proto_node_index: current_index,
+                    payload_status: child.get_parent_payload_status(),
+                });
+            }
+
+            child_index = current_index;
+            current_index = current.parent().ok_or(Error::NodeUnknown(root))?;
+        }
+    }
+
+    /// Spec: `get_node_children`.
     fn get_node_children(
         &self,
         node: &IndexedForkChoiceNode,
@@ -1355,30 +1373,15 @@ impl ProtoArray {
             let proto_node = self
                 .nodes
                 .get(node.proto_node_index)
-                .ok_or(Error::InvalidNodeIndex(node.proto_node_index))?
-                .clone();
-            let mut children = vec![(
-                IndexedForkChoiceNode {
-                    root: node.root,
-                    proto_node_index: node.proto_node_index,
-                    payload_status: PayloadStatus::Empty,
-                },
-                proto_node.clone(),
-            )];
+                .ok_or(Error::InvalidNodeIndex(node.proto_node_index))?;
+            let mut children = vec![(node.with_status(PayloadStatus::Empty), proto_node.clone())];
             // The FULL virtual child only exists if the payload has been received.
             if proto_node.payload_received().is_ok_and(|received| received) {
-                children.push((
-                    IndexedForkChoiceNode {
-                        root: node.root,
-                        proto_node_index: node.proto_node_index,
-                        payload_status: PayloadStatus::Full,
-                    },
-                    proto_node,
-                ));
+                children.push((node.with_status(PayloadStatus::Full), proto_node.clone()));
             }
             Ok(children)
         } else {
-            let children = self
+            Ok(self
                 .nodes
                 .iter()
                 .enumerate()
@@ -1396,8 +1399,7 @@ impl ProtoArray {
                         child_node.clone(),
                     )
                 })
-                .collect();
-            Ok(children)
+                .collect())
         }
     }
 
@@ -1427,8 +1429,10 @@ impl ProtoArray {
         proto_node: &ProtoNode,
         proposer_boost_root: Hash256,
     ) -> Result<bool, Error> {
+        // Per spec: `proposer_root == Root()` is one of the `or` conditions that
+        // makes `should_extend_payload` return True.
         if proposer_boost_root.is_zero() {
-            return Ok(false);
+            return Ok(true);
         }
 
         let proposer_boost_node_index = *self
@@ -1440,20 +1444,18 @@ impl ProtoArray {
             .get(proposer_boost_node_index)
             .ok_or(Error::InvalidNodeIndex(proposer_boost_node_index))?;
 
-        // Check if the parent of the proposer boost node matches the fc_node's root
-        let Some(proposer_boost_parent_index) = proposer_boost_node.parent() else {
-            // TODO(gloas): could be an error
-            return Ok(false);
-        };
-        let boost_parent_root = self
+        let parent_index = proposer_boost_node
+            .parent()
+            .ok_or(Error::NodeUnknown(proposer_boost_root))?;
+        let proposer_boost_parent_root = self
             .nodes
-            .get(proposer_boost_parent_index)
-            .ok_or(Error::InvalidNodeIndex(proposer_boost_parent_index))?
+            .get(parent_index)
+            .ok_or(Error::InvalidNodeIndex(parent_index))?
             .root();
 
         Ok(
             (proto_node.is_payload_timely::<E>() && proto_node.is_payload_data_available::<E>())
-                || boost_parent_root != fc_node.root
+                || proposer_boost_parent_root != fc_node.root
                 || proposer_boost_node.is_parent_node_full(),
         )
     }
@@ -1879,15 +1881,14 @@ pub fn calculate_committee_fraction<E: EthSpec>(
         .checked_div(100)
 }
 
-pub fn get_proposer_score<E: EthSpec>(
+/// Spec: `get_proposer_score`.
+fn get_proposer_score<E: EthSpec>(
     justified_balances: &JustifiedBalances,
     spec: &ChainSpec,
 ) -> Result<u64, Error> {
     let Some(proposer_score_boost) = spec.proposer_score_boost else {
-        // TODO(gloas): make proposer boost non-optional in spec
         return Ok(0);
     };
-    // TODO(gloas): fix error
     calculate_committee_fraction::<E>(justified_balances, proposer_score_boost)
         .ok_or(Error::ProposerBoostOverflow(0))
 }
