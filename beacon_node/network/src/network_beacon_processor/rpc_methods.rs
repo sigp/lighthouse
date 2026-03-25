@@ -3,10 +3,12 @@ use crate::network_beacon_processor::{FUTURE_SLOT_TOLERANCE, NetworkBeaconProces
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
+use beacon_chain::payload_envelope_streamer::EnvelopeRequestSource;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, BlockProcessStatus, WhenSlotSkipped};
 use itertools::{Itertools, process_results};
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
+    PayloadEnvelopesByRangeRequest, PayloadEnvelopesByRootRequest,
 };
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, ReportSource, Response, SyncInfo};
@@ -15,7 +17,7 @@ use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::sync::Arc;
 use tokio_stream::StreamExt;
-use tracing::{Span, debug, error, field, instrument, warn};
+use tracing::{Span, debug, error, field, instrument, trace, warn};
 use types::data::BlobIdentifier;
 use types::{ColumnIndex, Epoch, EthSpec, Hash256, Slot};
 
@@ -250,6 +252,104 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         }
         log_results(peer_id, requested_blocks, send_block_count);
+
+        Ok(())
+    }
+
+    /// Handle a `ExecutionPayloadEnvelopesByRoot` request from the peer.
+    #[instrument(
+        name = "lh_handle_payload_envelopes_by_root_request",
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(peer_id = %peer_id, client = tracing::field::Empty)
+    )]
+    pub async fn handle_payload_envelopes_by_root_request(
+        self: Arc<Self>,
+        peer_id: PeerId,
+        inbound_request_id: InboundRequestId,
+        request: PayloadEnvelopesByRootRequest,
+    ) {
+        let client = self.network_globals.client(&peer_id);
+        Span::current().record("client", field::display(client.kind));
+
+        self.terminate_response_stream(
+            peer_id,
+            inbound_request_id,
+            self.clone()
+                .handle_payload_envelopes_by_root_request_inner(
+                    peer_id,
+                    inbound_request_id,
+                    request,
+                )
+                .await,
+            Response::PayloadEnvelopesByRoot,
+        );
+    }
+
+    /// Handle a `ExecutionPayloadEnvelopesByRoot` request from the peer.
+    async fn handle_payload_envelopes_by_root_request_inner(
+        self: Arc<Self>,
+        peer_id: PeerId,
+        inbound_request_id: InboundRequestId,
+        request: PayloadEnvelopesByRootRequest,
+    ) -> Result<(), (RpcErrorResponse, &'static str)> {
+        let log_results = |peer_id, requested_envelopes, send_envelope_count| {
+            debug!(
+                %peer_id,
+                requested = requested_envelopes,
+                returned = %send_envelope_count,
+                "ExecutionPayloadEnvelopes outgoing response processed"
+            );
+        };
+
+        let requested_envelopes = request.beacon_block_roots.len();
+        let mut envelope_stream = self.chain.get_payload_envelopes(
+            request.beacon_block_roots.to_vec(),
+            EnvelopeRequestSource::ByRoot,
+        );
+        // Fetching payload envelopes is async because it may have to hit the execution layer for payloads.
+        let mut send_envelope_count = 0;
+        while let Some((root, result)) = envelope_stream.next().await {
+            match result.as_ref() {
+                Ok(Some(envelope)) => {
+                    self.send_response(
+                        peer_id,
+                        inbound_request_id,
+                        Response::PayloadEnvelopesByRoot(Some(envelope.clone())),
+                    );
+                    send_envelope_count += 1;
+                }
+                Ok(None) => {
+                    debug!(
+                        %peer_id,
+                        request_root = ?root,
+                        "Peer requested unknown payload envelope"
+                    );
+                }
+                Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
+                    debug!(
+                        block_root = ?root,
+                        reason = "execution layer not synced",
+                        "Failed to fetch execution payload for payload envelopes by root request"
+                    );
+                    log_results(peer_id, requested_envelopes, send_envelope_count);
+                    return Err((
+                        RpcErrorResponse::ResourceUnavailable,
+                        "Execution layer not synced",
+                    ));
+                }
+                Err(e) => {
+                    debug!(
+                        ?peer_id,
+                        request_root = ?root,
+                        error = ?e,
+                        "Error fetching payload envelope for peer"
+                    );
+                }
+            }
+        }
+        log_results(peer_id, requested_envelopes, send_envelope_count);
 
         Ok(())
     }
@@ -981,6 +1081,189 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .into_iter()
             .unique_by(|(root, _)| *root)
             .collect::<Vec<_>>())
+    }
+
+    /// Handle a `ExecutionPayloadEnvelopesByRange` request from the peer.
+    #[instrument(
+        name = "lh_handle_payload_envelopes_by_range_request",
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(peer_id = %peer_id, client = tracing::field::Empty)
+    )]
+    pub async fn handle_payload_envelopes_by_range_request(
+        self: Arc<Self>,
+        peer_id: PeerId,
+        inbound_request_id: InboundRequestId,
+        req: PayloadEnvelopesByRangeRequest,
+    ) {
+        let client = self.network_globals.client(&peer_id);
+        Span::current().record("client", field::display(client.kind));
+
+        self.terminate_response_stream(
+            peer_id,
+            inbound_request_id,
+            self.clone()
+                .handle_payload_envelopes_by_range_request_inner(peer_id, inbound_request_id, req)
+                .await,
+            Response::PayloadEnvelopesByRange,
+        );
+    }
+
+    /// Handle a `ExecutionPayloadEnvelopesByRange` request from the peer.
+    async fn handle_payload_envelopes_by_range_request_inner(
+        self: Arc<Self>,
+        peer_id: PeerId,
+        inbound_request_id: InboundRequestId,
+        req: PayloadEnvelopesByRangeRequest,
+    ) -> Result<(), (RpcErrorResponse, &'static str)> {
+        let req_start_slot = req.start_slot;
+        let req_count = req.count;
+
+        debug!(
+            %peer_id,
+            count = req_count,
+            start_slot = %req_start_slot,
+            "Received ExecutionPayloadEnvelopesByRange Request"
+        );
+
+        let request_start_slot = Slot::from(req_start_slot);
+        let fork_name = self
+            .chain
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(request_start_slot);
+
+        if !fork_name.gloas_enabled() {
+            return Err((
+                RpcErrorResponse::InvalidRequest,
+                "Requested envelopes for pre-gloas slots",
+            ));
+        }
+
+        // Spawn a blocking handle since get_block_roots_for_slot_range takes a sync lock on the
+        // fork-choice.
+        let network_beacon_processor = self.clone();
+        let block_roots = self
+            .executor
+            .spawn_blocking_handle(
+                move || {
+                    network_beacon_processor.get_block_roots_for_slot_range(
+                        req_start_slot,
+                        req_count,
+                        "ExecutionPayloadEnvelopesByRange",
+                    )
+                },
+                "get_block_roots_for_slot_range",
+            )
+            .ok_or((RpcErrorResponse::ServerError, "shutting down"))?
+            .await
+            .map_err(|_| (RpcErrorResponse::ServerError, "tokio join"))??
+            .iter()
+            .map(|(root, _)| *root)
+            .collect::<Vec<_>>();
+
+        let current_slot = self
+            .chain
+            .slot()
+            .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot());
+
+        let log_results = |peer_id, payloads_sent| {
+            if payloads_sent < (req_count as usize) {
+                debug!(
+                    %peer_id,
+                    msg = "Failed to return all requested payload envelopes",
+                    start_slot = %req_start_slot,
+                    %current_slot,
+                    requested = req_count,
+                    returned = payloads_sent,
+                    "ExecutionPayloadEnvelopesByRange outgoing response processed"
+                );
+            } else {
+                debug!(
+                    %peer_id,
+                    start_slot = %req_start_slot,
+                    %current_slot,
+                    requested = req_count,
+                    returned = payloads_sent,
+                    "ExecutionPayloadEnvelopesByRange outgoing response processed"
+                );
+            }
+        };
+
+        let mut envelope_stream = self
+            .chain
+            .get_payload_envelopes(block_roots, EnvelopeRequestSource::ByRange);
+
+        // Fetching payload envelopes is async because it may have to hit the execution layer for payloads.
+        let mut envelopes_sent = 0;
+        while let Some((root, result)) = envelope_stream.next().await {
+            match result.as_ref() {
+                Ok(Some(envelope)) => {
+                    // Due to skip slots, blocks could be out of the range, we ensure they
+                    // are in the range before sending
+                    if envelope.slot() >= req_start_slot
+                        && envelope.slot() < req_start_slot.saturating_add(req.count)
+                    {
+                        envelopes_sent += 1;
+                        self.send_network_message(NetworkMessage::SendResponse {
+                            peer_id,
+                            inbound_request_id,
+                            response: Response::PayloadEnvelopesByRange(Some(envelope.clone())),
+                        });
+                    }
+                }
+                Ok(None) => {
+                    trace!(
+                        request = ?req,
+                        %peer_id,
+                        request_root = ?root,
+                        "No envelope for block root"
+                    );
+                }
+                Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
+                    debug!(
+                        block_root = ?root,
+                        reason = "execution layer not synced",
+                        "Failed to fetch execution payload for envelope by range request"
+                    );
+                    log_results(peer_id, envelopes_sent);
+                    // send the stream terminator
+                    return Err((
+                        RpcErrorResponse::ResourceUnavailable,
+                        "Execution layer not synced",
+                    ));
+                }
+                Err(e) => {
+                    if matches!(
+                        e,
+                        BeaconChainError::ExecutionLayerErrorPayloadReconstruction(_block_hash, boxed_error)
+                        if matches!(**boxed_error, execution_layer::Error::EngineError(_))
+                    ) {
+                        warn!(
+                            info = "this may occur occasionally when the EE is busy",
+                            block_root = ?root,
+                            error = ?e,
+                            "Error rebuilding payload for peer"
+                        );
+                    } else {
+                        error!(
+                            block_root = ?root,
+                            error = ?e,
+                            "Error fetching payload envelope for peer"
+                        );
+                    }
+                    log_results(peer_id, envelopes_sent);
+                    // send the stream terminator
+                    return Err((
+                        RpcErrorResponse::ServerError,
+                        "Failed fetching payload envelopes",
+                    ));
+                }
+            }
+        }
+
+        log_results(peer_id, envelopes_sent);
+        Ok(())
     }
 
     /// Handle a `BlobsByRange` request from the peer.
