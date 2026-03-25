@@ -4854,29 +4854,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(Box::new(DoNotReOrg::NotProposing.into()));
         }
 
-        // If the current slot is already equal to the proposal slot (or we are in the tail end of
-        // the prior slot), then check the actual weight of the head against the head re-org threshold
-        // and the actual weight of the parent against the parent re-org threshold.
-        // Per spec `is_head_weak`: uses get_attestation_score(head, PENDING) which is
-        // the total weight. Per spec `is_parent_strong`: uses
-        // get_attestation_score(parent, parent_payload_status) where parent_payload_status
-        // is determined by the head block's relationship to its parent.
+        // TODO(gloas): reorg weight logic needs updating for GLOAS. For now use
+        // total weight which is correct for pre-GLOAS and conservative for post-GLOAS.
         let head_weight = info.head_node.weight();
-        let parent_weight = if let (Ok(head_payload_status), Ok(parent_v29)) = (
-            info.head_node.parent_payload_status(),
-            info.parent_node.as_v29(),
-        ) {
-            // Post-GLOAS: use the payload-filtered weight matching how the head
-            // extends from its parent.
-            match head_payload_status {
-                proto_array::PayloadStatus::Full => parent_v29.full_payload_weight,
-                proto_array::PayloadStatus::Empty => parent_v29.empty_payload_weight,
-                proto_array::PayloadStatus::Pending => info.parent_node.weight(),
-            }
-        } else {
-            // Pre-GLOAS or fork boundary: use total weight.
-            info.parent_node.weight()
-        };
+        let parent_weight = info.parent_node.weight();
 
         let (head_weak, parent_strong) = if fork_choice_slot == re_org_block_slot {
             (
