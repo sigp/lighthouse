@@ -975,7 +975,7 @@ impl<E: EthSpec> Tester<E> {
     ) -> Result<(), Error> {
         let mut fc = self.harness.chain.canonical_head.fork_choice_write_lock();
         let slot = self.harness.chain.slot().unwrap();
-        let canonical_head = fc.get_head(slot, &self.harness.spec).unwrap();
+        let (canonical_head, _) = fc.get_head(slot, &self.harness.spec).unwrap();
         let proposer_head_result = fc.get_proposer_head(
             slot,
             canonical_head,
@@ -1020,21 +1020,11 @@ impl<E: EthSpec> Tester<E> {
 
     pub fn check_head_payload_status(&self, expected_status: u8) -> Result<(), Error> {
         let head = self.find_head()?;
-        let head_root = head.head_block_root();
-        let current_slot = self.harness.chain.slot().map_err(|e| {
-            Error::InternalError(format!("reading current slot failed with {:?}", e))
-        })?;
-        let fc = self.harness.chain.canonical_head.fork_choice_read_lock();
-        let actual_status = fc
-            .proto_array()
-            .head_payload_status::<E>(&head_root, current_slot)
-            .ok_or_else(|| {
-                Error::InternalError(format!(
-                    "head_payload_status not found for head root {}",
-                    head_root
-                ))
-            })?;
-        check_equal("head_payload_status", actual_status as u8, expected_status)
+        check_equal(
+            "head_payload_status",
+            head.head_payload_status() as u8,
+            expected_status,
+        )
     }
 
     pub fn check_should_override_fcu(

@@ -59,7 +59,7 @@ pub enum ExecutionStatus {
 }
 
 /// Represents the status of an execution payload post-Gloas.
-#[derive(Clone, Copy, Debug, PartialEq, Encode, Decode, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
 #[ssz(enum_behaviour = "tag")]
 #[repr(u8)]
 pub enum PayloadStatus {
@@ -616,7 +616,7 @@ impl ProtoArrayForkChoice {
         equivocating_indices: &BTreeSet<u64>,
         current_slot: Slot,
         spec: &ChainSpec,
-    ) -> Result<Hash256, String> {
+    ) -> Result<(Hash256, PayloadStatus), String> {
         let old_balances = &mut self.balances;
         let new_balances = justified_state_balances;
         let node_slots = self
@@ -660,7 +660,6 @@ impl ProtoArrayForkChoice {
                 new_balances,
                 spec,
             )
-            .map(|(root, _payload_status)| root)
             .map_err(|e| format!("find_head failed: {:?}", e))
     }
 
@@ -1007,49 +1006,6 @@ impl ProtoArrayForkChoice {
 
     /// Returns the payload status of the head node based on accumulated weights and tiebreaker.
     ///
-    /// Returns `Full` if `full_payload_weight > empty_payload_weight`.
-    /// Returns `Empty` if `empty_payload_weight > full_payload_weight`.
-    /// On ties:
-    ///   - Previous slot (`slot + 1 == current_slot`): prefer Full only when timely and
-    ///     data available (per `should_extend_payload`).
-    ///   - Otherwise: prefer Full when payload has been received.
-    ///
-    /// Returns `None` for V17 nodes.
-    // TODO(gloas): delete
-    pub fn head_payload_status<E: EthSpec>(
-        &self,
-        head_root: &Hash256,
-        current_slot: Slot,
-    ) -> Option<PayloadStatus> {
-        let node = self.get_proto_node(head_root)?;
-        let v29 = node.as_v29().ok()?;
-
-        // Replicate the spec's virtual tree walk tiebreaker at the head node.
-        let use_tiebreaker_only = node.slot() + 1 == current_slot;
-
-        if !use_tiebreaker_only {
-            // Compare weights, then fall back to tiebreaker.
-            if v29.full_payload_weight > v29.empty_payload_weight {
-                return Some(PayloadStatus::Full);
-            } else if v29.empty_payload_weight > v29.full_payload_weight {
-                return Some(PayloadStatus::Empty);
-            }
-            // Equal weights: prefer FULL if payload received.
-            if v29.payload_received {
-                Some(PayloadStatus::Full)
-            } else {
-                Some(PayloadStatus::Empty)
-            }
-        } else {
-            // Previous slot: should_extend_payload tiebreaker.
-            if node.is_payload_timely::<E>() && node.is_payload_data_available::<E>() {
-                Some(PayloadStatus::Full)
-            } else {
-                Some(PayloadStatus::Empty)
-            }
-        }
-    }
-
     /// See `ProtoArray` documentation.
     pub fn is_descendant(&self, ancestor_root: Hash256, descendant_root: Hash256) -> bool {
         self.proto_array

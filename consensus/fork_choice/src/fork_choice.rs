@@ -4,7 +4,7 @@ use fixed_bytes::FixedBytesExtended;
 use logging::crit;
 use proto_array::{
     Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, JustifiedBalances, LatestMessage,
-    ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
+    PayloadStatus, ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
 };
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -333,6 +333,7 @@ fn dequeue_payload_attestations(
 pub struct ForkchoiceUpdateParameters {
     /// The most recent result of running `ForkChoice::get_head`.
     pub head_root: Hash256,
+    pub head_payload_status: PayloadStatus,
     pub head_hash: Option<ExecutionBlockHash>,
     pub justified_hash: Option<ExecutionBlockHash>,
     pub finalized_hash: Option<ExecutionBlockHash>,
@@ -470,14 +471,15 @@ where
                 head_hash: None,
                 justified_hash: None,
                 finalized_hash: None,
-                // This will be updated during the next call to `Self::get_head`.
+                // These will be updated during the next call to `Self::get_head`.
                 head_root: Hash256::zero(),
+                head_payload_status: PayloadStatus::Pending,
             },
             _phantom: PhantomData,
         };
 
         // Ensure that `fork_choice.forkchoice_update_parameters.head_root` is updated.
-        fork_choice.get_head(current_slot, spec)?;
+        let _ = fork_choice.get_head(current_slot, spec)?;
 
         Ok(fork_choice)
     }
@@ -544,7 +546,7 @@ where
         &mut self,
         system_time_current_slot: Slot,
         spec: &ChainSpec,
-    ) -> Result<Hash256, Error<T::Error>> {
+    ) -> Result<(Hash256, PayloadStatus), Error<T::Error>> {
         // Provide the slot (as per the system clock) to the `fc_store` and then return its view of
         // the current slot. The `fc_store` will ensure that the `current_slot` is never
         // decreasing, a property which we must maintain.
@@ -552,7 +554,7 @@ where
 
         let store = &mut self.fc_store;
 
-        let head_root = self.proto_array.find_head::<E>(
+        let (head_root, head_payload_status) = self.proto_array.find_head::<E>(
             *store.justified_checkpoint(),
             *store.finalized_checkpoint(),
             store.justified_balances(),
@@ -576,12 +578,13 @@ where
             .and_then(|b| b.execution_status.block_hash());
         self.forkchoice_update_parameters = ForkchoiceUpdateParameters {
             head_root,
+            head_payload_status,
             head_hash,
             justified_hash,
             finalized_hash,
         };
 
-        Ok(head_root)
+        Ok((head_root, head_payload_status))
     }
 
     /// Get the block to build on as proposer, taking into account proposer re-orgs.
@@ -1745,6 +1748,7 @@ where
                 finalized_hash: None,
                 // Will be updated in the following call to `Self::get_head`.
                 head_root: Hash256::zero(),
+                head_payload_status: PayloadStatus::Pending,
             },
             _phantom: PhantomData,
         };
@@ -1766,7 +1770,7 @@ where
                 .set_all_blocks_to_optimistic::<E>(spec)?;
             // If the second attempt at finding a head fails, return an error since we do not
             // expect this scenario.
-            fork_choice.get_head(current_slot, spec)?;
+            let _ = fork_choice.get_head(current_slot, spec)?;
         }
 
         Ok(fork_choice)

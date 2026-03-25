@@ -29,6 +29,8 @@ pub enum Operation {
         justified_state_balances: Vec<u64>,
         expected_head: Hash256,
         current_slot: Slot,
+        #[serde(default)]
+        expected_payload_status: Option<PayloadStatus>,
     },
     ProposerBoostFindHead {
         justified_checkpoint: Checkpoint,
@@ -87,11 +89,6 @@ pub enum Operation {
     AssertParentPayloadStatus {
         block_root: Hash256,
         expected_status: PayloadStatus,
-    },
-    AssertHeadPayloadStatus {
-        head_root: Hash256,
-        expected_status: PayloadStatus,
-        current_slot: Slot,
     },
     SetPayloadTiebreak {
         block_root: Hash256,
@@ -159,11 +156,12 @@ impl ForkChoiceTestDefinition {
                     justified_state_balances,
                     expected_head,
                     current_slot,
+                    expected_payload_status,
                 } => {
                     let justified_balances =
                         JustifiedBalances::from_effective_balances(justified_state_balances)
                             .unwrap();
-                    let head = fork_choice
+                    let (head, payload_status) = fork_choice
                         .find_head::<MainnetEthSpec>(
                             justified_checkpoint,
                             finalized_checkpoint,
@@ -182,6 +180,13 @@ impl ForkChoiceTestDefinition {
                         "Operation at index {} failed head check. Operation: {:?}",
                         op_index, op
                     );
+                    if let Some(expected_status) = expected_payload_status {
+                        assert_eq!(
+                            payload_status, expected_status,
+                            "Operation at index {} failed payload status check. Operation: {:?}",
+                            op_index, op
+                        );
+                    }
                     check_bytes_round_trip(&fork_choice);
                 }
                 Operation::ProposerBoostFindHead {
@@ -194,7 +199,7 @@ impl ForkChoiceTestDefinition {
                     let justified_balances =
                         JustifiedBalances::from_effective_balances(justified_state_balances)
                             .unwrap();
-                    let head = fork_choice
+                    let (head, _payload_status) = fork_choice
                         .find_head::<MainnetEthSpec>(
                             justified_checkpoint,
                             finalized_checkpoint,
@@ -452,25 +457,6 @@ impl ForkChoiceTestDefinition {
                     assert_eq!(
                         v29.parent_payload_status, expected_status,
                         "parent_payload_status mismatch at op index {}",
-                        op_index
-                    );
-                }
-                Operation::AssertHeadPayloadStatus {
-                    head_root,
-                    expected_status,
-                    current_slot,
-                } => {
-                    let actual = fork_choice
-                        .head_payload_status::<MainnetEthSpec>(&head_root, current_slot)
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "AssertHeadPayloadStatus: head root not found at op index {}",
-                                op_index
-                            )
-                        });
-                    assert_eq!(
-                        actual, expected_status,
-                        "head_payload_status mismatch at op index {}",
                         op_index
                     );
                 }

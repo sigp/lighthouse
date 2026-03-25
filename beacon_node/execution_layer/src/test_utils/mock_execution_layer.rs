@@ -92,6 +92,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         let head_block_root = Hash256::repeat_byte(42);
         let forkchoice_update_params = ForkchoiceUpdateParameters {
             head_root: head_block_root,
+            head_payload_status: fork_choice::PayloadStatus::Pending,
             head_hash: Some(parent_hash),
             justified_hash: None,
             finalized_hash: None,

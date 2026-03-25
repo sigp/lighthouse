@@ -5430,10 +5430,12 @@ fn assert_chains_pretty_much_the_same<T: BeaconChainTypes>(a: &BeaconChain<T>, b
             .fork_choice_write_lock()
             .get_head(slot, &spec)
             .unwrap()
+            .0
             == b.canonical_head
                 .fork_choice_write_lock()
                 .get_head(slot, &spec)
-                .unwrap(),
+                .unwrap()
+                .0,
         "fork_choice heads should be equal"
     );
 }

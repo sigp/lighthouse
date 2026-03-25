@@ -12,7 +12,7 @@ use eth2::{
     BeaconNodeHttpClient, CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER,
     Timeouts,
 };
-use fork_choice::ForkchoiceUpdateParameters;
+use fork_choice::{ForkchoiceUpdateParameters, PayloadStatus as FcPayloadStatus};
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use ssz::Encode;
@@ -934,6 +934,7 @@ impl<E: EthSpec> MockBuilder<E> {
             finalized_hash: Some(finalized_execution_hash),
             justified_hash: Some(justified_execution_hash),
             head_root: head_block_root,
+            head_payload_status: FcPayloadStatus::Pending,
         };
 
         let _status = self

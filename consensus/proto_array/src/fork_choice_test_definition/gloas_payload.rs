@@ -78,6 +78,7 @@ pub fn get_gloas_chain_following_test_definition() -> ForkChoiceTestDefinition {
         justified_state_balances: vec![1],
         expected_head: get_root(3),
         current_slot: Slot::new(0),
+        expected_payload_status: None,
     });
 
     ops.push(Operation::SetPayloadTiebreak {
@@ -91,6 +92,7 @@ pub fn get_gloas_chain_following_test_definition() -> ForkChoiceTestDefinition {
         justified_state_balances: vec![1],
         expected_head: get_root(4),
         current_slot: Slot::new(0),
+        expected_payload_status: None,
     });
 
     ForkChoiceTestDefinition {
@@ -139,6 +141,8 @@ pub fn get_gloas_payload_probe_test_definition() -> ForkChoiceTestDefinition {
         justified_state_balances: vec![1, 1],
         expected_head: get_root(1),
         current_slot: Slot::new(0),
+        // With MainnetEthSpec PTC_SIZE=512, 1 bit set out of 256 threshold → not timely → Empty.
+        expected_payload_status: Some(PayloadStatus::Empty),
     });
     // PTC votes write to bitfields only, not to full/empty weight.
     // Weight is 0 because no CL attestations target this block.
@@ -146,12 +150,6 @@ pub fn get_gloas_payload_probe_test_definition() -> ForkChoiceTestDefinition {
         block_root: get_root(1),
         expected_full_weight: 0,
         expected_empty_weight: 0,
-    });
-    // With MainnetEthSpec PTC_SIZE=512, 1 bit set out of 256 threshold → not timely → Empty.
-    ops.push(Operation::AssertHeadPayloadStatus {
-        head_root: get_root(1),
-        expected_status: PayloadStatus::Empty,
-        current_slot: Slot::new(0),
     });
 
     // Flip validator 0 to Empty; both bits now clear.
@@ -168,16 +166,12 @@ pub fn get_gloas_payload_probe_test_definition() -> ForkChoiceTestDefinition {
         justified_state_balances: vec![1, 1],
         expected_head: get_root(1),
         current_slot: Slot::new(0),
+        expected_payload_status: Some(PayloadStatus::Empty),
     });
     ops.push(Operation::AssertPayloadWeights {
         block_root: get_root(1),
         expected_full_weight: 0,
         expected_empty_weight: 0,
-    });
-    ops.push(Operation::AssertHeadPayloadStatus {
-        head_root: get_root(1),
-        expected_status: PayloadStatus::Empty,
-        current_slot: Slot::new(0),
     });
 
     // Same-slot attestation to a new head candidate should be Pending (no payload bucket change).
@@ -205,16 +199,12 @@ pub fn get_gloas_payload_probe_test_definition() -> ForkChoiceTestDefinition {
         justified_state_balances: vec![1, 1, 1],
         expected_head: get_root(5),
         current_slot: Slot::new(0),
+        expected_payload_status: Some(PayloadStatus::Empty),
     });
     ops.push(Operation::AssertPayloadWeights {
         block_root: get_root(5),
         expected_full_weight: 0,
         expected_empty_weight: 0,
-    });
-    ops.push(Operation::AssertHeadPayloadStatus {
-        head_root: get_root(5),
-        expected_status: PayloadStatus::Empty,
-        current_slot: Slot::new(0),
     });
 
     ForkChoiceTestDefinition {
@@ -289,6 +279,7 @@ pub fn get_gloas_find_head_vote_transition_test_definition() -> ForkChoiceTestDe
         justified_state_balances: vec![1],
         expected_head: get_root(3),
         current_slot: Slot::new(0),
+        expected_payload_status: None,
     });
 
     // CL attestation to Empty branch (root 4) from validator 0 → head flips to 4.
@@ -303,6 +294,7 @@ pub fn get_gloas_find_head_vote_transition_test_definition() -> ForkChoiceTestDe
         justified_state_balances: vec![1],
         expected_head: get_root(4),
         current_slot: Slot::new(0),
+        expected_payload_status: None,
     });
 
     // CL attestation back to Full branch (root 3) → head returns to 3.
@@ -317,6 +309,7 @@ pub fn get_gloas_find_head_vote_transition_test_definition() -> ForkChoiceTestDe
         justified_state_balances: vec![1],
         expected_head: get_root(3),
         current_slot: Slot::new(0),
+        expected_payload_status: None,
     });
 
     ForkChoiceTestDefinition {
@@ -391,6 +384,7 @@ pub fn get_gloas_weight_priority_over_payload_preference_test_definition()
         justified_state_balances: vec![1],
         expected_head: get_root(3),
         current_slot: Slot::new(0),
+        expected_payload_status: None,
     });
 
     // Two CL attestations to the Empty branch make it strictly heavier,
@@ -411,6 +405,7 @@ pub fn get_gloas_weight_priority_over_payload_preference_test_definition()
         justified_state_balances: vec![1, 1],
         expected_head: get_root(4),
         current_slot: Slot::new(0),
+        expected_payload_status: None,
     });
 
     ForkChoiceTestDefinition {
@@ -559,6 +554,7 @@ pub fn get_gloas_interleaved_attestations_test_definition() -> ForkChoiceTestDef
         justified_state_balances: vec![1, 1],
         expected_head: get_root(4),
         current_slot: Slot::new(1),
+        expected_payload_status: None,
     });
 
     // Step 5: Flip tiebreaker to Full → Full branch wins.
@@ -573,6 +569,7 @@ pub fn get_gloas_interleaved_attestations_test_definition() -> ForkChoiceTestDef
         justified_state_balances: vec![1, 1],
         expected_head: get_root(3),
         current_slot: Slot::new(100),
+        expected_payload_status: None,
     });
 
     // Step 6: Add extra CL weight to Empty branch → overrides Full tiebreaker.
@@ -587,6 +584,7 @@ pub fn get_gloas_interleaved_attestations_test_definition() -> ForkChoiceTestDef
         justified_state_balances: vec![1, 1, 1],
         expected_head: get_root(4),
         current_slot: Slot::new(100),
+        expected_payload_status: None,
     });
 
     ForkChoiceTestDefinition {
@@ -673,6 +671,7 @@ pub fn get_gloas_payload_received_interleaving_test_definition() -> ForkChoiceTe
         justified_state_balances: vec![1, 1],
         expected_head: get_root(1),
         current_slot: Slot::new(100),
+        expected_payload_status: None,
     });
 
     // ProcessExecutionPayload on genesis is a no-op (already received at init).
@@ -701,6 +700,7 @@ pub fn get_gloas_payload_received_interleaving_test_definition() -> ForkChoiceTe
         justified_state_balances: vec![1, 1],
         expected_head: get_root(1),
         current_slot: Slot::new(100),
+        expected_payload_status: None,
     });
 
     ForkChoiceTestDefinition {
