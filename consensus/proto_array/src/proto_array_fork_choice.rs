@@ -3,7 +3,7 @@ use crate::{
     error::Error,
     proto_array::{
         InvalidationOperation, Iter, NodeDelta, ProposerBoost, ProtoArray, ProtoNode,
-        calculate_committee_fraction, is_payload_data_available, is_payload_timely,
+        calculate_committee_fraction,
     },
     ssz_container::SszContainer,
 };
@@ -70,9 +70,9 @@ pub enum PayloadStatus {
 
 /// Spec's `ForkChoiceNode` augmented with ProtoNode index.
 pub struct IndexedForkChoiceNode {
-    root: Hash256,
-    node_index: usize,
-    payload_status: PayloadStatus,
+    pub root: Hash256,
+    pub proto_node_index: usize,
+    pub payload_status: PayloadStatus,
 }
 
 impl ExecutionStatus {
@@ -656,7 +656,11 @@ impl ProtoArrayForkChoice {
                 current_slot,
                 justified_checkpoint,
                 finalized_checkpoint,
+                proposer_boost_root,
+                new_balances,
+                spec,
             )
+            .map(|(root, _payload_status)| root)
             .map_err(|e| format!("find_head failed: {:?}", e))
     }
 
@@ -1011,6 +1015,7 @@ impl ProtoArrayForkChoice {
     ///   - Otherwise: prefer Full when payload has been received.
     ///
     /// Returns `None` for V17 nodes.
+    // TODO(gloas): delete
     pub fn head_payload_status<E: EthSpec>(
         &self,
         head_root: &Hash256,
@@ -1037,15 +1042,7 @@ impl ProtoArrayForkChoice {
             }
         } else {
             // Previous slot: should_extend_payload tiebreaker.
-            if is_payload_timely(
-                &v29.payload_timeliness_votes,
-                E::ptc_size(),
-                v29.payload_received,
-            ) && is_payload_data_available(
-                &v29.payload_data_availability_votes,
-                E::ptc_size(),
-                v29.payload_received,
-            ) {
+            if node.is_payload_timely::<E>() && node.is_payload_data_available::<E>() {
                 Some(PayloadStatus::Full)
             } else {
                 Some(PayloadStatus::Empty)

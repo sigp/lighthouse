@@ -1,4 +1,5 @@
 use crate::error::InvalidBestNodeInfo;
+use crate::proto_array_fork_choice::IndexedForkChoiceNode;
 use crate::{Block, ExecutionStatus, JustifiedBalances, PayloadStatus, error::Error};
 use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
@@ -164,18 +165,18 @@ pub struct ProtoNode {
 impl ProtoNode {
     /// Generic version of spec's `parent_payload_status` that works for pre-Gloas nodes by
     /// considering their parents Empty.
-    fn parent_payload_status(&self) -> PayloadStatus {
+    fn get_parent_payload_status(&self) -> PayloadStatus {
         self.parent_payload_status().unwrap_or(PayloadStatus::Empty)
     }
 
     fn is_parent_node_full(&self) -> bool {
-        self.parent_parent_payload_status() == PayloadStatus::Full
+        self.get_parent_payload_status() == PayloadStatus::Full
     }
 
     fn attestation_score(&self, payload_status: PayloadStatus) -> u64 {
         match payload_status {
             // TODO(gloas): rename weight and remove proposer boost from it?
-            PayloadStatus::Pending => self.weight,
+            PayloadStatus::Pending => self.weight(),
             PayloadStatus::Empty => self.empty_payload_weight().unwrap_or(0),
             PayloadStatus::Full => self.full_payload_weight().unwrap_or(0),
         }
@@ -524,8 +525,7 @@ impl ProtoArray {
                 .get(boost_index)
                 .is_some_and(|n| n.as_v29().is_ok())
             && !self.should_apply_proposer_boost::<E>(
-                boost_index,
-                proposer_score,
+                proposer_boost_root,
                 new_justified_balances,
                 spec,
             )?
@@ -731,6 +731,9 @@ impl ProtoArray {
                 },
                 payload_received: is_genesis,
                 proposer_index: block.proposer_index.unwrap_or(0),
+                // TODO(gloas): initialise these based on block timing
+                block_timeliness_attestation_threshold: false,
+                block_timeliness_ptc_threshold: false,
             })
         };
 
@@ -773,14 +776,19 @@ impl ProtoArray {
         Ok(())
     }
 
-    fn is_head_weak(&self, head_node: &ProtoNode, justified_balances: &JustifiedBalances) -> bool {
+    fn is_head_weak<E: EthSpec>(
+        &self,
+        head_node: &ProtoNode,
+        justified_balances: &JustifiedBalances,
+        spec: &ChainSpec,
+    ) -> bool {
         let reorg_threshold = calculate_committee_fraction::<E>(
             justified_balances,
             spec.reorg_head_weight_threshold.unwrap_or(20),
         )
         .unwrap_or(0);
 
-        let head_weight = head_node.attestation_score();
+        let head_weight = head_node.attestation_score(PayloadStatus::Pending);
 
         // TODO(gloas): missing equivocating weight from spec
         // idea: add equivocating_attestation_score on the proto node that is updated whenever
@@ -796,25 +804,38 @@ impl ProtoArray {
     fn should_apply_proposer_boost<E: EthSpec>(
         &self,
         proposer_boost_root: Hash256,
+        justified_balances: &JustifiedBalances,
+        spec: &ChainSpec,
     ) -> Result<bool, Error> {
         if proposer_boost_root.is_zero() {
             return Ok(false);
         }
 
-        let block_index = self.indices.get(&proposer_boost_root)?;
-        let block = self.nodes.get(block_index)?;
-        let parent_root = block.parent_root;
-        let parent_index = self.indices.get(&parent_root)?;
-        let parent = self.nodes.get(parent_index)?;
-        let slot = block.slot;
+        let block_index = *self
+            .indices
+            .get(&proposer_boost_root)
+            .ok_or(Error::NodeUnknown(proposer_boost_root))?;
+        let block = self
+            .nodes
+            .get(block_index)
+            .ok_or(Error::InvalidNodeIndex(block_index))?;
+        // TODO(gloas): handle parent unknown case?
+        let parent_index = block
+            .parent()
+            .ok_or(Error::NodeUnknown(proposer_boost_root))?;
+        let parent = self
+            .nodes
+            .get(parent_index)
+            .ok_or(Error::InvalidNodeIndex(parent_index))?;
+        let slot = block.slot();
 
         // Apply proposer boost if `parent` is not from the previous slot
-        if parent.slot.saturating_add(1) < slot {
+        if parent.slot().saturating_add(1_u64) < slot {
             return Ok(true);
         }
 
         // Apply proposer boost if `parent` is not weak
-        if !self.is_head_weak(&parent, justified_balances) {
+        if !self.is_head_weak::<E>(parent, justified_balances, spec) {
             return Ok(true);
         }
 
@@ -826,7 +847,7 @@ impl ProtoArray {
         let parent_proposer = parent.proposer_index();
 
         let has_equivocation = self.nodes.iter().any(|node| {
-            if let Ok(timeliness) = node.block_timeliness_ptc_threshold
+            if let Ok(timeliness) = node.block_timeliness_ptc_threshold()
                 && let Ok(proposer_index) = node.proposer_index()
             {
                 timeliness
@@ -1150,12 +1171,16 @@ impl ProtoArray {
     /// been called without a subsequent `Self::apply_score_changes` call. This is because
     /// `on_new_block` does not attempt to walk backwards through the tree and update the
     /// best-child/best-descendant links.
+    #[allow(clippy::too_many_arguments)]
     pub fn find_head<E: EthSpec>(
         &self,
         justified_root: &Hash256,
         current_slot: Slot,
         best_justified_checkpoint: Checkpoint,
         best_finalized_checkpoint: Checkpoint,
+        proposer_boost_root: Hash256,
+        justified_balances: &JustifiedBalances,
+        spec: &ChainSpec,
     ) -> Result<(Hash256, PayloadStatus), Error> {
         let justified_index = self
             .indices
@@ -1179,19 +1204,22 @@ impl ProtoArray {
             });
         }
 
-        // In the post-Gloas worlld, always use a virtual tree walk.
+        // In the post-Gloas world, always use a virtual tree walk.
         //
         // Best child/best descendant is dead.
-        let best_node = self.find_head_walk::<E>(
+        let (best_fc_node, best_node) = self.find_head_walk::<E>(
             justified_index,
             current_slot,
             best_justified_checkpoint,
             best_finalized_checkpoint,
-        );
+            proposer_boost_root,
+            justified_balances,
+            spec,
+        )?;
 
         // Perform a sanity check that the node is indeed valid to be the head.
         if !self.node_is_viable_for_head::<E>(
-            best_node,
+            &best_node,
             current_slot,
             best_justified_checkpoint,
             best_finalized_checkpoint,
@@ -1207,7 +1235,7 @@ impl ProtoArray {
             })));
         }
 
-        Ok(best_node.root())
+        Ok((best_fc_node.root, best_fc_node.payload_status))
     }
 
     /// Virtual tree walk for `find_head`.
@@ -1215,29 +1243,39 @@ impl ProtoArray {
     /// At each node, determine the preferred payload direction (FULL or EMPTY)
     /// by comparing weights. Scan all nodes to find the best child matching
     /// the preferred direction.
+    #[allow(clippy::too_many_arguments)]
     fn find_head_walk<E: EthSpec>(
         &self,
         start_index: usize,
         current_slot: Slot,
         best_justified_checkpoint: Checkpoint,
-        best_finalized_checkpoint: Checkpoint,
+        _best_finalized_checkpoint: Checkpoint,
         proposer_boost_root: Hash256,
         justified_balances: &JustifiedBalances,
         spec: &ChainSpec,
-    ) -> Result<IndexedForkChoiceNode, Error> {
+    ) -> Result<(IndexedForkChoiceNode, ProtoNode), Error> {
         let mut head = IndexedForkChoiceNode {
             root: best_justified_checkpoint.root,
             proto_node_index: start_index,
             payload_status: PayloadStatus::Pending,
         };
+        let mut head_proto_node = self
+            .nodes
+            .get(start_index)
+            .ok_or(Error::NodeUnknown(best_justified_checkpoint.root))?
+            .clone();
 
         loop {
             let children = self.get_node_children(&head)?;
 
+            if children.is_empty() {
+                break;
+            }
+
             let scores = children
                 .into_iter()
                 .map(|(child_fc_node, child_proto_node)| {
-                    let weight = self.get_weight(
+                    let weight = self.get_weight::<E>(
                         &child_fc_node,
                         &child_proto_node,
                         proposer_boost_root,
@@ -1245,30 +1283,38 @@ impl ProtoArray {
                         justified_balances,
                         spec,
                     )?;
-                    let payload_status_tiebreaker = self.get_payload_status_tiebreaker(
+                    let payload_status_tiebreaker = self.get_payload_status_tiebreaker::<E>(
                         &child_fc_node,
                         &child_proto_node,
                         current_slot,
                         proposer_boost_root,
                     )?;
-                    Ok((child_fc_node, weight, payload_status_tiebreaker))
+                    Ok((
+                        child_fc_node,
+                        child_proto_node,
+                        weight,
+                        payload_status_tiebreaker,
+                    ))
                 })
                 .collect::<Result<Vec<_>, Error>>()?;
             // TODO(gloas): proper error
-            head = scores
-                .max_by_key(|(child_fc_node, weight, payload_status_tiebreaker)| {
-                    (weight, child_fc_node.root, payload_status_tiebreaker)
-                })
-                .map(|(child_fc_node, _, _)| child_fc_node)
+            (head, head_proto_node) = scores
+                .into_iter()
+                .max_by_key(
+                    |(child_fc_node, _proto_node, weight, payload_status_tiebreaker)| {
+                        (*weight, child_fc_node.root, *payload_status_tiebreaker)
+                    },
+                )
+                .map(|(child_fc_node, child_proto_node, _, _)| (child_fc_node, child_proto_node))
                 .unwrap();
         }
 
-        Ok(head)
+        Ok((head, head_proto_node))
     }
 
     fn get_weight<E: EthSpec>(
         &self,
-        fc_node: &ForkChoiceNode,
+        fc_node: &IndexedForkChoiceNode,
         proto_node: &ProtoNode,
         proposer_boost_root: Hash256,
         current_slot: Slot,
@@ -1276,17 +1322,21 @@ impl ProtoArray {
         spec: &ChainSpec,
     ) -> Result<u64, Error> {
         if fc_node.payload_status == PayloadStatus::Pending
-            || proto_node.slot.saturating_add(1) != current_slot
+            || proto_node.slot().saturating_add(1_u64) != current_slot
         {
-            let attestation_score = proto_node.attestation_score();
+            let attestation_score = proto_node.attestation_score(fc_node.payload_status);
 
-            if !self.should_apply_proposer_boost(&proposer_boost_root)? {
-                return attestation_score;
+            if !self.should_apply_proposer_boost::<E>(
+                proposer_boost_root,
+                justified_balances,
+                spec,
+            )? {
+                return Ok(attestation_score);
             }
 
             // TODO(gloas): I don't think `is_supporting_vote` is necessary here, confirm by
             // checking spec tests or with spec authors.
-            let proposer_score = if proto_node.root == proposer_boost_root {
+            let proposer_score = if proto_node.root() == proposer_boost_root {
                 get_proposer_score::<E>(justified_balances, spec)?
             } else {
                 0
@@ -1298,27 +1348,29 @@ impl ProtoArray {
     }
 
     fn get_node_children(
+        &self,
         node: &IndexedForkChoiceNode,
     ) -> Result<Vec<(IndexedForkChoiceNode, ProtoNode)>, Error> {
         if node.payload_status == PayloadStatus::Pending {
             let proto_node = self
                 .nodes
-                .get(node.node_index)
-                .ok_or(Error::InvalidNodeIndex(node.node_index))?
+                .get(node.proto_node_index)
+                .ok_or(Error::InvalidNodeIndex(node.proto_node_index))?
                 .clone();
             let mut children = vec![(
                 IndexedForkChoiceNode {
                     root: node.root,
-                    node_index: usize,
+                    proto_node_index: node.proto_node_index,
                     payload_status: PayloadStatus::Empty,
                 },
                 proto_node.clone(),
             )];
-            if proto_node.payload_exists().is_ok_and(|exists| exists) {
+            // The FULL virtual child only exists if the payload has been received.
+            if proto_node.payload_received().is_ok_and(|received| received) {
                 children.push((
                     IndexedForkChoiceNode {
                         root: node.root,
-                        node_index: usize,
+                        proto_node_index: node.proto_node_index,
                         payload_status: PayloadStatus::Full,
                     },
                     proto_node,
@@ -1328,20 +1380,19 @@ impl ProtoArray {
         } else {
             let children = self
                 .nodes
-                .get(node.node_index..)
-                .ok_or(Error::InvalidNodeIndex(node.node_index))?
+                .get(node.proto_node_index..)
+                .ok_or(Error::InvalidNodeIndex(node.proto_node_index))?
                 .iter()
                 .enumerate()
                 .filter(|(_, child_node)| {
-                    child_node.parent_root == node.root
-                        && node.payload_status == child_node.parent_payload_status()
+                    child_node.parent() == Some(node.proto_node_index)
+                        && child_node.get_parent_payload_status() == node.payload_status
                 })
-                .map(|i, child_node| {
-                    let child_index = node.node_index.saturating_add(i);
+                .map(|(child_index, child_node)| {
                     (
                         IndexedForkChoiceNode {
-                            root: child_node.root,
-                            node_index: child_index,
+                            root: child_node.root(),
+                            proto_node_index: child_index,
                             payload_status: PayloadStatus::Pending,
                         },
                         child_node.clone(),
@@ -1352,76 +1403,27 @@ impl ProtoArray {
         }
     }
 
-    /// Find the best viable child of `parent_index` whose `parent_payload_status` matches
-    /// `target_status`. Returns `None` if no matching viable child exists.
-    fn find_best_child_with_status<E: EthSpec>(
-        &self,
-        parent_index: usize,
-        target_status: PayloadStatus,
-        current_slot: Slot,
-        best_justified_checkpoint: Checkpoint,
-        best_finalized_checkpoint: Checkpoint,
-    ) -> Result<Option<usize>, Error> {
-        let mut best: Option<(usize, u64, Hash256)> = None;
-        for (node_index, node) in self.nodes.iter().enumerate() {
-            if node.parent() != Some(parent_index) {
-                continue;
-            }
-            if !node
-                .as_v29()
-                .is_ok_and(|v| v.parent_payload_status == target_status)
-            {
-                continue;
-            }
-            if !self.node_leads_to_viable_head::<E>(
-                node,
-                current_slot,
-                best_justified_checkpoint,
-                best_finalized_checkpoint,
-            )? {
-                continue;
-            }
-
-            let child_weight = node.weight();
-            let child_root = node.root();
-            let replace = if let Some((_, best_weight, best_root)) = best {
-                child_weight > best_weight
-                    || (child_weight == best_weight && child_root >= best_root)
-            } else {
-                true
-            };
-
-            if replace {
-                best = Some((node_index, child_weight, child_root));
-            }
-        }
-
-        Ok(best.map(|(index, _, _)| index))
-    }
-
-    fn get_payload_status_tiebreaker(
+    fn get_payload_status_tiebreaker<E: EthSpec>(
         &self,
         fc_node: &IndexedForkChoiceNode,
         proto_node: &ProtoNode,
         current_slot: Slot,
         proposer_boost_root: Hash256,
-    ) -> u8 {
+    ) -> Result<u8, Error> {
         if fc_node.payload_status == PayloadStatus::Pending
-            || proto_node.slot.saturating_add(1) != current_slot
+            || proto_node.slot().saturating_add(1_u64) != current_slot
         {
-            fc.payload_status as u8
+            Ok(fc_node.payload_status as u8)
+        } else if fc_node.payload_status == PayloadStatus::Empty {
+            Ok(1)
+        } else if self.should_extend_payload::<E>(fc_node, proto_node, proposer_boost_root)? {
+            Ok(2)
         } else {
-            if fc_node.payload_status == PayloadStatus::Empty {
-                1
-            } else if self.should_extend_payload(fc_node, proto_node, proposer_boost_root) {
-                2
-            } else {
-                0
-            }
+            Ok(0)
         }
     }
 
-    fn should_extend_payload(
+    fn should_extend_payload<E: EthSpec>(
         &self,
         fc_node: &IndexedForkChoiceNode,
         proto_node: &ProtoNode,
@@ -1431,12 +1433,29 @@ impl ProtoArray {
             return Ok(false);
         }
 
-        let proposer_boost_node_index = self.indices.get(&proposer_boost_root)?;
-        let proposer_boost_node = self.nodes.get(&proposer_boost_node_index)?;
+        let proposer_boost_node_index = *self
+            .indices
+            .get(&proposer_boost_root)
+            .ok_or(Error::NodeUnknown(proposer_boost_root))?;
+        let proposer_boost_node = self
+            .nodes
+            .get(proposer_boost_node_index)
+            .ok_or(Error::InvalidNodeIndex(proposer_boost_node_index))?;
+
+        // Check if the parent of the proposer boost node matches the fc_node's root
+        let Some(proposer_boost_parent_index) = proposer_boost_node.parent() else {
+            // TODO(gloas): could be an error
+            return Ok(false);
+        };
+        let boost_parent_root = self
+            .nodes
+            .get(proposer_boost_parent_index)
+            .ok_or(Error::InvalidNodeIndex(proposer_boost_parent_index))?
+            .root();
 
         Ok(
             (proto_node.is_payload_timely::<E>() && proto_node.is_payload_data_available::<E>())
-                || proposer_boost_node.parent_root != fc_node.root
+                || boost_parent_root != fc_node.root
                 || proposer_boost_node.is_parent_node_full(),
         )
     }
@@ -1870,8 +1889,9 @@ pub fn get_proposer_score<E: EthSpec>(
         // TODO(gloas): make proposer boost non-optional in spec
         return Ok(0);
     };
+    // TODO(gloas): fix error
     calculate_committee_fraction::<E>(justified_balances, proposer_score_boost)
-        .ok_or(Error::ProposerBoostOverflow(node_index))
+        .ok_or(Error::ProposerBoostOverflow(0))
 }
 
 /// Apply a signed delta to an unsigned weight, returning an error on overflow.
