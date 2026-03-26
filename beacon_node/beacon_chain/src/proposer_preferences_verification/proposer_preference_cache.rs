@@ -60,3 +60,65 @@ impl GossipVerifiedProposerPreferenceCache {
         self.seen.write().retain(|&slot, _| slot >= current_slot);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use bls::Signature;
+    use types::{Address, ProposerPreferences, SignedProposerPreferences, Slot};
+
+    use super::GossipVerifiedProposerPreferenceCache;
+    use crate::proposer_preferences_verification::gossip_verified_proposer_preferences::{
+        GossipVerifiedProposerPreferences, SignatureVerifiedProposerPreferences,
+    };
+
+    fn make_gossip_verified(slot: Slot, validator_index: u64) -> GossipVerifiedProposerPreferences {
+        GossipVerifiedProposerPreferences {
+            signed_preferences: Arc::new(SignedProposerPreferences {
+                message: ProposerPreferences {
+                    proposal_slot: slot,
+                    validator_index,
+                    fee_recipient: Address::ZERO,
+                    gas_limit: 30_000_000,
+                },
+                signature: Signature::empty(),
+            }),
+        }
+    }
+
+    fn make_sig_verified(slot: Slot, validator_index: u64) -> SignatureVerifiedProposerPreferences {
+        SignatureVerifiedProposerPreferences {
+            signed_preferences: Arc::new(SignedProposerPreferences {
+                message: ProposerPreferences {
+                    proposal_slot: slot,
+                    validator_index,
+                    fee_recipient: Address::ZERO,
+                    gas_limit: 30_000_000,
+                },
+                signature: Signature::empty(),
+            }),
+        }
+    }
+
+    #[test]
+    fn prune_removes_old_retains_current() {
+        let cache = GossipVerifiedProposerPreferenceCache::default();
+
+        for slot in [1, 2, 3, 7, 8, 9, 10] {
+            cache.insert_preferences(make_gossip_verified(Slot::new(slot), slot));
+            cache.insert_seen_validator(make_sig_verified(Slot::new(slot), slot));
+        }
+
+        cache.prune(Slot::new(8));
+
+        for slot in [1, 2, 3, 7] {
+            assert!(cache.get_preferences(&Slot::new(slot)).is_none());
+            assert!(!cache.get_seen_validator(&Slot::new(slot), slot));
+        }
+        for slot in [8, 9, 10] {
+            assert!(cache.get_preferences(&Slot::new(slot)).is_some());
+            assert!(cache.get_seen_validator(&Slot::new(slot), slot));
+        }
+    }
+}

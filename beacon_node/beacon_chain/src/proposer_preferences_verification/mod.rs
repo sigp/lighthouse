@@ -14,17 +14,20 @@
 
 use std::sync::Arc;
 
-use types::{BeaconStateError, Slot};
+use types::{BeaconStateError, Epoch, Slot};
 
 use crate::BeaconChainError;
 
 pub mod gossip_verified_proposer_preferences;
 pub mod proposer_preference_cache;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Debug)]
 pub enum ProposerPreferencesError {
     /// The proposal slot is not in the current or next epoch.
-    InvalidProposalSlotEpoch { proposal_slot: Slot },
+    InvalidProposalEpoch { proposal_epoch: Epoch },
     /// The proposal slot has already passed.
     ProposalSlotAlreadyPassed {
         proposal_slot: Slot,

@@ -462,7 +462,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             processor.process_gossip_execution_payload_bid(
                 message_id,
                 peer_id,
-                *execution_payload_bid,
+                Arc::new(*execution_payload_bid),
             )
         };
 
@@ -506,12 +506,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             processor.process_gossip_proposer_preferences(
                 message_id,
                 peer_id,
-                *proposer_preferences,
+                Arc::new(*proposer_preferences),
             )
         };
 
         self.try_send(BeaconWorkEvent {
-            drop_during_sync: false,
+            drop_during_sync: true,
             work: Work::GossipProposerPreferences(Box::new(process_fn)),
         })
     }

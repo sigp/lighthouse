@@ -6,7 +6,7 @@
 //!    SignedExecutionPayloadBid
 //!              |
 //!              ▼
-//!    SignatureVerifiedPayloadbid -------> Insert into GossipVerifiedPayloadBidCache::seen_builder
+//!    SignatureVerifiedPayloadBid -------> Insert into GossipVerifiedPayloadBidCache::seen_builder
 //!              |
 //!              ▼
 //!    GossipVerifiedPayloadBid -------> Insert into GossipVerifiedPayloadBidCache::highest_bid
@@ -21,16 +21,15 @@ use crate::BeaconChainError;
 pub mod gossip_verified_bid;
 pub mod payload_bid_cache;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Debug)]
 pub enum PayloadBidError {
     /// The bid's parent block root is unknown.
     ParentBlockRootUnknown { parent_block_root: Hash256 },
     /// The signature is invalid.
     BadSignature,
-    /// The bids slot doesn't match the block
-    SlotMismatch { block: Slot, envelope: Slot },
-    /// The builder index is unknown
-    UnkownBuilder { builder_index: u64 },
     /// A bid for this builder at this slot has already been seen.
     BuilderAlreadySeen { builder_index: u64, slot: Slot },
     /// Builder is not valid/active for the given epoch
@@ -49,7 +48,7 @@ pub enum PayloadBidError {
         builder_index: u64,
         builder_bid: u64,
     },
-    /// The bids fee recipieint doesn't match the proposer preferences fee recipient.
+    /// The bids fee recipient doesn't match the proposer preferences fee recipient.
     InvalidFeeRecipient,
     /// The bids gas limit doesn't match the proposer preferences gas limit.
     InvalidGasLimit,

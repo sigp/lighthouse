@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    BeaconChain, BeaconChainError, BeaconChainTypes, BeaconStore, CanonicalHead,
+    BeaconChain, BeaconChainTypes, CanonicalHead,
     payload_bid_verification::{PayloadBidError, payload_bid_cache::GossipVerifiedPayloadBidCache},
     proposer_preferences_verification::proposer_preference_cache::GossipVerifiedProposerPreferenceCache,
 };
@@ -9,14 +9,60 @@ use educe::Educe;
 use state_processing::signature_sets::{
     execution_payload_bid_signature_set, get_builder_pubkey_from_state,
 };
-use tracing::{Span, debug};
-use types::{BeaconState, ChainSpec, SignedExecutionPayloadBid};
+use tracing::debug;
+use types::{
+    BeaconState, ChainSpec, EthSpec, ExecutionPayloadBid, SignedExecutionPayloadBid,
+    SignedProposerPreferences, Slot,
+};
+
+/// Verify that an execution payload bid is consistent with the current chain state
+/// and proposer preferences.
+pub(crate) fn verify_bid_consistency<E: EthSpec>(
+    bid: &ExecutionPayloadBid<E>,
+    current_slot: Slot,
+    proposer_preferences: &SignedProposerPreferences,
+    head_state: &BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<(), PayloadBidError> {
+    let bid_slot = bid.slot;
+
+    if bid_slot != current_slot && bid_slot != current_slot + 1 {
+        return Err(PayloadBidError::InvalidBidSlot { bid_slot });
+    }
+
+    if bid.execution_payment != 0 {
+        return Err(PayloadBidError::ExecutionPaymentNonZero {
+            execution_payment: bid.execution_payment,
+        });
+    }
+
+    if bid.fee_recipient != proposer_preferences.message.fee_recipient {
+        return Err(PayloadBidError::InvalidFeeRecipient);
+    }
+    if bid.gas_limit != proposer_preferences.message.gas_limit {
+        return Err(PayloadBidError::InvalidGasLimit);
+    }
+
+    let builder_index = bid.builder_index;
+
+    if !head_state.is_active_builder(builder_index, spec)? {
+        return Err(PayloadBidError::InvalidBuilder { builder_index });
+    }
+
+    if !head_state.can_builder_cover_bid(builder_index, bid.value, spec)? {
+        return Err(PayloadBidError::BuilderCantCoverBid {
+            builder_index,
+            builder_bid: bid.value,
+        });
+    }
+
+    Ok(())
+}
 
 pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub canonical_head: &'a CanonicalHead<T>,
     pub gossip_verified_payload_bid_cache: &'a GossipVerifiedPayloadBidCache<T>,
     pub gossip_verified_proposer_preferences_cache: &'a GossipVerifiedProposerPreferenceCache,
-    pub store: &'a BeaconStore<T>,
     pub spec: &'a ChainSpec,
 }
 
@@ -41,7 +87,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedPayloadBid<T> {
             state,
             |i| get_builder_pubkey_from_state(state, i),
             &signed_bid,
-            &ctx.spec,
+            ctx.spec,
         )
         .map_err(|_| PayloadBidError::BadSignature)?
         .ok_or(PayloadBidError::BadSignature)?
@@ -83,7 +129,6 @@ impl<T: BeaconChainTypes> GossipVerifiedPayloadBid<T> {
         let bid_parent_block_hash = signed_bid.message.parent_block_hash;
         let bid_parent_block_root = signed_bid.message.parent_block_root;
         let bid_value = signed_bid.message.value;
-        let builder_index = signed_bid.message.builder_index;
 
         if ctx
             .gossip_verified_payload_bid_cache
@@ -95,44 +140,28 @@ impl<T: BeaconChainTypes> GossipVerifiedPayloadBid<T> {
             });
         }
 
-         if let Some(cached_bid) = ctx.gossip_verified_payload_bid_cache.get_highest_bid(
+        if let Some(cached_bid) = ctx.gossip_verified_payload_bid_cache.get_highest_bid(
             bid_slot,
             bid_parent_block_hash,
             bid_parent_block_root,
-        ) {
-            if bid_value <= cached_bid.message.value {
-                return Err(PayloadBidError::BidValueBelowCached {
-                    cached_value: cached_bid.message.value,
-                    incoming_value: bid_value,
-                });
-            }
-        }
-
-        let current_slot = ctx.canonical_head.cached_head().head_slot();
-
-        if bid_slot != current_slot && bid_slot != current_slot + 1 {
-            return Err(PayloadBidError::InvalidBidSlot { bid_slot });
-        }
-
-        if signed_bid.message.execution_payment != 0 {
-            return Err(PayloadBidError::ExecutionPaymentNonZero {
-                execution_payment: signed_bid.message.execution_payment,
+        ) && bid_value <= cached_bid.message.value
+        {
+            return Err(PayloadBidError::BidValueBelowCached {
+                cached_value: cached_bid.message.value,
+                incoming_value: bid_value,
             });
         }
 
-        if let Some(proposer_preferences) = ctx
+        let cached_head = ctx.canonical_head.cached_head();
+        let current_slot = cached_head.head_slot();
+        let head_state = &cached_head.snapshot.beacon_state;
+
+        let Some(proposer_preferences) = ctx
             .gossip_verified_proposer_preferences_cache
             .get_preferences(&bid_slot)
-        {
-            if signed_bid.message.fee_recipient != proposer_preferences.message.fee_recipient {
-                return Err(PayloadBidError::InvalidFeeRecipient);
-            }
-            if signed_bid.message.gas_limit != proposer_preferences.message.gas_limit {
-                return Err(PayloadBidError::InvalidGasLimit);
-            }
-        } else {
+        else {
             return Err(PayloadBidError::NoProposerPreferences { slot: bid_slot });
-        }
+        };
 
         let fork_choice = ctx.canonical_head.fork_choice_read_lock();
 
@@ -146,25 +175,20 @@ impl<T: BeaconChainTypes> GossipVerifiedPayloadBid<T> {
 
         drop(fork_choice);
 
-        let head_state = &ctx.canonical_head.cached_head().snapshot.beacon_state;
-
-        if !head_state.is_active_builder(builder_index, &ctx.spec)? {
-            return Err(PayloadBidError::InvalidBuilder { builder_index });
-        }
-
-        if !head_state.can_builder_cover_bid(builder_index, bid_value, &ctx.spec)? {
-            return Err(PayloadBidError::BuilderCantCoverBid {
-                builder_index,
-                builder_bid: bid_value,
-            });
-        }
+        verify_bid_consistency(
+            &signed_bid.message,
+            current_slot,
+            &proposer_preferences,
+            head_state,
+            ctx.spec,
+        )?;
 
         let signature_verified_bid =
             SignatureVerifiedPayloadBid::new(signed_bid.clone(), head_state, ctx)?;
 
         ctx.gossip_verified_payload_bid_cache
             .insert_seen_builder(signature_verified_bid.clone());
-       
+
         let gossip_verified_bid: GossipVerifiedPayloadBid<T> = signature_verified_bid.into();
 
         ctx.gossip_verified_payload_bid_cache
@@ -179,7 +203,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn payload_bid_gossip_verification_context(&self) -> GossipVerificationContext<'_, T> {
         GossipVerificationContext {
             canonical_head: &self.canonical_head,
-            store: &self.store,
             gossip_verified_payload_bid_cache: &self.gossip_verified_payload_bid_cache,
             gossip_verified_proposer_preferences_cache: &self
                 .gossip_verified_proposer_preferences_cache,
@@ -193,50 +216,167 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// Returns an `Err` if the given bid was invalid, or an error was encountered during verification.
-    pub async fn verify_payload_bid_for_gossip(
-        self: &Arc<Self>,
+    pub fn verify_payload_bid_for_gossip(
+        &self,
         bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>,
     ) -> Result<GossipVerifiedPayloadBid<T>, PayloadBidError> {
-        let chain = self.clone();
-        let span = Span::current();
-        self.task_executor
-            .clone()
-            .spawn_blocking_handle(
-                move || {
-                    let _guard = span.enter();
-                    let slot = bid.message.slot;
-                    let parent_block_root = bid.message.parent_block_root;
-                    let parent_block_hash = bid.message.parent_block_hash;
+        let slot = bid.message.slot;
+        let parent_block_root = bid.message.parent_block_root;
+        let parent_block_hash = bid.message.parent_block_hash;
 
-                    let ctx = chain.payload_bid_gossip_verification_context();
-                    match GossipVerifiedPayloadBid::new(bid, &ctx) {
-                        Ok(verified) => {
-                            debug!(
-                                %slot,
-                                %parent_block_hash,
-                                %parent_block_root,
-                                "Successfully verified gossip payload bid"
-                            );
+        let ctx = self.payload_bid_gossip_verification_context();
+        match GossipVerifiedPayloadBid::new(bid, &ctx) {
+            Ok(verified) => {
+                debug!(
+                    %slot,
+                    %parent_block_hash,
+                    %parent_block_root,
+                    "Successfully verified gossip payload bid"
+                );
+                Ok(verified)
+            }
+            Err(e) => {
+                debug!(
+                    error = e.to_string(),
+                    %slot,
+                    %parent_block_hash,
+                    %parent_block_root,
+                    "Rejected gossip payload bid"
+                );
+                Err(e)
+            }
+        }
+    }
+}
 
-                            Ok(verified)
-                        }
-                        Err(e) => {
-                            debug!(
-                                error = e.to_string(),
-                                %slot,
-                                %parent_block_hash,
-                                %parent_block_root,
-                                "Rejected gossip payload bid"
-                            );
+#[cfg(test)]
+mod tests {
+    use bls::Signature;
+    use types::{
+        Address, BeaconState, ChainSpec, EthSpec, ExecutionPayloadBid, MinimalEthSpec,
+        ProposerPreferences, SignedProposerPreferences, Slot,
+    };
 
-                            Err(e)
-                        }
-                    }
-                },
-                "gossip_envelope_verification_handle",
-            )
-            .ok_or(BeaconChainError::RuntimeShutdown)?
-            .await
-            .map_err(BeaconChainError::TokioJoin)?
+    use super::verify_bid_consistency;
+    use crate::payload_bid_verification::PayloadBidError;
+
+    type E = MinimalEthSpec;
+
+    fn make_bid(slot: Slot, fee_recipient: Address, gas_limit: u64) -> ExecutionPayloadBid<E> {
+        ExecutionPayloadBid {
+            slot,
+            fee_recipient,
+            gas_limit,
+            value: 100,
+            ..ExecutionPayloadBid::default()
+        }
+    }
+
+    fn make_preferences(fee_recipient: Address, gas_limit: u64) -> SignedProposerPreferences {
+        SignedProposerPreferences {
+            message: ProposerPreferences {
+                fee_recipient,
+                gas_limit,
+                ..ProposerPreferences::default()
+            },
+            signature: Signature::empty(),
+        }
+    }
+
+    fn state_and_spec() -> (BeaconState<E>, ChainSpec) {
+        let spec = E::default_spec();
+        let state = BeaconState::new(0, <_>::default(), &spec);
+        (state, spec)
+    }
+
+    #[test]
+    fn test_invalid_bid_slot_too_old() {
+        let (state, spec) = state_and_spec();
+        let current_slot = Slot::new(10);
+        let bid = make_bid(Slot::new(5), Address::ZERO, 30_000_000);
+        let prefs = make_preferences(Address::ZERO, 30_000_000);
+
+        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
+        assert!(matches!(
+            result,
+            Err(PayloadBidError::InvalidBidSlot { .. })
+        ));
+    }
+
+    #[test]
+    fn test_invalid_bid_slot_too_far_ahead() {
+        let (state, spec) = state_and_spec();
+        let current_slot = Slot::new(10);
+        let bid = make_bid(Slot::new(12), Address::ZERO, 30_000_000);
+        let prefs = make_preferences(Address::ZERO, 30_000_000);
+
+        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
+        assert!(matches!(
+            result,
+            Err(PayloadBidError::InvalidBidSlot { .. })
+        ));
+    }
+
+    #[test]
+    fn test_valid_bid_slot_current_hits_builder_check() {
+        let (state, spec) = state_and_spec();
+        let current_slot = Slot::new(10);
+        let bid = make_bid(current_slot, Address::ZERO, 30_000_000);
+        let prefs = make_preferences(Address::ZERO, 30_000_000);
+
+        // Passes slot/payment/preference checks, fails on is_active_builder (base state has no builders).
+        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
+        assert!(matches!(result, Err(PayloadBidError::BeaconStateError(_))));
+    }
+
+    #[test]
+    fn test_valid_bid_slot_next_hits_builder_check() {
+        let (state, spec) = state_and_spec();
+        let current_slot = Slot::new(10);
+        let bid = make_bid(Slot::new(11), Address::ZERO, 30_000_000);
+        let prefs = make_preferences(Address::ZERO, 30_000_000);
+
+        // Passes slot/payment/preference checks, fails on is_active_builder (base state has no builders).
+        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
+        assert!(matches!(result, Err(PayloadBidError::BeaconStateError(_))));
+    }
+
+    #[test]
+    fn test_execution_payment_nonzero() {
+        let (state, spec) = state_and_spec();
+        let current_slot = Slot::new(10);
+        let mut bid = make_bid(current_slot, Address::ZERO, 30_000_000);
+        bid.execution_payment = 42;
+        let prefs = make_preferences(Address::ZERO, 30_000_000);
+
+        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
+        assert!(matches!(
+            result,
+            Err(PayloadBidError::ExecutionPaymentNonZero {
+                execution_payment: 42
+            })
+        ));
+    }
+
+    #[test]
+    fn test_fee_recipient_mismatch() {
+        let (state, spec) = state_and_spec();
+        let current_slot = Slot::new(10);
+        let bid = make_bid(current_slot, Address::ZERO, 30_000_000);
+        let prefs = make_preferences(Address::repeat_byte(0xaa), 30_000_000);
+
+        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
+        assert!(matches!(result, Err(PayloadBidError::InvalidFeeRecipient)));
+    }
+
+    #[test]
+    fn test_gas_limit_mismatch() {
+        let (state, spec) = state_and_spec();
+        let current_slot = Slot::new(10);
+        let bid = make_bid(current_slot, Address::ZERO, 30_000_000);
+        let prefs = make_preferences(Address::ZERO, 50_000_000);
+
+        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
+        assert!(matches!(result, Err(PayloadBidError::InvalidGasLimit)));
     }
 }

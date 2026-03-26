@@ -48,7 +48,7 @@ mod tests;
 /// The interval (in seconds) that various network metrics will update.
 const METRIC_UPDATE_INTERVAL: u64 = 5;
 /// Number of slots before the fork when we should subscribe to the new fork topics.
-const SUBSCRIBE_DELAY_SLOTS: u64 = 2;
+const SUBSCRIBE_DELAY_SLOTS: u64 = 32;
 /// Delay after a fork where we unsubscribe from pre-fork topics.
 const UNSUBSCRIBE_DELAY_EPOCHS: u64 = 2;
 /// Size of the queue for validator subnet subscriptions. The number is chosen so that we may be
