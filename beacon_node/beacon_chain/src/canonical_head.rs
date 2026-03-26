@@ -268,6 +268,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     pub fn new(
         fork_choice: BeaconForkChoice<T>,
         snapshot: Arc<BeaconSnapshot<T::EthSpec>>,
+        head_payload_status: proto_array::PayloadStatus,
     ) -> Self {
         let fork_choice_view = fork_choice.cached_fork_choice_view();
         let forkchoice_update_params = fork_choice.get_forkchoice_update_parameters();
@@ -275,8 +276,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             snapshot,
             justified_checkpoint: fork_choice_view.justified_checkpoint,
             finalized_checkpoint: fork_choice_view.finalized_checkpoint,
-            // TODO(gloas): compute from snapshot state once #8998 lands.
-            head_payload_status: proto_array::PayloadStatus::Pending,
+            head_payload_status,
             head_hash: forkchoice_update_params.head_hash,
             justified_hash: forkchoice_update_params.justified_hash,
             finalized_hash: forkchoice_update_params.finalized_hash,
@@ -304,9 +304,11 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         store: &BeaconStore<T>,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
-        let fork_choice =
+        let mut fork_choice =
             <BeaconChain<T>>::load_fork_choice(store.clone(), reset_payload_statuses, spec)?
                 .ok_or(Error::MissingPersistedForkChoice)?;
+        let current_slot_for_head = fork_choice.fc_store().get_current_slot();
+        let (_, head_payload_status) = fork_choice.get_head(current_slot_for_head, spec)?;
         let fork_choice_view = fork_choice.cached_fork_choice_view();
         let beacon_block_root = fork_choice_view.head_block_root;
         let beacon_block = store
@@ -337,8 +339,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             snapshot: Arc::new(snapshot),
             justified_checkpoint: fork_choice_view.justified_checkpoint,
             finalized_checkpoint: fork_choice_view.finalized_checkpoint,
-            // TODO(gloas): compute from snapshot state once #8998 lands.
-            head_payload_status: proto_array::PayloadStatus::Pending,
+            head_payload_status,
             head_hash: forkchoice_update_params.head_hash,
             justified_hash: forkchoice_update_params.justified_hash,
             finalized_hash: forkchoice_update_params.finalized_hash,
