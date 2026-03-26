@@ -462,7 +462,7 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
             spec,
         )?;
 
-        let seen_timestamp = timestamp_nowI();
+        let seen_timestamp = timestamp_now();
 
         Ok(all_data_columns
             .into_iter()
