@@ -17,14 +17,12 @@ four_byte_option_impl!(four_byte_option_checkpoint, Checkpoint);
 pub type SszContainer = SszContainerV28;
 
 #[superstruct(
-    variants(V17, V28),
+    variants(V28),
     variant_attributes(derive(Encode, Decode, Clone)),
     no_enum
 )]
 pub struct SszContainer {
     pub votes: Vec<VoteTracker>,
-    #[superstruct(only(V17))]
-    pub balances: Vec<u64>,
     pub prune_threshold: usize,
     // Deprecated, remove in a future schema migration
     justified_checkpoint: Checkpoint,
@@ -71,36 +69,5 @@ impl TryFrom<(SszContainer, JustifiedBalances)> for ProtoArrayForkChoice {
             votes: ElasticList(from.votes),
             balances,
         })
-    }
-}
-
-// Convert V17 to V28 by dropping balances.
-impl From<SszContainerV17> for SszContainerV28 {
-    fn from(v17: SszContainerV17) -> Self {
-        Self {
-            votes: v17.votes,
-            prune_threshold: v17.prune_threshold,
-            justified_checkpoint: v17.justified_checkpoint,
-            finalized_checkpoint: v17.finalized_checkpoint,
-            nodes: v17.nodes,
-            indices: v17.indices,
-            previous_proposer_boost: v17.previous_proposer_boost,
-        }
-    }
-}
-
-// Convert V28 to V17 by re-adding balances.
-impl From<(SszContainerV28, JustifiedBalances)> for SszContainerV17 {
-    fn from((v28, balances): (SszContainerV28, JustifiedBalances)) -> Self {
-        Self {
-            votes: v28.votes,
-            balances: balances.effective_balances.clone(),
-            prune_threshold: v28.prune_threshold,
-            justified_checkpoint: v28.justified_checkpoint,
-            finalized_checkpoint: v28.finalized_checkpoint,
-            nodes: v28.nodes,
-            indices: v28.indices,
-            previous_proposer_boost: v28.previous_proposer_boost,
-        }
     }
 }
