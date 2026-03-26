@@ -11,7 +11,7 @@ use bls::AggregateSignature;
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::{
     AttestationFromBlock, ForkChoiceStore, InvalidAttestation, InvalidBlock,
-    PayloadVerificationStatus, QueuedAttestation, QueuedPayloadAttestation,
+    PayloadVerificationStatus, QueuedAttestation,
 };
 use state_processing::state_advance::complete_state_advance;
 use std::fmt;
@@ -76,19 +76,6 @@ impl ForkChoiceTest {
     /// Creates a new tester with the GLOAS fork active at epoch 1.
     /// Genesis is a standard Fulu block (epoch 0), so block production works normally.
     /// Tests that need GLOAS semantics should advance the chain into epoch 1 first.
-    pub fn new_with_gloas() -> Self {
-        let mut spec = ForkName::latest_stable().make_genesis_spec(ChainSpec::default());
-        spec.gloas_fork_epoch = Some(Epoch::new(1));
-        let harness = BeaconChainHarness::builder(MainnetEthSpec)
-            .spec(spec.into())
-            .deterministic_keypairs(VALIDATOR_COUNT)
-            .fresh_ephemeral_store()
-            .mock_execution_layer()
-            .build();
-
-        Self { harness }
-    }
-
     /// Get a value from the `ForkChoice` instantiation.
     fn get<T, U>(&self, func: T) -> U
     where
@@ -168,29 +155,6 @@ impl ForkChoiceTest {
                 .canonical_head
                 .fork_choice_read_lock()
                 .queued_attestations(),
-        );
-        self
-    }
-
-    // TODO(gloas): add inspect_queued_payload_attestations when payload
-    // attestation queueing tests are implemented.
-    #[allow(dead_code)]
-    pub fn inspect_queued_payload_attestations<F>(self, mut func: F) -> Self
-    where
-        F: FnMut(&[QueuedPayloadAttestation]),
-    {
-        self.harness
-            .chain
-            .canonical_head
-            .fork_choice_write_lock()
-            .update_time(self.harness.chain.slot().unwrap())
-            .unwrap();
-        func(
-            self.harness
-                .chain
-                .canonical_head
-                .fork_choice_read_lock()
-                .queued_payload_attestations(),
         );
         self
     }
@@ -962,96 +926,6 @@ async fn invalid_attestation_future_block() {
             },
         )
         .await;
-}
-
-/// Payload attestations (index == 1) are invalid when they refer to a block in the same slot.
-/// This check only applies when GLOAS is active.
-///
-/// TODO(gloas): un-ignore once the test harness supports Gloas block production.
-/// The validation logic is gated on `spec.fork_name_at_slot().gloas_enabled()` in
-/// `validate_on_attestation`, which requires a block to exist at a GLOAS-enabled slot.
-/// Currently the mock execution layer cannot produce Gloas blocks (no
-/// `signed_execution_payload_bid` support).
-/// TODO(gloas): un-ignore once mock EL supports Gloas blocks.
-/// https://github.com/sigp/lighthouse/issues/9025
-#[ignore]
-#[tokio::test]
-async fn invalid_attestation_payload_during_same_slot() {
-    ForkChoiceTest::new_with_gloas()
-        .apply_blocks_without_new_attestations(1)
-        .await
-        .apply_attestation_to_chain(
-            MutationDelay::NoDelay,
-            |attestation, chain| {
-                let block_slot = chain
-                    .get_blinded_block(&attestation.data().beacon_block_root)
-                    .expect("should read attested block")
-                    .expect("attested block should exist")
-                    .slot();
-
-                attestation.data_mut().slot = block_slot;
-                attestation.data_mut().target.epoch = block_slot.epoch(E::slots_per_epoch());
-                attestation.data_mut().index = 1;
-            },
-            |result| {
-                assert_invalid_attestation!(
-                    result,
-                    InvalidAttestation::InvalidSameSlotAttestationIndex { slot }
-                    if slot == Slot::new(1)
-                )
-            },
-        )
-        .await;
-}
-
-/// A payload attestation for block A at slot S should be accepted when processed at slot S+1.
-/// TODO(gloas): un-ignore once mock EL supports Gloas blocks. Payload
-/// attestations require V29 nodes which need Gloas block production.
-/// https://github.com/sigp/lighthouse/issues/9025
-#[ignore]
-#[tokio::test]
-async fn payload_attestation_for_previous_slot_is_accepted_at_next_slot() {
-    let test = ForkChoiceTest::new()
-        .apply_blocks_without_new_attestations(1)
-        .await;
-
-    let chain = &test.harness.chain;
-    let block_a = chain
-        .block_at_slot(Slot::new(1), WhenSlotSkipped::Prev)
-        .expect("lookup should succeed")
-        .expect("block A should exist");
-    let block_a_root = block_a.canonical_root();
-    let current_slot = block_a.slot().saturating_add(1_u64);
-
-    let payload_attestation = IndexedPayloadAttestation::<E> {
-        attesting_indices: vec![0_u64].try_into().expect("valid attesting indices"),
-        data: PayloadAttestationData {
-            beacon_block_root: block_a_root,
-            slot: Slot::new(1),
-            payload_present: true,
-            blob_data_available: true,
-        },
-        signature: AggregateSignature::empty(),
-    };
-
-    // PTC mapping: validator 0 is at ptc position 0.
-    let ptc = &[0_usize];
-
-    let result = chain
-        .canonical_head
-        .fork_choice_write_lock()
-        .on_payload_attestation(
-            current_slot,
-            &payload_attestation,
-            AttestationFromBlock::True,
-            ptc,
-        );
-
-    assert!(
-        result.is_ok(),
-        "payload attestation at slot S should be accepted at S+1, got: {:?}",
-        result
-    );
 }
 
 /// Gossip payload attestations must be for the current slot. A payload attestation for slot S
