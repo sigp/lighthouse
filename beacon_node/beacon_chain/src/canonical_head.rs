@@ -229,7 +229,6 @@ impl<E: EthSpec> CachedHead<E> {
     pub fn forkchoice_update_parameters(&self) -> ForkchoiceUpdateParameters {
         ForkchoiceUpdateParameters {
             head_root: self.snapshot.beacon_block_root,
-            head_payload_status: self.head_payload_status,
             head_hash: self.head_hash,
             justified_hash: self.justified_hash,
             finalized_hash: self.finalized_hash,
@@ -276,7 +275,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             snapshot,
             justified_checkpoint: fork_choice_view.justified_checkpoint,
             finalized_checkpoint: fork_choice_view.finalized_checkpoint,
-            head_payload_status: forkchoice_update_params.head_payload_status,
+            head_payload_status: proto_array::PayloadStatus::Pending,
             head_hash: forkchoice_update_params.head_hash,
             justified_hash: forkchoice_update_params.justified_hash,
             finalized_hash: forkchoice_update_params.finalized_hash,
@@ -337,7 +336,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             snapshot: Arc::new(snapshot),
             justified_checkpoint: fork_choice_view.justified_checkpoint,
             finalized_checkpoint: fork_choice_view.finalized_checkpoint,
-            head_payload_status: forkchoice_update_params.head_payload_status,
+            head_payload_status: proto_array::PayloadStatus::Pending,
             head_hash: forkchoice_update_params.head_hash,
             justified_hash: forkchoice_update_params.justified_hash,
             finalized_hash: forkchoice_update_params.finalized_hash,
@@ -615,15 +614,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // was last run.
         let old_view = ForkChoiceView {
             head_block_root: old_cached_head.head_block_root(),
-            head_payload_status: old_cached_head.head_payload_status(),
             justified_checkpoint: old_cached_head.justified_checkpoint(),
             finalized_checkpoint: old_cached_head.finalized_checkpoint(),
         };
+        let old_payload_status = old_cached_head.head_payload_status();
 
         let mut fork_choice_write_lock = self.canonical_head.fork_choice_write_lock();
 
         // Recompute the current head via the fork choice algorithm.
-        let _ = fork_choice_write_lock.get_head(current_slot, &self.spec)?;
+        let (_, new_payload_status) = fork_choice_write_lock.get_head(current_slot, &self.spec)?;
 
         // Downgrade the fork choice write-lock to a read lock, without allowing access to any
         // other writers.
@@ -668,9 +667,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
         }
 
-        // Exit early if the head or justified/finalized checkpoints have not changed, there's
-        // nothing to do.
-        if new_view == old_view {
+        // Exit early if the head, checkpoints, and payload status have not changed.
+        if new_view == old_view && new_payload_status == old_payload_status {
             debug!(
                 head = ?new_view.head_block_root,
                 "No change in canonical head"
@@ -727,7 +725,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 snapshot: Arc::new(new_snapshot),
                 justified_checkpoint: new_view.justified_checkpoint,
                 finalized_checkpoint: new_view.finalized_checkpoint,
-                head_payload_status: new_forkchoice_update_parameters.head_payload_status,
+                head_payload_status: new_payload_status,
                 head_hash: new_forkchoice_update_parameters.head_hash,
                 justified_hash: new_forkchoice_update_parameters.justified_hash,
                 finalized_hash: new_forkchoice_update_parameters.finalized_hash,
@@ -755,7 +753,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 snapshot: old_cached_head.snapshot.clone(),
                 justified_checkpoint: new_view.justified_checkpoint,
                 finalized_checkpoint: new_view.finalized_checkpoint,
-                head_payload_status: new_forkchoice_update_parameters.head_payload_status,
+                head_payload_status: new_payload_status,
                 head_hash: new_forkchoice_update_parameters.head_hash,
                 justified_hash: new_forkchoice_update_parameters.justified_hash,
                 finalized_hash: new_forkchoice_update_parameters.finalized_hash,

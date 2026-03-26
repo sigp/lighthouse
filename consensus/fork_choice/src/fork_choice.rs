@@ -342,7 +342,6 @@ pub enum AttestationFromBlock {
 pub struct ForkchoiceUpdateParameters {
     /// The most recent result of running `ForkChoice::get_head`.
     pub head_root: Hash256,
-    pub head_payload_status: PayloadStatus,
     pub head_hash: Option<ExecutionBlockHash>,
     pub justified_hash: Option<ExecutionBlockHash>,
     pub finalized_hash: Option<ExecutionBlockHash>,
@@ -351,7 +350,6 @@ pub struct ForkchoiceUpdateParameters {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ForkChoiceView {
     pub head_block_root: Hash256,
-    pub head_payload_status: PayloadStatus,
     pub justified_checkpoint: Checkpoint,
     pub finalized_checkpoint: Checkpoint,
 }
@@ -483,7 +481,6 @@ where
                 finalized_hash: None,
                 // These will be updated during the next call to `Self::get_head`.
                 head_root: Hash256::zero(),
-                head_payload_status: PayloadStatus::Pending,
             },
             _phantom: PhantomData,
         };
@@ -588,7 +585,6 @@ where
             .and_then(|b| b.execution_status.block_hash());
         self.forkchoice_update_parameters = ForkchoiceUpdateParameters {
             head_root,
-            head_payload_status,
             head_hash,
             justified_hash,
             finalized_hash,
@@ -684,7 +680,6 @@ where
     pub fn cached_fork_choice_view(&self) -> ForkChoiceView {
         ForkChoiceView {
             head_block_root: self.forkchoice_update_parameters.head_root,
-            head_payload_status: self.forkchoice_update_parameters.head_payload_status,
             justified_checkpoint: self.justified_checkpoint(),
             finalized_checkpoint: self.finalized_checkpoint(),
         }
@@ -1769,7 +1764,6 @@ where
                 finalized_hash: None,
                 // Will be updated in the following call to `Self::get_head`.
                 head_root: Hash256::zero(),
-                head_payload_status: PayloadStatus::Pending,
             },
             _phantom: PhantomData,
         };
