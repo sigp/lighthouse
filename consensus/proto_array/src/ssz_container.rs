@@ -7,6 +7,7 @@ use crate::{
 use ssz::{Encode, four_byte_option_impl};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
+use superstruct::superstruct;
 use types::{Checkpoint, Hash256};
 
 // Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union
@@ -15,40 +16,23 @@ four_byte_option_impl!(four_byte_option_checkpoint, Checkpoint);
 
 pub type SszContainer = SszContainerV29;
 
-/// Proto-array container introduced in schema V17.
-#[derive(Encode, Decode, Clone)]
-pub struct SszContainerV17 {
+#[superstruct(
+    variants(V28, V29),
+    variant_attributes(derive(Encode, Decode, Clone)),
+    no_enum
+)]
+pub struct SszContainer {
     pub votes: Vec<VoteTracker>,
-    pub balances: Vec<u64>,
     pub prune_threshold: usize,
     // Deprecated, remove in a future schema migration
+    #[superstruct(only(V28))]
     justified_checkpoint: Checkpoint,
     // Deprecated, remove in a future schema migration
+    #[superstruct(only(V28))]
     finalized_checkpoint: Checkpoint,
+    #[superstruct(only(V28))]
     pub nodes: Vec<ProtoNodeV17>,
-    pub indices: Vec<(Hash256, usize)>,
-    pub previous_proposer_boost: ProposerBoost,
-}
-
-/// Proto-array container introduced in schema V28.
-#[derive(Encode, Decode, Clone)]
-pub struct SszContainerV28 {
-    pub votes: Vec<VoteTracker>,
-    pub prune_threshold: usize,
-    // Deprecated, remove in a future schema migration
-    justified_checkpoint: Checkpoint,
-    // Deprecated, remove in a future schema migration
-    finalized_checkpoint: Checkpoint,
-    pub nodes: Vec<ProtoNodeV17>,
-    pub indices: Vec<(Hash256, usize)>,
-    pub previous_proposer_boost: ProposerBoost,
-}
-
-/// Current container version. Uses union-encoded `ProtoNode` to support mixed V17/V29 nodes.
-#[derive(Encode, Decode, Clone)]
-pub struct SszContainerV29 {
-    pub votes: Vec<VoteTracker>,
-    pub prune_threshold: usize,
+    #[superstruct(only(V29))]
     pub nodes: Vec<ProtoNode>,
     pub indices: Vec<(Hash256, usize)>,
     pub previous_proposer_boost: ProposerBoost,
@@ -84,37 +68,6 @@ impl TryFrom<(SszContainerV29, JustifiedBalances)> for ProtoArrayForkChoice {
             votes: ElasticList(from.votes),
             balances,
         })
-    }
-}
-
-// Convert legacy V17 to V28 by dropping balances.
-impl From<SszContainerV17> for SszContainerV28 {
-    fn from(v17: SszContainerV17) -> Self {
-        Self {
-            votes: v17.votes,
-            prune_threshold: v17.prune_threshold,
-            justified_checkpoint: v17.justified_checkpoint,
-            finalized_checkpoint: v17.finalized_checkpoint,
-            nodes: v17.nodes,
-            indices: v17.indices,
-            previous_proposer_boost: v17.previous_proposer_boost,
-        }
-    }
-}
-
-// Convert legacy V28 to V17 by re-adding balances.
-impl From<(SszContainerV28, JustifiedBalances)> for SszContainerV17 {
-    fn from((v28, balances): (SszContainerV28, JustifiedBalances)) -> Self {
-        Self {
-            votes: v28.votes,
-            balances: balances.effective_balances.clone(),
-            prune_threshold: v28.prune_threshold,
-            justified_checkpoint: v28.justified_checkpoint,
-            finalized_checkpoint: v28.finalized_checkpoint,
-            nodes: v28.nodes,
-            indices: v28.indices,
-            previous_proposer_boost: v28.previous_proposer_boost,
-        }
     }
 }
 

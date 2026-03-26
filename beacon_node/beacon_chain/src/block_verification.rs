@@ -1691,17 +1691,18 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                     .get_ptc(indexed_payload_attestation.data.slot, &chain.spec)
                     .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
 
-                match fork_choice.on_payload_attestation(
+                // Ignore invalid payload attestations from blocks (same as
+                // regular attestations — the block may be old).
+                if let Err(e) = fork_choice.on_payload_attestation(
                     current_slot,
                     indexed_payload_attestation,
                     AttestationFromBlock::True,
                     &ptc.0,
                 ) {
-                    Ok(()) => Ok(()),
-                    // Ignore invalid payload attestations whilst importing from a block.
-                    Err(ForkChoiceError::InvalidAttestation(_)) => Ok(()),
-                    Err(e) => Err(BlockError::BeaconChainError(Box::new(e.into()))),
-                }?;
+                    if !matches!(e, ForkChoiceError::InvalidAttestation(_)) {
+                        return Err(BlockError::BeaconChainError(Box::new(e.into())));
+                    }
+                }
             }
         }
         drop(fork_choice);
@@ -1969,8 +1970,8 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
                 {
                     // TODO(gloas): loading the envelope here is not very efficient
                     let envelope = chain.store.get_payload_envelope(&root)?;
-                    let state_root = if let Some(env) = envelope {
-                        env.message.state_root
+                    let state_root = if let Some(envelope) = envelope {
+                        envelope.message.state_root
                     } else {
                         // The envelope may not be stored yet for the genesis/anchor
                         // block. Fall back to the block's state_root which is the

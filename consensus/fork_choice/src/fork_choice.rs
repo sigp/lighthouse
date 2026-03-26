@@ -6,7 +6,6 @@ use proto_array::{
     Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, JustifiedBalances, LatestMessage,
     PayloadStatus, ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
 };
-use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
     per_block_processing::errors::AttesterSlashingValidationError, per_epoch_processing,
@@ -1811,13 +1810,11 @@ where
 ///
 /// This is used when persisting the state of the fork choice to disk.
 #[superstruct(
-    variants(V17, V28, V29),
+    variants(V28, V29),
     variant_attributes(derive(Encode, Decode, Clone)),
     no_enum
 )]
 pub struct PersistedForkChoice {
-    #[superstruct(only(V17))]
-    pub proto_array_bytes: Vec<u8>,
     #[superstruct(only(V28))]
     pub proto_array_v28: proto_array::core::SszContainerV28,
     #[superstruct(only(V29))]
@@ -1829,40 +1826,12 @@ pub struct PersistedForkChoice {
 
 pub type PersistedForkChoice = PersistedForkChoiceV29;
 
-impl TryFrom<PersistedForkChoiceV17> for PersistedForkChoiceV28 {
-    type Error = ssz::DecodeError;
-
-    fn try_from(v17: PersistedForkChoiceV17) -> Result<Self, Self::Error> {
-        let container_v17 =
-            proto_array::core::SszContainerV17::from_ssz_bytes(&v17.proto_array_bytes)?;
-        let container_v28: proto_array::core::SszContainerV28 = container_v17.into();
-
-        Ok(Self {
-            proto_array_v28: container_v28,
-            queued_attestations: v17.queued_attestations,
-        })
-    }
-}
-
 impl From<PersistedForkChoiceV28> for PersistedForkChoiceV29 {
     fn from(v28: PersistedForkChoiceV28) -> Self {
         Self {
             proto_array: v28.proto_array_v28.into(),
             queued_attestations: v28.queued_attestations,
             queued_payload_attestations: vec![],
-        }
-    }
-}
-
-impl From<(PersistedForkChoiceV28, JustifiedBalances)> for PersistedForkChoiceV17 {
-    fn from((v28, balances): (PersistedForkChoiceV28, JustifiedBalances)) -> Self {
-        let container_v17 =
-            proto_array::core::SszContainerV17::from((v28.proto_array_v28, balances));
-        let proto_array_bytes = container_v17.as_ssz_bytes();
-
-        Self {
-            proto_array_bytes,
-            queued_attestations: v28.queued_attestations,
         }
     }
 }

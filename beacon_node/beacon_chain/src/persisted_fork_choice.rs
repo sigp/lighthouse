@@ -1,10 +1,7 @@
-use crate::{
-    beacon_fork_choice_store::{PersistedForkChoiceStoreV17, PersistedForkChoiceStoreV28},
-    metrics,
-};
+use crate::{beacon_fork_choice_store::PersistedForkChoiceStoreV28, metrics};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use store::{DBColumn, Error, KeyValueStoreOp, StoreConfig, StoreItem};
+use store::{DBColumn, Error, KeyValueStoreOp, StoreConfig};
 use superstruct::superstruct;
 use types::Hash256;
 
@@ -12,26 +9,22 @@ use types::Hash256;
 pub type PersistedForkChoice = PersistedForkChoiceV29;
 
 #[superstruct(
-    variants(V17, V28, V29),
+    variants(V28, V29),
     variant_attributes(derive(Encode, Decode)),
     no_enum
 )]
 pub struct PersistedForkChoice {
-    #[superstruct(only(V17))]
-    pub fork_choice_v17: fork_choice::PersistedForkChoiceV17,
     #[superstruct(only(V28))]
     pub fork_choice_v28: fork_choice::PersistedForkChoiceV28,
     #[superstruct(only(V29))]
     pub fork_choice: fork_choice::PersistedForkChoiceV29,
-    #[superstruct(only(V17))]
-    pub fork_choice_store_v17: PersistedForkChoiceStoreV17,
     #[superstruct(only(V28, V29))]
     pub fork_choice_store: PersistedForkChoiceStoreV28,
 }
 
 macro_rules! impl_store_item {
     ($type:ty) => {
-        impl StoreItem for $type {
+        impl store::StoreItem for $type {
             fn db_column() -> DBColumn {
                 DBColumn::ForkChoice
             }
@@ -47,7 +40,8 @@ macro_rules! impl_store_item {
     };
 }
 
-impl_store_item!(PersistedForkChoiceV17);
+impl_store_item!(PersistedForkChoiceV28);
+impl_store_item!(PersistedForkChoiceV29);
 
 impl PersistedForkChoiceV29 {
     pub fn from_bytes(bytes: &[u8], store_config: &StoreConfig) -> Result<Self, Error> {
