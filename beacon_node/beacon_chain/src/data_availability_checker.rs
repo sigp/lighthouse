@@ -5,7 +5,6 @@ use crate::block_verification_types::{AvailabilityPendingExecutedBlock, Availabl
 use crate::data_availability_checker::overflow_lru_cache::{
     DataAvailabilityCheckerInner, ReconstructColumnsDecision,
 };
-use crate::validator_monitor::timestamp_now;
 use crate::{BeaconChain, BeaconChainTypes, BlockProcessStatus, CustodyContext, metrics};
 use educe::Educe;
 use kzg::Kzg;
@@ -490,7 +489,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             &self.kzg,
             &verified_data_columns,
             &self.spec,
-            timestamp_now(),
         )
         .map_err(|e| {
             error!(

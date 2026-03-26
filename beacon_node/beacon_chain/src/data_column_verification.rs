@@ -452,7 +452,6 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
         kzg: &Kzg,
         partial_set_of_columns: &[Self],
         spec: &ChainSpec,
-        seen_timestamp: Duration,
     ) -> Result<Vec<KzgVerifiedCustodyDataColumn<E>>, KzgError> {
         let all_data_columns = reconstruct_data_columns(
             kzg,
@@ -468,7 +467,7 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
             .map(|data| {
                 KzgVerifiedCustodyDataColumn::from_asserted_custody(KzgVerifiedDataColumn {
                     data,
-                    seen_timestamp,
+                    seen_timestamp: timestamp_now(),
                 })
             })
             .collect::<Vec<_>>())
