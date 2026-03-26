@@ -366,7 +366,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         available_block: &AvailableBlock<T::EthSpec>,
     ) -> Result<(), AvailabilityCheckError> {
         match available_block.data() {
-            AvailableBlockData::NoData => Ok(()),
+            AvailableBlockData::NoData | AvailableBlockData::DataInEnvelope => Ok(()),
             AvailableBlockData::Blobs(blobs) => verify_kzg_for_blob_list(blobs.iter(), &self.kzg)
                 .map_err(AvailabilityCheckError::InvalidBlobs),
             AvailableBlockData::DataColumns(columns) => {
@@ -388,7 +388,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         for available_block in available_blocks {
             match available_block.data().to_owned() {
-                AvailableBlockData::NoData => {}
+                AvailableBlockData::NoData | AvailableBlockData::DataInEnvelope => {}
                 AvailableBlockData::Blobs(blobs) => all_blobs.extend(blobs),
                 AvailableBlockData::DataColumns(columns) => all_data_columns.extend(columns),
             }
@@ -655,6 +655,9 @@ pub enum AvailableBlockData<E: EthSpec> {
     Blobs(BlobSidecarList<E>),
     /// Block is post-PeerDAS and has more than zero blobs
     DataColumns(DataColumnSidecarList<E>),
+    /// Gloas: block data (payload + columns) arrives via the execution payload envelope,
+    /// not the block itself.
+    DataInEnvelope,
 }
 
 impl<E: EthSpec> AvailableBlockData<E> {
@@ -676,7 +679,7 @@ impl<E: EthSpec> AvailableBlockData<E> {
 
     pub fn blobs(&self) -> Option<BlobSidecarList<E>> {
         match self {
-            AvailableBlockData::NoData => None,
+            AvailableBlockData::NoData | AvailableBlockData::DataInEnvelope => None,
             AvailableBlockData::Blobs(blobs) => Some(blobs.clone()),
             AvailableBlockData::DataColumns(_) => None,
         }
@@ -692,7 +695,7 @@ impl<E: EthSpec> AvailableBlockData<E> {
 
     pub fn data_columns(&self) -> Option<DataColumnSidecarList<E>> {
         match self {
-            AvailableBlockData::NoData => None,
+            AvailableBlockData::NoData | AvailableBlockData::DataInEnvelope => None,
             AvailableBlockData::Blobs(_) => None,
             AvailableBlockData::DataColumns(data_columns) => Some(data_columns.clone()),
         }
@@ -757,6 +760,8 @@ impl<E: EthSpec> AvailableBlock<E> {
                     return Err(AvailabilityCheckError::MissingBlobs);
                 }
             }
+            // Gloas: data availability is handled by the envelope path, not the block.
+            AvailableBlockData::DataInEnvelope => {}
             AvailableBlockData::Blobs(blobs) => {
                 if !blobs_required {
                     return Err(AvailabilityCheckError::InvalidAvailableBlockData);
@@ -835,7 +840,7 @@ impl<E: EthSpec> AvailableBlock<E> {
 
     pub fn has_blobs(&self) -> bool {
         match self.blob_data {
-            AvailableBlockData::NoData => false,
+            AvailableBlockData::NoData | AvailableBlockData::DataInEnvelope => false,
             AvailableBlockData::Blobs(..) => true,
             AvailableBlockData::DataColumns(_) => false,
         }
@@ -863,6 +868,7 @@ impl<E: EthSpec> AvailableBlock<E> {
                 AvailableBlockData::DataColumns(data_columns) => {
                     AvailableBlockData::DataColumns(data_columns.clone())
                 }
+                AvailableBlockData::DataInEnvelope => AvailableBlockData::DataInEnvelope,
             },
             blobs_available_timestamp: self.blobs_available_timestamp,
             spec: self.spec.clone(),

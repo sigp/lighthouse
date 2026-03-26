@@ -275,7 +275,7 @@ impl<E: EthSpec> PendingComponents<E> {
         // Block is available, construct `AvailableExecutedBlock`
 
         let blobs_available_timestamp = match blob_data {
-            AvailableBlockData::NoData => None,
+            AvailableBlockData::NoData | AvailableBlockData::DataInEnvelope => None,
             AvailableBlockData::Blobs(_) => self
                 .verified_blobs
                 .iter()

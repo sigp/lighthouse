@@ -75,6 +75,10 @@ impl<E: EthSpec> AvailableEnvelope<E> {
         }
     }
 
+    pub fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelope<E>> {
+        &self.envelope
+    }
+
     pub fn message(&self) -> &ExecutionPayloadEnvelope<E> {
         &self.envelope.message
     }

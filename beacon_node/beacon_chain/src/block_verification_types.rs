@@ -139,7 +139,9 @@ impl<E: EthSpec> RangeSyncBlock<E> {
     pub fn n_blobs(&self) -> usize {
         match self {
             Self::Base(block) => match block.data() {
-                AvailableBlockData::NoData | AvailableBlockData::DataColumns(_) => 0,
+                AvailableBlockData::NoData
+                | AvailableBlockData::DataInEnvelope
+                | AvailableBlockData::DataColumns(_) => 0,
                 AvailableBlockData::Blobs(blobs) => blobs.len(),
             },
             Self::Gloas { .. } => 0,
@@ -149,7 +151,9 @@ impl<E: EthSpec> RangeSyncBlock<E> {
     pub fn n_data_columns(&self) -> usize {
         match self {
             Self::Base(block) => match block.data() {
-                AvailableBlockData::NoData | AvailableBlockData::Blobs(_) => 0,
+                AvailableBlockData::NoData
+                | AvailableBlockData::DataInEnvelope
+                | AvailableBlockData::Blobs(_) => 0,
                 AvailableBlockData::DataColumns(columns) => columns.len(),
             },
             Self::Gloas { .. } => 0,

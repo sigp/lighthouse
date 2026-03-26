@@ -619,15 +619,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             return;
         };
 
-        // TODO(gloas): Implement Gloas chain segment processing.
-        // Gloas blocks carry separate envelopes and need a different import path.
-        if downloaded_blocks
-            .iter()
-            .any(|b| matches!(b, RangeSyncBlock::Gloas { .. }))
-        {
-            todo!("Gloas chain segment processing");
-        }
-
         let start_slot = downloaded_blocks.first().map(|b| b.slot().as_u64());
         let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
         let sent_blocks = downloaded_blocks.len();

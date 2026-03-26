@@ -60,6 +60,7 @@ use crate::execution_payload::{
 };
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_block_producers::SeenBlock;
+use crate::payload_envelope_verification::{AvailableEnvelope, EnvelopeError};
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
@@ -328,6 +329,8 @@ pub enum BlockError {
     /// It's unclear if this block is valid, but it cannot be fully verified without the parent's
     /// execution payload envelope.
     ParentEnvelopeUnknown { parent_root: Hash256 },
+    /// An error occurred while processing the execution payload envelope during range sync.
+    EnvelopeError(Box<EnvelopeError>),
 }
 
 /// Which specific signature(s) are invalid in a SignedBeaconBlock
@@ -591,10 +594,17 @@ pub(crate) fn process_block_slash_info<T: BeaconChainTypes, TErr: BlockBlobError
 /// The given `chain_segment` must contain only blocks from the same epoch, otherwise an error
 /// will be returned.
 #[instrument(skip_all)]
+#[allow(clippy::type_complexity)]
 pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     mut chain_segment: Vec<(Hash256, RangeSyncBlock<T::EthSpec>)>,
     chain: &BeaconChain<T>,
-) -> Result<Vec<SignatureVerifiedBlock<T>>, BlockError> {
+) -> Result<
+    Vec<(
+        SignatureVerifiedBlock<T>,
+        Option<Box<AvailableEnvelope<T::EthSpec>>>,
+    )>,
+    BlockError,
+> {
     if chain_segment.is_empty() {
         return Ok(vec![]);
     }
@@ -623,14 +633,30 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         let consensus_context =
             ConsensusContext::new(block.slot()).set_current_block_root(block_root);
 
-        let available_block = block.into_available_block();
+        let (available_block, envelope) = match block {
+            RangeSyncBlock::Base(ab) => (ab, None),
+            RangeSyncBlock::Gloas { block, envelope } => {
+                let ab = AvailableBlock::new(
+                    block,
+                    AvailableBlockData::DataInEnvelope,
+                    &chain.data_availability_checker,
+                    chain.spec.clone(),
+                )
+                .map_err(BlockError::AvailabilityCheck)?;
+                (ab, envelope)
+            }
+        };
+
         available_blocks.push(available_block.clone());
-        signature_verified_blocks.push(SignatureVerifiedBlock {
-            block: MaybeAvailableBlock::Available(available_block),
-            block_root,
-            parent: None,
-            consensus_context,
-        });
+        signature_verified_blocks.push((
+            SignatureVerifiedBlock {
+                block: MaybeAvailableBlock::Available(available_block),
+                block_root,
+                parent: None,
+                consensus_context,
+            },
+            envelope,
+        ));
     }
 
     chain
@@ -640,7 +666,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     // verify signatures
     let pubkey_cache = get_validator_pubkey_cache(chain)?;
     let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
-    for svb in &mut signature_verified_blocks {
+    for (svb, _) in &mut signature_verified_blocks {
         signature_verifier
             .include_all_signatures(svb.block.as_block(), &mut svb.consensus_context)?;
     }
@@ -651,7 +677,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
 
     drop(pubkey_cache);
 
-    if let Some(signature_verified_block) = signature_verified_blocks.first_mut() {
+    if let Some((signature_verified_block, _)) = signature_verified_blocks.first_mut() {
         signature_verified_block.parent = Some(parent);
     }
 
@@ -1199,7 +1225,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         let result = info_span!("signature_verify").in_scope(|| signature_verifier.verify());
         match result {
             Ok(_) => {
-                // gloas blocks are always available.
+                // Gloas blocks are always available — data arrives via the envelope.
                 let maybe_available = if chain
                     .spec
                     .fork_name_at_slot::<T::EthSpec>(block.slot())
@@ -1208,7 +1234,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
                     MaybeAvailableBlock::Available(
                         AvailableBlock::new(
                             block,
-                            AvailableBlockData::NoData,
+                            AvailableBlockData::DataInEnvelope,
                             &chain.data_availability_checker,
                             chain.spec.clone(),
                         )

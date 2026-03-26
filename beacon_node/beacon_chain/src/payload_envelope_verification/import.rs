@@ -6,16 +6,25 @@ use fork_choice::PayloadVerificationStatus;
 use slot_clock::SlotClock;
 use store::StoreOp;
 use tracing::{debug, error, info, info_span, instrument, warn};
-use types::{BeaconState, BlockImportSource, Hash256, Slot};
+use types::{BeaconState, BlockImportSource, EthSpec, Hash256, Slot};
+
+use state_processing::{
+    VerifySignatures,
+    envelope_processing::{VerifyStateRoot, process_execution_payload_envelope},
+};
+use store::DatabaseBlock;
 
 use super::{
     AvailableEnvelope, AvailableExecutedEnvelope, EnvelopeError, EnvelopeImportData,
-    ExecutedEnvelope, gossip_verified_envelope::GossipVerifiedEnvelope,
+    ExecutedEnvelope, MaybeAvailableEnvelope, gossip_verified_envelope::GossipVerifiedEnvelope,
+    gossip_verified_envelope::verify_envelope_consistency, load_snapshot_from_state_root,
+    payload_notifier::PayloadNotifier,
 };
 use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes,
-    NotifyExecutionLayer, block_verification_types::AvailableBlockData, metrics,
-    payload_envelope_verification::ExecutionPendingEnvelope, validator_monitor::get_slot_delay_ms,
+    NotifyExecutionLayer, PayloadVerificationOutcome, block_verification_types::AvailableBlockData,
+    metrics, payload_envelope_verification::ExecutionPendingEnvelope,
+    validator_monitor::get_slot_delay_ms,
 };
 
 const ENVELOPE_METRICS_CACHE_SLOT_LIMIT: u32 = 64;
@@ -145,6 +154,125 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
                 Err(other)
             }
+        }
+    }
+
+    /// Process an `AvailableEnvelope` from range sync. Unlike the gossip path, the block has
+    /// already been imported into fork choice so we can skip gossip-specific checks.
+    ///
+    /// Steps: consistency checks, signature verification, EL verification (newPayload),
+    /// state processing, await EL result, and import.
+    #[instrument(skip_all, fields(block_root = ?block_root))]
+    pub async fn process_range_sync_envelope(
+        self: &Arc<Self>,
+        block_root: Hash256,
+        available_envelope: Box<AvailableEnvelope<T::EthSpec>>,
+        notify_execution_layer: NotifyExecutionLayer,
+    ) -> Result<AvailabilityProcessingStatus, EnvelopeError> {
+        let signed_envelope = available_envelope.envelope().clone();
+        let block_slot = signed_envelope.slot();
+
+        // Load the block from store (just imported, guaranteed to exist).
+        let block = match self.store.try_get_full_block(&block_root)? {
+            Some(DatabaseBlock::Full(block)) => Arc::new(block),
+            Some(DatabaseBlock::Blinded(_)) | None => {
+                return Err(EnvelopeError::BlockRootUnknown { block_root });
+            }
+        };
+
+        // Envelope consistency checks.
+        let execution_bid = &block
+            .message()
+            .body()
+            .signed_execution_payload_bid()?
+            .message;
+        let latest_finalized_slot = self
+            .canonical_head
+            .cached_head()
+            .finalized_checkpoint()
+            .epoch
+            .start_slot(T::EthSpec::slots_per_epoch());
+        verify_envelope_consistency(
+            &signed_envelope.message,
+            &block,
+            execution_bid,
+            latest_finalized_slot,
+        )?;
+
+        // Load state for signature verification and state processing.
+        let snapshot =
+            load_snapshot_from_state_root::<T>(block_root, block.state_root(), &self.store)?;
+
+        // Verify the envelope signature.
+        let is_valid =
+            signed_envelope.verify_signature_with_state(&snapshot.pre_state, &self.spec)?;
+        if !is_valid {
+            return Err(EnvelopeError::BadSignature);
+        }
+
+        // Start EL verification (newPayload) as early as possible.
+        let payload_notifier = PayloadNotifier::new(
+            self.clone(),
+            signed_envelope.clone(),
+            block.clone(),
+            notify_execution_layer,
+        )?;
+        let payload_verification_future = async move {
+            let chain = payload_notifier.chain.clone();
+            if let Some(started_execution) = chain.slot_clock.now_duration() {
+                chain
+                    .envelope_times_cache
+                    .write()
+                    .set_time_started_execution(block_root, block_slot, started_execution);
+            }
+            let payload_verification_status = payload_notifier.notify_new_payload().await?;
+            Ok(PayloadVerificationOutcome {
+                payload_verification_status,
+            })
+        };
+        let payload_verification_handle = self
+            .task_executor
+            .spawn_handle(
+                payload_verification_future,
+                "range_sync_envelope_payload_verification",
+            )
+            .ok_or(BeaconChainError::RuntimeShutdown)?;
+
+        // Run state processing (signatures already verified above).
+        let mut state = snapshot.pre_state;
+        process_execution_payload_envelope(
+            &mut state,
+            Some(snapshot.state_root),
+            &signed_envelope,
+            VerifySignatures::False,
+            VerifyStateRoot::True,
+            &self.spec,
+        )?;
+
+        // Build the ExecutionPendingEnvelope with Available status (columns already bundled).
+        let execution_pending = ExecutionPendingEnvelope {
+            signed_envelope: MaybeAvailableEnvelope::Available(*available_envelope),
+            import_data: EnvelopeImportData {
+                block_root,
+                post_state: Box::new(state),
+            },
+            payload_verification_handle,
+        };
+
+        // Await EL verification and import.
+        let executed_envelope = self
+            .clone()
+            .into_executed_payload_envelope(execution_pending)
+            .await?;
+
+        match executed_envelope {
+            ExecutedEnvelope::Available(envelope) => {
+                self.import_available_execution_payload_envelope(Box::new(envelope))
+                    .await
+            }
+            ExecutedEnvelope::AvailabilityPending() => Err(EnvelopeError::InternalError(
+                "Pending payload envelope not yet implemented".to_owned(),
+            )),
         }
     }
 

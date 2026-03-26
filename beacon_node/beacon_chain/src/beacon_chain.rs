@@ -2951,12 +2951,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             };
 
-            // Import the blocks into the chain.
-            for signature_verified_block in signature_verified_blocks {
+            // Import the blocks (and envelopes for Gloas) into the chain.
+            for (signature_verified_block, maybe_envelope) in signature_verified_blocks {
+                let block_root = signature_verified_block.block_root();
                 let block_slot = signature_verified_block.slot();
                 match self
                     .process_block(
-                        signature_verified_block.block_root(),
+                        block_root,
                         signature_verified_block,
                         notify_execution_layer,
                         BlockImportSource::RangeSync,
@@ -2969,6 +2970,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             AvailabilityProcessingStatus::Imported(block_root) => {
                                 // The block was imported successfully.
                                 imported_blocks.push((block_root, block_slot));
+
+                                // Gloas: process the envelope now that the block is in fork choice.
+                                if let Some(envelope) = maybe_envelope
+                                    && let Err(error) = self
+                                        .process_range_sync_envelope(
+                                            block_root,
+                                            envelope,
+                                            notify_execution_layer,
+                                        )
+                                        .await
+                                {
+                                    return ChainSegmentResult::Failed {
+                                        imported_blocks,
+                                        error: BlockError::EnvelopeError(Box::new(error)),
+                                    };
+                                }
                             }
                             AvailabilityProcessingStatus::MissingComponents(slot, block_root) => {
                                 warn!(
@@ -7219,7 +7236,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_data: AvailableBlockData<T::EthSpec>,
     ) -> Option<StoreOp<'_, T::EthSpec>> {
         match block_data {
-            AvailableBlockData::NoData => None,
+            AvailableBlockData::NoData | AvailableBlockData::DataInEnvelope => None,
             AvailableBlockData::Blobs(blobs) => {
                 debug!(
                     %block_root,
