@@ -1199,10 +1199,10 @@ impl ProtoArray {
             {
                 continue;
             }
-            if let Some(parent) = node.parent() {
-                if parent < children.len() {
-                    children[parent].push(i);
-                }
+            if let Some(parent) = node.parent()
+                && parent < children.len()
+            {
+                children[parent].push(i);
             }
         }
         children

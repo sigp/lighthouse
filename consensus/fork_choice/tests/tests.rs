@@ -1005,6 +1005,10 @@ async fn invalid_attestation_payload_during_same_slot() {
 }
 
 /// A payload attestation for block A at slot S should be accepted when processed at slot S+1.
+/// TODO(gloas): un-ignore once mock EL supports Gloas blocks. Payload
+/// attestations require V29 nodes which need Gloas block production.
+/// https://github.com/sigp/lighthouse/issues/9025
+#[ignore]
 #[tokio::test]
 async fn payload_attestation_for_previous_slot_is_accepted_at_next_slot() {
     let test = ForkChoiceTest::new()
