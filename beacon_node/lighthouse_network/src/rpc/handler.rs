@@ -954,6 +954,35 @@ where
                     return;
                 }
             }
+            RequestType::PayloadEnvelopesByRange(request) => {
+                let max_allowed = spec.max_request_payloads;
+                if request.count > max_allowed {
+                    self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
+                        id: self.current_inbound_substream_id,
+                        proto: Protocol::PayloadEnvelopesByRange,
+                        error: RPCError::InvalidData(format!(
+                            "requested exceeded limit. allowed: {}, requested: {}",
+                            max_allowed, request.count
+                        )),
+                    }));
+                    return;
+                }
+            }
+            RequestType::DataColumnsByRange(request) => {
+                let max_requested = request.max_requested::<E>();
+                let max_allowed = spec.max_request_data_column_sidecars;
+                if max_requested > max_allowed {
+                    self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
+                        id: self.current_inbound_substream_id,
+                        proto: Protocol::DataColumnsByRange,
+                        error: RPCError::InvalidData(format!(
+                            "requested exceeded limit. allowed: {}, requested: {}",
+                            max_allowed, max_requested
+                        )),
+                    }));
+                    return;
+                }
+            }
             _ => {}
         };
 

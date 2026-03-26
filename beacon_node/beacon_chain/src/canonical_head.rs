@@ -319,6 +319,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
 
         let snapshot = BeaconSnapshot {
             beacon_block_root,
+            execution_envelope: None,
             beacon_block: Arc::new(beacon_block),
             beacon_state,
         };
@@ -368,6 +369,13 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             .get_block_execution_status(&head_block_root)
             .ok_or(Error::HeadMissingFromForkChoice(head_block_root))?;
         Ok((head, execution_status))
+    }
+
+    // TODO(gloas) just a stub for now, implement this once we have fork choice.
+    /// Returns true if the payload for this block is canonical according to fork choice
+    /// Returns an error if the block root doesn't exist in fork choice.
+    pub fn block_has_canonical_payload(&self, _root: &Hash256) -> Result<bool, Error> {
+        Ok(true)
     }
 
     /// Returns a clone of `self.cached_head`.
@@ -695,6 +703,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 BeaconSnapshot {
                     beacon_block: Arc::new(beacon_block),
+                    execution_envelope: None,
                     beacon_block_root: new_view.head_block_root,
                     beacon_state,
                 }
