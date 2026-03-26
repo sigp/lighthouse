@@ -462,12 +462,14 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
             spec,
         )?;
 
+        let seen_timestamp = timestamp_nowI();
+
         Ok(all_data_columns
             .into_iter()
             .map(|data| {
                 KzgVerifiedCustodyDataColumn::from_asserted_custody(KzgVerifiedDataColumn {
                     data,
-                    seen_timestamp: timestamp_now(),
+                    seen_timestamp,
                 })
             })
             .collect::<Vec<_>>())
