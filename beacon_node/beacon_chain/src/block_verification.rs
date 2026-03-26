@@ -1964,15 +1964,27 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
             if block.as_block().fork_name_unchecked().gloas_enabled()
                 && let Ok(parent_bid_block_hash) = parent_block.payload_bid_block_hash()
             {
-                if block.as_block().is_parent_block_full(parent_bid_block_hash) {
+                if !parent_bid_block_hash.into_root().is_zero()
+                    && block.as_block().is_parent_block_full(parent_bid_block_hash)
+                {
                     // TODO(gloas): loading the envelope here is not very efficient
-                    // TODO(gloas): check parent payload existence prior to this point?
-                    let envelope = chain.store.get_payload_envelope(&root)?.ok_or_else(|| {
-                        BeaconChainError::DBInconsistent(format!(
-                            "Missing envelope for parent block {root:?}",
-                        ))
-                    })?;
-                    (StatePayloadStatus::Full, envelope.message.state_root)
+                    let envelope = chain.store.get_payload_envelope(&root)?;
+                    let state_root = if let Some(env) = envelope {
+                        env.message.state_root
+                    } else {
+                        // The envelope may not be stored yet for the genesis/anchor
+                        // block. Fall back to the block's state_root which is the
+                        // post-payload state for the anchor per get_forkchoice_store.
+                        if parent_block.slot() == chain.spec.genesis_slot {
+                            parent_block.state_root()
+                        } else {
+                            return Err(BeaconChainError::DBInconsistent(format!(
+                                "Missing envelope for parent block {root:?}",
+                            ))
+                            .into());
+                        }
+                    };
+                    (StatePayloadStatus::Full, state_root)
                 } else {
                     (StatePayloadStatus::Pending, parent_block.state_root())
                 }

@@ -449,8 +449,7 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     execution_payload,
                     valid,
                 } => {
-                    tester
-                        .process_execution_payload(execution_payload.beacon_block_root(), *valid)?;
+                    tester.process_execution_payload(execution_payload, *valid)?;
                 }
             }
         }
@@ -993,7 +992,27 @@ impl<E: EthSpec> Tester<E> {
         check_equal("proposer_head", proposer_head, expected_proposer_head)
     }
 
-    pub fn process_execution_payload(&self, block_root: Hash256, valid: bool) -> Result<(), Error> {
+    pub fn process_execution_payload(
+        &self,
+        signed_envelope: &SignedExecutionPayloadEnvelope<E>,
+        valid: bool,
+    ) -> Result<(), Error> {
+        let block_root = signed_envelope.message.beacon_block_root;
+
+        // Store the envelope in the database so that child blocks extending
+        // the FULL path can load the parent's post-payload state.
+        if valid {
+            self.harness
+                .chain
+                .store
+                .put_payload_envelope(&block_root, signed_envelope.clone())
+                .map_err(|e| {
+                    Error::InternalError(format!(
+                        "Failed to store payload envelope for {block_root:?}: {e:?}",
+                    ))
+                })?;
+        }
+
         let result = self
             .harness
             .chain
