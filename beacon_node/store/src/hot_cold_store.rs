@@ -261,6 +261,8 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
 impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
     /// Open a new or existing database, with the given paths to the hot and cold DBs.
     ///
+    /// The `migrate_schema` function is passed in so that the parent `BeaconChain` can provide
+    /// context and access `BeaconChain`-level code without creating a circular dependency.
     pub fn open(
         hot_path: &Path,
         cold_path: &Path,
