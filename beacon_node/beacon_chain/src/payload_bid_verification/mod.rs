@@ -1,12 +1,15 @@
 //! The incremental processing steps are represented as a sequence of wrapper-types around the bid.
 //! There is a linear progression of types, starting at a `SignedExecutionPayloadBid` and finishing
-//! with an `GossipVerifiedPayloadBid`
+//! with an `GossipVerifiedPayloadBid` which is then inserted into the `GossipVerifiedPayloadBidCache`
 //!
 //! ```ignore
-//! SignedExecutionPayloadBid
+//!    SignedExecutionPayloadBid
 //!              |
 //!              ▼
-//!    GossipVerifiedPayloadBid
+//!    SignatureVerifiedPayloadbid -------> Insert into GossipVerifiedPayloadBidCache::seen_builder
+//!              |
+//!              ▼
+//!    GossipVerifiedPayloadBid -------> Insert into GossipVerifiedPayloadBidCache::highest_bid
 //! ```
 
 use std::sync::Arc;
@@ -60,8 +63,20 @@ pub enum PayloadBidError {
     InternalError(String),
 }
 
+impl std::fmt::Display for PayloadBidError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl From<BeaconStateError> for PayloadBidError {
     fn from(e: BeaconStateError) -> Self {
         PayloadBidError::BeaconStateError(e)
+    }
+}
+
+impl From<BeaconChainError> for PayloadBidError {
+    fn from(e: BeaconChainError) -> Self {
+        PayloadBidError::BeaconChainError(Arc::new(e))
     }
 }

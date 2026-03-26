@@ -1064,6 +1064,8 @@ where
             ),
             kzg: self.kzg.clone(),
             rng: Arc::new(Mutex::new(rng)),
+            gossip_verified_payload_bid_cache: <_>::default(),
+            gossip_verified_proposer_preferences_cache: <_>::default(),
         };
 
         let head = beacon_chain.head_snapshot();

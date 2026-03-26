@@ -3206,7 +3206,7 @@ impl<E: EthSpec> BeaconState<E> {
         if builder_balance < min_balance {
             return Ok(false);
         }
-        return Ok(builder_balance.saturating_sub(min_balance) >= bid_amount);
+        Ok(builder_balance.saturating_sub(min_balance) >= bid_amount)
     }
 
     pub fn is_active_builder(
@@ -3218,8 +3218,8 @@ impl<E: EthSpec> BeaconState<E> {
             return Ok(false);
         };
 
-        return Ok(builder.deposit_epoch < self.finalized_checkpoint().epoch
-            && builder.withdrawable_epoch == spec.far_future_epoch);
+        Ok(builder.deposit_epoch < self.finalized_checkpoint().epoch
+            && builder.withdrawable_epoch == spec.far_future_epoch)
     }
 }
 
