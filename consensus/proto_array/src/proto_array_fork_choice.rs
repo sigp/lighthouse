@@ -492,7 +492,7 @@ impl ProtoArrayForkChoice {
             unrealized_finalized_checkpoint: Some(finalized_checkpoint),
             execution_payload_parent_hash,
             execution_payload_block_hash,
-            proposer_index: None,
+            proposer_index: Some(0),
         };
 
         proto_array
@@ -1338,7 +1338,7 @@ mod test_compute_deltas {
                     unrealized_finalized_checkpoint: Some(genesis_checkpoint),
                     execution_payload_parent_hash: None,
                     execution_payload_block_hash: None,
-                    proposer_index: None,
+                    proposer_index: Some(0),
                 },
                 genesis_slot + 1,
                 genesis_checkpoint,
@@ -1368,7 +1368,7 @@ mod test_compute_deltas {
                     unrealized_finalized_checkpoint: None,
                     execution_payload_parent_hash: None,
                     execution_payload_block_hash: None,
-                    proposer_index: None,
+                    proposer_index: Some(0),
                 },
                 genesis_slot + 1,
                 genesis_checkpoint,
@@ -1505,7 +1505,7 @@ mod test_compute_deltas {
                         unrealized_finalized_checkpoint: Some(genesis_checkpoint),
                         execution_payload_parent_hash: None,
                         execution_payload_block_hash: None,
-                        proposer_index: None,
+                        proposer_index: Some(0),
                     },
                     Slot::from(block.slot),
                     genesis_checkpoint,

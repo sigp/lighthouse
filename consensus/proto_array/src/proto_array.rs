@@ -551,6 +551,12 @@ impl ProtoArray {
             return Ok(());
         }
 
+        // We do not allow `proposer_index=None` for calls to `on_block`, it is only non-optional
+        // for backwards-compatibility with pre-Gloas V17 proto nodes.
+        let Some(proposer_index) = block.proposer_index else {
+            return Err(Error::OnBlockRequiresProposerIndex);
+        };
+
         let node_index = self.nodes.len();
 
         let parent_index = block
@@ -658,7 +664,7 @@ impl ProtoArray {
                     BitVector::default()
                 },
                 payload_received: is_genesis,
-                proposer_index: block.proposer_index.unwrap_or(0),
+                proposer_index,
                 // Spec: `record_block_timeliness` + `get_forkchoice_store`.
                 // Anchor gets [True, True]. Others computed from time_into_slot.
                 block_timeliness_attestation_threshold: is_genesis

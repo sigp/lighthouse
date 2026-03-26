@@ -61,6 +61,7 @@ pub enum Error {
         block_root: Hash256,
     },
     NoViableChildren,
+    OnBlockRequiresProposerIndex,
 }
 
 impl From<ArithError> for Error {
