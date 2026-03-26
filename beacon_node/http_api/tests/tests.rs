@@ -3176,7 +3176,7 @@ impl ApiTester {
                             .execution_status()
                             .ok()
                             .map(|status| status.to_string())
-                            .unwrap_or_else(|| "n/a".to_string()),
+                            .unwrap_or_else(|| "irrelevant".to_string()),
                         best_child: node
                             .best_child()
                             .and_then(|index| expected_proto_array.nodes.get(index))

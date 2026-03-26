@@ -1285,7 +1285,7 @@ where
         //  2. Ignore all attestations to the zero hash.
         //
         // (1) becomes weird once we hit finality and fork choice drops the genesis block. (2) is
-        // fine because votes.gloas_enabled() to the genesis block are not useful; all validators implicitly attest
+        // fine because votes to the genesis block are not useful; all validators implicitly attest
         // to genesis just by being present in the chain.
         if attestation.data().beacon_block_root == Hash256::zero() {
             return Ok(());

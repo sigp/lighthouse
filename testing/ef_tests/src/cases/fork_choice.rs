@@ -1039,11 +1039,9 @@ impl<E: EthSpec> Tester<E> {
 
     pub fn check_head_payload_status(&self, expected_status: u8) -> Result<(), Error> {
         let head = self.find_head()?;
-        check_equal(
-            "head_payload_status",
-            head.head_payload_status() as u8,
-            expected_status,
-        )
+        // PayloadStatus repr: Empty=0, Full=1, Pending=2 (matches spec constants).
+        let actual = head.head_payload_status() as u8;
+        check_equal("head_payload_status", actual, expected_status)
     }
 
     pub fn check_should_override_fcu(
