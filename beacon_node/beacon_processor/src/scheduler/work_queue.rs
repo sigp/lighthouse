@@ -135,6 +135,8 @@ pub struct BeaconProcessorQueueLengths {
     blob_brange_queue: usize,
     dcbroots_queue: usize,
     dcbrange_queue: usize,
+    payload_envelopes_brange_queue: usize,
+    payload_envelopes_broots_queue: usize,
     gossip_bls_to_execution_change_queue: usize,
     gossip_execution_payload_queue: usize,
     gossip_execution_payload_bid_queue: usize,
@@ -206,6 +208,8 @@ impl BeaconProcessorQueueLengths {
             blob_brange_queue: 1024,
             dcbroots_queue: 1024,
             dcbrange_queue: 1024,
+            payload_envelopes_brange_queue: 1024,
+            payload_envelopes_broots_queue: 1024,
             gossip_bls_to_execution_change_queue: 16384,
             // TODO(EIP-7732): verify 1024 is preferable. I used same value as `gossip_block_queue` and `gossip_blob_queue`
             gossip_execution_payload_queue: 1024,
@@ -256,6 +260,8 @@ pub struct WorkQueues<E: EthSpec> {
     pub status_queue: FifoQueue<Work<E>>,
     pub block_brange_queue: FifoQueue<Work<E>>,
     pub block_broots_queue: FifoQueue<Work<E>>,
+    pub payload_envelopes_brange_queue: FifoQueue<Work<E>>,
+    pub payload_envelopes_broots_queue: FifoQueue<Work<E>>,
     pub blob_broots_queue: FifoQueue<Work<E>>,
     pub blob_brange_queue: FifoQueue<Work<E>>,
     pub dcbroots_queue: FifoQueue<Work<E>>,
@@ -327,6 +333,10 @@ impl<E: EthSpec> WorkQueues<E> {
         let blob_brange_queue = FifoQueue::new(queue_lengths.blob_brange_queue);
         let dcbroots_queue = FifoQueue::new(queue_lengths.dcbroots_queue);
         let dcbrange_queue = FifoQueue::new(queue_lengths.dcbrange_queue);
+        let payload_envelopes_brange_queue =
+            FifoQueue::new(queue_lengths.payload_envelopes_brange_queue);
+        let payload_envelopes_broots_queue =
+            FifoQueue::new(queue_lengths.payload_envelopes_broots_queue);
 
         let gossip_bls_to_execution_change_queue =
             FifoQueue::new(queue_lengths.gossip_bls_to_execution_change_queue);
@@ -387,6 +397,8 @@ impl<E: EthSpec> WorkQueues<E> {
             blob_brange_queue,
             dcbroots_queue,
             dcbrange_queue,
+            payload_envelopes_brange_queue,
+            payload_envelopes_broots_queue,
             gossip_bls_to_execution_change_queue,
             gossip_execution_payload_queue,
             gossip_execution_payload_bid_queue,

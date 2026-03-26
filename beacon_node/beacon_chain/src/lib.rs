@@ -44,6 +44,7 @@ pub mod observed_data_sidecars;
 pub mod observed_operations;
 mod observed_slashable;
 pub mod payload_bid_verification;
+pub mod payload_envelope_streamer;
 pub mod payload_envelope_verification;
 pub mod pending_payload_envelopes;
 pub mod persisted_beacon_chain;
@@ -76,7 +77,7 @@ pub use self::errors::{BeaconChainError, BlockProductionError};
 pub use self::historical_blocks::HistoricalBlockError;
 pub use attestation_verification::Error as AttestationError;
 pub use beacon_fork_choice_store::{
-    BeaconForkChoiceStore, Error as ForkChoiceStoreError, PersistedForkChoiceStoreV17,
+    BeaconForkChoiceStore, Error as ForkChoiceStoreError, PersistedForkChoiceStore,
     PersistedForkChoiceStoreV28,
 };
 pub use block_verification::{
