@@ -12,9 +12,11 @@ use crate::{
 use parking_lot::RwLock;
 use types::{BuilderIndex, ExecutionBlockHash, Hash256, SignedExecutionPayloadBid, Slot};
 
+type HighestBidMap<T> =
+    BTreeMap<Slot, HashMap<(ExecutionBlockHash, Hash256), GossipVerifiedPayloadBid<T>>>;
+
 pub struct GossipVerifiedPayloadBidCache<T: BeaconChainTypes> {
-    highest_bid:
-        RwLock<BTreeMap<Slot, HashMap<(ExecutionBlockHash, Hash256), GossipVerifiedPayloadBid<T>>>>,
+    highest_bid: RwLock<HighestBidMap<T>>,
     seen_builder: RwLock<BTreeMap<Slot, HashSet<BuilderIndex>>>,
 }
 
@@ -52,9 +54,10 @@ impl<T: BeaconChainTypes> GossipVerifiedPayloadBidCache<T> {
         let slot_map = highest_bid.entry(bid.signed_bid.message.slot).or_default();
 
         if let Some(existing) = slot_map.get(&key)
-            && existing.signed_bid.message.value >= bid.signed_bid.message.value {
-                return;
-            }
+            && existing.signed_bid.message.value >= bid.signed_bid.message.value
+        {
+            return;
+        }
         slot_map.insert(key, bid);
     }
 

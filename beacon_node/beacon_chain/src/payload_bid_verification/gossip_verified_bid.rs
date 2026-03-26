@@ -72,7 +72,6 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     Debug(bound = "T: BeaconChainTypes"),
     Clone(bound = "T: BeaconChainTypes")
 )]
-
 pub struct SignatureVerifiedPayloadBid<T: BeaconChainTypes> {
     pub signed_bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>,
 }

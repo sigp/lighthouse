@@ -22,10 +22,7 @@ use beacon_chain::{
         EnvelopeError, gossip_verified_envelope::GossipVerifiedEnvelope,
     },
 };
-use beacon_chain::{
-    block_verification_types::AsBlock,
-    payload_bid_verification::PayloadBidError,
-};
+use beacon_chain::{block_verification_types::AsBlock, payload_bid_verification::PayloadBidError};
 use beacon_chain::{
     data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn},
     proposer_preferences_verification::ProposerPreferencesError,
