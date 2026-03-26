@@ -275,6 +275,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             snapshot,
             justified_checkpoint: fork_choice_view.justified_checkpoint,
             finalized_checkpoint: fork_choice_view.finalized_checkpoint,
+            // TODO(gloas): compute from snapshot state once #8998 lands.
             head_payload_status: proto_array::PayloadStatus::Pending,
             head_hash: forkchoice_update_params.head_hash,
             justified_hash: forkchoice_update_params.justified_hash,
@@ -336,6 +337,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             snapshot: Arc::new(snapshot),
             justified_checkpoint: fork_choice_view.justified_checkpoint,
             finalized_checkpoint: fork_choice_view.finalized_checkpoint,
+            // TODO(gloas): compute from snapshot state once #8998 lands.
             head_payload_status: proto_array::PayloadStatus::Pending,
             head_hash: forkchoice_update_params.head_hash,
             justified_hash: forkchoice_update_params.justified_hash,
