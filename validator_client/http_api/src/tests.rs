@@ -135,7 +135,9 @@ impl ApiTester {
         });
         let ctx = context.clone();
         let (listening_socket, server) =
-            super::serve::<_, E>(ctx, test_runtime.task_executor.exit()).unwrap();
+            super::serve::<_, E>(ctx, test_runtime.task_executor.exit())
+                .await
+                .unwrap();
 
         tokio::spawn(server);
 

@@ -1,0 +1,17 @@
+[package]
+name = "axum_utils"
+version = "0.1.0"
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
+edition = { workspace = true }
+
+[dependencies]
+axum = { workspace = true }
+axum-server = { version = "0.7", features = ["tls-rustls-no-provider"] }
+http = "1"
+serde = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tower-http = { version = "0.6", features = ["cors", "set-header"] }
+
+[dev-dependencies]
+tower = { workspace = true }

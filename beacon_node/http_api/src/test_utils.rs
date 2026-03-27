@@ -295,8 +295,9 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
         sse_logging_components: None,
     });
 
-    let (listening_socket, server) =
-        crate::serve(ctx.clone(), test_runtime.task_executor.exit()).unwrap();
+    let (listening_socket, server) = crate::serve(ctx.clone(), test_runtime.task_executor.exit())
+        .await
+        .unwrap();
 
     ApiServer {
         ctx,

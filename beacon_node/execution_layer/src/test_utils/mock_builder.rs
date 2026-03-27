@@ -1043,7 +1043,7 @@ pub fn serve<E: EthSpec>(
                     } else {
                         Ok(warp::http::Response::builder()
                             .status(202)
-                            .body(&[] as &'static [u8])
+                            .body("")
                             .map(|res| add_consensus_version_header(res, fork_name))
                             .unwrap())
                     }
@@ -1162,9 +1162,18 @@ pub fn serve<E: EthSpec>(
         .or(warp::get().and(status).or(header))
         .map(|reply| warp::reply::with_header(reply, "Server", "lighthouse-mock-builder-server"));
 
-    let (listening_socket, server) = warp::serve(routes)
-        .try_bind_ephemeral(SocketAddrV4::new(listen_addr, listen_port))
+    let std_listener = std::net::TcpListener::bind(SocketAddrV4::new(listen_addr, listen_port))
         .expect("mock builder server should start");
+    std_listener
+        .set_nonblocking(true)
+        .expect("mock builder server should set nonblocking");
+    let listener = tokio::net::TcpListener::from_std(std_listener)
+        .expect("mock builder server should convert to tokio listener");
+    let listening_socket = listener
+        .local_addr()
+        .expect("mock builder server should have a local address");
+
+    let server = warp::serve(routes).incoming(listener).run();
     Ok((listening_socket, server))
 }
 

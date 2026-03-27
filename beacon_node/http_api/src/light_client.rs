@@ -11,11 +11,7 @@ use eth2::types::{
 use ssz::Encode;
 use std::sync::Arc;
 use types::{EthSpec, ForkName, Hash256, LightClientBootstrap};
-use warp::{
-    Rejection,
-    hyper::{Body, Response},
-    reply::Reply,
-};
+use warp::{Rejection, http::Response, reply::Reply};
 
 const MAX_REQUEST_LIGHT_CLIENT_UPDATES: u64 = 128;
 
@@ -23,7 +19,7 @@ pub fn get_light_client_updates<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     query: LightClientUpdatesQuery,
     accept_header: Option<api_types::Accept>,
-) -> Result<Response<Body>, Rejection> {
+) -> Result<warp::reply::Response, Rejection> {
     validate_light_client_updates_request(&chain, &query)?;
 
     let light_client_updates = chain
@@ -66,7 +62,7 @@ pub fn get_light_client_bootstrap<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_root: &Hash256,
     accept_header: Option<api_types::Accept>,
-) -> Result<Response<Body>, Rejection> {
+) -> Result<warp::reply::Response, Rejection> {
     let (light_client_bootstrap, fork_name) = chain
         .get_light_client_bootstrap(block_root)
         .map_err(|err| {
@@ -85,9 +81,9 @@ pub fn get_light_client_bootstrap<T: BeaconChainTypes>(
     match accept_header {
         Some(api_types::Accept::Ssz) => Response::builder()
             .status(200)
-            .body(light_client_bootstrap.as_ssz_bytes().into())
-            .map(|res: Response<Body>| add_consensus_version_header(res, fork_name))
-            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+            .body(light_client_bootstrap.as_ssz_bytes())
+            .map(|res| add_consensus_version_header(res, fork_name))
+            .map(add_ssz_content_type_header)
             .map_err(|e| {
                 warp_utils::reject::custom_server_error(format!("failed to create response: {}", e))
             }),

@@ -16,7 +16,6 @@ use std::sync::Arc;
 use types::{AttestationShufflingId, BeaconStateError, CommitteeCache, EthSpec, RelativeEpoch};
 use warp::filters::BoxedFilter;
 use warp::http::Response;
-use warp::hyper::Body;
 use warp::{Filter, Reply};
 use warp_utils::query::multi_key_query;
 
@@ -201,8 +200,8 @@ pub fn get_beacon_state_proposer_lookahead<T: BeaconChainTypes>(
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
-                            .body(data.as_ssz_bytes().into())
-                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+                            .body(data.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",

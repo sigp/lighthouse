@@ -43,6 +43,9 @@ use crate::utils::{AnyVersionFilter, EthV1Filter};
 use crate::validator::post_validator_liveness_epoch;
 use crate::validator::*;
 use crate::version::beacon_response;
+use axum::Router;
+use axum_utils::server::Server;
+use axum_utils::tls::TlsConfig;
 use beacon::states;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use beacon_processor::BeaconProcessorSend;
@@ -77,7 +80,6 @@ pub use state_id::StateId;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
 use sysinfo::{System, SystemExt};
@@ -100,25 +102,14 @@ use version::{
     unsupported_version_rejection,
 };
 use warp::Reply;
-use warp::hyper::Body;
 use warp::sse::Event;
 use warp::{Filter, Rejection, http::Response};
 use warp_utils::{query::multi_key_query, uor::UnifyingOrFilter};
 
 const API_PREFIX: &str = "eth";
 
-/// A custom type which allows for both unsecured and TLS-enabled HTTP servers.
-type HttpServer = (SocketAddr, Pin<Box<dyn Future<Output = ()> + Send>>);
-
 /// Alias for readability.
 pub type ExecutionOptimistic = bool;
-
-/// Configuration used when serving the HTTP server over TLS.
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
-pub struct TlsConfig {
-    pub cert: PathBuf,
-    pub key: PathBuf,
-}
 
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
@@ -165,16 +156,16 @@ impl Default for Config {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
-    Warp(warp::Error),
+    #[error("Builder error: {0}")]
+    Builder(#[from] axum_utils::server::BuilderError),
+    #[error("Server error: {0}")]
+    Server(#[from] axum_utils::server::ServerError),
+    #[error("Warp error: {0}")]
+    Warp(#[from] warp::Error),
+    #[error("{0}")]
     Other(String),
-}
-
-impl From<warp::Error> for Error {
-    fn from(e: warp::Error) -> Self {
-        Error::Warp(e)
-    }
 }
 
 impl From<String> for Error {
@@ -328,10 +319,10 @@ pub fn tracing_logging() -> warp::filters::log::Log<impl Fn(warp::filters::log::
 ///
 /// Returns an error if the server is unable to bind or there is another error during
 /// configuration.
-pub fn serve<T: BeaconChainTypes>(
+pub async fn serve<T: BeaconChainTypes>(
     ctx: Arc<Context<T>>,
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
-) -> Result<HttpServer, Error> {
+) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = ctx.config.clone();
 
     // Configure CORS.
@@ -1159,8 +1150,8 @@ pub fn serve<T: BeaconChainTypes>(
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
-                            .body(block.as_ssz_bytes().into())
-                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+                            .body(block.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",
@@ -1295,8 +1286,8 @@ pub fn serve<T: BeaconChainTypes>(
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
-                            .body(block.as_ssz_bytes().into())
-                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+                            .body(block.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",
@@ -1351,8 +1342,8 @@ pub fn serve<T: BeaconChainTypes>(
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
-                            .body(blob_sidecar_list_filtered.as_ssz_bytes().into())
-                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+                            .body(blob_sidecar_list_filtered.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",
@@ -1400,8 +1391,8 @@ pub fn serve<T: BeaconChainTypes>(
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
-                            .body(response.data.as_ssz_bytes().into())
-                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+                            .body(response.data.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",
@@ -1570,8 +1561,8 @@ pub fn serve<T: BeaconChainTypes>(
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
-                            .body(withdrawals.as_ssz_bytes().into())
-                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+                            .body(withdrawals.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",
@@ -1656,8 +1647,8 @@ pub fn serve<T: BeaconChainTypes>(
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
-                            .body(update.as_ssz_bytes().into())
-                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+                            .body(update.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",
@@ -1704,8 +1695,8 @@ pub fn serve<T: BeaconChainTypes>(
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
-                            .body(update.as_ssz_bytes().into())
-                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+                            .body(update.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",
@@ -1929,8 +1920,8 @@ pub fn serve<T: BeaconChainTypes>(
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
-                            .body(data_columns.as_ssz_bytes().into())
-                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+                            .body(data_columns.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",
@@ -1995,8 +1986,8 @@ pub fn serve<T: BeaconChainTypes>(
 
                         Response::builder()
                             .status(200)
-                            .body(response_bytes.into())
-                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+                            .body(response_bytes)
+                            .map(add_ssz_content_type_header)
                             .map(|resp: warp::reply::Response| {
                                 add_consensus_version_header(resp, fork_name)
                             })
@@ -3390,34 +3381,36 @@ pub fn serve<T: BeaconChainTypes>(
         .with(cors_builder.build())
         .boxed();
 
-    let http_socket: SocketAddr = SocketAddr::new(config.listen_addr, config.listen_port);
-    let http_server: HttpServer = match config.tls_config {
-        Some(tls_config) => {
-            let (socket, server) = warp::serve(routes)
-                .tls()
-                .cert_path(tls_config.cert)
-                .key_path(tls_config.key)
-                .try_bind_with_graceful_shutdown(http_socket, async {
-                    shutdown.await;
-                })?;
+    let axum_router = Router::new().fallback_service(warp::service(routes));
 
-            info!("HTTP API is being served over TLS");
+    let address = SocketAddr::new(config.listen_addr, config.listen_port);
 
-            (socket, Box::pin(server))
-        }
-        None => {
-            let (socket, server) =
-                warp::serve(routes).try_bind_with_graceful_shutdown(http_socket, async {
-                    shutdown.await;
-                })?;
-            (socket, Box::pin(server))
-        }
-    };
+    let mut server_builder = Server::builder().router(axum_router).address(address);
+
+    if let Some(tls_config) = config.tls_config {
+        server_builder = server_builder.with_tls(tls_config);
+        info!("HTTP API is being served over TLS");
+    }
+
+    let server = server_builder.build().await?;
+
+    let (address, server) = server.serve_with_shutdown(shutdown).await?;
 
     info!(
-        listen_address = %http_server.0,
+        listen_address = %address,
         "HTTP API started"
     );
 
-    Ok(http_server)
+    let server_future = async move {
+        match server.await {
+            Ok(()) => {
+                info!("HTTP API server stopped");
+            }
+            Err(e) => {
+                tracing::error!(error = ?e, "HTTP API server error");
+            }
+        }
+    };
+
+    Ok((address, server_future))
 }

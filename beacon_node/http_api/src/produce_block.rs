@@ -16,10 +16,7 @@ use ssz::Encode;
 use std::sync::Arc;
 use tracing::instrument;
 use types::{execution::BlockProductionVersion, *};
-use warp::{
-    Reply,
-    hyper::{Body, Response},
-};
+use warp::{Reply, http::Response};
 
 /// If default boost factor is provided in validator/blocks v3 request, we will skip the calculation
 /// to keep the precision.
@@ -53,7 +50,7 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     slot: Slot,
     query: api_types::ValidatorBlocksQuery,
-) -> Result<Response<Body>, warp::Rejection> {
+) -> Result<warp::reply::Response, warp::Rejection> {
     let randao_reveal = query.randao_reveal.decompress().map_err(|e| {
         warp_utils::reject::custom_bad_request(format!(
             "randao reveal is not a valid BLS signature: {:?}",
@@ -96,7 +93,7 @@ pub async fn produce_block_v3<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     slot: Slot,
     query: api_types::ValidatorBlocksQuery,
-) -> Result<Response<Body>, warp::Rejection> {
+) -> Result<warp::reply::Response, warp::Rejection> {
     let randao_reveal = query.randao_reveal.decompress().map_err(|e| {
         warp_utils::reject::custom_bad_request(format!(
             "randao reveal is not a valid BLS signature: {:?}",
@@ -135,7 +132,7 @@ pub fn build_response_v4<T: BeaconChainTypes>(
     consensus_block_value: u64,
     accept_header: Option<api_types::Accept>,
     spec: &ChainSpec,
-) -> Result<Response<Body>, warp::Rejection> {
+) -> Result<warp::reply::Response, warp::Rejection> {
     let fork_name = block
         .to_ref()
         .fork_name(spec)
@@ -151,9 +148,9 @@ pub fn build_response_v4<T: BeaconChainTypes>(
     match accept_header {
         Some(api_types::Accept::Ssz) => Response::builder()
             .status(200)
-            .body(block.as_ssz_bytes().into())
-            .map(|res: Response<Body>| add_ssz_content_type_header(res))
-            .map(|res: Response<Body>| add_consensus_version_header(res, fork_name))
+            .body(block.as_ssz_bytes())
+            .map(add_ssz_content_type_header)
+            .map(|res| add_consensus_version_header(res, fork_name))
             .map(|res| add_consensus_block_value_header(res, consensus_block_value_wei))
             .map_err(|e| -> warp::Rejection {
                 warp_utils::reject::custom_server_error(format!("failed to create response: {}", e))
@@ -173,7 +170,7 @@ pub fn build_response_v3<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_response: BeaconBlockResponseWrapper<T::EthSpec>,
     accept_header: Option<api_types::Accept>,
-) -> Result<Response<Body>, warp::Rejection> {
+) -> Result<warp::reply::Response, warp::Rejection> {
     let fork_name = block_response
         .fork_name(&chain.spec)
         .map_err(inconsistent_fork_rejection)?;
@@ -193,13 +190,11 @@ pub fn build_response_v3<T: BeaconChainTypes>(
     match accept_header {
         Some(api_types::Accept::Ssz) => Response::builder()
             .status(200)
-            .body(block_contents.as_ssz_bytes().into())
-            .map(|res: Response<Body>| add_ssz_content_type_header(res))
-            .map(|res: Response<Body>| add_consensus_version_header(res, fork_name))
+            .body(block_contents.as_ssz_bytes())
+            .map(add_ssz_content_type_header)
+            .map(|res| add_consensus_version_header(res, fork_name))
             .map(|res| add_execution_payload_blinded_header(res, execution_payload_blinded))
-            .map(|res: Response<Body>| {
-                add_execution_payload_value_header(res, execution_payload_value)
-            })
+            .map(|res| add_execution_payload_value_header(res, execution_payload_value))
             .map(|res| add_consensus_block_value_header(res, consensus_block_value))
             .map_err(|e| -> warp::Rejection {
                 warp_utils::reject::custom_server_error(format!("failed to create response: {}", e))
@@ -223,7 +218,7 @@ pub async fn produce_blinded_block_v2<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     slot: Slot,
     query: api_types::ValidatorBlocksQuery,
-) -> Result<Response<Body>, warp::Rejection> {
+) -> Result<warp::reply::Response, warp::Rejection> {
     let randao_reveal = query.randao_reveal.decompress().map_err(|e| {
         warp_utils::reject::custom_bad_request(format!(
             "randao reveal is not a valid BLS signature: {:?}",
@@ -259,7 +254,7 @@ pub async fn produce_block_v2<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     slot: Slot,
     query: api_types::ValidatorBlocksQuery,
-) -> Result<Response<Body>, warp::Rejection> {
+) -> Result<warp::reply::Response, warp::Rejection> {
     let randao_reveal = query.randao_reveal.decompress().map_err(|e| {
         warp_utils::reject::custom_bad_request(format!(
             "randao reveal is not a valid BLS signature: {:?}",
@@ -289,7 +284,7 @@ pub fn build_response_v2<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_response: BeaconBlockResponseWrapper<T::EthSpec>,
     accept_header: Option<api_types::Accept>,
-) -> Result<Response<Body>, warp::Rejection> {
+) -> Result<warp::reply::Response, warp::Rejection> {
     let fork_name = block_response
         .fork_name(&chain.spec)
         .map_err(inconsistent_fork_rejection)?;
@@ -299,9 +294,9 @@ pub fn build_response_v2<T: BeaconChainTypes>(
     match accept_header {
         Some(api_types::Accept::Ssz) => Response::builder()
             .status(200)
-            .body(block_contents.as_ssz_bytes().into())
-            .map(|res: Response<Body>| add_ssz_content_type_header(res))
-            .map(|res: Response<Body>| add_consensus_version_header(res, fork_name))
+            .body(block_contents.as_ssz_bytes())
+            .map(add_ssz_content_type_header)
+            .map(|res| add_consensus_version_header(res, fork_name))
             .map_err(|e| {
                 warp_utils::reject::custom_server_error(format!("failed to create response: {}", e))
             }),
