@@ -1290,19 +1290,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.send_sync_message(SyncMessage::UnknownParentBlock(peer_id, block, block_root));
                 return None;
             }
-            Err(BlockError::ParentEnvelopeUnknown { parent_root }) => {
-                // The parent block is known but its execution payload envelope has not
-                // been received yet. Queue this block for reprocessing and trigger an
-                // envelope lookup.
-                debug!(
-                    ?block_root,
-                    ?parent_root,
-                    "Parent envelope not yet available for gossip block"
-                );
-                // TODO(gloas): trigger an envelope lookup for `parent_root` and queue
-                // this block for reprocessing once the envelope arrives.
-                return None;
-            }
             Err(e @ BlockError::BeaconChainError(_)) => {
                 debug!(
                     error = ?e,
@@ -1590,17 +1577,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     %peer_id,
                     "Block with unknown parent attempted to be processed"
                 );
-            }
-            Err(BlockError::ParentEnvelopeUnknown { parent_root }) => {
-                // The parent block is known but its execution payload envelope has not
-                // been received yet.
-                debug!(
-                    %block_root,
-                    ?parent_root,
-                    "Parent envelope not yet available, need envelope lookup"
-                );
-                // TODO(gloas): trigger an envelope lookup for `parent_root` and queue
-                // this block for reprocessing once the envelope arrives.
             }
             Err(e @ BlockError::ExecutionPayloadError(epe)) if !epe.penalize_peer() => {
                 debug!(

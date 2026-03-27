@@ -713,34 +713,14 @@ impl<T: BeaconChainTypes> Router<T> {
     pub fn on_payload_envelopes_by_root_response(
         &mut self,
         peer_id: PeerId,
-        app_request_id: AppRequestId,
-        envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+        _app_request_id: AppRequestId,
+        _envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
     ) {
-        let sync_request_id = match app_request_id {
-            AppRequestId::Sync(sync_id) => match sync_id {
-                id @ SyncRequestId::SinglePayloadEnvelope { .. } => id,
-                other => {
-                    crit!(request = ?other, "PayloadEnvelopesByRoot response on incorrect request");
-                    return;
-                }
-            },
-            AppRequestId::Router => {
-                crit!(%peer_id, "All PayloadEnvelopesByRoot requests belong to sync");
-                return;
-            }
-            AppRequestId::Internal => unreachable!("Handled internally"),
-        };
-
-        trace!(
+        // TODO(EIP-7732): Envelope lookup sync not yet implemented on this branch.
+        crit!(
             %peer_id,
-            "Received PayloadEnvelopesByRoot Response"
+            "Received unexpected PayloadEnvelopesByRoot response"
         );
-        self.send_to_sync(SyncMessage::RpcPayloadEnvelope {
-            peer_id,
-            sync_request_id,
-            envelope,
-            seen_timestamp: timestamp_now(),
-        });
     }
 
     /// Handle a `BlobsByRoot` response from the peer.

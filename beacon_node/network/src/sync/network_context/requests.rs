@@ -16,9 +16,6 @@ pub use data_columns_by_range::DataColumnsByRangeRequestItems;
 pub use data_columns_by_root::{
     DataColumnsByRootRequestItems, DataColumnsByRootSingleBlockRequest,
 };
-pub use payload_envelopes_by_root::{
-    PayloadEnvelopesByRootRequestItems, PayloadEnvelopesByRootSingleRequest,
-};
 
 use crate::metrics;
 
@@ -30,7 +27,6 @@ mod blocks_by_range;
 mod blocks_by_root;
 mod data_columns_by_range;
 mod data_columns_by_root;
-mod payload_envelopes_by_root;
 
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
 pub enum LookupVerifyError {
