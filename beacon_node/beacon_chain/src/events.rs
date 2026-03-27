@@ -247,6 +247,14 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         self.block_gossip_tx.subscribe()
     }
 
+    pub fn subscribe_execution_payload_bid(&self) -> Receiver<EventKind<E>> {
+        self.execution_payload_bid_tx.subscribe()
+    }
+
+    pub fn subscribe_execution_payload_available(&self) -> Receiver<EventKind<E>> {
+        self.execution_payload_available_tx.subscribe()
+    }
+
     pub fn has_attestation_subscribers(&self) -> bool {
         self.attestation_tx.receiver_count() > 0
     }
@@ -309,14 +317,6 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
 
     pub fn has_block_gossip_subscribers(&self) -> bool {
         self.block_gossip_tx.receiver_count() > 0
-    }
-
-    pub fn subscribe_execution_payload_bid(&self) -> Receiver<EventKind<E>> {
-        self.execution_payload_bid_tx.subscribe()
-    }
-
-    pub fn subscribe_execution_payload_available(&self) -> Receiver<EventKind<E>> {
-        self.execution_payload_available_tx.subscribe()
     }
 
     pub fn has_execution_payload_bid_subscribers(&self) -> bool {
