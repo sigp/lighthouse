@@ -1031,7 +1031,6 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             })));
         }
 
-        // Beacon API execution_payload_bid events
         if let Some(event_handler) = chain.event_handler.as_ref()
             && event_handler.has_execution_payload_bid_subscribers()
             && let Ok(bid) = block.message().body().signed_execution_payload_bid()
