@@ -826,7 +826,6 @@ mod tests {
             moduli.storage_strategy(snapshot_freq, sslot).unwrap(),
             StorageStrategy::Snapshot
         );
-        
         assert_eq!(
             moduli.storage_strategy(snapshot_freq * 3, sslot).unwrap(),
             StorageStrategy::Snapshot
