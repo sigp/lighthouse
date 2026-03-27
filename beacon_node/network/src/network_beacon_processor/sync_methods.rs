@@ -4,7 +4,7 @@ use crate::sync::BatchProcessResult;
 use crate::sync::manager::CustodyBatchProcessResult;
 use crate::sync::{
     ChainId,
-    manager::{BlockProcessType, SyncMessage},
+    manager::{BlockProcessType, BlockProcessingResult, SyncMessage},
 };
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::block_verification_types::{AsBlock, RangeSyncBlock};
@@ -28,7 +28,9 @@ use store::KzgCommitment;
 use tracing::{debug, debug_span, error, info, instrument, warn};
 use types::data::FixedBlobSidecarList;
 use types::kzg_ext::format_kzg_commitments;
-use types::{BlockImportSource, DataColumnSidecarList, Epoch, Hash256};
+use types::{
+    BlockImportSource, DataColumnSidecarList, Epoch, Hash256, SignedExecutionPayloadEnvelope,
+};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
 #[derive(Clone, Debug, PartialEq)]
@@ -71,6 +73,80 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .await;
         };
         Box::pin(process_fn)
+    }
+
+    /// Returns an async closure which processes a payload envelope received via RPC.
+    pub fn generate_rpc_envelope_process_fn(
+        self: Arc<Self>,
+        envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) -> AsyncFn {
+        let process_fn = async move {
+            self.process_rpc_envelope(envelope, seen_timestamp, process_type)
+                .await;
+        };
+        Box::pin(process_fn)
+    }
+
+    /// Process an execution payload envelope received via RPC.
+    async fn process_rpc_envelope(
+        self: Arc<Self>,
+        envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        _seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) {
+        let beacon_block_root = envelope.beacon_block_root();
+
+        // Verify the envelope using the gossip verification path (same checks apply to RPC)
+        let verified_envelope = match self.chain.verify_envelope_for_gossip(envelope).await {
+            Ok(verified) => verified,
+            Err(e) => {
+                debug!(
+                    error = ?e,
+                    ?beacon_block_root,
+                    "RPC payload envelope failed verification"
+                );
+                self.send_sync_message(SyncMessage::BlockComponentProcessed {
+                    process_type,
+                    result: BlockProcessingResult::Err(BlockError::InternalError(format!(
+                        "Envelope verification failed: {e:?}"
+                    ))),
+                });
+                return;
+            }
+        };
+
+        // Process the verified envelope
+        let result = self
+            .chain
+            .process_execution_payload_envelope(
+                beacon_block_root,
+                verified_envelope,
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
+                || Ok(()),
+            )
+            .await;
+
+        let processing_result = match result {
+            Ok(status) => BlockProcessingResult::Ok(status),
+            Err(e) => {
+                debug!(
+                    error = ?e,
+                    ?beacon_block_root,
+                    "RPC payload envelope processing failed"
+                );
+                BlockProcessingResult::Err(BlockError::InternalError(format!(
+                    "Envelope processing failed: {e:?}"
+                )))
+            }
+        };
+
+        self.send_sync_message(SyncMessage::BlockComponentProcessed {
+            process_type,
+            result: processing_result,
+        });
     }
 
     /// Returns the `process_fn` and `ignore_fn` required when requeuing an RPC block.
