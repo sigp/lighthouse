@@ -1616,7 +1616,7 @@ impl ChainSpec {
              * Fulu hard fork params
              */
             fulu_fork_version: [0x06, 0x00, 0x00, 0x64],
-            fulu_fork_epoch: None,
+            fulu_fork_epoch: Some(Epoch::new(1714688)),
             custody_requirement: 4,
             number_of_custody_groups: 128,
             data_column_sidecar_subnet_count: 128,
@@ -1686,8 +1686,7 @@ impl ChainSpec {
              * Networking Fulu specific
              */
             blob_schedule: BlobSchedule::default(),
-            min_epochs_for_data_column_sidecars_requests:
-                default_min_epochs_for_data_column_sidecars_requests(),
+            min_epochs_for_data_column_sidecars_requests: 16384,
             max_data_columns_by_root_request: default_data_columns_by_root_request(),
             max_payload_envelopes_by_root_request: default_max_payload_envelopes_by_root_request(),
 

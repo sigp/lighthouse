@@ -14,6 +14,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use ssz::{Decode, DecodeError, Encode, ssz_encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{BitVector, FixedVector};
+use std::collections::BTreeMap;
 use superstruct::superstruct;
 use swap_or_not_shuffle::compute_shuffled_index;
 use test_random_derive::TestRandom;
@@ -71,7 +72,8 @@ const MAX_RANDOM_VALUE: u64 = (1 << 16) - 1;
 // Spec: https://github.com/ethereum/consensus-specs/blob/1937aff86b41b5171a9bc3972515986f1bbbf303/specs/phase0/weak-subjectivity.md?plain=1#L50-L71
 const SAFETY_DECAY: u64 = 10;
 
-pub type Validators<E> = List<Validator, <E as EthSpec>::ValidatorRegistryLimit>;
+pub type Validators<E> =
+    List<Validator, <E as EthSpec>::ValidatorRegistryLimit, BTreeMap<usize, Validator>>;
 pub type Balances<E> = List<u64, <E as EthSpec>::ValidatorRegistryLimit>;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -477,7 +479,7 @@ where
     // Registry
     #[compare_fields(as_iter)]
     #[test_random(default)]
-    pub validators: List<Validator, E::ValidatorRegistryLimit>,
+    pub validators: Validators<E>,
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     #[compare_fields(as_iter)]
     #[test_random(default)]
