@@ -21,7 +21,6 @@ pub struct ServerSentEventHandler<E: EthSpec> {
     late_head: Sender<EventKind<E>>,
     light_client_finality_update_tx: Sender<EventKind<E>>,
     light_client_optimistic_update_tx: Sender<EventKind<E>>,
-    block_reward_tx: Sender<EventKind<E>>,
     proposer_slashing_tx: Sender<EventKind<E>>,
     attester_slashing_tx: Sender<EventKind<E>>,
     bls_to_execution_change_tx: Sender<EventKind<E>>,
@@ -50,7 +49,6 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         let (late_head, _) = broadcast::channel(capacity);
         let (light_client_finality_update_tx, _) = broadcast::channel(capacity);
         let (light_client_optimistic_update_tx, _) = broadcast::channel(capacity);
-        let (block_reward_tx, _) = broadcast::channel(capacity);
         let (proposer_slashing_tx, _) = broadcast::channel(capacity);
         let (attester_slashing_tx, _) = broadcast::channel(capacity);
         let (bls_to_execution_change_tx, _) = broadcast::channel(capacity);
@@ -73,7 +71,6 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
             late_head,
             light_client_finality_update_tx,
             light_client_optimistic_update_tx,
-            block_reward_tx,
             proposer_slashing_tx,
             attester_slashing_tx,
             bls_to_execution_change_tx,
@@ -148,10 +145,6 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
                 .light_client_optimistic_update_tx
                 .send(kind)
                 .map(|count| log_count("light client optimistic update", count)),
-            EventKind::BlockReward(_) => self
-                .block_reward_tx
-                .send(kind)
-                .map(|count| log_count("block reward", count)),
             EventKind::ProposerSlashing(_) => self
                 .proposer_slashing_tx
                 .send(kind)
@@ -238,10 +231,6 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         self.light_client_optimistic_update_tx.subscribe()
     }
 
-    pub fn subscribe_block_reward(&self) -> Receiver<EventKind<E>> {
-        self.block_reward_tx.subscribe()
-    }
-
     pub fn subscribe_attester_slashing(&self) -> Receiver<EventKind<E>> {
         self.attester_slashing_tx.subscribe()
     }
@@ -304,10 +293,6 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
 
     pub fn has_late_head_subscribers(&self) -> bool {
         self.late_head.receiver_count() > 0
-    }
-
-    pub fn has_block_reward_subscribers(&self) -> bool {
-        self.block_reward_tx.receiver_count() > 0
     }
 
     pub fn has_proposer_slashing_subscribers(&self) -> bool {

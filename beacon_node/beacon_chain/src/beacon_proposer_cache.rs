@@ -174,11 +174,11 @@ impl BeaconProposerCache {
 /// cache the proposers.
 pub fn with_proposer_cache<Spec, V, Err>(
     beacon_proposer_cache: &Mutex<BeaconProposerCache>,
-    spec: &ChainSpec,
     shuffling_decision_block: Hash256,
     proposal_epoch: Epoch,
     accessor: impl Fn(&EpochBlockProposers) -> Result<V, BeaconChainError>,
     state_provider: impl FnOnce() -> Result<(Hash256, BeaconState<Spec>), Err>,
+    spec: &ChainSpec,
 ) -> Result<V, Err>
 where
     Spec: EthSpec,

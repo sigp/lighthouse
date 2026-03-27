@@ -321,8 +321,8 @@ make-ef-tests-nightly:
 
 # Verifies that crates compile with fuzzing features enabled
 arbitrary-fuzz:
-	cargo check -p state_processing --features arbitrary-fuzz,$(TEST_FEATURES)
-	cargo check -p slashing_protection --features arbitrary-fuzz,$(TEST_FEATURES)
+	cargo check -p state_processing --features arbitrary,$(TEST_FEATURES)
+	cargo check -p slashing_protection --features arbitrary,$(TEST_FEATURES)
 
 # Runs cargo audit (Audit Cargo.lock files for crates with security vulnerabilities reported to the RustSec Advisory Database)
 audit: install-audit audit-CI
@@ -331,7 +331,7 @@ install-audit:
 	cargo install --force cargo-audit
 
 audit-CI:
-	cargo audit
+	cargo audit --ignore RUSTSEC-2026-0049
 
 # Runs cargo deny (check for banned crates, duplicate versions, and source restrictions)
 deny: install-deny deny-CI

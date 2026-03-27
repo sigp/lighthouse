@@ -1,12 +1,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use eth2::types::{EventKind, SseExecutionPayloadAvailable};
 use fork_choice::PayloadVerificationStatus;
-use logging::crit;
 use slot_clock::SlotClock;
 use store::StoreOp;
 use tracing::{debug, error, info, info_span, instrument, warn};
-use types::{BeaconState, BlockImportSource, Hash256, SignedBeaconBlock, Slot};
+use types::{BeaconState, BlockImportSource, Hash256, Slot};
 
 use super::{
     AvailableEnvelope, AvailableExecutedEnvelope, EnvelopeError, EnvelopeImportData,
@@ -15,15 +15,16 @@ use super::{
 use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes,
     NotifyExecutionLayer,
-    block_verification_types::{AsBlock, AvailableBlockData},
+    block_verification_types::AvailableBlockData,
     metrics,
-    payload_envelope_verification::{ExecutionPendingEnvelope, MaybeAvailableEnvelope},
+    payload_envelope_verification::ExecutionPendingEnvelope,
     validator_monitor::{get_slot_delay_ms, timestamp_now},
 };
-use eth2::types::{EventKind, SseExecutionPayloadAvailable};
+
+const ENVELOPE_METRICS_CACHE_SLOT_LIMIT: u32 = 64;
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    /// Returns `Ok(block_root)` if the given `unverified_envelope` was successfully verified and
+    /// Returns `Ok(status)` if the given `unverified_envelope` was successfully verified and
     /// imported into the chain.
     ///
     /// ## Errors
@@ -76,6 +77,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let envelope_times_cache = chain.envelope_times_cache.clone();
             let slot_clock = chain.slot_clock.clone();
 
+            // TODO(gloas): rename/refactor these `into_` names to be less similar and more clear
+            // about what the function actually does.
             let executed_envelope = chain
                 .into_executed_payload_envelope(execution_pending)
                 .await
@@ -107,7 +110,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Verify and import the payload envelope.
         match import_envelope.await {
-            // The payload envelope was successfully verified and imported. Yay.
+            // The payload envelope was successfully verified and imported.
             Ok(status @ AvailabilityProcessingStatus::Imported(block_root)) => {
                 info!(
                     ?block_root,
@@ -115,6 +118,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     source = %block_source,
                     "Execution payload envelope imported"
                 );
+
+                // TODO(gloas) do we need to send a `PayloadImported` event to the reprocess queue?
+                // TODO(gloas) do we need to recompute head?
+                // should canonical_head return the block and the payload now?
+                self.recompute_head_at_current_slot().await;
 
                 metrics::inc_counter(&metrics::ENVELOPE_PROCESSING_SUCCESSES);
 
@@ -126,25 +134,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(status)
             }
             Err(EnvelopeError::BeaconChainError(e)) => {
-                match e.as_ref() {
-                    BeaconChainError::TokioJoin(e) => {
-                        debug!(
-                            error = ?e,
-                            "Envelope processing cancelled"
-                        );
-                    }
-                    _ => {
-                        // There was an error whilst attempting to verify and import the payload envelope. It might
-                        // be partially verified or partially imported.
-                        crit!(
-                            error = ?e,
-                            "Envelope processing error"
-                        );
-                    }
-                };
+                if matches!(e.as_ref(), BeaconChainError::TokioJoin(_)) {
+                    debug!(error = ?e, "Envelope processing cancelled");
+                } else {
+                    warn!(error = ?e, "Execution payload envelope rejected");
+                }
                 Err(EnvelopeError::BeaconChainError(e))
             }
-            // The payload envelope failed verification.
             Err(other) => {
                 warn!(
                     reason = other.to_string(),
@@ -175,22 +171,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(BeaconChainError::TokioJoin)?
             .ok_or(BeaconChainError::RuntimeShutdown)??;
 
-        // TODO(gloas): implement data column availability checking.
-        // For now, treat all envelopes as available after EL verification with empty columns.
-        let signed_envelope = match signed_envelope {
-            available @ MaybeAvailableEnvelope::Available(_) => available,
-            MaybeAvailableEnvelope::AvailabilityPending {
-                block_hash,
-                envelope,
-            } => MaybeAvailableEnvelope::Available(AvailableEnvelope::new(
-                block_hash,
-                envelope,
-                vec![],
-                None,
-                self.spec.clone(),
-            )),
-        };
-
         Ok(ExecutedEnvelope::new(
             signed_envelope,
             import_data,
@@ -211,7 +191,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let EnvelopeImportData {
             block_root,
-            block,
             post_state,
         } = import_data;
 
@@ -228,7 +207,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         block_root,
                         *post_state,
                         payload_verification_outcome.payload_verification_status,
-                        block,
                     )
                 },
                 "payload_verification_handle",
@@ -252,20 +230,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         state: BeaconState<T::EthSpec>,
         _payload_verification_status: PayloadVerificationStatus,
-        parent_block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<Hash256, EnvelopeError> {
         // Everything in this initial section is on the hot path for processing the envelope.
-
-        let post_exec_timer =
-            metrics::start_timer(&metrics::ENVELOPE_PROCESSING_POST_EXEC_PROCESSING);
-
-        // Check the payloads parent block against weak subjectivity checkpoint.
-        self.check_block_against_weak_subjectivity_checkpoint(
-            parent_block.message(),
-            block_root,
-            &state,
-        )?;
-
         // Take an upgradable read lock on fork choice so we can check if this block has already
         // been imported. We don't want to repeat work importing a block that is already imported.
         let fork_choice_reader = self.canonical_head.fork_choice_upgradable_read_lock();
@@ -288,7 +254,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // TODO(gloas) Do we want to use an early attester cache like mechanism for payload enevelopes?
         // TODO(gloas) emit SSE event if the payload became the new head payload
-        drop(post_exec_timer);
 
         // It is important NOT to return errors here before the database commit, because the envelope
         // has already been added to fork choice and the database would be left in an inconsistent
@@ -304,26 +269,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut ops = vec![];
 
-        match self.get_blobs_or_columns_store_op(
+        if let Some(blobs_or_columns_store_op) = self.get_blobs_or_columns_store_op(
             block_root,
             signed_envelope.slot(),
             AvailableBlockData::DataColumns(columns),
         ) {
-            Ok(Some(blobs_or_columns_store_op)) => {
-                ops.push(blobs_or_columns_store_op);
-            }
-            Ok(None) => {}
-            Err(e) => {
-                error!(
-                    msg = "Restoring fork choice from disk",
-                    error = &e,
-                    ?block_root,
-                    "Failed to store data columns into the database"
-                );
-                // TODO(gloas) implement failed write handling to fork choice
-                // let _ = self.handle_import_block_db_write_error(fork_choice);
-                return Err(EnvelopeError::InternalError(e));
-            }
+            ops.push(blobs_or_columns_store_op);
         }
 
         let db_write_timer = metrics::start_timer(&metrics::ENVELOPE_PROCESSING_DB_WRITE);
@@ -389,7 +340,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Do not write to the cache for envelopes older than 2 epochs, this helps reduce writes
         // to the cache during sync.
-        if envelope_delay_total < self.slot_clock.slot_duration().saturating_mul(64) {
+        if envelope_delay_total
+            < self
+                .slot_clock
+                .slot_duration()
+                .saturating_mul(ENVELOPE_METRICS_CACHE_SLOT_LIMIT)
+        {
             self.envelope_times_cache.write().set_time_imported(
                 block_root,
                 envelope_slot,

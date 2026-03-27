@@ -891,7 +891,7 @@ impl<E: EthSpec> MaybeAvailableBlock<E> {
 mod test {
     use super::*;
     use crate::CustodyContext;
-    use crate::block_verification_types::RpcBlock;
+    use crate::block_verification_types::RangeSyncBlock;
     use crate::custody_context::NodeCustodyType;
     use crate::data_column_verification::CustodyDataColumn;
     use crate::test_utils::{
@@ -1085,7 +1085,7 @@ mod test {
 
     /// Regression test for KZG verification truncation bug (https://github.com/sigp/lighthouse/pull/7927)
     #[test]
-    fn verify_kzg_for_rpc_blocks_should_not_truncate_data_columns_fulu() {
+    fn verify_kzg_for_range_sync_blocks_should_not_truncate_data_columns_fulu() {
         let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
         let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
         let da_checker = new_da_checker(spec.clone());
@@ -1128,17 +1128,14 @@ mod test {
 
                 let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
                 let da_checker = Arc::new(new_da_checker(spec.clone()));
-                RpcBlock::new(Arc::new(block), Some(block_data), &da_checker, spec.clone())
+                RangeSyncBlock::new(Arc::new(block), block_data, &da_checker, spec.clone())
                     .expect("should create RPC block with custody columns")
             })
             .collect::<Vec<_>>();
 
         let available_blocks = blocks_with_columns
-            .iter()
-            .filter_map(|block| match block {
-                RpcBlock::FullyAvailable(available_block) => Some(available_block.clone()),
-                RpcBlock::BlockOnly { .. } => None,
-            })
+            .into_iter()
+            .map(|block| block.into_available_block())
             .collect::<Vec<_>>();
 
         // WHEN verifying all blocks together (totalling 256 data columns)

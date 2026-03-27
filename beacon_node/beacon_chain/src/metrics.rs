@@ -49,16 +49,6 @@ pub static ENVELOPE_PROCESSING_DB_WRITE: LazyLock<Result<Histogram>> = LazyLock:
         "Time spent writing a newly processed payload envelope and state to DB",
     )
 });
-pub static ENVELOPE_PROCESSING_POST_EXEC_PROCESSING: LazyLock<Result<Histogram>> =
-    LazyLock::new(|| {
-        try_create_histogram_with_buckets(
-            "payload_envelope_processing_post_exec_pre_attestable_seconds",
-            "Time between finishing execution processing and the payload envelope
-             becoming attestable",
-            linear_buckets(0.01, 0.01, 15),
-        )
-    });
-
 /*
  * Block Processing
  */

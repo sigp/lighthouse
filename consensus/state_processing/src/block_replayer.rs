@@ -51,6 +51,7 @@ pub struct BlockReplayer<
     /// Pre-Gloas, this is all states. Post-Gloas, this is *just* the states corresponding to beacon
     /// blocks. For states corresponding to payloads, we read the state root from the payload
     /// envelope.
+    // TODO(gloas): this concept might need adjusting when we implement the cold DB.
     pub(crate) state_root_iter: Option<Peekable<StateRootIter>>,
     state_root_miss: bool,
     /// The payload status of the state desired as the end result of block replay.
@@ -312,6 +313,7 @@ where
                 // indicates that the parent is full (and it hasn't already been applied).
                 state_root = if block.fork_name_unchecked().gloas_enabled()
                     && self.state.slot() == self.state.latest_block_header().slot
+                    && self.state.payload_status() == StatePayloadStatus::Pending
                 {
                     let latest_bid_block_hash = self
                         .state

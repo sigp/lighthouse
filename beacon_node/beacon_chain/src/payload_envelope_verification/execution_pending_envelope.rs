@@ -12,8 +12,8 @@ use crate::{
     PayloadVerificationOutcome,
     block_verification::PayloadVerificationHandle,
     payload_envelope_verification::{
-        EnvelopeError, EnvelopeImportData, MaybeAvailableEnvelope,
-        gossip_verified_envelope::GossipVerifiedEnvelope, load_snapshot,
+        AvailableEnvelope, EnvelopeError, EnvelopeImportData, MaybeAvailableEnvelope,
+        gossip_verified_envelope::GossipVerifiedEnvelope, load_snapshot_from_state_root,
         payload_notifier::PayloadNotifier,
     },
 };
@@ -32,11 +32,11 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
     ) -> Result<ExecutionPendingEnvelope<T::EthSpec>, EnvelopeError> {
         let signed_envelope = self.signed_envelope;
         let envelope = &signed_envelope.message;
-        let payload = &envelope.payload;
 
-        // TODO(gloas)
-
-        // Verify the execution payload is valid
+        // Define a future that will verify the execution payload with an execution engine.
+        //
+        // We do this as early as possible so that later parts of this function can run in parallel
+        // with the payload verification.
         let payload_notifier = PayloadNotifier::new(
             chain.clone(),
             signed_envelope.clone(),
@@ -74,11 +74,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         let snapshot = if let Some(snapshot) = self.snapshot {
             *snapshot
         } else {
-            load_snapshot(
-                signed_envelope.as_ref(),
-                &chain.canonical_head,
-                &chain.store,
-            )?
+            load_snapshot_from_state_root::<T>(block_root, self.block.state_root(), &chain.store)?
         };
         let mut state = snapshot.pre_state;
 
@@ -94,13 +90,15 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         )?;
 
         Ok(ExecutionPendingEnvelope {
-            signed_envelope: MaybeAvailableEnvelope::AvailabilityPending {
-                block_hash: payload.block_hash,
-                envelope: signed_envelope,
-            },
+            signed_envelope: MaybeAvailableEnvelope::Available(AvailableEnvelope {
+                execution_block_hash: signed_envelope.block_hash(),
+                envelope: signed_envelope.clone(),
+                columns: vec![],
+                columns_available_timestamp: None,
+                spec: chain.spec.clone(),
+            }),
             import_data: EnvelopeImportData {
                 block_root,
-                block: self.block,
                 post_state: Box::new(state),
             },
             payload_verification_handle,

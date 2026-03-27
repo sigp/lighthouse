@@ -21,7 +21,7 @@ macro_rules! envelope_verify {
 }
 
 /// The strategy to be used when validating the payloads state root.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(PartialEq, Clone, Copy)]
 pub enum VerifyStateRoot {
     /// Validate state root.

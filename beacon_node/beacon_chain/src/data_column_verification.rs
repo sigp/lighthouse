@@ -706,6 +706,8 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
                 index = %column_index,
                 "Proposer shuffling cache miss for column verification"
             );
+            // We assume that the `Pending` state has the same shufflings as a `Full` state
+            // for the same block. Analysis: https://hackmd.io/@dapplion/gloas_dependant_root
             chain
                 .store
                 .get_advanced_hot_state(

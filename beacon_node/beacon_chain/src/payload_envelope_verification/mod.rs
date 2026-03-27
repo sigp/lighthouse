@@ -1,5 +1,5 @@
 //! The incremental processing steps (e.g., signatures verified but not the state transition) is
-//! represented as a sequence of wrapper-types around the block. There is a linear progression of
+//! represented as a sequence of wrapper-types around the envelope. There is a linear progression of
 //! types, starting at a `SignedExecutionPayloadEnvelope` and finishing with an `AvailableExecutedEnvelope` (see
 //! diagram below).
 //!
@@ -26,12 +26,12 @@ use state_processing::{BlockProcessingError, envelope_processing::EnvelopeProces
 use tracing::instrument;
 use types::{
     BeaconState, BeaconStateError, ChainSpec, DataColumnSidecarList, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadEnvelope, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
+    ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadEnvelope, Slot,
 };
 
 use crate::{
     BeaconChainError, BeaconChainTypes, BeaconStore, BlockError, ExecutionPayloadError,
-    PayloadVerificationOutcome, canonical_head::CanonicalHead,
+    PayloadVerificationOutcome,
 };
 
 pub mod execution_pending_envelope;
@@ -44,7 +44,6 @@ pub use execution_pending_envelope::ExecutionPendingEnvelope;
 #[derive(PartialEq)]
 pub struct EnvelopeImportData<E: EthSpec> {
     pub block_root: Hash256,
-    pub block: Arc<SignedBeaconBlock<E>>,
     pub post_state: Box<BeaconState<E>>,
 }
 
@@ -116,7 +115,7 @@ pub struct EnvelopeProcessingSnapshot<E: EthSpec> {
 ///
 ///
 /// It contains 2 variants:
-/// 1. `Available`: This enelope has been executed and also contains all data to consider it
+/// 1. `Available`: This envelope has been executed and also contains all data to consider it
 ///    fully available.
 /// 2. `AvailabilityPending`: This envelope hasn't received all required blobs to consider it
 ///    fully available.
@@ -182,14 +181,17 @@ pub enum EnvelopeError {
     /// The envelope slot doesn't match the block
     SlotMismatch { block: Slot, envelope: Slot },
     /// The validator index is unknown
-    UnknownValidator { builder_index: u64 },
+    UnknownValidator { proposer_index: u64 },
     /// The block hash doesn't match the committed bid
     BlockHashMismatch {
         committed_bid: ExecutionBlockHash,
         envelope: ExecutionBlockHash,
     },
     /// The block's proposer_index does not match the locally computed proposer
-    IncorrectBlockProposer { block: u64, local_shuffling: u64 },
+    IncorrectBlockProposer {
+        proposer_index: u64,
+        local_shuffling: u64,
+    },
     /// The slot belongs to a block that is from a slot prior than
     /// to most recently finalized slot
     PriorToFinalization {
@@ -269,7 +271,6 @@ impl From<EnvelopeProcessingError> for EnvelopeError {
     }
 }
 
-#[allow(clippy::type_complexity)]
 #[instrument(skip_all, level = "debug", fields(beacon_block_root = %beacon_block_root))]
 /// Load state from store given a known state root and block root.
 /// Use this when the proto block has already been looked up from fork choice.
@@ -297,33 +298,4 @@ pub(crate) fn load_snapshot_from_state_root<T: BeaconChainTypes>(
         state_root: block_state_root,
         beacon_block_root,
     })
-}
-
-#[instrument(skip_all, level = "debug", fields(beacon_block_root = %envelope.beacon_block_root()))]
-pub(crate) fn load_snapshot<T: BeaconChainTypes>(
-    envelope: &SignedExecutionPayloadEnvelope<T::EthSpec>,
-    canonical_head: &CanonicalHead<T>,
-    store: &BeaconStore<T>,
-) -> Result<EnvelopeProcessingSnapshot<T::EthSpec>, EnvelopeError> {
-    // Reject any envelope if its block is not known to fork choice.
-    //
-    // A block that is not in fork choice is either:
-    //
-    //  - Not yet imported: we should reject this envelope because we should only import it after
-    //    its parent block has been fully imported.
-    //  - Pre-finalized: if the parent block is _prior_ to finalization, we should ignore the
-    //    envelope because it will revert finalization. Note that the finalized block is stored in
-    //    fork choice, so we will not reject any child of the finalized block (this is relevant
-    //    during genesis).
-
-    let fork_choice_read_lock = canonical_head.fork_choice_read_lock();
-    let beacon_block_root = envelope.beacon_block_root();
-    let Some(proto_beacon_block) = fork_choice_read_lock.get_block(&beacon_block_root) else {
-        return Err(EnvelopeError::BlockRootUnknown {
-            block_root: beacon_block_root,
-        });
-    };
-    drop(fork_choice_read_lock);
-
-    load_snapshot_from_state_root::<T>(beacon_block_root, proto_beacon_block.state_root, store)
 }

@@ -80,7 +80,7 @@ pub fn partial_state_advance<E: EthSpec>(
     } else if state.slot() == state.latest_block_header().slot
         && !state.latest_block_header().state_root.is_zero()
     {
-        // Post-Gloas Full block case.
+        // Post-Gloas Full state case.
         state.latest_block_header().state_root
     } else {
         state_root_opt.ok_or(Error::StateRootNotProvided)?

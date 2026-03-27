@@ -10,7 +10,6 @@ mod beacon_snapshot;
 pub mod bellatrix_readiness;
 pub mod blob_verification;
 mod block_production;
-pub mod block_reward;
 mod block_times_cache;
 mod block_verification;
 pub mod block_verification_types;
@@ -31,6 +30,7 @@ pub mod fork_choice_signal;
 pub mod graffiti_calculator;
 pub mod historical_blocks;
 pub mod historical_data_columns;
+pub mod invariants;
 pub mod kzg_utils;
 pub mod light_client_finality_update_verification;
 pub mod light_client_optimistic_update_verification;
@@ -44,6 +44,7 @@ pub mod observed_block_producers;
 pub mod observed_data_sidecars;
 pub mod observed_operations;
 mod observed_slashable;
+pub mod payload_envelope_streamer;
 pub mod payload_envelope_verification;
 pub mod pending_payload_envelopes;
 pub mod persisted_beacon_chain;
@@ -75,7 +76,7 @@ pub use self::errors::{BeaconChainError, BlockProductionError};
 pub use self::historical_blocks::HistoricalBlockError;
 pub use attestation_verification::Error as AttestationError;
 pub use beacon_fork_choice_store::{
-    BeaconForkChoiceStore, Error as ForkChoiceStoreError, PersistedForkChoiceStoreV17,
+    BeaconForkChoiceStore, Error as ForkChoiceStoreError, PersistedForkChoiceStore,
     PersistedForkChoiceStoreV28,
 };
 pub use block_verification::{

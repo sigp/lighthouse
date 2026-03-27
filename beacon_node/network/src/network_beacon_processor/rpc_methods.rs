@@ -3,6 +3,7 @@ use crate::network_beacon_processor::{FUTURE_SLOT_TOLERANCE, NetworkBeaconProces
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
+use beacon_chain::payload_envelope_streamer::EnvelopeRequestSource;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, BlockProcessStatus, WhenSlotSkipped};
 use itertools::{Itertools, process_results};
 use lighthouse_network::rpc::methods::{
@@ -16,7 +17,7 @@ use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::sync::Arc;
 use tokio_stream::StreamExt;
-use tracing::{Span, debug, error, field, instrument, warn};
+use tracing::{Span, debug, error, field, instrument, trace, warn};
 use types::data::BlobIdentifier;
 use types::{ColumnIndex, Epoch, EthSpec, Hash256, Slot};
 
@@ -303,19 +304,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
 
         let requested_envelopes = request.beacon_block_roots.len();
-        let mut envelope_stream = match self
-            .chain
-            .get_payload_envelopes_checking_caches(request.beacon_block_roots.to_vec())
-        {
-            Ok(envelope_stream) => envelope_stream,
-            Err(e) => {
-                error!( error = ?e, "Error getting payload envelope stream");
-                return Err((
-                    RpcErrorResponse::ServerError,
-                    "Error getting payload envelope stream",
-                ));
-            }
-        };
+        let mut envelope_stream = self.chain.get_payload_envelopes(
+            request.beacon_block_roots.to_vec(),
+            EnvelopeRequestSource::ByRoot,
+        );
         // Fetching payload envelopes is async because it may have to hit the execution layer for payloads.
         let mut send_envelope_count = 0;
         while let Some((root, result)) = envelope_stream.next().await {
@@ -1135,6 +1127,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             "Received ExecutionPayloadEnvelopesByRange Request"
         );
 
+        let request_start_slot = Slot::from(req_start_slot);
+        let fork_name = self
+            .chain
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(request_start_slot);
+
+        if !fork_name.gloas_enabled() {
+            return Err((
+                RpcErrorResponse::InvalidRequest,
+                "Requested envelopes for pre-gloas slots",
+            ));
+        }
+
         // Spawn a blocking handle since get_block_roots_for_slot_range takes a sync lock on the
         // fork-choice.
         let network_beacon_processor = self.clone();
@@ -1185,13 +1190,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         };
 
-        let mut envelope_stream = match self.chain.get_payload_envelopes(block_roots) {
-            Ok(envelope_stream) => envelope_stream,
-            Err(e) => {
-                error!(error = ?e, "Error getting payload envelope stream");
-                return Err((RpcErrorResponse::ServerError, "Iterator error"));
-            }
-        };
+        let mut envelope_stream = self
+            .chain
+            .get_payload_envelopes(block_roots, EnvelopeRequestSource::ByRange);
 
         // Fetching payload envelopes is async because it may have to hit the execution layer for payloads.
         let mut envelopes_sent = 0;
@@ -1201,7 +1202,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     // Due to skip slots, blocks could be out of the range, we ensure they
                     // are in the range before sending
                     if envelope.slot() >= req_start_slot
-                        && envelope.slot() < req_start_slot + req.count
+                        && envelope.slot() < req_start_slot.saturating_add(req.count)
                     {
                         envelopes_sent += 1;
                         self.send_network_message(NetworkMessage::SendResponse {
@@ -1212,14 +1213,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                 }
                 Ok(None) => {
-                    error!(
+                    trace!(
                         request = ?req,
                         %peer_id,
                         request_root = ?root,
-                        "Envelope in the chain is not in the store"
+                        "No envelope for block root"
                     );
-                    log_results(peer_id, envelopes_sent);
-                    return Err((RpcErrorResponse::ServerError, "Database inconsistency"));
                 }
                 Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
                     debug!(

@@ -132,7 +132,9 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     let ctx = chain.gossip_verification_context();
     let Ok(gossip_verifed_envelope) = GossipVerifiedEnvelope::new(signed_envelope, &ctx) else {
         warn!(%slot, %beacon_block_root, "Execution payload envelope rejected");
-        return Err(warp_utils::reject::custom_bad_request("execution payload envelope rejected, gossip verification".to_string()));
+        return Err(warp_utils::reject::custom_bad_request(
+            "execution payload envelope rejected, gossip verification".to_string(),
+        ));
     };
 
     // Import the envelope locally (runs state transition and notifies the EL).
