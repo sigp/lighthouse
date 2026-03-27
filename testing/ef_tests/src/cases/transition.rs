@@ -9,7 +9,6 @@ use state_processing::{
 use std::str::FromStr;
 use types::{BeaconState, Epoch, SignedBeaconBlock};
 
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct Metadata {
     pub post_fork: String,
