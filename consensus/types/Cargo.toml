@@ -53,7 +53,6 @@ rusqlite = { workspace = true, optional = true }
 safe_arith = { workspace = true }
 serde = { workspace = true, features = ["rc"] }
 serde_json = { workspace = true }
-serde_yaml = { workspace = true }
 smallvec = { workspace = true }
 ssz_types = { workspace = true }
 superstruct = { workspace = true }
@@ -64,6 +63,7 @@ tracing = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
 typenum = { workspace = true }
+yaml_serde = { workspace = true }
 
 [dev-dependencies]
 beacon_chain = { workspace = true }
