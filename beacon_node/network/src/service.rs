@@ -39,7 +39,7 @@ use tokio::time::Sleep;
 use tracing::{debug, error, info, trace, warn};
 use typenum::Unsigned;
 use types::{
-    EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
+    Epoch, EthSpec, ForkContext, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
     ValidatorSubscription,
 };
 
@@ -47,8 +47,8 @@ mod tests;
 
 /// The interval (in seconds) that various network metrics will update.
 const METRIC_UPDATE_INTERVAL: u64 = 5;
-/// Number of slots before the fork when we should subscribe to the new fork topics.
-const SUBSCRIBE_DELAY_SLOTS: u64 = 32;
+/// Number of epochs before the fork when we should subscribe to new fork topics.
+const SUBSCRIBE_DELAY_EPOCHS: u64 = 1;
 /// Delay after a fork where we unsubscribe from pre-fork topics.
 const UNSUBSCRIBE_DELAY_EPOCHS: u64 = 2;
 /// Size of the queue for validator subnet subscriptions. The number is chosen so that we may be
@@ -400,8 +400,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let mut result = vec![fork_context.context_bytes(current_epoch)];
 
         if let Some(next_digest_epoch) = spec.next_digest_epoch(current_epoch)
-            && current_slot.saturating_add(Slot::new(SUBSCRIBE_DELAY_SLOTS))
-                >= next_digest_epoch.start_slot(T::EthSpec::slots_per_epoch())
+            && current_epoch.saturating_add(Epoch::new(SUBSCRIBE_DELAY_EPOCHS)) >= next_digest_epoch
         {
             let next_digest = fork_context.context_bytes(next_digest_epoch);
             result.push(next_digest);
@@ -910,14 +909,15 @@ fn next_digest_delay<T: BeaconChainTypes>(
         .map(|(_, until_epoch)| tokio::time::sleep(until_epoch))
 }
 
-/// Returns a `Sleep` that triggers `SUBSCRIBE_DELAY_SLOTS` before the next fork digest changes.
-/// Returns `None` if there are no scheduled forks or we are already past `current_slot + SUBSCRIBE_DELAY_SLOTS > fork_slot`.
+/// Returns a `Sleep` that triggers `SUBSCRIBE_DELAY_EPOCHS` before the next fork digest changes.
 fn next_topic_subscriptions_delay<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
 ) -> Option<tokio::time::Sleep> {
     if let Some((_, duration_to_epoch)) = beacon_chain.duration_to_next_digest() {
+        let epoch_duration_secs =
+            beacon_chain.spec.get_slot_duration().as_secs() * T::EthSpec::slots_per_epoch();
         let duration_to_subscription = duration_to_epoch.saturating_sub(Duration::from_secs(
-            beacon_chain.spec.get_slot_duration().as_secs() * SUBSCRIBE_DELAY_SLOTS,
+            epoch_duration_secs * SUBSCRIBE_DELAY_EPOCHS,
         ));
         if !duration_to_subscription.is_zero() {
             return Some(tokio::time::sleep(duration_to_subscription));
