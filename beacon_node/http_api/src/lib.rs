@@ -35,7 +35,8 @@ mod validators;
 mod version;
 
 use crate::beacon::execution_payload_envelope::{
-    post_beacon_execution_payload_envelope, post_beacon_execution_payload_envelope_ssz,
+    get_beacon_execution_payload_envelope, post_beacon_execution_payload_envelope,
+    post_beacon_execution_payload_envelope_ssz,
 };
 use crate::beacon::pool::*;
 use crate::light_client::{get_light_client_bootstrap, get_light_client_updates};
@@ -1507,6 +1508,14 @@ pub fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
+    );
+
+    // GET beacon/execution_payload_envelope/{block_id}
+    let get_beacon_execution_payload_envelope = get_beacon_execution_payload_envelope(
+        eth_v1.clone(),
+        block_id_or_err,
+        task_spawner_filter.clone(),
+        chain_filter.clone(),
     );
 
     let beacon_rewards_path = eth_v1
@@ -3158,6 +3167,12 @@ pub fn serve<T: BeaconChainTypes>(
                                 api_types::EventTopic::BlockGossip => {
                                     event_handler.subscribe_block_gossip()
                                 }
+                                api_types::EventTopic::ExecutionPayloadBid => {
+                                    event_handler.subscribe_execution_payload_bid()
+                                }
+                                api_types::EventTopic::ExecutionPayloadAvailable => {
+                                    event_handler.subscribe_execution_payload_available()
+                                }
                             };
 
                             receivers.push(
@@ -3283,6 +3298,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_block_root)
                 .uor(get_blob_sidecars)
                 .uor(get_blobs)
+                .uor(get_beacon_execution_payload_envelope)
                 .uor(get_beacon_pool_attestations)
                 .uor(get_beacon_pool_attester_slashings)
                 .uor(get_beacon_pool_proposer_slashings)
