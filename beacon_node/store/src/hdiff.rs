@@ -815,42 +815,33 @@ mod tests {
         let sslot = Slot::new(0);
 
         let moduli = config.to_moduli().unwrap();
-        let payload_status = StatePayloadStatus::Pending;
 
         // Full snapshots at multiples of 2^21.
         let snapshot_freq = Slot::new(1 << 21);
         assert_eq!(
-            moduli
-                .storage_strategy(Slot::new(0), sslot, payload_status)
-                .unwrap(),
+            moduli.storage_strategy(Slot::new(0), sslot).unwrap(),
             StorageStrategy::Snapshot
         );
         assert_eq!(
-            moduli
-                .storage_strategy(snapshot_freq, sslot, payload_status)
-                .unwrap(),
+            moduli.storage_strategy(snapshot_freq, sslot).unwrap(),
             StorageStrategy::Snapshot
         );
         assert_eq!(
-            moduli
-                .storage_strategy(snapshot_freq * 3, sslot, payload_status)
-                .unwrap(),
+            moduli.storage_strategy(snapshot_freq * 3, sslot).unwrap(),
             StorageStrategy::Snapshot
         );
 
         // Diffs should be from the previous layer (the snapshot in this case), and not the previous diff in the same layer.
         let first_layer = Slot::new(1 << 18);
         assert_eq!(
-            moduli
-                .storage_strategy(first_layer * 2, sslot, payload_status)
-                .unwrap(),
+            moduli.storage_strategy(first_layer * 2, sslot).unwrap(),
             StorageStrategy::DiffFrom(Slot::new(0))
         );
 
         let replay_strategy_slot = first_layer + 1;
         assert_eq!(
             moduli
-                .storage_strategy(replay_strategy_slot, sslot, payload_status)
+                .storage_strategy(replay_strategy_slot, sslot)
                 .unwrap(),
             StorageStrategy::ReplayFrom(first_layer)
         );
