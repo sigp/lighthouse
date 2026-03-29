@@ -531,26 +531,6 @@ pub fn compute_timestamp_at_slot<E: EthSpec>(
         .and_then(|since_genesis| state.genesis_time().safe_add(since_genesis))
 }
 
-pub fn can_builder_cover_bid<E: EthSpec>(
-    state: &BeaconState<E>,
-    builder_index: BuilderIndex,
-    builder: &Builder,
-    bid_amount: u64,
-    spec: &ChainSpec,
-) -> Result<bool, BlockProcessingError> {
-    let builder_balance = builder.balance;
-    let pending_withdrawals_amount =
-        state.get_pending_balance_to_withdraw_for_builder(builder_index)?;
-    let min_balance = spec
-        .min_deposit_amount
-        .safe_add(pending_withdrawals_amount)?;
-    if builder_balance < min_balance {
-        Ok(false)
-    } else {
-        Ok(builder_balance.safe_sub(min_balance)? >= bid_amount)
-    }
-}
-
 pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>>(
     state: &mut BeaconState<E>,
     block: BeaconBlockRef<'_, E, Payload>,
@@ -579,13 +559,13 @@ pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>
 
         // Verify that the builder is active
         block_verify!(
-            builder.is_active_at_finalized_epoch(state.finalized_checkpoint().epoch, spec),
+            state.is_active_builder(builder_index, spec)?,
             ExecutionPayloadBidInvalid::BuilderNotActive(builder_index).into()
         );
 
         // Verify that the builder has funds to cover the bid
         block_verify!(
-            can_builder_cover_bid(state, builder_index, builder, amount, spec)?,
+            state.can_builder_cover_bid(builder_index, amount, spec)?,
             ExecutionPayloadBidInvalid::InsufficientBalance {
                 builder_index,
                 builder_balance: builder.balance,

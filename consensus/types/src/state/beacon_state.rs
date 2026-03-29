@@ -3204,11 +3204,11 @@ impl<E: EthSpec> BeaconState<E> {
             self.get_pending_balance_to_withdraw_for_builder(builder_index)?;
         let min_balance = spec
             .min_deposit_amount
-            .saturating_add(pending_withdrawals_amount);
+            .safe_add(pending_withdrawals_amount)?;
         if builder_balance < min_balance {
             return Ok(false);
         }
-        Ok(builder_balance.saturating_sub(min_balance) >= bid_amount)
+        Ok(builder_balance.safe_sub(min_balance)? >= bid_amount)
     }
 
     pub fn is_active_builder(
