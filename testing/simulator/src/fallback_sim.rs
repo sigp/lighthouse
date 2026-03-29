@@ -25,11 +25,11 @@ const END_EPOCH: u64 = 16;
 const GENESIS_DELAY: u64 = 38;
 const ALTAIR_FORK_EPOCH: u64 = 0;
 const BELLATRIX_FORK_EPOCH: u64 = 0;
-const CAPELLA_FORK_EPOCH: u64 = 1;
-const DENEB_FORK_EPOCH: u64 = 2;
-// const ELECTRA_FORK_EPOCH: u64 = 3;
-// const FULU_FORK_EPOCH: u64 = 4;
-// const GLOAS_FORK_EPOCH: u64 = 5;
+const CAPELLA_FORK_EPOCH: u64 = 2;
+const DENEB_FORK_EPOCH: u64 = 3;
+// const ELECTRA_FORK_EPOCH: u64 = 4;
+// const FULU_FORK_EPOCH: u64 = 5;
+// const GLOAS_FORK_EPOCH: u64 = 6;
 
 // Since simulator tests are non-deterministic and there is a non-zero chance of missed
 // attestations, define an acceptable network-wide attestation performance.
