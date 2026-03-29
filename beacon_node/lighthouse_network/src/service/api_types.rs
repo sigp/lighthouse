@@ -5,6 +5,7 @@ use std::sync::Arc;
 use types::{
     BlobSidecar, DataColumnSidecar, Epoch, EthSpec, LightClientBootstrap,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
+    SignedExecutionPayloadEnvelope,
 };
 
 pub type Id = u32;
@@ -160,6 +161,10 @@ pub enum Response<E: EthSpec> {
     DataColumnsByRange(Option<Arc<DataColumnSidecar<E>>>),
     /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Option<Arc<SignedBeaconBlock<E>>>),
+    /// A response to a get `EXECUTION_PAYLOAD_ENVELOPES_BY_ROOT` request.
+    PayloadEnvelopesByRoot(Option<Arc<SignedExecutionPayloadEnvelope<E>>>),
+    /// A response to a get `EXECUTION_PAYLOAD_ENVELOPES_BY_RANGE` request.
+    PayloadEnvelopesByRange(Option<Arc<SignedExecutionPayloadEnvelope<E>>>),
     /// A response to a get BLOBS_BY_ROOT request.
     BlobsByRoot(Option<Arc<BlobSidecar<E>>>),
     /// A response to a get DATA_COLUMN_SIDECARS_BY_ROOT request.
@@ -184,6 +189,16 @@ impl<E: EthSpec> std::convert::From<Response<E>> for RpcResponse<E> {
             Response::BlocksByRange(r) => match r {
                 Some(b) => RpcResponse::Success(RpcSuccessResponse::BlocksByRange(b)),
                 None => RpcResponse::StreamTermination(ResponseTermination::BlocksByRange),
+            },
+            Response::PayloadEnvelopesByRoot(r) => match r {
+                Some(p) => RpcResponse::Success(RpcSuccessResponse::PayloadEnvelopesByRoot(p)),
+                None => RpcResponse::StreamTermination(ResponseTermination::PayloadEnvelopesByRoot),
+            },
+            Response::PayloadEnvelopesByRange(r) => match r {
+                Some(p) => RpcResponse::Success(RpcSuccessResponse::PayloadEnvelopesByRange(p)),
+                None => {
+                    RpcResponse::StreamTermination(ResponseTermination::PayloadEnvelopesByRange)
+                }
             },
             Response::BlobsByRoot(r) => match r {
                 Some(b) => RpcResponse::Success(RpcSuccessResponse::BlobsByRoot(b)),
