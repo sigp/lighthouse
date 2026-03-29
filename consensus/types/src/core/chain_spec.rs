@@ -295,6 +295,7 @@ pub struct ChainSpec {
     /*
      * Networking Gloas
      */
+    pub max_request_payloads: u64,
 
     /*
      * Networking Derived
@@ -305,6 +306,7 @@ pub struct ChainSpec {
     pub max_blocks_by_root_request_deneb: usize,
     pub max_blobs_by_root_request: usize,
     pub max_data_columns_by_root_request: usize,
+    pub max_payload_envelopes_by_root_request: usize,
 
     /*
      * Application params
@@ -700,6 +702,10 @@ impl ChainSpec {
         }
     }
 
+    pub fn max_request_payloads(&self) -> usize {
+        self.max_request_payloads as usize
+    }
+
     pub fn max_request_blob_sidecars(&self, fork_name: ForkName) -> usize {
         if fork_name.electra_enabled() {
             self.max_request_blob_sidecars_electra as usize
@@ -964,6 +970,8 @@ impl ChainSpec {
             max_blobs_by_root_request_common(self.max_request_blob_sidecars);
         self.max_data_columns_by_root_request =
             max_data_columns_by_root_request_common::<E>(self.max_request_blocks_deneb);
+        self.max_payload_envelopes_by_root_request =
+            max_blocks_by_root_request_common(self.max_request_payloads);
 
         self
     }
@@ -1228,6 +1236,7 @@ impl ChainSpec {
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
             min_builder_withdrawability_delay: Epoch::new(4096),
+            max_request_payloads: 128,
 
             /*
              * Network specific
@@ -1293,6 +1302,7 @@ impl ChainSpec {
             min_epochs_for_data_column_sidecars_requests:
                 default_min_epochs_for_data_column_sidecars_requests(),
             max_data_columns_by_root_request: default_data_columns_by_root_request(),
+            max_payload_envelopes_by_root_request: default_max_payload_envelopes_by_root_request(),
 
             /*
              * Application specific
@@ -1606,7 +1616,7 @@ impl ChainSpec {
              * Fulu hard fork params
              */
             fulu_fork_version: [0x06, 0x00, 0x00, 0x64],
-            fulu_fork_epoch: None,
+            fulu_fork_epoch: Some(Epoch::new(1714688)),
             custody_requirement: 4,
             number_of_custody_groups: 128,
             data_column_sidecar_subnet_count: 128,
@@ -1622,6 +1632,7 @@ impl ChainSpec {
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
             min_builder_withdrawability_delay: Epoch::new(4096),
+            max_request_payloads: 128,
 
             /*
              * Network specific
@@ -1675,9 +1686,9 @@ impl ChainSpec {
              * Networking Fulu specific
              */
             blob_schedule: BlobSchedule::default(),
-            min_epochs_for_data_column_sidecars_requests:
-                default_min_epochs_for_data_column_sidecars_requests(),
+            min_epochs_for_data_column_sidecars_requests: 16384,
             max_data_columns_by_root_request: default_data_columns_by_root_request(),
+            max_payload_envelopes_by_root_request: default_max_payload_envelopes_by_root_request(),
 
             /*
              * Application specific
@@ -2340,6 +2351,14 @@ fn default_max_blobs_by_root_request() -> usize {
 
 fn default_data_columns_by_root_request() -> usize {
     max_data_columns_by_root_request_common::<MainnetEthSpec>(default_max_request_blocks_deneb())
+}
+
+fn default_max_payload_envelopes_by_root_request() -> usize {
+    max_blocks_by_root_request_common(default_max_request_payloads())
+}
+
+fn default_max_request_payloads() -> u64 {
+    128
 }
 
 impl Default for Config {

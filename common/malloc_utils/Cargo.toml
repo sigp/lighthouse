@@ -43,7 +43,4 @@ tikv-jemallocator = { version = "0.6.0", optional = true, features = ["stats"] }
 # tcmalloc-better also vendors modern Google TCMalloc (Linux only).
 [target.'cfg(target_os = "linux")'.dependencies]
 tcmalloc-better = { version = "0.1", optional = true }
-tikv-jemallocator = { version = "0.6.0", optional = true, features = [
-    "stats",
-    "background_threads",
-] }
+tikv-jemallocator = { version = "0.6.0", optional = true, features = ["stats", "background_threads"] }
