@@ -402,10 +402,12 @@ where
     let preferences = &signed_proposer_preferences.message;
     let validator_index = preferences.validator_index as usize;
 
+    let proposal_epoch = preferences.proposal_slot.epoch(E::slots_per_epoch());
+    let proposal_fork = spec.fork_at_epoch(proposal_epoch);
     let domain = spec.get_domain(
-        preferences.proposal_slot.epoch(E::slots_per_epoch()),
+        proposal_epoch,
         Domain::ProposerPreferences,
-        &state.fork(),
+        &proposal_fork,
         state.genesis_validators_root(),
     );
 
@@ -436,10 +438,16 @@ where
         // See `process_execution_payload_bid`.
         return Ok(None);
     }
+
+    let bid_epoch = signed_execution_payload_bid
+        .message
+        .slot
+        .epoch(E::slots_per_epoch());
+    let bid_fork = spec.fork_at_epoch(bid_epoch);
     let domain = spec.get_domain(
-        state.current_epoch(),
+        bid_epoch,
         Domain::BeaconBuilder,
-        &state.fork(),
+        &bid_fork,
         state.genesis_validators_root(),
     );
 
