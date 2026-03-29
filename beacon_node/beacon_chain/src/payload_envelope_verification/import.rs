@@ -16,7 +16,6 @@ use crate::{
     NotifyExecutionLayer, block_verification_types::AvailableBlockData, metrics,
     payload_envelope_verification::ExecutionPendingEnvelope, validator_monitor::get_slot_delay_ms,
 };
-use eth2::types::{EventKind, SseExecutionPayloadAvailable};
 
 const ENVELOPE_METRICS_CACHE_SLOT_LIMIT: u32 = 64;
 
@@ -350,15 +349,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        if let Some(event_handler) = self.event_handler.as_ref()
-            && event_handler.has_execution_payload_available_subscribers()
-        {
-            event_handler.register(EventKind::ExecutionPayloadAvailable(
-                SseExecutionPayloadAvailable {
-                    slot: envelope_slot,
-                    block_root,
-                },
-            ));
-        }
+        // TODO(gloas) emit SSE event for envelope import (similar to SseBlock for blocks).
     }
 }

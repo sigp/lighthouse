@@ -1031,13 +1031,6 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             })));
         }
 
-        if let Some(event_handler) = chain.event_handler.as_ref()
-            && event_handler.has_execution_payload_bid_subscribers()
-            && let Ok(bid) = block.message().body().signed_execution_payload_bid()
-        {
-            event_handler.register(EventKind::ExecutionPayloadBid(Box::new(bid.clone())));
-        }
-
         // Having checked the proposer index and the block root we can cache them.
         let consensus_context = ConsensusContext::new(block.slot())
             .set_current_block_root(block_root)

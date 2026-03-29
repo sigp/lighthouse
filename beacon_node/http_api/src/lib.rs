@@ -3167,12 +3167,6 @@ pub fn serve<T: BeaconChainTypes>(
                                 api_types::EventTopic::BlockGossip => {
                                     event_handler.subscribe_block_gossip()
                                 }
-                                api_types::EventTopic::ExecutionPayloadBid => {
-                                    event_handler.subscribe_execution_payload_bid()
-                                }
-                                api_types::EventTopic::ExecutionPayloadAvailable => {
-                                    event_handler.subscribe_execution_payload_available()
-                                }
                             };
 
                             receivers.push(
