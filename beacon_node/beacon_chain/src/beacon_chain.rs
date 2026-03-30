@@ -13,7 +13,7 @@ use crate::block_verification::{
     signature_verify_chain_segment, verify_header_signature,
 };
 use crate::block_verification_types::{
-    AsBlock, AvailableExecutedBlock, BlockImportData, ExecutedBlock, RpcBlock,
+    AsBlock, AvailableExecutedBlock, BlockImportData, ExecutedBlock, RangeSyncBlock,
 };
 pub use crate::canonical_head::CanonicalHead;
 use crate::chain_config::ChainConfig;
@@ -54,6 +54,8 @@ use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_data_sidecars::ObservedDataSidecars;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::observed_slashable::ObservedSlashable;
+#[cfg(not(test))]
+use crate::payload_envelope_streamer::{EnvelopeRequestSource, launch_payload_envelope_stream};
 use crate::pending_payload_envelopes::PendingPayloadEnvelopes;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::persisted_custody::persist_custody_context;
@@ -137,7 +139,7 @@ use types::*;
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 
 /// Alias to appease clippy.
-type HashBlockTuple<E> = (Hash256, RpcBlock<E>);
+type HashBlockTuple<E> = (Hash256, RangeSyncBlock<E>);
 
 // These keys are all zero because they get stored in different columns, see `DBColumn` type.
 pub const BEACON_CHAIN_DB_KEY: Hash256 = Hash256::ZERO;
@@ -1133,6 +1135,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get_blobs(*block_root)
             .map(Into::into)
             .map_or_else(|| self.get_blobs(block_root), Ok)
+    }
+
+    #[cfg(not(test))]
+    #[allow(clippy::type_complexity)]
+    pub fn get_payload_envelopes(
+        self: &Arc<Self>,
+        block_roots: Vec<Hash256>,
+        request_source: EnvelopeRequestSource,
+    ) -> impl Stream<
+        Item = (
+            Hash256,
+            Arc<Result<Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>, Error>>,
+        ),
+    > {
+        launch_payload_envelope_stream(self.clone(), block_roots, request_source)
     }
 
     pub fn get_data_columns_checking_all_caches(
@@ -2746,7 +2763,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// This method is potentially long-running and should not run on the core executor.
     pub fn filter_chain_segment(
         self: &Arc<Self>,
-        chain_segment: Vec<RpcBlock<T::EthSpec>>,
+        chain_segment: Vec<RangeSyncBlock<T::EthSpec>>,
     ) -> Result<Vec<HashBlockTuple<T::EthSpec>>, Box<ChainSegmentResult>> {
         // This function will never import any blocks.
         let imported_blocks = vec![];
@@ -2855,7 +2872,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// `Self::process_block`.
     pub async fn process_chain_segment(
         self: &Arc<Self>,
-        chain_segment: Vec<RpcBlock<T::EthSpec>>,
+        chain_segment: Vec<RangeSyncBlock<T::EthSpec>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> ChainSegmentResult {
         for block in chain_segment.iter() {
@@ -6689,6 +6706,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut prev_block_root = None;
         let mut prev_beacon_state = None;
 
+        // Collect all blocks.
+        let mut blocks = vec![];
+
         for res in self.forwards_iter_block_roots(from_slot)? {
             let (beacon_block_root, _) = res?;
 
@@ -6704,16 +6724,42 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .ok_or_else(|| {
                     Error::DBInconsistent(format!("Missing block {}", beacon_block_root))
                 })?;
-            let beacon_state_root = beacon_block.state_root();
+            blocks.push((beacon_block_root, Arc::new(beacon_block)));
+        }
 
-            // This branch is reached from the HTTP API. We assume the user wants
-            // to cache states so that future calls are faster.
+        // Collect states, using the next blocks to determine if states are full (have Gloas
+        // payloads).
+        for (i, (block_root, block)) in blocks.iter().enumerate() {
+            let (opt_envelope, state_root) = if block.fork_name_unchecked().gloas_enabled() {
+                let opt_envelope = self.store.get_payload_envelope(block_root)?.map(Arc::new);
+
+                if let Some((_, next_block)) = blocks.get(i + 1) {
+                    let block_hash = block.payload_bid_block_hash()?;
+                    if next_block.is_parent_block_full(block_hash) {
+                        let envelope = opt_envelope.ok_or_else(|| {
+                            Error::DBInconsistent(format!("Missing envelope {block_root:?}"))
+                        })?;
+                        let state_root = envelope.message.state_root;
+                        (Some(envelope), state_root)
+                    } else {
+                        (None, block.state_root())
+                    }
+                } else {
+                    // TODO(gloas): should use fork choice/cached head for last block in sequence
+                    opt_envelope
+                        .as_ref()
+                        .map_or((None, block.state_root()), |envelope| {
+                            (Some(envelope.clone()), envelope.message.state_root)
+                        })
+                }
+            } else {
+                (None, block.state_root())
+            };
+
             let mut beacon_state = self
                 .store
-                .get_state(&beacon_state_root, Some(beacon_block.slot()), true)?
-                .ok_or_else(|| {
-                    Error::DBInconsistent(format!("Missing state {:?}", beacon_state_root))
-                })?;
+                .get_state(&state_root, Some(block.slot()), true)?
+                .ok_or_else(|| Error::DBInconsistent(format!("Missing state {:?}", state_root)))?;
 
             // This beacon state might come from the freezer DB, which means it could have pending
             // updates or lots of untethered memory. We rebase it on the previous state in order to
@@ -6726,12 +6772,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             prev_beacon_state = Some(beacon_state.clone());
 
             let snapshot = BeaconSnapshot {
-                beacon_block: Arc::new(beacon_block),
-                beacon_block_root,
+                beacon_block: block.clone(),
+                execution_envelope: opt_envelope,
+                beacon_block_root: *block_root,
                 beacon_state,
             };
             dump.push(snapshot);
         }
+
         Ok(dump)
     }
 
