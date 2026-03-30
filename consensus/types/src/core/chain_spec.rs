@@ -96,6 +96,7 @@ pub struct ChainSpec {
      * Time parameters
      */
     pub genesis_delay: u64,
+    seconds_per_slot: u64,
     // Private so that this value can't get changed except via the `set_slot_duration_ms` function.
     slot_duration_ms: u64,
     pub min_attestation_inclusion_delay: u64,
@@ -1065,6 +1066,7 @@ impl ChainSpec {
              * Time parameters
              */
             genesis_delay: 604800, // 7 days
+            seconds_per_slot: 12,
             slot_duration_ms: 12000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
@@ -1332,6 +1334,7 @@ impl ChainSpec {
             genesis_fork_version: [0x00, 0x00, 0x00, 0x01],
             shard_committee_period: 64,
             genesis_delay: 300,
+            seconds_per_slot: 6,
             slot_duration_ms: 6000,
             inactivity_penalty_quotient: u64::checked_pow(2, 25).expect("pow does not overflow"),
             min_slashing_penalty_quotient: 64,
@@ -1463,6 +1466,7 @@ impl ChainSpec {
              * Time parameters
              */
             genesis_delay: 6000, // 100 minutes
+            seconds_per_slot: 5,
             slot_duration_ms: 5000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
@@ -1907,6 +1911,9 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub gloas_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    seconds_per_slot: Option<MaybeQuoted<u64>>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     slot_duration_ms: Option<MaybeQuoted<u64>>,
@@ -2464,6 +2471,9 @@ impl Config {
                 .gloas_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
+            seconds_per_slot: Some(MaybeQuoted {
+                value: spec.seconds_per_slot,
+            }),
             slot_duration_ms: Some(MaybeQuoted {
                 value: spec.slot_duration_ms,
             }),
@@ -2567,6 +2577,7 @@ impl Config {
             fulu_fork_version,
             gloas_fork_version,
             gloas_fork_epoch,
+            seconds_per_slot,
             slot_duration_ms,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -2628,6 +2639,14 @@ impl Config {
             return None;
         }
 
+        // Fail if seconds_per_slot and slot_duration_ms are both set but are inconsistent.
+        if let (Some(seconds_per_slot), Some(slot_duration_ms)) =
+            (seconds_per_slot, slot_duration_ms)
+            && seconds_per_slot.value.saturating_mul(1000) != slot_duration_ms.value
+        {
+            return None;
+        }
+
         let spec = ChainSpec {
             config_name: config_name.clone(),
             min_genesis_active_validator_count,
@@ -2648,7 +2667,12 @@ impl Config {
             fulu_fork_version,
             gloas_fork_version,
             gloas_fork_epoch: gloas_fork_epoch.map(|q| q.value),
-            slot_duration_ms: slot_duration_ms?.value,
+            seconds_per_slot: seconds_per_slot
+                .map(|q| q.value)
+                .or_else(|| slot_duration_ms.and_then(|q| q.value.checked_div(1000)))?,
+            slot_duration_ms: slot_duration_ms
+                .map(|q| q.value)
+                .or_else(|| seconds_per_slot.map(|q| q.value.saturating_mul(1000)))?,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
             shard_committee_period,
@@ -2908,6 +2932,67 @@ mod yaml_tests {
             .expect("error while opening the file");
         let from: Config = yaml_serde::from_reader(reader).expect("error while deserializing");
         assert_eq!(from, yamlconfig);
+    }
+
+    #[test]
+    fn slot_duration_fallback_both_fields() {
+        let mainnet = ChainSpec::mainnet();
+        let mut config = Config::from_chain_spec::<MainnetEthSpec>(&mainnet);
+        config.seconds_per_slot = Some(MaybeQuoted { value: 12 });
+        config.slot_duration_ms = Some(MaybeQuoted { value: 12000 });
+        let spec = config
+            .apply_to_chain_spec::<MainnetEthSpec>(&mainnet)
+            .unwrap();
+        assert_eq!(spec.seconds_per_slot, 12);
+        assert_eq!(spec.slot_duration_ms, 12000);
+    }
+
+    #[test]
+    fn slot_duration_fallback_both_fields_inconsistent() {
+        let mainnet = ChainSpec::mainnet();
+        let mut config = Config::from_chain_spec::<MainnetEthSpec>(&mainnet);
+        config.seconds_per_slot = Some(MaybeQuoted { value: 10 });
+        config.slot_duration_ms = Some(MaybeQuoted { value: 12000 });
+        assert_eq!(config.apply_to_chain_spec::<MainnetEthSpec>(&mainnet), None);
+    }
+
+    #[test]
+    fn slot_duration_fallback_seconds_only() {
+        let mainnet = ChainSpec::mainnet();
+        let mut config = Config::from_chain_spec::<MainnetEthSpec>(&mainnet);
+        config.seconds_per_slot = Some(MaybeQuoted { value: 12 });
+        config.slot_duration_ms = None;
+        let spec = config
+            .apply_to_chain_spec::<MainnetEthSpec>(&mainnet)
+            .unwrap();
+        assert_eq!(spec.seconds_per_slot, 12);
+        assert_eq!(spec.slot_duration_ms, 12000);
+    }
+
+    #[test]
+    fn slot_duration_fallback_ms_only() {
+        let mainnet = ChainSpec::mainnet();
+        let mut config = Config::from_chain_spec::<MainnetEthSpec>(&mainnet);
+        config.seconds_per_slot = None;
+        config.slot_duration_ms = Some(MaybeQuoted { value: 12000 });
+        let spec = config
+            .apply_to_chain_spec::<MainnetEthSpec>(&mainnet)
+            .unwrap();
+        assert_eq!(spec.seconds_per_slot, 12);
+        assert_eq!(spec.slot_duration_ms, 12000);
+    }
+
+    #[test]
+    fn slot_duration_fallback_neither() {
+        let mainnet = ChainSpec::mainnet();
+        let mut config = Config::from_chain_spec::<MainnetEthSpec>(&mainnet);
+        config.seconds_per_slot = None;
+        config.slot_duration_ms = None;
+        assert!(
+            config
+                .apply_to_chain_spec::<MainnetEthSpec>(&mainnet)
+                .is_none()
+        );
     }
 
     #[test]
@@ -3601,6 +3686,11 @@ mod yaml_tests {
         // CONFIG_NAME is network metadata (not a spec parameter), so align it
         // before comparing.
         upstream_config.config_name = our_config.config_name.clone();
+        // SECONDS_PER_SLOT is deprecated upstream but we still emit it, so
+        // fill it in if the upstream YAML omitted it.
+        if upstream_config.seconds_per_slot.is_none() {
+            upstream_config.seconds_per_slot = our_config.seconds_per_slot;
+        }
         assert_eq!(
             upstream_config, our_config,
             "Config mismatch for {config_name}"
