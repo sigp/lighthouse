@@ -9,6 +9,7 @@ use crate::{
     per_slot_processing,
 };
 use itertools::Itertools;
+use std::collections::HashMap;
 use std::iter::Peekable;
 use std::marker::PhantomData;
 use types::{
@@ -288,17 +289,11 @@ where
         payload_envelopes: Vec<SignedExecutionPayloadEnvelope<E>>,
         target_slot: Option<Slot>,
     ) -> Result<Self, Error> {
-        let mut envelopes_iter = payload_envelopes.into_iter();
-
-        let mut next_envelope_at_slot = |slot| {
-            if let Some(envelope) = envelopes_iter.next()
-                && envelope.message.slot == slot
-            {
-                Ok(envelope)
-            } else {
-                Err(BlockReplayError::MissingPayloadEnvelope { slot })
-            }
-        };
+        let mut envelopes_by_slot: HashMap<Slot, SignedExecutionPayloadEnvelope<E>> =
+            payload_envelopes
+                .into_iter()
+                .map(|e| (e.message.slot, e))
+                .collect();
 
         for (i, block) in blocks.iter().enumerate() {
             // Allow one additional block at the start which is only used for its state root.
@@ -313,24 +308,41 @@ where
                 // indicates that the parent is full (and it hasn't already been applied).
                 state_root = if block.fork_name_unchecked().gloas_enabled()
                     && self.state.slot() == self.state.latest_block_header().slot
-                    && self.state.payload_status() == StatePayloadStatus::Pending
                 {
-                    let latest_bid_block_hash = self
-                        .state
-                        .latest_execution_payload_bid()
-                        .map_err(BlockReplayError::from)?
-                        .block_hash;
+                    if self.state.payload_status() == StatePayloadStatus::Pending {
+                        let latest_bid_block_hash = self
+                            .state
+                            .latest_execution_payload_bid()
+                            .map_err(BlockReplayError::from)?
+                            .block_hash;
 
-                    // Similar to `is_parent_block_full`, but reading the block hash from the
-                    // not-yet-applied `block`. The slot 0 case covers genesis (no block replay reqd).
-                    if self.state.slot() != 0 && block.is_parent_block_full(latest_bid_block_hash) {
-                        let envelope = next_envelope_at_slot(self.state.slot())?;
-                        // State root for the next slot processing is now the envelope's state root.
-                        self.apply_payload_envelope(&envelope, state_root)?
+                        // Similar to `is_parent_block_full`, but reading the block hash from the
+                        // not-yet-applied `block`. The slot 0 case covers genesis (no block replay
+                        // reqd).
+                        if self.state.slot() != 0
+                            && block.is_parent_block_full(latest_bid_block_hash)
+                        {
+                            let envelope = envelopes_by_slot.remove(&self.state.slot()).ok_or(
+                                BlockReplayError::MissingPayloadEnvelope {
+                                    slot: self.state.slot(),
+                                },
+                            )?;
+                            // State root for the next slot processing is now the envelope's
+                            // state root.
+                            self.apply_payload_envelope(&envelope, state_root)?
+                        } else {
+                            // Empty payload at this slot, the state root is unchanged from
+                            // when the beacon block was applied.
+                            state_root
+                        }
                     } else {
-                        // Empty payload at this slot, the state root is unchanged from when the
-                        // beacon block was applied.
-                        state_root
+                        // Full: the envelope was already applied. Use its state_root so
+                        // per_slot_processing stores the correct post-envelope root
+                        // (not the pre-envelope block state root).
+                        envelopes_by_slot
+                            .get(&self.state.slot())
+                            .map(|e| e.message.state_root)
+                            .unwrap_or(state_root)
                     }
                 } else {
                     // Pre-Gloas or at skipped slots post-Gloas, the state root of the parent state
@@ -384,7 +396,11 @@ where
         let mut opt_state_root = if let StatePayloadStatus::Full = self.desired_state_payload_status
             && let Some(last_block) = blocks.last()
         {
-            let envelope = next_envelope_at_slot(self.state.slot())?;
+            let envelope = envelopes_by_slot.remove(&self.state.slot()).ok_or(
+                BlockReplayError::MissingPayloadEnvelope {
+                    slot: self.state.slot(),
+                },
+            )?;
             Some(self.apply_payload_envelope(&envelope, last_block.state_root())?)
         } else {
             None
