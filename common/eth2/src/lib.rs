@@ -356,7 +356,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// Perform a HTTP POST request, returning a JSON response.
-    async fn post_with_response<T: Serialize, U: IntoUrl, R: DeserializeOwned>(
+    pub async fn post_with_response<T: Serialize, U: IntoUrl, R: DeserializeOwned>(
         &self,
         url: U,
         body: &T,

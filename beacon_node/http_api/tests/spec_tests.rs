@@ -9,7 +9,7 @@ use bls::{Signature, SignatureBytes};
 use eth2::{BeaconNodeHttpClient, Timeouts};
 use http_api::test_utils::{ApiServer, create_api_server};
 use lighthouse_network::PeerId;
-use oas3::spec::{ObjectOrReference, ObjectSchema, Schema, SchemaType, SchemaTypeSet};
+use oas3::spec::{ObjectOrReference, ObjectSchema, Operation, Schema, SchemaType, SchemaTypeSet};
 use regex::RegexBuilder;
 use sensitive_url::SensitiveUrl;
 use std::collections::HashMap;
@@ -95,7 +95,7 @@ async fn new() -> (
 }
 
 // Extract the full ObjectSchema for each endpoint, this ObjectSchema contains all info that we need for the check
-async fn extract_all_endpoints() -> HashMap<String, ObjectSchema> {
+async fn extract_all_endpoints() -> (HashMap<String, ObjectSchema>, HashMap<String, ObjectSchema>) {
     // Obtain the complete Beacon APIs yaml file using the latest release version (not the dev versino)
     // TODO: switch to latest release before the Gloas upgrade
     let yaml = reqwest::get(
@@ -110,7 +110,8 @@ async fn extract_all_endpoints() -> HashMap<String, ObjectSchema> {
     // Use the function from oas3 crate to parse the main yaml file
     let spec = oas3::from_yaml(yaml).unwrap();
 
-    let mut object_schema_by_endpoint = HashMap::new();
+    let mut object_schema_by_get_endpoint = HashMap::new();
+    let mut object_schema_by_post_endpoint = HashMap::new();
 
     // spec.paths is Option<IndexMap<String, PathItem>>
     // spec.paths looks like this (for 1 endpoint):
@@ -118,56 +119,42 @@ async fn extract_all_endpoints() -> HashMap<String, ObjectSchema> {
     // So: endpoint is a String, e.g.,: "/eth/v1/beacon/states/{state_id}/fork"
     // path_item itself is a struct of type PathItem
     if let Some(paths) = &spec.paths {
+        // the selections endpoints are not implemented in the beacon node, thus its response cannot be tested
         for (endpoint, path_item) in paths {
-            // path_item.get is of type: Option<Operation>
-            // This will process all GET endpoints and ignore others (e.g., POST)
-            let get = match &path_item.get {
-                Some(get) => get.clone(),
-                None => {
-                    println!(
-                        "{} is not a GET endpoint, ignoring this endpoint and continue to the next",
-                        endpoint
-                    );
-                    continue;
-                }
-            };
-
-            // responses if of type: Option<BTreeMap<String, ObjectOrReference<Response>>>
-            let responses = get.responses.unwrap();
-            // From the responses BTreeMap
-            // where the String can be "200", "400" etc, and the value is of type ObjectOrReference<Response>
-            // with .get("200"), we get to the ObjectOrReference<Response>
-            // So response is of type Response (a struct) after extracting the Object
-            let response = match responses.get("200").unwrap() {
-                ObjectOrReference::Object(object) => object,
-                ObjectOrReference::Ref { .. } => panic!("Should be an Object"),
-            };
-
-            // response.content is of type: BTreeMap<String, MediaType>
-            // where the key (with type String) is "application/json" (or "application/octet-stream") and the value is type: MediaType
-            // media_type is of type MediaType struct
-            let Some(media_type) = response.content.get("application/json") else {
-                // eth/v1/events does not have application/json, only application/octet-stream
-                // /eth/v1/node/health does not have application/json in the response
-                // these endpoints are ignored
-                println!(
-                    "No application/json content found for endpoint {}",
-                    endpoint
-                );
+            if endpoint.contains("selections") {
                 continue;
             };
 
-            // media_type.schema accesses the field schema in the struct, and it is of type: Option<ObjectOrReference<ObjectSchema>>
-            // After matching with Object enum, object_schema variable is of type ObjectSchema
-            let object_schema = match media_type.schema.clone().unwrap() {
-                ObjectOrReference::Object(schema) => schema,
-                ObjectOrReference::Ref { .. } => panic!("Should be an Object"),
+            // path_item.get is of type: Option<Operation>
+            // This will collect all GET endpoints in a HashMap
+            if let Some(get_operation) = &path_item.get {
+                if let Some(get_object_schema) =
+                    object_schema_from_operation(get_operation, endpoint)
+                {
+                    object_schema_by_get_endpoint.insert(endpoint.to_string(), get_object_schema);
+                }
             };
 
-            object_schema_by_endpoint.insert(endpoint.to_string(), object_schema);
+            // Do the same for POST endpoints
+            if let Some(post_operation) = &path_item.post {
+                if let Some(post_object_schema) =
+                    object_schema_from_operation(post_operation, endpoint)
+                {
+                    object_schema_by_post_endpoint.insert(endpoint.to_string(), post_object_schema);
+                }
+            };
         }
     }
-    object_schema_by_endpoint
+    println!("get endpoints: {:?}", object_schema_by_get_endpoint.keys());
+    println!(
+        "post endpoints: {:?}",
+        object_schema_by_post_endpoint.keys()
+    );
+
+    (
+        object_schema_by_get_endpoint,
+        object_schema_by_post_endpoint,
+    )
 }
 
 // Recursively check the required field of each ObjectSchema
@@ -362,12 +349,18 @@ fn replace_parameter(
 
     let current_slot = harness.get_current_slot();
     let current_epoch = current_slot.epoch(E::slots_per_epoch());
+    // Endpoint /eth/v1/beacon/rewards/attestations/{epoch} needs to be queried at an earlier epoch so that the state is available
+    let current_epoch_for_reward = current_slot
+        .epoch(E::slots_per_epoch())
+        .as_u64()
+        .saturating_sub(2);
 
     let slot = current_slot.to_string();
     let epoch = current_epoch.to_string();
+    let epoch_for_reward = current_epoch_for_reward.to_string();
     let subcommittee_index = "0";
     let committee_index = "0";
-    // for endpoint /eth/v1/beacon/light_client/updates, start_period and count are required
+    // For endpoint /eth/v1/beacon/light_client/updates, start_period and count are required
     let start_period = "0";
     let count = "1";
     // point-at-infinity to skip randao verification
@@ -382,6 +375,7 @@ fn replace_parameter(
             &format!("/eth/v1/validator/sync_committee_contribution/?slot={}&subcommittee_index={}&beacon_block_root={}", slot, subcommittee_index, block_root))
         .replace("/eth/v2/validator/aggregate_attestation", &format!("/eth/v2/validator/aggregate_attestation?attestation_data_root={:?}&slot={}&committee_index={}", attestation_data_root, slot, committee_index))
         .replace("/eth/v3/validator/blocks/{slot}", &format!("/eth/v3/validator/blocks/{}?randao_reveal={}&skip_randao_verification=", slot, randao_reveal))
+        .replace("/eth/v1/beacon/rewards/attestations/{epoch}", &format!("/eth/v1/beacon/rewards/attestations/{}", epoch_for_reward))
         .replace("{block_id}", "head")
         .replace("{state_id}", "finalized")
         .replace("{slot}", &slot)
@@ -389,6 +383,24 @@ fn replace_parameter(
         .replace("{validator_id}", "0")
         .replace("{block_root}", &format!("{:?}", block_root))
         .replace("{peer_id}", &format!("{}", peer_id))
+}
+
+// Create the request body for POST endpoints
+fn body_for_post_endpoint(endpoint: &str) -> Option<serde_json::Value> {
+    match endpoint {
+        "/eth/v1/beacon/states/{state_id}/validator_balances"
+        | "/eth/v1/beacon/states/{state_id}/validator_identities"
+        | "/eth/v1/beacon/rewards/attestations/{epoch}"
+        | "/eth/v1/beacon/rewards/sync_committee/{block_id}"
+        | "/eth/v1/validator/duties/attester/{epoch}"
+        | "/eth/v1/validator/duties/sync/{epoch}"
+        | "/eth/v1/validator/liveness/{epoch}" => Some(serde_json::json!(["0"])),
+        "/eth/v1/beacon/states/{state_id}/validators" => Some(serde_json::json!({
+          "ids": ["0"],
+          "statuses": ["active_ongoing"]
+        })),
+        _ => None,
+    }
 }
 
 #[tokio::test]
@@ -555,18 +567,30 @@ async fn http_api_spec_test() -> Result<(), String> {
         )
         .unwrap();
 
-    let object_schema_by_endpoint = extract_all_endpoints().await;
+    let (object_schema_by_get_endpoint, object_schema_by_post_endpoint) =
+        extract_all_endpoints().await;
 
-    for (endpoint, object_schema) in &object_schema_by_endpoint {
+    let mut checked_get_endpoint = 0;
+    // Test for GET endpoints
+    for (endpoint, object_schema) in &object_schema_by_get_endpoint {
         let url = format!(
             "http://127.0.0.1:{}{}",
             port,
             replace_parameter(endpoint, &harness, peer_id, attestation_data_root)
         );
 
+        println!("Testing endpoint: {}", endpoint);
+        println!("URL is: {}", url);
+
         let result_json: serde_json::Value = client.get(url.clone()).await.unwrap();
 
+        // println!("Response is: {:?}", result_json);
+
         check_field(&result_json, object_schema, endpoint)?;
+
+        println!("Test passed for get endpoint: {}", endpoint);
+        checked_get_endpoint += 1;
+        println!("Checked get endpoint: {}", checked_get_endpoint);
 
         // Check that top-level data arrays are non-empty to ensure item schemas are validated.
         if let Some(data) = result_json.get("data")
@@ -599,6 +623,40 @@ async fn http_api_spec_test() -> Result<(), String> {
             assert!(check_field(&result_json_modify, object_schema, endpoint).is_err());
         }
     }
+
+    let mut checked_post_endpoint = 0;
+    // Test for POST endpoints
+    for (endpoint, object_schema) in &object_schema_by_post_endpoint {
+        let url = format!(
+            "http://127.0.0.1:{}{}",
+            port,
+            replace_parameter(endpoint, &harness, peer_id, attestation_data_root)
+        );
+
+        println!("Testing endpoint: {}", endpoint);
+        println!("URL is: {}", url);
+
+        let body = body_for_post_endpoint(endpoint).unwrap();
+        println!("Body is: {:?}", body);
+        let result_json = client.post_with_response(url.clone(), &body).await.unwrap();
+
+        println!("Response is: {:?}", result_json);
+
+        check_field(&result_json, object_schema, endpoint)?;
+
+        println!("Test passed for post endpoint: {}", endpoint);
+        checked_post_endpoint += 1;
+        println!("Checked post endpoint: {}", checked_post_endpoint);
+
+        // Check that top-level data arrays are non-empty to ensure item schemas are validated.
+        if let Some(data) = result_json.get("data")
+            && let Some(data_array) = data.as_array()
+            && data_array.is_empty()
+        {
+            return Err(format!("Empty data array for endpoint {}.", endpoint));
+        }
+    }
+
     Ok(())
 }
 
@@ -610,4 +668,41 @@ fn return_object_schema(oor: &ObjectOrReference<ObjectSchema>) -> &ObjectSchema 
             panic!("Should be an Object")
         }
     }
+}
+
+// Helper function to extract object schema from operation (operation is either GET or POST)
+fn object_schema_from_operation(operation: &Operation, endpoint: &str) -> Option<ObjectSchema> {
+    // responses if of type: Option<BTreeMap<String, ObjectOrReference<Response>>>
+    let responses = operation.responses.clone().unwrap();
+    // From the responses BTreeMap
+    // where the String can be "200", "400" etc, and the value is of type ObjectOrReference<Response>
+    // with .get("200"), we get to the ObjectOrReference<Response>
+    // So response is of type Response (a struct) after extracting the Object
+    let response = match responses.get("200").unwrap() {
+        ObjectOrReference::Object(object) => object,
+        ObjectOrReference::Ref { .. } => panic!("Should be an Object"),
+    };
+
+    // response.content is of type: BTreeMap<String, MediaType>
+    // where the key (with type String) is "application/json" (or "application/octet-stream") and the value is type: MediaType
+    // media_type is of type MediaType struct
+    let Some(media_type) = response.content.get("application/json") else {
+        // eth/v1/events does not have application/json, only application/octet-stream
+        // /eth/v1/node/health does not have application/json in the response
+        // these endpoints are ignored
+        println!(
+            "No application/json in response.\"200\".content for endpoint {} ",
+            endpoint
+        );
+        return None;
+    };
+
+    // media_type.schema accesses the field schema in the struct, and it is of type: Option<ObjectOrReference<ObjectSchema>>
+    // After matching with Object enum, object_schema variable is of type ObjectSchema
+    let object_schema = match media_type.schema.clone().unwrap() {
+        ObjectOrReference::Object(schema) => schema,
+        ObjectOrReference::Ref { .. } => panic!("Should be an Object"),
+    };
+
+    Some(object_schema)
 }
