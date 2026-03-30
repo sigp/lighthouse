@@ -2,15 +2,14 @@
 use std::ops::Mul;
 use std::sync::LazyLock;
 
+use arbitrary::Arbitrary;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use bls::Keypair;
 use fixed_bytes::FixedBytesExtended;
 use milhouse::Vector;
-use rand::SeedableRng;
-use rand_xorshift::XorShiftRng;
 use ssz::Encode;
 use swap_or_not_shuffle::compute_shuffled_index;
-use types::test_utils::{TestRandom, generate_deterministic_keypairs};
+use types::test_utils::generate_deterministic_keypairs;
 use types::*;
 
 pub const MAX_VALIDATOR_COUNT: usize = 129;
@@ -315,7 +314,7 @@ fn decode_base_and_altair() {
     type E = MainnetEthSpec;
     let spec = E::default_spec();
 
-    let rng = &mut XorShiftRng::from_seed([42; 16]);
+    let mut u = types::test_utils::test_unstructured();
 
     let fork_epoch = spec.altair_fork_epoch.unwrap();
 
@@ -328,7 +327,7 @@ fn decode_base_and_altair() {
     {
         let good_base_state: BeaconState<MainnetEthSpec> = BeaconState::Base(BeaconStateBase {
             slot: base_slot,
-            ..<_>::random_for_test(rng)
+            ..<_>::arbitrary(&mut u).unwrap()
         });
         // It's invalid to have a base state with a slot higher than the fork slot.
         let bad_base_state = {
@@ -351,7 +350,7 @@ fn decode_base_and_altair() {
         let good_altair_state: BeaconState<MainnetEthSpec> =
             BeaconState::Altair(BeaconStateAltair {
                 slot: altair_slot,
-                ..<_>::random_for_test(rng)
+                ..<_>::arbitrary(&mut u).unwrap()
             });
         // It's invalid to have an Altair state with a slot lower than the fork slot.
         let bad_altair_state = {

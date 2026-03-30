@@ -30,7 +30,9 @@ use fixed_bytes::FixedBytesExtended;
 use logging::create_test_tracing_subscriber;
 use maplit::hashset;
 use rand::Rng;
+use rand::SeedableRng;
 use rand::rngs::StdRng;
+use rand_xorshift::XorShiftRng;
 use slot_clock::{SlotClock, TestingSlotClock};
 use ssz_types::VariableList;
 use state_processing::{BlockReplayer, state_advance::complete_state_advance};
@@ -49,7 +51,6 @@ use store::{
 };
 use tempfile::{TempDir, tempdir};
 use tracing::info;
-use types::test_utils::{SeedableRng, XorShiftRng};
 use types::*;
 
 // Should ideally be divisible by 3.

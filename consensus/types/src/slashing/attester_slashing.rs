@@ -1,17 +1,14 @@
 use context_deserialize::{ContextDeserialize, context_deserialize};
 use educe::Educe;
-use rand::{Rng, RngCore};
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 use crate::{
     attestation::{IndexedAttestationBase, IndexedAttestationElectra, IndexedAttestationRef},
     core::EthSpec,
     fork::ForkName,
-    test_utils::TestRandom,
 };
 
 #[superstruct(
@@ -26,7 +23,6 @@ use crate::{
             Encode,
             Decode,
             TreeHash,
-            TestRandom,
         ),
         context_deserialize(ForkName),
         educe(PartialEq, Eq, Hash(bound(E: EthSpec))),
@@ -167,16 +163,6 @@ impl<E: EthSpec> AttesterSlashing<E> {
             AttesterSlashing::Electra(attester_slashing) => {
                 IndexedAttestationRef::Electra(&attester_slashing.attestation_2)
             }
-        }
-    }
-}
-
-impl<E: EthSpec> TestRandom for AttesterSlashing<E> {
-    fn random_for_test(rng: &mut impl RngCore) -> Self {
-        if rng.random_bool(0.5) {
-            AttesterSlashing::Base(AttesterSlashingBase::random_for_test(rng))
-        } else {
-            AttesterSlashing::Electra(AttesterSlashingElectra::random_for_test(rng))
         }
     }
 }

@@ -1,14 +1,12 @@
 use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 use crate::{
     attestation::Checkpoint,
     core::{Hash256, SignedRoot, Slot, SlotData},
     fork::ForkName,
-    test_utils::TestRandom,
 };
 
 /// The data upon which an attestation is based.
@@ -16,18 +14,7 @@ use crate::{
 /// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    Hash,
-    Encode,
-    Decode,
-    TreeHash,
-    TestRandom,
-    Default,
+    Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash, Encode, Decode, TreeHash, Default,
 )]
 #[context_deserialize(ForkName)]
 pub struct AttestationData {

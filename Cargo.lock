@@ -1224,6 +1224,8 @@ name = "beacon_chain"
 version = "0.2.0"
 dependencies = [
  "alloy-primitives",
+ "arbitrary",
+ "beacon_chain",
  "bitvec",
  "bls",
  "criterion",
@@ -1258,6 +1260,7 @@ dependencies = [
  "parking_lot",
  "proto_array",
  "rand 0.9.2",
+ "rand_xorshift 0.4.0",
  "rayon",
  "safe_arith",
  "sensitive_url",
@@ -1610,6 +1613,7 @@ dependencies = [
 name = "builder_client"
 version = "0.1.0"
 dependencies = [
+ "arbitrary",
  "bls",
  "context_deserialize",
  "eth2",
@@ -1621,6 +1625,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "types",
 ]
 
 [[package]]
@@ -2740,6 +2745,7 @@ dependencies = [
 name = "doppelganger_service"
 version = "0.1.0"
 dependencies = [
+ "arbitrary",
  "beacon_node_fallback",
  "bls",
  "environment",
@@ -3116,6 +3122,7 @@ dependencies = [
 name = "eth2"
 version = "0.1.0"
 dependencies = [
+ "arbitrary",
  "bls",
  "context_deserialize",
  "educe",
@@ -3132,7 +3139,6 @@ dependencies = [
  "multiaddr",
  "pretty_reqwest_error",
  "proto_array",
- "rand 0.9.2",
  "reqwest",
  "reqwest-eventsource",
  "sensitive_url",
@@ -3140,7 +3146,6 @@ dependencies = [
  "serde_json",
  "ssz_types",
  "superstruct",
- "test_random_derive",
  "tokio",
  "types",
  "zeroize",
@@ -3278,8 +3283,7 @@ dependencies = [
 [[package]]
 name = "ethereum_ssz"
 version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2128a84f7a3850d54ee343334e3392cca61f9f6aa9441eec481b9394b43c238b"
+source = "git+https://github.com/sigp/ethereum_ssz?rev=2a161aec0e7e78064c8075717da4c5efb7883b76#2a161aec0e7e78064c8075717da4c5efb7883b76"
 dependencies = [
  "alloy-primitives",
  "arbitrary",
@@ -6049,6 +6053,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-rlp",
  "anyhow",
+ "arbitrary",
  "async-channel 1.9.0",
  "beacon_chain",
  "beacon_processor",
@@ -8382,8 +8387,7 @@ dependencies = [
 [[package]]
 name = "ssz_types"
 version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fc20a89bab2dabeee65e9c9eb96892dc222c23254b401e1319b85efd852fa31"
+source = "git+https://github.com/macladson/ssz_types?branch=improved-arbitrary#230bd464eaa689e1febec87cde34d1997e5490ae"
 dependencies = [
  "arbitrary",
  "context_deserialize",
@@ -8427,7 +8431,6 @@ dependencies = [
  "safe_arith",
  "smallvec",
  "ssz_types",
- "test_random_derive",
  "tokio",
  "tracing",
  "tree_hash",
@@ -8711,14 +8714,6 @@ name = "termtree"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
-
-[[package]]
-name = "test_random_derive"
-version = "0.2.0"
-dependencies = [
- "quote",
- "syn 2.0.117",
-]
 
 [[package]]
 name = "thiserror"
@@ -9360,12 +9355,12 @@ dependencies = [
  "superstruct",
  "swap_or_not_shuffle",
  "tempfile",
- "test_random_derive",
  "tokio",
  "tracing",
  "tree_hash",
  "tree_hash_derive",
  "typenum",
+ "types",
  "yaml_serde",
 ]
 

@@ -6,7 +6,6 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 use std::{borrow::Cow, fmt::Debug, hash::Hash};
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
@@ -22,7 +21,6 @@ use crate::{
     fork::ForkName,
     map_execution_payload_into_blinded_payload, map_execution_payload_into_full_payload,
     state::BeaconStateError,
-    test_utils::TestRandom,
 };
 
 #[derive(Debug, PartialEq)]
@@ -71,7 +69,6 @@ pub trait OwnedExecPayload<E: EthSpec>:
     + DeserializeOwned
     + Encode
     + Decode
-    + TestRandom
     + for<'a> arbitrary::Arbitrary<'a>
     + 'static
 {
@@ -84,7 +81,6 @@ impl<E: EthSpec, P> OwnedExecPayload<E> for P where
         + DeserializeOwned
         + Encode
         + Decode
-        + TestRandom
         + for<'a> arbitrary::Arbitrary<'a>
         + 'static
 {
@@ -93,19 +89,12 @@ impl<E: EthSpec, P> OwnedExecPayload<E> for P where
 /// `ExecPayload` functionality the requires ownership.
 #[cfg(not(feature = "arbitrary"))]
 pub trait OwnedExecPayload<E: EthSpec>:
-    ExecPayload<E> + Default + Serialize + DeserializeOwned + Encode + Decode + TestRandom + 'static
+    ExecPayload<E> + Default + Serialize + DeserializeOwned + Encode + Decode + 'static
 {
 }
 #[cfg(not(feature = "arbitrary"))]
 impl<E: EthSpec, P> OwnedExecPayload<E> for P where
-    P: ExecPayload<E>
-        + Default
-        + Serialize
-        + DeserializeOwned
-        + Encode
-        + Decode
-        + TestRandom
-        + 'static
+    P: ExecPayload<E> + Default + Serialize + DeserializeOwned + Encode + Decode + 'static
 {
 }
 
@@ -166,7 +155,6 @@ pub trait AbstractExecPayload<E: EthSpec>:
             Deserialize,
             Encode,
             Decode,
-            TestRandom,
             TreeHash,
             Educe,
         ),
@@ -533,7 +521,6 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for FullPayload<E> {
             Deserialize,
             Encode,
             Decode,
-            TestRandom,
             TreeHash,
             Educe,
         ),

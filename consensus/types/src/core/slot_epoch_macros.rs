@@ -293,12 +293,6 @@ macro_rules! impl_ssz {
         }
 
         impl SignedRoot for $type {}
-
-        impl TestRandom for $type {
-            fn random_for_test(rng: &mut impl RngCore) -> Self {
-                $type::from(u64::random_for_test(rng))
-            }
-        }
     };
 }
 
