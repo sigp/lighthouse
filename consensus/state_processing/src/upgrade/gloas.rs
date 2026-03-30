@@ -135,17 +135,13 @@ fn initialize_ptc_window<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let slots_per_epoch = E::slots_per_epoch() as usize;
-    let ptc_size = E::ptc_size();
 
-    // Empty previous epoch
-    let empty_entry =
-        ssz_types::FixedVector::new(vec![0u64; ptc_size]).map_err(Error::SszTypesError)?;
-    let mut window: Vec<ssz_types::FixedVector<u64, E::PTCSize>> =
-        vec![empty_entry; slots_per_epoch];
+    let empty_previous_epoch = vec![FixedVector::<u64, E::PTCSize>::from_elem(0); slots_per_epoch];
+    let mut ptcs = empty_previous_epoch;
 
     // Compute PTC for current epoch + lookahead epochs
     let current_epoch = state.current_epoch();
-    for e in 0..=(spec.min_seed_lookahead.as_u64()) {
+    for e in 0..=spec.min_seed_lookahead.as_u64() {
         let epoch = current_epoch.safe_add(e)?;
         let committee_cache = state.initialize_committee_cache_for_lookahead(epoch, spec)?;
         let start_slot = epoch.start_slot(E::slots_per_epoch());
@@ -153,12 +149,12 @@ fn initialize_ptc_window<E: EthSpec>(
             let slot = start_slot.safe_add(i as u64)?;
             let ptc = state.compute_ptc_with_cache(slot, &committee_cache, spec)?;
             let ptc_u64: Vec<u64> = ptc.into_iter().map(|v| v as u64).collect();
-            let entry = ssz_types::FixedVector::new(ptc_u64).map_err(Error::SszTypesError)?;
-            window.push(entry);
+            let entry = FixedVector::new(ptc_u64)?;
+            ptcs.push(entry);
         }
     }
 
-    *state.ptc_window_mut()? = Vector::new(window)?;
+    *state.ptc_window_mut()? = Vector::new(ptcs)?;
 
     Ok(())
 }
