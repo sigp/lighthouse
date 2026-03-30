@@ -3109,7 +3109,7 @@ impl<E: EthSpec> BeaconState<E> {
             let epoch = slot.epoch(E::slots_per_epoch());
             let state_epoch = self.current_epoch();
             let slots_per_epoch = E::slots_per_epoch() as usize;
-            let slot_in_epoch = slot.as_usize() % slots_per_epoch;
+            let slot_in_epoch = slot.as_usize().safe_rem(slots_per_epoch)?;
 
             let index = if epoch < state_epoch {
                 // Previous epoch
@@ -3123,7 +3123,10 @@ impl<E: EthSpec> BeaconState<E> {
                 if epoch_offset > spec.min_seed_lookahead.as_usize() {
                     return Err(BeaconStateError::SlotOutOfBounds);
                 }
-                (epoch_offset + 1) * slots_per_epoch + slot_in_epoch
+                epoch_offset
+                    .safe_add(1)?
+                    .safe_mul(slots_per_epoch)?
+                    .safe_add(slot_in_epoch)?
             };
 
             let entry = ptc_window

@@ -34,6 +34,7 @@ pub struct SinglePassConfig {
     pub effective_balance_updates: bool,
     pub proposer_lookahead: bool,
     pub builder_pending_payments: bool,
+    pub ptc_window: bool,
 }
 
 impl Default for SinglePassConfig {
@@ -54,6 +55,7 @@ impl SinglePassConfig {
             effective_balance_updates: true,
             proposer_lookahead: true,
             builder_pending_payments: true,
+            ptc_window: true,
         }
     }
 
@@ -68,6 +70,7 @@ impl SinglePassConfig {
             effective_balance_updates: false,
             proposer_lookahead: false,
             builder_pending_payments: false,
+            ptc_window: false,
         }
     }
 }
@@ -479,7 +482,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         process_proposer_lookahead(state, spec)?;
     }
 
-    if conf.proposer_lookahead && fork_name.gloas_enabled() {
+    if conf.ptc_window && fork_name.gloas_enabled() {
         process_ptc_window(state, spec)?;
     }
 
