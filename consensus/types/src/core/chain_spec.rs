@@ -3533,7 +3533,7 @@ mod yaml_tests {
 
     /// Compare a `ChainSpec` against an upstream consensus-specs config YAML file.
     ///
-    /// 1. Extracts keys from the raw YAML text (to avoid serde_yaml's inability
+    /// 1. Extracts keys from the raw YAML text (to avoid yaml_serde's inability
     ///    to parse integers > u64 into `Value`/`Mapping` types) and checks that
     ///    every key is either known to `Config` or explicitly listed in
     ///    `UPSTREAM_KEYS_NOT_IN_LIGHTHOUSE`.
@@ -3546,7 +3546,7 @@ mod yaml_tests {
             .unwrap_or_else(|e| panic!("failed to read {}: {e}", file_path.display()));
 
         // Extract top-level keys from the raw YAML text. We can't parse as
-        // serde_yaml::Mapping because serde_yaml cannot represent integers
+        // yaml_serde::Mapping because yaml_serde cannot represent integers
         // exceeding u64 (e.g. TERMINAL_TOTAL_DIFFICULTY). Config YAML uses a
         // simple `KEY: value` format with no indentation for top-level keys.
         let upstream_keys: BTreeSet<String> = upstream_yaml
@@ -3568,9 +3568,9 @@ mod yaml_tests {
         // keys. Also include keys for optional fields that may be skipped during
         // serialization (e.g. CONFIG_NAME).
         let our_config = Config::from_chain_spec::<E>(spec);
-        let our_yaml = serde_yaml::to_string(&our_config).expect("failed to serialize Config");
-        let our_mapping: serde_yaml::Mapping =
-            serde_yaml::from_str(&our_yaml).expect("failed to re-parse our Config");
+        let our_yaml = yaml_serde::to_string(&our_config).expect("failed to serialize Config");
+        let our_mapping: yaml_serde::Mapping =
+            yaml_serde::from_str(&our_yaml).expect("failed to re-parse our Config");
         let mut known_keys: BTreeSet<String> = our_mapping
             .keys()
             .filter_map(|k| k.as_str().map(String::from))
@@ -3595,7 +3595,7 @@ mod yaml_tests {
         );
 
         // Compare values for all fields Config knows about.
-        let mut upstream_config: Config = serde_yaml::from_str(&upstream_yaml)
+        let mut upstream_config: Config = yaml_serde::from_str(&upstream_yaml)
             .unwrap_or_else(|e| panic!("failed to parse {config_name} as Config: {e}"));
 
         // CONFIG_NAME is network metadata (not a spec parameter), so align it
