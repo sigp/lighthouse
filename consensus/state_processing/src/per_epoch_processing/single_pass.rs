@@ -524,12 +524,15 @@ pub fn process_ptc_window<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let slots_per_epoch = E::slots_per_epoch() as usize;
-    let ptc_window_length = E::ptc_window_length();
-    let mut window = state.ptc_window()?.clone().to_vec();
 
-    // Shift all epochs forward by one (drop the oldest epoch)
-    let shifted: Vec<_> = window[slots_per_epoch..].to_vec();
-    window[..ptc_window_length.safe_sub(slots_per_epoch)?].clone_from_slice(&shifted);
+    // Convert Vector -> List to use tree-efficient pop_front.
+    let ptc_window = state.ptc_window()?.clone();
+    let mut window: List<_, E::PtcWindowLength> = List::from(ptc_window);
+
+    // Drop the oldest epoch from the front (reuses shared tree nodes).
+    window
+        .pop_front(slots_per_epoch)
+        .map_err(|e| Error::BeaconStateError(BeaconStateError::MilhouseError(e)))?;
 
     // Compute PTC for the new lookahead epoch
     let next_epoch = state
@@ -541,20 +544,20 @@ pub fn process_ptc_window<E: EthSpec>(
     // Build a committee cache for the lookahead epoch (beyond the normal Next bound)
     let committee_cache = state.initialize_committee_cache_for_lookahead(next_epoch, spec)?;
 
-    let last_epoch_start = ptc_window_length.safe_sub(slots_per_epoch)?;
     for i in 0..slots_per_epoch {
         let slot = start_slot.safe_add(i as u64)?;
         let ptc = state.compute_ptc_with_cache(slot, &committee_cache, spec)?;
         let ptc_u64: Vec<u64> = ptc.into_iter().map(|v| v as u64).collect();
         let entry = ssz_types::FixedVector::new(ptc_u64)
             .map_err(|e| Error::BeaconStateError(BeaconStateError::SszTypesError(e)))?;
-        let index = last_epoch_start.safe_add(i)?;
-        *window
-            .get_mut(index)
-            .ok_or(Error::PtcWindowOutOfBounds(index))? = entry;
+        window
+            .push(entry)
+            .map_err(|e| Error::BeaconStateError(BeaconStateError::MilhouseError(e)))?;
     }
 
-    *state.ptc_window_mut()? = Vector::new(window)?;
+    // Convert List back to Vector.
+    *state.ptc_window_mut()? = Vector::try_from(window)
+        .map_err(|e| Error::BeaconStateError(BeaconStateError::MilhouseError(e)))?;
 
     Ok(())
 }
