@@ -12,12 +12,13 @@ use milhouse::{Cow, List, Vector};
 use safe_arith::{SafeArith, SafeArithIter};
 use std::cmp::{max, min};
 use std::collections::{BTreeSet, HashMap};
+use std::sync::Arc;
 use tracing::instrument;
 use typenum::Unsigned;
 use types::{
     ActivationQueue, BeaconState, BeaconStateError, BuilderPendingPayment, ChainSpec, Checkpoint,
-    DepositData, Epoch, EthSpec, ExitCache, ForkName, ParticipationFlags, PendingDeposit,
-    ProgressiveBalancesCache, RelativeEpoch, Validator,
+    CommitteeCache, DepositData, Epoch, EthSpec, ExitCache, ForkName, ParticipationFlags,
+    PendingDeposit, ProgressiveBalancesCache, RelativeEpoch, Validator,
     consts::altair::{
         NUM_FLAG_INDICES, PARTICIPATION_FLAG_WEIGHTS, TIMELY_HEAD_FLAG_INDEX,
         TIMELY_TARGET_FLAG_INDEX, WEIGHT_DENOMINATOR,
@@ -142,12 +143,20 @@ impl ValidatorInfo {
     }
 }
 
+/// Result of single-pass epoch processing.
+pub struct SinglePassEpochResult<E: EthSpec> {
+    pub summary: ParticipationEpochSummary<E>,
+    /// Committee cache for the lookahead epoch, built during PTC window processing.
+    /// Can be installed as the Next committee cache after `advance_caches`.
+    pub lookahead_committee_cache: Option<Arc<CommitteeCache>>,
+}
+
 #[instrument(skip_all)]
 pub fn process_epoch_single_pass<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
     conf: SinglePassConfig,
-) -> Result<ParticipationEpochSummary<E>, Error> {
+) -> Result<SinglePassEpochResult<E>, Error> {
     initialize_epoch_cache(state, spec)?;
     initialize_progressive_balances_cache(state, spec)?;
     state.build_exit_cache(spec)?;
@@ -482,11 +491,16 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         process_proposer_lookahead(state, spec)?;
     }
 
-    if conf.ptc_window && fork_name.gloas_enabled() {
-        process_ptc_window(state, spec)?;
-    }
+    let lookahead_committee_cache = if conf.ptc_window && fork_name.gloas_enabled() {
+        Some(process_ptc_window(state, spec)?)
+    } else {
+        None
+    };
 
-    Ok(summary)
+    Ok(SinglePassEpochResult {
+        summary,
+        lookahead_committee_cache,
+    })
 }
 
 // TOOO(EIP-7917): use balances cache
@@ -519,10 +533,14 @@ pub fn process_proposer_lookahead<E: EthSpec>(
     Ok(())
 }
 
+/// Process the PTC window, returning the committee cache built for the lookahead epoch.
+///
+/// The returned cache can be injected into the state's Next committee cache slot after
+/// `advance_caches` is called during the epoch transition, avoiding redundant recomputation.
 pub fn process_ptc_window<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
-) -> Result<(), Error> {
+) -> Result<Arc<CommitteeCache>, Error> {
     let slots_per_epoch = E::slots_per_epoch() as usize;
 
     // Convert Vector -> List to use tree-efficient pop_front.
@@ -559,7 +577,7 @@ pub fn process_ptc_window<E: EthSpec>(
     *state.ptc_window_mut()? = Vector::try_from(window)
         .map_err(|e| Error::BeaconStateError(BeaconStateError::MilhouseError(e)))?;
 
-    Ok(())
+    Ok(committee_cache)
 }
 
 /// Calculate the quorum threshold for builder payments based on total active balance.

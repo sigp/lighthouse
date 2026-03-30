@@ -2518,6 +2518,17 @@ impl<E: EthSpec> BeaconState<E> {
             .ok_or(BeaconStateError::CommitteeCachesOutOfBounds(index))
     }
 
+    /// Set the committee cache for the given `relative_epoch` to `cache`.
+    pub fn set_committee_cache(
+        &mut self,
+        relative_epoch: RelativeEpoch,
+        cache: Arc<CommitteeCache>,
+    ) -> Result<(), BeaconStateError> {
+        let i = Self::committee_cache_index(relative_epoch);
+        *self.committee_cache_at_index_mut(i)? = cache;
+        Ok(())
+    }
+
     /// Returns the cache for some `RelativeEpoch`. Returns an error if the cache has not been
     /// initialized.
     pub fn committee_cache(

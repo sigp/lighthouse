@@ -302,7 +302,7 @@ impl<E: EthSpec> EpochTransition<E> for ProposerLookahead {
 impl<E: EthSpec> EpochTransition<E> for PtcWindow {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
         if state.fork_name_unchecked().gloas_enabled() {
-            process_ptc_window(state, spec)
+            process_ptc_window(state, spec).map(|_| ())
         } else {
             Ok(())
         }
