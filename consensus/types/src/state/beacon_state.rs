@@ -3112,44 +3112,38 @@ impl<E: EthSpec> BeaconState<E> {
         }
     }
 
-    /// Get the payload timeliness committee for the given `slot`.
-    ///
-    /// Post-Gloas, reads from the cached `ptc_window`. Pre-Gloas, computes on the fly.
+    /// Get the payload timeliness committee for the given `slot` from the `ptc_window`.
     pub fn get_ptc(&self, slot: Slot, spec: &ChainSpec) -> Result<PTC<E>, BeaconStateError> {
-        if let Ok(ptc_window) = self.ptc_window() {
-            let epoch = slot.epoch(E::slots_per_epoch());
-            let state_epoch = self.current_epoch();
-            let slots_per_epoch = E::slots_per_epoch() as usize;
-            let slot_in_epoch = slot.as_usize().safe_rem(slots_per_epoch)?;
+        let ptc_window = self.ptc_window()?;
+        let epoch = slot.epoch(E::slots_per_epoch());
+        let state_epoch = self.current_epoch();
+        let slots_per_epoch = E::slots_per_epoch() as usize;
+        let slot_in_epoch = slot.as_usize().safe_rem(slots_per_epoch)?;
 
-            let index = if epoch < state_epoch {
-                // Previous epoch
-                if epoch.safe_add(1)? != state_epoch {
-                    return Err(BeaconStateError::SlotOutOfBounds);
-                }
-                slot_in_epoch
-            } else {
-                // Current epoch or lookahead
-                let epoch_offset = epoch.as_u64().saturating_sub(state_epoch.as_u64()) as usize;
-                if epoch_offset > spec.min_seed_lookahead.as_usize() {
-                    return Err(BeaconStateError::SlotOutOfBounds);
-                }
-                epoch_offset
-                    .safe_add(1)?
-                    .safe_mul(slots_per_epoch)?
-                    .safe_add(slot_in_epoch)?
-            };
-
-            let entry = ptc_window
-                .get(index)
-                .ok_or(BeaconStateError::SlotOutOfBounds)?;
-
-            // Convert from FixedVector<u64, PTCSize> to PTC<E> (FixedVector<usize, PTCSize>)
-            let indices: Vec<usize> = entry.iter().map(|&v| v as usize).collect();
-            Ok(PTC(FixedVector::new(indices)?))
+        let index = if epoch < state_epoch {
+            if epoch.safe_add(1)? != state_epoch {
+                return Err(BeaconStateError::SlotOutOfBounds);
+            }
+            slot_in_epoch
         } else {
-            self.compute_ptc(slot, spec)
-        }
+            if epoch > state_epoch.safe_add(spec.min_seed_lookahead)? {
+                return Err(BeaconStateError::SlotOutOfBounds);
+            }
+            let offset = epoch
+                .safe_sub(state_epoch)?
+                .safe_add(1)?
+                .as_usize()
+                .safe_mul(slots_per_epoch)?;
+            offset.safe_add(slot_in_epoch)?
+        };
+
+        let entry = ptc_window
+            .get(index)
+            .ok_or(BeaconStateError::SlotOutOfBounds)?;
+
+        // Convert from FixedVector<u64, PTCSize> to PTC<E> (FixedVector<usize, PTCSize>)
+        let indices: Vec<usize> = entry.iter().map(|&v| v as usize).collect();
+        Ok(PTC(FixedVector::new(indices)?))
     }
 
     /// Compute the payload timeliness committee for the given `slot` from scratch.
