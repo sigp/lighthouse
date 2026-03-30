@@ -3,7 +3,7 @@ use std::sync::Arc;
 use educe::Educe;
 use parking_lot::{Mutex, RwLock};
 use store::DatabaseBlock;
-use tracing::{Span, debug};
+use tracing::debug;
 use types::{
     ChainSpec, EthSpec, ExecutionPayloadBid, ExecutionPayloadEnvelope, Hash256, SignedBeaconBlock,
     SignedExecutionPayloadEnvelope, Slot, consts::gloas::BUILDER_INDEX_SELF_BUILD,
@@ -253,12 +253,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
     ) -> Result<GossipVerifiedEnvelope<T>, EnvelopeError> {
         let chain = self.clone();
-        let span = Span::current();
         self.task_executor
             .clone()
             .spawn_blocking_handle(
                 move || {
-                    let _guard = span.enter();
                     let slot = envelope.slot();
                     let beacon_block_root = envelope.message.beacon_block_root;
 
