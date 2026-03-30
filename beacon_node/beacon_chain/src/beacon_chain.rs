@@ -2819,7 +2819,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 //
                 // Note that `check_block_relevancy` is incapable of returning
                 // `DuplicateImportStatusUnknown` so we don't need to handle that case here.
-                Err(BlockError::DuplicateFullyImported(_)) => continue,
+                //
+                // Gloas: keep duplicate blocks so their envelopes can still be processed
+                // in `process_chain_segment`. This handles the case where a node restarts
+                // before an envelope was persisted to the DB.
+                Err(BlockError::DuplicateFullyImported(_)) => {
+                    if block.as_block().fork_name_unchecked().gloas_enabled() {
+                        filtered_chain_segment.push((block_root, block));
+                    }
+                }
                 // If the block is the genesis block, simply ignore this block.
                 Err(BlockError::GenesisBlock) => continue,
                 // If the block is is for a finalized slot, simply ignore this block.
@@ -3005,8 +3013,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     Err(BlockError::DuplicateFullyImported(block_root)) => {
                         debug!(
                             ?block_root,
-                            "Ignoring already known blocks while processing chain segment"
+                            "Ignoring already known block while processing chain segment"
                         );
+                        // Gloas: still process the envelope for duplicate blocks. The envelope
+                        // may not have been persisted before a restart.
+                        if let Some(envelope) = maybe_envelope
+                            && let Err(error) = self
+                                .process_range_sync_envelope(
+                                    block_root,
+                                    envelope,
+                                    notify_execution_layer,
+                                )
+                                .await
+                        {
+                            return ChainSegmentResult::Failed {
+                                imported_blocks,
+                                error: BlockError::EnvelopeError(Box::new(error)),
+                            };
+                        }
                         continue;
                     }
                     Err(error) => {
