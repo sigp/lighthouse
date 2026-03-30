@@ -1616,7 +1616,7 @@ impl ChainSpec {
              * Fulu hard fork params
              */
             fulu_fork_version: [0x06, 0x00, 0x00, 0x64],
-            fulu_fork_epoch: None,
+            fulu_fork_epoch: Some(Epoch::new(1714688)),
             custody_requirement: 4,
             number_of_custody_groups: 128,
             data_column_sidecar_subnet_count: 128,
@@ -1686,8 +1686,7 @@ impl ChainSpec {
              * Networking Fulu specific
              */
             blob_schedule: BlobSchedule::default(),
-            min_epochs_for_data_column_sidecars_requests:
-                default_min_epochs_for_data_column_sidecars_requests(),
+            min_epochs_for_data_column_sidecars_requests: 16384,
             max_data_columns_by_root_request: default_data_columns_by_root_request(),
             max_payload_envelopes_by_root_request: default_max_payload_envelopes_by_root_request(),
 
@@ -2532,7 +2531,7 @@ impl Config {
     pub fn from_file(filename: &Path) -> Result<Self, String> {
         let f = File::open(filename)
             .map_err(|e| format!("Error opening spec at {}: {:?}", filename.display(), e))?;
-        serde_yaml::from_reader(f)
+        yaml_serde::from_reader(f)
             .map_err(|e| format!("Error parsing spec at {}: {:?}", filename.display(), e))
     }
 
@@ -2870,7 +2869,7 @@ mod yaml_tests {
 
         let yamlconfig = Config::from_chain_spec::<MinimalEthSpec>(&minimal_spec);
         // write fresh minimal config to file
-        serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
+        yaml_serde::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
         let reader = File::options()
             .read(true)
@@ -2878,7 +2877,7 @@ mod yaml_tests {
             .open(tmp_file.as_ref())
             .expect("error while opening the file");
         // deserialize minimal config from file
-        let from: Config = serde_yaml::from_reader(reader).expect("error while deserializing");
+        let from: Config = yaml_serde::from_reader(reader).expect("error while deserializing");
         assert_eq!(from, yamlconfig);
     }
 
@@ -2892,14 +2891,14 @@ mod yaml_tests {
             .expect("error opening file");
         let mainnet_spec = ChainSpec::mainnet();
         let yamlconfig = Config::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
-        serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
+        yaml_serde::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
         let reader = File::options()
             .read(true)
             .write(false)
             .open(tmp_file.as_ref())
             .expect("error while opening the file");
-        let from: Config = serde_yaml::from_reader(reader).expect("error while deserializing");
+        let from: Config = yaml_serde::from_reader(reader).expect("error while deserializing");
         assert_eq!(from, yamlconfig);
     }
 
@@ -2961,7 +2960,7 @@ mod yaml_tests {
             MAX_BLOBS_PER_BLOCK: 20
         "#;
         let config: Config =
-            serde_yaml::from_str(spec_contents).expect("error while deserializing");
+            yaml_serde::from_str(spec_contents).expect("error while deserializing");
         let spec =
             ChainSpec::from_config::<MainnetEthSpec>(&config).expect("error while creating spec");
 
@@ -3043,11 +3042,11 @@ mod yaml_tests {
         assert_eq!(spec.max_blobs_per_block_within_fork(ForkName::Fulu), 20);
 
         // Check that serialization is in ascending order
-        let yaml = serde_yaml::to_string(&spec.blob_schedule).expect("should serialize");
+        let yaml = yaml_serde::to_string(&spec.blob_schedule).expect("should serialize");
 
         // Deserialize back to Vec<BlobParameters> to check order
         let deserialized: Vec<BlobParameters> =
-            serde_yaml::from_str(&yaml).expect("should deserialize");
+            yaml_serde::from_str(&yaml).expect("should deserialize");
 
         // Should be in ascending order by epoch
         assert!(
@@ -3114,7 +3113,7 @@ mod yaml_tests {
             MAX_BLOBS_PER_BLOCK: 300
         "#;
         let config: Config =
-            serde_yaml::from_str(spec_contents).expect("error while deserializing");
+            yaml_serde::from_str(spec_contents).expect("error while deserializing");
         let spec =
             ChainSpec::from_config::<MainnetEthSpec>(&config).expect("error while creating spec");
 
@@ -3204,7 +3203,7 @@ mod yaml_tests {
         SAMPLES_PER_SLOT: 8
         "#;
 
-        let chain_spec: Config = serde_yaml::from_str(spec).unwrap();
+        let chain_spec: Config = yaml_serde::from_str(spec).unwrap();
 
         // Asserts that `chain_spec.$name` and `default_$name()` are equal.
         macro_rules! check_default {
