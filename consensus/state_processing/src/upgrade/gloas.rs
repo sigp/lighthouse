@@ -2,6 +2,7 @@ use crate::per_block_processing::{
     is_valid_deposit_signature, process_operations::apply_deposit_for_builder,
 };
 use milhouse::{List, Vector};
+use safe_arith::SafeArith;
 use ssz_types::BitVector;
 use std::collections::HashSet;
 use std::mem;
@@ -109,6 +110,14 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         builder_pending_withdrawals: List::default(), // Empty list initially,
         latest_block_hash: pre.latest_execution_payload_header.block_hash,
         payload_expected_withdrawals: List::default(),
+        ptc_window: Vector::new(vec![
+            ssz_types::FixedVector::new(vec![
+                0u64;
+                E::PTCSize::to_usize()
+            ])
+            .map_err(Error::SszTypesError)?;
+            E::PtcWindowLength::to_usize()
+        ])?, // placeholder, will be initialized below
         // Caches
         total_active_balance: pre.total_active_balance,
         progressive_balances_cache: mem::take(&mut pre.progressive_balances_cache),
@@ -120,8 +129,47 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
     });
     // [New in Gloas:EIP7732]
     onboard_builders_from_pending_deposits(&mut post, spec)?;
+    initialize_ptc_window(&mut post, spec)?;
 
     Ok(post)
+}
+
+/// Initialize the `ptc_window` field in the beacon state at fork transition.
+///
+/// The window contains:
+/// - One epoch of empty entries (previous epoch)
+/// - Computed PTC for the current epoch through `1 + MIN_SEED_LOOKAHEAD` epochs
+fn initialize_ptc_window<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    let slots_per_epoch = E::slots_per_epoch() as usize;
+    let ptc_size = E::ptc_size();
+
+    // Empty previous epoch
+    let empty_entry =
+        ssz_types::FixedVector::new(vec![0u64; ptc_size]).map_err(Error::SszTypesError)?;
+    let mut window: Vec<ssz_types::FixedVector<u64, E::PTCSize>> =
+        vec![empty_entry; slots_per_epoch];
+
+    // Compute PTC for current epoch + lookahead epochs
+    let current_epoch = state.current_epoch();
+    for e in 0..=(spec.min_seed_lookahead.as_u64()) {
+        let epoch = current_epoch.safe_add(e)?;
+        let committee_cache = state.initialize_committee_cache_for_lookahead(epoch, spec)?;
+        let start_slot = epoch.start_slot(E::slots_per_epoch());
+        for i in 0..slots_per_epoch {
+            let slot = start_slot.safe_add(i as u64)?;
+            let ptc = state.compute_ptc_with_cache(slot, &committee_cache, spec)?;
+            let ptc_u64: Vec<u64> = ptc.into_iter().map(|v| v as u64).collect();
+            let entry = ssz_types::FixedVector::new(ptc_u64).map_err(Error::SszTypesError)?;
+            window.push(entry);
+        }
+    }
+
+    *state.ptc_window_mut()? = Vector::new(window)?;
+
+    Ok(())
 }
 
 /// Applies any pending deposit for builders, effectively onboarding builders at the fork.

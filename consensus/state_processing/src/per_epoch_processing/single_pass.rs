@@ -479,6 +479,10 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         process_proposer_lookahead(state, spec)?;
     }
 
+    if conf.proposer_lookahead && fork_name.gloas_enabled() {
+        process_ptc_window(state, spec)?;
+    }
+
     Ok(summary)
 }
 
@@ -508,6 +512,46 @@ pub fn process_proposer_lookahead<E: EthSpec>(
     }
 
     *state.proposer_lookahead_mut()? = Vector::new(lookahead)?;
+
+    Ok(())
+}
+
+pub fn process_ptc_window<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    let slots_per_epoch = E::slots_per_epoch() as usize;
+    let ptc_window_length = E::ptc_window_length();
+    let mut window = state.ptc_window()?.clone().to_vec();
+
+    // Shift all epochs forward by one (drop the oldest epoch)
+    let shifted: Vec<_> = window[slots_per_epoch..].to_vec();
+    window[..ptc_window_length.safe_sub(slots_per_epoch)?].clone_from_slice(&shifted);
+
+    // Compute PTC for the new lookahead epoch
+    let next_epoch = state
+        .current_epoch()
+        .safe_add(spec.min_seed_lookahead.as_u64())?
+        .safe_add(1)?;
+    let start_slot = next_epoch.start_slot(E::slots_per_epoch());
+
+    // Build a committee cache for the lookahead epoch (beyond the normal Next bound)
+    let committee_cache = state.initialize_committee_cache_for_lookahead(next_epoch, spec)?;
+
+    let last_epoch_start = ptc_window_length.safe_sub(slots_per_epoch)?;
+    for i in 0..slots_per_epoch {
+        let slot = start_slot.safe_add(i as u64)?;
+        let ptc = state.compute_ptc_with_cache(slot, &committee_cache, spec)?;
+        let ptc_u64: Vec<u64> = ptc.into_iter().map(|v| v as u64).collect();
+        let entry = ssz_types::FixedVector::new(ptc_u64)
+            .map_err(|e| Error::BeaconStateError(BeaconStateError::SszTypesError(e)))?;
+        let index = last_epoch_start.safe_add(i)?;
+        *window
+            .get_mut(index)
+            .ok_or(Error::PtcWindowOutOfBounds(index))? = entry;
+    }
+
+    *state.ptc_window_mut()? = Vector::new(window)?;
 
     Ok(())
 }
