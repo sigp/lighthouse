@@ -3596,8 +3596,6 @@ mod yaml_tests {
         "HEZE_FORK_EPOCH",
         "EIP7928_FORK_VERSION",
         "EIP7928_FORK_EPOCH",
-        "EIP8025_FORK_VERSION",
-        "EIP8025_FORK_EPOCH",
         // Gloas params not yet in Config
         "ATTESTATION_DUE_BPS_GLOAS",
         "AGGREGATE_DUE_BPS_GLOAS",
