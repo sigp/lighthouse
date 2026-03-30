@@ -127,21 +127,19 @@ async fn extract_all_endpoints() -> (HashMap<String, ObjectSchema>, HashMap<Stri
 
             // path_item.get is of type: Option<Operation>
             // This will collect all GET endpoints in a HashMap
-            if let Some(get_operation) = &path_item.get {
-                if let Some(get_object_schema) =
+            if let Some(get_operation) = &path_item.get
+                && let Some(get_object_schema) =
                     object_schema_from_operation(get_operation, endpoint)
-                {
-                    object_schema_by_get_endpoint.insert(endpoint.to_string(), get_object_schema);
-                }
+            {
+                object_schema_by_get_endpoint.insert(endpoint.to_string(), get_object_schema);
             };
 
             // Do the same for POST endpoints
-            if let Some(post_operation) = &path_item.post {
-                if let Some(post_object_schema) =
+            if let Some(post_operation) = &path_item.post
+                && let Some(post_object_schema) =
                     object_schema_from_operation(post_operation, endpoint)
-                {
-                    object_schema_by_post_endpoint.insert(endpoint.to_string(), post_object_schema);
-                }
+            {
+                object_schema_by_post_endpoint.insert(endpoint.to_string(), post_object_schema);
             };
         }
     }
