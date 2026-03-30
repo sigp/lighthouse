@@ -4,6 +4,7 @@ use crate::per_block_processing::{
 use milhouse::{List, Vector};
 use safe_arith::SafeArith;
 use ssz_types::BitVector;
+use ssz_types::FixedVector;
 use std::collections::HashSet;
 use std::mem;
 use typenum::Unsigned;
@@ -103,21 +104,11 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
             vec![0xFFu8; E::SlotsPerHistoricalRoot::to_usize() / 8].into(),
         )
         .map_err(|_| Error::InvalidBitfield)?,
-        builder_pending_payments: Vector::new(vec![
-            BuilderPendingPayment::default();
-            E::builder_pending_payments_limit()
-        ])?,
+        builder_pending_payments: Vector::from_elem(BuilderPendingPayment::default())?,
         builder_pending_withdrawals: List::default(), // Empty list initially,
         latest_block_hash: pre.latest_execution_payload_header.block_hash,
         payload_expected_withdrawals: List::default(),
-        ptc_window: Vector::new(vec![
-            ssz_types::FixedVector::new(vec![
-                0u64;
-                E::PTCSize::to_usize()
-            ])
-            .map_err(Error::SszTypesError)?;
-            E::PtcWindowLength::to_usize()
-        ])?, // placeholder, will be initialized below
+        ptc_window: Vector::from_elem(FixedVector::from_elem(0))?, // placeholder, will be initialized below
         // Caches
         total_active_balance: pre.total_active_balance,
         progressive_balances_cache: mem::take(&mut pre.progressive_balances_cache),
