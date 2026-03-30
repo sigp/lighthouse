@@ -913,6 +913,7 @@ impl ChainSpec {
     /// Set the duration of a slot (in ms).
     pub fn set_slot_duration_ms<E: EthSpec>(mut self, slot_duration_ms: u64) -> Self {
         self.slot_duration_ms = slot_duration_ms;
+        self.seconds_per_slot = slot_duration_ms.saturating_div(1000);
         self.compute_derived_values::<E>()
     }
 
