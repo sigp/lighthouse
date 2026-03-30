@@ -3,19 +3,20 @@ use crate::task_spawner::{Priority, TaskSpawner};
 use crate::utils::ResponseFilter;
 use crate::validator::pubkey_to_validator_index;
 use crate::version::{
-    ResponseIncludesVersion, add_consensus_version_header,
+    ResponseIncludesVersion, add_consensus_version_header, add_ssz_content_type_header,
     execution_optimistic_finalized_beacon_response,
 };
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2::types::{
-    ValidatorBalancesRequestBody, ValidatorId, ValidatorIdentitiesRequestBody,
-    ValidatorsRequestBody,
+    self as api_types, ValidatorBalancesRequestBody, ValidatorId, ValidatorIdentitiesRequestBody,
+    ValidatorIndexData, ValidatorsRequestBody,
 };
+use ssz::Encode;
 use std::sync::Arc;
-use types::{
-    AttestationShufflingId, CommitteeCache, Error as BeaconStateError, EthSpec, RelativeEpoch,
-};
+use types::{AttestationShufflingId, BeaconStateError, CommitteeCache, EthSpec, RelativeEpoch};
 use warp::filters::BoxedFilter;
+use warp::http::Response;
+use warp::hyper::Body;
 use warp::{Filter, Reply};
 use warp_utils::query::multi_key_query;
 
@@ -30,7 +31,6 @@ pub fn get_beacon_state_pending_consolidations<T: BeaconChainTypes>(
     beacon_states_path: BeaconStatesPath<T>,
 ) -> ResponseFilter {
     beacon_states_path
-        .clone()
         .and(warp::path("pending_consolidations"))
         .and(warp::path::end())
         .then(
@@ -156,6 +156,67 @@ pub fn get_beacon_state_pending_deposits<T: BeaconChainTypes>(
                         data,
                     )
                     .map(|res| warp::reply::json(&res).into_response())
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
+                })
+            },
+        )
+        .boxed()
+}
+
+// GET beacon/states/{state_id}/proposer_lookahead
+pub fn get_beacon_state_proposer_lookahead<T: BeaconChainTypes>(
+    beacon_states_path: BeaconStatesPath<T>,
+) -> ResponseFilter {
+    beacon_states_path
+        .clone()
+        .and(warp::path("proposer_lookahead"))
+        .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             accept_header: Option<api_types::Accept>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let (data, execution_optimistic, finalized, fork_name) = state_id
+                        .map_state_and_execution_optimistic_and_finalized(
+                            &chain,
+                            |state, execution_optimistic, finalized| {
+                                let Ok(lookahead) = state.proposer_lookahead() else {
+                                    return Err(warp_utils::reject::custom_bad_request(
+                                        "Proposer lookahead is not available for pre-Fulu states"
+                                            .to_string(),
+                                    ));
+                                };
+
+                                Ok((
+                                    lookahead.to_vec(),
+                                    execution_optimistic,
+                                    finalized,
+                                    state.fork_name_unchecked(),
+                                ))
+                            },
+                        )?;
+
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .body(data.as_ssz_bytes().into())
+                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => execution_optimistic_finalized_beacon_response(
+                            ResponseIncludesVersion::Yes(fork_name),
+                            execution_optimistic,
+                            finalized,
+                            ValidatorIndexData(data),
+                        )
+                        .map(|res| warp::reply::json(&res).into_response()),
+                    }
                     .map(|resp| add_consensus_version_header(resp, fork_name))
                 })
             },

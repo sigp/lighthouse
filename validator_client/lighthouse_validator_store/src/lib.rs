@@ -2,6 +2,7 @@ use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition}
 use bls::{PublicKeyBytes, Signature};
 use doppelganger_service::DoppelgangerService;
 use eth2::types::PublishBlockRequest;
+use futures::{Stream, future::join_all, stream};
 use initialized_validators::InitializedValidators;
 use logging::crit;
 use parking_lot::{Mutex, RwLock};
@@ -9,25 +10,26 @@ use serde::{Deserialize, Serialize};
 use signing_method::Error as SigningError;
 use signing_method::{SignableMessage, SigningContext, SigningMethod};
 use slashing_protection::{
-    InterchangeError, NotSafe, Safe, SlashingDatabase, interchange::Interchange,
+    CheckSlashability, InterchangeError, NotSafe, Safe, SlashingDatabase, interchange::Interchange,
 };
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use tracing::{error, info, instrument, warn};
+use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
 use types::{
     AbstractExecPayload, Address, AggregateAndProof, Attestation, BeaconBlock, BlindedPayload,
-    ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, Fork, Graffiti, Hash256,
-    SelectionProof, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof,
-    SignedRoot, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
-    SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
-    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData, VoluntaryExit,
-    graffiti::GraffitiString,
+    ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, ExecutionPayloadEnvelope, Fork,
+    FullPayload, Graffiti, Hash256, SelectionProof, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedRoot,
+    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncAggregatorSelectionData,
+    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
+    ValidatorRegistrationData, VoluntaryExit, graffiti::GraffitiString,
 };
 use validator_store::{
-    DoppelgangerStatus, Error as ValidatorStoreError, ProposalData, SignedBlock, UnsignedBlock,
+    AggregateToSign, AttestationToSign, ContributionToSign, DoppelgangerStatus,
+    Error as ValidatorStoreError, ProposalData, SignedBlock, SyncMessageToSign, UnsignedBlock,
     ValidatorStore,
 };
 
@@ -52,7 +54,7 @@ pub struct Config {
 /// Number of epochs of slashing protection history to keep.
 ///
 /// This acts as a maximum safe-guard against clock drift.
-const SLASHING_PROTECTION_HISTORY_EPOCHS: u64 = 512;
+const SLASHING_PROTECTION_HISTORY_EPOCHS: u64 = 1;
 
 /// Currently used as the default gas limit in execution clients.
 ///
@@ -556,6 +558,253 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
             signature,
         })
     }
+
+    /// Sign an attestation without performing any slashing protection checks.
+    ///
+    /// THIS METHOD IS DANGEROUS AND SHOULD ONLY BE USED INTERNALLY IMMEDIATELY PRIOR TO A
+    /// SLASHING PROTECTION CHECK. See `slashing_protect_attestations`.
+    ///
+    /// This method DOES perform doppelganger protection checks.
+    #[instrument(level = "debug", skip_all)]
+    async fn sign_attestation_no_slashing_protection(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        validator_committee_position: usize,
+        attestation: &mut Attestation<E>,
+    ) -> Result<(), Error> {
+        // Get the signing method and check doppelganger protection.
+        let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+
+        // Sign the attestation.
+        let signing_epoch = attestation.data().target.epoch;
+        let signing_context = self.signing_context(Domain::BeaconAttester, signing_epoch);
+
+        let signature = signing_method
+            .get_signature::<E, BlindedPayload<E>>(
+                SignableMessage::AttestationData(attestation.data()),
+                signing_context,
+                &self.spec,
+                &self.task_executor,
+            )
+            .await?;
+        attestation
+            .add_signature(&signature, validator_committee_position)
+            .map_err(Error::UnableToSignAttestation)?;
+
+        Ok(())
+    }
+
+    /// Provide slashing protection for `attestations`, safely updating the slashing protection DB.
+    ///
+    /// Return a vec of safe attestations which have passed slashing protection. Unsafe attestations
+    /// will be dropped and result in warning logs.
+    ///
+    /// This method SKIPS slashing protection for web3signer validators that have slashing
+    /// protection disabled at the Lighthouse layer. It is up to the user to ensure slashing
+    /// protection is enabled in web3signer instead.
+    #[instrument(level = "debug", skip_all)]
+    fn slashing_protect_attestations(
+        &self,
+        attestations: Vec<(u64, Attestation<E>, PublicKeyBytes)>,
+    ) -> Result<Vec<(u64, Attestation<E>)>, Error> {
+        let mut safe_attestations = Vec::with_capacity(attestations.len());
+        let mut attestations_to_check = Vec::with_capacity(attestations.len());
+
+        // Split attestations into de-facto safe attestations (checked by web3signer's slashing
+        // protection) and ones requiring checking against the slashing protection DB.
+        //
+        // All attestations are added to `attestation_to_check`, with skipped attestations having
+        // `CheckSlashability::No`.
+        for (_, attestation, validator_pubkey) in &attestations {
+            let signing_method = self.doppelganger_checked_signing_method(*validator_pubkey)?;
+            let signing_epoch = attestation.data().target.epoch;
+            let signing_context = self.signing_context(Domain::BeaconAttester, signing_epoch);
+            let domain_hash = signing_context.domain_hash(&self.spec);
+
+            let check_slashability = if signing_method
+                .requires_local_slashing_protection(self.enable_web3signer_slashing_protection)
+            {
+                CheckSlashability::Yes
+            } else {
+                CheckSlashability::No
+            };
+            attestations_to_check.push((
+                attestation.data(),
+                validator_pubkey,
+                domain_hash,
+                check_slashability,
+            ));
+        }
+
+        // Batch check the attestations against the slashing protection DB while preserving the
+        // order so we can zip the results against the original vec.
+        //
+        // If the DB transaction fails then we consider the entire batch slashable and discard it.
+        let results = self
+            .slashing_protection
+            .check_and_insert_attestations(&attestations_to_check)
+            .map_err(Error::Slashable)?;
+
+        for ((validator_index, attestation, validator_pubkey), slashing_status) in
+            attestations.into_iter().zip(results.into_iter())
+        {
+            match slashing_status {
+                Ok(Safe::Valid) => {
+                    safe_attestations.push((validator_index, attestation));
+                    validator_metrics::inc_counter_vec(
+                        &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
+                        &[validator_metrics::SUCCESS],
+                    );
+                }
+                Ok(Safe::SameData) => {
+                    warn!("Skipping previously signed attestation");
+                    validator_metrics::inc_counter_vec(
+                        &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
+                        &[validator_metrics::SAME_DATA],
+                    );
+                }
+                Err(NotSafe::UnregisteredValidator(pk)) => {
+                    warn!(
+                        msg = "Carefully consider running with --init-slashing-protection (see --help)",
+                        public_key = ?pk,
+                        "Not signing attestation for unregistered validator"
+                    );
+                    validator_metrics::inc_counter_vec(
+                        &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
+                        &[validator_metrics::UNREGISTERED],
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        slot = %attestation.data().slot,
+                        block_root = ?attestation.data().beacon_block_root,
+                        public_key = ?validator_pubkey,
+                        error = ?e,
+                        "Skipping signing of slashable attestation"
+                    );
+                    validator_metrics::inc_counter_vec(
+                        &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
+                        &[validator_metrics::SLASHABLE],
+                    );
+                }
+            }
+        }
+
+        Ok(safe_attestations)
+    }
+
+    /// Signs an `AggregateAndProof` for a given validator.
+    ///
+    /// The resulting `SignedAggregateAndProof` is sent on the aggregation channel and cannot be
+    /// modified by actors other than the signing validator.
+    pub async fn produce_signed_aggregate_and_proof(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        aggregator_index: u64,
+        aggregate: Attestation<E>,
+        selection_proof: SelectionProof,
+    ) -> Result<SignedAggregateAndProof<E>, Error> {
+        let signing_epoch = aggregate.data().target.epoch;
+        let signing_context = self.signing_context(Domain::AggregateAndProof, signing_epoch);
+
+        let message =
+            AggregateAndProof::from_attestation(aggregator_index, aggregate, selection_proof);
+
+        let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+        let signature = signing_method
+            .get_signature::<E, BlindedPayload<E>>(
+                SignableMessage::SignedAggregateAndProof(message.to_ref()),
+                signing_context,
+                &self.spec,
+                &self.task_executor,
+            )
+            .await?;
+
+        validator_metrics::inc_counter_vec(
+            &validator_metrics::SIGNED_AGGREGATES_TOTAL,
+            &[validator_metrics::SUCCESS],
+        );
+
+        Ok(SignedAggregateAndProof::from_aggregate_and_proof(
+            message, signature,
+        ))
+    }
+
+    pub async fn produce_sync_committee_signature(
+        &self,
+        slot: Slot,
+        beacon_block_root: Hash256,
+        validator_index: u64,
+        validator_pubkey: &PublicKeyBytes,
+    ) -> Result<SyncCommitteeMessage, Error> {
+        let signing_epoch = slot.epoch(E::slots_per_epoch());
+        let signing_context = self.signing_context(Domain::SyncCommittee, signing_epoch);
+
+        // Bypass `with_validator_signing_method`: sync committee messages are not slashable.
+        let signing_method = self.doppelganger_bypassed_signing_method(*validator_pubkey)?;
+
+        let signature = signing_method
+            .get_signature::<E, BlindedPayload<E>>(
+                SignableMessage::SyncCommitteeSignature {
+                    beacon_block_root,
+                    slot,
+                },
+                signing_context,
+                &self.spec,
+                &self.task_executor,
+            )
+            .await
+            .map_err(Error::SpecificError)?;
+
+        validator_metrics::inc_counter_vec(
+            &validator_metrics::SIGNED_SYNC_COMMITTEE_MESSAGES_TOTAL,
+            &[validator_metrics::SUCCESS],
+        );
+
+        Ok(SyncCommitteeMessage {
+            slot,
+            beacon_block_root,
+            validator_index,
+            signature,
+        })
+    }
+
+    pub async fn produce_signed_contribution_and_proof(
+        &self,
+        aggregator_index: u64,
+        aggregator_pubkey: PublicKeyBytes,
+        contribution: SyncCommitteeContribution<E>,
+        selection_proof: SyncSelectionProof,
+    ) -> Result<SignedContributionAndProof<E>, Error> {
+        let signing_epoch = contribution.slot.epoch(E::slots_per_epoch());
+        let signing_context = self.signing_context(Domain::ContributionAndProof, signing_epoch);
+
+        // Bypass `with_validator_signing_method`: sync committee messages are not slashable.
+        let signing_method = self.doppelganger_bypassed_signing_method(aggregator_pubkey)?;
+
+        let message = ContributionAndProof {
+            aggregator_index,
+            contribution,
+            selection_proof: selection_proof.into(),
+        };
+
+        let signature = signing_method
+            .get_signature::<E, BlindedPayload<E>>(
+                SignableMessage::SignedContributionAndProof(&message),
+                signing_context,
+                &self.spec,
+                &self.task_executor,
+            )
+            .await
+            .map_err(Error::SpecificError)?;
+
+        validator_metrics::inc_counter_vec(
+            &validator_metrics::SIGNED_SYNC_COMMITTEE_CONTRIBUTIONS_TOTAL,
+            &[validator_metrics::SUCCESS],
+        );
+
+        Ok(SignedContributionAndProof { message, signature })
+    }
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorStore<T, E> {
@@ -747,103 +996,90 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         }
     }
 
-    #[instrument(skip_all)]
-    async fn sign_attestation(
-        &self,
-        validator_pubkey: PublicKeyBytes,
-        validator_committee_position: usize,
-        attestation: &mut Attestation<E>,
-        current_epoch: Epoch,
-    ) -> Result<(), Error> {
-        // Make sure the target epoch is not higher than the current epoch to avoid potential attacks.
-        if attestation.data().target.epoch > current_epoch {
-            return Err(Error::GreaterThanCurrentEpoch {
-                epoch: attestation.data().target.epoch,
-                current_epoch,
-            });
-        }
+    fn sign_attestations(
+        self: &Arc<Self>,
+        mut attestations: Vec<AttestationToSign<E>>,
+    ) -> impl Stream<Item = Result<Vec<(u64, Attestation<E>)>, Error>> + Send {
+        let store = self.clone();
+        stream::once(async move {
+            // Sign all attestations concurrently.
+            let signing_futures = attestations.iter_mut().map(
+                |AttestationToSign {
+                     pubkey,
+                     validator_committee_index,
+                     attestation,
+                     ..
+                 }| {
+                    let pubkey = *pubkey;
+                    let validator_committee_index = *validator_committee_index;
+                    let store = store.clone();
+                    async move {
+                        store
+                            .sign_attestation_no_slashing_protection(
+                                pubkey,
+                                validator_committee_index,
+                                attestation,
+                            )
+                            .await
+                    }
+                },
+            );
 
-        // Get the signing method and check doppelganger protection.
-        let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+            // Execute all signing in parallel.
+            let results: Vec<_> = join_all(signing_futures).await;
 
-        // Checking for slashing conditions.
-        let signing_epoch = attestation.data().target.epoch;
-        let signing_context = self.signing_context(Domain::BeaconAttester, signing_epoch);
-        let domain_hash = signing_context.domain_hash(&self.spec);
-        let slashing_status = if signing_method
-            .requires_local_slashing_protection(self.enable_web3signer_slashing_protection)
-        {
-            self.slashing_protection.check_and_insert_attestation(
-                &validator_pubkey,
-                attestation.data(),
-                domain_hash,
-            )
-        } else {
-            Ok(Safe::Valid)
-        };
-
-        match slashing_status {
-            // We can safely sign this attestation.
-            Ok(Safe::Valid) => {
-                let signature = signing_method
-                    .get_signature::<E, BlindedPayload<E>>(
-                        SignableMessage::AttestationData(attestation.data()),
-                        signing_context,
-                        &self.spec,
-                        &self.task_executor,
-                    )
-                    .await?;
-                attestation
-                    .add_signature(&signature, validator_committee_position)
-                    .map_err(Error::UnableToSignAttestation)?;
-
-                validator_metrics::inc_counter_vec(
-                    &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
-                    &[validator_metrics::SUCCESS],
-                );
-
-                Ok(())
+            // Collect successfully signed attestations and log errors.
+            let mut signed_attestations = Vec::with_capacity(attestations.len());
+            for (result, att) in results.into_iter().zip(attestations.into_iter()) {
+                match result {
+                    Ok(()) => {
+                        signed_attestations.push((
+                            att.validator_index,
+                            att.attestation,
+                            att.pubkey,
+                        ));
+                    }
+                    Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
+                        warn!(
+                            info = "a validator may have recently been removed from this VC",
+                            ?pubkey,
+                            "Missing pubkey for attestation"
+                        );
+                    }
+                    Err(e) => {
+                        crit!(
+                            error = ?e,
+                            "Failed to sign attestation"
+                        );
+                    }
+                }
             }
-            Ok(Safe::SameData) => {
-                warn!("Skipping signing of previously signed attestation");
-                validator_metrics::inc_counter_vec(
-                    &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
-                    &[validator_metrics::SAME_DATA],
-                );
-                Err(Error::SameData)
+
+            if signed_attestations.is_empty() {
+                return Ok(vec![]);
             }
-            Err(NotSafe::UnregisteredValidator(pk)) => {
-                warn!(
-                    msg = "Carefully consider running with --init-slashing-protection (see --help)",
-                    public_key = format!("{:?}", pk),
-                    "Not signing attestation for unregistered validator"
-                );
-                validator_metrics::inc_counter_vec(
-                    &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
-                    &[validator_metrics::UNREGISTERED],
-                );
-                Err(Error::Slashable(NotSafe::UnregisteredValidator(pk)))
-            }
-            Err(e) => {
-                crit!(
-                    attestation = format!("{:?}", attestation.data()),
-                    error = format!("{:?}", e),
-                    "Not signing slashable attestation"
-                );
-                validator_metrics::inc_counter_vec(
-                    &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
-                    &[validator_metrics::SLASHABLE],
-                );
-                Err(Error::Slashable(e))
-            }
-        }
+
+            // Check slashing protection and insert into database. Use a dedicated blocking
+            // thread to avoid clogging the async executor with blocking database I/O.
+            let validator_store = store.clone();
+            let safe_attestations = store
+                .task_executor
+                .spawn_blocking_handle(
+                    move || validator_store.slashing_protect_attestations(signed_attestations),
+                    "slashing_protect_attestations",
+                )
+                .ok_or(Error::ExecutorError)?
+                .await
+                .map_err(|_| Error::ExecutorError)??;
+            Ok(safe_attestations)
+        })
     }
 
     async fn sign_validator_registration_data(
         &self,
         validator_registration_data: ValidatorRegistrationData,
     ) -> Result<SignedValidatorRegistrationData, Error> {
-        let domain_hash = self.spec.get_builder_domain();
+        let domain_hash = self.spec.get_builder_application_domain();
         let signing_root = validator_registration_data.signing_root(domain_hash);
 
         let signing_method =
@@ -866,43 +1102,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
             message: validator_registration_data,
             signature,
         })
-    }
-
-    /// Signs an `AggregateAndProof` for a given validator.
-    ///
-    /// The resulting `SignedAggregateAndProof` is sent on the aggregation channel and cannot be
-    /// modified by actors other than the signing validator.
-    async fn produce_signed_aggregate_and_proof(
-        &self,
-        validator_pubkey: PublicKeyBytes,
-        aggregator_index: u64,
-        aggregate: Attestation<E>,
-        selection_proof: SelectionProof,
-    ) -> Result<SignedAggregateAndProof<E>, Error> {
-        let signing_epoch = aggregate.data().target.epoch;
-        let signing_context = self.signing_context(Domain::AggregateAndProof, signing_epoch);
-
-        let message =
-            AggregateAndProof::from_attestation(aggregator_index, aggregate, selection_proof);
-
-        let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
-        let signature = signing_method
-            .get_signature::<E, BlindedPayload<E>>(
-                SignableMessage::SignedAggregateAndProof(message.to_ref()),
-                signing_context,
-                &self.spec,
-                &self.task_executor,
-            )
-            .await?;
-
-        validator_metrics::inc_counter_vec(
-            &validator_metrics::SIGNED_AGGREGATES_TOTAL,
-            &[validator_metrics::SUCCESS],
-        );
-
-        Ok(SignedAggregateAndProof::from_aggregate_and_proof(
-            message, signature,
-        ))
     }
 
     /// Produces a `SelectionProof` for the `slot`, signed by with corresponding secret key to
@@ -979,80 +1178,172 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         Ok(signature.into())
     }
 
-    async fn produce_sync_committee_signature(
-        &self,
-        slot: Slot,
-        beacon_block_root: Hash256,
-        validator_index: u64,
-        validator_pubkey: &PublicKeyBytes,
-    ) -> Result<SyncCommitteeMessage, Error> {
-        let signing_epoch = slot.epoch(E::slots_per_epoch());
-        let signing_context = self.signing_context(Domain::SyncCommittee, signing_epoch);
-
-        // Bypass `with_validator_signing_method`: sync committee messages are not slashable.
-        let signing_method = self.doppelganger_bypassed_signing_method(*validator_pubkey)?;
-
-        let signature = signing_method
-            .get_signature::<E, BlindedPayload<E>>(
-                SignableMessage::SyncCommitteeSignature {
-                    beacon_block_root,
-                    slot,
+    fn sign_aggregate_and_proofs(
+        self: &Arc<Self>,
+        aggregates: Vec<AggregateToSign<E>>,
+    ) -> impl Stream<Item = Result<Vec<SignedAggregateAndProof<E>>, Error>> + Send {
+        let store = self.clone();
+        let count = aggregates.len();
+        stream::once(async move {
+            let signing_futures = aggregates.into_iter().map(
+                |AggregateToSign {
+                     pubkey,
+                     aggregator_index,
+                     aggregate,
+                     selection_proof,
+                 }| {
+                    let store = store.clone();
+                    async move {
+                        let result = store
+                            .produce_signed_aggregate_and_proof(
+                                pubkey,
+                                aggregator_index,
+                                aggregate,
+                                selection_proof,
+                            )
+                            .await;
+                        (pubkey, result)
+                    }
                 },
-                signing_context,
-                &self.spec,
-                &self.task_executor,
-            )
-            .await
-            .map_err(Error::SpecificError)?;
+            );
 
-        validator_metrics::inc_counter_vec(
-            &validator_metrics::SIGNED_SYNC_COMMITTEE_MESSAGES_TOTAL,
-            &[validator_metrics::SUCCESS],
-        );
+            let results = join_all(signing_futures)
+                .instrument(info_span!("sign_aggregates", count))
+                .await;
 
-        Ok(SyncCommitteeMessage {
-            slot,
-            beacon_block_root,
-            validator_index,
-            signature,
+            let mut signed = Vec::with_capacity(results.len());
+            for (pubkey, result) in results {
+                match result {
+                    Ok(agg) => signed.push(agg),
+                    Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
+                        // A pubkey can be missing when a validator was recently
+                        // removed via the API.
+                        debug!(?pubkey, "Missing pubkey for aggregate");
+                    }
+                    Err(e) => {
+                        crit!(error = ?e, pubkey = ?pubkey, "Failed to sign aggregate");
+                    }
+                }
+            }
+            Ok(signed)
         })
     }
 
-    async fn produce_signed_contribution_and_proof(
-        &self,
-        aggregator_index: u64,
-        aggregator_pubkey: PublicKeyBytes,
-        contribution: SyncCommitteeContribution<E>,
-        selection_proof: SyncSelectionProof,
-    ) -> Result<SignedContributionAndProof<E>, Error> {
-        let signing_epoch = contribution.slot.epoch(E::slots_per_epoch());
-        let signing_context = self.signing_context(Domain::ContributionAndProof, signing_epoch);
+    fn sign_sync_committee_signatures(
+        self: &Arc<Self>,
+        messages: Vec<SyncMessageToSign>,
+    ) -> impl Stream<Item = Result<Vec<SyncCommitteeMessage>, Error>> + Send {
+        let store = self.clone();
+        let count = messages.len();
+        stream::once(async move {
+            let signing_futures = messages.into_iter().map(
+                |SyncMessageToSign {
+                     slot,
+                     beacon_block_root,
+                     validator_index,
+                     pubkey,
+                 }| {
+                    let store = store.clone();
+                    async move {
+                        let result = store
+                            .produce_sync_committee_signature(
+                                slot,
+                                beacon_block_root,
+                                validator_index,
+                                &pubkey,
+                            )
+                            .await;
+                        (pubkey, validator_index, slot, result)
+                    }
+                },
+            );
 
-        // Bypass `with_validator_signing_method`: sync committee messages are not slashable.
-        let signing_method = self.doppelganger_bypassed_signing_method(aggregator_pubkey)?;
+            let results = join_all(signing_futures)
+                .instrument(info_span!("sign_sync_signatures", count))
+                .await;
 
-        let message = ContributionAndProof {
-            aggregator_index,
-            contribution,
-            selection_proof: selection_proof.into(),
-        };
+            let mut signed = Vec::with_capacity(results.len());
+            for (_pubkey, validator_index, slot, result) in results {
+                match result {
+                    Ok(sig) => signed.push(sig),
+                    Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
+                        // A pubkey can be missing when a validator was recently
+                        // removed via the API.
+                        debug!(
+                            ?pubkey,
+                            validator_index,
+                            %slot,
+                            "Missing pubkey for sync committee signature"
+                        );
+                    }
+                    Err(e) => {
+                        crit!(
+                            validator_index,
+                            %slot,
+                            error = ?e,
+                            "Failed to sign sync committee signature"
+                        );
+                    }
+                }
+            }
+            Ok(signed)
+        })
+    }
 
-        let signature = signing_method
-            .get_signature::<E, BlindedPayload<E>>(
-                SignableMessage::SignedContributionAndProof(&message),
-                signing_context,
-                &self.spec,
-                &self.task_executor,
-            )
-            .await
-            .map_err(Error::SpecificError)?;
+    fn sign_sync_committee_contributions(
+        self: &Arc<Self>,
+        contributions: Vec<ContributionToSign<E>>,
+    ) -> impl Stream<Item = Result<Vec<SignedContributionAndProof<E>>, Error>> + Send {
+        let store = self.clone();
+        let count = contributions.len();
+        stream::once(async move {
+            let signing_futures = contributions.into_iter().map(
+                |ContributionToSign {
+                     aggregator_index,
+                     aggregator_pubkey,
+                     contribution,
+                     selection_proof,
+                 }| {
+                    let store = store.clone();
+                    let slot = contribution.slot;
+                    async move {
+                        let result = store
+                            .produce_signed_contribution_and_proof(
+                                aggregator_index,
+                                aggregator_pubkey,
+                                contribution,
+                                selection_proof,
+                            )
+                            .await;
+                        (slot, result)
+                    }
+                },
+            );
 
-        validator_metrics::inc_counter_vec(
-            &validator_metrics::SIGNED_SYNC_COMMITTEE_CONTRIBUTIONS_TOTAL,
-            &[validator_metrics::SUCCESS],
-        );
+            let results = join_all(signing_futures)
+                .instrument(info_span!("sign_sync_contributions", count))
+                .await;
 
-        Ok(SignedContributionAndProof { message, signature })
+            let mut signed = Vec::with_capacity(results.len());
+            for (slot, result) in results {
+                match result {
+                    Ok(contribution) => signed.push(contribution),
+                    Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
+                        // A pubkey can be missing when a validator was recently
+                        // removed via the API.
+                        debug!(?pubkey, %slot, "Missing pubkey for sync contribution");
+                    }
+                    Err(e) => {
+                        crit!(
+                            %slot,
+                            error = ?e,
+                            "Unable to sign sync committee contribution"
+                        );
+                    }
+                }
+            }
+            Ok(signed)
+        })
     }
 
     /// Prune the slashing protection database so that it remains performant.
@@ -1130,5 +1421,36 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
                 builder_proposals: self
                     .get_builder_proposals_defaulting(validator.get_builder_proposals()),
             })
+    }
+
+    /// Sign an `ExecutionPayloadEnvelope` for Gloas (local building).
+    /// The proposer acts as the builder and signs with the BeaconBuilder domain.
+    async fn sign_execution_payload_envelope(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        envelope: ExecutionPayloadEnvelope<E>,
+    ) -> Result<SignedExecutionPayloadEnvelope<E>, Error> {
+        let signing_context = self.signing_context(
+            Domain::BeaconBuilder,
+            envelope.slot.epoch(E::slots_per_epoch()),
+        );
+
+        // Execution payload envelope signing is not slashable, bypass doppelganger protection.
+        let signing_method = self.doppelganger_bypassed_signing_method(validator_pubkey)?;
+
+        let signature = signing_method
+            .get_signature::<E, FullPayload<E>>(
+                SignableMessage::ExecutionPayloadEnvelope(&envelope),
+                signing_context,
+                &self.spec,
+                &self.task_executor,
+            )
+            .await
+            .map_err(Error::SpecificError)?;
+
+        Ok(SignedExecutionPayloadEnvelope {
+            message: envelope,
+            signature,
+        })
     }
 }

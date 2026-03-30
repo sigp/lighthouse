@@ -1,5 +1,4 @@
 mod eth1_data;
-mod execution_block_hash;
 mod execution_block_header;
 #[macro_use]
 mod execution_payload;
@@ -13,10 +12,10 @@ mod payload;
 mod signed_bls_to_execution_change;
 mod signed_execution_payload_bid;
 mod signed_execution_payload_envelope;
+mod state_payload_status;
 
 pub use bls_to_execution_change::BlsToExecutionChange;
 pub use eth1_data::Eth1Data;
-pub use execution_block_hash::ExecutionBlockHash;
 pub use execution_block_header::{EncodableExecutionBlockHeader, ExecutionBlockHeader};
 pub use execution_payload::{
     ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
@@ -43,3 +42,4 @@ pub use payload::{
 pub use signed_bls_to_execution_change::SignedBlsToExecutionChange;
 pub use signed_execution_payload_bid::SignedExecutionPayloadBid;
 pub use signed_execution_payload_envelope::SignedExecutionPayloadEnvelope;
+pub use state_payload_status::StatePayloadStatus;

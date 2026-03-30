@@ -229,6 +229,24 @@ impl<T: BeaconChainTypes> Router<T> {
                     request,
                 ),
             ),
+            RequestType::PayloadEnvelopesByRoot(request) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_payload_envelopes_by_roots_request(
+                            peer_id,
+                            inbound_request_id,
+                            request,
+                        ),
+                ),
+            RequestType::PayloadEnvelopesByRange(request) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_payload_envelopes_by_range_request(
+                            peer_id,
+                            inbound_request_id,
+                            request,
+                        ),
+                ),
             RequestType::BlobsByRange(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor.send_blobs_by_range_request(
                     peer_id,
@@ -308,6 +326,11 @@ impl<T: BeaconChainTypes> Router<T> {
             }
             Response::DataColumnsByRange(data_column) => {
                 self.on_data_columns_by_range_response(peer_id, app_request_id, data_column);
+            }
+            // TODO(EIP-7732): implement outgoing payload envelopes by range and root
+            // responses once sync manager requests them.
+            Response::PayloadEnvelopesByRoot(_) | Response::PayloadEnvelopesByRange(_) => {
+                debug!("Requesting envelopes by root and by range not supported yet");
             }
             // Light client responses should not be received
             Response::LightClientBootstrap(_)
@@ -486,6 +509,50 @@ impl<T: BeaconChainTypes> Router<T> {
                             bls_to_execution_change,
                         ),
                 ),
+            PubsubMessage::ExecutionPayload(signed_execution_payload_envelope) => {
+                trace!(%peer_id, "Received a signed execution payload envelope");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_gossip_execution_payload(
+                        message_id,
+                        peer_id,
+                        signed_execution_payload_envelope,
+                        timestamp_now(),
+                    ),
+                )
+            }
+            PubsubMessage::PayloadAttestation(payload_attestation_message) => {
+                trace!(%peer_id, "Received a payload attestation message");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_payload_attestation(
+                            message_id,
+                            peer_id,
+                            payload_attestation_message,
+                        ),
+                )
+            }
+            PubsubMessage::ExecutionPayloadBid(execution_payload_bid) => {
+                trace!(%peer_id, "Received a signed execution payload bid");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_execution_payload_bid(
+                            message_id,
+                            peer_id,
+                            execution_payload_bid,
+                        ),
+                )
+            }
+            PubsubMessage::ProposerPreferences(proposer_preferences) => {
+                trace!(%peer_id, "Received signed proposer preferences");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_proposer_preferences(
+                            message_id,
+                            peer_id,
+                            proposer_preferences,
+                        ),
+                )
+            }
         }
     }
 

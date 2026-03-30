@@ -463,6 +463,9 @@ pub async fn reconnect_to_execution_layer<E: EthSpec>(
 }
 
 /// Ensure all validators have attested correctly.
+///
+/// Checks attestation rewards for head, target, and source.
+/// A positive reward indicates a correct vote.
 pub async fn check_attestation_correctness<E: EthSpec>(
     network: LocalNetwork<E>,
     start_epoch: u64,
@@ -476,54 +479,49 @@ pub async fn check_attestation_correctness<E: EthSpec>(
 
     let remote_node = &network.remote_nodes()?[node_index];
 
-    let results = remote_node
-        .get_lighthouse_analysis_attestation_performance(
-            Epoch::new(start_epoch),
-            Epoch::new(upto_epoch - 2),
-            "global".to_string(),
-        )
-        .await
-        .map_err(|e| format!("Unable to get attestation performance: {e}"))?;
-
-    let mut active_successes: f64 = 0.0;
     let mut head_successes: f64 = 0.0;
     let mut target_successes: f64 = 0.0;
     let mut source_successes: f64 = 0.0;
-
     let mut total: f64 = 0.0;
 
-    for result in results {
-        for epochs in result.epochs.values() {
+    let end_epoch = upto_epoch
+        .checked_sub(2)
+        .ok_or_else(|| "upto_epoch must be >= 2 to have attestation rewards".to_string())?;
+    for epoch in start_epoch..=end_epoch {
+        let response = remote_node
+            .post_beacon_rewards_attestations(Epoch::new(epoch), &[])
+            .await
+            .map_err(|e| format!("Unable to get attestation rewards for epoch {epoch}: {e}"))?;
+
+        for reward in &response.data.total_rewards {
             total += 1.0;
 
-            if epochs.active {
-                active_successes += 1.0;
-            }
-            if epochs.head {
+            // A positive reward means the validator made a correct vote.
+            if reward.head > 0 {
                 head_successes += 1.0;
             }
-            if epochs.target {
+            if reward.target > 0 {
                 target_successes += 1.0;
             }
-            if epochs.source {
+            if reward.source > 0 {
                 source_successes += 1.0;
             }
         }
     }
-    let active_percent = active_successes / total * 100.0;
+
+    if total == 0.0 {
+        return Err("No attestation rewards data found".to_string());
+    }
+
     let head_percent = head_successes / total * 100.0;
     let target_percent = target_successes / total * 100.0;
     let source_percent = source_successes / total * 100.0;
 
     eprintln!("Total Attestations: {}", total);
-    eprintln!("Active: {}: {}%", active_successes, active_percent);
     eprintln!("Head: {}: {}%", head_successes, head_percent);
     eprintln!("Target: {}: {}%", target_successes, target_percent);
     eprintln!("Source: {}: {}%", source_successes, source_percent);
 
-    if active_percent < acceptable_attestation_performance {
-        return Err("Active percent was below required level".to_string());
-    }
     if head_percent < acceptable_attestation_performance {
         return Err("Head percent was below required level".to_string());
     }

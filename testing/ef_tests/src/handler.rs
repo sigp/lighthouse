@@ -22,7 +22,7 @@ pub trait Handler {
     // Add forks here to exclude them from EF spec testing. Helpful for adding future or
     // unspecified forks.
     fn disabled_forks(&self) -> Vec<ForkName> {
-        vec![ForkName::Gloas]
+        vec![]
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
@@ -305,6 +305,10 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(vec![ForkName::Fulu])
     }
 
+    pub fn gloas_only() -> Self {
+        Self::for_forks(vec![ForkName::Gloas])
+    }
+
     pub fn altair_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[1..].to_vec())
     }
@@ -327,6 +331,10 @@ impl<T, E> SszStaticHandler<T, E> {
 
     pub fn fulu_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[6..].to_vec())
+    }
+
+    pub fn gloas_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[7..].to_vec())
     }
 
     pub fn pre_electra() -> Self {
@@ -579,6 +587,15 @@ impl<E: EthSpec + TypeName> Handler for RewardsHandler<E> {
     fn handler_name(&self) -> String {
         self.handler_name.to_string()
     }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        if self.handler_name == "inactivity_scores" {
+            // These tests were added in v1.7.0-alpha.2 and are available for Altair and later.
+            fork_name.altair_enabled()
+        } else {
+            true
+        }
+    }
 }
 
 #[derive(Educe)]
@@ -703,6 +720,11 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
         // run them with fake crypto.
         cfg!(not(feature = "fake_crypto"))
     }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas fork choice tests
+        vec![ForkName::Gloas]
+    }
 }
 
 #[derive(Educe)]
@@ -731,6 +753,11 @@ impl<E: EthSpec + TypeName> Handler for OptimisticSyncHandler<E> {
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         fork_name.bellatrix_enabled() && cfg!(not(feature = "fake_crypto"))
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas optimistic sync tests
+        vec![ForkName::Gloas]
     }
 }
 
@@ -952,6 +979,11 @@ impl<E: EthSpec> Handler for KZGComputeCellsHandler<E> {
     fn handler_name(&self) -> String {
         "compute_cells".into()
     }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas KZG tests
+        vec![ForkName::Gloas]
+    }
 }
 
 #[derive(Educe)]
@@ -971,6 +1003,11 @@ impl<E: EthSpec> Handler for KZGComputeCellsAndKZGProofHandler<E> {
 
     fn handler_name(&self) -> String {
         "compute_cells_and_kzg_proofs".into()
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas KZG tests
+        vec![ForkName::Gloas]
     }
 }
 
@@ -992,6 +1029,11 @@ impl<E: EthSpec> Handler for KZGVerifyCellKZGProofBatchHandler<E> {
     fn handler_name(&self) -> String {
         "verify_cell_kzg_proof_batch".into()
     }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas KZG tests
+        vec![ForkName::Gloas]
+    }
 }
 
 #[derive(Educe)]
@@ -1011,6 +1053,11 @@ impl<E: EthSpec> Handler for KZGRecoverCellsAndKZGProofHandler<E> {
 
     fn handler_name(&self) -> String {
         "recover_cells_and_kzg_proofs".into()
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas KZG tests
+        vec![ForkName::Gloas]
     }
 }
 
@@ -1036,6 +1083,11 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         fork_name.deneb_enabled()
     }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas KZG merkle proof tests
+        vec![ForkName::Gloas]
+    }
 }
 
 #[derive(Educe)]
@@ -1059,6 +1111,11 @@ impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         fork_name.altair_enabled()
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas light client tests
+        vec![ForkName::Gloas]
     }
 }
 
@@ -1084,6 +1141,11 @@ impl<E: EthSpec + TypeName> Handler for LightClientUpdateHandler<E> {
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         // Enabled in Altair
         fork_name.altair_enabled()
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // TODO(gloas): remove once we have Gloas light client tests
+        vec![ForkName::Gloas]
     }
 }
 

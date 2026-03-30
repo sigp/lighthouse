@@ -24,7 +24,7 @@ struct G1Point([u8; BYTES_PER_G1_POINT]);
 struct G2Point([u8; BYTES_PER_G2_POINT]);
 
 /// Contains the trusted setup parameters that are required to instantiate a
-/// `c_kzg::KzgSettings` object.
+/// `rust_eth_kzg::TrustedSetup` object.
 ///
 /// The serialize/deserialize implementations are written according to
 /// the format specified in the ethereum consensus specs trusted setup files.
@@ -155,19 +155,9 @@ fn strip_prefix(s: &str) -> &str {
     }
 }
 
-/// Loads the trusted setup from JSON.
-///
-/// ## Note:
-/// Currently we load both c-kzg and rust-eth-kzg trusted setup structs, because c-kzg is still being
-/// used for 4844. Longer term we're planning to switch all KZG operations to the rust-eth-kzg
-/// crate, and we'll be able to maintain a single trusted setup struct.
-pub(crate) fn load_trusted_setup(
-    trusted_setup: &[u8],
-) -> Result<(TrustedSetup, PeerDASTrustedSetup), Error> {
-    let ckzg_trusted_setup: TrustedSetup = serde_json::from_slice(trusted_setup)
-        .map_err(|e| Error::TrustedSetupError(format!("{e:?}")))?;
+/// Loads the trusted setup from JSON bytes into a `rust_eth_kzg::TrustedSetup`.
+pub(crate) fn load_trusted_setup(trusted_setup: &[u8]) -> Result<PeerDASTrustedSetup, Error> {
     let trusted_setup_json = std::str::from_utf8(trusted_setup)
         .map_err(|e| Error::TrustedSetupError(format!("{e:?}")))?;
-    let rkzg_trusted_setup = PeerDASTrustedSetup::from_json(trusted_setup_json);
-    Ok((ckzg_trusted_setup, rkzg_trusted_setup))
+    Ok(PeerDASTrustedSetup::from_json(trusted_setup_json))
 }

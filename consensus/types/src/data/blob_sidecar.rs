@@ -3,7 +3,7 @@ use std::{fmt::Debug, hash::Hash, sync::Arc};
 use bls::Signature;
 use context_deserialize::context_deserialize;
 use educe::Educe;
-use kzg::{BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT, Blob as KzgBlob, Kzg, KzgCommitment, KzgProof};
+use kzg::{BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT, Kzg, KzgCommitment, KzgProof};
 use merkle_proof::{MerkleTreeError, merkle_root_from_branch, verify_merkle_proof};
 use rand::Rng;
 use safe_arith::ArithError;
@@ -253,14 +253,17 @@ impl<E: EthSpec> BlobSidecar<E> {
 
         let blob = Blob::<E>::new(blob_bytes)
             .map_err(|e| format!("error constructing random blob: {:?}", e))?;
-        let kzg_blob = KzgBlob::from_bytes(&blob).unwrap();
+        let kzg_blob: &[u8; BYTES_PER_BLOB] = blob
+            .as_ref()
+            .try_into()
+            .map_err(|e| format!("error converting blob to kzg blob ref: {:?}", e))?;
 
         let commitment = kzg
-            .blob_to_kzg_commitment(&kzg_blob)
+            .blob_to_kzg_commitment(kzg_blob)
             .map_err(|e| format!("error computing kzg commitment: {:?}", e))?;
 
         let proof = kzg
-            .compute_blob_kzg_proof(&kzg_blob, commitment)
+            .compute_blob_kzg_proof(kzg_blob, commitment)
             .map_err(|e| format!("error computing kzg proof: {:?}", e))?;
 
         Ok(Self {
@@ -300,3 +303,39 @@ pub type BlobSidecarList<E> = RuntimeVariableList<Arc<BlobSidecar<E>>>;
 /// Alias for a non length-constrained list of `BlobSidecar`s.
 pub type FixedBlobSidecarList<E> = RuntimeFixedVector<Option<Arc<BlobSidecar<E>>>>;
 pub type BlobsList<E> = VariableList<Blob<E>, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::max_blobs_by_root_request_common;
+    use fixed_bytes::FixedBytesExtended;
+
+    // This is the "correct" implementation of max_blobs_by_root_request.
+    // This test ensures that the simplified implementation doesn't deviate from it.
+    fn max_blobs_by_root_request_implementation(max_request_blob_sidecars: u64) -> usize {
+        let max_request_blob_sidecars = max_request_blob_sidecars as usize;
+        let empty_blob_identifier = BlobIdentifier {
+            block_root: Hash256::zero(),
+            index: 0,
+        };
+
+        RuntimeVariableList::<BlobIdentifier>::new(
+            vec![empty_blob_identifier; max_request_blob_sidecars],
+            max_request_blob_sidecars,
+        )
+        .expect("creating a RuntimeVariableList of size `max_request_blob_sidecars` should succeed")
+        .as_ssz_bytes()
+        .len()
+    }
+
+    #[test]
+    fn max_blobs_by_root_request_matches_simplified() {
+        for n in [0, 1, 2, 8, 16, 32, 64, 128, 256, 512, 768, 1024, 1152] {
+            assert_eq!(
+                max_blobs_by_root_request_common(n),
+                max_blobs_by_root_request_implementation(n),
+                "Mismatch at n={n}"
+            );
+        }
+    }
+}

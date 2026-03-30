@@ -135,7 +135,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 state
                     .get_validator(proposer_slashing.proposer_index() as usize)?
                     .effective_balance
-                    .safe_div(self.spec.whistleblower_reward_quotient_for_state(state))?,
+                    .safe_div(state.get_whistleblower_reward_quotient(&self.spec))?,
             )?;
         }
 
@@ -157,7 +157,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     state
                         .get_validator(attester_index as usize)?
                         .effective_balance
-                        .safe_div(self.spec.whistleblower_reward_quotient_for_state(state))?,
+                        .safe_div(state.get_whistleblower_reward_quotient(&self.spec))?,
                 )?;
             }
         }
