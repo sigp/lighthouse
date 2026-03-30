@@ -521,7 +521,7 @@ impl EthSpec for MainnetEthSpec {
     type MaxWithdrawalRequestsPerPayload = U16;
     type MaxPendingDepositsPerEpoch = U16;
     type PTCSize = U512;
-    type PtcWindowLength = U96; // 3 * SLOTS_PER_EPOCH
+    type PtcWindowLength = U96; // (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH
     type MaxPayloadAttestations = U4;
     type MaxBuildersPerWithdrawalsSweep = U16384;
 
@@ -568,7 +568,7 @@ impl EthSpec for MinimalEthSpec {
     type ProposerLookaheadSlots = U16; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
     type BuilderPendingPaymentsLimit = U16; // 2 * SLOTS_PER_EPOCH = 2 * 8 = 16
     type PTCSize = U2;
-    type PtcWindowLength = U24; // 3 * SLOTS_PER_EPOCH
+    type PtcWindowLength = U24; // (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH
     type MaxBuildersPerWithdrawalsSweep = U16;
 
     params_from_eth_spec!(MainnetEthSpec {
@@ -676,7 +676,7 @@ impl EthSpec for GnosisEthSpec {
     type ProposerLookaheadSlots = U32; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
     type BuilderRegistryLimit = U1099511627776;
     type PTCSize = U512;
-    type PtcWindowLength = U48; // 3 * SLOTS_PER_EPOCH
+    type PtcWindowLength = U48; // (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH
     type MaxPayloadAttestations = U2;
     type MaxBuildersPerWithdrawalsSweep = U16384;
 
@@ -705,8 +705,8 @@ mod test {
         );
         assert_eq!(
             E::ptc_window_length(),
-            3 * E::slots_per_epoch() as usize,
-            "PtcWindowLength must equal 3 * SLOTS_PER_EPOCH"
+            (spec.min_seed_lookahead.as_usize() + 2) * E::slots_per_epoch() as usize,
+            "PtcWindowLength must equal (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH"
         );
     }
 
