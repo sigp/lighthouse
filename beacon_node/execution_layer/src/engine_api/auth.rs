@@ -14,8 +14,18 @@ pub const JWT_SECRET_LENGTH: usize = 32;
 #[derive(Debug)]
 pub enum Error {
     JWT(jsonwebtoken::errors::Error),
-    InvalidToken,
+    InvalidToken(String),
     InvalidKey(String),
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::JWT(e) => write!(f, "JWT error: {}", e),
+            Error::InvalidToken(reason) => write!(f, "Invalid JWT token: {}", reason),
+            Error::InvalidKey(reason) => write!(f, "Invalid JWT key: {}", reason),
+        }
+    }
 }
 
 impl From<jsonwebtoken::errors::Error> for Error {
