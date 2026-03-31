@@ -377,6 +377,16 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             .map(|bid| bid.message.block_hash)
     }
 
+    /// Convenience accessor for the block's bid's `parent_block_hash`.
+    ///
+    /// This method returns an error prior to Gloas.
+    pub fn payload_bid_parent_block_hash(&self) -> Result<ExecutionBlockHash, BeaconStateError> {
+        self.message()
+            .body()
+            .signed_execution_payload_bid()
+            .map(|bid| bid.message.parent_block_hash)
+    }
+
     /// Check if the `parent_hash` in this block's `signed_payload_bid` matches `parent_block_hash`.
     ///
     /// This function is useful post-Gloas for determining if the parent block is full, *without*

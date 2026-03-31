@@ -12,6 +12,7 @@ deny = [
     { crate = "ark-ff", reason = "present in Cargo.lock but not needed by Lighthouse" },
     { crate = "openssl", reason = "non-Rust dependency, use rustls instead" },
     { crate = "c-kzg", reason = "non-Rust dependency, use rust_eth_kzg instead" },
+    { crate = "serde_yaml", reason = "deprecated, use yaml_serde instead" },
     { crate = "strum", deny-multiple-versions = true, reason = "takes a long time to compile" },
     { crate = "reqwest", deny-multiple-versions = true, reason = "takes a long time to compile" },
     { crate = "aes", deny-multiple-versions = true, reason = "takes a long time to compile" },

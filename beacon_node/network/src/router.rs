@@ -229,6 +229,24 @@ impl<T: BeaconChainTypes> Router<T> {
                     request,
                 ),
             ),
+            RequestType::PayloadEnvelopesByRoot(request) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_payload_envelopes_by_roots_request(
+                            peer_id,
+                            inbound_request_id,
+                            request,
+                        ),
+                ),
+            RequestType::PayloadEnvelopesByRange(request) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_payload_envelopes_by_range_request(
+                            peer_id,
+                            inbound_request_id,
+                            request,
+                        ),
+                ),
             RequestType::BlobsByRange(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor.send_blobs_by_range_request(
                     peer_id,
@@ -308,6 +326,11 @@ impl<T: BeaconChainTypes> Router<T> {
             }
             Response::DataColumnsByRange(data_column) => {
                 self.on_data_columns_by_range_response(peer_id, app_request_id, data_column);
+            }
+            // TODO(EIP-7732): implement outgoing payload envelopes by range and root
+            // responses once sync manager requests them.
+            Response::PayloadEnvelopesByRoot(_) | Response::PayloadEnvelopesByRange(_) => {
+                debug!("Requesting envelopes by root and by range not supported yet");
             }
             // Light client responses should not be received
             Response::LightClientBootstrap(_)

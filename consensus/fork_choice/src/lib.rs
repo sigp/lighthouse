@@ -5,7 +5,7 @@ mod metrics;
 pub use crate::fork_choice::{
     AttestationFromBlock, Error, ForkChoice, ForkChoiceView, ForkchoiceUpdateParameters,
     InvalidAttestation, InvalidBlock, PayloadVerificationStatus, PersistedForkChoice,
-    PersistedForkChoiceV17, PersistedForkChoiceV28, QueuedAttestation, ResetPayloadStatuses,
+    PersistedForkChoiceV28, QueuedAttestation, ResetPayloadStatuses,
 };
 pub use fork_choice_store::ForkChoiceStore;
 pub use proto_array::{
