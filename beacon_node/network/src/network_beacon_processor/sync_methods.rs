@@ -125,6 +125,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 verified_envelope,
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
+                #[allow(clippy::result_large_err)]
                 || Ok(()),
             )
             .await;
