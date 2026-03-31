@@ -159,7 +159,8 @@ impl MonitoringHttpClient {
 
     /// Gets system metrics by observing capturing the SystemHealth metrics.
     pub fn get_system_metrics(&self) -> Result<MonitoringMetrics, Error> {
-        let system_health = SystemHealth::observe().map_err(Error::SystemMetricsFailed)?;
+        let system_health =
+            SystemHealth::observe(self.db_path.as_deref()).map_err(Error::SystemMetricsFailed)?;
         Ok(MonitoringMetrics {
             metadata: Metadata::new(ProcessType::System),
             process_metrics: Process::System(system_health.into()),
