@@ -190,7 +190,7 @@ pub fn gather_beacon_metrics(
 
     let beacon_metrics = gather_metrics(&BEACON_METRICS_MAP)
         .ok_or_else(|| "Failed to gather beacon metrics".to_string())?;
-    let process = eth2::lighthouse::ProcessHealth::observe()?.into();
+    let process = eth2::lighthouse::ProcessHealth::observe(None)?.into();
 
     Ok(BeaconProcessMetrics {
         beacon: beacon_metrics,
@@ -203,7 +203,7 @@ pub fn gather_validator_metrics() -> Result<ValidatorProcessMetrics, String> {
     let validator_metrics = gather_metrics(&VALIDATOR_METRICS_MAP)
         .ok_or_else(|| "Failed to gather validator metrics".to_string())?;
 
-    let process = eth2::lighthouse::ProcessHealth::observe()?.into();
+    let process = eth2::lighthouse::ProcessHealth::observe(None)?.into();
     Ok(ValidatorProcessMetrics {
         validator: validator_metrics,
         common: process,
