@@ -77,7 +77,17 @@ impl From<SszContainerV28> for SszContainerV29 {
         Self {
             votes: v28.votes,
             prune_threshold: v28.prune_threshold,
-            nodes: v28.nodes.into_iter().map(ProtoNode::V17).collect(),
+            nodes: v28
+                .nodes
+                .into_iter()
+                .map(|mut node| {
+                    // best_child/best_descendant are no longer used (replaced by
+                    // the virtual tree walk). Clear during conversion.
+                    node.best_child = None;
+                    node.best_descendant = None;
+                    ProtoNode::V17(node)
+                })
+                .collect(),
             indices: v28.indices,
             previous_proposer_boost: v28.previous_proposer_boost,
         }
