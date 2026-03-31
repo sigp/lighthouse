@@ -12,7 +12,7 @@ use state_processing::per_epoch_processing::effective_balance_updates::{
     process_effective_balance_updates, process_effective_balance_updates_slow,
 };
 use state_processing::per_epoch_processing::single_pass::{
-    SinglePassConfig, process_epoch_single_pass, process_proposer_lookahead,
+    SinglePassConfig, process_epoch_single_pass, process_proposer_lookahead, process_ptc_window,
 };
 use state_processing::per_epoch_processing::{
     altair, base,
@@ -80,6 +80,8 @@ pub struct ParticipationFlagUpdates;
 #[derive(Debug)]
 pub struct ProposerLookahead;
 #[derive(Debug)]
+pub struct PtcWindow;
+#[derive(Debug)]
 pub struct BuilderPendingPayments;
 
 type_name!(
@@ -102,6 +104,7 @@ type_name!(SyncCommitteeUpdates, "sync_committee_updates");
 type_name!(InactivityUpdates, "inactivity_updates");
 type_name!(ParticipationFlagUpdates, "participation_flag_updates");
 type_name!(ProposerLookahead, "proposer_lookahead");
+type_name!(PtcWindow, "ptc_window");
 type_name!(BuilderPendingPayments, "builder_pending_payments");
 
 impl<E: EthSpec> EpochTransition<E> for JustificationAndFinalization {
@@ -296,6 +299,16 @@ impl<E: EthSpec> EpochTransition<E> for ProposerLookahead {
     }
 }
 
+impl<E: EthSpec> EpochTransition<E> for PtcWindow {
+    fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
+        if state.fork_name_unchecked().gloas_enabled() {
+            process_ptc_window(state, spec).map(|_| ())
+        } else {
+            Ok(())
+        }
+    }
+}
+
 impl<E: EthSpec> EpochTransition<E> for BuilderPendingPayments {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
         process_epoch_single_pass(
@@ -373,7 +386,9 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
             return false;
         }
 
-        if !fork_name.gloas_enabled() && T::name() == "builder_pending_payments" {
+        if !fork_name.gloas_enabled()
+            && (T::name() == "builder_pending_payments" || T::name() == "ptc_window")
+        {
             return false;
         }
 
