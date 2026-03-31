@@ -508,29 +508,6 @@ impl ProtoArray {
         // walk, so clear any stale boost from a prior call.
         self.previous_proposer_boost = ProposerBoost::default();
 
-        // A second time, iterate backwards through all indices in `self.nodes`.
-        //
-        // We _must_ perform these functions separate from the weight-updating loop above to ensure
-        // that we have a fully coherent set of weights before updating parent
-        // best-child/descendant.
-        for node_index in (0..self.nodes.len()).rev() {
-            let node = self
-                .nodes
-                .get_mut(node_index)
-                .ok_or(Error::InvalidNodeIndex(node_index))?;
-
-            // If the node has a parent, try to update its best-child and best-descendant.
-            if let Some(parent_index) = node.parent() {
-                self.maybe_update_best_child_and_descendant::<E>(
-                    parent_index,
-                    node_index,
-                    current_slot,
-                    best_justified_checkpoint,
-                    best_finalized_checkpoint,
-                )?;
-            }
-        }
-
         Ok(())
     }
 
@@ -701,14 +678,6 @@ impl ProtoArray {
         self.nodes.push(node.clone());
 
         if let Some(parent_index) = node.parent() {
-            self.maybe_update_best_child_and_descendant::<E>(
-                parent_index,
-                node_index,
-                current_slot,
-                best_justified_checkpoint,
-                best_finalized_checkpoint,
-            )?;
-
             if matches!(block.execution_status, ExecutionStatus::Valid(_)) {
                 self.propagate_execution_payload_validation_by_index(parent_index)?;
             }
@@ -977,26 +946,7 @@ impl ProtoArray {
                     if !latest_valid_ancestor_is_descendant && node.root() != head_block_root {
                         break;
                     } else if op.latest_valid_ancestor() == Some(hash) {
-                        // If the `best_child` or `best_descendant` of the latest valid hash was
-                        // invalidated, set those fields to `None`.
-                        //
-                        // In theory, an invalid `best_child` necessarily infers an invalid
-                        // `best_descendant`. However, we check each variable independently to
-                        // defend against errors which might result in an invalid block being set as
-                        // head.
-                        if node
-                            .best_child()
-                            .is_some_and(|i| invalidated_indices.contains(&i))
-                        {
-                            *node.best_child_mut() = None
-                        }
-                        if node
-                            .best_descendant()
-                            .is_some_and(|i| invalidated_indices.contains(&i))
-                        {
-                            *node.best_descendant_mut() = None
-                        }
-
+                        // Reached latest valid block, stop invalidating further.
                         break;
                     }
                 }
@@ -1026,14 +976,6 @@ impl ProtoArray {
                         if let ProtoNode::V17(node) = node {
                             node.execution_status = ExecutionStatus::Invalid(hash);
                         }
-
-                        // It's impossible for an invalid block to lead to a "best" block, so set these
-                        // fields to `None`.
-                        //
-                        // Failing to set these values will result in `Self::node_leads_to_viable_head`
-                        // returning `false` for *valid* ancestors of invalid blocks.
-                        *node.best_child_mut() = None;
-                        *node.best_descendant_mut() = None;
                     }
                     // The block is already invalid, but keep going backwards to ensure all ancestors
                     // are updated.
@@ -1188,6 +1130,26 @@ impl ProtoArray {
         Ok((best_fc_node.root, best_fc_node.payload_status))
     }
 
+    /// Build a parent->children index. Invalid nodes are excluded
+    /// (they aren't in store.blocks in the spec).
+    fn build_children_index(&self) -> Vec<Vec<usize>> {
+        let mut children = vec![vec![]; self.nodes.len()];
+        for (i, node) in self.nodes.iter().enumerate() {
+            if node
+                .execution_status()
+                .is_ok_and(|status| status.is_invalid())
+            {
+                continue;
+            }
+            if let Some(parent) = node.parent()
+                && parent < children.len()
+            {
+                children[parent].push(i);
+            }
+        }
+        children
+    }
+
     /// Spec: `get_filtered_block_tree`.
     ///
     /// Returns the set of node indices on viable branches — those with at least
@@ -1198,6 +1160,7 @@ impl ProtoArray {
         current_slot: Slot,
         best_justified_checkpoint: Checkpoint,
         best_finalized_checkpoint: Checkpoint,
+        children_index: &[Vec<usize>],
     ) -> HashSet<usize> {
         let mut viable = HashSet::new();
         self.filter_block_tree::<E>(
@@ -1205,6 +1168,7 @@ impl ProtoArray {
             current_slot,
             best_justified_checkpoint,
             best_finalized_checkpoint,
+            children_index,
             &mut viable,
         );
         viable
@@ -1217,25 +1181,17 @@ impl ProtoArray {
         current_slot: Slot,
         best_justified_checkpoint: Checkpoint,
         best_finalized_checkpoint: Checkpoint,
+        children_index: &[Vec<usize>],
         viable: &mut HashSet<usize>,
     ) -> bool {
         let Some(node) = self.nodes.get(node_index) else {
             return false;
         };
 
-        // Skip invalid children — they aren't in store.blocks in the spec.
-        let children: Vec<usize> = self
-            .nodes
-            .iter()
-            .enumerate()
-            .filter(|(_, child)| {
-                child.parent() == Some(node_index)
-                    && !child
-                        .execution_status()
-                        .is_ok_and(|status| status.is_invalid())
-            })
-            .map(|(i, _)| i)
-            .collect();
+        let children = children_index
+            .get(node_index)
+            .map(|c| c.as_slice())
+            .unwrap_or(&[]);
 
         if !children.is_empty() {
             // Evaluate ALL children (no short-circuit) to mark all viable branches.
@@ -1247,6 +1203,7 @@ impl ProtoArray {
                         current_slot,
                         best_justified_checkpoint,
                         best_finalized_checkpoint,
+                        children_index,
                         viable,
                     )
                 })
@@ -1291,12 +1248,16 @@ impl ProtoArray {
             payload_status: PayloadStatus::Pending,
         };
 
+        // Build parent->children index once for O(1) lookups.
+        let children_index = self.build_children_index();
+
         // Spec: `get_filtered_block_tree`.
         let viable_nodes = self.get_filtered_block_tree::<E>(
             start_index,
             current_slot,
             best_justified_checkpoint,
             best_finalized_checkpoint,
+            &children_index,
         );
 
         // Compute once rather than per-child per-level.
@@ -1305,7 +1266,7 @@ impl ProtoArray {
 
         loop {
             let children: Vec<_> = self
-                .get_node_children(&head)?
+                .get_node_children(&head, &children_index)?
                 .into_iter()
                 .filter(|(fc_node, _)| viable_nodes.contains(&fc_node.proto_node_index))
                 .collect();
@@ -1468,6 +1429,7 @@ impl ProtoArray {
     fn get_node_children(
         &self,
         node: &IndexedForkChoiceNode,
+        children_index: &[Vec<usize>],
     ) -> Result<Vec<(IndexedForkChoiceNode, ProtoNode)>, Error> {
         if node.payload_status == PayloadStatus::Pending {
             let proto_node = self
@@ -1481,23 +1443,25 @@ impl ProtoArray {
             }
             Ok(children)
         } else {
-            Ok(self
-                .nodes
+            let child_indices = children_index
+                .get(node.proto_node_index)
+                .map(|c| c.as_slice())
+                .unwrap_or(&[]);
+            Ok(child_indices
                 .iter()
-                .enumerate()
-                .filter(|(_, child_node)| {
-                    child_node.parent() == Some(node.proto_node_index)
-                        && child_node.get_parent_payload_status() == node.payload_status
-                })
-                .map(|(child_index, child_node)| {
-                    (
+                .filter_map(|&child_index| {
+                    let child_node = self.nodes.get(child_index)?;
+                    if child_node.get_parent_payload_status() != node.payload_status {
+                        return None;
+                    }
+                    Some((
                         IndexedForkChoiceNode {
                             root: child_node.root(),
                             proto_node_index: child_index,
                             payload_status: PayloadStatus::Pending,
                         },
                         child_node.clone(),
-                    )
+                    ))
                 })
                 .collect())
         }
@@ -1611,158 +1575,9 @@ impl ProtoArray {
                 // If `node.parent` is less than `finalized_index`, set it to `None`.
                 *node.parent_mut() = parent.checked_sub(finalized_index);
             }
-            if let Some(best_child) = node.best_child() {
-                *node.best_child_mut() = Some(
-                    best_child
-                        .checked_sub(finalized_index)
-                        .ok_or(Error::IndexOverflow("best_child"))?,
-                );
-            }
-            if let Some(best_descendant) = node.best_descendant() {
-                *node.best_descendant_mut() = Some(
-                    best_descendant
-                        .checked_sub(finalized_index)
-                        .ok_or(Error::IndexOverflow("best_descendant"))?,
-                );
-            }
         }
 
         Ok(())
-    }
-
-    /// Observe the parent at `parent_index` with respect to the child at `child_index` and
-    /// potentially modify the `parent.best_child` and `parent.best_descendant` values.
-    ///
-    /// ## Detail
-    ///
-    /// There are four outcomes:
-    ///
-    /// - The child is already the best child but it's now invalid due to a FFG change and should be removed.
-    /// - The child is already the best child and the parent is updated with the new
-    ///   best-descendant.
-    /// - The child is not the best child but becomes the best child.
-    /// - The child is not the best child and does not become the best child.
-    fn maybe_update_best_child_and_descendant<E: EthSpec>(
-        &mut self,
-        parent_index: usize,
-        child_index: usize,
-        current_slot: Slot,
-        best_justified_checkpoint: Checkpoint,
-        best_finalized_checkpoint: Checkpoint,
-    ) -> Result<(), Error> {
-        let child = self
-            .nodes
-            .get(child_index)
-            .ok_or(Error::InvalidNodeIndex(child_index))?;
-
-        let parent = self
-            .nodes
-            .get(parent_index)
-            .ok_or(Error::InvalidNodeIndex(parent_index))?;
-
-        let child_leads_to_viable_head = self.node_leads_to_viable_head::<E>(
-            child,
-            current_slot,
-            best_justified_checkpoint,
-            best_finalized_checkpoint,
-        )?;
-
-        // These three variables are aliases to the three options that we may set the
-        // `parent.best_child` and `parent.best_descendant` to.
-        let change_to_none = (None, None);
-        let change_to_child = (
-            Some(child_index),
-            child.best_descendant().or(Some(child_index)),
-        );
-        let no_change = (parent.best_child(), parent.best_descendant());
-
-        let (new_best_child, new_best_descendant) =
-            if let Some(best_child_index) = parent.best_child() {
-                if best_child_index == child_index && !child_leads_to_viable_head {
-                    // If the child is already the best-child of the parent but it's not viable for
-                    // the head, remove it.
-                    change_to_none
-                } else if best_child_index == child_index {
-                    // If the child is the best-child already, set it again to ensure that the
-                    // best-descendant of the parent is updated.
-                    change_to_child
-                } else {
-                    let best_child = self
-                        .nodes
-                        .get(best_child_index)
-                        .ok_or(Error::InvalidBestDescendant(best_child_index))?;
-
-                    let best_child_leads_to_viable_head = self.node_leads_to_viable_head::<E>(
-                        best_child,
-                        current_slot,
-                        best_justified_checkpoint,
-                        best_finalized_checkpoint,
-                    )?;
-
-                    if child_leads_to_viable_head && !best_child_leads_to_viable_head {
-                        change_to_child
-                    } else if !child_leads_to_viable_head && best_child_leads_to_viable_head {
-                        no_change
-                    } else if child.weight() > best_child.weight() {
-                        change_to_child
-                    } else if child.weight() < best_child.weight() {
-                        no_change
-                    } else if *child.root() >= *best_child.root() {
-                        change_to_child
-                    } else {
-                        no_change
-                    }
-                }
-            } else if child_leads_to_viable_head {
-                change_to_child
-            } else {
-                no_change
-            };
-
-        let parent = self
-            .nodes
-            .get_mut(parent_index)
-            .ok_or(Error::InvalidNodeIndex(parent_index))?;
-
-        *parent.best_child_mut() = new_best_child;
-        *parent.best_descendant_mut() = new_best_descendant;
-
-        Ok(())
-    }
-
-    /// Indicates if the node itself is viable for the head, or if its best descendant is viable
-    /// for the head.
-    fn node_leads_to_viable_head<E: EthSpec>(
-        &self,
-        node: &ProtoNode,
-        current_slot: Slot,
-        best_justified_checkpoint: Checkpoint,
-        best_finalized_checkpoint: Checkpoint,
-    ) -> Result<bool, Error> {
-        let best_descendant_is_viable_for_head =
-            if let Some(best_descendant_index) = node.best_descendant() {
-                let best_descendant = self
-                    .nodes
-                    .get(best_descendant_index)
-                    .ok_or(Error::InvalidBestDescendant(best_descendant_index))?;
-
-                self.node_is_viable_for_head::<E>(
-                    best_descendant,
-                    current_slot,
-                    best_justified_checkpoint,
-                    best_finalized_checkpoint,
-                )
-            } else {
-                false
-            };
-
-        Ok(best_descendant_is_viable_for_head
-            || self.node_is_viable_for_head::<E>(
-                node,
-                current_slot,
-                best_justified_checkpoint,
-                best_finalized_checkpoint,
-            ))
     }
 
     /// This is the equivalent to the `filter_block_tree` function in the eth2 spec:
@@ -1955,8 +1770,15 @@ impl ProtoArray {
     ) -> Vec<&ProtoNode> {
         self.nodes
             .iter()
-            .filter(|node| {
-                node.best_child().is_none()
+            .enumerate()
+            .filter(|(i, node)| {
+                // TODO(gloas): we unoptimized this for Gloas fork choice, could re-optimize.
+                let num_children = self
+                    .nodes
+                    .iter()
+                    .filter(|node| node.parent == Some(i))
+                    .count();
+                num_children == 0
                     && self.is_finalized_checkpoint_or_descendant::<E>(
                         node.root(),
                         best_finalized_checkpoint,
