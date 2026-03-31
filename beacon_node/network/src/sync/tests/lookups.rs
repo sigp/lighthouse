@@ -83,8 +83,8 @@ pub struct SimulateConfig {
     return_partial_range_columns_n_times: usize,
     /// Set EE offline at start, bring back online after this many BlocksByRange responses
     ee_offline_for_n_range_responses: Option<usize>,
-    /// Disconnect all peers after responding to this many BlocksByRange requests
-    disconnect_peers_after_range_requests: Option<usize>,
+    /// Disconnect all peers after this many successful BlocksByRange responses.
+    successful_range_responses_before_disconnect: Option<usize>,
 }
 
 impl SimulateConfig {
@@ -196,7 +196,7 @@ impl SimulateConfig {
     }
 
     pub(super) fn with_disconnect_after_range_requests(mut self, n: usize) -> Self {
-        self.disconnect_peers_after_range_requests = Some(n);
+        self.successful_range_responses_before_disconnect = Some(n);
         self
     }
 }
@@ -677,8 +677,9 @@ impl TestRig {
                 }
 
                 // Check if we should disconnect all peers instead of continuing
-                if let Some(ref mut remaining) =
-                    self.complete_strategy.disconnect_peers_after_range_requests
+                if let Some(ref mut remaining) = self
+                    .complete_strategy
+                    .successful_range_responses_before_disconnect
                 {
                     if *remaining == 0 {
                         // Disconnect all peers — remaining responses become "late"
@@ -749,7 +750,8 @@ impl TestRig {
                     return;
                 }
 
-                // Return columns with unrequested indices N times
+                // Return columns with unrequested indices N times.
+                // Note: for supernodes this returns no columns since they custody all indices.
                 if self
                     .complete_strategy
                     .return_wrong_range_column_indices_n_times
