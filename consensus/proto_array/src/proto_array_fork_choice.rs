@@ -512,8 +512,6 @@ impl ProtoArrayForkChoice {
             .on_block::<E>(
                 block,
                 current_slot,
-                justified_checkpoint,
-                finalized_checkpoint,
                 spec,
                 // Anchor block is always timely (delay=0 ensures both timeliness
                 // checks pass). Combined with `is_genesis` override in on_block,
@@ -615,8 +613,6 @@ impl ProtoArrayForkChoice {
         &mut self,
         block: Block,
         current_slot: Slot,
-        justified_checkpoint: Checkpoint,
-        finalized_checkpoint: Checkpoint,
         spec: &ChainSpec,
         time_into_slot: Duration,
     ) -> Result<(), String> {
@@ -625,14 +621,7 @@ impl ProtoArrayForkChoice {
         }
 
         self.proto_array
-            .on_block::<E>(
-                block,
-                current_slot,
-                justified_checkpoint,
-                finalized_checkpoint,
-                spec,
-                time_into_slot,
-            )
+            .on_block::<E>(block, current_slot, spec, time_into_slot)
             .map_err(|e| format!("process_block_error: {:?}", e))
     }
 
@@ -667,12 +656,7 @@ impl ProtoArrayForkChoice {
         .map_err(|e| format!("find_head compute_deltas failed: {:?}", e))?;
 
         self.proto_array
-            .apply_score_changes::<E>(
-                deltas,
-                justified_checkpoint,
-                finalized_checkpoint,
-                current_slot,
-            )
+            .apply_score_changes::<E>(deltas)
             .map_err(|e| format!("find_head apply_score_changes failed: {:?}", e))?;
 
         *old_balances = new_balances.clone();
@@ -1354,8 +1338,6 @@ mod test_compute_deltas {
                     proposer_index: Some(0),
                 },
                 genesis_slot + 1,
-                genesis_checkpoint,
-                genesis_checkpoint,
                 &spec,
                 Duration::ZERO,
             )
@@ -1384,8 +1366,6 @@ mod test_compute_deltas {
                     proposer_index: Some(0),
                 },
                 genesis_slot + 1,
-                genesis_checkpoint,
-                genesis_checkpoint,
                 &spec,
                 Duration::ZERO,
             )
@@ -1521,8 +1501,6 @@ mod test_compute_deltas {
                         proposer_index: Some(0),
                     },
                     Slot::from(block.slot),
-                    genesis_checkpoint,
-                    genesis_checkpoint,
                     &spec,
                     Duration::ZERO,
                 )

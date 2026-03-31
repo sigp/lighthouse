@@ -1008,8 +1008,6 @@ where
                 proposer_index: Some(block.proposer_index()),
             },
             current_slot,
-            self.justified_checkpoint(),
-            self.finalized_checkpoint(),
             spec,
             block_delay,
         )?;

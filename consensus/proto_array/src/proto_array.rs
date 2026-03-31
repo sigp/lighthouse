@@ -389,9 +389,6 @@ impl ProtoArray {
     pub fn apply_score_changes<E: EthSpec>(
         &mut self,
         mut deltas: Vec<NodeDelta>,
-        best_justified_checkpoint: Checkpoint,
-        best_finalized_checkpoint: Checkpoint,
-        current_slot: Slot,
     ) -> Result<(), Error> {
         if deltas.len() != self.indices.len() {
             return Err(Error::InvalidDeltaLen {
@@ -518,8 +515,6 @@ impl ProtoArray {
         &mut self,
         block: Block,
         current_slot: Slot,
-        best_justified_checkpoint: Checkpoint,
-        best_finalized_checkpoint: Checkpoint,
         spec: &ChainSpec,
         time_into_slot: Duration,
     ) -> Result<(), Error> {
@@ -677,10 +672,10 @@ impl ProtoArray {
         self.indices.insert(node.root(), node_index);
         self.nodes.push(node.clone());
 
-        if let Some(parent_index) = node.parent() {
-            if matches!(block.execution_status, ExecutionStatus::Valid(_)) {
-                self.propagate_execution_payload_validation_by_index(parent_index)?;
-            }
+        if let Some(parent_index) = node.parent()
+            && matches!(block.execution_status, ExecutionStatus::Valid(_))
+        {
+            self.propagate_execution_payload_validation_by_index(parent_index)?;
         }
 
         Ok(())
@@ -1773,17 +1768,14 @@ impl ProtoArray {
             .enumerate()
             .filter(|(i, node)| {
                 // TODO(gloas): we unoptimized this for Gloas fork choice, could re-optimize.
-                let num_children = self
-                    .nodes
-                    .iter()
-                    .filter(|node| node.parent == Some(i))
-                    .count();
+                let num_children = self.nodes.iter().filter(|n| n.parent() == Some(*i)).count();
                 num_children == 0
                     && self.is_finalized_checkpoint_or_descendant::<E>(
                         node.root(),
                         best_finalized_checkpoint,
                     )
             })
+            .map(|(_, node)| node)
             .collect()
     }
 }

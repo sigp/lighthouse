@@ -283,14 +283,7 @@ impl ForkChoiceTestDefinition {
                         proposer_index: Some(0),
                     };
                     fork_choice
-                        .process_block::<MainnetEthSpec>(
-                            block,
-                            slot,
-                            self.justified_checkpoint,
-                            self.finalized_checkpoint,
-                            &spec,
-                            Duration::ZERO,
-                        )
+                        .process_block::<MainnetEthSpec>(block, slot, &spec, Duration::ZERO)
                         .unwrap_or_else(|e| {
                             panic!(
                                 "process_block op at index {} returned error: {:?}",
