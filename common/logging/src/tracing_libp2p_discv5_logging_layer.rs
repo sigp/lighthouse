@@ -20,7 +20,7 @@ where
     fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<S>) {
         let meta = event.metadata();
         let log_level = meta.level();
-        let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let timestamp = Local::now().format("%Y-%m-%dT%H:%M:%S%.3f%z").to_string();
 
         let target = match meta.target().split_once("::") {
             Some((crate_name, _)) => crate_name,

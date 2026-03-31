@@ -69,7 +69,7 @@ where
         let meta = event.metadata();
         let log_level = meta.level();
         let timestamp = if !self.disable_log_timestamp {
-            Local::now().format("%b %d %H:%M:%S%.3f").to_string()
+            Local::now().format("%Y-%m-%dT%H:%M:%S%.3f%z").to_string()
         } else {
             String::new()
         };
@@ -245,7 +245,7 @@ fn build_log_json(
     span_fields: &[(String, String)],
     writer: &mut impl Write,
 ) {
-    let utc_timestamp = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+    let local_timestamp = Local::now().format("%Y-%m-%dT%H:%M:%S%.6f%:z").to_string();
     let mut log_map = Map::new();
 
     log_map.insert("msg".to_string(), Value::String(visitor.message.clone()));
@@ -253,7 +253,7 @@ fn build_log_json(
         "level".to_string(),
         Value::String(plain_level_str.to_string()),
     );
-    log_map.insert("ts".to_string(), Value::String(utc_timestamp));
+    log_map.insert("ts".to_string(), Value::String(local_timestamp));
 
     let module_path = meta.module_path().unwrap_or("<unknown_module>");
     let line_number = meta
@@ -420,7 +420,7 @@ mod tests {
     fn test_build_log_text_single_log_field() {
         let log_fields = vec![("field_name".to_string(), "field_value".to_string())];
         let span_fields = vec![];
-        let expected = "Jan 1 08:00:00.000 INFO  test message                                  field_name: field_value\n";
+        let expected = "2026-01-01T08:00:00.000+0000 INFO  test message                                  field_name: field_value\n";
         test_build_log_text(log_fields, span_fields, expected);
     }
 
@@ -431,7 +431,7 @@ mod tests {
             ("field_name2".to_string(), "field_value2".to_string()),
         ];
         let span_fields = vec![];
-        let expected = "Jan 1 08:00:00.000 INFO  test message                                  field_name1: field_value1, field_name2: field_value2\n";
+        let expected = "2026-01-01T08:00:00.000+0000 INFO  test message                                  field_name1: field_value1, field_name2: field_value2\n";
         test_build_log_text(log_fields, span_fields, expected);
     }
 
@@ -442,7 +442,7 @@ mod tests {
             "span_field_name".to_string(),
             "span_field_value".to_string(),
         )];
-        let expected = "Jan 1 08:00:00.000 INFO  test message                                  field_name: field_value, span_field_name: span_field_value\n";
+        let expected = "2026-01-01T08:00:00.000+0000 INFO  test message                                  field_name: field_value, span_field_name: span_field_value\n";
         test_build_log_text(log_fields, span_fields, expected);
     }
 
@@ -453,7 +453,7 @@ mod tests {
             "span_field_name".to_string(),
             "span_field_value".to_string(),
         )];
-        let expected = "Jan 1 08:00:00.000 INFO  test message                                  span_field_name: span_field_value\n";
+        let expected = "2026-01-01T08:00:00.000+0000 INFO  test message                                  span_field_name: span_field_value\n";
         test_build_log_text(log_fields, span_fields, expected);
     }
 
@@ -470,7 +470,7 @@ mod tests {
                 "span_field_value2".to_string(),
             ),
         ];
-        let expected = "Jan 1 08:00:00.000 INFO  test message                                  span_field_name1: span_field_value1, span_field_name2: span_field_value2\n";
+        let expected = "2026-01-01T08:00:00.000+0000 INFO  test message                                  span_field_name1: span_field_value1, span_field_name2: span_field_value2\n";
         test_build_log_text(log_fields, span_fields, expected);
     }
 
@@ -487,7 +487,7 @@ mod tests {
                 "span_field_value1-2".to_string(),
             ),
         ];
-        let expected = "Jan 1 08:00:00.000 INFO  test message                                  span_field_name1-1: span_field_value1-1, span_field_name1-2: span_field_value1-2\n";
+        let expected = "2026-01-01T08:00:00.000+0000 INFO  test message                                  span_field_name1-1: span_field_value1-1, span_field_name1-2: span_field_value1-2\n";
         test_build_log_text(log_fields, span_fields, expected);
     }
 
@@ -501,7 +501,7 @@ mod tests {
             ("field_name_1".to_string(), "field_value_1".to_string()),
             ("field_name_3".to_string(), "field_value_3".to_string()),
         ];
-        let expected = "Jan 1 08:00:00.000 INFO  test message                                  field_name_1: field_value_1, field_name_2: field_value_2, field_name_3: field_value_3\n";
+        let expected = "2026-01-01T08:00:00.000+0000 INFO  test message                                  field_name_1: field_value_1, field_name_2: field_value_2, field_name_3: field_value_3\n";
         test_build_log_text(log_fields, span_fields, expected);
     }
 
@@ -515,7 +515,7 @@ mod tests {
             ("field_name_1".to_string(), "field_value_1_span".to_string()),
             ("field_name_3".to_string(), "field_value_3".to_string()),
         ];
-        let expected = "Jan 1 08:00:00.000 INFO  test message                                  field_name_1: field_value_1_log, field_name_2: field_value_2, field_name_3: field_value_3\n";
+        let expected = "2026-01-01T08:00:00.000+0000 INFO  test message                                  field_name_1: field_value_1_log, field_name_2: field_value_2, field_name_3: field_value_3\n";
         test_build_log_text(log_fields, span_fields, expected);
     }
 
@@ -530,7 +530,7 @@ mod tests {
             is_crit: false,
         };
         let plain_level_str = "INFO";
-        let timestamp = "Jan 1 08:00:00.000";
+        let timestamp = "2026-01-01T08:00:00.000+0000";
         let location = "";
         let color_level_str = "\x1b[32mINFO\x1b[0m";
         let use_color = false;
