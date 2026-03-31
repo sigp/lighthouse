@@ -1,11 +1,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use eth2::types::{EventKind, SseExecutionPayload};
 use fork_choice::PayloadVerificationStatus;
 use slot_clock::SlotClock;
 use store::StoreOp;
 use tracing::{debug, error, info, info_span, instrument, warn};
-use eth2::types::{EventKind, SseExecutionPayload};
 use types::{BeaconState, BlockImportSource, Hash256, SignedExecutionPayloadEnvelope};
 
 use super::{
@@ -356,16 +356,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(event_handler) = self.event_handler.as_ref()
             && event_handler.has_execution_payload_subscribers()
         {
-            event_handler.register(EventKind::ExecutionPayload(
-                SseExecutionPayload {
-                    slot: envelope_slot,
-                    builder_index: signed_envelope.message.builder_index,
-                    block_hash: signed_envelope.block_hash(),
-                    block_root,
-                    state_root: signed_envelope.message.state_root,
-                    execution_optimistic: payload_verification_status.is_optimistic(),
-                },
-            ));
+            event_handler.register(EventKind::ExecutionPayload(SseExecutionPayload {
+                slot: envelope_slot,
+                builder_index: signed_envelope.message.builder_index,
+                block_hash: signed_envelope.block_hash(),
+                block_root,
+                state_root: signed_envelope.message.state_root,
+                execution_optimistic: payload_verification_status.is_optimistic(),
+            }));
         }
     }
 }
