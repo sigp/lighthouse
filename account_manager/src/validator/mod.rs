@@ -29,7 +29,8 @@ pub fn cli_app() -> Command {
                     Defaults to ~/.lighthouse/{network}/validators",
                 )
                 .action(ArgAction::Set)
-                .conflicts_with("datadir"),
+                .conflicts_with("datadir")
+                .global(true),
         )
         .subcommand(create::cli_app())
         .subcommand(modify::cli_app())
