@@ -2910,7 +2910,7 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
     let slot_clock = TestingSlotClock::new(
         Slot::new(0),
         Duration::from_secs(harness.chain.genesis_time),
-        Duration::from_secs(spec.seconds_per_slot),
+        spec.get_slot_duration(),
     );
     slot_clock.set_slot(harness.get_current_slot().as_u64());
 
@@ -3995,11 +3995,7 @@ async fn schema_downgrade_to_min_version(store_config: StoreConfig, archive: boo
         )
         .await;
 
-    let min_version = if spec.is_fulu_scheduled() {
-        SchemaVersion(27)
-    } else {
-        SchemaVersion(22)
-    };
+    let min_version = CURRENT_SCHEMA_VERSION;
 
     // Save the slot clock so that the new harness doesn't revert in time.
     let slot_clock = harness.chain.slot_clock.clone();
@@ -5338,8 +5334,8 @@ async fn test_safely_backfill_data_column_custody_info() {
         .await;
 
     let epoch_before_increase = Epoch::new(start_epochs);
-    let effective_delay_slots =
-        CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS / harness.chain.spec.seconds_per_slot;
+    let effective_delay_slots = CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS
+        / harness.chain.spec.get_slot_duration().as_secs();
 
     let cgc_change_slot = epoch_before_increase.end_slot(E::slots_per_epoch());
 
@@ -5599,6 +5595,7 @@ async fn test_gloas_block_and_envelope_storage_generic(
             "slot = {slot}"
         );
     }
+    check_db_invariants(&harness);
 }
 
 /// Test that Pending and Full states have the correct payload status through round-trip
@@ -5666,6 +5663,7 @@ async fn test_gloas_state_payload_status() {
 
         state = full_state;
     }
+    check_db_invariants(&harness);
 }
 
 /// Test block replay with and without envelopes.
@@ -5805,6 +5803,7 @@ async fn test_gloas_block_replay_with_envelopes() {
         replayed_full, expected_full,
         "replayed full state should match stored full state"
     );
+    check_db_invariants(&harness);
 }
 
 /// Test the hot state hierarchy with Full states stored as ReplayFrom.
@@ -5822,7 +5821,7 @@ async fn test_gloas_hot_state_hierarchy() {
     // 40 slots covers 5 epochs.
     let num_blocks = E::slots_per_epoch() * 5;
     // TODO(gloas): enable finalisation by increasing this threshold
-    let some_validators = (0..LOW_VALIDATOR_COUNT / 2).collect::<Vec<_>>();
+    let some_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
 
     let (genesis_state, _genesis_state_root) = harness.get_current_state_and_root();
 
@@ -5886,6 +5885,7 @@ async fn test_gloas_hot_state_hierarchy() {
     // Verify chain dump and iterators work with Gloas states.
     check_chain_dump(&harness, num_blocks + 1);
     check_iterators(&harness);
+    check_db_invariants(&harness);
 }
 
 /// Check that the HotColdDB's split_slot is equal to the start slot of the last finalized epoch.
@@ -6131,7 +6131,7 @@ async fn bellatrix_produce_and_store_payloads() {
             .genesis_time()
             .safe_add(
                 slot.as_u64()
-                    .safe_mul(harness.spec.seconds_per_slot)
+                    .safe_mul(harness.spec.get_slot_duration().as_secs())
                     .unwrap(),
             )
             .unwrap();

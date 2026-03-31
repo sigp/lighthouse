@@ -319,6 +319,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .spec
             .fulu_fork_epoch
             .map(|epoch| epoch.start_slot(E::slots_per_epoch()));
+        let gloas_fork_slot = self
+            .spec
+            .gloas_fork_epoch
+            .map(|epoch| epoch.start_slot(E::slots_per_epoch()));
         let oldest_blob_slot = self.get_blob_info().oldest_blob_slot;
         let oldest_data_column_slot = self.get_data_column_info().oldest_data_column_slot;
 
@@ -343,17 +347,28 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
 
             // Invariant 5: execution payload consistency.
-            // TODO(gloas): reconsider this invariant
             if check_payloads
                 && let Some(bellatrix_slot) = bellatrix_fork_slot
                 && slot >= bellatrix_slot
-                && !self.execution_payload_exists(&block_root)?
-                && !self.payload_envelope_exists(&block_root)?
             {
-                result.add_violation(InvariantViolation::ExecutionPayloadMissing {
-                    block_root,
-                    slot,
-                });
+                if let Some(gloas_slot) = gloas_fork_slot
+                    && slot >= gloas_slot
+                {
+                    // For Gloas there is never a true payload stored at slot 0.
+                    // TODO(gloas): still need to account for non-canonical payloads once pruning
+                    // is implemented.
+                    if slot != 0 && !self.payload_envelope_exists(&block_root)? {
+                        result.add_violation(InvariantViolation::ExecutionPayloadMissing {
+                            block_root,
+                            slot,
+                        });
+                    }
+                } else if !self.execution_payload_exists(&block_root)? {
+                    result.add_violation(InvariantViolation::ExecutionPayloadMissing {
+                        block_root,
+                        slot,
+                    });
+                }
             }
 
             // Invariant 6: blob sidecar consistency.

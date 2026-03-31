@@ -174,7 +174,7 @@ mod test {
         yamlconfig.extra_fields_mut().insert(k3.into(), v3.into());
         yamlconfig.extra_fields_mut().insert(k4.into(), v4);
 
-        serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
+        yaml_serde::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
         let reader = File::options()
             .read(true)
@@ -182,7 +182,7 @@ mod test {
             .open(tmp_file.as_ref())
             .expect("error while opening the file");
         let from: ConfigAndPresetGloas =
-            serde_yaml::from_reader(reader).expect("error while deserializing");
+            yaml_serde::from_reader(reader).expect("error while deserializing");
         assert_eq!(ConfigAndPreset::Gloas(from), yamlconfig);
     }
 

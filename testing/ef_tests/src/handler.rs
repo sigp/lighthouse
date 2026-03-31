@@ -537,11 +537,6 @@ impl<E: EthSpec + TypeName> Handler for RandomHandler<E> {
     fn handler_name(&self) -> String {
         "random".into()
     }
-
-    fn disabled_forks(&self) -> Vec<ForkName> {
-        // TODO(gloas): remove once we have Gloas random tests
-        vec![ForkName::Gloas]
-    }
 }
 
 #[derive(Educe)]
