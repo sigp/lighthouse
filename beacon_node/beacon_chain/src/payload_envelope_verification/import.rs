@@ -239,16 +239,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Note that a duplicate cache/payload status table should prevent this from happening
         // but it doesnt hurt to be defensive.
 
-        // TODO(gloas) when the code below is implemented we can delete this drop
-        drop(fork_choice_reader);
-
-        // TODO(gloas) no fork choice logic yet
         // Take an exclusive write-lock on fork choice. It's very important to prevent deadlocks by
         // avoiding taking other locks whilst holding this lock.
-        // let fork_choice = parking_lot::RwLockUpgradableReadGuard::upgrade(fork_choice_reader);
+        let mut fork_choice = parking_lot::RwLockUpgradableReadGuard::upgrade(fork_choice_reader);
 
-        // TODO(gloas) Do we need this check? Do not import a block that doesn't descend from the finalized root.
-        // let signed_block = check_block_is_finalized_checkpoint_or_descendant(self, &fork_choice, signed_block)?;
+        // Update the node's payload_status from PENDING to FULL in fork choice.
+        fork_choice
+            .on_execution_payload(block_root)
+            .map_err(|e| EnvelopeError::InternalError(format!("{e:?}")))?;
 
         // TODO(gloas) emit SSE event if the payload became the new head payload
 
@@ -302,10 +300,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         drop(db_span);
 
-        // TODO(gloas) drop fork choice lock
         // The fork choice write-lock is dropped *after* the on-disk database has been updated.
         // This prevents inconsistency between the two at the expense of concurrency.
-        // drop(fork_choice);
+        drop(fork_choice);
 
         // We're declaring the envelope "imported" at this point, since fork choice and the DB know
         // about it.
