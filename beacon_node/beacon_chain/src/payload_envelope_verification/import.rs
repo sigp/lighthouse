@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use eth2::types::{EventKind, SseExecutionPayloadAvailable};
 use fork_choice::PayloadVerificationStatus;
 use slot_clock::SlotClock;
 use store::StoreOp;
@@ -346,6 +347,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        // TODO(gloas) emit SSE event for envelope import (similar to SseBlock for blocks).
+        if let Some(event_handler) = self.event_handler.as_ref()
+            && event_handler.has_execution_payload_available_subscribers()
+        {
+            event_handler.register(EventKind::ExecutionPayloadAvailable(
+                SseExecutionPayloadAvailable {
+                    slot: envelope_slot,
+                    block_root,
+                },
+            ));
+        }
     }
 }
