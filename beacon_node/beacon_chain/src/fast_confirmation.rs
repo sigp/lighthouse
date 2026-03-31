@@ -1691,12 +1691,16 @@ impl FastConfirmationRule {
         )?;
 
         // Spec: compute_safety_threshold
-        // safety_threshold = (maximum_support + proposer_score - support_discount) / 2 + adversarial_weight
-        let safety_threshold =
-            (maximum_support as u128 + proposer_score as u128 - support_discount as u128) / 2
-                + adversarial_weight as u128;
+        // safety_threshold = (maximum_support + proposer_score + 2 * adversarial_weight - support_discount) / 2
+        // with an underflow guard
+        let numerator_without_discount = maximum_support + proposer_score + 2 * adversarial_weight;
+        let safety_threshold = if support_discount < numerator_without_discount {
+            (numerator_without_discount - support_discount) / 2
+        } else {
+            0
+        };
 
-        Ok(support as u128 > safety_threshold)
+        Ok(support > safety_threshold)
     }
 }
 
