@@ -59,6 +59,22 @@ pub struct AvailableEnvelope<E: EthSpec> {
 }
 
 impl<E: EthSpec> AvailableEnvelope<E> {
+    pub fn new(
+        execution_block_hash: ExecutionBlockHash,
+        envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+        columns: DataColumnSidecarList<E>,
+        columns_available_timestamp: Option<std::time::Duration>,
+        spec: Arc<ChainSpec>,
+    ) -> Self {
+        Self {
+            execution_block_hash,
+            envelope,
+            columns,
+            columns_available_timestamp,
+            spec,
+        }
+    }
+
     pub fn message(&self) -> &ExecutionPayloadEnvelope<E> {
         &self.envelope.message
     }

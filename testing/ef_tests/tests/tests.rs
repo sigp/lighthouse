@@ -1039,6 +1039,12 @@ fn fork_choice_deposit_with_reorg() {
 }
 
 #[test]
+fn fork_choice_on_execution_payload() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("on_execution_payload").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("on_execution_payload").run();
+}
+
+#[test]
 fn optimistic_sync() {
     OptimisticSyncHandler::<MinimalEthSpec>::default().run();
     OptimisticSyncHandler::<MainnetEthSpec>::default().run();

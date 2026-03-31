@@ -3995,7 +3995,7 @@ async fn schema_downgrade_to_min_version(store_config: StoreConfig, archive: boo
         )
         .await;
 
-    let min_version = CURRENT_SCHEMA_VERSION;
+    let min_version = SchemaVersion(28);
 
     // Save the slot clock so that the new harness doesn't revert in time.
     let slot_clock = harness.chain.slot_clock.clone();
@@ -5426,10 +5426,12 @@ fn assert_chains_pretty_much_the_same<T: BeaconChainTypes>(a: &BeaconChain<T>, b
             .fork_choice_write_lock()
             .get_head(slot, &spec)
             .unwrap()
+            .0
             == b.canonical_head
                 .fork_choice_write_lock()
                 .get_head(slot, &spec)
-                .unwrap(),
+                .unwrap()
+                .0,
         "fork_choice heads should be equal"
     );
 }

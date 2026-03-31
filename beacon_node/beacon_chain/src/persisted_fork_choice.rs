@@ -6,15 +6,44 @@ use superstruct::superstruct;
 use types::Hash256;
 
 // If adding a new version you should update this type alias and fix the breakages.
-pub type PersistedForkChoice = PersistedForkChoiceV28;
+pub type PersistedForkChoice = PersistedForkChoiceV29;
 
-#[superstruct(variants(V28), variant_attributes(derive(Encode, Decode)), no_enum)]
+#[superstruct(
+    variants(V28, V29),
+    variant_attributes(derive(Encode, Decode)),
+    no_enum
+)]
 pub struct PersistedForkChoice {
-    pub fork_choice: fork_choice::PersistedForkChoiceV28,
+    #[superstruct(only(V28))]
+    pub fork_choice_v28: fork_choice::PersistedForkChoiceV28,
+    #[superstruct(only(V29))]
+    pub fork_choice: fork_choice::PersistedForkChoiceV29,
+    #[superstruct(only(V28, V29))]
     pub fork_choice_store: PersistedForkChoiceStoreV28,
 }
 
-impl PersistedForkChoiceV28 {
+macro_rules! impl_store_item {
+    ($type:ty) => {
+        impl store::StoreItem for $type {
+            fn db_column() -> DBColumn {
+                DBColumn::ForkChoice
+            }
+
+            fn as_store_bytes(&self) -> Vec<u8> {
+                self.as_ssz_bytes()
+            }
+
+            fn from_store_bytes(bytes: &[u8]) -> std::result::Result<Self, Error> {
+                Self::from_ssz_bytes(bytes).map_err(Into::into)
+            }
+        }
+    };
+}
+
+impl_store_item!(PersistedForkChoiceV28);
+impl_store_item!(PersistedForkChoiceV29);
+
+impl PersistedForkChoiceV29 {
     pub fn from_bytes(bytes: &[u8], store_config: &StoreConfig) -> Result<Self, Error> {
         let decompressed_bytes = store_config
             .decompress_bytes(bytes)
@@ -43,5 +72,14 @@ impl PersistedForkChoiceV28 {
             key.as_slice().to_vec(),
             self.as_bytes(store_config)?,
         ))
+    }
+}
+
+impl From<PersistedForkChoiceV28> for PersistedForkChoiceV29 {
+    fn from(v28: PersistedForkChoiceV28) -> Self {
+        Self {
+            fork_choice: v28.fork_choice_v28.into(),
+            fork_choice_store: v28.fork_choice_store,
+        }
     }
 }
