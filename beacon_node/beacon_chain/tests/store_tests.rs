@@ -3995,7 +3995,7 @@ async fn schema_downgrade_to_min_version(store_config: StoreConfig, archive: boo
         )
         .await;
 
-    let min_version = CURRENT_SCHEMA_VERSION;
+    let min_version = SchemaVersion(28);
 
     // Save the slot clock so that the new harness doesn't revert in time.
     let slot_clock = harness.chain.slot_clock.clone();
