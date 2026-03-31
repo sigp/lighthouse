@@ -1840,6 +1840,15 @@ impl From<PersistedForkChoiceV28> for PersistedForkChoiceV29 {
     }
 }
 
+impl From<PersistedForkChoiceV29> for PersistedForkChoiceV28 {
+    fn from(v29: PersistedForkChoiceV29) -> Self {
+        Self {
+            proto_array_v28: v29.proto_array.into(),
+            queued_attestations: v29.queued_attestations,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use types::MainnetEthSpec;

@@ -22,13 +22,13 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         (_, _) if from == to && to == CURRENT_SCHEMA_VERSION => Ok(()),
         // Upgrade from v28 to v29.
         (SchemaVersion(28), SchemaVersion(29)) => {
-            upgrade_to_v29::<T>(&db)?;
-            db.store_schema_version_atomically(to, vec![])
+            let ops = upgrade_to_v29::<T>(&db)?;
+            db.store_schema_version_atomically(to, ops)
         }
         // Downgrade from v29 to v28.
         (SchemaVersion(29), SchemaVersion(28)) => {
-            downgrade_from_v29::<T>(&db)?;
-            db.store_schema_version_atomically(to, vec![])
+            let ops = downgrade_from_v29::<T>(&db)?;
+            db.store_schema_version_atomically(to, ops)
         }
         // Anything else is an error.
         (_, _) => Err(HotColdDBError::UnsupportedSchemaVersion {
