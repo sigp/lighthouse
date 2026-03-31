@@ -185,7 +185,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         &self,
         block_root: Hash256,
         header: &Arc<PartialDataColumnHeader<E>>,
-    ) -> Option<Vec<KzgVerifiedCustodyPartialDataColumn<E>>> {
+    ) -> Vec<KzgVerifiedCustodyPartialDataColumn<E>> {
         let mut assemblies = self.assemblies.write();
         let assembly = assemblies.get_or_insert_mut(block_root, || PartialAssembly {
             header: header.clone(),
@@ -206,7 +206,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
                 }
             })
             .collect();
-        Some(columns)
+        columns
     }
 
     /// Get header for a block if we have an active assembly

@@ -998,20 +998,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
 
         // Publish partial columns without eager send
-        if let Some(columns) = self
-            .chain
-            .data_availability_checker
-            .partial_assembler()
-            .and_then(|a| a.get_partials_and_mark_as_local_fetched(block_root, &header))
-        {
-            debug!(block = %block_root, "Publishing all partials after getBlobs");
-            self.send_network_message(NetworkMessage::PublishPartialColumns {
-                columns: columns
-                    .into_iter()
-                    .map(|partial| partial.into_inner())
-                    .collect(),
-                header,
-            });
+        if let Some(assembler) = self.chain.data_availability_checker.partial_assembler() {
+            let columns = assembler.get_partials_and_mark_as_local_fetched(block_root, &header);
+            if !columns.is_empty() {
+                debug!(block = %block_root, "Publishing all partials after getBlobs");
+                self.send_network_message(NetworkMessage::PublishPartialColumns {
+                    columns: columns
+                        .into_iter()
+                        .map(|partial| partial.into_inner())
+                        .collect(),
+                    header,
+                });
+            } else {
+                debug!(block = %block_root, "No partials to publish after getBlobs");
+            }
         }
     }
 

@@ -7,7 +7,7 @@ use crate::{
 use educe::Educe;
 use kzg::KzgProof;
 use merkle_proof::verify_merkle_proof;
-use ssz::{BitList, Encode};
+use ssz::BitList;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
 use std::fmt::Display;
@@ -28,7 +28,7 @@ pub type CellBitmap<E> = BitList<<E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 #[educe(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
 pub struct PartialDataColumnSidecar<E: EthSpec> {
     pub cells_present_bitmap: CellBitmap<E>,
-    pub column: VariableList<Cell<E>, <E as EthSpec>::MaxBlobCommitmentsPerBlock>,
+    pub column: VariableList<Cell<E>, E::MaxBlobCommitmentsPerBlock>,
     pub kzg_proofs: VariableList<KzgProof, E::MaxBlobCommitmentsPerBlock>,
     pub header: VariableList<PartialDataColumnHeader<E>, U1>,
 }
@@ -46,41 +46,6 @@ pub struct PartialDataColumnSidecarRef<'a, E: EthSpec> {
 }
 
 impl<E: EthSpec> PartialDataColumnSidecar<E> {
-    pub fn min_size() -> usize {
-        // min size is one cell
-        Self {
-            cells_present_bitmap: BitList::with_capacity(1).unwrap(),
-            column: VariableList::new(vec![Cell::<E>::default()]).unwrap(),
-            kzg_proofs: VariableList::new(vec![KzgProof::empty()]).unwrap(),
-            header: VariableList::new(vec![]).unwrap(),
-        }
-        .as_ssz_bytes()
-        .len()
-    }
-
-    pub fn size(present_blobs: usize, block_blobs: usize) -> usize {
-        // min size is one cell
-        Self {
-            cells_present_bitmap: BitList::with_capacity(block_blobs).unwrap(),
-            column: VariableList::new(vec![Default::default(); present_blobs]).unwrap(),
-            kzg_proofs: VariableList::new(vec![KzgProof::empty(); present_blobs]).unwrap(),
-            header: VariableList::new(vec![]).unwrap(), // header is not being sent on cell push
-        }
-        .as_ssz_bytes()
-        .len()
-    }
-
-    pub fn max_size(max_blobs_per_block: usize) -> usize {
-        Self {
-            cells_present_bitmap: BitList::with_capacity(max_blobs_per_block).unwrap(),
-            column: VariableList::new(vec![Default::default(); max_blobs_per_block]).unwrap(),
-            kzg_proofs: VariableList::new(vec![KzgProof::empty(); max_blobs_per_block]).unwrap(),
-            header: VariableList::new(vec![]).unwrap(), // header is not being sent on cell push
-        }
-        .as_ssz_bytes()
-        .len()
-    }
-
     pub fn is_complete(&self) -> bool {
         self.cells_present_bitmap.iter().all(|bit| bit)
     }
@@ -288,6 +253,7 @@ mod tests {
     use bls::Signature;
     use fixed_bytes::FixedBytesExtended;
     use kzg::KzgCommitment;
+    use ssz::Encode;
 
     type E = MinimalEthSpec;
 
