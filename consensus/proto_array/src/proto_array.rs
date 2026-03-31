@@ -1431,7 +1431,30 @@ impl ProtoArray {
                 .nodes
                 .get(node.proto_node_index)
                 .ok_or(Error::InvalidNodeIndex(node.proto_node_index))?;
-            
+
+            // V17 (pre-GLOAS) nodes don't have payload_received or parent_payload_status.
+            // Skip the virtual Empty/Full split and return real children directly.
+            if proto_node.as_v17().is_ok() {
+                let child_indices = children_index
+                    .get(node.proto_node_index)
+                    .map(|c| c.as_slice())
+                    .unwrap_or(&[]);
+                return Ok(child_indices
+                    .iter()
+                    .filter_map(|&child_index| {
+                        let child_node = self.nodes.get(child_index)?;
+                        Some((
+                            IndexedForkChoiceNode {
+                                root: child_node.root(),
+                                proto_node_index: child_index,
+                                payload_status: PayloadStatus::Pending,
+                            },
+                            child_node.clone(),
+                        ))
+                    })
+                    .collect());
+            }
+
             // TODO(gloas) this is the actual change we want to keep once PTC is implemented
             // let mut children = vec![(node.with_status(PayloadStatus::Empty), proto_node.clone())];
             // // The FULL virtual child only exists if the payload has been received.
@@ -1448,7 +1471,7 @@ impl ProtoArray {
                 vec![(node.with_status(PayloadStatus::Empty), proto_node.clone())]
             };
             // TODO(gloas) delete up to here
-            
+
             Ok(children)
         } else {
             let child_indices = children_index
@@ -1459,7 +1482,10 @@ impl ProtoArray {
                 .iter()
                 .filter_map(|&child_index| {
                     let child_node = self.nodes.get(child_index)?;
-                    if child_node.get_parent_payload_status() != node.payload_status {
+                    // Skip parent_payload_status filter for V17 children (they don't have it)
+                    if child_node.as_v17().is_err()
+                        && child_node.get_parent_payload_status() != node.payload_status
+                    {
                         return None;
                     }
                     Some((
