@@ -42,6 +42,7 @@ use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
+use types::SignedExecutionPayloadEnvelope;
 use types::data::CustodyIndex;
 use types::{
     BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList,
@@ -426,6 +427,7 @@ where
         mut weak_subj_state: BeaconState<E>,
         weak_subj_block: SignedBeaconBlock<E>,
         weak_subj_blobs: Option<BlobSidecarList<E>>,
+        weak_subj_payload: Option<SignedExecutionPayloadEnvelope<E>>,
         genesis_state: BeaconState<E>,
     ) -> Result<Self, String> {
         let store = self
@@ -601,6 +603,13 @@ where
                     .map_err(|e| format!("Failed to store weak subjectivity blobs: {e:?}"))?;
             }
         }
+        if let Some(ref envelope) = weak_subj_payload {
+            store
+                .put_payload_envelope(&weak_subj_block_root, envelope.clone())
+                .map_err(|e| {
+                    format!("Failed to store weak subjectivity payload envelope: {e:?}")
+                })?;
+        }
 
         // Stage the database's metadata fields for atomic storage when `build` is called.
         // This prevents the database from restarting in an inconsistent state if the anchor
@@ -617,10 +626,25 @@ where
                 .map_err(|e| format!("Failed to initialize data column info: {:?}", e))?,
         );
 
+        if self
+            .spec
+            .fork_name_at_slot::<E>(weak_subj_slot)
+            .gloas_enabled()
+        {
+            let envelope = weak_subj_payload.as_ref().ok_or_else(|| {
+                "Gloas checkpoint sync requires an execution payload envelope".to_string()
+            })?;
+            if envelope.message.beacon_block_root != weak_subj_block_root {
+                return Err(format!(
+                    "Envelope beacon_block_root {:?} does not match block root {:?}",
+                    envelope.message.beacon_block_root, weak_subj_block_root
+                ));
+            }
+        }
         // TODO(gloas): add check that checkpoint state is Pending
         let snapshot = BeaconSnapshot {
             beacon_block_root: weak_subj_block_root,
-            execution_envelope: None,
+            execution_envelope: weak_subj_payload.map(Arc::new),
             beacon_block: Arc::new(weak_subj_block),
             beacon_state: weak_subj_state,
         };

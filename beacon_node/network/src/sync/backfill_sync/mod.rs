@@ -35,7 +35,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
 use tracing::{debug, error, info, warn};
-use types::{ColumnIndex, Epoch, EthSpec};
+use types::{ColumnIndex, Epoch, EthSpec, ForkName};
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of
 /// blocks per batch are requested _at most_. A batch may request less blocks to account for
@@ -218,6 +218,14 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         match self.state() {
             BackFillState::Syncing => {} // already syncing ignore.
             BackFillState::Paused => {
+                if self
+                    .beacon_chain
+                    .spec
+                    .fork_name_at_epoch(self.to_be_downloaded)
+                    >= ForkName::Gloas
+                {
+                    return Ok(SyncStart::NotSyncing);
+                }
                 if self
                     .network_globals
                     .peers

@@ -941,6 +941,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )?
     }
 
+    /// Returns the Pending (pre-payload) state root at the given slot in the canonical chain.
+    ///
+    /// In ePBS (Gloas+), if the canonical state at `slot` is Full (post-payload), this resolves
+    /// to the same-slot Pending state root. For skipped slots or pre-Gloas, returns the canonical
+    /// state root unchanged.
+    pub fn pending_state_root_at_slot(&self, request_slot: Slot) -> Result<Option<Hash256>, Error> {
+        let Some(root) = self.state_root_at_slot(request_slot)? else {
+            return Ok(None);
+        };
+
+        // Pre-Gloas: all states are inherently Pending.
+        if !self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(request_slot)
+            .gloas_enabled()
+        {
+            return Ok(Some(root));
+        }
+
+        Ok(Some(self.store.resolve_pending_state_root(&root)?))
+    }
+
     /// Returns the block root at the given slot, if any. Only returns roots in the canonical chain.
     ///
     /// ## Notes

@@ -1951,6 +1951,66 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
+    /// Resolve a canonical state root to the Pending (pre-payload) state root at the same slot.
+    ///
+    /// In ePBS, checkpoint states (finalized, justified) should be returned as their Pending
+    /// variant. This function takes a canonical state root and:
+    ///
+    /// - If the state is already Pending (or pre-Gloas), returns it unchanged.
+    /// - If the state is Full due to a payload applied at this slot, returns the same-slot
+    ///   Pending state root via `previous_state_root`.
+    /// - If the state is at a skipped slot (inheriting Full status from a prior slot), returns
+    ///   it unchanged — there is no distinct Pending state at a skipped slot.
+    pub fn resolve_pending_state_root(&self, state_root: &Hash256) -> Result<Hash256, Error> {
+        // Fast path: split state is always Pending.
+        let split = self.get_split_info();
+        if *state_root == split.state_root {
+            return Ok(split.state_root);
+        }
+
+        // Try hot DB first.
+        if let Some(summary) = self.load_hot_state_summary(state_root)? {
+            // Pre-Gloas states are always Pending.
+            if !self
+                .spec
+                .fork_name_at_slot::<E>(summary.slot)
+                .gloas_enabled()
+            {
+                return Ok(*state_root);
+            }
+
+            // Genesis state is always Pending.
+            if summary.previous_state_root.is_zero() {
+                return Ok(*state_root);
+            }
+
+            // Load the previous state summary. If it has the same slot, the current state is
+            // Full (post-payload) and the previous state is Pending (post-block). Return the
+            // Pending state root.
+            let previous_summary = self
+                .load_hot_state_summary(&summary.previous_state_root)?
+                .ok_or(Error::MissingHotStateSummary(summary.previous_state_root))?;
+
+            if previous_summary.slot == summary.slot {
+                // This is a Full state at a non-skipped slot. Return the Pending state root.
+                return Ok(summary.previous_state_root);
+            }
+
+            // Either already Pending (block at this slot) or a skipped slot — return as-is.
+            return Ok(*state_root);
+        }
+
+        // Try cold DB.
+        if let Some(_slot) = self.load_cold_state_slot(state_root)? {
+            // Cold DB states: the non-canonical payload variant is pruned during migration.
+            // Return whatever is stored. In practice, finalized/justified states are almost
+            // always in the hot DB or at the split point.
+            return Ok(*state_root);
+        }
+
+        Err(Error::MissingHotStateSummary(*state_root))
+    }
+
     fn load_hot_hdiff_buffer(&self, state_root: Hash256) -> Result<HDiffBuffer, Error> {
         if let Some(buffer) = self
             .state_cache

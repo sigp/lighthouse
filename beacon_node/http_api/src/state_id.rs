@@ -43,14 +43,32 @@ impl StateId {
                     chain.canonical_head.cached_head().finalized_checkpoint();
                 let (slot, execution_optimistic) =
                     checkpoint_slot_and_execution_optimistic(chain, finalized_checkpoint)?;
-                (slot, execution_optimistic, true)
+                let root = chain
+                    .pending_state_root_at_slot(slot)
+                    .map_err(warp_utils::reject::unhandled_error)?
+                    .ok_or_else(|| {
+                        warp_utils::reject::custom_not_found(format!(
+                            "beacon state at slot {}",
+                            slot
+                        ))
+                    })?;
+                return Ok((root, execution_optimistic, true));
             }
             CoreStateId::Justified => {
                 let justified_checkpoint =
                     chain.canonical_head.cached_head().justified_checkpoint();
                 let (slot, execution_optimistic) =
                     checkpoint_slot_and_execution_optimistic(chain, justified_checkpoint)?;
-                (slot, execution_optimistic, false)
+                let root = chain
+                    .pending_state_root_at_slot(slot)
+                    .map_err(warp_utils::reject::unhandled_error)?
+                    .ok_or_else(|| {
+                        warp_utils::reject::custom_not_found(format!(
+                            "beacon state at slot {}",
+                            slot
+                        ))
+                    })?;
+                return Ok((root, execution_optimistic, false));
             }
             CoreStateId::Slot(slot) => (
                 *slot,
