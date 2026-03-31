@@ -12,7 +12,7 @@ use crate::{
     PayloadVerificationOutcome,
     block_verification::PayloadVerificationHandle,
     payload_envelope_verification::{
-        EnvelopeError, EnvelopeImportData, MaybeAvailableEnvelope,
+        AvailableEnvelope, EnvelopeError, EnvelopeImportData, MaybeAvailableEnvelope,
         gossip_verified_envelope::GossipVerifiedEnvelope, load_snapshot_from_state_root,
         payload_notifier::PayloadNotifier,
     },
@@ -32,7 +32,6 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
     ) -> Result<ExecutionPendingEnvelope<T::EthSpec>, EnvelopeError> {
         let signed_envelope = self.signed_envelope;
         let envelope = &signed_envelope.message;
-        let payload = &envelope.payload;
 
         // Define a future that will verify the execution payload with an execution engine.
         //
@@ -91,10 +90,13 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         )?;
 
         Ok(ExecutionPendingEnvelope {
-            signed_envelope: MaybeAvailableEnvelope::AvailabilityPending {
-                block_hash: payload.block_hash,
-                envelope: signed_envelope,
-            },
+            signed_envelope: MaybeAvailableEnvelope::Available(AvailableEnvelope::new(
+                signed_envelope.block_hash(),
+                signed_envelope.clone(),
+                vec![],
+                None,
+                chain.spec.clone(),
+            )),
             import_data: EnvelopeImportData {
                 block_root,
                 post_state: Box::new(state),
