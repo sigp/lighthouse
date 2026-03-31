@@ -47,7 +47,7 @@ pub struct EnvelopeImportData<E: EthSpec> {
     pub post_state: Box<BeaconState<E>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct AvailableEnvelope<E: EthSpec> {
     execution_block_hash: ExecutionBlockHash,

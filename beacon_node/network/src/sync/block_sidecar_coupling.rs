@@ -4,11 +4,13 @@ use beacon_chain::{
     data_availability_checker::DataAvailabilityChecker,
     data_column_verification::CustodyDataColumn,
     get_block_root,
+    payload_envelope_verification::AvailableEnvelope,
 };
 use lighthouse_network::{
     PeerId,
     service::api_types::{
         BlobsByRangeRequestId, BlocksByRangeRequestId, DataColumnsByRangeRequestId,
+        PayloadEnvelopesByRangeRequestId,
     },
 };
 use ssz_types::RuntimeVariableList;
@@ -16,7 +18,7 @@ use std::{collections::HashMap, sync::Arc};
 use tracing::{Span, debug};
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
-    Hash256, SignedBeaconBlock,
+    Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
 };
 
 use crate::sync::network_context::MAX_COLUMN_RETRIES;
@@ -35,6 +37,13 @@ use crate::sync::network_context::MAX_COLUMN_RETRIES;
 pub struct RangeBlockComponentsRequest<E: EthSpec> {
     /// Blocks we have received awaiting for their corresponding sidecar.
     blocks_request: ByRangeRequest<BlocksByRangeRequestId, Vec<Arc<SignedBeaconBlock<E>>>>,
+    /// Payload envelopes (Gloas+). None for pre-Gloas forks.
+    payloads_request: Option<
+        ByRangeRequest<
+            PayloadEnvelopesByRangeRequestId,
+            Vec<Arc<SignedExecutionPayloadEnvelope<E>>>,
+        >,
+    >,
     /// Sidecars we have received awaiting for their corresponding block.
     block_data_request: RangeBlockDataRequest<E>,
     /// Span to track the range request and all children range requests.
@@ -88,6 +97,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             Vec<(DataColumnsByRangeRequestId, Vec<ColumnIndex>)>,
             Vec<ColumnIndex>,
         )>,
+        payloads_req_id: Option<PayloadEnvelopesByRangeRequestId>,
         request_span: Span,
     ) -> Self {
         let block_data_request = if let Some(blobs_req_id) = blobs_req_id {
@@ -109,6 +119,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 
         Self {
             blocks_request: ByRangeRequest::Active(blocks_req_id),
+            payloads_request: payloads_req_id.map(ByRangeRequest::Active),
             block_data_request,
             request_span,
         }
@@ -191,6 +202,18 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         }
     }
 
+    /// Adds received payload envelopes to the request.
+    pub fn add_payload_envelopes(
+        &mut self,
+        req_id: PayloadEnvelopesByRangeRequestId,
+        envelopes: Vec<Arc<SignedExecutionPayloadEnvelope<E>>>,
+    ) -> Result<(), String> {
+        match &mut self.payloads_request {
+            Some(req) => req.finish(req_id, envelopes),
+            None => Err("received payload envelopes but none expected".to_owned()),
+        }
+    }
+
     /// Attempts to construct RPC blocks from all received components.
     ///
     /// Returns `None` if not all expected requests have completed.
@@ -207,6 +230,13 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         let Some(blocks) = self.blocks_request.to_finished() else {
             return None;
         };
+
+        // If payloads are expected, they must also be complete before we can produce responses.
+        if let Some(payloads_req) = &self.payloads_request
+            && payloads_req.to_finished().is_none()
+        {
+            return None;
+        }
 
         // Increment the attempt once this function returns the response or errors
         match &mut self.block_data_request {
@@ -254,15 +284,29 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     }
                 }
 
-                let resp = Self::responses_with_custody_columns(
-                    blocks.to_vec(),
-                    data_columns,
-                    column_to_peer_id,
-                    expected_custody_columns,
-                    *attempt,
-                    da_checker,
-                    spec,
-                );
+                // Gloas path: if payloads are present, produce Gloas blocks
+                let resp = if let Some(payloads_req) = &self.payloads_request {
+                    let payloads = payloads_req.to_finished().expect("checked above").to_vec();
+                    Self::responses_gloas(
+                        blocks.to_vec(),
+                        payloads,
+                        data_columns,
+                        column_to_peer_id,
+                        expected_custody_columns,
+                        *attempt,
+                        spec,
+                    )
+                } else {
+                    Self::responses_with_custody_columns(
+                        blocks.to_vec(),
+                        data_columns,
+                        column_to_peer_id,
+                        expected_custody_columns,
+                        *attempt,
+                        da_checker,
+                        spec,
+                    )
+                };
 
                 if let Err(CouplingError::DataColumnPeerFailure {
                     error: _,
@@ -460,6 +504,136 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 
         Ok(range_sync_blocks)
     }
+
+    /// Couples blocks with payload envelopes and custody columns for Gloas.
+    /// In Gloas, columns are associated with the envelope (not the block directly).
+    fn responses_gloas(
+        blocks: Vec<Arc<SignedBeaconBlock<E>>>,
+        payloads: Vec<Arc<SignedExecutionPayloadEnvelope<E>>>,
+        data_columns: DataColumnSidecarList<E>,
+        column_to_peer: HashMap<u64, PeerId>,
+        expects_custody_columns: &[ColumnIndex],
+        attempt: usize,
+        spec: Arc<ChainSpec>,
+    ) -> Result<Vec<RangeSyncBlock<E>>, CouplingError> {
+        // Group data columns by block_root
+        let mut data_columns_by_block =
+            HashMap::<Hash256, HashMap<ColumnIndex, Arc<DataColumnSidecar<E>>>>::new();
+
+        for column in data_columns {
+            let block_root = column.block_root();
+            let index = *column.index();
+            if data_columns_by_block
+                .entry(block_root)
+                .or_default()
+                .insert(index, column)
+                .is_some()
+            {
+                debug!(?block_root, ?index, "Repeated column for block_root");
+            }
+        }
+
+        let mut range_sync_blocks = Vec::with_capacity(blocks.len());
+        let mut payload_iter = payloads.into_iter().peekable();
+        let exceeded_retries = attempt >= MAX_COLUMN_RETRIES;
+
+        for block in blocks {
+            // Match payload envelope to block by slot
+            let mut envelope_for_block = None;
+            if payload_iter
+                .peek()
+                .map(|e| e.message.slot == block.slot())
+                .unwrap_or(false)
+            {
+                envelope_for_block = payload_iter.next();
+            }
+
+            let block_root = get_block_root(&block);
+
+            let available_envelope = if block.num_expected_blobs() > 0 {
+                // Block has blobs — envelope and columns are required
+                let envelope = envelope_for_block.ok_or_else(|| {
+                    CouplingError::InternalError(format!(
+                        "Missing payload envelope for block {block_root:?} with blobs"
+                    ))
+                })?;
+
+                let Some(mut data_columns_by_index) = data_columns_by_block.remove(&block_root)
+                else {
+                    let responsible_peers = column_to_peer.iter().map(|c| (*c.0, *c.1)).collect();
+                    return Err(CouplingError::DataColumnPeerFailure {
+                        error: format!("No columns for block {block_root:?} with data"),
+                        faulty_peers: responsible_peers,
+                        exceeded_retries,
+                    });
+                };
+
+                let mut custody_columns = vec![];
+                let mut naughty_peers = vec![];
+                for index in expects_custody_columns {
+                    if let Some(data_column) = data_columns_by_index.remove(index) {
+                        custody_columns.push(data_column);
+                    } else {
+                        let Some(responsible_peer) = column_to_peer.get(index) else {
+                            return Err(CouplingError::InternalError(format!(
+                                "Internal error, no request made for column {index}"
+                            )));
+                        };
+                        naughty_peers.push((*index, *responsible_peer));
+                    }
+                }
+                if !naughty_peers.is_empty() {
+                    return Err(CouplingError::DataColumnPeerFailure {
+                        error: format!(
+                            "Peers did not return column for block_root {block_root:?} {naughty_peers:?}"
+                        ),
+                        faulty_peers: naughty_peers,
+                        exceeded_retries,
+                    });
+                }
+
+                Some(Box::new(AvailableEnvelope::new(
+                    envelope.block_hash(),
+                    envelope,
+                    custody_columns,
+                    None,
+                    spec.clone(),
+                )))
+            } else {
+                envelope_for_block.map(|envelope| {
+                    Box::new(AvailableEnvelope::new(
+                        envelope.block_hash(),
+                        envelope,
+                        vec![],
+                        None,
+                        spec.clone(),
+                    ))
+                })
+            };
+
+            range_sync_blocks.push(RangeSyncBlock::new_gloas(block, available_envelope));
+        }
+
+        // Log any remaining unmatched payloads
+        if payload_iter.next().is_some() {
+            let remaining = payload_iter.count() + 1;
+            debug!(
+                remaining,
+                "Received payload envelopes that don't pair with blocks"
+            );
+        }
+
+        // Log remaining unmatched columns
+        if !data_columns_by_block.is_empty() {
+            let remaining_roots = data_columns_by_block.keys().collect::<Vec<_>>();
+            debug!(
+                ?remaining_roots,
+                "Not all columns consumed for Gloas blocks"
+            );
+        }
+
+        Ok(range_sync_blocks)
+    }
 }
 
 impl<I: PartialEq + std::fmt::Display, T> ByRangeRequest<I, T> {
@@ -560,7 +734,7 @@ mod tests {
 
         let blocks_req_id = blocks_id(components_id());
         let mut info =
-            RangeBlockComponentsRequest::<E>::new(blocks_req_id, None, None, Span::none());
+            RangeBlockComponentsRequest::<E>::new(blocks_req_id, None, None, None, Span::none());
 
         // Send blocks and complete terminate response
         info.add_blocks(blocks_req_id, blocks).unwrap();
@@ -590,6 +764,7 @@ mod tests {
         let mut info = RangeBlockComponentsRequest::<E>::new(
             blocks_req_id,
             Some(blobs_req_id),
+            None,
             None,
             Span::none(),
         );
@@ -650,6 +825,7 @@ mod tests {
             blocks_req_id,
             None,
             Some((columns_req_id.clone(), expects_custody_columns.clone())),
+            None,
             Span::none(),
         );
         // Send blocks and complete terminate response
@@ -726,6 +902,7 @@ mod tests {
             blocks_req_id,
             None,
             Some((columns_req_id.clone(), expected_sampling_columns.clone())),
+            None,
             Span::none(),
         );
 
@@ -818,6 +995,7 @@ mod tests {
             blocks_req_id,
             None,
             Some((columns_req_id.clone(), expected_sampling_columns.clone())),
+            None,
             Span::none(),
         );
 
@@ -915,6 +1093,7 @@ mod tests {
             blocks_req_id,
             None,
             Some((columns_req_id.clone(), expected_sampling_columns.clone())),
+            None,
             Span::none(),
         );
 
@@ -1030,6 +1209,7 @@ mod tests {
             blocks_req_id,
             None,
             Some((columns_req_id.clone(), expected_sampling_columns.clone())),
+            None,
             Span::none(),
         );
 

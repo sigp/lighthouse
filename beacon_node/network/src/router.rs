@@ -333,10 +333,8 @@ impl<T: BeaconChainTypes> Router<T> {
             Response::PayloadEnvelopesByRoot(envelope) => {
                 self.on_payload_envelopes_by_root_response(peer_id, app_request_id, envelope);
             }
-            // TODO(EIP-7732): implement outgoing payload envelopes by range responses once
-            // range sync requests them.
-            Response::PayloadEnvelopesByRange(_) => {
-                unreachable!()
+            Response::PayloadEnvelopesByRange(envelope) => {
+                self.on_payload_envelopes_by_range_response(peer_id, app_request_id, envelope);
             }
             // Light client responses should not be received
             Response::LightClientBootstrap(_)
@@ -831,6 +829,29 @@ impl<T: BeaconChainTypes> Router<T> {
             });
         } else {
             crit!("All data columns by range responses should belong to sync");
+        }
+    }
+
+    pub fn on_payload_envelopes_by_range_response(
+        &mut self,
+        peer_id: PeerId,
+        app_request_id: AppRequestId,
+        envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+    ) {
+        trace!(
+            %peer_id,
+            "Received PayloadEnvelopesByRange Response"
+        );
+
+        if let AppRequestId::Sync(sync_request_id) = app_request_id {
+            self.send_to_sync(SyncMessage::RpcPayloadEnvelope {
+                peer_id,
+                sync_request_id,
+                envelope,
+                seen_timestamp: timestamp_now(),
+            });
+        } else {
+            crit!("All payload envelopes by range responses should belong to sync");
         }
     }
 

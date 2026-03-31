@@ -20,7 +20,7 @@ use tracing::{debug, error, instrument};
 use types::data::{BlobIdentifier, FixedBlobSidecarList};
 use types::{
     BlobSidecar, BlobSidecarList, BlockImportSource, ChainSpec, DataColumnSidecar,
-    DataColumnSidecarList, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
+    DataColumnSidecarList, Epoch, EthSpec, ForkName, Hash256, SignedBeaconBlock, Slot,
 };
 
 mod error;
@@ -418,6 +418,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// - If the epoch is from prior to the data availability boundary, no data columns are required.
     pub fn data_columns_required_for_epoch(&self, epoch: Epoch) -> bool {
         self.da_check_required_for_epoch(epoch) && self.spec.is_peer_das_enabled_for_epoch(epoch)
+    }
+
+    /// Determines if execution payload envelopes are required for an epoch (Gloas and later).
+    pub fn envelopes_required_for_epoch(&self, epoch: Epoch) -> bool {
+        self.spec.fork_name_at_epoch(epoch) >= ForkName::Gloas
     }
 
     /// See `Self::blobs_required_for_epoch`
