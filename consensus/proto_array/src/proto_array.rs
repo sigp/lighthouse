@@ -1483,9 +1483,7 @@ impl ProtoArray {
                 .filter_map(|&child_index| {
                     let child_node = self.nodes.get(child_index)?;
                     // Skip parent_payload_status filter for V17 children (they don't have it)
-                    if child_node.as_v17().is_err()
-                        && child_node.get_parent_payload_status() != node.payload_status
-                    {
+                    if child_node.get_parent_payload_status() != node.payload_status {
                         return None;
                     }
                     Some((
