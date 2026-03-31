@@ -110,6 +110,7 @@ where
 
                 // Apply payload envelope for Gloas blocks (post-block, to transition
                 // state from Pending to Full).
+                // TODO(gloas): this is wrong, need to check envelope canonicity.
                 if let Some(ref block) = block
                     && let Some(envelope) = self.get_payload_envelope(&block_root)?
                 {
