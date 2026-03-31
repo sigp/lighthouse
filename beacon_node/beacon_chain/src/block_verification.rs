@@ -1960,37 +1960,31 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
         // Post-Gloas we must also fetch a state with the correct payload status. If the current
         // block builds upon the payload of its parent block, then we know the parent block is FULL
         // and we need to load the full state.
-        let (payload_status, parent_state_root) =
-            if block.as_block().fork_name_unchecked().gloas_enabled()
-                && let Ok(parent_bid_block_hash) = parent_block.payload_bid_block_hash()
-            {
-                if !parent_bid_block_hash.into_root().is_zero()
-                    && block.as_block().is_parent_block_full(parent_bid_block_hash)
-                {
-                    // TODO(gloas): loading the envelope here is not very efficient
-                    let envelope = chain.store.get_payload_envelope(&root)?;
-                    let state_root = if let Some(envelope) = envelope {
-                        envelope.message.state_root
-                    } else {
-                        // The envelope may not be stored yet for the genesis/anchor
-                        // block. Fall back to the block's state_root which is the
-                        // post-payload state for the anchor per get_forkchoice_store.
-                        if parent_block.slot() == chain.spec.genesis_slot {
-                            parent_block.state_root()
-                        } else {
-                            return Err(BeaconChainError::DBInconsistent(format!(
-                                "Missing envelope for parent block {root:?}",
-                            ))
-                            .into());
-                        }
-                    };
-                    (StatePayloadStatus::Full, state_root)
-                } else {
-                    (StatePayloadStatus::Pending, parent_block.state_root())
-                }
-            } else {
-                (StatePayloadStatus::Pending, parent_block.state_root())
+        let (payload_status, parent_state_root) = if parent_block.slot() == chain.spec.genesis_slot
+        {
+            // Genesis state is always pending, there is no such thing as a "genesis envelope".
+            // See: https://github.com/ethereum/consensus-specs/issues/5043
+            (StatePayloadStatus::Pending, parent_block.state_root())
+        } else if !block.as_block().fork_name_unchecked().gloas_enabled() {
+            // All pre-Gloas parent states are pending.
+            (StatePayloadStatus::Pending, parent_block.state_root())
+        } else if let Ok(parent_bid_block_hash) = parent_block.payload_bid_block_hash()
+            && block.as_block().is_parent_block_full(parent_bid_block_hash)
+        {
+            // Post-Gloas Full block case.
+            // TODO(gloas): loading the envelope here is not very efficient
+            let Some(envelope) = chain.store.get_payload_envelope(&root)? else {
+                return Err(BeaconChainError::DBInconsistent(format!(
+                    "Missing envelope for parent block {root:?}",
+                ))
+                .into());
             };
+            let state_root = envelope.message.state_root;
+            (StatePayloadStatus::Full, state_root)
+        } else {
+            // Post-Gloas empty block case (also covers the Gloas fork transition).
+            (StatePayloadStatus::Pending, parent_block.state_root())
+        };
         let (parent_state_root, state) = chain
             .store
             .get_advanced_hot_state(root, payload_status, block.slot(), parent_state_root)?
