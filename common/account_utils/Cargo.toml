@@ -14,8 +14,8 @@ rand = { workspace = true }
 regex = { workspace = true }
 rpassword = "5.0.0"
 serde = { workspace = true }
-serde_yaml = { workspace = true }
 tracing = { workspace = true }
 types = { workspace = true }
 validator_dir = { workspace = true }
+yaml_serde = { workspace = true }
 zeroize = { workspace = true }

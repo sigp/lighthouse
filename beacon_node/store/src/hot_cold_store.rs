@@ -1917,6 +1917,26 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
+    /// Recompute the payload status for a state at `slot` that is stored in the cold DB.
+    ///
+    /// This function returns an error for any `slot` that is outside the range of slots stored in
+    /// the freezer DB.
+    ///
+    /// For all slots prior to Gloas, it returns `Pending`.
+    ///
+    /// For post-Gloas slots the algorithm is:
+    ///
+    /// 1. Load the most recently applied block at `slot` (may not be from `slot` in case of a skip)
+    /// 2. Load the canonical `state_root` at the slot of the block. If this `state_root` matches
+    ///    the one in the block then we know the state at *that* slot is canonically empty (no
+    ///    payload). Conversely, if it is different, we know that the block's slot is full (assuming
+    ///    no database corruption).
+    /// 3. The payload status of `slot` is the same as the payload status of `block.slot()`, because
+    ///    we only care about whether a beacon block or payload was applied most recently, and
+    ///    `block` is by definition the most-recently-applied block.
+    ///
+    /// All of this mucking around could be avoided if we do a schema migration to record the
+    /// payload status in the database. For now, this is simpler.
     fn get_cold_state_payload_status(&self, slot: Slot) -> Result<StatePayloadStatus, Error> {
         // Pre-Gloas states are always `Pending`.
         if !self.spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
@@ -3289,12 +3309,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             Some(mut split) => {
                 debug!(?split, "Loaded split partial");
                 // Load the hot state summary to get the block root.
-                let latest_block_root = self
-                    .load_block_root_from_summary_any_version(&split.state_root)
-                    .ok_or(HotColdDBError::MissingSplitState(
-                        split.state_root,
-                        split.slot,
-                    ))?;
+                let latest_block_root =
+                    self.load_block_root_from_summary(&split.state_root).ok_or(
+                        HotColdDBError::MissingSplitState(split.state_root, split.slot),
+                    )?;
                 split.block_root = latest_block_root;
                 Ok(Some(split))
             }
@@ -3325,27 +3343,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .map_err(|e| Error::LoadHotStateSummary(*state_root, e.into()))
     }
 
-    /// Load a hot state's summary in V22 format, given its root.
-    pub fn load_hot_state_summary_v22(
-        &self,
-        state_root: &Hash256,
-    ) -> Result<Option<HotStateSummaryV22>, Error> {
-        self.hot_db
-            .get(state_root)
-            .map_err(|e| Error::LoadHotStateSummary(*state_root, e.into()))
-    }
-
-    /// Load the latest block root for a hot state summary either in modern form, or V22 form.
-    ///
-    /// This function is required to open a V22 database for migration to V24, or vice versa.
-    pub fn load_block_root_from_summary_any_version(
-        &self,
-        state_root: &Hash256,
-    ) -> Option<Hash256> {
+    /// Load the latest block root for a hot state summary.
+    pub fn load_block_root_from_summary(&self, state_root: &Hash256) -> Option<Hash256> {
         if let Ok(Some(summary)) = self.load_hot_state_summary(state_root) {
-            return Some(summary.latest_block_root);
-        }
-        if let Ok(Some(summary)) = self.load_hot_state_summary_v22(state_root) {
             return Some(summary.latest_block_root);
         }
         None
@@ -4316,30 +4316,6 @@ impl HotStateSummary {
             diff_base_state,
             previous_state_root,
         })
-    }
-}
-
-/// Legacy hot state summary used in schema V22 and before.
-///
-/// This can be deleted when we remove V22 support.
-#[derive(Debug, Clone, Copy, Encode, Decode)]
-pub struct HotStateSummaryV22 {
-    pub slot: Slot,
-    pub latest_block_root: Hash256,
-    pub epoch_boundary_state_root: Hash256,
-}
-
-impl StoreItem for HotStateSummaryV22 {
-    fn db_column() -> DBColumn {
-        DBColumn::BeaconStateSummary
-    }
-
-    fn as_store_bytes(&self) -> Vec<u8> {
-        self.as_ssz_bytes()
-    }
-
-    fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        Ok(Self::from_ssz_bytes(bytes)?)
     }
 }
 

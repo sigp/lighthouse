@@ -7,11 +7,9 @@
 //! used for development.
 
 mod aggregate_attestation;
-mod attestation_performance;
 mod attester_duties;
 mod beacon;
 mod block_id;
-mod block_packing_efficiency;
 mod build_block_contents;
 mod builder_states;
 mod custody;
@@ -3091,39 +3089,6 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // GET lighthouse/analysis/attestation_performance/{index}
-    let get_lighthouse_attestation_performance = warp::path("lighthouse")
-        .and(warp::path("analysis"))
-        .and(warp::path("attestation_performance"))
-        .and(warp::path::param::<String>())
-        .and(warp::query::<eth2::lighthouse::AttestationPerformanceQuery>())
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .then(
-            |target, query, task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    attestation_performance::get_attestation_performance(target, query, chain)
-                })
-            },
-        );
-
-    // GET lighthouse/analysis/block_packing_efficiency
-    let get_lighthouse_block_packing_efficiency = warp::path("lighthouse")
-        .and(warp::path("analysis"))
-        .and(warp::path("block_packing_efficiency"))
-        .and(warp::query::<eth2::lighthouse::BlockPackingEfficiencyQuery>())
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .then(
-            |query, task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    block_packing_efficiency::get_block_packing_efficiency(query, chain)
-                })
-            },
-        );
-
     let get_events = eth_v1
         .clone()
         .and(warp::path("events"))
@@ -3359,12 +3324,10 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_database_info)
                 .uor(get_lighthouse_database_invariants)
                 .uor(get_lighthouse_custody_info)
-                .uor(get_lighthouse_attestation_performance)
                 .uor(get_beacon_light_client_optimistic_update)
                 .uor(get_beacon_light_client_finality_update)
                 .uor(get_beacon_light_client_bootstrap)
                 .uor(get_beacon_light_client_updates)
-                .uor(get_lighthouse_block_packing_efficiency)
                 .uor(get_events)
                 .uor(get_expected_withdrawals)
                 .uor(lighthouse_log_events.boxed())
