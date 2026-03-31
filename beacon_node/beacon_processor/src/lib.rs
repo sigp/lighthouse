@@ -421,7 +421,11 @@ pub enum Work<E: EthSpec> {
     IgnoredRpcBlock {
         process_fn: BlockingFn,
     },
-    ChainSegment(AsyncFn),
+    ChainSegment {
+        process_fn: AsyncFn,
+        /// (chain_id, batch_epoch) for test observability
+        process_id: (u32, u64),
+    },
     ChainSegmentBackfill(BlockingFn),
     Status(BlockingFn),
     BlocksByRangeRequest(AsyncFn),
@@ -1473,7 +1477,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             } => task_spawner.spawn_blocking(move || {
                 process_batch(aggregates);
             }),
-            Work::ChainSegment(process_fn) => task_spawner.spawn_async(async move {
+            Work::ChainSegment { process_fn, .. } => task_spawner.spawn_async(async move {
                 process_fn.await;
             }),
             Work::UnknownBlockAttestation { process_fn }
