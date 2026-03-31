@@ -6,7 +6,6 @@ use proto_array::{
     Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, JustifiedBalances,
     ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
 };
-use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
     per_block_processing::errors::AttesterSlashingValidationError, per_epoch_processing,
@@ -1529,46 +1528,16 @@ where
 ///
 /// This is used when persisting the state of the fork choice to disk.
 #[superstruct(
-    variants(V17, V28),
+    variants(V28),
     variant_attributes(derive(Encode, Decode, Clone)),
     no_enum
 )]
 pub struct PersistedForkChoice {
-    #[superstruct(only(V17))]
-    pub proto_array_bytes: Vec<u8>,
-    #[superstruct(only(V28))]
     pub proto_array: proto_array::core::SszContainerV28,
     pub queued_attestations: Vec<QueuedAttestation>,
 }
 
 pub type PersistedForkChoice = PersistedForkChoiceV28;
-
-impl TryFrom<PersistedForkChoiceV17> for PersistedForkChoiceV28 {
-    type Error = ssz::DecodeError;
-
-    fn try_from(v17: PersistedForkChoiceV17) -> Result<Self, Self::Error> {
-        let container_v17 =
-            proto_array::core::SszContainerV17::from_ssz_bytes(&v17.proto_array_bytes)?;
-        let container_v28 = container_v17.into();
-
-        Ok(Self {
-            proto_array: container_v28,
-            queued_attestations: v17.queued_attestations,
-        })
-    }
-}
-
-impl From<(PersistedForkChoiceV28, JustifiedBalances)> for PersistedForkChoiceV17 {
-    fn from((v28, balances): (PersistedForkChoiceV28, JustifiedBalances)) -> Self {
-        let container_v17 = proto_array::core::SszContainerV17::from((v28.proto_array, balances));
-        let proto_array_bytes = container_v17.as_ssz_bytes();
-
-        Self {
-            proto_array_bytes,
-            queued_attestations: v28.queued_attestations,
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {

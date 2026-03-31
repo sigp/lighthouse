@@ -2,7 +2,7 @@ use crate::metrics;
 use std::future::Future;
 
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
-use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
+use beacon_chain::block_verification_types::{AsBlock, LookupBlock};
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
@@ -311,19 +311,11 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 slot = %block.slot(),
                 "Block previously seen"
             );
-            let Ok(rpc_block) = RpcBlock::new(
-                block.clone(),
-                None,
-                &chain.data_availability_checker,
-                chain.spec.clone(),
-            ) else {
-                return Err(warp_utils::reject::custom_bad_request(
-                    "Unable to construct rpc block".to_string(),
-                ));
-            };
+            // try to reprocess as a lookup (single) block and let sync take care of missing components
+            let lookup_block = LookupBlock::new(block.clone());
             let import_result = Box::pin(chain.process_block(
                 block_root,
-                rpc_block,
+                lookup_block,
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::HttpApi,
                 publish_fn,

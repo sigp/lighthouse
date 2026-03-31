@@ -102,7 +102,8 @@ pub async fn handle_rpc<E: EthSpec>(
         ENGINE_NEW_PAYLOAD_V1
         | ENGINE_NEW_PAYLOAD_V2
         | ENGINE_NEW_PAYLOAD_V3
-        | ENGINE_NEW_PAYLOAD_V4 => {
+        | ENGINE_NEW_PAYLOAD_V4
+        | ENGINE_NEW_PAYLOAD_V5 => {
             let request = match method {
                 ENGINE_NEW_PAYLOAD_V1 => JsonExecutionPayload::Bellatrix(
                     get_param::<JsonExecutionPayloadBellatrix<E>>(params, 0)
@@ -118,16 +119,15 @@ pub async fn handle_rpc<E: EthSpec>(
                 ENGINE_NEW_PAYLOAD_V3 => get_param::<JsonExecutionPayloadDeneb<E>>(params, 0)
                     .map(|jep| JsonExecutionPayload::Deneb(jep))
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
-                ENGINE_NEW_PAYLOAD_V4 => get_param::<JsonExecutionPayloadGloas<E>>(params, 0)
-                    .map(|jep| JsonExecutionPayload::Gloas(jep))
-                    .or_else(|_| {
-                        get_param::<JsonExecutionPayloadFulu<E>>(params, 0)
-                            .map(|jep| JsonExecutionPayload::Fulu(jep))
-                    })
+                ENGINE_NEW_PAYLOAD_V4 => get_param::<JsonExecutionPayloadFulu<E>>(params, 0)
+                    .map(|jep| JsonExecutionPayload::Fulu(jep))
                     .or_else(|_| {
                         get_param::<JsonExecutionPayloadElectra<E>>(params, 0)
                             .map(|jep| JsonExecutionPayload::Electra(jep))
                     })
+                    .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
+                ENGINE_NEW_PAYLOAD_V5 => get_param::<JsonExecutionPayloadGloas<E>>(params, 0)
+                    .map(|jep| JsonExecutionPayload::Gloas(jep))
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
                 _ => unreachable!(),
             };
@@ -192,7 +192,7 @@ pub async fn handle_rpc<E: EthSpec>(
                         ));
                     }
                 }
-                ForkName::Electra | ForkName::Fulu | ForkName::Gloas => {
+                ForkName::Electra | ForkName::Fulu => {
                     if method == ENGINE_NEW_PAYLOAD_V1
                         || method == ENGINE_NEW_PAYLOAD_V2
                         || method == ENGINE_NEW_PAYLOAD_V3
@@ -226,6 +226,14 @@ pub async fn handle_rpc<E: EthSpec>(
                                 "{} called with `ExecutionPayloadDeneb` after Electra fork!",
                                 method
                             ),
+                            GENERIC_ERROR_CODE,
+                        ));
+                    }
+                }
+                ForkName::Gloas => {
+                    if method != ENGINE_NEW_PAYLOAD_V5 {
+                        return Err((
+                            format!("{} called after Gloas fork!", method),
                             GENERIC_ERROR_CODE,
                         ));
                     }
