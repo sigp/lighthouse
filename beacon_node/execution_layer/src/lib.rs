@@ -2048,7 +2048,7 @@ fn verify_builder_bid<E: EthSpec>(
         .cloned()
         .map(|withdrawals| {
             Withdrawals::<E>::try_from(withdrawals)
-                .map_err(InvalidBuilderPayload::SszTypesError)
+                .map_err(|e| Box::new(InvalidBuilderPayload::SszTypesError(e)))
                 .map(|w| w.tree_hash_root())
         })
         .transpose()?;

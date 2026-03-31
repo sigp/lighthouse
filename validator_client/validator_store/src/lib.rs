@@ -1,5 +1,6 @@
 use bls::{PublicKeyBytes, Signature};
 use eth2::types::{FullBlockContents, PublishBlockRequest};
+use futures::Stream;
 use slashing_protection::NotSafe;
 use std::fmt::Debug;
 use std::future::Future;
@@ -30,6 +31,38 @@ impl<T> From<T> for Error<T> {
     fn from(e: T) -> Self {
         Error::SpecificError(e)
     }
+}
+
+/// Input for batch attestation signing
+pub struct AttestationToSign<E: EthSpec> {
+    pub validator_index: u64,
+    pub pubkey: PublicKeyBytes,
+    pub validator_committee_index: usize,
+    pub attestation: Attestation<E>,
+}
+
+/// Input for batch aggregate signing
+pub struct AggregateToSign<E: EthSpec> {
+    pub pubkey: PublicKeyBytes,
+    pub aggregator_index: u64,
+    pub aggregate: Attestation<E>,
+    pub selection_proof: SelectionProof,
+}
+
+/// Input for batch sync committee message signing
+pub struct SyncMessageToSign {
+    pub slot: Slot,
+    pub beacon_block_root: Hash256,
+    pub validator_index: u64,
+    pub pubkey: PublicKeyBytes,
+}
+
+/// Input for batch sync committee contribution signing
+pub struct ContributionToSign<E: EthSpec> {
+    pub aggregator_index: u64,
+    pub aggregator_pubkey: PublicKeyBytes,
+    pub contribution: SyncCommitteeContribution<E>,
+    pub selection_proof: SyncSelectionProof,
 }
 
 /// A helper struct, used for passing data from the validator store to services.
@@ -106,13 +139,9 @@ pub trait ValidatorStore: Send + Sync {
 
     /// Sign a batch of `attestations` and apply slashing protection to them.
     ///
-    /// Only successfully signed attestations that pass slashing protection are returned, along with
-    /// the validator index of the signer. Eventually this will be replaced by `SingleAttestation`
-    /// use.
-    ///
-    /// Input:
-    ///
-    /// * Vec of (validator_index, pubkey, validator_committee_index, attestation).
+    /// Returns a stream of batches of successfully signed attestations. Each batch contains
+    /// attestations that passed slashing protection, along with the validator index of the signer.
+    /// Eventually this will be replaced by `SingleAttestation` use.
     ///
     /// Output:
     ///
@@ -120,25 +149,13 @@ pub trait ValidatorStore: Send + Sync {
     #[allow(clippy::type_complexity)]
     fn sign_attestations(
         self: &Arc<Self>,
-        attestations: Vec<(u64, PublicKeyBytes, usize, Attestation<Self::E>)>,
-    ) -> impl Future<Output = Result<Vec<(u64, Attestation<Self::E>)>, Error<Self::Error>>> + Send;
+        attestations: Vec<AttestationToSign<Self::E>>,
+    ) -> impl Stream<Item = Result<Vec<(u64, Attestation<Self::E>)>, Error<Self::Error>>> + Send;
 
     fn sign_validator_registration_data(
         &self,
         validator_registration_data: ValidatorRegistrationData,
     ) -> impl Future<Output = Result<SignedValidatorRegistrationData, Error<Self::Error>>> + Send;
-
-    /// Signs an `AggregateAndProof` for a given validator.
-    ///
-    /// The resulting `SignedAggregateAndProof` is sent on the aggregation channel and cannot be
-    /// modified by actors other than the signing validator.
-    fn produce_signed_aggregate_and_proof(
-        &self,
-        validator_pubkey: PublicKeyBytes,
-        aggregator_index: u64,
-        aggregate: Attestation<Self::E>,
-        selection_proof: SelectionProof,
-    ) -> impl Future<Output = Result<SignedAggregateAndProof<Self::E>, Error<Self::Error>>> + Send;
 
     /// Produces a `SelectionProof` for the `slot`, signed by with corresponding secret key to
     /// `validator_pubkey`.
@@ -156,21 +173,23 @@ pub trait ValidatorStore: Send + Sync {
         subnet_id: SyncSubnetId,
     ) -> impl Future<Output = Result<SyncSelectionProof, Error<Self::Error>>> + Send;
 
-    fn produce_sync_committee_signature(
-        &self,
-        slot: Slot,
-        beacon_block_root: Hash256,
-        validator_index: u64,
-        validator_pubkey: &PublicKeyBytes,
-    ) -> impl Future<Output = Result<SyncCommitteeMessage, Error<Self::Error>>> + Send;
+    /// Sign a batch of aggregate and proofs and return results as a stream of batches.
+    fn sign_aggregate_and_proofs(
+        self: &Arc<Self>,
+        aggregates: Vec<AggregateToSign<Self::E>>,
+    ) -> impl Stream<Item = Result<Vec<SignedAggregateAndProof<Self::E>>, Error<Self::Error>>> + Send;
 
-    fn produce_signed_contribution_and_proof(
-        &self,
-        aggregator_index: u64,
-        aggregator_pubkey: PublicKeyBytes,
-        contribution: SyncCommitteeContribution<Self::E>,
-        selection_proof: SyncSelectionProof,
-    ) -> impl Future<Output = Result<SignedContributionAndProof<Self::E>, Error<Self::Error>>> + Send;
+    /// Sign a batch of sync committee messages and return results as a stream of batches.
+    fn sign_sync_committee_signatures(
+        self: &Arc<Self>,
+        messages: Vec<SyncMessageToSign>,
+    ) -> impl Stream<Item = Result<Vec<SyncCommitteeMessage>, Error<Self::Error>>> + Send;
+
+    /// Sign a batch of sync committee contributions and return results as a stream of batches.
+    fn sign_sync_committee_contributions(
+        self: &Arc<Self>,
+        contributions: Vec<ContributionToSign<Self::E>>,
+    ) -> impl Stream<Item = Result<Vec<SignedContributionAndProof<Self::E>>, Error<Self::Error>>> + Send;
 
     /// Prune the slashing protection database so that it remains performant.
     ///

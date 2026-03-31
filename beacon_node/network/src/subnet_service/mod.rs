@@ -198,13 +198,6 @@ impl<T: BeaconChainTypes> SubnetService<T> {
         self.permanent_attestation_subscriptions.iter()
     }
 
-    /// Returns whether we are subscribed to a subnet for testing purposes.
-    #[cfg(test)]
-    pub(crate) fn is_subscribed(&self, subnet: &Subnet) -> bool {
-        self.subscriptions.contains_key(subnet)
-            || self.permanent_attestation_subscriptions.contains(subnet)
-    }
-
     /// Returns whether we are subscribed to a permanent subnet for testing purposes.
     #[cfg(test)]
     pub(crate) fn is_subscribed_permanent(&self, subnet: &Subnet) -> bool {

@@ -305,12 +305,21 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             .get_full_block(&beacon_block_root)?
             .ok_or(Error::MissingBeaconBlock(beacon_block_root))?;
         let current_slot = fork_choice.fc_store().get_current_slot();
+
+        // TODO(gloas): pass a better payload status once fork choice is implemented
+        let payload_status = StatePayloadStatus::Pending;
         let (_, beacon_state) = store
-            .get_advanced_hot_state(beacon_block_root, current_slot, beacon_block.state_root())?
+            .get_advanced_hot_state(
+                beacon_block_root,
+                payload_status,
+                current_slot,
+                beacon_block.state_root(),
+            )?
             .ok_or(Error::MissingBeaconState(beacon_block.state_root()))?;
 
         let snapshot = BeaconSnapshot {
             beacon_block_root,
+            execution_envelope: None,
             beacon_block: Arc::new(beacon_block),
             beacon_state,
         };
@@ -360,6 +369,13 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             .get_block_execution_status(&head_block_root)
             .ok_or(Error::HeadMissingFromForkChoice(head_block_root))?;
         Ok((head, execution_status))
+    }
+
+    // TODO(gloas) just a stub for now, implement this once we have fork choice.
+    /// Returns true if the payload for this block is canonical according to fork choice
+    /// Returns an error if the block root doesn't exist in fork choice.
+    pub fn block_has_canonical_payload(&self, _root: &Hash256) -> Result<bool, Error> {
+        Ok(true)
     }
 
     /// Returns a clone of `self.cached_head`.
@@ -673,10 +689,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .get_full_block(&new_view.head_block_root)?
                     .ok_or(Error::MissingBeaconBlock(new_view.head_block_root))?;
 
+                // TODO(gloas): update once we have fork choice
+                let payload_status = StatePayloadStatus::Pending;
                 let (_, beacon_state) = self
                     .store
                     .get_advanced_hot_state(
                         new_view.head_block_root,
+                        payload_status,
                         current_slot,
                         beacon_block.state_root(),
                     )?
@@ -684,6 +703,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 BeaconSnapshot {
                     beacon_block: Arc::new(beacon_block),
+                    execution_envelope: None,
                     beacon_block_root: new_view.head_block_root,
                     beacon_state,
                 }

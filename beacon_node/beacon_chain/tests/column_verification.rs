@@ -7,7 +7,7 @@ use beacon_chain::test_utils::{
 };
 use beacon_chain::{
     AvailabilityProcessingStatus, BlockError, ChainConfig, InvalidSignature, NotifyExecutionLayer,
-    block_verification_types::AsBlock,
+    block_verification_types::{AsBlock, LookupBlock},
 };
 use bls::{Keypair, Signature};
 use logging::create_test_tracing_subscriber;
@@ -80,16 +80,13 @@ async fn rpc_columns_with_invalid_header_signature() {
 
     // Process the block without blobs so that it doesn't become available.
     harness.advance_slot();
-    let rpc_block = harness
-        .build_rpc_block_from_blobs(signed_block.clone(), None, false)
-        .unwrap();
     let availability = harness
         .chain
         .process_block(
             block_root,
-            rpc_block,
+            LookupBlock::new(signed_block.clone()),
             NotifyExecutionLayer::Yes,
-            BlockImportSource::RangeSync,
+            BlockImportSource::Lookup,
             || Ok(()),
         )
         .await
@@ -169,16 +166,13 @@ async fn verify_header_signature_fork_block_bug() {
     // The block will be accepted but won't become the head because it's not fully available.
     // This keeps the head at the pre-fork state (Electra).
     harness.advance_slot();
-    let rpc_block = harness
-        .build_rpc_block_from_blobs(signed_block.clone(), None, false)
-        .expect("Should build RPC block");
     let availability = harness
         .chain
         .process_block(
             block_root,
-            rpc_block,
+            LookupBlock::new(signed_block.clone()),
             NotifyExecutionLayer::Yes,
-            BlockImportSource::RangeSync,
+            BlockImportSource::Lookup,
             || Ok(()),
         )
         .await

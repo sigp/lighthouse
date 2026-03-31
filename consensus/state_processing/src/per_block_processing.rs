@@ -55,12 +55,12 @@ use crate::common::update_progressive_balances_cache::{
     initialize_progressive_balances_cache, update_progressive_balances_metrics,
 };
 use crate::epoch_cache::initialize_epoch_cache;
-#[cfg(feature = "arbitrary-fuzz")]
+#[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
 use tracing::instrument;
 
 /// The strategy to be used when validating the block's signatures.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum BlockSignatureStrategy {
     /// Do not validate any signature. Use with caution.
@@ -74,7 +74,7 @@ pub enum BlockSignatureStrategy {
 }
 
 /// The strategy to be used when validating the block's signatures.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
 #[derive(PartialEq, Clone, Copy)]
 pub enum VerifySignatures {
     /// Validate all signatures encountered.
@@ -90,7 +90,7 @@ impl VerifySignatures {
 }
 
 /// Control verification of the latest block header.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
 #[derive(PartialEq, Clone, Copy)]
 pub enum VerifyBlockRoot {
     True,
