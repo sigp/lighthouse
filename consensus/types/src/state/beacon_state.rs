@@ -667,6 +667,11 @@ where
     #[superstruct(only(Gloas))]
     pub payload_expected_withdrawals: List<Withdrawal, E::MaxWithdrawalsPerPayload>,
 
+    #[compare_fields(as_iter)]
+    #[test_random(default)]
+    #[superstruct(only(Gloas))]
+    pub ptc_window: Vector<FixedVector<u64, E::PTCSize>, E::PtcWindowLength>,
+
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
@@ -2431,6 +2436,18 @@ impl<E: EthSpec> BeaconState<E> {
         CommitteeCache::initialized(self, epoch, spec)
     }
 
+    /// Like [`initialize_committee_cache`](Self::initialize_committee_cache), but allows epochs
+    /// beyond `current_epoch + 1`. Only checks that the required randao seed is available.
+    ///
+    /// Used by PTC window computation which needs shufflings for lookahead epochs.
+    pub fn initialize_committee_cache_for_lookahead(
+        &self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<Arc<CommitteeCache>, BeaconStateError> {
+        CommitteeCache::initialized_for_lookahead(self, epoch, spec)
+    }
+
     /// Advances the cache for this state into the next epoch.
     ///
     /// This should be used if the `slot` of this state is advanced beyond an epoch boundary.
@@ -2499,6 +2516,17 @@ impl<E: EthSpec> BeaconState<E> {
         self.committee_caches_mut()
             .get_mut(index)
             .ok_or(BeaconStateError::CommitteeCachesOutOfBounds(index))
+    }
+
+    /// Set the committee cache for the given `relative_epoch` to `cache`.
+    pub fn set_committee_cache(
+        &mut self,
+        relative_epoch: RelativeEpoch,
+        cache: Arc<CommitteeCache>,
+    ) -> Result<(), BeaconStateError> {
+        let i = Self::committee_cache_index(relative_epoch);
+        *self.committee_cache_at_index_mut(i)? = cache;
+        Ok(())
     }
 
     /// Returns the cache for some `RelativeEpoch`. Returns an error if the cache has not been
@@ -3084,12 +3112,55 @@ impl<E: EthSpec> BeaconState<E> {
         }
     }
 
-    /// Get the payload timeliness committee for the given `slot`.
-    ///
-    /// Requires the committee cache to be initialized.
-    /// TODO(EIP-7732): definitely gonna have to cache this..
+    /// Get the payload timeliness committee for the given `slot` from the `ptc_window`.
     pub fn get_ptc(&self, slot: Slot, spec: &ChainSpec) -> Result<PTC<E>, BeaconStateError> {
+        let ptc_window = self.ptc_window()?;
+        let epoch = slot.epoch(E::slots_per_epoch());
+        let state_epoch = self.current_epoch();
+        let slots_per_epoch = E::slots_per_epoch() as usize;
+        let slot_in_epoch = slot.as_usize().safe_rem(slots_per_epoch)?;
+
+        let index = if epoch < state_epoch {
+            if epoch.safe_add(1)? != state_epoch {
+                return Err(BeaconStateError::SlotOutOfBounds);
+            }
+            slot_in_epoch
+        } else {
+            if epoch > state_epoch.safe_add(spec.min_seed_lookahead)? {
+                return Err(BeaconStateError::SlotOutOfBounds);
+            }
+            let offset = epoch
+                .safe_sub(state_epoch)?
+                .safe_add(1)?
+                .as_usize()
+                .safe_mul(slots_per_epoch)?;
+            offset.safe_add(slot_in_epoch)?
+        };
+
+        let entry = ptc_window
+            .get(index)
+            .ok_or(BeaconStateError::SlotOutOfBounds)?;
+
+        // Convert from FixedVector<u64, PTCSize> to PTC<E> (FixedVector<usize, PTCSize>)
+        let indices: Vec<usize> = entry.iter().map(|&v| v as usize).collect();
+        Ok(PTC(FixedVector::new(indices)?))
+    }
+
+    /// Compute the payload timeliness committee for the given `slot` from scratch.
+    ///
+    /// Requires the committee cache to be initialized for the slot's epoch.
+    pub fn compute_ptc(&self, slot: Slot, spec: &ChainSpec) -> Result<PTC<E>, BeaconStateError> {
         let committee_cache = self.committee_cache_at_slot(slot)?;
+        self.compute_ptc_with_cache(slot, committee_cache, spec)
+    }
+
+    /// Compute the PTC for a slot using a specific committee cache.
+    pub fn compute_ptc_with_cache(
+        &self,
+        slot: Slot,
+        committee_cache: &CommitteeCache,
+        spec: &ChainSpec,
+    ) -> Result<PTC<E>, BeaconStateError> {
         let committees = committee_cache.get_beacon_committees_at_slot(slot)?;
 
         let seed = self.get_ptc_attester_seed(slot, spec)?;

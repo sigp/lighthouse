@@ -223,7 +223,7 @@ pub fn test_da_checker<E: EthSpec>(
     let slot_clock = TestingSlotClock::new(
         Slot::new(0),
         Duration::from_secs(0),
-        Duration::from_secs(spec.seconds_per_slot),
+        spec.get_slot_duration(),
     );
     let kzg = get_kzg(&spec);
     let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();

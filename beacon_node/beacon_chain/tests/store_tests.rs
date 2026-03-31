@@ -2910,7 +2910,7 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
     let slot_clock = TestingSlotClock::new(
         Slot::new(0),
         Duration::from_secs(harness.chain.genesis_time),
-        Duration::from_secs(spec.seconds_per_slot),
+        spec.get_slot_duration(),
     );
     slot_clock.set_slot(harness.get_current_slot().as_u64());
 
@@ -5334,8 +5334,8 @@ async fn test_safely_backfill_data_column_custody_info() {
         .await;
 
     let epoch_before_increase = Epoch::new(start_epochs);
-    let effective_delay_slots =
-        CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS / harness.chain.spec.seconds_per_slot;
+    let effective_delay_slots = CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS
+        / harness.chain.spec.get_slot_duration().as_secs();
 
     let cgc_change_slot = epoch_before_increase.end_slot(E::slots_per_epoch());
 
@@ -6131,7 +6131,7 @@ async fn bellatrix_produce_and_store_payloads() {
             .genesis_time()
             .safe_add(
                 slot.as_u64()
-                    .safe_mul(harness.spec.seconds_per_slot)
+                    .safe_mul(harness.spec.get_slot_duration().as_secs())
                     .unwrap(),
             )
             .unwrap();
