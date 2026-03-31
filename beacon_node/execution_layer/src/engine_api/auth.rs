@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use jsonwebtoken::{Algorithm, EncodingKey, Header, encode, get_current_timestamp};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 use zeroize::Zeroize;
 
 /// Default algorithm used for JWT token signing.
@@ -136,12 +137,17 @@ impl Auth {
         validation.validate_exp = false;
         validation.required_spec_claims.remove("exp");
 
-        jsonwebtoken::decode::<Claims>(
+        match jsonwebtoken::decode::<Claims>(
             token,
             &jsonwebtoken::DecodingKey::from_secret(secret.as_bytes()),
             &validation,
-        )
-        .map_err(Into::into)
+        ) {
+            Ok(data) => Ok(data),
+            Err(e) => {
+                warn!("JWT authentication failed: {}", e);
+                Err(Error::JWT(e))
+            }
+        }
     }
 }
 
