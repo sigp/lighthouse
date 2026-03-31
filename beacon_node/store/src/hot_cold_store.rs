@@ -2066,11 +2066,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             },
         ) = self.load_hot_state_summary(state_root)?
         {
-            let payload_status = self.get_hot_state_summary_payload_status(state_root, &summary)?;
             debug!(
                 %slot,
                 ?state_root,
-                ?payload_status,
                 "Loading hot state"
             );
             let mut state = match self.hot_storage_strategy(slot)? {
@@ -2098,6 +2096,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     state
                 }
                 StorageStrategy::ReplayFrom(from_slot) => {
+                    // We only compute the `payload_status` in the `ReplayFrom` case because the
+                    // function `get_hot_state_summary_payload_status` will fail for `Full` states
+                    // prior to the split slot (the ones required for the hdiff grid).
+                    let payload_status =
+                        self.get_hot_state_summary_payload_status(state_root, &summary)?;
                     let from_state_root = diff_base_state.get_root(from_slot)?;
 
                     let (mut base_state, _) = self
