@@ -646,7 +646,7 @@ fn create_request_body(
         &AttestationStrategy::AllValidators,
         state,
         state_root,
-        block_root.into(),
+        block_root,
         current_slot,
     );
     let single_attestation = &single_attestations[0][0].0;
@@ -715,20 +715,20 @@ fn create_request_body(
             timestamp: 100,
             pubkey: harness.validator_keypairs[0].pk.compress(),
         },
-        signature: Signature::infinity().unwrap().into(),
+        signature: Signature::infinity().unwrap(),
     };
 
     let beacon_committee_selection = BeaconCommitteeSelection {
         validator_index,
         slot: current_slot,
-        selection_proof: Signature::infinity().unwrap().into(),
+        selection_proof: Signature::infinity().unwrap(),
     };
 
     let sync_committee_selection = SyncCommitteeSelection {
         validator_index,
         slot: current_slot,
         subcommittee_index,
-        selection_proof: Signature::infinity().unwrap().into(),
+        selection_proof: Signature::infinity().unwrap(),
     };
 
     match endpoint {
@@ -752,7 +752,7 @@ fn create_request_body(
         "/eth/v1/beacon/pool/sync_committees" => {
             Some([serde_json::to_value(sync_committee_message).unwrap()].into())
         }
-        // The request_body type is not an array, i.e., it is an Object, so no need []
+        // The request_body type is not an Array, i.e., it is an Object, so no need []
         // Example: https://github.com/ethereum/beacon-APIs/blob/ce1451bd9575137b62fa2c94696e962e46b25f19/apis/beacon/pool/attester_slashings.v2.yaml#L52-L55
         "/eth/v2/beacon/pool/attester_slashings" => {
             Some(serde_json::to_value(attester_slashing).unwrap())
