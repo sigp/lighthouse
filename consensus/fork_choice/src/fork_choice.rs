@@ -260,6 +260,15 @@ pub struct QueuedAttestation {
     payload_present: bool,
 }
 
+/// Legacy queued attestation without payload_present (pre-Gloas, schema V28).
+#[derive(Clone, PartialEq, Encode, Decode)]
+pub struct QueuedAttestationV28 {
+    slot: Slot,
+    attesting_indices: Vec<u64>,
+    block_root: Hash256,
+    target_epoch: Epoch,
+}
+
 impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
     fn from(a: IndexedAttestationRef<'a, E>) -> Self {
         Self {
@@ -1681,7 +1690,7 @@ where
         let mut fork_choice = Self {
             fc_store,
             proto_array,
-            queued_attestations: persisted.queued_attestations,
+            queued_attestations: vec![],
             // Will be updated in the following call to `Self::get_head`.
             forkchoice_update_parameters: ForkchoiceUpdateParameters {
                 head_hash: None,
@@ -1721,7 +1730,6 @@ where
     pub fn to_persisted(&self) -> PersistedForkChoice {
         PersistedForkChoice {
             proto_array: self.proto_array().as_ssz_container(),
-            queued_attestations: self.queued_attestations().to_vec(),
         }
     }
 
@@ -1744,7 +1752,8 @@ pub struct PersistedForkChoice {
     pub proto_array_v28: proto_array::core::SszContainerV28,
     #[superstruct(only(V29))]
     pub proto_array: proto_array::core::SszContainerV29,
-    pub queued_attestations: Vec<QueuedAttestation>,
+    #[superstruct(only(V28))]
+    pub queued_attestations_v28: Vec<QueuedAttestationV28>,
 }
 
 pub type PersistedForkChoice = PersistedForkChoiceV29;
@@ -1753,7 +1762,6 @@ impl From<PersistedForkChoiceV28> for PersistedForkChoiceV29 {
     fn from(v28: PersistedForkChoiceV28) -> Self {
         Self {
             proto_array: v28.proto_array_v28.into(),
-            queued_attestations: v28.queued_attestations,
         }
     }
 }
@@ -1762,7 +1770,7 @@ impl From<PersistedForkChoiceV29> for PersistedForkChoiceV28 {
     fn from(v29: PersistedForkChoiceV29) -> Self {
         Self {
             proto_array_v28: v29.proto_array.into(),
-            queued_attestations: v29.queued_attestations,
+            queued_attestations_v28: vec![],
         }
     }
 }
