@@ -1446,11 +1446,7 @@ impl ProtoArray {
             // TODO(gloas) remove this and uncomment the code above once we implement PTC
             // Skip Empty/Full split: go straight to Full when payload received,
             // giving full payload weight 100% without PTC votes.
-            let children = if proto_node.payload_received().is_ok_and(|received| received) {
-                vec![(node.with_status(PayloadStatus::Full), proto_node.clone())]
-            } else {
-                vec![(node.with_status(PayloadStatus::Empty), proto_node.clone())]
-            };
+    
             // TODO(gloas) delete up to here
 
             Ok(children)
