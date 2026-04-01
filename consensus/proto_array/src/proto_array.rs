@@ -1431,7 +1431,6 @@ impl ProtoArray {
                 .nodes
                 .get(node.proto_node_index)
                 .ok_or(Error::InvalidNodeIndex(node.proto_node_index))?;
-
             let mut children = vec![(node.with_status(PayloadStatus::Empty), proto_node.clone())];
             // The FULL virtual child only exists if the payload has been received.
             if proto_node.payload_received().is_ok_and(|received| received) {
@@ -1464,7 +1463,6 @@ impl ProtoArray {
                 .iter()
                 .filter_map(|&child_index| {
                     let child_node = self.nodes.get(child_index)?;
-                    // Skip parent_payload_status filter for V17 children (they don't have it)
                     if child_node.get_parent_payload_status() != node.payload_status {
                         return None;
                     }
