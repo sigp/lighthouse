@@ -14,6 +14,7 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
+    ExecutionBlockHash,
     block::{
         BLOB_KZG_COMMITMENTS_INDEX, BeaconBlock, BeaconBlockAltair, BeaconBlockBase,
         BeaconBlockBellatrix, BeaconBlockBodyBellatrix, BeaconBlockBodyCapella,
@@ -364,6 +365,42 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
         };
 
         format_kzg_commitments(commitments.as_ref())
+    }
+
+    /// Convenience accessor for the block's bid's `block_hash`.
+    ///
+    /// This method returns an error prior to Gloas.
+    pub fn payload_bid_block_hash(&self) -> Result<ExecutionBlockHash, BeaconStateError> {
+        self.message()
+            .body()
+            .signed_execution_payload_bid()
+            .map(|bid| bid.message.block_hash)
+    }
+
+    /// Convenience accessor for the block's bid's `parent_block_hash`.
+    ///
+    /// This method returns an error prior to Gloas.
+    pub fn payload_bid_parent_block_hash(&self) -> Result<ExecutionBlockHash, BeaconStateError> {
+        self.message()
+            .body()
+            .signed_execution_payload_bid()
+            .map(|bid| bid.message.parent_block_hash)
+    }
+
+    /// Check if the `parent_hash` in this block's `signed_payload_bid` matches `parent_block_hash`.
+    ///
+    /// This function is useful post-Gloas for determining if the parent block is full, *without*
+    /// necessarily needing access to a beacon state. The passed in `parent_block_hash` MUST be the
+    /// `block_hash` from the parent beacon block's bid. If the parent beacon state is available
+    /// this can alternatively be fetched from `state.latest_payload_bid`.
+    ///
+    /// This function returns `false` for all blocks prior to Gloas.
+    pub fn is_parent_block_full(&self, parent_block_hash: ExecutionBlockHash) -> bool {
+        let Ok(signed_payload_bid) = self.message().body().signed_execution_payload_bid() else {
+            // Prior to Gloas.
+            return false;
+        };
+        signed_payload_bid.message.parent_block_hash == parent_block_hash
     }
 }
 

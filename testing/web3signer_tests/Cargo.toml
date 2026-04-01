@@ -23,7 +23,6 @@ parking_lot = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde_yaml = { workspace = true }
 slashing_protection = { workspace = true }
 slot_clock = { workspace = true }
 ssz_types = { workspace = true }
@@ -33,4 +32,5 @@ tokio = { workspace = true }
 types = { workspace = true }
 url = { workspace = true }
 validator_store = { workspace = true }
+yaml_serde = { workspace = true }
 zip = { workspace = true }

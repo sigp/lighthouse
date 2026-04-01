@@ -540,6 +540,16 @@ pub static SYNC_RPC_REQUEST_TIME: LazyLock<Result<HistogramVec>> = LazyLock::new
 });
 
 /*
+ * Execution Payload Envelope Delay Metrics
+ */
+pub static ENVELOPE_DELAY_GOSSIP: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "payload_envelope_delay_gossip",
+        "The first time we see this payload envelope from gossip as a delay from the start of the slot",
+    )
+});
+
+/*
  * Block Delay Metrics
  */
 pub static BEACON_BLOCK_DELAY_GOSSIP: LazyLock<Result<IntGauge>> = LazyLock::new(|| {

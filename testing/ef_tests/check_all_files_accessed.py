@@ -47,10 +47,14 @@ excluded_paths = [
     "bls12-381-tests/hash_to_G2",
     "tests/.*/eip7732",
     "tests/.*/eip7805",
+    # Heze fork is not implemented
+    "tests/.*/heze/.*",
     # TODO(gloas): remove these ignores as Gloas consensus is implemented
     "tests/.*/gloas/fork_choice/.*",
     # Ignore MatrixEntry SSZ tests for now.
     "tests/.*/.*/ssz_static/MatrixEntry/.*",
+    # TODO: partial data column not implemented yet
+    "tests/.*/.*/ssz_static/PartialDataColumn.*/.*",
     # TODO(gloas): Ignore Gloas light client stuff for now
     "tests/.*/gloas/ssz_static/LightClient.*/.*",
     # Execution payload header is irrelevant after Gloas, this type will probably be deleted.
@@ -71,7 +75,9 @@ excluded_paths = [
     "tests/.*/compute_verify_cell_kzg_proof_batch_challenge/.*",
     "tests/.*/compute_challenge/.*",
     # We don't need these manifest files at the moment.
-    "tests/.*/manifest.yaml"
+    "tests/.*/manifest.yaml",
+    # TODO: gossip condition tests not implemented yet
+    "tests/.*/.*/networking/.*"
 ]
 
 

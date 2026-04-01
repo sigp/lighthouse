@@ -1,7 +1,8 @@
 use crate::sync::manager::BlockProcessType;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::blob_verification::{GossipBlobError, observe_gossip_blob};
-use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::block_verification_types::LookupBlock;
+use beacon_chain::block_verification_types::RangeSyncBlock;
 use beacon_chain::data_column_verification::{GossipDataColumnError, observe_gossip_data_column};
 use beacon_chain::fetch_blobs::{
     EngineGetBlobsOutput, FetchEngineBlobError, fetch_and_process_engine_blobs,
@@ -14,7 +15,8 @@ use beacon_processor::{
 use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
-    LightClientUpdatesByRangeRequest,
+    LightClientUpdatesByRangeRequest, PayloadEnvelopesByRangeRequest,
+    PayloadEnvelopesByRootRequest,
 };
 use lighthouse_network::service::api_types::CustodyBackfillBatchId;
 use lighthouse_network::{
@@ -429,11 +431,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         execution_payload: Box<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        seen_timestamp: Duration,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = async move {
             processor
-                .process_gossip_execution_payload(message_id, peer_id, *execution_payload)
+                .process_gossip_execution_payload_envelope(
+                    message_id,
+                    peer_id,
+                    Arc::new(*execution_payload),
+                    seen_timestamp,
+                )
                 .await
         };
 
@@ -511,14 +519,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Create a new `Work` event for some block, where the result from computation (if any) is
     /// sent to the other side of `result_tx`.
-    pub fn send_rpc_beacon_block(
+    pub fn send_lookup_beacon_block(
         self: &Arc<Self>,
         block_root: Hash256,
-        block: RpcBlock<T::EthSpec>,
+        block: LookupBlock<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), Error<T::EthSpec>> {
-        let process_fn = self.clone().generate_rpc_beacon_block_process_fn(
+        let process_fn = self.clone().generate_lookup_beacon_block_process_fn(
             block_root,
             block,
             seen_timestamp,
@@ -604,7 +612,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_chain_segment(
         self: &Arc<Self>,
         process_id: ChainSegmentProcessId,
-        blocks: Vec<RpcBlock<T::EthSpec>>,
+        blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) -> Result<(), Error<T::EthSpec>> {
         debug!(blocks = blocks.len(), id = ?process_id, "Batch sending for process");
         let processor = self.clone();
@@ -612,11 +620,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // Back-sync batches are dispatched with a different `Work` variant so
         // they can be rate-limited.
         let work = match process_id {
-            ChainSegmentProcessId::RangeBatchId(_, _) => {
+            ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
                 let process_fn = async move {
                     processor.process_chain_segment(process_id, blocks).await;
                 };
-                Work::ChainSegment(Box::pin(process_fn))
+                Work::ChainSegment {
+                    process_fn: Box::pin(process_fn),
+                    process_id: (chain_id, epoch.as_u64()),
+                }
             }
             ChainSegmentProcessId::BackSyncBatchId(_) => {
                 let process_fn =
@@ -683,6 +694,46 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::BlocksByRootsRequest(Box::pin(process_fn)),
+        })
+    }
+
+    /// Create a new work event to process `PayloadEnvelopesByRootRequest`s from the RPC network.
+    pub fn send_payload_envelopes_by_roots_request(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        inbound_request_id: InboundRequestId, // Use ResponseId here
+        request: PayloadEnvelopesByRootRequest,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = async move {
+            processor
+                .handle_payload_envelopes_by_root_request(peer_id, inbound_request_id, request)
+                .await;
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::PayloadEnvelopesByRootRequest(Box::pin(process_fn)),
+        })
+    }
+
+    /// Create a new work event to process `PayloadEnvelopesByRangeRequest`s from the RPC network.
+    pub fn send_payload_envelopes_by_range_request(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        inbound_request_id: InboundRequestId,
+        request: PayloadEnvelopesByRangeRequest,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = async move {
+            processor
+                .handle_payload_envelopes_by_range_request(peer_id, inbound_request_id, request)
+                .await;
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::PayloadEnvelopesByRangeRequest(Box::pin(process_fn)),
         })
     }
 

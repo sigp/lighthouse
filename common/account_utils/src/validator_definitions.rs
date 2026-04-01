@@ -31,11 +31,11 @@ pub enum Error {
     /// The config file could not be opened.
     UnableToOpenFile(io::Error),
     /// The config file could not be parsed as YAML.
-    UnableToParseFile(serde_yaml::Error),
+    UnableToParseFile(yaml_serde::Error),
     /// There was an error whilst performing the recursive keystore search function.
     UnableToSearchForKeystores(io::Error),
     /// The config file could not be serialized as YAML.
-    UnableToEncodeFile(serde_yaml::Error),
+    UnableToEncodeFile(yaml_serde::Error),
     /// The config file or temp file could not be written to the filesystem.
     UnableToWriteFile(filesystem::Error),
     /// The public key from the keystore is invalid.
@@ -248,7 +248,7 @@ impl ValidatorDefinitions {
             .create_new(false)
             .open(config_path)
             .map_err(Error::UnableToOpenFile)?;
-        serde_yaml::from_reader(file).map_err(Error::UnableToParseFile)
+        yaml_serde::from_reader(file).map_err(Error::UnableToParseFile)
     }
 
     /// Perform a recursive, exhaustive search through `validators_dir` and add any keystores
@@ -376,7 +376,7 @@ impl ValidatorDefinitions {
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);
         let temp_path = validators_dir.as_ref().join(CONFIG_TEMP_FILENAME);
         let mut bytes = vec![];
-        serde_yaml::to_writer(&mut bytes, self).map_err(Error::UnableToEncodeFile)?;
+        yaml_serde::to_writer(&mut bytes, self).map_err(Error::UnableToEncodeFile)?;
 
         write_file_via_temporary(&config_path, &temp_path, &bytes)
             .map_err(Error::UnableToWriteFile)?;
@@ -531,7 +531,7 @@ mod tests {
         voting_keystore_path: ""
         voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
         "#;
-        let def: ValidatorDefinition = serde_yaml::from_str(no_graffiti).unwrap();
+        let def: ValidatorDefinition = yaml_serde::from_str(no_graffiti).unwrap();
         assert!(def.graffiti.is_none());
 
         let invalid_graffiti = r#"---
@@ -543,7 +543,7 @@ mod tests {
         voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
         "#;
 
-        let def: Result<ValidatorDefinition, _> = serde_yaml::from_str(invalid_graffiti);
+        let def: Result<ValidatorDefinition, _> = yaml_serde::from_str(invalid_graffiti);
         assert!(def.is_err());
 
         let valid_graffiti = r#"---
@@ -555,7 +555,7 @@ mod tests {
         voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
         "#;
 
-        let def: ValidatorDefinition = serde_yaml::from_str(valid_graffiti).unwrap();
+        let def: ValidatorDefinition = yaml_serde::from_str(valid_graffiti).unwrap();
         assert_eq!(
             def.graffiti,
             Some(GraffitiString::from_str("mrfwashere").unwrap())
@@ -571,7 +571,7 @@ mod tests {
         voting_keystore_path: ""
         voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
         "#;
-        let def: ValidatorDefinition = serde_yaml::from_str(no_suggested_fee_recipient).unwrap();
+        let def: ValidatorDefinition = yaml_serde::from_str(no_suggested_fee_recipient).unwrap();
         assert!(def.suggested_fee_recipient.is_none());
 
         let invalid_suggested_fee_recipient = r#"---
@@ -584,7 +584,7 @@ mod tests {
         "#;
 
         let def: Result<ValidatorDefinition, _> =
-            serde_yaml::from_str(invalid_suggested_fee_recipient);
+            yaml_serde::from_str(invalid_suggested_fee_recipient);
         assert!(def.is_err());
 
         let valid_suggested_fee_recipient = r#"---
@@ -596,7 +596,7 @@ mod tests {
         voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
         "#;
 
-        let def: ValidatorDefinition = serde_yaml::from_str(valid_suggested_fee_recipient).unwrap();
+        let def: ValidatorDefinition = yaml_serde::from_str(valid_suggested_fee_recipient).unwrap();
         assert_eq!(
             def.suggested_fee_recipient,
             Some(Address::from_str("0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d").unwrap())
@@ -613,7 +613,7 @@ mod tests {
         voting_keystore_path: ""
         voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
         "#;
-        let def: ValidatorDefinition = serde_yaml::from_str(no_gas_limit).unwrap();
+        let def: ValidatorDefinition = yaml_serde::from_str(no_gas_limit).unwrap();
         assert!(def.gas_limit.is_none());
 
         let invalid_gas_limit = r#"---
@@ -626,7 +626,7 @@ mod tests {
         voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
         "#;
 
-        let def: Result<ValidatorDefinition, _> = serde_yaml::from_str(invalid_gas_limit);
+        let def: Result<ValidatorDefinition, _> = yaml_serde::from_str(invalid_gas_limit);
         assert!(def.is_err());
 
         let valid_gas_limit = r#"---
@@ -639,7 +639,7 @@ mod tests {
         voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
         "#;
 
-        let def: ValidatorDefinition = serde_yaml::from_str(valid_gas_limit).unwrap();
+        let def: ValidatorDefinition = yaml_serde::from_str(valid_gas_limit).unwrap();
         assert_eq!(def.gas_limit, Some(35000000));
     }
 
@@ -653,7 +653,7 @@ mod tests {
         voting_keystore_path: ""
         voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
         "#;
-        let def: ValidatorDefinition = serde_yaml::from_str(no_builder_proposals).unwrap();
+        let def: ValidatorDefinition = yaml_serde::from_str(no_builder_proposals).unwrap();
         assert!(def.builder_proposals.is_none());
 
         let invalid_builder_proposals = r#"---
@@ -666,7 +666,7 @@ mod tests {
         voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
         "#;
 
-        let def: Result<ValidatorDefinition, _> = serde_yaml::from_str(invalid_builder_proposals);
+        let def: Result<ValidatorDefinition, _> = yaml_serde::from_str(invalid_builder_proposals);
         assert!(def.is_err());
 
         let valid_builder_proposals = r#"---
@@ -679,7 +679,7 @@ mod tests {
         voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
         "#;
 
-        let def: ValidatorDefinition = serde_yaml::from_str(valid_builder_proposals).unwrap();
+        let def: ValidatorDefinition = yaml_serde::from_str(valid_builder_proposals).unwrap();
         assert_eq!(def.builder_proposals, Some(true));
     }
 }

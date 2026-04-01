@@ -118,7 +118,7 @@ fn string_to_bytes(string: &str) -> Result<Vec<u8>, String> {
 pub fn keypairs_from_yaml_file(path: PathBuf) -> Result<Vec<Keypair>, String> {
     let file = File::open(path).map_err(|e| format!("Unable to open YAML key file: {}", e))?;
 
-    serde_yaml::from_reader::<_, Vec<YamlKeypair>>(file)
+    yaml_serde::from_reader::<_, Vec<YamlKeypair>>(file)
         .map_err(|e| format!("Could not parse YAML: {:?}", e))?
         .into_iter()
         .map(TryInto::try_into)

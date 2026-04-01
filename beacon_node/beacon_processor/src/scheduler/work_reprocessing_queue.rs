@@ -35,6 +35,7 @@ use types::{EthSpec, Hash256, Slot};
 
 const TASK_NAME: &str = "beacon_processor_reprocess_queue";
 const GOSSIP_BLOCKS: &str = "gossip_blocks";
+const GOSSIP_ENVELOPES: &str = "gossip_envelopes";
 const RPC_BLOCKS: &str = "rpc_blocks";
 const ATTESTATIONS: &str = "attestations";
 const ATTESTATIONS_PER_ROOT: &str = "attestations_per_root";
@@ -51,6 +52,10 @@ pub const QUEUED_ATTESTATION_DELAY: Duration = Duration::from_secs(12);
 /// For how long to queue light client updates for re-processing.
 pub const QUEUED_LIGHT_CLIENT_UPDATE_DELAY: Duration = Duration::from_secs(12);
 
+/// Envelope timeout as a multiplier of slot duration. Envelopes waiting for their block will be
+/// sent for processing after this many slots worth of time, even if the block hasn't arrived.
+const QUEUED_ENVELOPE_DELAY_SLOTS: u32 = 1;
+
 /// For how long to queue rpc blocks before sending them back for reprocessing.
 pub const QUEUED_RPC_BLOCK_DELAY: Duration = Duration::from_secs(4);
 
@@ -64,6 +69,9 @@ pub const QUEUED_RECONSTRUCTION_DELAY: Duration = Duration::from_millis(150);
 /// we signature-verify blocks before putting them in the queue *should* protect against this, but
 /// it's nice to have extra protection.
 const MAXIMUM_QUEUED_BLOCKS: usize = 16;
+
+/// Set an arbitrary upper-bound on the number of queued envelopes to avoid DoS attacks.
+const MAXIMUM_QUEUED_ENVELOPES: usize = 16;
 
 /// How many attestations we keep before new ones get dropped.
 const MAXIMUM_QUEUED_ATTESTATIONS: usize = 16_384;
@@ -93,6 +101,8 @@ pub const RECONSTRUCTION_DEADLINE: (u64, u64) = (1, 4);
 pub enum ReprocessQueueMessage {
     /// A block that has been received early and we should queue for later processing.
     EarlyBlock(QueuedGossipBlock),
+    /// An execution payload envelope that references a block not yet in fork choice.
+    UnknownBlockForEnvelope(QueuedGossipEnvelope),
     /// A gossip block for hash `X` is being imported, we should queue the rpc block for the same
     /// hash until the gossip block is imported.
     RpcBlock(QueuedRpcBlock),
@@ -120,6 +130,7 @@ pub enum ReprocessQueueMessage {
 /// Events sent by the scheduler once they are ready for re-processing.
 pub enum ReadyWork {
     Block(QueuedGossipBlock),
+    Envelope(QueuedGossipEnvelope),
     RpcBlock(QueuedRpcBlock),
     IgnoredRpcBlock(IgnoredRpcBlock),
     Unaggregate(QueuedUnaggregate),
@@ -152,6 +163,13 @@ pub struct QueuedLightClientUpdate {
 
 /// A block that arrived early and has been queued for later import.
 pub struct QueuedGossipBlock {
+    pub beacon_block_slot: Slot,
+    pub beacon_block_root: Hash256,
+    pub process_fn: AsyncFn,
+}
+
+/// An execution payload envelope that arrived early and has been queued for later import.
+pub struct QueuedGossipEnvelope {
     pub beacon_block_slot: Slot,
     pub beacon_block_root: Hash256,
     pub process_fn: AsyncFn,
@@ -209,6 +227,8 @@ impl<E: EthSpec> From<QueuedBackfillBatch> for WorkEvent<E> {
 enum InboundEvent {
     /// A gossip block that was queued for later processing and is ready for import.
     ReadyGossipBlock(QueuedGossipBlock),
+    /// An envelope whose block has been imported and is now ready for processing.
+    ReadyEnvelope(Hash256),
     /// A rpc block that was queued because the same gossip block was being imported
     /// will now be retried for import.
     ReadyRpcBlock(QueuedRpcBlock),
@@ -234,6 +254,8 @@ struct ReprocessQueue<S> {
     /* Queues */
     /// Queue to manage scheduled early blocks.
     gossip_block_delay_queue: DelayQueue<QueuedGossipBlock>,
+    /// Queue to manage envelope timeouts (keyed by block root).
+    envelope_delay_queue: DelayQueue<Hash256>,
     /// Queue to manage scheduled early blocks.
     rpc_block_delay_queue: DelayQueue<QueuedRpcBlock>,
     /// Queue to manage scheduled attestations.
@@ -246,6 +268,8 @@ struct ReprocessQueue<S> {
     /* Queued items */
     /// Queued blocks.
     queued_gossip_block_roots: HashSet<Hash256>,
+    /// Queued envelopes awaiting their block, keyed by block root.
+    awaiting_envelopes_per_root: HashMap<Hash256, (QueuedGossipEnvelope, DelayKey)>,
     /// Queued aggregated attestations.
     queued_aggregates: FnvHashMap<usize, (QueuedAggregate, DelayKey)>,
     /// Queued attestations.
@@ -266,6 +290,7 @@ struct ReprocessQueue<S> {
     next_attestation: usize,
     next_lc_update: usize,
     early_block_debounce: TimeLatch,
+    envelope_delay_debounce: TimeLatch,
     rpc_block_debounce: TimeLatch,
     attestation_delay_debounce: TimeLatch,
     lc_update_delay_debounce: TimeLatch,
@@ -312,6 +337,13 @@ impl<S: SlotClock> Stream for ReprocessQueue<S> {
             }
             // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
             // will continue to get this result until something else is added into the queue.
+            Poll::Ready(None) | Poll::Pending => (),
+        }
+
+        match self.envelope_delay_queue.poll_expired(cx) {
+            Poll::Ready(Some(block_root)) => {
+                return Poll::Ready(Some(InboundEvent::ReadyEnvelope(block_root.into_inner())));
+            }
             Poll::Ready(None) | Poll::Pending => (),
         }
 
@@ -418,11 +450,13 @@ impl<S: SlotClock> ReprocessQueue<S> {
             work_reprocessing_rx,
             ready_work_tx,
             gossip_block_delay_queue: DelayQueue::new(),
+            envelope_delay_queue: DelayQueue::new(),
             rpc_block_delay_queue: DelayQueue::new(),
             attestations_delay_queue: DelayQueue::new(),
             lc_updates_delay_queue: DelayQueue::new(),
             column_reconstructions_delay_queue: DelayQueue::new(),
             queued_gossip_block_roots: HashSet::new(),
+            awaiting_envelopes_per_root: HashMap::new(),
             queued_lc_updates: FnvHashMap::default(),
             queued_aggregates: FnvHashMap::default(),
             queued_unaggregates: FnvHashMap::default(),
@@ -433,6 +467,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
             next_attestation: 0,
             next_lc_update: 0,
             early_block_debounce: TimeLatch::default(),
+            envelope_delay_debounce: TimeLatch::default(),
             rpc_block_debounce: TimeLatch::default(),
             attestation_delay_debounce: TimeLatch::default(),
             lc_update_delay_debounce: TimeLatch::default(),
@@ -497,6 +532,52 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         error!("Failed to send block");
                     }
                 }
+            }
+            // An envelope that references an unknown block. Queue it until the block is
+            // imported, or until the timeout expires.
+            InboundEvent::Msg(UnknownBlockForEnvelope(queued_envelope)) => {
+                let block_root = queued_envelope.beacon_block_root;
+
+                // TODO(gloas): Perform lightweight pre-validation before queuing
+                // (e.g. verify builder signature) to prevent unsigned garbage from
+                // consuming queue slots.
+
+                // Don't add the same envelope to the queue twice. This prevents DoS attacks.
+                if self.awaiting_envelopes_per_root.contains_key(&block_root) {
+                    trace!(
+                        ?block_root,
+                        "Duplicate envelope for same block root, dropping"
+                    );
+                    return;
+                }
+
+                // When the queue is full, evict the oldest entry to make room for newer envelopes.
+                if self.awaiting_envelopes_per_root.len() >= MAXIMUM_QUEUED_ENVELOPES {
+                    if self.envelope_delay_debounce.elapsed() {
+                        warn!(
+                            queue_size = MAXIMUM_QUEUED_ENVELOPES,
+                            msg = "system resources may be saturated",
+                            "Envelope delay queue is full, evicting oldest entry"
+                        );
+                    }
+                    if let Some(oldest_root) =
+                        self.awaiting_envelopes_per_root.keys().next().copied()
+                        && let Some((_envelope, delay_key)) =
+                            self.awaiting_envelopes_per_root.remove(&oldest_root)
+                    {
+                        self.envelope_delay_queue.remove(&delay_key);
+                    }
+                }
+
+                // Register the timeout.
+                let delay_key = self.envelope_delay_queue.insert(
+                    block_root,
+                    self.slot_clock.slot_duration() * QUEUED_ENVELOPE_DELAY_SLOTS,
+                );
+
+                // Store the envelope keyed by block root.
+                self.awaiting_envelopes_per_root
+                    .insert(block_root, (queued_envelope, delay_key));
             }
             // A rpc block arrived for processing at the same time when a gossip block
             // for the same block hash is being imported. We wait for `QUEUED_RPC_BLOCK_DELAY`
@@ -647,6 +728,23 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 block_root,
                 parent_root,
             }) => {
+                // Unqueue the envelope we have for this root, if any.
+                if let Some((envelope, delay_key)) =
+                    self.awaiting_envelopes_per_root.remove(&block_root)
+                {
+                    self.envelope_delay_queue.remove(&delay_key);
+                    if self
+                        .ready_work_tx
+                        .try_send(ReadyWork::Envelope(envelope))
+                        .is_err()
+                    {
+                        error!(
+                            ?block_root,
+                            "Failed to send envelope for reprocessing after block import"
+                        );
+                    }
+                }
+
                 // Unqueue the attestations we have for this root, if any.
                 if let Some(queued_ids) = self.awaiting_attestations_per_root.remove(&block_root) {
                     let mut sent_count = 0;
@@ -802,6 +900,25 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     error!("Failed to pop queued block");
                 }
             }
+            // An envelope's timeout has expired. Send it for processing regardless of
+            // whether the block has been imported.
+            InboundEvent::ReadyEnvelope(block_root) => {
+                if let Some((envelope, _delay_key)) =
+                    self.awaiting_envelopes_per_root.remove(&block_root)
+                {
+                    debug!(
+                        ?block_root,
+                        "Envelope timed out waiting for block, sending for processing"
+                    );
+                    if self
+                        .ready_work_tx
+                        .try_send(ReadyWork::Envelope(envelope))
+                        .is_err()
+                    {
+                        error!(?block_root, "Failed to send envelope after timeout");
+                    }
+                }
+            }
             InboundEvent::ReadyAttestation(queued_id) => {
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_ATTESTATIONS,
@@ -940,6 +1057,11 @@ impl<S: SlotClock> ReprocessQueue<S> {
             &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
             &[GOSSIP_BLOCKS],
             self.gossip_block_delay_queue.len() as i64,
+        );
+        metrics::set_gauge_vec(
+            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
+            &[GOSSIP_ENVELOPES],
+            self.awaiting_envelopes_per_root.len() as i64,
         );
         metrics::set_gauge_vec(
             &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
@@ -1338,5 +1460,164 @@ mod tests {
         if let InboundEvent::ReadyColumnReconstruction(reconstruction) = ready_msg {
             assert_eq!(reconstruction.block_root, block_root);
         }
+    }
+
+    // Test that envelopes are properly cleaned up from `awaiting_envelopes_per_root` on timeout.
+    #[tokio::test]
+    async fn prune_awaiting_envelopes_per_root() {
+        create_test_tracing_subscriber();
+
+        let mut queue = test_queue();
+
+        // Pause time so it only advances manually
+        tokio::time::pause();
+
+        let beacon_block_root = Hash256::repeat_byte(0xaf);
+
+        // Insert an envelope.
+        let msg = ReprocessQueueMessage::UnknownBlockForEnvelope(QueuedGossipEnvelope {
+            beacon_block_slot: Slot::new(1),
+            beacon_block_root,
+            process_fn: Box::pin(async {}),
+        });
+
+        // Process the event to enter it into the delay queue.
+        queue.handle_message(InboundEvent::Msg(msg));
+
+        // Check that it is queued.
+        assert_eq!(queue.awaiting_envelopes_per_root.len(), 1);
+        assert!(
+            queue
+                .awaiting_envelopes_per_root
+                .contains_key(&beacon_block_root)
+        );
+
+        // Advance time to expire the envelope.
+        advance_time(
+            &queue.slot_clock,
+            queue.slot_clock.slot_duration() * QUEUED_ENVELOPE_DELAY_SLOTS * 2,
+        )
+        .await;
+        let ready_msg = queue.next().await.unwrap();
+        assert!(matches!(ready_msg, InboundEvent::ReadyEnvelope(_)));
+        queue.handle_message(ready_msg);
+
+        // The entry for the block root should be gone.
+        assert!(queue.awaiting_envelopes_per_root.is_empty());
+    }
+
+    #[tokio::test]
+    async fn envelope_released_on_block_imported() {
+        create_test_tracing_subscriber();
+
+        let mut queue = test_queue();
+
+        // Pause time so it only advances manually
+        tokio::time::pause();
+
+        let beacon_block_root = Hash256::repeat_byte(0xaf);
+        let parent_root = Hash256::repeat_byte(0xab);
+
+        // Insert an envelope.
+        let msg = ReprocessQueueMessage::UnknownBlockForEnvelope(QueuedGossipEnvelope {
+            beacon_block_slot: Slot::new(1),
+            beacon_block_root,
+            process_fn: Box::pin(async {}),
+        });
+
+        // Process the event to enter it into the delay queue.
+        queue.handle_message(InboundEvent::Msg(msg));
+
+        // Check that it is queued.
+        assert_eq!(queue.awaiting_envelopes_per_root.len(), 1);
+
+        // Simulate block import.
+        let imported = ReprocessQueueMessage::BlockImported {
+            block_root: beacon_block_root,
+            parent_root,
+        };
+        queue.handle_message(InboundEvent::Msg(imported));
+
+        // The entry for the block root should be gone.
+        assert!(queue.awaiting_envelopes_per_root.is_empty());
+        // Delay queue entry should also be cancelled.
+        assert_eq!(queue.envelope_delay_queue.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn envelope_dedup_drops_second() {
+        create_test_tracing_subscriber();
+
+        let mut queue = test_queue();
+
+        // Pause time so it only advances manually
+        tokio::time::pause();
+
+        let beacon_block_root = Hash256::repeat_byte(0xaf);
+
+        // Insert an envelope.
+        let msg1 = ReprocessQueueMessage::UnknownBlockForEnvelope(QueuedGossipEnvelope {
+            beacon_block_slot: Slot::new(1),
+            beacon_block_root,
+            process_fn: Box::pin(async {}),
+        });
+        let msg2 = ReprocessQueueMessage::UnknownBlockForEnvelope(QueuedGossipEnvelope {
+            beacon_block_slot: Slot::new(1),
+            beacon_block_root,
+            process_fn: Box::pin(async {}),
+        });
+
+        // Process both events.
+        queue.handle_message(InboundEvent::Msg(msg1));
+        queue.handle_message(InboundEvent::Msg(msg2));
+
+        // Only one should be queued.
+        assert_eq!(queue.awaiting_envelopes_per_root.len(), 1);
+        assert_eq!(queue.envelope_delay_queue.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn envelope_capacity_evicts_oldest() {
+        create_test_tracing_subscriber();
+
+        let mut queue = test_queue();
+
+        // Pause time so it only advances manually
+        tokio::time::pause();
+
+        // Fill the queue to capacity.
+        for i in 0..MAXIMUM_QUEUED_ENVELOPES {
+            let block_root = Hash256::repeat_byte(i as u8);
+            let msg = ReprocessQueueMessage::UnknownBlockForEnvelope(QueuedGossipEnvelope {
+                beacon_block_slot: Slot::new(1),
+                beacon_block_root: block_root,
+                process_fn: Box::pin(async {}),
+            });
+            queue.handle_message(InboundEvent::Msg(msg));
+        }
+        assert_eq!(
+            queue.awaiting_envelopes_per_root.len(),
+            MAXIMUM_QUEUED_ENVELOPES
+        );
+
+        // One more should evict the oldest and insert the new one.
+        let overflow_root = Hash256::repeat_byte(0xff);
+        let msg = ReprocessQueueMessage::UnknownBlockForEnvelope(QueuedGossipEnvelope {
+            beacon_block_slot: Slot::new(1),
+            beacon_block_root: overflow_root,
+            process_fn: Box::pin(async {}),
+        });
+        queue.handle_message(InboundEvent::Msg(msg));
+
+        // Queue should still be at capacity, with the new root present.
+        assert_eq!(
+            queue.awaiting_envelopes_per_root.len(),
+            MAXIMUM_QUEUED_ENVELOPES
+        );
+        assert!(
+            queue
+                .awaiting_envelopes_per_root
+                .contains_key(&overflow_root)
+        );
     }
 }
