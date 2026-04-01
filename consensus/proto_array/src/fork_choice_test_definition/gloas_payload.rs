@@ -757,40 +757,31 @@ mod tests {
         // First Gloas block (V29 node).
         let gloas_slot = if skip_first_gloas_slot { 33 } else { 32 };
 
-        // For Full: execution_payload_parent_hash must match the V17 parent's EL hash.
-        // The V17 parent's EL hash = ExecutionBlockHash::from_root(get_root(1)) = get_hash(1).
-        // For Empty: use a non-matching hash.
-        let parent_hash = if first_gloas_block_full {
-            get_hash(1)
-        } else {
-            get_hash(99)
-        };
-
+        // The first Gloas block should always have the pre-Gloas block as its execution parent,
+        // although this is currently not checked anywhere (the spec doesn't mention this).
         ops.push(Operation::ProcessBlock {
             slot: Slot::new(gloas_slot),
             root: get_root(2),
             parent_root: get_root(1),
             justified_checkpoint: get_checkpoint(0),
             finalized_checkpoint: get_checkpoint(0),
-            execution_payload_parent_hash: Some(parent_hash),
+            execution_payload_parent_hash: Some(get_hash(1)),
             execution_payload_block_hash: Some(get_hash(2)),
         });
 
-        // Verify the parent_payload_status is correctly set.
-        let expected_parent_status = if first_gloas_block_full {
-            PayloadStatus::Full
-        } else {
-            PayloadStatus::Empty
-        };
+        // Parent payload status of fork boundary block should always be Empty.
+        let expected_parent_status = PayloadStatus::Empty;
         ops.push(Operation::AssertParentPayloadStatus {
             block_root: get_root(2),
             expected_status: expected_parent_status,
         });
 
         // Mark root 2's execution payload as received so the Full virtual child exists.
-        ops.push(Operation::ProcessExecutionPayload {
-            block_root: get_root(2),
-        });
+        if first_gloas_block_full {
+            ops.push(Operation::ProcessExecutionPayload {
+                block_root: get_root(2),
+            });
+        }
 
         // Extend the chain with another V29 block (Full child of root 2).
         ops.push(Operation::ProcessBlock {
@@ -799,7 +790,11 @@ mod tests {
             parent_root: get_root(2),
             justified_checkpoint: get_checkpoint(0),
             finalized_checkpoint: get_checkpoint(0),
-            execution_payload_parent_hash: Some(get_hash(2)),
+            execution_payload_parent_hash: if first_gloas_block_full {
+                Some(get_hash(2))
+            } else {
+                Some(get_hash(1))
+            },
             execution_payload_block_hash: Some(get_hash(3)),
         });
 
@@ -811,6 +806,15 @@ mod tests {
             expected_head: get_root(3),
             current_slot: Slot::new(gloas_slot + 1),
             expected_payload_status: None,
+        });
+
+        ops.push(Operation::AssertParentPayloadStatus {
+            block_root: get_root(3),
+            expected_status: if first_gloas_block_full {
+                PayloadStatus::Full
+            } else {
+                PayloadStatus::Empty
+            },
         });
 
         ForkChoiceTestDefinition {

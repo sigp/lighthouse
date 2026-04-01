@@ -570,31 +570,31 @@ impl ProtoArray {
                         block_root: block.root,
                     })?;
 
-            let parent_payload_status: PayloadStatus = if let Some(parent_node) =
-                parent_index.and_then(|idx| self.nodes.get(idx))
-            {
-                // Get the parent's execution block hash, handling both V17 and V29 nodes.
-                // V17 parents occur during the Gloas fork transition.
-                // TODO(gloas): the spec's `get_parent_payload_status` assumes all blocks are
-                // post-Gloas with bids. Revisit once the spec clarifies fork-transition behavior.
-                let parent_el_block_hash = match parent_node {
-                    ProtoNode::V29(v29) => Some(v29.execution_payload_block_hash),
-                    ProtoNode::V17(v17) => v17.execution_status.block_hash(),
-                };
-                // Per spec's `is_parent_node_full`: if the child's EL parent hash
-                // matches the parent's EL block hash, the child extends the parent's
-                // payload chain, meaning the parent was Full.
-                if parent_el_block_hash.is_some_and(|hash| execution_payload_parent_hash == hash) {
-                    PayloadStatus::Full
+            let parent_payload_status: PayloadStatus =
+                if let Some(parent_node) = parent_index.and_then(|idx| self.nodes.get(idx)) {
+                    match parent_node {
+                        ProtoNode::V29(v29) => {
+                            // Both parent and child are Gloas blocks. The parent is full if the
+                            // block hash in the parent node matches the parent block hash in the
+                            // child bid.
+                            if execution_payload_parent_hash == v29.execution_payload_block_hash {
+                                PayloadStatus::Full
+                            } else {
+                                PayloadStatus::Empty
+                            }
+                        }
+                        ProtoNode::V17(_) => {
+                            // Parent is pre-Gloas, pre-Gloas blocks are treated as having Empty
+                            // payload status. This case is reached during the fork transition.
+                            PayloadStatus::Empty
+                        }
+                    }
                 } else {
-                    PayloadStatus::Empty
-                }
-            } else {
-                // Parent is missing (genesis or pruned due to finalization). Default to Full
-                // since this path should only be hit at Gloas genesis, and extending the payload
-                // chain is the safe default.
-                PayloadStatus::Full
-            };
+                    // TODO(gloas): re-assess this assumption
+                    // Parent is missing (genesis or pruned due to finalization). Default to Full
+                    // since this path should only be hit at Gloas genesis.
+                    PayloadStatus::Full
+                };
 
             // Per spec `get_forkchoice_store`: the anchor (genesis) block has
             // its payload state initialized (`payload_states = {anchor_root: ...}`).
