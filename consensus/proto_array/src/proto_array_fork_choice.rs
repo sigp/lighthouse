@@ -33,6 +33,45 @@ pub struct VoteTracker {
     next_payload_present: bool,
 }
 
+// Can be deleted once the V28 schema migration is buried.
+#[derive(Default, PartialEq, Clone, Encode, Decode)]
+pub struct VoteTrackerV28 {
+    current_root: Hash256,
+    next_root: Hash256,
+    current_slot: Slot,
+    next_slot: Slot,
+}
+
+// This impl is only used upon upgrade from pre-Gloas to Gloas with all pre-Gloas nodes.
+// The payload status is `false` for pre-Gloas nodes.
+impl From<VoteTrackerV28> for VoteTracker {
+    fn from(v: VoteTrackerV28) -> Self {
+        VoteTracker {
+            current_root: v.current_root,
+            next_root: v.next_root,
+            current_slot: v.current_slot,
+            next_slot: v.next_slot,
+            // TODO(gloas): check that this is correct
+            current_payload_present: false,
+            next_payload_present: false,
+        }
+    }
+}
+
+// This impl is only used upon downgrade from V29 to V28, with exclusively pre-Gloas nodes.
+impl From<VoteTracker> for VoteTrackerV28 {
+    fn from(v: VoteTracker) -> Self {
+        // Drop the payload_present, but this is safe because this is only called on pre-Gloas
+        // nodes.
+        VoteTrackerV28 {
+            current_root: v.current_root,
+            next_root: v.next_root,
+            current_slot: v.current_slot,
+            next_slot: v.next_slot,
+        }
+    }
+}
+
 pub struct LatestMessage {
     pub slot: Slot,
     pub root: Hash256,
