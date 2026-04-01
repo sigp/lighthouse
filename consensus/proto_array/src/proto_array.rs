@@ -369,7 +369,6 @@ pub struct ProtoArray {
     pub prune_threshold: usize,
     pub nodes: Vec<ProtoNode>,
     pub indices: HashMap<Hash256, usize>,
-    pub previous_proposer_boost: ProposerBoost,
 }
 
 impl ProtoArray {
@@ -501,10 +500,6 @@ impl ProtoArray {
                 }
             }
         }
-
-        // Proposer boost is now applied on-the-fly in `get_weight` during the
-        // walk, so clear any stale boost from a prior call.
-        self.previous_proposer_boost = ProposerBoost::default();
 
         Ok(())
     }

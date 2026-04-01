@@ -1614,7 +1614,6 @@ where
         persisted_proto_array: proto_array::core::SszContainer,
         justified_balances: JustifiedBalances,
         reset_payload_statuses: ResetPayloadStatuses,
-        spec: &ChainSpec,
     ) -> Result<ProtoArrayForkChoice, Error<T::Error>> {
         let mut proto_array = ProtoArrayForkChoice::from_container(
             persisted_proto_array.clone(),
@@ -1639,7 +1638,7 @@ where
 
         // Reset all blocks back to being "optimistic". This helps recover from an EL consensus
         // fault where an invalid payload becomes valid.
-        if let Err(e) = proto_array.set_all_blocks_to_optimistic::<E>(spec) {
+        if let Err(e) = proto_array.set_all_blocks_to_optimistic::<E>() {
             // If there is an error resetting the optimistic status then log loudly and revert
             // back to a proto-array which does not have the reset applied. This indicates a
             // significant error in Lighthouse and warrants detailed investigation.
@@ -1669,7 +1668,6 @@ where
             persisted.proto_array,
             justified_balances,
             reset_payload_statuses,
-            spec,
         )?;
 
         let current_slot = fc_store.get_current_slot();
@@ -1703,7 +1701,7 @@ where
             // get a different result.
             fork_choice
                 .proto_array
-                .set_all_blocks_to_optimistic::<E>(spec)?;
+                .set_all_blocks_to_optimistic::<E>()?;
             // If the second attempt at finding a head fails, return an error since we do not
             // expect this scenario.
             let _ = fork_choice.get_head(current_slot, spec)?;
