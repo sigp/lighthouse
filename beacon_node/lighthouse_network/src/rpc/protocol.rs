@@ -499,6 +499,10 @@ impl<E: EthSpec> UpgradeInfo for RPCProtocol<E> {
                 SupportedProtocol::LightClientFinalityUpdateV1,
                 Encoding::SSZSnappy,
             ));
+            supported_protocols.push(ProtocolId::new(
+                SupportedProtocol::LightClientUpdatesByRangeV1,
+                Encoding::SSZSnappy,
+            ));
         }
         supported_protocols
     }
@@ -1161,6 +1165,10 @@ mod tests {
 
             DataColumnsByRootV1 | DataColumnsByRangeV1 | MetaDataV3 => {
                 fork_context.spec.is_peer_das_scheduled()
+            }
+
+            PayloadEnvelopesByRangeV1 | PayloadEnvelopesByRootV1 => {
+                fork_context.fork_exists(ForkName::Gloas)
             }
 
             // Light client protocols are not in currently_supported()
