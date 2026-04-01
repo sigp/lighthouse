@@ -144,6 +144,7 @@ impl ForkChoiceTestDefinition {
             ExecutionStatus::Optimistic(ExecutionBlockHash::zero()),
             self.execution_payload_parent_hash,
             self.execution_payload_block_hash,
+            0,
             &spec,
         )
         .expect("should create fork choice struct");

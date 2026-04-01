@@ -479,6 +479,7 @@ impl ProtoArrayForkChoice {
         execution_status: ExecutionStatus,
         execution_payload_parent_hash: Option<ExecutionBlockHash>,
         execution_payload_block_hash: Option<ExecutionBlockHash>,
+        proposer_index: u64,
         spec: &ChainSpec,
     ) -> Result<Self, String> {
         let mut proto_array = ProtoArray {
@@ -505,7 +506,7 @@ impl ProtoArrayForkChoice {
             unrealized_finalized_checkpoint: Some(finalized_checkpoint),
             execution_payload_parent_hash,
             execution_payload_block_hash,
-            proposer_index: Some(0),
+            proposer_index: Some(proposer_index),
         };
 
         proto_array
@@ -1317,6 +1318,7 @@ mod test_compute_deltas {
             execution_status,
             None,
             None,
+            0,
             &spec,
         )
         .unwrap();
@@ -1471,6 +1473,7 @@ mod test_compute_deltas {
             execution_status,
             None,
             None,
+            0,
             &spec,
         )
         .unwrap();

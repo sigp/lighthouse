@@ -281,19 +281,6 @@ impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
     }
 }
 
-/// Used for queuing payload attestations (PTC votes) from the current slot.
-/// Payload attestations have different dequeue timing than regular attestations:
-/// gossiped payload attestations need an extra slot of delay (slot + 1 < current_slot).
-#[derive(Clone, PartialEq, Encode, Decode)]
-pub struct QueuedPayloadAttestation {
-    slot: Slot,
-    /// Resolved PTC committee positions (not validator indices).
-    ptc_indices: Vec<usize>,
-    block_root: Hash256,
-    payload_present: bool,
-    blob_data_available: bool,
-}
-
 /// Returns all values in `self.queued_attestations` that have a slot that is earlier than the
 /// current slot. Also removes those values from `self.queued_attestations`.
 fn dequeue_attestations(
@@ -450,6 +437,7 @@ where
             execution_status,
             execution_payload_parent_hash,
             execution_payload_block_hash,
+            anchor_block.message().proposer_index(),
             spec,
         )?;
 
@@ -462,7 +450,7 @@ where
                 head_hash: None,
                 justified_hash: None,
                 finalized_hash: None,
-                // These will be updated during the next call to `Self::get_head`.
+                // This will be updated during the next call to `Self::get_head`.
                 head_root: Hash256::zero(),
             },
             _phantom: PhantomData,
