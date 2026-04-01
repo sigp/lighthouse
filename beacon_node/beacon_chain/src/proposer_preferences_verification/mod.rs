@@ -38,6 +38,8 @@ pub enum ProposerPreferencesError {
         validator_index: u64,
         proposal_slot: Slot,
     },
+    /// The head state is pre-Fulu
+    InvalidStateVariant,
     /// A valid message from this validator for this slot has already been seen.
     AlreadySeen {
         validator_index: u64,

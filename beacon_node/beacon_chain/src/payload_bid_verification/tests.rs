@@ -128,7 +128,7 @@ impl TestContext {
         let head = self.canonical_head.cached_head();
         let state = &head.snapshot.beacon_state;
         let domain = self.spec.get_domain(
-            state.current_epoch(),
+            bid.slot.epoch(E::slots_per_epoch()),
             Domain::BeaconBuilder,
             &state.fork(),
             state.genesis_validators_root(),

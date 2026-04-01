@@ -49,10 +49,7 @@ pub(crate) fn verify_preferences_consistency<E: EthSpec>(
     };
 
     let proposer_lookahead = head_state.proposer_lookahead().map_err(|_| {
-        ProposerPreferencesError::InvalidProposalSlot {
-            validator_index,
-            proposal_slot,
-        }
+        ProposerPreferencesError::InvalidStateVariant
     })?;
 
     let expected_proposer = proposer_lookahead.get(lookahead_index).ok_or(

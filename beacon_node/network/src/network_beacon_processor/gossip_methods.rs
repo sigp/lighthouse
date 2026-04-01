@@ -3516,14 +3516,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 debug!(
                     %peer_id,
                     error = ?e,
-                    "Rejecting payload bid with invalid slot"
+                    "Ignoring payload bid with invalid slot"
                 );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(
-                    peer_id,
-                    PeerAction::HighToleranceError,
-                    "invalid_gossip_payload_bid",
-                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
             Err(
                 e @ PayloadBidError::BadSignature
@@ -3597,14 +3592,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 debug!(
                     %peer_id,
                     error = ?e,
-                    "Rejecting proposer preferences with invalid timing"
+                    "Ignoring proposer preferences with invalid timing"
                 );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(
-                    peer_id,
-                    PeerAction::HighToleranceError,
-                    "invalid_gossip_proposer_preferences",
-                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
             Err(
                 e @ ProposerPreferencesError::InvalidProposalSlot { .. }
@@ -3625,6 +3615,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(
                 e @ ProposerPreferencesError::BeaconChainError(_)
                 | e @ ProposerPreferencesError::BeaconStateError(_),
+                | e @ ProposerPreferencesError::InvalidStateVariant,
             ) => {
                 debug!(
                     %peer_id,
