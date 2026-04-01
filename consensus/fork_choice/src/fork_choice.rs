@@ -1305,17 +1305,10 @@ where
             return Ok(());
         }
 
-        match self.validate_on_payload_attestation(attestation, is_from_block) {
-            Ok(()) => (),
-            Err(InvalidAttestation::PayloadAttestationNotCurrentSlot { .. }) => {
-                // Just ignore wrong-slot payload attestations, they could have been processed at
-                // the correct slot when received on gossip, but then have the wrong-slot by the
-                // time they make it to here (TOCTOU).
-                // TODO(gloas): consider moving this to the call site for gossip processing
-                return Ok(());
-            }
-            Err(e) => return Err(e.into()),
-        }
+        // TODO(gloas): Should ignore wrong-slot payload attestations at the caller, they could
+        // have been processed at the correct slot when received on gossip, but then have the
+        // wrong-slot by the time they make it to here (TOCTOU).
+        self.validate_on_payload_attestation(attestation, is_from_block)?;
 
         // Resolve validator indices to PTC committee positions.
         let ptc_indices: Vec<usize> = attestation
