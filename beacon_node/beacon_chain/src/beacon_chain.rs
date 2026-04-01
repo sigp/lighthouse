@@ -130,7 +130,7 @@ use store::{
 };
 use task_executor::{RayonPoolType, ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
-use tracing::{Span, debug, debug_span, error, info, info_span, instrument, trace, warn};
+use tracing::{debug, debug_span, error, info, info_span, instrument, trace, warn};
 use tree_hash::TreeHash;
 use types::data::{ColumnIndex, FixedBlobSidecarList};
 use types::execution::BlockProductionVersion;
@@ -2761,6 +2761,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// or already-known).
     ///
     /// This method is potentially long-running and should not run on the core executor.
+    #[instrument(skip_all, level = "debug")]
     pub fn filter_chain_segment(
         self: &Arc<Self>,
         chain_segment: Vec<RangeSyncBlock<T::EthSpec>>,
@@ -2888,12 +2889,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Filter uninteresting blocks from the chain segment in a blocking task.
         let chain = self.clone();
-        let filter_chain_segment = debug_span!("filter_chain_segment");
         let filtered_chain_segment_future = self.spawn_blocking_handle(
-            move || {
-                let _guard = filter_chain_segment.enter();
-                chain.filter_chain_segment(chain_segment)
-            },
+            move || chain.filter_chain_segment(chain_segment),
             "filter_chain_segment",
         );
         let mut filtered_chain_segment = match filtered_chain_segment_future.await {
@@ -2924,12 +2921,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             std::mem::swap(&mut blocks, &mut filtered_chain_segment);
 
             let chain = self.clone();
-            let current_span = Span::current();
             let signature_verification_future = self.spawn_blocking_handle(
-                move || {
-                    let _guard = current_span.enter();
-                    signature_verify_chain_segment(blocks, &chain)
-                },
+                move || signature_verify_chain_segment(blocks, &chain),
                 "signature_verify_chain_segment",
             );
 
@@ -3019,12 +3012,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError> {
         let chain = self.clone();
-        let span = Span::current();
         self.task_executor
             .clone()
             .spawn_blocking_handle(
                 move || {
-                    let _guard = span.enter();
                     let slot = block.slot();
                     let graffiti_string = block.message().body().graffiti().as_utf8_lossy();
 
@@ -3332,11 +3323,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let data_availability_checker = self.data_availability_checker.clone();
 
-        let current_span = Span::current();
         let result = self
             .task_executor
             .spawn_blocking_with_rayon_async(RayonPoolType::HighPriority, move || {
-                let _guard = current_span.enter();
                 data_availability_checker.reconstruct_data_columns(&block_root)
             })
             .await
@@ -3811,13 +3800,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         let block_root = {
-            // Capture the current span before moving into the blocking task
-            let current_span = tracing::Span::current();
             let chain = self.clone();
             self.spawn_blocking_handle(
                 move || {
-                    // Enter the captured span in the blocking thread
-                    let _guard = current_span.enter();
                     chain.import_block(
                         block,
                         block_root,
@@ -4528,15 +4513,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // Load the parent state from disk.
         let chain = self.clone();
-        let span = Span::current();
         let (state, state_root_opt) = self
             .task_executor
             .spawn_blocking_handle(
-                move || {
-                    let _guard =
-                        debug_span!(parent: span, "load_state_for_block_production").entered();
-                    chain.load_state_for_block_production(slot)
-                },
+                move || chain.load_state_for_block_production(slot),
                 "load_state_for_block_production",
             )
             .ok_or(BlockProductionError::ShuttingDown)?
@@ -4960,13 +4940,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .graffiti_calculator
             .get_graffiti(graffiti_settings)
             .await;
-        let span = Span::current();
         let mut partial_beacon_block = self
             .task_executor
             .spawn_blocking_handle(
                 move || {
-                    let _guard =
-                        debug_span!(parent: span, "produce_partial_beacon_block").entered();
                     chain.produce_partial_beacon_block(
                         state,
                         state_root_opt,
@@ -5002,14 +4979,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             match block_contents_type {
                 BlockProposalContentsType::Full(block_contents) => {
                     let chain = self.clone();
-                    let span = Span::current();
                     let beacon_block_response = self
                         .task_executor
                         .spawn_blocking_handle(
                             move || {
-                                let _guard =
-                                    debug_span!(parent: span, "complete_partial_beacon_block")
-                                        .entered();
                                 chain.complete_partial_beacon_block(
                                     partial_beacon_block,
                                     Some(block_contents),
@@ -5026,14 +4999,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
                 BlockProposalContentsType::Blinded(block_contents) => {
                     let chain = self.clone();
-                    let span = Span::current();
                     let beacon_block_response = self
                         .task_executor
                         .spawn_blocking_handle(
                             move || {
-                                let _guard =
-                                    debug_span!(parent: span, "complete_partial_beacon_block")
-                                        .entered();
                                 chain.complete_partial_beacon_block(
                                     partial_beacon_block,
                                     Some(block_contents),
@@ -5051,13 +5020,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         } else {
             let chain = self.clone();
-            let span = Span::current();
             let beacon_block_response = self
                 .task_executor
                 .spawn_blocking_handle(
                     move || {
-                        let _guard =
-                            debug_span!(parent: span, "complete_partial_beacon_block").entered();
                         chain.complete_partial_beacon_block(
                             partial_beacon_block,
                             None,
@@ -5075,6 +5041,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[instrument(skip_all, level = "debug")]
     fn produce_partial_beacon_block(
         self: &Arc<Self>,
         mut state: BeaconState<T::EthSpec>,
@@ -5319,6 +5286,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    #[instrument(skip_all, level = "debug")]
     fn complete_partial_beacon_block<Payload: AbstractExecPayload<T::EthSpec>>(
         &self,
         partial_beacon_block: PartialBeaconBlock<T::EthSpec>,

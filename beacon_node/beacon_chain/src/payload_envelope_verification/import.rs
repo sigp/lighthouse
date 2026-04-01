@@ -192,13 +192,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } = import_data;
 
         let block_root = {
-            // Capture the current span before moving into the blocking task
-            let current_span = tracing::Span::current();
             let chain = self.clone();
             self.spawn_blocking_handle(
                 move || {
-                    // Enter the captured span in the blocking thread
-                    let _guard = current_span.enter();
                     chain.import_execution_payload_envelope(
                         envelope,
                         block_root,
