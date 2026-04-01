@@ -1379,8 +1379,8 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
                 .as_millis() as i64,
         );
 
-        // The time from the start of the slot when all blobs have been observed. Technically this
-        // is the time we last saw a blob related to this block/slot.
+        // The time from the start of the slot when all blobs/data columns have been observed. Technically this
+        // is the time we last saw a blob/data column related to this block/slot.
         metrics::set_gauge(
             &metrics::BEACON_BLOB_DELAY_ALL_OBSERVED_SLOT_START,
             block_delays

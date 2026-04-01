@@ -3801,7 +3801,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             consensus_context,
         } = import_data;
 
-        // Record the time at which this block's blobs became available.
+        // Record the time at which this block's blobs/data columns became available.
         if let Some(blobs_available) = block.blobs_available_timestamp() {
             self.block_times_cache.write().set_time_blob_observed(
                 block_root,
@@ -3809,8 +3809,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 blobs_available,
             );
         }
-
-        // TODO(das) record custody column available timestamp
 
         let block_root = {
             // Capture the current span before moving into the blocking task
