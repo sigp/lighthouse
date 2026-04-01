@@ -79,13 +79,7 @@ impl From<reqwest::Error> for Error {
             e.status(),
             Some(StatusCode::UNAUTHORIZED) | Some(StatusCode::FORBIDDEN)
         ) {
-            let status = e.status().map(|s| s.to_string()).unwrap_or_default();
-            let url = e.url().map(|u| u.to_string()).unwrap_or_default();
-            Error::Auth(auth::Error::InvalidToken(format!(
-                "Execution engine responded with {status} for {url}. \
-                 Ensure the JWT secret is correct and matches the execution client. \
-                 Detail: {e}"
-            )))
+            Error::Auth(auth::Error::InvalidToken(e.to_string()))
         } else {
             Error::HttpClient(e.into())
         }
