@@ -360,15 +360,6 @@ async fn extract_all_endpoints() -> ObjectSchemaByEndpoint {
             };
         }
     }
-    // println!("get endpoints: {:?}", object_schema_by_get_endpoint.keys());
-    // println!(
-    //     "post endpoints: {:?}",
-    //     object_schema_by_post_endpoint.keys()
-    // );
-    // println!(
-    //     "post endpoints request body: {:?}",
-    //     object_schema_by_post_request.keys()
-    // );
 
     ObjectSchemaByEndpoint {
         get_response,
@@ -807,8 +798,7 @@ async fn http_api_spec_test() -> Result<(), String> {
     } = populate_chain_data(&harness).await;
 
     let object_schema_by_endpoint = extract_all_endpoints().await;
-
-    let mut checked_get_endpoint = 0;
+    
     // Test for GET endpoints response
     for (endpoint, get_response_object_schema) in &object_schema_by_endpoint.get_response {
         let url = format!(
@@ -817,18 +807,9 @@ async fn http_api_spec_test() -> Result<(), String> {
             replace_parameter(endpoint, &harness, peer_id, attestation_data_root)
         );
 
-        println!("Testing endpoint: {}", endpoint);
-        println!("URL is: {}", url);
-
         let get_result_json: serde_json::Value = client.get(url.clone()).await.unwrap();
 
-        // println!("Response is: {:?}", result_json);
-
         check_field(&get_result_json, get_response_object_schema, endpoint)?;
-
-        println!("Test passed for get endpoint: {}", endpoint);
-        checked_get_endpoint += 1;
-        println!("Checked get endpoint: {}", checked_get_endpoint);
 
         // Check that top-level data arrays are non-empty to ensure item schemas are validated.
         if let Some(get_data) = get_result_json.get("data")
@@ -868,23 +849,16 @@ async fn http_api_spec_test() -> Result<(), String> {
         }
     }
 
-    let mut checked_post_endpoint = 0;
     // Test for POST endpoints request body and response
     for (endpoint, post_request_object_schema) in &object_schema_by_endpoint.post_request {
-        println!("Testing endpoint: {}", endpoint);
-        // if endpoint != "/eth/v2/validator/aggregate_and_proofs" {
-        //     continue;
-        // };
         let request_body =
             create_request_body(endpoint, &harness, block.clone(), blinded_block.clone()).unwrap();
-        // println!("Body is: {:?}", body);
 
         // Perform checks for the request body in POST endpoints
         // The request bodies are constructed using functions and types in Lighthouse
         // If the check fails, it means the request body is not following the spec, suggesting something is not right in the functions/types
         // If the check passes, it means that the functions/types that are used to construct the request body is following the spec
         check_field(&request_body, post_request_object_schema, endpoint)?;
-        checked_post_endpoint += 1;
 
         let url = format!(
             "http://127.0.0.1:{}{}",
@@ -892,45 +866,6 @@ async fn http_api_spec_test() -> Result<(), String> {
             replace_parameter(endpoint, &harness, peer_id, attestation_data_root)
         );
 
-        // if endpoint == "/eth/v2/beacon/blinded_blocks" {
-        //     continue;
-        // } else if endpoint == "/eth/v2/beacon/blocks"
-        //     || endpoint == "/eth/v2/validator/aggregate_and_proofs"
-        // {
-        //     let result = client
-        //         .post_generic_with_consensus_version(url.clone(), &body, None, ForkName::Fulu)
-        //         .await;
-        //     assert!(
-        //         result.is_ok(),
-        //         "POST failed for {}: {:?}",
-        //         endpoint,
-        //         result.unwrap_err()
-        //     );
-        // } else if object_schema_by_post_endpoint.contains_key(endpoint) {
-        //     let result: Result<serde_json::Value, Error> =
-        //         client.post_with_response(url.clone(), &body).await;
-        //     assert!(
-        //         result.is_ok(),
-        //         "POST failed for {}: {:?}",
-        //         endpoint,
-        //         result.unwrap_err()
-        //     );
-        // } else {
-        //     let result = client.post(url.clone(), &body).await;
-        //     assert!(
-        //         result.is_ok(),
-        //         "POST failed for {}: {:?}",
-        //         endpoint,
-        //         result.unwrap_err()
-        //     );
-        // }
-        // if the result is Ok, then the call is successful
-        // together with the checks for the request body, we can say that Lighthouse's implementation of the endpoint conforms to the spec
-        // assert!(result.is_ok(), "POST failed: {:?}", result.unwrap_err());
-
-        println!("Testing endpoint: {}", endpoint);
-        println!("URL is: {}", url);
-        println!("Checked post endpoint: {}", checked_post_endpoint);
         // For POST endpoints with response, we can further check the response body
         // Ignore the selections endpoint as these endpoints are not implemented in the beacon node
         if object_schema_by_endpoint
@@ -943,16 +878,11 @@ async fn http_api_spec_test() -> Result<(), String> {
                 .await
                 .unwrap();
 
-            // println!("Response is: {:?}", result_json);
             let post_response_object_schema = object_schema_by_endpoint
                 .post_response
                 .get(endpoint)
                 .unwrap();
             check_field(&post_result_json, post_response_object_schema, endpoint)?;
-
-            println!("Test passed for post endpoint: {}", endpoint);
-            // checked_post_endpoint += 1;
-            println!("Checked post endpoint: {}", checked_post_endpoint);
 
             // Check that top-level data arrays are non-empty to ensure item schemas are validated.
             if let Some(post_data) = post_result_json.get("data")
