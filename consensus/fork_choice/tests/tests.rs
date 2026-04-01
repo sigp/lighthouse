@@ -73,9 +73,9 @@ impl ForkChoiceTest {
         Self { harness }
     }
 
-    /// Creates a new tester with the GLOAS fork active at epoch 1.
+    /// Creates a new tester with the Gloas fork active at epoch 1.
     /// Genesis is a standard Fulu block (epoch 0), so block production works normally.
-    /// Tests that need GLOAS semantics should advance the chain into epoch 1 first.
+    /// Tests that need Gloas semantics should advance the chain into epoch 1 first.
     /// Get a value from the `ForkChoice` instantiation.
     fn get<T, U>(&self, func: T) -> U
     where

@@ -3179,10 +3179,14 @@ impl ApiTester {
                             .unwrap_or_else(|| "irrelevant".to_string()),
                         best_child: node
                             .best_child()
+                            .ok()
+                            .flatten()
                             .and_then(|index| expected_proto_array.nodes.get(index))
                             .map(|child| child.root()),
                         best_descendant: node
                             .best_descendant()
+                            .ok()
+                            .flatten()
                             .and_then(|index| expected_proto_array.nodes.get(index))
                             .map(|descendant| descendant.root()),
                     },

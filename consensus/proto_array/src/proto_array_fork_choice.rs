@@ -33,6 +33,47 @@ pub struct VoteTracker {
     next_payload_present: bool,
 }
 
+// Can be deleted once the V28 schema migration is buried.
+// Matches the on-disk format from schema v28: current_root, next_root, next_epoch.
+#[derive(Default, PartialEq, Clone, Encode, Decode)]
+pub struct VoteTrackerV28 {
+    current_root: Hash256,
+    next_root: Hash256,
+    next_epoch: Epoch,
+}
+
+// This impl is only used upon upgrade from pre-Gloas to Gloas with all pre-Gloas nodes.
+// The payload status is `false` for pre-Gloas nodes.
+impl From<VoteTrackerV28> for VoteTracker {
+    fn from(v: VoteTrackerV28) -> Self {
+        VoteTracker {
+            current_root: v.current_root,
+            next_root: v.next_root,
+            // The v28 format stored next_epoch rather than slots. Default to 0 since the
+            // vote tracker will be updated on the next attestation.
+            current_slot: Slot::new(0),
+            next_slot: Slot::new(0),
+            current_payload_present: false,
+            next_payload_present: false,
+        }
+    }
+}
+
+// This impl is only used upon downgrade from V29 to V28, with exclusively pre-Gloas nodes.
+impl From<VoteTracker> for VoteTrackerV28 {
+    fn from(v: VoteTracker) -> Self {
+        // Drop the payload_present fields. This is safe because this is only called on pre-Gloas
+        // nodes.
+        VoteTrackerV28 {
+            current_root: v.current_root,
+            next_root: v.next_root,
+            // The v28 format stored next_epoch. Default to 0 since the vote tracker will be
+            // updated on the next attestation.
+            next_epoch: Epoch::new(0),
+        }
+    }
+}
+
 pub struct LatestMessage {
     pub slot: Slot,
     pub root: Hash256,
@@ -479,6 +520,7 @@ impl ProtoArrayForkChoice {
         execution_status: ExecutionStatus,
         execution_payload_parent_hash: Option<ExecutionBlockHash>,
         execution_payload_block_hash: Option<ExecutionBlockHash>,
+        proposer_index: u64,
         spec: &ChainSpec,
     ) -> Result<Self, String> {
         let mut proto_array = ProtoArray {
@@ -505,7 +547,7 @@ impl ProtoArrayForkChoice {
             unrealized_finalized_checkpoint: Some(finalized_checkpoint),
             execution_payload_parent_hash,
             execution_payload_block_hash,
-            proposer_index: Some(0),
+            proposer_index: Some(proposer_index),
         };
 
         proto_array
@@ -988,7 +1030,7 @@ impl ProtoArrayForkChoice {
                 .unwrap_or_else(|_| ExecutionStatus::irrelevant()),
             unrealized_justified_checkpoint: block.unrealized_justified_checkpoint(),
             unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint(),
-            execution_payload_parent_hash: None,
+            execution_payload_parent_hash: block.execution_payload_parent_hash().ok(),
             execution_payload_block_hash: block.execution_payload_block_hash().ok(),
             proposer_index: block.proposer_index().ok(),
         })
@@ -1005,7 +1047,8 @@ impl ProtoArrayForkChoice {
     }
 
     /// Returns whether the execution payload for a block has been received.
-    /// Returns `false` for pre-GLOAS (V17) nodes or unknown blocks.
+    ///
+    /// Returns `false` for pre-Gloas (V17) nodes or unknown blocks.
     pub fn is_payload_received(&self, block_root: &Hash256) -> bool {
         self.get_proto_node(block_root)
             .and_then(|node| node.payload_received().ok())
@@ -1317,6 +1360,7 @@ mod test_compute_deltas {
             execution_status,
             None,
             None,
+            0,
             &spec,
         )
         .unwrap();
@@ -1471,6 +1515,7 @@ mod test_compute_deltas {
             execution_status,
             None,
             None,
+            0,
             &spec,
         )
         .unwrap();

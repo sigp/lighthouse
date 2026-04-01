@@ -52,7 +52,7 @@ pub fn get_gloas_chain_following_test_definition() -> ForkChoiceTestDefinition {
     });
 
     // Mark root_1 as having received its execution payload so that
-    // its FULL virtual node exists in the GLOAS fork choice tree.
+    // its FULL virtual node exists in the Gloas fork choice tree.
     ops.push(Operation::ProcessExecutionPayload {
         block_root: get_root(1),
     });
@@ -262,7 +262,7 @@ pub fn get_gloas_find_head_vote_transition_test_definition() -> ForkChoiceTestDe
     });
 
     // Mark root_1 as having received its execution payload so that
-    // its FULL virtual node exists in the GLOAS fork choice tree.
+    // its FULL virtual node exists in the Gloas fork choice tree.
     ops.push(Operation::ProcessExecutionPayload {
         block_root: get_root(1),
     });
@@ -367,7 +367,7 @@ pub fn get_gloas_weight_priority_over_payload_preference_test_definition()
     });
 
     // Mark root_1 as having received its execution payload so that
-    // its FULL virtual node exists in the GLOAS fork choice tree.
+    // its FULL virtual node exists in the Gloas fork choice tree.
     ops.push(Operation::ProcessExecutionPayload {
         block_root: get_root(1),
     });
@@ -537,7 +537,7 @@ pub fn get_gloas_interleaved_attestations_test_definition() -> ForkChoiceTestDef
     });
 
     // Mark root_1 as having received its execution payload so that
-    // its FULL virtual node exists in the GLOAS fork choice tree.
+    // its FULL virtual node exists in the Gloas fork choice tree.
     ops.push(Operation::ProcessExecutionPayload {
         block_root: get_root(1),
     });
@@ -717,6 +717,137 @@ pub fn get_gloas_payload_received_interleaving_test_definition() -> ForkChoiceTe
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn gloas_fork_boundary_spec() -> ChainSpec {
+        let mut spec = MainnetEthSpec::default_spec();
+        spec.proposer_score_boost = Some(50);
+        spec.gloas_fork_epoch = Some(Epoch::new(1));
+        spec
+    }
+
+    /// Gloas fork boundary: a chain starting pre-Gloas (V17 nodes) that crosses into
+    /// Gloas (V29 nodes). The head should advance through the fork boundary.
+    ///
+    /// Parameters:
+    /// - `skip_first_gloas_slot`: if true, there is no block at the first Gloas slot (slot 32);
+    ///   the first V29 block appears at slot 33.
+    /// - `first_gloas_block_full`: if true, the first V29 block extends the parent V17 node's
+    ///   EL chain (Full parent payload status). If false, it doesn't (Empty).
+    fn get_gloas_fork_boundary_test_definition(
+        skip_first_gloas_slot: bool,
+        first_gloas_block_full: bool,
+    ) -> ForkChoiceTestDefinition {
+        let mut ops = vec![];
+
+        // Block at slot 31 — last pre-Gloas slot. Created as a V17 node because
+        // gloas_fork_epoch = 1 → Gloas starts at slot 32.
+        //
+        // The test harness sets execution_status = Optimistic(ExecutionBlockHash::from_root(root)),
+        // so this V17 node's EL block hash = ExecutionBlockHash::from_root(get_root(1)).
+        ops.push(Operation::ProcessBlock {
+            slot: Slot::new(31),
+            root: get_root(1),
+            parent_root: get_root(0),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
+        });
+
+        // First Gloas block (V29 node).
+        let gloas_slot = if skip_first_gloas_slot { 33 } else { 32 };
+
+        // The first Gloas block should always have the pre-Gloas block as its execution parent,
+        // although this is currently not checked anywhere (the spec doesn't mention this).
+        ops.push(Operation::ProcessBlock {
+            slot: Slot::new(gloas_slot),
+            root: get_root(2),
+            parent_root: get_root(1),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            execution_payload_parent_hash: Some(get_hash(1)),
+            execution_payload_block_hash: Some(get_hash(2)),
+        });
+
+        // Parent payload status of fork boundary block should always be Empty.
+        let expected_parent_status = PayloadStatus::Empty;
+        ops.push(Operation::AssertParentPayloadStatus {
+            block_root: get_root(2),
+            expected_status: expected_parent_status,
+        });
+
+        // Mark root 2's execution payload as received so the Full virtual child exists.
+        if first_gloas_block_full {
+            ops.push(Operation::ProcessExecutionPayload {
+                block_root: get_root(2),
+            });
+        }
+
+        // Extend the chain with another V29 block (Full child of root 2).
+        ops.push(Operation::ProcessBlock {
+            slot: Slot::new(gloas_slot + 1),
+            root: get_root(3),
+            parent_root: get_root(2),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            execution_payload_parent_hash: if first_gloas_block_full {
+                Some(get_hash(2))
+            } else {
+                Some(get_hash(1))
+            },
+            execution_payload_block_hash: Some(get_hash(3)),
+        });
+
+        // Head should advance to the tip of the chain through the fork boundary.
+        ops.push(Operation::FindHead {
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            justified_state_balances: vec![1],
+            expected_head: get_root(3),
+            current_slot: Slot::new(gloas_slot + 1),
+            expected_payload_status: None,
+        });
+
+        ops.push(Operation::AssertParentPayloadStatus {
+            block_root: get_root(3),
+            expected_status: if first_gloas_block_full {
+                PayloadStatus::Full
+            } else {
+                PayloadStatus::Empty
+            },
+        });
+
+        ForkChoiceTestDefinition {
+            finalized_block_slot: Slot::new(0),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            operations: ops,
+            // Genesis is V17 (slot 0 < Gloas fork slot 32), these are unused for V17.
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
+            spec: Some(gloas_fork_boundary_spec()),
+        }
+    }
+
+    #[test]
+    fn fork_boundary_no_skip_full() {
+        get_gloas_fork_boundary_test_definition(false, true).run();
+    }
+
+    #[test]
+    fn fork_boundary_no_skip_empty() {
+        get_gloas_fork_boundary_test_definition(false, false).run();
+    }
+
+    #[test]
+    fn fork_boundary_skip_first_gloas_slot_full() {
+        get_gloas_fork_boundary_test_definition(true, true).run();
+    }
+
+    #[test]
+    fn fork_boundary_skip_first_gloas_slot_empty() {
+        get_gloas_fork_boundary_test_definition(true, false).run();
+    }
 
     #[test]
     fn chain_following() {

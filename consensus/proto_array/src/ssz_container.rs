@@ -2,7 +2,7 @@ use crate::proto_array::ProposerBoost;
 use crate::{
     Error, JustifiedBalances,
     proto_array::{ProtoArray, ProtoNode, ProtoNodeV17},
-    proto_array_fork_choice::{ElasticList, ProtoArrayForkChoice, VoteTracker},
+    proto_array_fork_choice::{ElasticList, ProtoArrayForkChoice, VoteTracker, VoteTrackerV28},
 };
 use ssz::{Encode, four_byte_option_impl};
 use ssz_derive::{Decode, Encode};
@@ -22,6 +22,9 @@ pub type SszContainer = SszContainerV29;
     no_enum
 )]
 pub struct SszContainer {
+    #[superstruct(only(V28))]
+    pub votes_v28: Vec<VoteTrackerV28>,
+    #[superstruct(only(V29))]
     pub votes: Vec<VoteTracker>,
     pub prune_threshold: usize,
     // Deprecated, remove in a future schema migration
@@ -75,9 +78,19 @@ impl TryFrom<(SszContainerV29, JustifiedBalances)> for ProtoArrayForkChoice {
 impl From<SszContainerV28> for SszContainerV29 {
     fn from(v28: SszContainerV28) -> Self {
         Self {
-            votes: v28.votes,
+            votes: v28.votes_v28.into_iter().map(Into::into).collect(),
             prune_threshold: v28.prune_threshold,
-            nodes: v28.nodes.into_iter().map(ProtoNode::V17).collect(),
+            nodes: v28
+                .nodes
+                .into_iter()
+                .map(|mut node| {
+                    // best_child/best_descendant are no longer used (replaced by
+                    // the virtual tree walk). Clear during conversion.
+                    node.best_child = None;
+                    node.best_descendant = None;
+                    ProtoNode::V17(node)
+                })
+                .collect(),
             indices: v28.indices,
             previous_proposer_boost: v28.previous_proposer_boost,
         }
@@ -88,7 +101,7 @@ impl From<SszContainerV28> for SszContainerV29 {
 impl From<SszContainerV29> for SszContainerV28 {
     fn from(v29: SszContainerV29) -> Self {
         Self {
-            votes: v29.votes,
+            votes_v28: v29.votes.into_iter().map(Into::into).collect(),
             prune_threshold: v29.prune_threshold,
             // These checkpoints are not consumed in v28 paths since the upgrade from v17,
             // we can safely default the values.
