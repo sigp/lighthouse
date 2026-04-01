@@ -961,6 +961,12 @@ fn epoch_processing_proposer_lookahead() {
 }
 
 #[test]
+fn epoch_processing_ptc_window() {
+    EpochProcessingHandler::<MinimalEthSpec, PtcWindow>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, PtcWindow>::default().run();
+}
+
+#[test]
 fn epoch_processing_builder_pending_payments() {
     EpochProcessingHandler::<MinimalEthSpec, BuilderPendingPayments>::default().run();
     EpochProcessingHandler::<MainnetEthSpec, BuilderPendingPayments>::default().run();

@@ -117,10 +117,10 @@ pub struct ProtoNode {
     pub finalized_checkpoint: Checkpoint,
     #[superstruct(getter(copy))]
     pub weight: u64,
-    #[superstruct(getter(copy))]
+    #[superstruct(only(V17), partial_getter(copy))]
     #[ssz(with = "four_byte_option_usize")]
     pub best_child: Option<usize>,
-    #[superstruct(getter(copy))]
+    #[superstruct(only(V17), partial_getter(copy))]
     #[ssz(with = "four_byte_option_usize")]
     pub best_descendant: Option<usize>,
     /// Indicates if an execution node has marked this block as valid. Also contains the execution
@@ -143,6 +143,8 @@ pub struct ProtoNode {
     pub full_payload_weight: u64,
     #[superstruct(only(V29), partial_getter(copy))]
     pub execution_payload_block_hash: ExecutionBlockHash,
+    #[superstruct(only(V29), partial_getter(copy))]
+    pub execution_payload_parent_hash: ExecutionBlockHash,
     /// Equivalent to spec's `block_timeliness[root][ATTESTATION_TIMELINESS_INDEX]`.
     #[superstruct(only(V29), partial_getter(copy))]
     pub block_timeliness_attestation_threshold: bool,
@@ -181,7 +183,6 @@ pub struct ProtoNode {
 impl ProtoNode {
     /// Generic version of spec's `parent_payload_status` that works for pre-Gloas nodes by
     /// considering their parents Empty.
-    /// Pre-Gloas nodes have no ePBS, default to Empty.
     pub fn get_parent_payload_status(&self) -> PayloadStatus {
         self.parent_payload_status().unwrap_or(PayloadStatus::Empty)
     }
@@ -535,7 +536,7 @@ impl ProtoArray {
             .parent_root
             .and_then(|parent| self.indices.get(&parent).copied());
 
-        let node = if !spec.fork_name_at_slot::<E>(current_slot).gloas_enabled() {
+        let node = if !spec.fork_name_at_slot::<E>(block.slot).gloas_enabled() {
             ProtoNode::V17(ProtoNodeV17 {
                 slot: block.slot,
                 root: block.root,
@@ -570,31 +571,31 @@ impl ProtoArray {
                         block_root: block.root,
                     })?;
 
-            let parent_payload_status: PayloadStatus = if let Some(parent_node) =
-                parent_index.and_then(|idx| self.nodes.get(idx))
-            {
-                // Get the parent's execution block hash, handling both V17 and V29 nodes.
-                // V17 parents occur during the Gloas fork transition.
-                // TODO(gloas): the spec's `get_parent_payload_status` assumes all blocks are
-                // post-Gloas with bids. Revisit once the spec clarifies fork-transition behavior.
-                let parent_el_block_hash = match parent_node {
-                    ProtoNode::V29(v29) => Some(v29.execution_payload_block_hash),
-                    ProtoNode::V17(v17) => v17.execution_status.block_hash(),
-                };
-                // Per spec's `is_parent_node_full`: if the child's EL parent hash
-                // matches the parent's EL block hash, the child extends the parent's
-                // payload chain, meaning the parent was Full.
-                if parent_el_block_hash.is_some_and(|hash| execution_payload_parent_hash == hash) {
-                    PayloadStatus::Full
+            let parent_payload_status: PayloadStatus =
+                if let Some(parent_node) = parent_index.and_then(|idx| self.nodes.get(idx)) {
+                    match parent_node {
+                        ProtoNode::V29(v29) => {
+                            // Both parent and child are Gloas blocks. The parent is full if the
+                            // block hash in the parent node matches the parent block hash in the
+                            // child bid.
+                            if execution_payload_parent_hash == v29.execution_payload_block_hash {
+                                PayloadStatus::Full
+                            } else {
+                                PayloadStatus::Empty
+                            }
+                        }
+                        ProtoNode::V17(_) => {
+                            // Parent is pre-Gloas, pre-Gloas blocks are treated as having Empty
+                            // payload status. This case is reached during the fork transition.
+                            PayloadStatus::Empty
+                        }
+                    }
                 } else {
-                    PayloadStatus::Empty
-                }
-            } else {
-                // Parent is missing (genesis or pruned due to finalization). Default to Full
-                // since this path should only be hit at Gloas genesis, and extending the payload
-                // chain is the safe default.
-                PayloadStatus::Full
-            };
+                    // TODO(gloas): re-assess this assumption
+                    // Parent is missing (genesis or pruned due to finalization). Default to Full
+                    // since this path should only be hit at Gloas genesis.
+                    PayloadStatus::Full
+                };
 
             // Per spec `get_forkchoice_store`: the anchor (genesis) block has
             // its payload state initialized (`payload_states = {anchor_root: ...}`).
@@ -614,14 +615,13 @@ impl ProtoArray {
                 justified_checkpoint: block.justified_checkpoint,
                 finalized_checkpoint: block.finalized_checkpoint,
                 weight: 0,
-                best_child: None,
-                best_descendant: None,
                 unrealized_justified_checkpoint: block.unrealized_justified_checkpoint,
                 unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint,
                 parent_payload_status,
                 empty_payload_weight: 0,
                 full_payload_weight: 0,
                 execution_payload_block_hash,
+                execution_payload_parent_hash,
                 // Per spec `get_forkchoice_store`: the anchor block's PTC votes are
                 // initialized to all-True, ensuring `is_payload_timely` and
                 // `is_payload_data_available` return true for the anchor.
@@ -642,7 +642,7 @@ impl ProtoArray {
                 block_timeliness_attestation_threshold: is_genesis
                     || (is_current_slot
                         && time_into_slot < spec.get_unaggregated_attestation_due()),
-                // TODO(gloas): use GLOAS-specific PTC due threshold once
+                // TODO(gloas): use Gloas-specific PTC due threshold once
                 // `get_payload_attestation_due_ms` is on ChainSpec.
                 block_timeliness_ptc_threshold: is_genesis
                     || (is_current_slot && time_into_slot < spec.get_slot_duration() / 2),
