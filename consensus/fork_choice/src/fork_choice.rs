@@ -1138,6 +1138,7 @@ where
             }
 
             // index == 1 (payload_present) requires the block's payload to have been received.
+            // TODO(gloas): could optimise by adding `payload_received` to `Block`
             if index == 1
                 && !self
                     .proto_array

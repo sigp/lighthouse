@@ -1030,7 +1030,7 @@ impl ProtoArrayForkChoice {
                 .unwrap_or_else(|_| ExecutionStatus::irrelevant()),
             unrealized_justified_checkpoint: block.unrealized_justified_checkpoint(),
             unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint(),
-            execution_payload_parent_hash: None,
+            execution_payload_parent_hash: block.execution_payload_parent_hash().ok(),
             execution_payload_block_hash: block.execution_payload_block_hash().ok(),
             proposer_index: block.proposer_index().ok(),
         })
@@ -1047,7 +1047,8 @@ impl ProtoArrayForkChoice {
     }
 
     /// Returns whether the execution payload for a block has been received.
-    /// Returns `false` for pre-GLOAS (V17) nodes or unknown blocks.
+    ///
+    /// Returns `false` for pre-Gloas (V17) nodes or unknown blocks.
     pub fn is_payload_received(&self, block_root: &Hash256) -> bool {
         self.get_proto_node(block_root)
             .and_then(|node| node.payload_received().ok())

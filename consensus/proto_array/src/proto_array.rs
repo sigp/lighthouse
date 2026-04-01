@@ -143,6 +143,8 @@ pub struct ProtoNode {
     pub full_payload_weight: u64,
     #[superstruct(only(V29), partial_getter(copy))]
     pub execution_payload_block_hash: ExecutionBlockHash,
+    #[superstruct(only(V29), partial_getter(copy))]
+    pub execution_payload_parent_hash: ExecutionBlockHash,
     /// Equivalent to spec's `block_timeliness[root][ATTESTATION_TIMELINESS_INDEX]`.
     #[superstruct(only(V29), partial_getter(copy))]
     pub block_timeliness_attestation_threshold: bool,
@@ -181,7 +183,6 @@ pub struct ProtoNode {
 impl ProtoNode {
     /// Generic version of spec's `parent_payload_status` that works for pre-Gloas nodes by
     /// considering their parents Empty.
-    /// Pre-Gloas nodes have no ePBS, default to Empty.
     pub fn get_parent_payload_status(&self) -> PayloadStatus {
         self.parent_payload_status().unwrap_or(PayloadStatus::Empty)
     }
@@ -620,6 +621,7 @@ impl ProtoArray {
                 empty_payload_weight: 0,
                 full_payload_weight: 0,
                 execution_payload_block_hash,
+                execution_payload_parent_hash,
                 // Per spec `get_forkchoice_store`: the anchor block's PTC votes are
                 // initialized to all-True, ensuring `is_payload_timely` and
                 // `is_payload_data_available` return true for the anchor.
