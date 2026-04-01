@@ -117,10 +117,10 @@ pub struct ProtoNode {
     pub finalized_checkpoint: Checkpoint,
     #[superstruct(getter(copy))]
     pub weight: u64,
-    #[superstruct(getter(copy))]
+    #[superstruct(only(V17), partial_getter(copy))]
     #[ssz(with = "four_byte_option_usize")]
     pub best_child: Option<usize>,
-    #[superstruct(getter(copy))]
+    #[superstruct(only(V17), partial_getter(copy))]
     #[ssz(with = "four_byte_option_usize")]
     pub best_descendant: Option<usize>,
     /// Indicates if an execution node has marked this block as valid. Also contains the execution
@@ -614,8 +614,6 @@ impl ProtoArray {
                 justified_checkpoint: block.justified_checkpoint,
                 finalized_checkpoint: block.finalized_checkpoint,
                 weight: 0,
-                best_child: None,
-                best_descendant: None,
                 unrealized_justified_checkpoint: block.unrealized_justified_checkpoint,
                 unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint,
                 parent_payload_status,

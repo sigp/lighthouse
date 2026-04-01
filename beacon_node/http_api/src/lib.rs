@@ -2148,10 +2148,14 @@ pub fn serve<T: BeaconChainTypes>(
                                     execution_status: execution_status_string,
                                     best_child: node
                                         .best_child()
+                                        .ok()
+                                        .flatten()
                                         .and_then(|index| proto_array.nodes.get(index))
                                         .map(|child| child.root()),
                                     best_descendant: node
                                         .best_descendant()
+                                        .ok()
+                                        .flatten()
                                         .and_then(|index| proto_array.nodes.get(index))
                                         .map(|descendant| descendant.root()),
                                 },
