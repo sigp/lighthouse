@@ -395,22 +395,7 @@ where
                 .map_err(Error::BeaconStateError)?;
 
         let (execution_status, execution_payload_parent_hash, execution_payload_block_hash) =
-            if let Ok(execution_payload) = anchor_block.message().execution_payload() {
-                // Pre-Gloas forks: hashes come from the execution payload.
-                if execution_payload.is_default_with_empty_roots() {
-                    (ExecutionStatus::irrelevant(), None, None)
-                } else {
-                    // Assume that this payload is valid, since the anchor should be a
-                    // trusted block and state.
-                    (
-                        ExecutionStatus::Valid(execution_payload.block_hash()),
-                        Some(execution_payload.parent_hash()),
-                        Some(execution_payload.block_hash()),
-                    )
-                }
-            } else if let Ok(signed_bid) =
-                anchor_block.message().body().signed_execution_payload_bid()
-            {
+            if let Ok(signed_bid) = anchor_block.message().body().signed_execution_payload_bid() {
                 // Gloas: execution status is irrelevant post-Gloas; payload validation
                 // is decoupled from beacon blocks.
                 (
@@ -418,6 +403,19 @@ where
                     Some(signed_bid.message.parent_block_hash),
                     Some(signed_bid.message.block_hash),
                 )
+            } else if let Ok(execution_payload) = anchor_block.message().execution_payload() {
+                // Pre-Gloas forks: do not set payload hashes, they are only used post-Gloas.
+                if execution_payload.is_default_with_empty_roots() {
+                    (ExecutionStatus::irrelevant(), None, None)
+                } else {
+                    // Assume that this payload is valid, since the anchor should be a
+                    // trusted block and state.
+                    (
+                        ExecutionStatus::Valid(execution_payload.block_hash()),
+                        None,
+                        None,
+                    )
+                }
             } else {
                 // Pre-merge: no execution payload at all.
                 (ExecutionStatus::irrelevant(), None, None)
