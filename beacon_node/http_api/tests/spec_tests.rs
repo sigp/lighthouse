@@ -798,7 +798,7 @@ async fn http_api_spec_test() -> Result<(), String> {
     } = populate_chain_data(&harness).await;
 
     let object_schema_by_endpoint = extract_all_endpoints().await;
-    
+
     // Test for GET endpoints response
     for (endpoint, get_response_object_schema) in &object_schema_by_endpoint.get_response {
         let url = format!(
