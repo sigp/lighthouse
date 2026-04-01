@@ -730,9 +730,9 @@ mod tests {
     ///
     /// Parameters:
     /// - `skip_first_gloas_slot`: if true, there is no block at the first Gloas slot (slot 32);
-    ///    the first V29 block appears at slot 33.
+    ///   the first V29 block appears at slot 33.
     /// - `first_gloas_block_full`: if true, the first V29 block extends the parent V17 node's
-    ///    EL chain (Full parent payload status). If false, it doesn't (Empty).
+    ///   EL chain (Full parent payload status). If false, it doesn't (Empty).
     fn get_gloas_fork_boundary_test_definition(
         skip_first_gloas_slot: bool,
         first_gloas_block_full: bool,
