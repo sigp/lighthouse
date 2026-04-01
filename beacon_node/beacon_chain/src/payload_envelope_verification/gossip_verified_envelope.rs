@@ -1,16 +1,17 @@
 use std::sync::Arc;
 
 use educe::Educe;
+use eth2::types::{EventKind, SseExecutionPayloadGossip};
 use parking_lot::{Mutex, RwLock};
 use store::DatabaseBlock;
-use tracing::{Span, debug};
+use tracing::debug;
 use types::{
     ChainSpec, EthSpec, ExecutionPayloadBid, ExecutionPayloadEnvelope, Hash256, SignedBeaconBlock,
     SignedExecutionPayloadEnvelope, Slot, consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
 use crate::{
-    BeaconChain, BeaconChainError, BeaconChainTypes, BeaconStore,
+    BeaconChain, BeaconChainError, BeaconChainTypes, BeaconStore, ServerSentEventHandler,
     beacon_proposer_cache::{self, BeaconProposerCache},
     canonical_head::CanonicalHead,
     payload_envelope_verification::{
@@ -28,6 +29,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub beacon_proposer_cache: &'a Mutex<BeaconProposerCache>,
     pub validator_pubkey_cache: &'a RwLock<ValidatorPubkeyCache<T>>,
     pub genesis_validators_root: Hash256,
+    pub event_handler: &'a Option<ServerSentEventHandler<T::EthSpec>>,
 }
 
 /// Verify that an execution payload envelope is consistent with its beacon block
@@ -213,6 +215,20 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             return Err(EnvelopeError::BadSignature);
         }
 
+        if let Some(event_handler) = ctx.event_handler.as_ref()
+            && event_handler.has_execution_payload_gossip_subscribers()
+        {
+            event_handler.register(EventKind::ExecutionPayloadGossip(
+                SseExecutionPayloadGossip {
+                    slot: block.slot(),
+                    builder_index,
+                    block_hash: signed_envelope.message.payload.block_hash,
+                    block_root: beacon_block_root,
+                    state_root: signed_envelope.message.state_root,
+                },
+            ));
+        }
+
         Ok(Self {
             signed_envelope,
             block,
@@ -235,6 +251,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             beacon_proposer_cache: &self.beacon_proposer_cache,
             validator_pubkey_cache: &self.validator_pubkey_cache,
             genesis_validators_root: self.genesis_validators_root,
+            event_handler: &self.event_handler,
         }
     }
 
@@ -253,12 +270,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
     ) -> Result<GossipVerifiedEnvelope<T>, EnvelopeError> {
         let chain = self.clone();
-        let span = Span::current();
         self.task_executor
             .clone()
             .spawn_blocking_handle(
                 move || {
-                    let _guard = span.enter();
                     let slot = envelope.slot();
                     let beacon_block_root = envelope.message.beacon_block_root;
 

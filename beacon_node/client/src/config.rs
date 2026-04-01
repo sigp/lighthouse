@@ -236,7 +236,7 @@ mod tests {
     fn serde() {
         let config = Config::default();
         let serialized =
-            serde_yaml::to_string(&config).expect("should serde encode default config");
-        serde_yaml::from_str::<Config>(&serialized).expect("should serde decode default config");
+            yaml_serde::to_string(&config).expect("should serde encode default config");
+        yaml_serde::from_str::<Config>(&serialized).expect("should serde decode default config");
     }
 }
