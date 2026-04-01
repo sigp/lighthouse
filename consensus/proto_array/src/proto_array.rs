@@ -1432,29 +1432,11 @@ impl ProtoArray {
                 .get(node.proto_node_index)
                 .ok_or(Error::InvalidNodeIndex(node.proto_node_index))?;
 
-            // V17 (pre-GLOAS) nodes don't have payload_received or parent_payload_status.
-            // Skip the virtual Empty/Full split and return real children directly.
-            if proto_node.as_v17().is_ok() {
-                let child_indices = children_index
-                    .get(node.proto_node_index)
-                    .map(|c| c.as_slice())
-                    .unwrap_or(&[]);
-                return Ok(child_indices
-                    .iter()
-                    .filter_map(|&child_index| {
-                        let child_node = self.nodes.get(child_index)?;
-                        Some((
-                            IndexedForkChoiceNode {
-                                root: child_node.root(),
-                                proto_node_index: child_index,
-                                payload_status: PayloadStatus::Pending,
-                            },
-                            child_node.clone(),
-                        ))
-                    })
-                    .collect());
+            let mut children = vec![(node.with_status(PayloadStatus::Empty), proto_node.clone())];
+            // The FULL virtual child only exists if the payload has been received.
+            if proto_node.payload_received().is_ok_and(|received| received) {
+                children.push((node.with_status(PayloadStatus::Full), proto_node.clone()));
             }
-
             // TODO(gloas) this is the actual change we want to keep once PTC is implemented
             // let mut children = vec![(node.with_status(PayloadStatus::Empty), proto_node.clone())];
             // // The FULL virtual child only exists if the payload has been received.
