@@ -535,7 +535,7 @@ impl ProtoArray {
             .parent_root
             .and_then(|parent| self.indices.get(&parent).copied());
 
-        let node = if !spec.fork_name_at_slot::<E>(current_slot).gloas_enabled() {
+        let node = if !spec.fork_name_at_slot::<E>(block.slot).gloas_enabled() {
             ProtoNode::V17(ProtoNodeV17 {
                 slot: block.slot,
                 root: block.root,
