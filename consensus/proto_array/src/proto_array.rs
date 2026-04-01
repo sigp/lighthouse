@@ -768,12 +768,10 @@ impl ProtoArray {
         Ok(!has_equivocation)
     }
 
-    /// Process an execution payload for a Gloas block.
+    /// Process a valid execution payload envelope for a Gloas block.
     ///
-    /// Sets `payload_received` to true, which makes `is_payload_timely` and
-    /// `is_payload_data_available` return true regardless of PTC votes.
-    /// This maps to `store.payload_states[root] = state` in the spec.
-    pub fn on_valid_execution_payload(&mut self, block_root: Hash256) -> Result<(), Error> {
+    /// Sets `payload_received` to true.
+    pub fn on_valid_payload_envelope_received(&mut self, block_root: Hash256) -> Result<(), Error> {
         let index = *self
             .indices
             .get(&block_root)
@@ -808,6 +806,8 @@ impl ProtoArray {
     }
 
     /// Updates the `verified_node_index` and all ancestors to have validated execution payloads.
+    ///
+    /// This function is a no-op if called for a Gloas block.
     ///
     /// Returns an error if:
     ///
@@ -852,18 +852,10 @@ impl ProtoArray {
                         });
                     }
                 },
-                // Gloas nodes don't carry `ExecutionStatus`. Mark the validated
-                // block as payload-received so that `is_payload_timely` /
-                // `is_payload_data_available` and `index == 1` attestations work.
-                ProtoNode::V29(node) => {
-                    if index == verified_node_index {
-                        node.payload_received = true;
-                    }
-                    if let Some(parent_index) = node.parent {
-                        parent_index
-                    } else {
-                        return Ok(());
-                    }
+                // Gloas nodes should not be marked valid by this function, which exists only
+                // for pre-Gloas fork choice.
+                ProtoNode::V29(_) => {
+                    return Ok(());
                 }
             };
 
@@ -874,6 +866,7 @@ impl ProtoArray {
     /// Invalidate zero or more blocks, as specified by the `InvalidationOperation`.
     ///
     /// See the documentation of `InvalidationOperation` for usage.
+    // TODO(gloas): this needs some tests for the mixed Gloas/pre-Gloas case.
     pub fn propagate_execution_payload_invalidation<E: EthSpec>(
         &mut self,
         op: &InvalidationOperation,

@@ -654,6 +654,20 @@ where
         }
     }
 
+    /// Mark a Gloas payload envelope as valid and received.
+    ///
+    /// This must only be called for valid Gloas payloads.
+    pub fn on_valid_payload_envelope_received(
+        &mut self,
+        block_root: Hash256,
+    ) -> Result<(), Error<T::Error>> {
+        self.proto_array
+            .on_valid_payload_envelope_received(block_root)
+            .map_err(Error::FailedToProcessValidExecutionPayload)
+    }
+
+    /// Pre-Gloas only.
+    ///
     /// See `ProtoArrayForkChoice::process_execution_payload_validation` for documentation.
     pub fn on_valid_execution_payload(
         &mut self,
@@ -664,6 +678,8 @@ where
             .map_err(Error::FailedToProcessValidExecutionPayload)
     }
 
+    /// Pre-Gloas only.
+    ///
     /// See `ProtoArrayForkChoice::process_execution_payload_invalidation` for documentation.
     pub fn on_invalid_execution_payload(
         &mut self,
@@ -975,12 +991,6 @@ where
         )?;
 
         Ok(())
-    }
-
-    pub fn on_execution_payload(&mut self, block_root: Hash256) -> Result<(), Error<T::Error>> {
-        self.proto_array
-            .on_execution_payload(block_root)
-            .map_err(Error::FailedToProcessValidExecutionPayload)
     }
 
     /// Update checkpoints in store if necessary

@@ -567,11 +567,18 @@ impl ProtoArrayForkChoice {
         })
     }
 
-    pub fn on_execution_payload(&mut self, block_root: Hash256) -> Result<(), String> {
+    /// Mark a Gloas payload envelope as valid and received.
+    ///
+    /// This must only be called for valid Gloas payloads.
+    pub fn on_valid_payload_envelope_received(
+        &mut self,
+        block_root: Hash256,
+    ) -> Result<(), String> {
         self.proto_array
-            .on_valid_execution_payload(block_root)
+            .on_valid_payload_envelope_received(block_root)
             .map_err(|e| format!("Failed to process execution payload: {:?}", e))
     }
+
     /// See `ProtoArray::propagate_execution_payload_validation` for documentation.
     pub fn process_execution_payload_validation(
         &mut self,

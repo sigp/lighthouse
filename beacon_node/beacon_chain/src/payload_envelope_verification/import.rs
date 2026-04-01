@@ -253,9 +253,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // avoiding taking other locks whilst holding this lock.
         let mut fork_choice = parking_lot::RwLockUpgradableReadGuard::upgrade(fork_choice_reader);
 
-        // Update the node's payload_status from PENDING to FULL in fork choice.
+        // Update the block's payload to received in fork choice, which creates the `Full` virtual
+        // node which can be eligible for head.
         fork_choice
-            .on_execution_payload(block_root)
+            .on_valid_payload_envelope_received(block_root)
             .map_err(|e| EnvelopeError::InternalError(format!("{e:?}")))?;
 
         // TODO(gloas) emit SSE event if the payload became the new head payload
