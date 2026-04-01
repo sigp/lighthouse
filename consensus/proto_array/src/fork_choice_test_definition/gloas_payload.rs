@@ -52,7 +52,7 @@ pub fn get_gloas_chain_following_test_definition() -> ForkChoiceTestDefinition {
     });
 
     // Mark root_1 as having received its execution payload so that
-    // its FULL virtual node exists in the GLOAS fork choice tree.
+    // its FULL virtual node exists in the Gloas fork choice tree.
     ops.push(Operation::ProcessExecutionPayload {
         block_root: get_root(1),
     });
@@ -262,7 +262,7 @@ pub fn get_gloas_find_head_vote_transition_test_definition() -> ForkChoiceTestDe
     });
 
     // Mark root_1 as having received its execution payload so that
-    // its FULL virtual node exists in the GLOAS fork choice tree.
+    // its FULL virtual node exists in the Gloas fork choice tree.
     ops.push(Operation::ProcessExecutionPayload {
         block_root: get_root(1),
     });
@@ -367,7 +367,7 @@ pub fn get_gloas_weight_priority_over_payload_preference_test_definition()
     });
 
     // Mark root_1 as having received its execution payload so that
-    // its FULL virtual node exists in the GLOAS fork choice tree.
+    // its FULL virtual node exists in the Gloas fork choice tree.
     ops.push(Operation::ProcessExecutionPayload {
         block_root: get_root(1),
     });
@@ -537,7 +537,7 @@ pub fn get_gloas_interleaved_attestations_test_definition() -> ForkChoiceTestDef
     });
 
     // Mark root_1 as having received its execution payload so that
-    // its FULL virtual node exists in the GLOAS fork choice tree.
+    // its FULL virtual node exists in the Gloas fork choice tree.
     ops.push(Operation::ProcessExecutionPayload {
         block_root: get_root(1),
     });

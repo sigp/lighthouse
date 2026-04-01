@@ -170,11 +170,11 @@ pub enum InvalidAttestation {
     /// The attestation is attesting to a state that is later than itself. (Viz., attesting to the
     /// future).
     AttestsToFutureBlock { block: Slot, attestation: Slot },
-    /// Post-GLOAS: attestation index must be 0 or 1.
+    /// Post-Gloas: attestation index must be 0 or 1.
     InvalidAttestationIndex { index: u64 },
-    /// A same-slot attestation has a non-zero index, which is invalid post-GLOAS.
+    /// A same-slot attestation has a non-zero index, which is invalid post-Gloas.
     InvalidSameSlotAttestationIndex { slot: Slot },
-    /// Post-GLOAS: attestation with index == 1 (payload_present) requires the block's
+    /// Post-Gloas: attestation with index == 1 (payload_present) requires the block's
     /// payload to have been received (`root in store.payload_states`).
     PayloadNotReceived { beacon_block_root: Hash256 },
     /// A payload attestation votes payload_present for a block in the current slot, which is
@@ -256,7 +256,7 @@ pub struct QueuedAttestation {
     attesting_indices: Vec<u64>,
     block_root: Hash256,
     target_epoch: Epoch,
-    /// Per GLOAS spec: `payload_present = attestation.data.index == 1`.
+    /// Per Gloas spec: `payload_present = attestation.data.index == 1`.
     payload_present: bool,
 }
 
@@ -1125,7 +1125,7 @@ where
         {
             let index = indexed_attestation.data().index;
 
-            // Post-GLOAS: attestation index must be 0 or 1.
+            // Post-Gloas: attestation index must be 0 or 1.
             if index > 1 {
                 return Err(InvalidAttestation::InvalidAttestationIndex { index });
             }
