@@ -3525,7 +3525,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | e @ PayloadBidError::InvalidBuilder { .. }
                 | e @ PayloadBidError::InvalidFeeRecipient
                 | e @ PayloadBidError::InvalidGasLimit
-                | e @ PayloadBidError::ExecutionPaymentNonZero { .. },
+                | e @ PayloadBidError::ExecutionPaymentNonZero { .. }
+                | e @ PayloadBidError::InvalidBlobKzgCommitments { .. },
             ) => {
                 debug!(
                     %peer_id,
@@ -3614,7 +3615,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(
                 e @ ProposerPreferencesError::BeaconChainError(_)
-                | e @ ProposerPreferencesError::BeaconStateError(_),
+                | e @ ProposerPreferencesError::BeaconStateError(_)
                 | e @ ProposerPreferencesError::InvalidStateVariant,
             ) => {
                 debug!(

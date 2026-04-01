@@ -26,7 +26,7 @@ pub(crate) fn verify_bid_consistency<E: EthSpec>(
 ) -> Result<(), PayloadBidError> {
     let bid_slot = bid.slot;
 
-    if bid_slot != current_slot && bid_slot != current_slot + 1 {
+    if bid_slot != current_slot && bid_slot != current_slot.saturating_add(1u64) {
         return Err(PayloadBidError::InvalidBidSlot { bid_slot });
     }
 
@@ -41,6 +41,16 @@ pub(crate) fn verify_bid_consistency<E: EthSpec>(
     }
     if bid.gas_limit != proposer_preferences.message.gas_limit {
         return Err(PayloadBidError::InvalidGasLimit);
+    }
+
+    let max_blobs_per_block =
+        spec.max_blobs_per_block(bid_slot.epoch(E::slots_per_epoch())) as usize;
+
+    if bid.blob_kzg_commitments.len() > max_blobs_per_block {
+        return Err(PayloadBidError::InvalidBlobKzgCommitments {
+            max_blobs_per_block,
+            blob_kzg_commitments_len: bid.blob_kzg_commitments.len(),
+        });
     }
 
     let builder_index = bid.builder_index;
@@ -251,6 +261,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 #[cfg(test)]
 mod tests {
     use bls::Signature;
+    use kzg::KzgCommitment;
+    use ssz_types::VariableList;
     use types::{
         Address, BeaconState, ChainSpec, EthSpec, ExecutionPayloadBid, MinimalEthSpec,
         ProposerPreferences, SignedProposerPreferences, Slot,
@@ -366,6 +378,26 @@ mod tests {
 
         let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
         assert!(matches!(result, Err(PayloadBidError::InvalidFeeRecipient)));
+    }
+
+    #[test]
+    fn test_invalid_blob_kzg_commitments() {
+        let (state, spec) = state_and_spec();
+        let current_slot = Slot::new(10);
+        let mut bid = make_bid(current_slot, Address::ZERO, 30_000_000);
+        let prefs = make_preferences(Address::ZERO, 30_000_000);
+
+        let max_blobs = spec.max_blobs_per_block(current_slot.epoch(E::slots_per_epoch())) as usize;
+        let commitments: Vec<KzgCommitment> = (0..=max_blobs)
+            .map(|_| KzgCommitment::empty_for_testing())
+            .collect();
+        bid.blob_kzg_commitments = VariableList::new(commitments).unwrap();
+
+        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
+        assert!(matches!(
+            result,
+            Err(PayloadBidError::InvalidBlobKzgCommitments { .. })
+        ));
     }
 
     #[test]

@@ -54,6 +54,11 @@ pub enum PayloadBidError {
     InvalidGasLimit,
     /// The bids execution payment is non-zero
     ExecutionPaymentNonZero { execution_payment: u64 },
+    /// The number of blob KZG commitments exceeds the maximum allowed.
+    InvalidBlobKzgCommitments {
+        max_blobs_per_block: usize,
+        blob_kzg_commitments_len: usize,
+    },
     /// Some Beacon Chain Error
     BeaconChainError(Arc<BeaconChainError>),
     /// Some Beacon State error
