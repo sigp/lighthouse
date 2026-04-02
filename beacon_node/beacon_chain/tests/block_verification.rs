@@ -2073,7 +2073,10 @@ async fn range_sync_block_construction_fails_with_wrong_blob_count() {
 async fn range_sync_block_rejects_missing_custody_columns() {
     let spec = test_spec::<E>();
 
-    if !spec.fork_name_at_slot::<E>(Slot::new(0)).fulu_enabled() {
+    // Gloas blocks don't have blob_kzg_commitments (blobs are in the execution payload envelope).
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).fulu_enabled()
+        || spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled()
+    {
         return;
     }
 
@@ -2151,7 +2154,10 @@ async fn range_sync_block_rejects_missing_custody_columns() {
 async fn rpc_block_allows_construction_past_da_boundary() {
     let spec = test_spec::<E>();
 
-    if !spec.fork_name_at_slot::<E>(Slot::new(0)).fulu_enabled() {
+    // Gloas blocks don't have blob_kzg_commitments (blobs are in the execution payload envelope).
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).fulu_enabled()
+        || spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled()
+    {
         return;
     }
 
