@@ -73,6 +73,7 @@ impl From<VoteTracker> for VoteTrackerV28 {
     }
 }
 
+/// Spec's `LatestMessage` type. Only used in tests.
 pub struct LatestMessage {
     pub slot: Slot,
     pub root: Hash256,
@@ -1064,10 +1065,9 @@ impl ProtoArrayForkChoice {
             .is_finalized_checkpoint_or_descendant::<E>(descendant_root, best_finalized_checkpoint)
     }
 
+    /// NOTE: only used in tests.
     pub fn latest_message(&self, validator_index: usize) -> Option<LatestMessage> {
-        if validator_index < self.votes.0.len() {
-            let vote = &self.votes.0[validator_index];
-
+        if let Some(vote) = self.votes.0.get(validator_index) {
             if *vote == VoteTracker::default() {
                 None
             } else {
