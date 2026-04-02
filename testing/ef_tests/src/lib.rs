@@ -3,7 +3,7 @@ pub use cases::{
     BuilderPendingPayments, Case, EffectiveBalanceUpdates, Eth1DataReset, ExecutionPayloadBidBlock,
     FeatureName, HistoricalRootsUpdate, HistoricalSummariesUpdate, InactivityUpdates,
     JustificationAndFinalization, ParticipationFlagUpdates, ParticipationRecordUpdates,
-    PendingBalanceDeposits, PendingConsolidations, ProposerLookahead, RandaoMixesReset,
+    PendingBalanceDeposits, PendingConsolidations, ProposerLookahead, PtcWindow, RandaoMixesReset,
     RegistryUpdates, RewardsAndPenalties, Slashings, SlashingsReset, SyncCommitteeUpdates,
     WithdrawalsPayload,
 };

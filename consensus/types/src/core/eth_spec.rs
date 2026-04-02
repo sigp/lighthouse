@@ -6,9 +6,9 @@ use std::{
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use typenum::{
-    U0, U1, U2, U4, U8, U16, U17, U32, U64, U128, U256, U512, U625, U1024, U2048, U4096, U8192,
-    U16384, U65536, U131072, U262144, U1048576, U16777216, U33554432, U134217728, U1073741824,
-    U1099511627776, UInt, Unsigned, bit::B0,
+    U0, U1, U2, U4, U8, U16, U17, U24, U32, U48, U64, U96, U128, U256, U512, U625, U1024, U2048,
+    U4096, U8192, U16384, U65536, U131072, U262144, U1048576, U16777216, U33554432, U134217728,
+    U1073741824, U1099511627776, UInt, Unsigned, bit::B0,
 };
 
 use crate::core::{ChainSpec, Epoch};
@@ -176,6 +176,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
      * New in Gloas
      */
     type PTCSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type PtcWindowLength: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxPayloadAttestations: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type BuilderPendingPaymentsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type BuilderPendingWithdrawalsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
@@ -428,6 +429,11 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
         Self::PTCSize::to_usize()
     }
 
+    /// Returns the `PtcWindowLength` constant for this specification.
+    fn ptc_window_length() -> usize {
+        Self::PtcWindowLength::to_usize()
+    }
+
     /// Returns the `MaxPayloadAttestations` constant for this specification.
     fn max_payload_attestations() -> usize {
         Self::MaxPayloadAttestations::to_usize()
@@ -515,6 +521,7 @@ impl EthSpec for MainnetEthSpec {
     type MaxWithdrawalRequestsPerPayload = U16;
     type MaxPendingDepositsPerEpoch = U16;
     type PTCSize = U512;
+    type PtcWindowLength = U96; // (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH
     type MaxPayloadAttestations = U4;
     type MaxBuildersPerWithdrawalsSweep = U16384;
 
@@ -561,6 +568,7 @@ impl EthSpec for MinimalEthSpec {
     type ProposerLookaheadSlots = U16; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
     type BuilderPendingPaymentsLimit = U16; // 2 * SLOTS_PER_EPOCH = 2 * 8 = 16
     type PTCSize = U2;
+    type PtcWindowLength = U24; // (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH
     type MaxBuildersPerWithdrawalsSweep = U16;
 
     params_from_eth_spec!(MainnetEthSpec {
@@ -668,6 +676,7 @@ impl EthSpec for GnosisEthSpec {
     type ProposerLookaheadSlots = U32; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
     type BuilderRegistryLimit = U1099511627776;
     type PTCSize = U512;
+    type PtcWindowLength = U48; // (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH
     type MaxPayloadAttestations = U2;
     type MaxBuildersPerWithdrawalsSweep = U16384;
 
@@ -693,6 +702,11 @@ mod test {
         assert_eq!(
             E::proposer_lookahead_slots(),
             (spec.min_seed_lookahead.as_usize() + 1) * E::slots_per_epoch() as usize
+        );
+        assert_eq!(
+            E::ptc_window_length(),
+            (spec.min_seed_lookahead.as_usize() + 2) * E::slots_per_epoch() as usize,
+            "PtcWindowLength must equal (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH"
         );
     }
 
