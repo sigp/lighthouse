@@ -115,7 +115,18 @@ fn massive_skips() {
 
     assert!(state.slot() > 1, "the state should skip at least one slot");
 
-    if state.fork_name_unchecked().fulu_enabled() {
+    if state.fork_name_unchecked().gloas_enabled() {
+        // Gloas uses compute_balance_weighted_selection for proposer selection, which
+        // returns InvalidIndicesCount (not InsufficientValidators) when the active
+        // validator set is empty.
+        assert_eq!(
+            error,
+            SlotProcessingError::EpochProcessingError(EpochProcessingError::BeaconStateError(
+                BeaconStateError::InvalidIndicesCount
+            )),
+            "should return error indicating that validators have been slashed out"
+        )
+    } else if state.fork_name_unchecked().fulu_enabled() {
         // post-fulu this is done in per_epoch_processing
         assert_eq!(
             error,
