@@ -1232,11 +1232,7 @@ impl ProtoArray {
 
             head = children
                 .into_iter()
-                .map(|(child, _)| -> Result<_, Error> {
-                    let proto_node = self
-                        .nodes
-                        .get(child.proto_node_index)
-                        .ok_or(Error::InvalidNodeIndex(child.proto_node_index))?;
+                .map(|(child, ref proto_node)| -> Result<_, Error> {
                     let weight = self.get_weight::<E>(
                         &child,
                         proto_node,
