@@ -828,15 +828,17 @@ impl ChainSpec {
 
     /// Returns the min epoch for blob / data column sidecar requests based on the current epoch.
     /// Switch to use the column sidecar config once the `blob_retention_epoch` has passed Fulu fork epoch.
+    /// Never uses the `blob_retention_epoch` for networks that started with Fulu enabled.
     pub fn min_epoch_data_availability_boundary(&self, current_epoch: Epoch) -> Option<Epoch> {
-        let fork_epoch = self.deneb_fork_epoch?;
+        let deneb_fork_epoch = self.deneb_fork_epoch?;
         let blob_retention_epoch =
             current_epoch.saturating_sub(self.min_epochs_for_blob_sidecars_requests);
-        match self.fulu_fork_epoch {
-            Some(fulu_fork_epoch) if blob_retention_epoch > fulu_fork_epoch => Some(
-                current_epoch.saturating_sub(self.min_epochs_for_data_column_sidecars_requests),
-            ),
-            _ => Some(std::cmp::max(fork_epoch, blob_retention_epoch)),
+        if let Some(fulu_fork_epoch) = self.fulu_fork_epoch
+            && blob_retention_epoch >= fulu_fork_epoch
+        {
+            Some(current_epoch.saturating_sub(self.min_epochs_for_data_column_sidecars_requests))
+        } else {
+            Some(std::cmp::max(deneb_fork_epoch, blob_retention_epoch))
         }
     }
 
@@ -3398,22 +3400,57 @@ mod yaml_tests {
             spec.min_epoch_data_availability_boundary(fulu_fork_epoch)
         );
 
-        // `min_epochs_for_data_sidecar_requests` at fulu fork epoch + min_epochs_for_blob_sidecars_request
-        let blob_retention_epoch_after_fulu = fulu_fork_epoch + blob_retention_epochs;
-        let expected_blob_retention_epoch = blob_retention_epoch_after_fulu - blob_retention_epochs;
+        // Now, the blob retention period starts still before the fulu fork epoch, so the boundary
+        // should respect the blob retention period.
+        let half_blob_retention_epoch_after_fulu = fulu_fork_epoch + (blob_retention_epochs / 2);
+        let expected_blob_retention_epoch =
+            half_blob_retention_epoch_after_fulu - blob_retention_epochs;
         assert_eq!(
             Some(expected_blob_retention_epoch),
-            spec.min_epoch_data_availability_boundary(blob_retention_epoch_after_fulu)
+            spec.min_epoch_data_availability_boundary(half_blob_retention_epoch_after_fulu)
         );
 
-        // After the final blob retention epoch, `min_epochs_for_data_sidecar_requests` should be calculated
-        // using `min_epochs_for_data_column_sidecars_request`
-        let current_epoch = blob_retention_epoch_after_fulu + 1;
+        // If the retention period starts with the fulu fork epoch, there are no more blobs to
+        // retain, and the return value will be based on the data column retention period.
+        let current_epoch = fulu_fork_epoch + blob_retention_epochs;
         let expected_data_column_retention_epoch = current_epoch - data_column_retention_epochs;
         assert_eq!(
             Some(expected_data_column_retention_epoch),
             spec.min_epoch_data_availability_boundary(current_epoch)
         );
+    }
+
+    #[test]
+    fn min_epochs_for_data_sidecar_requests_fulu_genesis() {
+        type E = MainnetEthSpec;
+        let spec = {
+            // fulu active at genesis
+            let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+            // set a different value for testing purpose, 4096 / 2 = 2048
+            spec.min_epochs_for_data_column_sidecars_requests =
+                spec.min_epochs_for_blob_sidecars_requests / 2;
+            Arc::new(spec)
+        };
+        let blob_retention_epochs = spec.min_epochs_for_blob_sidecars_requests;
+        let data_column_retention_epochs = spec.min_epochs_for_data_column_sidecars_requests;
+
+        // If Fulu is activated at genesis, the column retention period should always be used.
+        let assert_correct_boundary = |epoch| {
+            let epoch = Epoch::new(epoch);
+            assert_eq!(
+                Some(epoch.saturating_sub(data_column_retention_epochs)),
+                spec.min_epoch_data_availability_boundary(epoch)
+            )
+        };
+
+        assert_correct_boundary(0);
+        assert_correct_boundary(1);
+        assert_correct_boundary(blob_retention_epochs - 1);
+        assert_correct_boundary(blob_retention_epochs);
+        assert_correct_boundary(blob_retention_epochs + 1);
+        assert_correct_boundary(data_column_retention_epochs - 1);
+        assert_correct_boundary(data_column_retention_epochs);
+        assert_correct_boundary(data_column_retention_epochs + 1);
     }
 
     #[test]
