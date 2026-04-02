@@ -1418,6 +1418,8 @@ impl ChainSpec {
              * Precomputed for 6000ms slot: 3333 bps = 1999ms, 6667 bps = 4000ms
              */
             unaggregated_attestation_due: Duration::from_millis(1999),
+            unaggregated_attestation_due_gloas: Duration::from_millis(1500),
+            payload_attestation_due: Duration::from_millis(4500),
             aggregate_attestation_due: Duration::from_millis(4000),
             sync_message_due: Duration::from_millis(1999),
             contribution_and_proof_due: Duration::from_millis(4000),
