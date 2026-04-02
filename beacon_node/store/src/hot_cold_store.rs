@@ -1097,6 +1097,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// will be returned if the provided `state_root` doesn't match the state root of the
     /// frozen state at `slot`. Consequently, if a state from a non-canonical chain is desired, it's
     /// best to set `slot` to `None`, or call `load_hot_state` directly.
+    ///
+    /// **Gloas note**: For Gloas blocks, `block.state_root()` returns the *pending* state root,
+    /// which may differ from the root stored in the cold DB (which could be the full state root,
+    /// whatever is canonical).
+    /// Callers looking up cold Gloas states should use `get_cold_state_root(slot)` to obtain the
+    /// actual key stored in the freezer.
     pub fn get_state(
         &self,
         state_root: &Hash256,

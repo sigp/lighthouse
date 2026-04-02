@@ -67,6 +67,9 @@ pub fn get_state_before_applying_block<T: BeaconChainTypes>(
         .map_err(|e| custom_not_found(format!("Parent state is not available! {:?}", e)))?;
 
     // TODO(gloas): handle payloads?
+    // For finalized Gloas blocks, `parent_block.state_root()` returns the pending root which
+    // may not match the cold DB key (full state root). This will cause pre-finalization state
+    // lookup failures.
     let replayer = BlockReplayer::new(parent_state, &chain.spec)
         .no_signature_verification()
         .state_root_iter([Ok((parent_block.state_root(), parent_block.slot()))].into_iter())
