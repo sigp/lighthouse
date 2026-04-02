@@ -1069,9 +1069,6 @@ impl ProtoArray {
             });
         }
 
-        // In the post-Gloas world, always use a virtual tree walk.
-        //
-        // Best child/best descendant is dead.
         let best_fc_node = self.find_head_walk::<E>(
             justified_index,
             current_slot,
