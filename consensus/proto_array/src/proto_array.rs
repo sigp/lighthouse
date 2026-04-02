@@ -636,7 +636,7 @@ impl ProtoArray {
                 // TODO(gloas): use Gloas-specific PTC due threshold once
                 // `get_payload_attestation_due_ms` is on ChainSpec.
                 block_timeliness_ptc_threshold: is_genesis
-                    || (is_current_slot && time_into_slot < spec.get_slot_duration() / 2),
+                    || (is_current_slot && time_into_slot < 3 * spec.get_slot_duration() / 4),
                 equivocating_attestation_score: 0,
             })
         };
