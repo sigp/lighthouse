@@ -960,7 +960,7 @@ impl ProtoArray {
                     // This block is pre-merge, therefore it has no execution status. Nor do its
                     // ancestors.
                     Ok(ExecutionStatus::Irrelevant(_)) => break,
-                    Err(_) => (),
+                    Err(_) => break,
                 }
             }
 
