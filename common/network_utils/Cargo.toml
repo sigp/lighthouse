@@ -11,6 +11,7 @@ metrics = { workspace = true }
 multiaddr = "0.18.2"
 parking_lot = { workspace = true }
 serde = { workspace = true }
+socket2 = "0.5"
 tiny-keccak = { version = "2", features = ["keccak"] }
 
 [dev-dependencies]
