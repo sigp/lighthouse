@@ -199,9 +199,6 @@ pub enum InvalidPayloadAttestation {
         attestation_slot: Slot,
         current_slot: Slot,
     },
-    /// A payload attestation votes payload_present for a block in the current slot, which is
-    /// invalid because the payload cannot be known yet.
-    PayloadPresentDuringSameSlot { slot: Slot },
     /// One or more payload attesters are not part of the PTC.
     PayloadAttestationAttestersNotInPtc {
         attesting_indices_len: usize,
@@ -1232,18 +1229,6 @@ where
                     current_slot: self.fc_store.get_current_slot(),
                 },
             );
-        }
-
-        // A payload attestation voting payload_present for a block in the current slot is
-        // invalid: the payload cannot be known yet. This only applies to gossip attestations;
-        // payload attestations from blocks have already been validated by the block producer.
-        if matches!(is_from_block, AttestationFromBlock::False)
-            && self.fc_store.get_current_slot() == block.slot
-            && indexed_payload_attestation.data.payload_present
-        {
-            return Err(InvalidPayloadAttestation::PayloadPresentDuringSameSlot {
-                slot: block.slot,
-            });
         }
 
         Ok(())
