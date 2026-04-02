@@ -632,11 +632,9 @@ impl ProtoArray {
                 // Anchor gets [True, True]. Others computed from time_into_slot.
                 block_timeliness_attestation_threshold: is_genesis
                     || (is_current_slot
-                        && time_into_slot < spec.get_unaggregated_attestation_due()),
-                // TODO(gloas): use Gloas-specific PTC due threshold once
-                // `get_payload_attestation_due_ms` is on ChainSpec.
+                        && time_into_slot < spec.get_attestation_due::<E>(current_slot)),
                 block_timeliness_ptc_threshold: is_genesis
-                    || (is_current_slot && time_into_slot < 3 * spec.get_slot_duration() / 4),
+                    || (is_current_slot && time_into_slot < spec.get_payload_attestation_due()),
                 equivocating_attestation_score: 0,
             })
         };
@@ -672,6 +670,7 @@ impl ProtoArray {
         Ok(())
     }
 
+    /// Spec: `is_head_weak`.
     // TODO(gloas): the spec adds weight from equivocating validators in the
     // head slot's *committees*, regardless of who they voted for. We approximate
     // with `equivocating_attestation_score` which only tracks equivocating
