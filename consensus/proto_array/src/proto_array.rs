@@ -489,12 +489,10 @@ impl ProtoArray {
                             .ok_or(Error::DeltaOverflow(parent_index))?;
                     }
                 } else {
-                    // V17 child of a V29 parent (fork transition): treat as FULL
-                    // since V17 nodes always have execution payloads inline.
-                    parent_delta.full_delta = parent_delta
-                        .full_delta
-                        .checked_add(delta)
-                        .ok_or(Error::DeltaOverflow(parent_index))?;
+                    // This is a v17 node with a v17 parent.
+                    // There is no empty or full weight for v17 nodes, so nothing to propagate.
+                    // In the tree walk, the v17 nodes have an empty child with 0 weight, which
+                    // wins by default (it is the only child).
                 }
             }
         }
