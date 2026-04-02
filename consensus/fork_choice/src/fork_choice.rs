@@ -185,6 +185,11 @@ pub enum InvalidAttestation {
         attestation_slot: Slot,
         current_slot: Slot,
     },
+    /// One or more payload attesters are not part of the PTC.
+    PayloadAttestationAttestersNotInPtc {
+        attesting_indices_len: usize,
+        attesting_indices_in_ptc: usize,
+    },
 }
 
 impl<T> From<String> for Error<T> {
@@ -1169,10 +1174,14 @@ where
         indexed_payload_attestation: &IndexedPayloadAttestation<E>,
         is_from_block: AttestationFromBlock,
     ) -> Result<(), InvalidAttestation> {
+        // This check is from `is_valid_indexed_payload_attestation`, but we do it immediately to
+        // avoid wasting time on junk attestations.
         if indexed_payload_attestation.attesting_indices.is_empty() {
             return Err(InvalidAttestation::EmptyAggregationBitfield);
         }
 
+        // PTC attestation must be for a known block. If block is unknown, delay consideration until
+        // the block is found (responsibility of caller).
         let block = self
             .proto_array
             .get_block(&indexed_payload_attestation.data.beacon_block_root)
@@ -1180,6 +1189,8 @@ where
                 beacon_block_root: indexed_payload_attestation.data.beacon_block_root,
             })?;
 
+        // Not strictly part of the spec, but payload attestations to future slots are MORE INVALID
+        // than payload attestations to blocks at previous slots.
         if block.slot > indexed_payload_attestation.data.slot {
             return Err(InvalidAttestation::AttestsToFutureBlock {
                 block: block.slot,
@@ -1187,13 +1198,13 @@ where
             });
         }
 
-        // Spec: `if data.slot != state.slot: return` — PTC votes can only
-        // change the vote for their assigned beacon block.
+        // PTC votes can only change the vote for their assigned beacon block, return early otherwise
         if block.slot != indexed_payload_attestation.data.slot {
             return Ok(());
         }
 
         // Gossip payload attestations must be for the current slot.
+        // NOTE: signature is assumed to have been verified by caller.
         // https://github.com/ethereum/consensus-specs/blob/master/specs/gloas/fork-choice.md
         if matches!(is_from_block, AttestationFromBlock::False)
             && indexed_payload_attestation.data.slot != self.fc_store.get_current_slot()
@@ -1318,9 +1329,19 @@ where
 
         // Resolve validator indices to PTC committee positions.
         let ptc_indices: Vec<usize> = attestation
-            .attesting_indices_iter()
+            .attesting_indices
+            .iter()
             .filter_map(|vi| ptc.iter().position(|&p| p == *vi as usize))
             .collect();
+
+        // Check that all the attesters are in the PTC
+        if ptc_indices.len() != attestation.attesting_indices.len() {
+            return Err(InvalidAttestation::PayloadAttestationAttestersNotInPtc {
+                attesting_indices_len: attestation.attesting_indices.len(),
+                attesting_indices_in_ptc: ptc_indices.len(),
+            }
+            .into());
+        }
 
         for &ptc_index in &ptc_indices {
             self.proto_array.process_payload_attestation(
