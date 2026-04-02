@@ -53,7 +53,7 @@ pub fn get_gloas_chain_following_test_definition() -> ForkChoiceTestDefinition {
 
     // Mark root_1 as having received its execution payload so that
     // its FULL virtual node exists in the Gloas fork choice tree.
-    ops.push(Operation::ProcessExecutionPayload {
+    ops.push(Operation::ProcessExecutionPayloadEnvelope {
         block_root: get_root(1),
     });
 
@@ -263,7 +263,7 @@ pub fn get_gloas_find_head_vote_transition_test_definition() -> ForkChoiceTestDe
 
     // Mark root_1 as having received its execution payload so that
     // its FULL virtual node exists in the Gloas fork choice tree.
-    ops.push(Operation::ProcessExecutionPayload {
+    ops.push(Operation::ProcessExecutionPayloadEnvelope {
         block_root: get_root(1),
     });
 
@@ -368,7 +368,7 @@ pub fn get_gloas_weight_priority_over_payload_preference_test_definition()
 
     // Mark root_1 as having received its execution payload so that
     // its FULL virtual node exists in the Gloas fork choice tree.
-    ops.push(Operation::ProcessExecutionPayload {
+    ops.push(Operation::ProcessExecutionPayloadEnvelope {
         block_root: get_root(1),
     });
 
@@ -538,7 +538,7 @@ pub fn get_gloas_interleaved_attestations_test_definition() -> ForkChoiceTestDef
 
     // Mark root_1 as having received its execution payload so that
     // its FULL virtual node exists in the Gloas fork choice tree.
-    ops.push(Operation::ProcessExecutionPayload {
+    ops.push(Operation::ProcessExecutionPayloadEnvelope {
         block_root: get_root(1),
     });
 
@@ -674,8 +674,8 @@ pub fn get_gloas_payload_received_interleaving_test_definition() -> ForkChoiceTe
         expected_payload_status: None,
     });
 
-    // ProcessExecutionPayload on genesis is a no-op (already received at init).
-    ops.push(Operation::ProcessExecutionPayload {
+    // ProcessExecutionPayloadEnvelope on genesis is a no-op (already received at init).
+    ops.push(Operation::ProcessExecutionPayloadEnvelope {
         block_root: get_root(0),
     });
 
@@ -778,7 +778,7 @@ mod tests {
 
         // Mark root 2's execution payload as received so the Full virtual child exists.
         if first_gloas_block_full {
-            ops.push(Operation::ProcessExecutionPayload {
+            ops.push(Operation::ProcessExecutionPayloadEnvelope {
                 block_root: get_root(2),
             });
         }

@@ -98,7 +98,7 @@ pub enum Operation {
     },
     /// Simulate receiving and validating an execution payload for `block_root`.
     /// Sets `payload_received = true` on the V29 node via the live validation path.
-    ProcessExecutionPayload {
+    ProcessExecutionPayloadEnvelope {
         block_root: Hash256,
     },
     AssertPayloadReceived {
@@ -500,7 +500,7 @@ impl ForkChoiceTestDefinition {
                     // the payload to be in payload_states (payload_received).
                     node_v29.payload_received = is_timely || is_data_available;
                 }
-                Operation::ProcessExecutionPayload { block_root } => {
+                Operation::ProcessExecutionPayloadEnvelope { block_root } => {
                     fork_choice
                         .on_valid_payload_envelope_received(block_root)
                         .unwrap_or_else(|e| {
