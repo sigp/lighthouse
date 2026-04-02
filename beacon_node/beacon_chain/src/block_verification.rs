@@ -1698,7 +1698,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                     indexed_payload_attestation,
                     AttestationFromBlock::True,
                     &ptc.0,
-                ) && !matches!(e, ForkChoiceError::InvalidAttestation(_))
+                ) && !matches!(e, ForkChoiceError::InvalidPayloadAttestation(_))
                 {
                     return Err(BlockError::BeaconChainError(Box::new(e.into())));
                 }

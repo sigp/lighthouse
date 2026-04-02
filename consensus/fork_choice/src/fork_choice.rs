@@ -26,6 +26,7 @@ use types::{
 #[derive(Debug)]
 pub enum Error<T> {
     InvalidAttestation(InvalidAttestation),
+    InvalidPayloadAttestation(InvalidPayloadAttestation),
     InvalidAttesterSlashing(AttesterSlashingValidationError),
     InvalidBlock(InvalidBlock),
     ProtoArrayStringError(String),
@@ -82,6 +83,12 @@ pub enum Error<T> {
 impl<T> From<InvalidAttestation> for Error<T> {
     fn from(e: InvalidAttestation) -> Self {
         Error::InvalidAttestation(e)
+    }
+}
+
+impl<T> From<InvalidPayloadAttestation> for Error<T> {
+    fn from(e: InvalidPayloadAttestation) -> Self {
+        Error::InvalidPayloadAttestation(e)
     }
 }
 
@@ -177,14 +184,24 @@ pub enum InvalidAttestation {
     /// Post-Gloas: attestation with index == 1 (payload_present) requires the block's
     /// payload to have been received (`root in store.payload_states`).
     PayloadNotReceived { beacon_block_root: Hash256 },
-    /// A payload attestation votes payload_present for a block in the current slot, which is
-    /// invalid because the payload cannot be known yet.
-    PayloadPresentDuringSameSlot { slot: Slot },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum InvalidPayloadAttestation {
+    /// The payload attestation's attesting indices were empty.
+    EmptyAggregationBitfield,
+    /// The `payload_attestation.data.beacon_block_root` block is unknown.
+    UnknownHeadBlock { beacon_block_root: Hash256 },
+    /// The payload attestation is attesting to a block that is later than itself.
+    AttestsToFutureBlock { block: Slot, attestation: Slot },
     /// A gossip payload attestation must be for the current slot.
     PayloadAttestationNotCurrentSlot {
         attestation_slot: Slot,
         current_slot: Slot,
     },
+    /// A payload attestation votes payload_present for a block in the current slot, which is
+    /// invalid because the payload cannot be known yet.
+    PayloadPresentDuringSameSlot { slot: Slot },
     /// One or more payload attesters are not part of the PTC.
     PayloadAttestationAttestersNotInPtc {
         attesting_indices_len: usize,
@@ -1173,11 +1190,11 @@ where
         &self,
         indexed_payload_attestation: &IndexedPayloadAttestation<E>,
         is_from_block: AttestationFromBlock,
-    ) -> Result<(), InvalidAttestation> {
+    ) -> Result<(), InvalidPayloadAttestation> {
         // This check is from `is_valid_indexed_payload_attestation`, but we do it immediately to
         // avoid wasting time on junk attestations.
         if indexed_payload_attestation.attesting_indices.is_empty() {
-            return Err(InvalidAttestation::EmptyAggregationBitfield);
+            return Err(InvalidPayloadAttestation::EmptyAggregationBitfield);
         }
 
         // PTC attestation must be for a known block. If block is unknown, delay consideration until
@@ -1185,14 +1202,14 @@ where
         let block = self
             .proto_array
             .get_block(&indexed_payload_attestation.data.beacon_block_root)
-            .ok_or(InvalidAttestation::UnknownHeadBlock {
+            .ok_or(InvalidPayloadAttestation::UnknownHeadBlock {
                 beacon_block_root: indexed_payload_attestation.data.beacon_block_root,
             })?;
 
         // Not strictly part of the spec, but payload attestations to future slots are MORE INVALID
         // than payload attestations to blocks at previous slots.
         if block.slot > indexed_payload_attestation.data.slot {
-            return Err(InvalidAttestation::AttestsToFutureBlock {
+            return Err(InvalidPayloadAttestation::AttestsToFutureBlock {
                 block: block.slot,
                 attestation: indexed_payload_attestation.data.slot,
             });
@@ -1209,10 +1226,12 @@ where
         if matches!(is_from_block, AttestationFromBlock::False)
             && indexed_payload_attestation.data.slot != self.fc_store.get_current_slot()
         {
-            return Err(InvalidAttestation::PayloadAttestationNotCurrentSlot {
-                attestation_slot: indexed_payload_attestation.data.slot,
-                current_slot: self.fc_store.get_current_slot(),
-            });
+            return Err(
+                InvalidPayloadAttestation::PayloadAttestationNotCurrentSlot {
+                    attestation_slot: indexed_payload_attestation.data.slot,
+                    current_slot: self.fc_store.get_current_slot(),
+                },
+            );
         }
 
         // A payload attestation voting payload_present for a block in the current slot is
@@ -1222,7 +1241,9 @@ where
             && self.fc_store.get_current_slot() == block.slot
             && indexed_payload_attestation.data.payload_present
         {
-            return Err(InvalidAttestation::PayloadPresentDuringSameSlot { slot: block.slot });
+            return Err(InvalidPayloadAttestation::PayloadPresentDuringSameSlot {
+                slot: block.slot,
+            });
         }
 
         Ok(())
@@ -1336,11 +1357,13 @@ where
 
         // Check that all the attesters are in the PTC
         if ptc_indices.len() != attestation.attesting_indices.len() {
-            return Err(InvalidAttestation::PayloadAttestationAttestersNotInPtc {
-                attesting_indices_len: attestation.attesting_indices.len(),
-                attesting_indices_in_ptc: ptc_indices.len(),
-            }
-            .into());
+            return Err(
+                InvalidPayloadAttestation::PayloadAttestationAttestersNotInPtc {
+                    attesting_indices_len: attestation.attesting_indices.len(),
+                    attesting_indices_in_ptc: ptc_indices.len(),
+                }
+                .into(),
+            );
         }
 
         for &ptc_index in &ptc_indices {
