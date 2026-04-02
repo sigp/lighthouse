@@ -165,8 +165,6 @@ pub struct ProtoNode {
     pub payload_data_availability_votes: BitVector<U512>,
     /// Whether the execution payload for this block has been received and validated locally.
     /// Maps to `root in store.payload_states` in the spec.
-    /// When true, `is_payload_timely` and `is_payload_data_available` return true
-    /// regardless of PTC vote counts.
     #[superstruct(only(V29), partial_getter(copy))]
     pub payload_received: bool,
     /// The proposer index for this block, used by `should_apply_proposer_boost`
