@@ -720,7 +720,6 @@ impl ProtoArray {
             .nodes
             .get(block_index)
             .ok_or(Error::InvalidNodeIndex(block_index))?;
-        // TODO(gloas): handle parent unknown case?
         let parent_index = block
             .parent()
             .ok_or(Error::NodeUnknown(proposer_boost_root))?;
@@ -744,7 +743,6 @@ impl ProtoArray {
         // the parent's slot from the same proposer.
         let parent_slot = parent.slot();
         let parent_root = parent.root();
-        // TODO(gloas): handle proposer index for pre-Gloas blocks?
         let parent_proposer = parent.proposer_index();
 
         let has_equivocation = self.nodes.iter().any(|node| {
