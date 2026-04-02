@@ -672,12 +672,17 @@ impl ProtoArray {
         Ok(())
     }
 
-    /// Spec: `is_head_weak`.
-    ///
-    /// The spec adds weight from equivocating validators in the head slot's
-    /// committees. We approximate this with `equivocating_attestation_score`
-    /// which tracks equivocating validators that voted for this block (close
-    /// but not identical to committee membership).
+    // TODO(gloas): the spec adds weight from equivocating validators in the
+    // head slot's *committees*, regardless of who they voted for. We approximate
+    // with `equivocating_attestation_score` which only tracks equivocating
+    // validators whose vote pointed at this block. This under-counts when an
+    // equivocating validator is in the committee but voted for a different fork,
+    // which could allow a re-org the spec wouldn't. In practice the deviation
+    // is small — it requires equivocating validators voting for competing forks
+    // AND the head weight to be exactly at the reorg threshold boundary.
+    // Fixing this properly requires committee computation from BeaconState,
+    // which is not available in proto_array. The fix would be to pass
+    // pre-computed equivocating committee weight from the beacon_chain caller.
     fn is_head_weak<E: EthSpec>(
         &self,
         head_node: &ProtoNode,
