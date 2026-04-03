@@ -115,7 +115,7 @@ fn mock_canonical_head(mock: &mut MockEnvelopeStreamerBeaconAdapter<T>, chain: &
         .map(|e| e.block_root)
         .collect();
     mock.expect_block_has_canonical_payload()
-        .returning(move |root| Ok(!non_canonical.contains(root)));
+        .returning(move |root| Some(!non_canonical.contains(root)));
 }
 
 fn unwrap_result(
@@ -288,7 +288,7 @@ async fn stream_envelopes_error() {
     mock.expect_get_split_slot().return_const(Slot::new(0));
     mock_envelopes(&mut mock, &chain);
     mock.expect_block_has_canonical_payload()
-        .returning(|_| Err(BeaconChainError::CanonicalHeadLockTimeout));
+        .returning(|_| None);
 
     let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
     let mut stream = streamer.launch_stream(roots(&chain));

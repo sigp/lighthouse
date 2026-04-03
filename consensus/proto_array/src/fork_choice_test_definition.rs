@@ -105,6 +105,12 @@ pub enum Operation {
         block_root: Hash256,
         expected: bool,
     },
+    AssertCanonicalPayloadStatus {
+        block_root: Hash256,
+        head_root: Hash256,
+        head_payload_status: PayloadStatus,
+        expected_status: Option<PayloadStatus>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -519,6 +525,23 @@ impl ForkChoiceTestDefinition {
                     assert_eq!(
                         actual, expected,
                         "payload_received mismatch at op index {}",
+                        op_index
+                    );
+                }
+                Operation::AssertCanonicalPayloadStatus {
+                    block_root,
+                    head_root,
+                    head_payload_status,
+                    expected_status,
+                } => {
+                    let actual = fork_choice.get_canonical_payload_status(
+                        &block_root,
+                        &head_root,
+                        head_payload_status,
+                    );
+                    assert_eq!(
+                        actual, expected_status,
+                        "canonical payload status mismatch at op index {}",
                         op_index
                     );
                 }

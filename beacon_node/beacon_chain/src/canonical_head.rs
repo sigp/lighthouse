@@ -50,6 +50,7 @@ use itertools::process_results;
 
 use logging::crit;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard};
+use proto_array::PayloadStatus;
 use slot_clock::SlotClock;
 use state_processing::AllCaches;
 use std::sync::Arc;
@@ -381,11 +382,19 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         Ok((head, execution_status))
     }
 
-    // TODO(gloas) just a stub for now, implement this once we have fork choice.
-    /// Returns true if the payload for this block is canonical according to fork choice
-    /// Returns an error if the block root doesn't exist in fork choice.
-    pub fn block_has_canonical_payload(&self, _root: &Hash256) -> Result<bool, Error> {
-        Ok(true)
+    /// Returns `Some(true)` if the payload for this block is canonical (Full) according to fork choice.
+    ///
+    /// Walks backwards from the head to determine the canonical payload status of the block.
+    /// Returns `None` if the block has already been pruned from fork choice or isn't part of the
+    /// canonical chain.
+    pub fn block_has_canonical_payload(&self, root: &Hash256) -> Option<bool> {
+        let cached_head = self.cached_head();
+        let head_root = cached_head.head_block_root();
+        let head_payload_status = cached_head.head_payload_status();
+
+        self.fork_choice_read_lock()
+            .get_canonical_payload_status(root, &head_root, head_payload_status)
+            .map(|status| status == PayloadStatus::Full)
     }
 
     /// Returns a clone of `self.cached_head`.

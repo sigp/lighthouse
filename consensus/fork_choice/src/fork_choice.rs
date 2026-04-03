@@ -1502,6 +1502,25 @@ where
         }
     }
 
+    /// Returns the canonical payload status of a block. See
+    /// `ProtoArrayForkChoice::get_canonical_payload_status`.
+    pub fn get_canonical_payload_status(
+        &self,
+        block_root: &Hash256,
+        head_root: &Hash256,
+        head_payload_status: PayloadStatus,
+    ) -> Option<PayloadStatus> {
+        if self.is_finalized_checkpoint_or_descendant(*block_root) {
+            self.proto_array.get_canonical_payload_status(
+                block_root,
+                head_root,
+                head_payload_status,
+            )
+        } else {
+            None
+        }
+    }
+
     /// Returns the weight for the given block root.
     pub fn get_block_weight(&self, block_root: &Hash256) -> Option<u64> {
         self.proto_array.get_weight(block_root)

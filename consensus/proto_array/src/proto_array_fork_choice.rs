@@ -1038,6 +1038,38 @@ impl ProtoArrayForkChoice {
             .unwrap_or(false)
     }
 
+    /// Returns the canonical payload status of a block by walking backwards from the head.
+    ///
+    /// For the head block, returns `head_payload_status` directly. For any ancestor of the
+    /// head, walks backwards until finding the child of `block_root` on the canonical chain
+    /// and returns that child's `parent_payload_status`.
+    ///
+    /// Returns `None` if the block is not an ancestor of head or has already been pruned from fork choice.
+    pub fn get_canonical_payload_status(
+        &self,
+        block_root: &Hash256,
+        head_root: &Hash256,
+        head_payload_status: PayloadStatus,
+    ) -> Option<PayloadStatus> {
+        if block_root == head_root {
+            return Some(head_payload_status);
+        }
+
+        let target_index = *self.proto_array.indices.get(block_root)?;
+        let mut current_index = *self.proto_array.indices.get(head_root)?;
+
+        loop {
+            let node = self.proto_array.nodes.get(current_index)?;
+            let parent_index = node.parent()?;
+
+            if parent_index == target_index {
+                return Some(node.get_parent_payload_status());
+            }
+
+            current_index = parent_index;
+        }
+    }
+
     /// Returns the weight of a given block.
     pub fn get_weight(&self, block_root: &Hash256) -> Option<u64> {
         let block_index = self.proto_array.indices.get(block_root)?;

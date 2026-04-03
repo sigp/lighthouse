@@ -125,14 +125,14 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
                             }
 
                             match streamer.adapter.block_has_canonical_payload(root) {
-                                Ok(is_envelope_canonical) => {
+                                Some(is_envelope_canonical) => {
                                     if is_envelope_canonical {
                                         results.push((*root, Ok(Some(envelope))));
                                     } else {
                                         results.push((*root, Ok(None)));
                                     }
                                 }
-                                Err(_) => {
+                                None => {
                                     results.push((
                                         *root,
                                         Err(BeaconChainError::EnvelopeStreamerError(
