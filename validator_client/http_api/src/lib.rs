@@ -303,9 +303,10 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let get_lighthouse_health = warp::path("lighthouse")
         .and(warp::path("health"))
         .and(warp::path::end())
-        .then(|| {
+        .and(validator_dir_filter.clone())
+        .then(|validator_dir: PathBuf| {
             blocking_json_task(move || {
-                eth2::lighthouse::Health::observe()
+                eth2::lighthouse::Health::observe(Some(&validator_dir))
                     .map(api_types::GenericResponse::from)
                     .map_err(warp_utils::reject::custom_bad_request)
             })
