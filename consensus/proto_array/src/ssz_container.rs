@@ -38,6 +38,7 @@ pub struct SszContainer {
     #[superstruct(only(V29))]
     pub nodes: Vec<ProtoNode>,
     pub indices: Vec<(Hash256, usize)>,
+    #[superstruct(only(V28))]
     pub previous_proposer_boost: ProposerBoost,
 }
 
@@ -50,7 +51,6 @@ impl SszContainerV29 {
             prune_threshold: proto_array.prune_threshold,
             nodes: proto_array.nodes.clone(),
             indices: proto_array.indices.iter().map(|(k, v)| (*k, *v)).collect(),
-            previous_proposer_boost: proto_array.previous_proposer_boost,
         }
     }
 }
@@ -63,7 +63,6 @@ impl TryFrom<(SszContainerV29, JustifiedBalances)> for ProtoArrayForkChoice {
             prune_threshold: from.prune_threshold,
             nodes: from.nodes,
             indices: from.indices.into_iter().collect::<HashMap<_, _>>(),
-            previous_proposer_boost: from.previous_proposer_boost,
         };
 
         Ok(Self {
@@ -92,7 +91,6 @@ impl From<SszContainerV28> for SszContainerV29 {
                 })
                 .collect(),
             indices: v28.indices,
-            previous_proposer_boost: v28.previous_proposer_boost,
         }
     }
 }
@@ -116,7 +114,8 @@ impl From<SszContainerV29> for SszContainerV28 {
                 })
                 .collect(),
             indices: v29.indices,
-            previous_proposer_boost: v29.previous_proposer_boost,
+            // Proposer boost is not tracked in V29 (computed on-the-fly), so reset it.
+            previous_proposer_boost: ProposerBoost::default(),
         }
     }
 }

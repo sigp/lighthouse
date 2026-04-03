@@ -168,6 +168,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(BeaconChainError::TokioJoin)?
             .ok_or(BeaconChainError::RuntimeShutdown)??;
 
+        // TODO(gloas): optimistic sync is not supported for Gloas, maybe we could re-add it
+        if payload_verification_outcome
+            .payload_verification_status
+            .is_optimistic()
+        {
+            return Err(EnvelopeError::OptimisticSyncNotSupported {
+                block_root: import_data.block_root,
+            });
+        }
+
         Ok(ExecutedEnvelope::new(
             signed_envelope,
             import_data,
@@ -244,9 +254,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // avoiding taking other locks whilst holding this lock.
         let mut fork_choice = parking_lot::RwLockUpgradableReadGuard::upgrade(fork_choice_reader);
 
-        // Update the node's payload_status from PENDING to FULL in fork choice.
+        // Update the block's payload to received in fork choice, which creates the `Full` virtual
+        // node which can be eligible for head.
         fork_choice
-            .on_execution_payload(block_root)
+            .on_valid_payload_envelope_received(block_root)
             .map_err(|e| EnvelopeError::InternalError(format!("{e:?}")))?;
 
         // TODO(gloas) emit SSE event if the payload became the new head payload

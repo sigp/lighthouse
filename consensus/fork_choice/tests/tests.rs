@@ -11,7 +11,7 @@ use bls::AggregateSignature;
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::{
     AttestationFromBlock, ForkChoiceStore, InvalidAttestation, InvalidBlock,
-    PayloadVerificationStatus, QueuedAttestation,
+    InvalidPayloadAttestation, PayloadVerificationStatus, QueuedAttestation,
 };
 use state_processing::state_advance::complete_state_advance;
 use std::fmt;
@@ -969,8 +969,8 @@ async fn non_block_payload_attestation_for_previous_slot_is_rejected() {
     assert!(
         matches!(
             result,
-            Err(ForkChoiceError::InvalidAttestation(
-                InvalidAttestation::PayloadAttestationNotCurrentSlot { .. }
+            Err(ForkChoiceError::InvalidPayloadAttestation(
+                InvalidPayloadAttestation::PayloadAttestationNotCurrentSlot { .. }
             ))
         ),
         "gossip payload attestation for previous slot should be rejected, got: {:?}",
