@@ -246,8 +246,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let envelope_lookup_exists =
             self.search_parent_envelope_of_child(parent_root, &[peer_id], cx);
         if envelope_lookup_exists {
-            // Create child lookup that waits for the parent envelope (not parent block).
-            // The child block itself is available, so we pass it as a component.
+            // Create child lookup that waits for the parent envelope.
+            // The child block itself has already been seen, so we pass it as a component.
             self.new_current_lookup(
                 block_root,
                 Some(block_component),
