@@ -935,9 +935,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 debug!(
                     %block_root,
                     %parent_root,
-                    "Parent envelope not yet available, creating lookup"
+                    "Parent envelope not yet available, creating envelope lookup"
                 );
-                self.handle_unknown_parent(
+                self.handle_unknown_parent_envelope(
                     peer_id,
                     block_root,
                     parent_root,
@@ -1051,6 +1051,40 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
             Err(reason) => {
                 debug!(%block_root, %parent_root, reason, "Ignoring unknown parent request");
+            }
+        }
+    }
+
+    /// Handle a block whose parent block is known but parent envelope is missing.
+    /// Creates an envelope-only lookup for the parent and a child lookup that waits for it.
+    fn handle_unknown_parent_envelope(
+        &mut self,
+        peer_id: PeerId,
+        block_root: Hash256,
+        parent_root: Hash256,
+        slot: Slot,
+        block_component: BlockComponent<T::EthSpec>,
+    ) {
+        match self.should_search_for_block(Some(slot), &peer_id) {
+            Ok(_) => {
+                if self.block_lookups.search_child_and_parent_envelope(
+                    block_root,
+                    block_component,
+                    parent_root,
+                    peer_id,
+                    &mut self.network,
+                ) {
+                    // Lookups created
+                } else {
+                    debug!(
+                        ?block_root,
+                        ?parent_root,
+                        "No lookup created for child and parent envelope"
+                    );
+                }
+            }
+            Err(reason) => {
+                debug!(%block_root, %parent_root, reason, "Ignoring unknown parent envelope request");
             }
         }
     }

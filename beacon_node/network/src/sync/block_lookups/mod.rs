@@ -228,6 +228,47 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
     }
 
+    /// A child block's parent envelope is missing. Create a child lookup (with the block component)
+    /// that waits for the parent envelope, and an envelope-only lookup for the parent.
+    ///
+    /// Returns true if both lookups are created or already exist.
+    #[must_use = "only reference the new lookup if returns true"]
+    pub fn search_child_and_parent_envelope(
+        &mut self,
+        block_root: Hash256,
+        block_component: BlockComponent<T::EthSpec>,
+        parent_root: Hash256,
+        peer_id: PeerId,
+        cx: &mut SyncNetworkContext<T>,
+    ) -> bool {
+        let envelope_lookup_exists =
+            self.search_parent_envelope_of_child(parent_root, &[peer_id], cx);
+        if envelope_lookup_exists {
+            // Create child lookup that waits for the parent envelope (not parent block).
+            // The child block itself is available, so we pass it as a component.
+            let child_created = self.new_current_lookup(
+                block_root,
+                Some(block_component),
+                None, // not awaiting parent block
+                &[],
+                cx,
+            );
+            // Set awaiting_parent_envelope on the child lookup
+            if child_created {
+                if let Some((_, lookup)) = self
+                    .single_block_lookups
+                    .iter_mut()
+                    .find(|(_, l)| l.is_for_block(block_root))
+                {
+                    lookup.set_awaiting_parent_envelope(parent_root);
+                }
+            }
+            child_created
+        } else {
+            false
+        }
+    }
+
     /// Seach a block whose parent root is unknown.
     ///
     /// Returns true if the lookup is created or already exists
@@ -815,7 +856,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             Action::ParentEnvelopeUnknown { parent_root } => {
                 let peers = lookup.all_peers();
                 lookup.set_awaiting_parent_envelope(parent_root);
-                let envelope_lookup_exists = self.search_parent_envelope_of_child(parent_root, &peers, cx);
+                let envelope_lookup_exists =
+                    self.search_parent_envelope_of_child(parent_root, &peers, cx);
                 if envelope_lookup_exists {
                     debug!(
                         id = lookup_id,
