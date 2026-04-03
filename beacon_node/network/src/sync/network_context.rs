@@ -1917,6 +1917,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 "data_columns_by_range",
                 self.data_columns_by_range_requests.len(),
             ),
+            (
+                "payload_envelopes_by_root",
+                self.payload_envelopes_by_root_requests.len(),
+            ),
             ("custody_by_root", self.custody_by_root_requests.len()),
             (
                 "components_by_range",
