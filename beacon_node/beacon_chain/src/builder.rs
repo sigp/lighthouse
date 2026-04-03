@@ -45,7 +45,7 @@ use tree_hash::TreeHash;
 use types::data::CustodyIndex;
 use types::{
     BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList,
-    Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot, StatePayloadStatus,
+    Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -776,7 +776,7 @@ where
             slot_clock.now().ok_or("Unable to read slot")?
         };
 
-        let initial_head_block_root = fork_choice
+        let (initial_head_block_root, head_payload_status) = fork_choice
             .get_head(current_slot, &self.spec)
             .map_err(|e| format!("Unable to get fork choice head: {:?}", e))?;
 
@@ -786,13 +786,12 @@ where
             .map_err(|e| descriptive_db_error("head block", &e))?
             .ok_or("Head block not found in store")?;
 
-        // TODO(gloas): update head loading to load Full block once fork choice works
-        let payload_status = StatePayloadStatus::Pending;
+        let state_payload_status = head_payload_status.as_state_payload_status();
 
         let (_head_state_root, head_state) = store
             .get_advanced_hot_state(
                 head_block_root,
-                payload_status,
+                state_payload_status,
                 current_slot,
                 head_block.state_root(),
             )
@@ -923,7 +922,8 @@ where
 
         let genesis_validators_root = head_snapshot.beacon_state.genesis_validators_root();
         let genesis_time = head_snapshot.beacon_state.genesis_time();
-        let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot));
+        let canonical_head =
+            CanonicalHead::new(fork_choice, Arc::new(head_snapshot), head_payload_status);
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
         let complete_blob_backfill = self.chain_config.complete_blob_backfill;
 
