@@ -45,6 +45,7 @@ use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::{
     BlobRequestState, BlockComponent, BlockRequestState, CustodyRequestState, DownloadResult,
+    EnvelopeRequestState,
 };
 use crate::sync::custody_backfill_sync::CustodyBackFillSync;
 use crate::sync::network_context::{PeerGroup, RpcResponseResult};
@@ -1278,27 +1279,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             .network
             .on_single_envelope_response(id, peer_id, rpc_event)
         {
-            match resp {
-                Ok((envelope, seen_timestamp)) => {
-                    let block_root = envelope.beacon_block_root();
-                    debug!(
-                        ?block_root,
-                        %id,
-                        "Downloaded payload envelope, sending for processing"
-                    );
-                    if let Err(e) = self.network.send_envelope_for_processing(
-                        id.req_id,
-                        envelope,
-                        seen_timestamp,
-                        block_root,
-                    ) {
-                        error!(error = ?e, "Failed to send envelope for processing");
-                    }
-                }
-                Err(e) => {
-                    debug!(error = ?e, %id, "Payload envelope download failed");
-                }
-            }
+            self.block_lookups
+                .on_download_response::<EnvelopeRequestState<T::EthSpec>>(
+                    id,
+                    resp.map(|(value, seen_timestamp)| {
+                        (value, PeerGroup::from_single(peer_id), seen_timestamp)
+                    }),
+                    &mut self.network,
+                )
         }
     }
 
