@@ -392,8 +392,12 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         let head_root = cached_head.head_block_root();
         let head_payload_status = cached_head.head_payload_status();
 
+        if *root == head_root {
+            return Some(head_payload_status == PayloadStatus::Full);
+        }
+
         self.fork_choice_read_lock()
-            .get_canonical_payload_status(root, &head_root, head_payload_status)
+            .get_canonical_payload_status(root, &head_root)
             .map(|status| status == PayloadStatus::Full)
     }
 

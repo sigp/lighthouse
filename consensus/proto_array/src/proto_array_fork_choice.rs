@@ -1038,21 +1038,20 @@ impl ProtoArrayForkChoice {
             .unwrap_or(false)
     }
 
-    /// Returns the canonical payload status of a block by walking backwards from the head.
+    /// Returns the canonical payload status of a block by walking backwards from the head to the
+    /// child of `block_root`.
     ///
-    /// For the head block, returns `head_payload_status` directly. For any ancestor of the
-    /// head, walks backwards until finding the child of `block_root` on the canonical chain
-    /// and returns that child's `parent_payload_status`.
-    ///
-    /// Returns `None` if the block is not an ancestor of head or has already been pruned from fork choice.
+    /// Returns `None` if the block is head, is not an ancestor of head, or has already been pruned
+    /// from fork choice.
     pub fn get_canonical_payload_status(
         &self,
         block_root: &Hash256,
         head_root: &Hash256,
-        head_payload_status: PayloadStatus,
     ) -> Option<PayloadStatus> {
+        // Return `None` because the head root won't have
+        // a child in fork choice to check against.
         if block_root == head_root {
-            return Some(head_payload_status);
+            return None;
         }
 
         let target_index = *self.proto_array.indices.get(block_root)?;

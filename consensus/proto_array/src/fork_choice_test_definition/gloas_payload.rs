@@ -84,25 +84,16 @@ pub fn get_gloas_chain_following_test_definition() -> ForkChoiceTestDefinition {
     ops.push(Operation::AssertCanonicalPayloadStatus {
         block_root: get_root(0),
         head_root: get_root(3),
-        head_payload_status: PayloadStatus::Full,
         expected_status: Some(PayloadStatus::Full),
     });
     ops.push(Operation::AssertCanonicalPayloadStatus {
         block_root: get_root(1),
         head_root: get_root(3),
-        head_payload_status: PayloadStatus::Full,
-        expected_status: Some(PayloadStatus::Full),
-    });
-    ops.push(Operation::AssertCanonicalPayloadStatus {
-        block_root: get_root(3),
-        head_root: get_root(3),
-        head_payload_status: PayloadStatus::Full,
         expected_status: Some(PayloadStatus::Full),
     });
     ops.push(Operation::AssertCanonicalPayloadStatus {
         block_root: get_root(2),
         head_root: get_root(3),
-        head_payload_status: PayloadStatus::Full,
         expected_status: None,
     });
 
@@ -123,19 +114,16 @@ pub fn get_gloas_chain_following_test_definition() -> ForkChoiceTestDefinition {
     ops.push(Operation::AssertCanonicalPayloadStatus {
         block_root: get_root(0),
         head_root: get_root(4),
-        head_payload_status: PayloadStatus::Empty,
         expected_status: Some(PayloadStatus::Empty),
     });
     ops.push(Operation::AssertCanonicalPayloadStatus {
         block_root: get_root(2),
         head_root: get_root(4),
-        head_payload_status: PayloadStatus::Empty,
         expected_status: Some(PayloadStatus::Empty),
     });
     ops.push(Operation::AssertCanonicalPayloadStatus {
         block_root: get_root(1),
         head_root: get_root(4),
-        head_payload_status: PayloadStatus::Empty,
         expected_status: None,
     });
 

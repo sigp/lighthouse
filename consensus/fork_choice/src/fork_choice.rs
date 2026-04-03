@@ -1508,14 +1508,10 @@ where
         &self,
         block_root: &Hash256,
         head_root: &Hash256,
-        head_payload_status: PayloadStatus,
     ) -> Option<PayloadStatus> {
         if self.is_finalized_checkpoint_or_descendant(*block_root) {
-            self.proto_array.get_canonical_payload_status(
-                block_root,
-                head_root,
-                head_payload_status,
-            )
+            self.proto_array
+                .get_canonical_payload_status(block_root, head_root)
         } else {
             None
         }
