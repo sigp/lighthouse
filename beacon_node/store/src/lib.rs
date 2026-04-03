@@ -77,11 +77,7 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     fn compact(&self) -> Result<(), Error> {
         // Compact state and block related columns as they are likely to have the most churn,
         // i.e. entries being created and deleted.
-        for column in [
-            DBColumn::BeaconState,
-            DBColumn::BeaconStateHotSummary,
-            DBColumn::BeaconBlock,
-        ] {
+        for column in [DBColumn::BeaconStateHotSummary, DBColumn::BeaconBlock] {
             self.compact_column(column)?;
         }
         Ok(())

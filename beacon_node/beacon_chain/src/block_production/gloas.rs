@@ -19,7 +19,7 @@ use state_processing::{
 };
 use state_processing::{VerifyOperation, state_advance::complete_state_advance};
 use task_executor::JoinHandle;
-use tracing::{Instrument, Span, debug, debug_span, error, instrument, trace, warn};
+use tracing::{Instrument, debug, debug_span, error, instrument, trace, warn};
 use tree_hash::TreeHash;
 use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::{
@@ -87,15 +87,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // Load the parent state from disk.
         let chain = self.clone();
-        let span = Span::current();
         let (state, state_root_opt) = self
             .task_executor
             .spawn_blocking_handle(
-                move || {
-                    let _guard =
-                        debug_span!(parent: span, "load_state_for_block_production").entered();
-                    chain.load_state_for_block_production(slot)
-                },
+                move || chain.load_state_for_block_production(slot),
                 "load_state_for_block_production",
             )
             .ok_or(BlockProductionError::ShuttingDown)?
@@ -135,13 +130,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .graffiti_calculator
             .get_graffiti(graffiti_settings)
             .await;
-        let span = Span::current();
         let (partial_beacon_block, state) = self
             .task_executor
             .spawn_blocking_handle(
                 move || {
-                    let _guard =
-                        debug_span!(parent: span, "produce_partial_beacon_block_gloas").entered();
                     chain.produce_partial_beacon_block_gloas(
                         state,
                         state_root_opt,
@@ -175,12 +167,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // Complete the block with the execution payload bid.
         let chain = self.clone();
-        let span = Span::current();
         self.task_executor
             .spawn_blocking_handle(
                 move || {
-                    let _guard =
-                        debug_span!(parent: span, "complete_partial_beacon_block_gloas").entered();
                     chain.complete_partial_beacon_block_gloas(
                         partial_beacon_block,
                         execution_payload_bid,
@@ -198,6 +187,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::type_complexity)]
+    #[instrument(skip_all, level = "debug")]
     fn produce_partial_beacon_block_gloas(
         self: &Arc<Self>,
         mut state: BeaconState<T::EthSpec>,
@@ -432,6 +422,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// - `pending_state` is the state post block application (prior to payload application)
     /// - `block_value` is the consensus-layer rewards for `block`
     #[allow(clippy::type_complexity)]
+    #[instrument(skip_all, level = "debug")]
     fn complete_partial_beacon_block_gloas(
         &self,
         partial_beacon_block: PartialBeaconBlock<T::EthSpec>,
@@ -763,8 +754,12 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
     let latest_execution_block_hash = *state.latest_block_hash()?;
     let latest_gas_limit = state.latest_execution_payload_bid()?.gas_limit;
 
-    let withdrawals =
-        Withdrawals::<T::EthSpec>::from(get_expected_withdrawals(state, spec)?).into();
+    let withdrawals = if state.is_parent_block_full() {
+        Withdrawals::<T::EthSpec>::from(get_expected_withdrawals(state, spec)?).into()
+    } else {
+        // If the previous payload was missed, carry forward the withdrawals from the state.
+        state.payload_expected_withdrawals()?.to_vec()
+    };
 
     // Spawn a task to obtain the execution payload from the EL via a series of async calls. The
     // `join_handle` can be used to await the result of the function.

@@ -77,8 +77,10 @@ async fn get_chain_segment() -> (Vec<BeaconSnapshot<E>>, Vec<Option<DataSidecars
             .unwrap();
         let block_epoch = full_block.epoch();
 
+        // TODO(gloas): probably need to update this test
         segment.push(BeaconSnapshot {
             beacon_block_root: snapshot.beacon_block_root,
+            execution_envelope: None,
             beacon_block: Arc::new(full_block),
             beacon_state: snapshot.beacon_state,
         });
