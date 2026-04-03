@@ -109,9 +109,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 self.send_sync_message(SyncMessage::BlockComponentProcessed {
                     process_type,
-                    result: BlockProcessingResult::Err(BlockError::InternalError(format!(
-                        "Envelope verification failed: {e:?}"
-                    ))),
+                    result: BlockProcessingResult::Err(e.into()),
                 });
                 return;
             }
@@ -138,9 +136,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     ?beacon_block_root,
                     "RPC payload envelope processing failed"
                 );
-                BlockProcessingResult::Err(BlockError::InternalError(format!(
-                    "Envelope processing failed: {e:?}"
-                )))
+                BlockProcessingResult::Err(e.into())
             }
         };
 

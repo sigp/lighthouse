@@ -217,6 +217,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 block_root,
                 Some(block_component),
                 Some(parent_root),
+                None,
                 // On a `UnknownParentBlock` or `UnknownParentBlob` event the peer is not required
                 // to have the rest of the block components (refer to decoupled blob gossip). Create
                 // the lookup with zero peers to house the block components.
@@ -246,30 +247,20 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         if envelope_lookup_exists {
             // Create child lookup that waits for the parent envelope (not parent block).
             // The child block itself is available, so we pass it as a component.
-            let child_created = self.new_current_lookup(
+            self.new_current_lookup(
                 block_root,
                 Some(block_component),
                 None, // not awaiting parent block
+                Some(parent_root),
                 &[],
                 cx,
-            );
-            // Set awaiting_parent_envelope on the child lookup
-            if child_created {
-                if let Some((_, lookup)) = self
-                    .single_block_lookups
-                    .iter_mut()
-                    .find(|(_, l)| l.is_for_block(block_root))
-                {
-                    lookup.set_awaiting_parent_envelope(parent_root);
-                }
-            }
-            child_created
+            )
         } else {
             false
         }
     }
 
-    /// Seach a block whose parent root is unknown.
+    /// Search a block whose parent root is unknown.
     ///
     /// Returns true if the lookup is created or already exists
     #[must_use = "only reference the new lookup if returns true"]
@@ -279,7 +270,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         peer_source: &[PeerId],
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
-        self.new_current_lookup(block_root, None, None, peer_source, cx)
+        self.new_current_lookup(block_root, None, None, None, peer_source, cx)
     }
 
     /// A block or blob triggers the search of a parent.
@@ -384,7 +375,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
 
         // `block_root_to_search` is a failed chain check happens inside new_current_lookup
-        self.new_current_lookup(block_root_to_search, None, None, peers, cx)
+        self.new_current_lookup(block_root_to_search, None, None, None, peers, cx)
     }
 
     /// A block triggers the search of a parent envelope.
@@ -447,6 +438,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         block_root: Hash256,
         block_component: Option<BlockComponent<T::EthSpec>>,
         awaiting_parent: Option<Hash256>,
+        awaiting_parent_envelope: Option<Hash256>,
         peers: &[PeerId],
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
@@ -501,6 +493,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         // If we know that this lookup has unknown parent (is awaiting a parent lookup to resolve),
         // signal here to hold processing downloaded data.
         let mut lookup = SingleBlockLookup::new(block_root, peers, cx.next_id(), awaiting_parent);
+        if let Some(parent_root) = awaiting_parent_envelope {
+            lookup.set_awaiting_parent_envelope(parent_root);
+        }
         let _guard = lookup.span.clone().entered();
 
         // Add block components to the new request
@@ -776,6 +771,26 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         // state of both requests. Blobs may have already successfullly processed for example.
                         // We opt to drop the lookup instead.
                         Action::Drop(format!("{e:?}"))
+                    }
+                    BlockError::PayloadEnvelopeError { e, penalize_peer } => {
+                        debug!(
+                            ?block_root,
+                            error = ?e,
+                            "Payload envelope processing error"
+                        );
+                        if penalize_peer {
+                            let peer_group = request_state.on_processing_failure()?;
+                            for peer in peer_group.all() {
+                                cx.report_peer(
+                                    *peer,
+                                    PeerAction::MidToleranceError,
+                                    "lookup_envelope_processing_failure",
+                                );
+                            }
+                            Action::Retry
+                        } else {
+                            Action::Drop(format!("{e:?}"))
+                        }
                     }
                     other => {
                         debug!(

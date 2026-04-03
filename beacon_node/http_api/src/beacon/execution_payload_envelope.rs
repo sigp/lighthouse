@@ -90,7 +90,6 @@ pub(crate) fn post_beacon_execution_payload_envelope<T: BeaconChainTypes>(
         .boxed()
 }
 /// Publishes a signed execution payload envelope to the network.
-/// TODO(gloas): Add gossip verification (BroadcastValidation::Gossip) before import.
 pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     envelope: SignedExecutionPayloadEnvelope<T::EthSpec>,
     chain: Arc<BeaconChain<T>>,
