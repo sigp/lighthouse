@@ -1468,7 +1468,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .proto_array()
             .heads_descended_from_finalization::<T::EthSpec>(fork_choice.finalized_checkpoint())
             .iter()
-            .map(|node| (node.root, node.slot))
+            .map(|node| (node.root(), node.slot()))
             .collect()
     }
 
@@ -2298,6 +2298,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.slot()?,
                 verified.indexed_attestation().to_ref(),
                 AttestationFromBlock::False,
+                &self.spec,
             )
             .map_err(Into::into)
     }
@@ -3934,7 +3935,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let fork_choice_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE);
             match fork_choice.get_head(current_slot, &self.spec) {
                 // This block became the head, add it to the early attester cache.
-                Ok(new_head_root) if new_head_root == block_root => {
+                Ok((new_head_root, _)) if new_head_root == block_root => {
                     if let Some(proto_block) = fork_choice.get_block(&block_root) {
                         let new_head_is_optimistic =
                             proto_block.execution_status.is_optimistic_or_invalid();
@@ -4734,6 +4735,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             })
     }
 
+    // TODO(gloas): wrong for Gloas, needs an update
     pub fn overridden_forkchoice_update_params_or_failure_reason(
         &self,
         canonical_forkchoice_params: &ForkchoiceUpdateParameters,
@@ -4768,7 +4770,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // The slot of our potential re-org block is always 1 greater than the head block because we
         // only attempt single-slot re-orgs.
-        let head_slot = info.head_node.slot;
+        let head_slot = info.head_node.slot();
         let re_org_block_slot = head_slot + 1;
         let fork_choice_slot = info.current_slot;
 
@@ -4803,9 +4805,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .fork_name_at_slot::<T::EthSpec>(re_org_block_slot)
                 .fulu_enabled()
             {
-                info.head_node.current_epoch_shuffling_id
+                info.head_node.current_epoch_shuffling_id()
             } else {
-                info.head_node.next_epoch_shuffling_id
+                info.head_node.next_epoch_shuffling_id()
             }
             .shuffling_decision_block;
             let proposer_index = self
@@ -4831,13 +4833,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(Box::new(DoNotReOrg::NotProposing.into()));
         }
 
-        // If the current slot is already equal to the proposal slot (or we are in the tail end of
-        // the prior slot), then check the actual weight of the head against the head re-org threshold
-        // and the actual weight of the parent against the parent re-org threshold.
+        // TODO(gloas): reorg weight logic needs updating for Gloas. For now use
+        // total weight which is correct for pre-Gloas and conservative for post-Gloas.
+        let head_weight = info.head_node.weight();
+        let parent_weight = info.parent_node.weight();
+
         let (head_weak, parent_strong) = if fork_choice_slot == re_org_block_slot {
             (
-                info.head_node.weight < info.re_org_head_weight_threshold,
-                info.parent_node.weight > info.re_org_parent_weight_threshold,
+                head_weight < info.re_org_head_weight_threshold,
+                parent_weight > info.re_org_parent_weight_threshold,
             )
         } else {
             (true, true)
@@ -4845,7 +4849,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if !head_weak {
             return Err(Box::new(
                 DoNotReOrg::HeadNotWeak {
-                    head_weight: info.head_node.weight,
+                    head_weight,
                     re_org_head_weight_threshold: info.re_org_head_weight_threshold,
                 }
                 .into(),
@@ -4854,7 +4858,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if !parent_strong {
             return Err(Box::new(
                 DoNotReOrg::ParentNotStrong {
-                    parent_weight: info.parent_node.weight,
+                    parent_weight,
                     re_org_parent_weight_threshold: info.re_org_parent_weight_threshold,
                 }
                 .into(),
@@ -4872,9 +4876,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(Box::new(DoNotReOrg::HeadNotLate.into()));
         }
 
-        let parent_head_hash = info.parent_node.execution_status.block_hash();
+        // TODO(gloas): V29 nodes don't carry execution_status, so this returns
+        // None for post-Gloas re-orgs. Need to source the EL block hash from
+        // the bid's block_hash instead. Re-org is disabled for Gloas for now.
+        let parent_head_hash = info
+            .parent_node
+            .execution_status()
+            .ok()
+            .and_then(|execution_status| execution_status.block_hash());
         let forkchoice_update_params = ForkchoiceUpdateParameters {
-            head_root: info.parent_node.root,
+            head_root: info.parent_node.root(),
             head_hash: parent_head_hash,
             justified_hash: canonical_forkchoice_params.justified_hash,
             finalized_hash: canonical_forkchoice_params.finalized_hash,
@@ -4882,7 +4893,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         debug!(
             canonical_head = ?head_block_root,
-            ?info.parent_node.root,
+            parent_root = ?info.parent_node.root(),
             slot = %fork_choice_slot,
             "Fork choice update overridden"
         );
