@@ -322,7 +322,7 @@ pub enum BlockError {
         bid_parent_root: Hash256,
         block_parent_root: Hash256,
     },
-    /// The child block is known but its parent execution payload envelope has not been received yet.
+    /// Th block is known but its parent execution payload envelope has not been received yet.
     ///
     /// ## Peer scoring
     ///
