@@ -671,7 +671,7 @@ pub fn post_validator_prepare_beacon_proposer<T: BeaconChainTypes>(
                         .await;
 
                     // TODO(gloas): verify this is correct. We skip proposer preparation for
-                    // GLOAS because the execution payload is no longer embedded in the beacon
+                    // Gloas because the execution payload is no longer embedded in the beacon
                     // block (it's in the payload envelope), so the head block's
                     // execution_payload() is unavailable.
                     let next_slot = current_slot + 1;

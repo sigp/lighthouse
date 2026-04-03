@@ -228,7 +228,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             })
             .ok()?;
         drop(proposer_head_timer);
-        let re_org_parent_block = proposer_head.parent_node.root;
+        let re_org_parent_block = proposer_head.parent_node.root();
 
         let (state_root, state) = self
             .store
@@ -245,7 +245,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         info!(
             weak_head = ?canonical_head,
             parent = ?re_org_parent_block,
-            head_weight = proposer_head.head_node.weight,
+            head_weight = proposer_head.head_node.weight(),
             threshold_weight = proposer_head.re_org_head_weight_threshold,
             "Attempting re-org due to weak head"
         );

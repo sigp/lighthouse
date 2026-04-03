@@ -23,9 +23,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // Only check blocks that are descendants of the finalized checkpoint.
                     // Pruned non-canonical fork blocks may linger in the proto-array but
                     // are legitimately absent from the database.
-                    fc.is_finalized_checkpoint_or_descendant(node.root)
+                    fc.is_finalized_checkpoint_or_descendant(node.root())
                 })
-                .map(|node| (node.root, node.slot))
+                .map(|node| (node.root(), node.slot()))
                 .collect()
         };
 

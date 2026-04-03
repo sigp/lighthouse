@@ -590,7 +590,10 @@ async fn unaggregated_attestations_added_to_fork_choice_some_none() {
 
         if slot <= num_blocks_produced && slot != 0 {
             assert_eq!(
-                latest_message.unwrap().1,
+                latest_message
+                    .expect("latest message should be present")
+                    .slot
+                    .epoch(MinimalEthSpec::slots_per_epoch()),
                 slot.epoch(MinimalEthSpec::slots_per_epoch()),
                 "Latest message epoch for {} should be equal to epoch {}.",
                 validator,
@@ -700,10 +703,12 @@ async fn unaggregated_attestations_added_to_fork_choice_all_updated() {
     let validator_slots: Vec<(&usize, Slot)> = validators.iter().zip(slots).collect();
 
     for (validator, slot) in validator_slots {
-        let latest_message = fork_choice.latest_message(*validator);
+        let latest_message = fork_choice
+            .latest_message(*validator)
+            .expect("latest message should be present");
 
         assert_eq!(
-            latest_message.unwrap().1,
+            latest_message.slot.epoch(MinimalEthSpec::slots_per_epoch()),
             slot.epoch(MinimalEthSpec::slots_per_epoch()),
             "Latest message slot should be equal to attester duty."
         );
@@ -714,8 +719,7 @@ async fn unaggregated_attestations_added_to_fork_choice_all_updated() {
                 .expect("Should get block root at slot");
 
             assert_eq!(
-                latest_message.unwrap().0,
-                *block_root,
+                latest_message.root, *block_root,
                 "Latest message block root should be equal to block at slot."
             );
         }
