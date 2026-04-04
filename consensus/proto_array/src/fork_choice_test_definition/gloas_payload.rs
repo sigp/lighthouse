@@ -715,6 +715,106 @@ pub fn get_gloas_payload_received_interleaving_test_definition() -> ForkChoiceTe
 }
 
 #[cfg(test)]
+/// Test that execution payload invalidation propagates across the V17→V29 fork boundary.
+///
+///   genesis(V17) -> block_1(V17, slot 31) -> block_2(V29, slot 32)
+///
+/// Invalidate block_1, verify that both block_1 and its V29 descendant block_2 are zeroed.
+fn get_gloas_mixed_invalidation_test_definition() -> ForkChoiceTestDefinition {
+    let balances = vec![1];
+    let mut ops = vec![];
+
+    // V17 block at slot 31 (pre-Gloas).
+    ops.push(Operation::ProcessBlock {
+        slot: Slot::new(31),
+        root: get_root(1),
+        parent_root: get_root(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        execution_payload_parent_hash: None,
+        execution_payload_block_hash: None,
+    });
+
+    // V29 block at slot 32 (first Gloas slot), child of block 1.
+    ops.push(Operation::ProcessBlock {
+        slot: Slot::new(32),
+        root: get_root(2),
+        parent_root: get_root(1),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        execution_payload_parent_hash: Some(get_hash(1)),
+        execution_payload_block_hash: Some(get_hash(2)),
+    });
+
+    // Vote for block 2 (V29) so both blocks have weight.
+    ops.push(Operation::ProcessAttestation {
+        validator_index: 0,
+        block_root: get_root(2),
+        attestation_slot: Slot::new(32),
+    });
+
+    // FindHead triggers apply_score_changes which materializes the vote.
+    ops.push(Operation::FindHead {
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        justified_state_balances: balances.clone(),
+        expected_head: get_root(2),
+        current_slot: Slot::new(32),
+        expected_payload_status: None,
+    });
+
+    // Vote propagates: block_2 has direct weight, block_1 has descendant weight.
+    ops.push(Operation::AssertWeight {
+        block_root: get_root(2),
+        weight: 1,
+    });
+    ops.push(Operation::AssertWeight {
+        block_root: get_root(1),
+        weight: 1,
+    });
+
+    // Invalidate block 1 (V17). Propagation should cross into V29 descendants.
+    ops.push(Operation::InvalidatePayload {
+        head_block_root: get_root(1),
+        latest_valid_ancestor_root: Some(get_hash(0)),
+    });
+
+    // FindHead triggers apply_score_changes which zeroes invalid node weights.
+    ops.push(Operation::FindHead {
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        justified_state_balances: balances.clone(),
+        expected_head: get_root(0),
+        current_slot: Slot::new(32),
+        expected_payload_status: None,
+    });
+
+    // Both V17 block_1 and V29 block_2 should have zero weight after invalidation.
+    ops.push(Operation::AssertWeight {
+        block_root: get_root(1),
+        weight: 0,
+    });
+    ops.push(Operation::AssertWeight {
+        block_root: get_root(2),
+        weight: 0,
+    });
+
+    let mut spec = MainnetEthSpec::default_spec();
+    spec.proposer_score_boost = Some(50);
+    spec.gloas_fork_epoch = Some(Epoch::new(1));
+
+    ForkChoiceTestDefinition {
+        finalized_block_slot: Slot::new(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        operations: ops,
+        execution_payload_parent_hash: None,
+        execution_payload_block_hash: None,
+        spec: Some(spec),
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -889,5 +989,10 @@ mod tests {
     fn payload_received_interleaving() {
         let test = get_gloas_payload_received_interleaving_test_definition();
         test.run();
+    }
+
+    #[test]
+    fn mixed_v17_v29_invalidation() {
+        get_gloas_mixed_invalidation_test_definition().run();
     }
 }
