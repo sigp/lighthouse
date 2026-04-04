@@ -127,9 +127,7 @@ impl<E: EthSpec> StateCache<E> {
     /// Used by checkpoint sync to initialize the finalized state in the state cache.
     ///
     /// Post-gloas the checkpoint state may not be epoch-aligned, e.g when the epoch boundary
-    /// slot is skipped. We relax the epoch-alignment requirement for the initial state only.
-    /// Runtime finalization updates should use [`update_finalized_state`](Self::update_finalized_state),
-    /// which enforces alignment.  
+    /// slot is skipped. Regular finalization updates should use `update_finalized_state`.
     pub fn set_initial_finalized_state(
         &mut self,
         state_root: Hash256,

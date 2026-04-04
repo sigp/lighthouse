@@ -398,7 +398,9 @@ where
     ) -> Result<Self, Error<T::Error>> {
         // Pre-gloas sanity check: the anchor must lie on an epoch boundary.
         // Post-gloas we relax this requirement
-        if !anchor_state.fork_name_unchecked().gloas_enabled() && anchor_state.slot() % E::slots_per_epoch() != 0 {
+        if !anchor_state.fork_name_unchecked().gloas_enabled()
+            && anchor_state.slot() % E::slots_per_epoch() != 0
+        {
             return Err(Error::InvalidAnchor {
                 block_slot: anchor_block.slot(),
                 state_slot: anchor_state.slot(),

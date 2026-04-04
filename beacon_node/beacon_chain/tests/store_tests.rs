@@ -5465,12 +5465,14 @@ fn check_finalization(harness: &TestHarness, expected_slot: u64) {
     );
 }
 
-// Checkpoint sync with a Gloas Pending state at a non-epoch-boundary slot.
+// Verify that post-gloas checkpoint sync accepts a non-epoch aligned state and builds
+// the chain. 
 //
-// Post-Gloas, the finalized state is always the post-block (Pending) state.
-// If the epoch boundary slot is skipped, the checkpoint state will not be
-// epoch-aligned. This test verifies that checkpoint sync accepts such states
-// and builds the chain correctly.
+// Since post-gloas checkpoint sync states are always the post block state, if the epoch boundary
+// slot is skipped, we'll receive a checkpoint state that is not epoch aligned.
+//
+// Example: slot `n` is the epoch boundary slot and is skipped. We'll receive the post block state for 
+// slot `n - 1`. This is the state before the payload for slot `n - 1` was processed.
 #[tokio::test]
 async fn weak_subjectivity_sync_gloas_pending_non_aligned() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
@@ -5480,8 +5482,6 @@ async fn weak_subjectivity_sync_gloas_pending_non_aligned() {
     let spec = test_spec::<E>();
 
     // Build a chain with a skipped slot at the epoch boundary.
-    // For MinimalEthSpec (8 slots/epoch), skip slot 8 so the last block before
-    // the epoch boundary is at slot 7 (not epoch-aligned).
     let epoch_boundary_slot = E::slots_per_epoch();
     let num_initial_slots = E::slots_per_epoch() * 4;
     let checkpoint_slot = Slot::new(epoch_boundary_slot);
@@ -5489,8 +5489,7 @@ async fn weak_subjectivity_sync_gloas_pending_non_aligned() {
     let slots = (1..num_initial_slots)
         .map(Slot::new)
         .filter(|&slot| {
-            // Skip the epoch boundary slot so the checkpoint resolves to the
-            // block at slot epoch_boundary - 1.
+            // Skip the epoch boundary slot
             slot.as_u64() != epoch_boundary_slot
         })
         .collect::<Vec<_>>();
@@ -5510,7 +5509,7 @@ async fn weak_subjectivity_sync_gloas_pending_non_aligned() {
         )
         .await;
 
-    // Extract the checkpoint block and its Pending (post-block) state.
+    // Extract the checkpoint block and its Pending state.
     let wss_block_root = harness
         .chain
         .block_root_at_slot(checkpoint_slot, WhenSlotSkipped::Prev)
@@ -5526,20 +5525,23 @@ async fn weak_subjectivity_sync_gloas_pending_non_aligned() {
     // The block's state_root points to the Pending state in Gloas.
     let wss_state_root = wss_block.state_root();
     let wss_state = full_store
-        .get_state(&wss_state_root, Some(wss_block.slot()), CACHE_STATE_IN_TESTS)
+        .get_state(
+            &wss_state_root,
+            Some(wss_block.slot()),
+            CACHE_STATE_IN_TESTS,
+        )
         .unwrap()
         .unwrap();
 
-    // Verify test preconditions: state is Pending and not epoch-aligned.
     assert_eq!(
         wss_state.payload_status(),
         StatePayloadStatus::Pending,
-        "Checkpoint state should be Pending (post-block, pre-payload)"
+        "Checkpoint state should be Pending"
     );
     assert_ne!(
         wss_state.slot() % E::slots_per_epoch(),
         0,
-        "Test invalid: checkpoint state is epoch-aligned, expected non-aligned"
+        "Checkpoint state is epoch-aligned, expected non-aligned"
     );
 
     let wss_blobs_opt = harness
@@ -5575,12 +5577,7 @@ async fn weak_subjectivity_sync_gloas_pending_non_aligned() {
         .store(store.clone())
         .custom_spec(spec.clone().into())
         .task_executor(harness.chain.task_executor.clone())
-        .weak_subjectivity_state(
-            wss_state,
-            wss_block,
-            wss_blobs_opt,
-            genesis_state,
-        )
+        .weak_subjectivity_state(wss_state, wss_block, wss_blobs_opt, genesis_state)
         .unwrap()
         .store_migrator_config(MigratorConfig::default().blocking())
         .slot_clock(slot_clock)
@@ -5599,7 +5596,7 @@ async fn weak_subjectivity_sync_gloas_pending_non_aligned() {
 
     let chain = beacon_chain.unwrap();
 
-    // The head state should be at the block's slot (not advanced to the epoch boundary).
+    // The head state should be at the block's slot
     assert_eq!(
         chain.head_snapshot().beacon_state.slot(),
         Slot::new(epoch_boundary_slot - 1),
