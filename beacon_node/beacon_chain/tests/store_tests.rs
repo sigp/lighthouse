@@ -5465,6 +5465,153 @@ fn check_finalization(harness: &TestHarness, expected_slot: u64) {
     );
 }
 
+// Checkpoint sync with a Gloas Pending state at a non-epoch-boundary slot.
+//
+// Post-Gloas, the finalized state is always the post-block (Pending) state.
+// If the epoch boundary slot is skipped, the checkpoint state will not be
+// epoch-aligned. This test verifies that checkpoint sync accepts such states
+// and builds the chain correctly.
+#[tokio::test]
+async fn weak_subjectivity_sync_gloas_pending_non_aligned() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let spec = test_spec::<E>();
+
+    // Build a chain with a skipped slot at the epoch boundary.
+    // For MinimalEthSpec (8 slots/epoch), skip slot 8 so the last block before
+    // the epoch boundary is at slot 7 (not epoch-aligned).
+    let epoch_boundary_slot = E::slots_per_epoch();
+    let num_initial_slots = E::slots_per_epoch() * 4;
+    let checkpoint_slot = Slot::new(epoch_boundary_slot);
+
+    let slots = (1..num_initial_slots)
+        .map(Slot::new)
+        .filter(|&slot| {
+            // Skip the epoch boundary slot so the checkpoint resolves to the
+            // block at slot epoch_boundary - 1.
+            slot.as_u64() != epoch_boundary_slot
+        })
+        .collect::<Vec<_>>();
+
+    let temp1 = tempdir().unwrap();
+    let full_store = get_store_generic(&temp1, StoreConfig::default(), spec.clone());
+    let harness = get_harness_import_all_data_columns(full_store.clone(), LOW_VALIDATOR_COUNT);
+    let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
+
+    let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
+    harness
+        .add_attested_blocks_at_slots(
+            genesis_state.clone(),
+            genesis_state_root,
+            &slots,
+            &all_validators,
+        )
+        .await;
+
+    // Extract the checkpoint block and its Pending (post-block) state.
+    let wss_block_root = harness
+        .chain
+        .block_root_at_slot(checkpoint_slot, WhenSlotSkipped::Prev)
+        .unwrap()
+        .unwrap();
+    let wss_block = harness
+        .chain
+        .store
+        .get_full_block(&wss_block_root)
+        .unwrap()
+        .unwrap();
+
+    // The block's state_root points to the Pending state in Gloas.
+    let wss_state_root = wss_block.state_root();
+    let wss_state = full_store
+        .get_state(&wss_state_root, Some(wss_block.slot()), CACHE_STATE_IN_TESTS)
+        .unwrap()
+        .unwrap();
+
+    // Verify test preconditions: state is Pending and not epoch-aligned.
+    assert_eq!(
+        wss_state.payload_status(),
+        StatePayloadStatus::Pending,
+        "Checkpoint state should be Pending (post-block, pre-payload)"
+    );
+    assert_ne!(
+        wss_state.slot() % E::slots_per_epoch(),
+        0,
+        "Test invalid: checkpoint state is epoch-aligned, expected non-aligned"
+    );
+
+    let wss_blobs_opt = harness
+        .chain
+        .get_or_reconstruct_blobs(&wss_block_root)
+        .unwrap();
+
+    // Build a new chain from the non-aligned Pending checkpoint state.
+    let temp2 = tempdir().unwrap();
+    let store = get_store_generic(&temp2, StoreConfig::default(), spec.clone());
+
+    let slot_clock = TestingSlotClock::new(
+        Slot::new(0),
+        Duration::from_secs(harness.chain.genesis_time),
+        spec.get_slot_duration(),
+    );
+    slot_clock.set_slot(harness.get_current_slot().as_u64());
+
+    let chain_config = ChainConfig {
+        archive: true,
+        ..ChainConfig::default()
+    };
+
+    let trusted_setup = get_kzg(&spec);
+    let (shutdown_tx, _shutdown_rx) = futures::channel::mpsc::channel(1);
+    let mock = mock_execution_layer_from_parts(
+        harness.spec.clone(),
+        harness.runtime.task_executor.clone(),
+    );
+
+    let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec, trusted_setup)
+        .chain_config(chain_config)
+        .store(store.clone())
+        .custom_spec(spec.clone().into())
+        .task_executor(harness.chain.task_executor.clone())
+        .weak_subjectivity_state(
+            wss_state,
+            wss_block,
+            wss_blobs_opt,
+            genesis_state,
+        )
+        .unwrap()
+        .store_migrator_config(MigratorConfig::default().blocking())
+        .slot_clock(slot_clock)
+        .shutdown_sender(shutdown_tx)
+        .event_handler(Some(ServerSentEventHandler::new_with_capacity(1)))
+        .execution_layer(Some(mock.el))
+        .ordered_custody_column_indices(generate_data_column_indices_rand_order::<E>())
+        .rng(Box::new(StdRng::seed_from_u64(42)))
+        .build();
+
+    assert!(
+        beacon_chain.is_ok(),
+        "Beacon chain should build from non-aligned Gloas Pending checkpoint state. Error: {:?}",
+        beacon_chain.err()
+    );
+
+    let chain = beacon_chain.unwrap();
+
+    // The head state should be at the block's slot (not advanced to the epoch boundary).
+    assert_eq!(
+        chain.head_snapshot().beacon_state.slot(),
+        Slot::new(epoch_boundary_slot - 1),
+        "Head state should be at the checkpoint block's slot"
+    );
+    assert_eq!(
+        chain.head_snapshot().beacon_state.payload_status(),
+        StatePayloadStatus::Pending,
+        "Head state should be Pending after checkpoint sync"
+    );
+}
+
 // ===================== Gloas Store Tests =====================
 
 /// Test basic Gloas block + envelope storage and retrieval.
