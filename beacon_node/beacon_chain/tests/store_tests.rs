@@ -5466,12 +5466,12 @@ fn check_finalization(harness: &TestHarness, expected_slot: u64) {
 }
 
 // Verify that post-gloas checkpoint sync accepts a non-epoch aligned state and builds
-// the chain. 
+// the chain.
 //
 // Since post-gloas checkpoint sync states are always the post block state, if the epoch boundary
 // slot is skipped, we'll receive a checkpoint state that is not epoch aligned.
 //
-// Example: slot `n` is the epoch boundary slot and is skipped. We'll receive the post block state for 
+// Example: slot `n` is the epoch boundary slot and is skipped. We'll receive the post block state for
 // slot `n - 1`. This is the state before the payload for slot `n - 1` was processed.
 #[tokio::test]
 async fn weak_subjectivity_sync_gloas_pending_non_aligned() {
