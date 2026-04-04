@@ -211,7 +211,7 @@ impl ProtoNode {
             return false;
         }
 
-        node.payload_timeliness_votes.num_set_bits() > E::ptc_size() / 2
+        node.payload_timeliness_votes.num_set_bits() > E::payload_timely_threshold()
     }
 
     pub fn is_payload_data_available<E: EthSpec>(&self) -> bool {
@@ -224,8 +224,8 @@ impl ProtoNode {
             return false;
         }
 
-        // TODO(gloas): add function on EthSpec for DATA_AVAILABILITY_TIMELY_THRESHOLD
-        node.payload_data_availability_votes.num_set_bits() > E::ptc_size() / 2
+        node.payload_data_availability_votes.num_set_bits()
+            > E::data_availability_timely_threshold()
     }
 }
 
