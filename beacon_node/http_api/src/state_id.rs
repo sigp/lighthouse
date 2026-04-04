@@ -45,7 +45,11 @@ impl StateId {
                     checkpoint_slot_and_execution_optimistic(chain, finalized_checkpoint)?;
 
                 // Post-gloas the finalized state must be the post-block state
-                if chain.spec.fork_name_at_slot::<T::EthSpec>(slot).gloas_enabled() {
+                if chain
+                    .spec
+                    .fork_name_at_slot::<T::EthSpec>(slot)
+                    .gloas_enabled()
+                {
                     let state_root = chain
                         .canonical_head
                         .fork_choice_read_lock()
@@ -69,7 +73,11 @@ impl StateId {
                     checkpoint_slot_and_execution_optimistic(chain, justified_checkpoint)?;
 
                 // Post-gloas the justified state must be the post-block state
-                if chain.spec.fork_name_at_slot::<T::EthSpec>(slot).gloas_enabled() {
+                if chain
+                    .spec
+                    .fork_name_at_slot::<T::EthSpec>(slot)
+                    .gloas_enabled()
+                {
                     let state_root = chain
                         .canonical_head
                         .fork_choice_read_lock()
