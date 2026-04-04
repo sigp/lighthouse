@@ -1108,6 +1108,20 @@ impl ProtoArray {
         Ok((best_fc_node.root, best_fc_node.payload_status))
     }
 
+    /// Build parent→children index in O(n). Returns a vec where `result[i]` contains
+    /// the indices of all children of node `i`.
+    fn build_children_index(&self) -> Vec<Vec<usize>> {
+        let mut children = vec![Vec::new(); self.nodes.len()];
+        for (i, node) in self.nodes.iter().enumerate() {
+            if let Some(parent_idx) = node.parent()
+                && parent_idx < children.len()
+            {
+                children[parent_idx].push(i);
+            }
+        }
+        children
+    }
+
     /// Spec: `get_filtered_block_tree`.
     ///
     /// Returns the set of node indices on viable branches — those with at least
@@ -1118,6 +1132,7 @@ impl ProtoArray {
         current_slot: Slot,
         best_justified_checkpoint: Checkpoint,
         best_finalized_checkpoint: Checkpoint,
+        children_index: &[Vec<usize>],
     ) -> HashSet<usize> {
         let mut viable = HashSet::new();
         self.filter_block_tree::<E>(
@@ -1126,71 +1141,66 @@ impl ProtoArray {
             best_justified_checkpoint,
             best_finalized_checkpoint,
             &mut viable,
+            children_index,
         );
         viable
     }
 
     /// Spec: `filter_block_tree`.
+    ///
+    /// Proto_array stores nodes in insertion order — children always have higher
+    /// indices than their parents. A single reverse pass therefore processes every
+    /// child before its parent, matching the spec's recursive post-order semantics
+    /// without recursion (required to survive 500k+ blocks of non-finality).
     fn filter_block_tree<E: EthSpec>(
         &self,
-        node_index: usize,
+        start_index: usize,
         current_slot: Slot,
         best_justified_checkpoint: Checkpoint,
         best_finalized_checkpoint: Checkpoint,
         viable: &mut HashSet<usize>,
-    ) -> bool {
-        let Some(node) = self.nodes.get(node_index) else {
-            return false;
-        };
+        children_index: &[Vec<usize>],
+    ) {
+        for node_index in (start_index..self.nodes.len()).rev() {
+            let Some(node) = self.nodes.get(node_index) else {
+                continue;
+            };
 
-        // Skip invalid children — they aren't in store.blocks in the spec.
-        let children: Vec<usize> = self
-            .nodes
-            .iter()
-            .enumerate()
-            .filter(|(_, child)| {
-                child.parent() == Some(node_index)
-                    && !child
-                        .execution_status()
-                        .is_ok_and(|status| status.is_invalid())
-            })
-            .map(|(i, _)| i)
-            .collect();
-
-        if !children.is_empty() {
-            // Evaluate ALL children (no short-circuit) to mark all viable branches.
-            let any_viable = children
+            // Spec: children = [root for root in blocks if blocks[root].parent_root == block_root]
+            // Skip execution-invalid children (not in store.blocks in the spec).
+            let children = children_index
+                .get(node_index)
+                .map(|c| c.as_slice())
+                .unwrap_or(&[]);
+            let valid_children: Vec<usize> = children
                 .iter()
-                .map(|&child_index| {
-                    self.filter_block_tree::<E>(
-                        child_index,
-                        current_slot,
-                        best_justified_checkpoint,
-                        best_finalized_checkpoint,
-                        viable,
-                    )
+                .copied()
+                .filter(|&i| {
+                    !self.nodes.get(i).is_some_and(|child| {
+                        child
+                            .execution_status()
+                            .is_ok_and(|status| status.is_invalid())
+                    })
                 })
-                .collect::<Vec<_>>()
-                .into_iter()
-                .any(|v| v);
-            if any_viable {
-                viable.insert(node_index);
-                return true;
-            }
-            return false;
-        }
+                .collect();
 
-        // Leaf node: check viability.
-        if self.node_is_viable_for_head::<E>(
-            node,
-            current_slot,
-            best_justified_checkpoint,
-            best_finalized_checkpoint,
-        ) {
-            viable.insert(node_index);
-            return true;
+            if !valid_children.is_empty() {
+                // Spec: if any(children): if any(filter_block_tree_result): blocks[block_root] = block
+                if valid_children.iter().any(|c| viable.contains(c)) {
+                    viable.insert(node_index);
+                }
+            } else {
+                // Spec: leaf — check correct_justified and correct_finalized
+                if self.node_is_viable_for_head::<E>(
+                    node,
+                    current_slot,
+                    best_justified_checkpoint,
+                    best_finalized_checkpoint,
+                ) {
+                    viable.insert(node_index);
+                }
+            }
         }
-        false
     }
 
     /// Spec: `get_head`.
@@ -1211,12 +1221,15 @@ impl ProtoArray {
             payload_status: PayloadStatus::Pending,
         };
 
+        let children_index = self.build_children_index();
+
         // Spec: `get_filtered_block_tree`.
         let viable_nodes = self.get_filtered_block_tree::<E>(
             start_index,
             current_slot,
             best_justified_checkpoint,
             best_finalized_checkpoint,
+            &children_index,
         );
 
         // Compute once rather than per-child per-level.
@@ -1225,7 +1238,7 @@ impl ProtoArray {
 
         loop {
             let children: Vec<_> = self
-                .get_node_children(&head)?
+                .get_node_children(&head, &children_index)?
                 .into_iter()
                 .filter(|(fc_node, _)| viable_nodes.contains(&fc_node.proto_node_index))
                 .collect();
@@ -1384,6 +1397,7 @@ impl ProtoArray {
     fn get_node_children(
         &self,
         node: &IndexedForkChoiceNode,
+        children_index: &[Vec<usize>],
     ) -> Result<Vec<(IndexedForkChoiceNode, ProtoNode)>, Error> {
         if node.payload_status == PayloadStatus::Pending {
             let proto_node = self
@@ -1397,25 +1411,29 @@ impl ProtoArray {
             }
             Ok(children)
         } else {
-            Ok(self
-                .nodes
-                .iter()
-                .enumerate()
-                .filter(|(_, child_node)| {
-                    child_node.parent() == Some(node.proto_node_index)
-                        && child_node.get_parent_payload_status() == node.payload_status
+            Ok(children_index
+                .get(node.proto_node_index)
+                .map(|indices| {
+                    indices
+                        .iter()
+                        .filter_map(|&child_index| {
+                            let child_node = self.nodes.get(child_index)?;
+                            if child_node.get_parent_payload_status() == node.payload_status {
+                                Some((
+                                    IndexedForkChoiceNode {
+                                        root: child_node.root(),
+                                        proto_node_index: child_index,
+                                        payload_status: PayloadStatus::Pending,
+                                    },
+                                    child_node.clone(),
+                                ))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect()
                 })
-                .map(|(child_index, child_node)| {
-                    (
-                        IndexedForkChoiceNode {
-                            root: child_node.root(),
-                            proto_node_index: child_index,
-                            payload_status: PayloadStatus::Pending,
-                        },
-                        child_node.clone(),
-                    )
-                })
-                .collect())
+                .unwrap_or_default())
         }
     }
 

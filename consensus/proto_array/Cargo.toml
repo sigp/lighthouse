@@ -19,3 +19,11 @@ superstruct = { workspace = true }
 typenum = { workspace = true }
 types = { workspace = true }
 yaml_serde = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+fixed_bytes = { workspace = true }
+
+[[bench]]
+name = "find_head"
+harness = false
