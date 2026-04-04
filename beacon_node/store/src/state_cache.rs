@@ -124,6 +124,36 @@ impl<E: EthSpec> StateCache<E> {
         roots
     }
 
+    /// Used by checkpoint sync to initialize the finalized state in the state cache.
+    ///
+    /// Post-gloas the checkpoint state may not be epoch-aligned, e.g when the epoch boundary
+    /// slot is skipped. We relax the epoch-alignment requirement for the initial state only.
+    /// Runtime finalization updates should use [`update_finalized_state`](Self::update_finalized_state),
+    /// which enforces alignment.  
+    pub fn set_initial_finalized_state(
+        &mut self,
+        state_root: Hash256,
+        block_root: Hash256,
+        state: BeaconState<E>,
+        pre_finalized_slots_to_retain: &[Slot],
+    ) -> Result<(), Error> {
+        if self.finalized_state.is_some() {
+            return Err(Error::FinalizedStateAlreadySet);
+        }
+
+        if !state.fork_name_unchecked().gloas_enabled() && state.slot() % E::slots_per_epoch() != 0
+        {
+            return Err(Error::FinalizedStateUnaligned);
+        }
+
+        self.update_finalized_state_inner(
+            state_root,
+            block_root,
+            state,
+            pre_finalized_slots_to_retain,
+        )
+    }
+
     pub fn update_finalized_state(
         &mut self,
         state_root: Hash256,
@@ -135,6 +165,21 @@ impl<E: EthSpec> StateCache<E> {
             return Err(Error::FinalizedStateUnaligned);
         }
 
+        self.update_finalized_state_inner(
+            state_root,
+            block_root,
+            state,
+            pre_finalized_slots_to_retain,
+        )
+    }
+
+    fn update_finalized_state_inner(
+        &mut self,
+        state_root: Hash256,
+        block_root: Hash256,
+        state: BeaconState<E>,
+        pre_finalized_slots_to_retain: &[Slot],
+    ) -> Result<(), Error> {
         if self
             .finalized_state
             .as_ref()

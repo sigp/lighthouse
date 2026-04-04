@@ -474,6 +474,25 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
+    /// See [`StateCache::set_initial_finalized_state`](crate::state_cache::StateCache::set_initial_finalized_state).  
+    pub fn set_initial_finalized_state(
+        &self,
+        state_root: Hash256,
+        block_root: Hash256,
+        state: BeaconState<E>,
+    ) -> Result<(), Error> {
+        let start_slot = self.get_anchor_info().anchor_slot;
+        let pre_finalized_slots_to_retain = self
+            .hierarchy
+            .closest_layer_points(state.slot(), start_slot);
+        self.state_cache.lock().set_initial_finalized_state(
+            state_root,
+            block_root,
+            state,
+            &pre_finalized_slots_to_retain,
+        )
+    }
+
     pub fn update_finalized_state(
         &self,
         state_root: Hash256,
