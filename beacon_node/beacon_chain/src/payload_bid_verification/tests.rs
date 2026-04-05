@@ -12,6 +12,8 @@ use types::{
     SignedExecutionPayloadBid, SignedProposerPreferences, SignedRoot, Slot,
 };
 
+use proto_array::PayloadStatus;
+
 use crate::{
     beacon_fork_choice_store::BeaconForkChoiceStore,
     beacon_snapshot::BeaconSnapshot,
@@ -112,7 +114,8 @@ impl TestContext {
             ForkChoice::from_anchor(fc_store, block_root, &signed_block, &state, None, &spec)
                 .expect("should create fork choice");
 
-        let canonical_head = CanonicalHead::new(fork_choice, Arc::new(snapshot));
+        let canonical_head =
+            CanonicalHead::new(fork_choice, Arc::new(snapshot), PayloadStatus::Pending);
 
         Self {
             canonical_head,

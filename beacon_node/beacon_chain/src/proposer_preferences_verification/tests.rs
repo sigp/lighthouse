@@ -3,6 +3,7 @@ use std::sync::Arc;
 use bls::Signature;
 use fork_choice::ForkChoice;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state};
+use proto_array::PayloadStatus;
 use store::{HotColdDB, StoreConfig};
 use types::{
     Address, BeaconBlock, ChainSpec, Checkpoint, Epoch, EthSpec, ForkName, Hash256, MinimalEthSpec,
@@ -74,7 +75,8 @@ impl TestContext {
             ForkChoice::from_anchor(fc_store, block_root, &signed_block, &state, None, &spec)
                 .expect("should create fork choice");
 
-        let canonical_head = CanonicalHead::new(fork_choice, Arc::new(snapshot));
+        let canonical_head =
+            CanonicalHead::new(fork_choice, Arc::new(snapshot), PayloadStatus::Pending);
 
         Self {
             canonical_head,
