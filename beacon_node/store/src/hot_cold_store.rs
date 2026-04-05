@@ -1899,13 +1899,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok(StatePayloadStatus::Pending);
         }
 
+        // If the latest block was at this slot, the state is definitively `Pending` (post-block,
+        // pre-payload). Check this before loading the previous summary to avoid errors when the
+        // previous state doesn't exist (e.g. checkpoint sync where only one state is stored).
+        if summary.slot == summary.latest_block_slot {
+            return Ok(StatePayloadStatus::Pending);
+        }
+
         // Load the hot state summary for the previous state.
         //
         // If it has the same slot as this summary then we know this summary is for a `Full` state
         // (payload state), because they are always diffed against their same-slot `Pending` state.
-        //
-        // If the previous summary has a different slot AND the latest block is from `summary.slot`,
-        // then this state *must* be `Pending` (it is the summary for latest block itself).
         //
         // Otherwise, we are at a skipped slot and must traverse the graph of state summaries
         // backwards until we reach a summary for the latest block. This recursion could be quite
@@ -1918,8 +1922,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         if previous_state_summary.slot == summary.slot {
             Ok(StatePayloadStatus::Full)
-        } else if summary.slot == summary.latest_block_slot {
-            Ok(StatePayloadStatus::Pending)
         } else {
             self.get_hot_state_summary_payload_status(&previous_state_summary)
         }
