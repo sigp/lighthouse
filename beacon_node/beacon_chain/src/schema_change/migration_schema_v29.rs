@@ -1,7 +1,9 @@
 use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY};
 use crate::persisted_fork_choice::{PersistedForkChoiceV28, PersistedForkChoiceV29};
+use std::collections::HashMap;
 use store::hot_cold_store::HotColdDB;
 use store::{DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
+use tracing::warn;
 use types::EthSpec;
 
 /// Upgrade from schema v28 to v29.
@@ -49,8 +51,49 @@ pub fn upgrade_to_v29<T: BeaconChainTypes>(
         }
     }
 
-    // Convert to v29 and encode.
-    let persisted_v29 = PersistedForkChoiceV29::from(persisted_v28);
+    // Read the previous proposer boost before converting to V29 (V29 no longer stores it).
+    let previous_proposer_boost = persisted_v28
+        .fork_choice_v28
+        .proto_array_v28
+        .previous_proposer_boost;
+
+    // Convert to v29.
+    let mut persisted_v29 = PersistedForkChoiceV29::from(persisted_v28);
+
+    // Subtract the proposer boost from the boosted node and all its ancestors.
+    //
+    // In the V28 schema, `apply_score_changes` baked the proposer boost directly into node
+    // weights and back-propagated it up the parent chain. In V29, the boost is computed
+    // on-the-fly during the virtual tree walk. If we don't subtract the baked-in boost here,
+    // it will be double-counted after the upgrade.
+    if !previous_proposer_boost.root.is_zero() && previous_proposer_boost.score > 0 {
+        let score = previous_proposer_boost.score;
+        let indices: HashMap<_, _> = persisted_v29
+            .fork_choice
+            .proto_array
+            .indices
+            .iter()
+            .cloned()
+            .collect();
+
+        if let Some(node_index) = indices.get(&previous_proposer_boost.root).copied() {
+            let nodes = &mut persisted_v29.fork_choice.proto_array.nodes;
+            let mut current = Some(node_index);
+            while let Some(idx) = current {
+                if let Some(node) = nodes.get_mut(idx) {
+                    *node.weight_mut() = node.weight().saturating_sub(score);
+                    current = node.parent();
+                } else {
+                    break;
+                }
+            }
+        } else {
+            warn!(
+                root = ?previous_proposer_boost.root,
+                "Proposer boost node missing from fork choice"
+            );
+        }
+    }
 
     Ok(vec![
         persisted_v29.as_kv_store_op(FORK_CHOICE_DB_KEY, db.get_config())?,

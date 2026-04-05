@@ -2,8 +2,7 @@ use crate::{
     JustifiedBalances,
     error::Error,
     proto_array::{
-        InvalidationOperation, Iter, NodeDelta, ProposerBoost, ProtoArray, ProtoNode,
-        calculate_committee_fraction,
+        InvalidationOperation, Iter, NodeDelta, ProtoArray, ProtoNode, calculate_committee_fraction,
     },
     ssz_container::SszContainer,
 };
@@ -74,6 +73,7 @@ impl From<VoteTracker> for VoteTrackerV28 {
     }
 }
 
+/// Spec's `LatestMessage` type. Only used in tests.
 pub struct LatestMessage {
     pub slot: Slot,
     pub root: Hash256,
@@ -527,7 +527,6 @@ impl ProtoArrayForkChoice {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
             nodes: Vec::with_capacity(1),
             indices: HashMap::with_capacity(1),
-            previous_proposer_boost: ProposerBoost::default(),
         };
 
         let block = Block {
@@ -569,11 +568,18 @@ impl ProtoArrayForkChoice {
         })
     }
 
-    pub fn on_execution_payload(&mut self, block_root: Hash256) -> Result<(), String> {
+    /// Mark a Gloas payload envelope as valid and received.
+    ///
+    /// This must only be called for valid Gloas payloads.
+    pub fn on_valid_payload_envelope_received(
+        &mut self,
+        block_root: Hash256,
+    ) -> Result<(), String> {
         self.proto_array
-            .on_valid_execution_payload(block_root)
+            .on_valid_payload_envelope_received(block_root)
             .map_err(|e| format!("Failed to process execution payload: {:?}", e))
     }
+
     /// See `ProtoArray::propagate_execution_payload_validation` for documentation.
     pub fn process_execution_payload_validation(
         &mut self,
@@ -880,10 +886,7 @@ impl ProtoArrayForkChoice {
     /// status to be optimistic.
     ///
     /// In practice this means forgetting any `VALID` or `INVALID` statuses.
-    pub fn set_all_blocks_to_optimistic<E: EthSpec>(
-        &mut self,
-        spec: &ChainSpec,
-    ) -> Result<(), String> {
+    pub fn set_all_blocks_to_optimistic<E: EthSpec>(&mut self) -> Result<(), String> {
         // Iterate backwards through all nodes in the `proto_array`. Whilst it's not strictly
         // required to do this process in reverse, it seems natural when we consider how LMD votes
         // are counted.
@@ -906,7 +909,7 @@ impl ProtoArrayForkChoice {
 
                     // Restore the weight of the node, it would have been set to `0` in
                     // `apply_score_changes` when it was invalidated.
-                    let mut restored_weight: u64 = self
+                    let restored_weight: u64 = self
                         .votes
                         .0
                         .iter()
@@ -921,26 +924,6 @@ impl ProtoArrayForkChoice {
                             }
                         })
                         .sum();
-
-                    // If the invalid root was boosted, apply the weight to it and
-                    // ancestors.
-                    if let Some(proposer_score_boost) = spec.proposer_score_boost
-                        && self.proto_array.previous_proposer_boost.root == node.root()
-                    {
-                        // Compute the score based upon the current balances. We can't rely on
-                        // the `previous_proposr_boost.score` since it is set to zero with an
-                        // invalid node.
-                        let proposer_score =
-                            calculate_committee_fraction::<E>(&self.balances, proposer_score_boost)
-                                .ok_or("Failed to compute proposer boost")?;
-                        // Store the score we've applied here so it can be removed in
-                        // a later call to `apply_score_changes`.
-                        self.proto_array.previous_proposer_boost.score = proposer_score;
-                        // Apply this boost to this node.
-                        restored_weight = restored_weight
-                            .checked_add(proposer_score)
-                            .ok_or("Overflow when adding boost to weight")?;
-                    }
 
                     // Add the restored weight to the node and all ancestors.
                     if restored_weight > 0 {
@@ -1082,10 +1065,9 @@ impl ProtoArrayForkChoice {
             .is_finalized_checkpoint_or_descendant::<E>(descendant_root, best_finalized_checkpoint)
     }
 
+    /// NOTE: only used in tests.
     pub fn latest_message(&self, validator_index: usize) -> Option<LatestMessage> {
-        if validator_index < self.votes.0.len() {
-            let vote = &self.votes.0[validator_index];
-
+        if let Some(vote) = self.votes.0.get(validator_index) {
             if *vote == VoteTracker::default() {
                 None
             } else {

@@ -26,6 +26,7 @@ use types::{
 #[derive(Debug)]
 pub enum Error<T> {
     InvalidAttestation(InvalidAttestation),
+    InvalidPayloadAttestation(InvalidPayloadAttestation),
     InvalidAttesterSlashing(AttesterSlashingValidationError),
     InvalidBlock(InvalidBlock),
     ProtoArrayStringError(String),
@@ -82,6 +83,12 @@ pub enum Error<T> {
 impl<T> From<InvalidAttestation> for Error<T> {
     fn from(e: InvalidAttestation) -> Self {
         Error::InvalidAttestation(e)
+    }
+}
+
+impl<T> From<InvalidPayloadAttestation> for Error<T> {
+    fn from(e: InvalidPayloadAttestation) -> Self {
+        Error::InvalidPayloadAttestation(e)
     }
 }
 
@@ -177,13 +184,25 @@ pub enum InvalidAttestation {
     /// Post-Gloas: attestation with index == 1 (payload_present) requires the block's
     /// payload to have been received (`root in store.payload_states`).
     PayloadNotReceived { beacon_block_root: Hash256 },
-    /// A payload attestation votes payload_present for a block in the current slot, which is
-    /// invalid because the payload cannot be known yet.
-    PayloadPresentDuringSameSlot { slot: Slot },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum InvalidPayloadAttestation {
+    /// The payload attestation's attesting indices were empty.
+    EmptyAggregationBitfield,
+    /// The `payload_attestation.data.beacon_block_root` block is unknown.
+    UnknownHeadBlock { beacon_block_root: Hash256 },
+    /// The payload attestation is attesting to a block that is later than itself.
+    AttestsToFutureBlock { block: Slot, attestation: Slot },
     /// A gossip payload attestation must be for the current slot.
     PayloadAttestationNotCurrentSlot {
         attestation_slot: Slot,
         current_slot: Slot,
+    },
+    /// One or more payload attesters are not part of the PTC.
+    PayloadAttestationAttestersNotInPtc {
+        attesting_indices_len: usize,
+        attesting_indices_in_ptc: usize,
     },
 }
 
@@ -654,6 +673,20 @@ where
         }
     }
 
+    /// Mark a Gloas payload envelope as valid and received.
+    ///
+    /// This must only be called for valid Gloas payloads.
+    pub fn on_valid_payload_envelope_received(
+        &mut self,
+        block_root: Hash256,
+    ) -> Result<(), Error<T::Error>> {
+        self.proto_array
+            .on_valid_payload_envelope_received(block_root)
+            .map_err(Error::FailedToProcessValidExecutionPayload)
+    }
+
+    /// Pre-Gloas only.
+    ///
     /// See `ProtoArrayForkChoice::process_execution_payload_validation` for documentation.
     pub fn on_valid_execution_payload(
         &mut self,
@@ -664,6 +697,8 @@ where
             .map_err(Error::FailedToProcessValidExecutionPayload)
     }
 
+    /// Pre-Gloas only.
+    ///
     /// See `ProtoArrayForkChoice::process_execution_payload_invalidation` for documentation.
     pub fn on_invalid_execution_payload(
         &mut self,
@@ -977,12 +1012,6 @@ where
         Ok(())
     }
 
-    pub fn on_execution_payload(&mut self, block_root: Hash256) -> Result<(), Error<T::Error>> {
-        self.proto_array
-            .on_execution_payload(block_root)
-            .map_err(Error::FailedToProcessValidExecutionPayload)
-    }
-
     /// Update checkpoints in store if necessary
     fn update_checkpoints(
         &mut self,
@@ -1158,50 +1187,48 @@ where
         &self,
         indexed_payload_attestation: &IndexedPayloadAttestation<E>,
         is_from_block: AttestationFromBlock,
-    ) -> Result<(), InvalidAttestation> {
+    ) -> Result<(), InvalidPayloadAttestation> {
+        // This check is from `is_valid_indexed_payload_attestation`, but we do it immediately to
+        // avoid wasting time on junk attestations.
         if indexed_payload_attestation.attesting_indices.is_empty() {
-            return Err(InvalidAttestation::EmptyAggregationBitfield);
+            return Err(InvalidPayloadAttestation::EmptyAggregationBitfield);
         }
 
+        // PTC attestation must be for a known block. If block is unknown, delay consideration until
+        // the block is found (responsibility of caller).
         let block = self
             .proto_array
             .get_block(&indexed_payload_attestation.data.beacon_block_root)
-            .ok_or(InvalidAttestation::UnknownHeadBlock {
+            .ok_or(InvalidPayloadAttestation::UnknownHeadBlock {
                 beacon_block_root: indexed_payload_attestation.data.beacon_block_root,
             })?;
 
+        // Not strictly part of the spec, but payload attestations to future slots are MORE INVALID
+        // than payload attestations to blocks at previous slots.
         if block.slot > indexed_payload_attestation.data.slot {
-            return Err(InvalidAttestation::AttestsToFutureBlock {
+            return Err(InvalidPayloadAttestation::AttestsToFutureBlock {
                 block: block.slot,
                 attestation: indexed_payload_attestation.data.slot,
             });
         }
 
-        // Spec: `if data.slot != state.slot: return` — PTC votes can only
-        // change the vote for their assigned beacon block.
+        // PTC votes can only change the vote for their assigned beacon block, return early otherwise
         if block.slot != indexed_payload_attestation.data.slot {
             return Ok(());
         }
 
         // Gossip payload attestations must be for the current slot.
+        // NOTE: signature is assumed to have been verified by caller.
         // https://github.com/ethereum/consensus-specs/blob/master/specs/gloas/fork-choice.md
         if matches!(is_from_block, AttestationFromBlock::False)
             && indexed_payload_attestation.data.slot != self.fc_store.get_current_slot()
         {
-            return Err(InvalidAttestation::PayloadAttestationNotCurrentSlot {
-                attestation_slot: indexed_payload_attestation.data.slot,
-                current_slot: self.fc_store.get_current_slot(),
-            });
-        }
-
-        // A payload attestation voting payload_present for a block in the current slot is
-        // invalid: the payload cannot be known yet. This only applies to gossip attestations;
-        // payload attestations from blocks have already been validated by the block producer.
-        if matches!(is_from_block, AttestationFromBlock::False)
-            && self.fc_store.get_current_slot() == block.slot
-            && indexed_payload_attestation.data.payload_present
-        {
-            return Err(InvalidAttestation::PayloadPresentDuringSameSlot { slot: block.slot });
+            return Err(
+                InvalidPayloadAttestation::PayloadAttestationNotCurrentSlot {
+                    attestation_slot: indexed_payload_attestation.data.slot,
+                    current_slot: self.fc_store.get_current_slot(),
+                },
+            );
         }
 
         Ok(())
@@ -1308,9 +1335,21 @@ where
 
         // Resolve validator indices to PTC committee positions.
         let ptc_indices: Vec<usize> = attestation
-            .attesting_indices_iter()
+            .attesting_indices
+            .iter()
             .filter_map(|vi| ptc.iter().position(|&p| p == *vi as usize))
             .collect();
+
+        // Check that all the attesters are in the PTC
+        if ptc_indices.len() != attestation.attesting_indices.len() {
+            return Err(
+                InvalidPayloadAttestation::PayloadAttestationAttestersNotInPtc {
+                    attesting_indices_len: attestation.attesting_indices.len(),
+                    attesting_indices_in_ptc: ptc_indices.len(),
+                }
+                .into(),
+            );
+        }
 
         for &ptc_index in &ptc_indices {
             self.proto_array.process_payload_attestation(
@@ -1614,7 +1653,6 @@ where
         persisted_proto_array: proto_array::core::SszContainer,
         justified_balances: JustifiedBalances,
         reset_payload_statuses: ResetPayloadStatuses,
-        spec: &ChainSpec,
     ) -> Result<ProtoArrayForkChoice, Error<T::Error>> {
         let mut proto_array = ProtoArrayForkChoice::from_container(
             persisted_proto_array.clone(),
@@ -1639,7 +1677,7 @@ where
 
         // Reset all blocks back to being "optimistic". This helps recover from an EL consensus
         // fault where an invalid payload becomes valid.
-        if let Err(e) = proto_array.set_all_blocks_to_optimistic::<E>(spec) {
+        if let Err(e) = proto_array.set_all_blocks_to_optimistic::<E>() {
             // If there is an error resetting the optimistic status then log loudly and revert
             // back to a proto-array which does not have the reset applied. This indicates a
             // significant error in Lighthouse and warrants detailed investigation.
@@ -1669,7 +1707,6 @@ where
             persisted.proto_array,
             justified_balances,
             reset_payload_statuses,
-            spec,
         )?;
 
         let current_slot = fc_store.get_current_slot();
@@ -1703,7 +1740,7 @@ where
             // get a different result.
             fork_choice
                 .proto_array
-                .set_all_blocks_to_optimistic::<E>(spec)?;
+                .set_all_blocks_to_optimistic::<E>()?;
             // If the second attempt at finding a head fails, return an error since we do not
             // expect this scenario.
             let _ = fork_choice.get_head(current_slot, spec)?;
