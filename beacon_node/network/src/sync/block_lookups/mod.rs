@@ -22,7 +22,9 @@
 
 use self::parent_chain::{NodeChain, compute_parent_chains};
 pub use self::single_block_lookup::DownloadResult;
-use self::single_block_lookup::{LookupRequestError, LookupResult, SingleBlockLookup};
+use self::single_block_lookup::{
+    AwaitingParent, LookupRequestError, LookupResult, SingleBlockLookup,
+};
 use super::manager::{BlockProcessType, BlockProcessingResult, SLOT_IMPORT_TOLERANCE};
 use super::network_context::{PeerGroup, RpcResponseError, SyncNetworkContext};
 use crate::metrics;
@@ -39,7 +41,9 @@ use fnv::FnvHashMap;
 use lighthouse_network::service::api_types::SingleLookupReqId;
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
-pub use single_block_lookup::{BlobRequestState, BlockRequestState, CustodyRequestState};
+pub use single_block_lookup::{
+    BlobRequestState, BlockRequestState, CustodyRequestState, EnvelopeRequestState,
+};
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use std::time::Duration;
@@ -214,7 +218,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             self.new_current_lookup(
                 block_root,
                 Some(block_component),
-                Some(parent_root),
+                Some(AwaitingParent::Block(parent_root)),
                 // On a `UnknownParentBlock` or `UnknownParentBlob` event the peer is not required
                 // to have the rest of the block components (refer to decoupled blob gossip). Create
                 // the lookup with zero peers to house the block components.
@@ -226,7 +230,37 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
     }
 
-    /// Seach a block whose parent root is unknown.
+    /// A child block's parent envelope is missing. Create a child lookup (with the block component)
+    /// that waits for the parent envelope, and an envelope-only lookup for the parent.
+    ///
+    /// Returns true if both lookups are created or already exist.
+    #[must_use = "only reference the new lookup if returns true"]
+    pub fn search_child_and_parent_envelope(
+        &mut self,
+        block_root: Hash256,
+        block_component: BlockComponent<T::EthSpec>,
+        parent_root: Hash256,
+        peer_id: PeerId,
+        cx: &mut SyncNetworkContext<T>,
+    ) -> bool {
+        let envelope_lookup_exists =
+            self.search_parent_envelope_of_child(parent_root, &[peer_id], cx);
+        if envelope_lookup_exists {
+            // Create child lookup that waits for the parent envelope.
+            // The child block itself has already been seen, so we pass it as a component.
+            self.new_current_lookup(
+                block_root,
+                Some(block_component),
+                Some(AwaitingParent::Envelope(parent_root)),
+                &[],
+                cx,
+            )
+        } else {
+            false
+        }
+    }
+
+    /// Search a block whose parent root is unknown.
     ///
     /// Returns true if the lookup is created or already exists
     #[must_use = "only reference the new lookup if returns true"]
@@ -344,6 +378,57 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         self.new_current_lookup(block_root_to_search, None, None, peers, cx)
     }
 
+    /// A block triggers the search of a parent envelope.
+    #[must_use = "only reference the new lookup if returns true"]
+    pub fn search_parent_envelope_of_child(
+        &mut self,
+        parent_root: Hash256,
+        peers: &[PeerId],
+        cx: &mut SyncNetworkContext<T>,
+    ) -> bool {
+        // Check if there's already a lookup for this root (could be a block lookup or envelope
+        // lookup). If so, add peers and let it handle the envelope.
+        if let Some((&lookup_id, _lookup)) = self
+            .single_block_lookups
+            .iter_mut()
+            .find(|(_, lookup)| lookup.is_for_block(parent_root))
+        {
+            if let Err(e) = self.add_peers_to_lookup_and_ancestors(lookup_id, peers, cx) {
+                warn!(error = ?e, "Error adding peers to envelope lookup");
+            }
+            return true;
+        }
+
+        if self.single_block_lookups.len() >= MAX_LOOKUPS {
+            warn!(?parent_root, "Dropping envelope lookup reached max");
+            return false;
+        }
+
+        let lookup = SingleBlockLookup::new_envelope_only(parent_root, peers, cx.next_id());
+        let _guard = lookup.span.clone().entered();
+
+        let id = lookup.id;
+        let lookup = match self.single_block_lookups.entry(id) {
+            Entry::Vacant(entry) => entry.insert(lookup),
+            Entry::Occupied(_) => {
+                warn!(id, "Lookup exists with same id");
+                return false;
+            }
+        };
+
+        debug!(
+            ?peers,
+            ?parent_root,
+            id = lookup.id,
+            "Created envelope-only lookup"
+        );
+        metrics::inc_counter(&metrics::SYNC_LOOKUP_CREATED);
+        self.metrics.created_lookups += 1;
+
+        let result = lookup.continue_requests(cx);
+        self.on_lookup_result(id, result, "new_envelope_lookup", cx)
+    }
+
     /// Searches for a single block hash. If the blocks parent is unknown, a chain of blocks is
     /// constructed.
     /// Returns true if the lookup is created or already exists
@@ -352,7 +437,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         block_root: Hash256,
         block_component: Option<BlockComponent<T::EthSpec>>,
-        awaiting_parent: Option<Hash256>,
+        awaiting_parent: Option<AwaitingParent>,
         peers: &[PeerId],
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
@@ -387,13 +472,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
 
         // Ensure that awaiting parent exists, otherwise this lookup won't be able to make progress
-        if let Some(awaiting_parent) = awaiting_parent
+        if let Some(AwaitingParent::Block(parent_root) | AwaitingParent::Envelope(parent_root)) =
+            awaiting_parent
             && !self
                 .single_block_lookups
                 .iter()
-                .any(|(_, lookup)| lookup.is_for_block(awaiting_parent))
+                .any(|(_, lookup)| lookup.is_for_block(parent_root))
         {
-            warn!(block_root = ?awaiting_parent, "Ignoring child lookup parent lookup not found");
+            warn!(block_root = ?parent_root, "Ignoring child lookup parent lookup not found");
             return false;
         }
 
@@ -427,9 +513,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         debug!(
             ?peers,
             ?block_root,
-            awaiting_parent = awaiting_parent
-                .map(|root| root.to_string())
-                .unwrap_or("none".to_owned()),
+            ?awaiting_parent,
             id = lookup.id,
             "Created block lookup"
         );
@@ -561,17 +645,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 self.on_processing_result_inner::<CustodyRequestState<T::EthSpec>>(id, result, cx)
             }
             BlockProcessType::SinglePayloadEnvelope { id, block_root } => {
-                match result {
-                    BlockProcessingResult::Ok(_) => {
-                        self.continue_envelope_child_lookups(block_root, cx);
-                    }
-                    BlockProcessingResult::Err(e) => {
-                        debug!(%id, error = ?e, "Payload envelope processing failed");
-                        // TODO(EIP-7732): resolve awaiting_envelope on affected lookups so they can retry
-                    }
-                    _ => {}
+                let result = self
+                    .on_processing_result_inner::<EnvelopeRequestState<T::EthSpec>>(id, result, cx);
+                // On successful envelope import, unblock child lookups waiting for this envelope
+                if matches!(&result, Ok(LookupResult::Completed)) {
+                    self.continue_envelope_child_lookups(block_root, cx);
                 }
-                return;
+                result
             }
         };
         self.on_lookup_result(process_type.id(), lookup_result, "processing_result", cx);
@@ -687,6 +767,26 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         // We opt to drop the lookup instead.
                         Action::Drop(format!("{e:?}"))
                     }
+                    BlockError::PayloadEnvelopeError { e, penalize_peer } => {
+                        debug!(
+                            ?block_root,
+                            error = ?e,
+                            "Payload envelope processing error"
+                        );
+                        if penalize_peer {
+                            let peer_group = request_state.on_processing_failure()?;
+                            for peer in peer_group.all() {
+                                cx.report_peer(
+                                    *peer,
+                                    PeerAction::MidToleranceError,
+                                    "lookup_envelope_processing_failure",
+                                );
+                            }
+                            Action::Retry
+                        } else {
+                            Action::Drop(format!("{e:?}"))
+                        }
+                    }
                     other => {
                         debug!(
                             ?block_root,
@@ -721,6 +821,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                                     ResponseType::CustodyColumn => {
                                         "lookup_custody_column_processing_failure"
                                     }
+                                    ResponseType::Envelope => "lookup_envelope_processing_failure",
                                 },
                             );
                         }
@@ -764,22 +865,21 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
             Action::ParentEnvelopeUnknown { parent_root } => {
                 let peers = lookup.all_peers();
-                lookup.set_awaiting_envelope(parent_root);
-                // Pick a peer to request the envelope from
-                let peer_id = peers.first().copied().ok_or_else(|| {
-                    LookupRequestError::Failed("No peers available for envelope request".to_owned())
-                })?;
-                match cx.envelope_lookup_request(lookup_id, peer_id, parent_root) {
-                    Ok(_) => {
-                        debug!(
-                            id = lookup_id,
-                            ?block_root,
-                            ?parent_root,
-                            "Requesting missing parent envelope"
-                        );
-                        Ok(LookupResult::Pending)
-                    }
-                    Err(e) => Err(LookupRequestError::SendFailedNetwork(e)),
+                lookup.set_awaiting_parent_envelope(parent_root);
+                let envelope_lookup_exists =
+                    self.search_parent_envelope_of_child(parent_root, &peers, cx);
+                if envelope_lookup_exists {
+                    debug!(
+                        id = lookup_id,
+                        ?block_root,
+                        ?parent_root,
+                        "Marking lookup as awaiting parent envelope"
+                    );
+                    Ok(LookupResult::Pending)
+                } else {
+                    Err(LookupRequestError::Failed(format!(
+                        "Envelope lookup could not be created for {parent_root:?}"
+                    )))
                 }
             }
             Action::Drop(reason) => {
@@ -831,7 +931,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let mut lookup_results = vec![]; // < need to buffer lookup results to not re-borrow &mut self
 
         for (id, lookup) in self.single_block_lookups.iter_mut() {
-            if lookup.awaiting_parent() == Some(block_root) {
+            if lookup.awaiting_parent_block() == Some(block_root) {
                 lookup.resolve_awaiting_parent();
                 debug!(
                     parent_root = ?block_root,
@@ -858,8 +958,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let mut lookup_results = vec![];
 
         for (id, lookup) in self.single_block_lookups.iter_mut() {
-            if lookup.awaiting_envelope() == Some(block_root) {
-                lookup.resolve_awaiting_envelope();
+            if lookup.awaiting_parent_envelope() == Some(block_root) {
+                lookup.resolve_awaiting_parent();
                 debug!(
                     envelope_root = ?block_root,
                     id,
@@ -891,10 +991,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             metrics::inc_counter_vec(&metrics::SYNC_LOOKUP_DROPPED, &[reason]);
             self.metrics.dropped_lookups += 1;
 
+            let dropped_root = dropped_lookup.block_root();
             let child_lookups = self
                 .single_block_lookups
                 .iter()
-                .filter(|(_, lookup)| lookup.awaiting_parent() == Some(dropped_lookup.block_root()))
+                .filter(|(_, lookup)| {
+                    lookup.awaiting_parent_block() == Some(dropped_root)
+                        || lookup.awaiting_parent_envelope() == Some(dropped_root)
+                })
                 .map(|(id, _)| *id)
                 .collect::<Vec<_>>();
 
@@ -1062,17 +1166,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &'a self,
         lookup: &'a SingleBlockLookup<T>,
     ) -> Result<&'a SingleBlockLookup<T>, String> {
-        if let Some(awaiting_parent) = lookup.awaiting_parent() {
+        if let Some(parent_root) = lookup.awaiting_parent_block() {
             if let Some(lookup) = self
                 .single_block_lookups
                 .values()
-                .find(|l| l.block_root() == awaiting_parent)
+                .find(|l| l.block_root() == parent_root)
             {
                 self.find_oldest_ancestor_lookup(lookup)
             } else {
-                Err(format!(
-                    "Lookup references unknown parent {awaiting_parent:?}"
-                ))
+                Err(format!("Lookup references unknown parent {parent_root:?}"))
             }
         } else {
             Ok(lookup)
@@ -1105,7 +1207,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
         }
 
-        if let Some(parent_root) = lookup.awaiting_parent() {
+        if let Some(parent_root) = lookup.awaiting_parent_block() {
             if let Some((&child_id, _)) = self
                 .single_block_lookups
                 .iter()

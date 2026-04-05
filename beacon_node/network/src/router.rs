@@ -336,7 +336,7 @@ impl<T: BeaconChainTypes> Router<T> {
             // TODO(EIP-7732): implement outgoing payload envelopes by range responses once
             // range sync requests them.
             Response::PayloadEnvelopesByRange(_) => {
-                unreachable!()
+                error!(%peer_id, "Unexpected PayloadEnvelopesByRange response");
             }
             // Light client responses should not be received
             Response::LightClientBootstrap(_)

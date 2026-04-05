@@ -90,7 +90,6 @@ pub(crate) fn post_beacon_execution_payload_envelope<T: BeaconChainTypes>(
         .boxed()
 }
 /// Publishes a signed execution payload envelope to the network.
-/// TODO(gloas): Add gossip verification (BroadcastValidation::Gossip) before import.
 pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     envelope: SignedExecutionPayloadEnvelope<T::EthSpec>,
     chain: Arc<BeaconChain<T>>,
@@ -132,18 +131,21 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     };
 
     let ctx = chain.gossip_verification_context();
-    let Ok(gossip_verifed_envelope) = GossipVerifiedEnvelope::new(signed_envelope, &ctx) else {
-        warn!(%slot, %beacon_block_root, "Execution payload envelope rejected");
-        return Err(warp_utils::reject::custom_bad_request(
-            "execution payload envelope rejected, gossip verification".to_string(),
-        ));
+    let gossip_verified_envelope = match GossipVerifiedEnvelope::new(signed_envelope, &ctx) {
+        Ok(envelope) => envelope,
+        Err(e) => {
+            warn!(%slot, %beacon_block_root, error = ?e, "Execution payload envelope rejected");
+            return Err(warp_utils::reject::custom_bad_request(format!(
+                "execution payload envelope rejected: {e:?}",
+            )));
+        }
     };
 
     // Import the envelope locally (runs state transition and notifies the EL).
     chain
         .process_execution_payload_envelope(
             beacon_block_root,
-            gossip_verifed_envelope,
+            gossip_verified_envelope,
             NotifyExecutionLayer::Yes,
             BlockImportSource::HttpApi,
             publish_fn,

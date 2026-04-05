@@ -16,7 +16,9 @@ use store::Hash256;
 use strum::IntoStaticStr;
 use tracing::{Span, debug_span};
 use types::data::FixedBlobSidecarList;
-use types::{DataColumnSidecarList, EthSpec, SignedBeaconBlock, Slot};
+use types::{
+    DataColumnSidecarList, EthSpec, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
+};
 
 // Dedicated enum for LookupResult to force its usage
 #[must_use = "LookupResult must be handled with on_lookup_result"]
@@ -56,6 +58,14 @@ pub enum LookupRequestError {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AwaitingParent {
+    /// Waiting for the parent block to be imported.
+    Block(Hash256),
+    /// The parent block is imported but its execution payload envelope is missing.
+    Envelope(Hash256),
+}
+
 #[derive(Educe)]
 #[educe(Debug(bound(T: BeaconChainTypes)))]
 pub struct SingleBlockLookup<T: BeaconChainTypes> {
@@ -69,8 +79,7 @@ pub struct SingleBlockLookup<T: BeaconChainTypes> {
     #[educe(Debug(method(fmt_peer_set_as_len)))]
     peers: Arc<RwLock<HashSet<PeerId>>>,
     block_root: Hash256,
-    awaiting_parent: Option<Hash256>,
-    awaiting_envelope: Option<Hash256>,
+    awaiting_parent: Option<AwaitingParent>,
     created: Instant,
     pub(crate) span: Span,
 }
@@ -80,6 +89,7 @@ pub(crate) enum ComponentRequests<E: EthSpec> {
     WaitingForBlock,
     ActiveBlobRequest(BlobRequestState<E>, usize),
     ActiveCustodyRequest(CustodyRequestState<E>),
+    ActiveEnvelopeRequest(EnvelopeRequestState<E>),
     // When printing in debug this state display the reason why it's not needed
     #[allow(dead_code)]
     NotNeeded(&'static str),
@@ -90,7 +100,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         requested_block_root: Hash256,
         peers: &[PeerId],
         id: Id,
-        awaiting_parent: Option<Hash256>,
+        awaiting_parent: Option<AwaitingParent>,
     ) -> Self {
         let lookup_span = debug_span!(
             "lh_single_block_lookup",
@@ -105,16 +115,38 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             peers: Arc::new(RwLock::new(HashSet::from_iter(peers.iter().copied()))),
             block_root: requested_block_root,
             awaiting_parent,
-            awaiting_envelope: None,
             created: Instant::now(),
             span: lookup_span,
         }
     }
 
+    /// Create an envelope-only lookup. The block is already imported, we just need the envelope.
+    pub fn new_envelope_only(block_root: Hash256, peers: &[PeerId], id: Id) -> Self {
+        let mut lookup = Self::new(block_root, peers, id, None);
+        // Block is already imported, mark as completed
+        lookup
+            .block_request_state
+            .state
+            .on_completed_request("block already imported")
+            .expect("block state starts as AwaitingDownload");
+        lookup.component_requests =
+            ComponentRequests::ActiveEnvelopeRequest(EnvelopeRequestState::new(block_root));
+        lookup
+    }
+
     /// Reset the status of all internal requests
     pub fn reset_requests(&mut self) {
         self.block_request_state = BlockRequestState::new(self.block_root);
-        self.component_requests = ComponentRequests::WaitingForBlock;
+        match &self.component_requests {
+            ComponentRequests::ActiveEnvelopeRequest(_) => {
+                self.component_requests = ComponentRequests::ActiveEnvelopeRequest(
+                    EnvelopeRequestState::new(self.block_root),
+                );
+            }
+            _ => {
+                self.component_requests = ComponentRequests::WaitingForBlock;
+            }
+        }
     }
 
     /// Return the slot of this lookup's block if it's currently cached as `AwaitingProcessing`
@@ -130,34 +162,39 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.block_root
     }
 
-    pub fn awaiting_parent(&self) -> Option<Hash256> {
+    pub fn awaiting_parent(&self) -> Option<AwaitingParent> {
         self.awaiting_parent
     }
 
-    /// Mark this lookup as awaiting a parent lookup from being processed. Meanwhile don't send
-    /// components for processing.
+    /// Returns the parent root if awaiting a parent block.
+    pub fn awaiting_parent_block(&self) -> Option<Hash256> {
+        match self.awaiting_parent {
+            Some(AwaitingParent::Block(root)) => Some(root),
+            _ => None,
+        }
+    }
+
+    /// Returns the parent root if awaiting a parent envelope.
+    pub fn awaiting_parent_envelope(&self) -> Option<Hash256> {
+        match self.awaiting_parent {
+            Some(AwaitingParent::Envelope(root)) => Some(root),
+            _ => None,
+        }
+    }
+
+    /// Mark this lookup as awaiting a parent block to be imported before processing.
     pub fn set_awaiting_parent(&mut self, parent_root: Hash256) {
-        self.awaiting_parent = Some(parent_root)
-    }
-
-    /// Mark this lookup as no longer awaiting a parent lookup. Components can be sent for
-    /// processing.
-    pub fn resolve_awaiting_parent(&mut self) {
-        self.awaiting_parent = None;
-    }
-
-    pub fn awaiting_envelope(&self) -> Option<Hash256> {
-        self.awaiting_envelope
+        self.awaiting_parent = Some(AwaitingParent::Block(parent_root));
     }
 
     /// Mark this lookup as awaiting a parent envelope to be imported before processing.
-    pub fn set_awaiting_envelope(&mut self, parent_root: Hash256) {
-        self.awaiting_envelope = Some(parent_root);
+    pub fn set_awaiting_parent_envelope(&mut self, parent_root: Hash256) {
+        self.awaiting_parent = Some(AwaitingParent::Envelope(parent_root));
     }
 
-    /// Mark this lookup as no longer awaiting a parent envelope.
-    pub fn resolve_awaiting_envelope(&mut self) {
-        self.awaiting_envelope = None;
+    /// Mark this lookup as no longer awaiting any parent.
+    pub fn resolve_awaiting_parent(&mut self) {
+        self.awaiting_parent = None;
     }
 
     /// Returns the time elapsed since this lookup was created
@@ -194,6 +231,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 ComponentRequests::WaitingForBlock => false,
                 ComponentRequests::ActiveBlobRequest(request, _) => request.state.is_processed(),
                 ComponentRequests::ActiveCustodyRequest(request) => request.state.is_processed(),
+                ComponentRequests::ActiveEnvelopeRequest(request) => request.state.is_processed(),
                 ComponentRequests::NotNeeded { .. } => true,
             }
     }
@@ -201,7 +239,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     /// Returns true if this request is expecting some event to make progress
     pub fn is_awaiting_event(&self) -> bool {
         self.awaiting_parent.is_some()
-            || self.awaiting_envelope.is_some()
             || self.block_request_state.state.is_awaiting_event()
             || match &self.component_requests {
                 // If components are waiting for the block request to complete, here we should
@@ -212,6 +249,9 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                     request.state.is_awaiting_event()
                 }
                 ComponentRequests::ActiveCustodyRequest(request) => {
+                    request.state.is_awaiting_event()
+                }
+                ComponentRequests::ActiveEnvelopeRequest(request) => {
                     request.state.is_awaiting_event()
                 }
                 ComponentRequests::NotNeeded { .. } => false,
@@ -283,6 +323,9 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             ComponentRequests::ActiveCustodyRequest(_) => {
                 self.continue_request::<CustodyRequestState<T::EthSpec>>(cx, 0)?
             }
+            ComponentRequests::ActiveEnvelopeRequest(_) => {
+                self.continue_request::<EnvelopeRequestState<T::EthSpec>>(cx, 0)?
+            }
             ComponentRequests::NotNeeded { .. } => {} // do nothing
         }
 
@@ -304,7 +347,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         expected_blobs: usize,
     ) -> Result<(), LookupRequestError> {
         let id = self.id;
-        let awaiting_event = self.awaiting_parent.is_some() || self.awaiting_envelope.is_some();
+        let awaiting_event = self.awaiting_parent.is_some();
         let request =
             R::request_state_mut(self).map_err(|e| LookupRequestError::BadState(e.to_owned()))?;
 
@@ -439,6 +482,26 @@ impl<E: EthSpec> BlockRequestState<E> {
     pub fn new(block_root: Hash256) -> Self {
         Self {
             requested_block_root: block_root,
+            state: SingleLookupRequestState::new(),
+        }
+    }
+}
+
+/// The state of the envelope request component of a `SingleBlockLookup`.
+/// Used for envelope-only lookups where the parent block is already imported
+/// but its execution payload envelope is missing.
+#[derive(Educe)]
+#[educe(Debug)]
+pub struct EnvelopeRequestState<E: EthSpec> {
+    #[educe(Debug(ignore))]
+    pub block_root: Hash256,
+    pub state: SingleLookupRequestState<Arc<SignedExecutionPayloadEnvelope<E>>>,
+}
+
+impl<E: EthSpec> EnvelopeRequestState<E> {
+    pub fn new(block_root: Hash256) -> Self {
+        Self {
+            block_root,
             state: SingleLookupRequestState::new(),
         }
     }
