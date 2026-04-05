@@ -474,7 +474,7 @@ where
         };
 
         // Ensure that `fork_choice.forkchoice_update_parameters.head_root` is updated.
-        let _ = fork_choice.get_head(current_slot, spec)?;
+        fork_choice.get_head(current_slot, spec)?;
 
         Ok(fork_choice)
     }
@@ -1743,7 +1743,7 @@ where
                 .set_all_blocks_to_optimistic::<E>()?;
             // If the second attempt at finding a head fails, return an error since we do not
             // expect this scenario.
-            let _ = fork_choice.get_head(current_slot, spec)?;
+            fork_choice.get_head(current_slot, spec)?;
         }
 
         Ok(fork_choice)
