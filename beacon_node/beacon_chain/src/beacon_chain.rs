@@ -4657,30 +4657,31 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         proposal_slot: Slot,
     ) -> Result<Withdrawals<T::EthSpec>, Error> {
         let cached_head = self.canonical_head.cached_head();
+        let head_payload_status = cached_head.head_payload_status().as_state_payload_status();
         let head_state = &cached_head.snapshot.beacon_state;
 
         let parent_block_root = forkchoice_update_params.head_root;
 
-        let (unadvanced_state, unadvanced_state_root) =
-            if cached_head.head_block_root() == parent_block_root {
-                (Cow::Borrowed(head_state), cached_head.head_state_root())
-            } else {
-                // TODO(gloas): this function needs updating to be envelope-aware
-                // See: https://github.com/sigp/lighthouse/issues/8957
-                let block = self
-                    .get_blinded_block(&parent_block_root)?
-                    .ok_or(Error::MissingBeaconBlock(parent_block_root))?;
-                let (state_root, state) = self
-                    .store
-                    .get_advanced_hot_state(
-                        parent_block_root,
-                        StatePayloadStatus::Pending,
-                        proposal_slot,
-                        block.state_root(),
-                    )?
-                    .ok_or(Error::MissingBeaconState(block.state_root()))?;
-                (Cow::Owned(state), state_root)
-            };
+        let (unadvanced_state, unadvanced_state_root) = if cached_head.head_block_root()
+            == parent_block_root
+            && head_state.payload_status() == head_payload_status
+        {
+            (Cow::Borrowed(head_state), cached_head.head_state_root())
+        } else {
+            let block = self
+                .get_blinded_block(&parent_block_root)?
+                .ok_or(Error::MissingBeaconBlock(parent_block_root))?;
+            let (state_root, state) = self
+                .store
+                .get_advanced_hot_state(
+                    parent_block_root,
+                    head_payload_status,
+                    proposal_slot,
+                    block.state_root(),
+                )?
+                .ok_or(Error::MissingBeaconState(block.state_root()))?;
+            (Cow::Owned(state), state_root)
+        };
 
         // Parent state epoch is the same as the proposal, we don't need to advance because the
         // list of expected withdrawals can only change after an epoch advance or a
@@ -5916,13 +5917,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         fcu_params.head_root,
                         &cached_head,
                     )?;
-                    Ok::<_, Error>(Some((fcu_params, pre_payload_attributes)))
+                    let head_payload_status =
+                        cached_head.head_payload_status().as_state_payload_status();
+                    Ok::<_, Error>(Some((
+                        fcu_params,
+                        pre_payload_attributes,
+                        head_payload_status,
+                    )))
                 },
                 "prepare_beacon_proposer_head_read",
             )
             .await??;
 
-        let Some((forkchoice_update_params, Some(pre_payload_attributes))) = maybe_prep_data else {
+        let Some((forkchoice_update_params, Some(pre_payload_attributes), head_payload_status)) =
+            maybe_prep_data
+        else {
             // Appropriate log messages have already been logged above and in
             // `get_pre_payload_attributes`.
             return Ok(None);
@@ -5944,7 +5953,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // considerable time to compute if a state load is required.
         let head_root = forkchoice_update_params.head_root;
         let payload_attributes = if let Some(payload_attributes) = execution_layer
-            .payload_attributes(prepare_slot, head_root)
+            .payload_attributes(prepare_slot, head_root, head_payload_status)
             .await
         {
             payload_attributes
@@ -5984,6 +5993,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .insert_proposer(
                     prepare_slot,
                     head_root,
+                    head_payload_status,
                     proposer,
                     payload_attributes.clone(),
                 )
@@ -5995,6 +6005,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 %prepare_slot,
                 validator = proposer,
                 parent_root = ?head_root,
+                payload_status = ?head_payload_status,
                 "Prepared beacon proposer"
             );
             payload_attributes
@@ -6112,6 +6123,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return Ok(());
             };
 
+        let head_payload_status = self
+            .canonical_head
+            .cached_head()
+            .head_payload_status()
+            .as_state_payload_status();
+
         let forkchoice_updated_response = execution_layer
             .notify_forkchoice_updated(
                 head_hash,
@@ -6119,6 +6136,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 finalized_hash,
                 current_slot,
                 head_block_root,
+                head_payload_status,
             )
             .await
             .map_err(Error::ExecutionForkChoiceUpdateFailed);

@@ -49,7 +49,7 @@ use types::execution::BlockProductionVersion;
 use types::kzg_ext::KzgCommitments;
 use types::{
     AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequests, KzgProofs,
-    SignedBlindedBeaconBlock,
+    SignedBlindedBeaconBlock, StatePayloadStatus,
 };
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
@@ -403,6 +403,7 @@ impl ProposerPreparationDataEntry {
 pub struct ProposerKey {
     slot: Slot,
     head_block_root: Hash256,
+    head_payload_status: StatePayloadStatus,
 }
 
 #[derive(PartialEq, Clone)]
@@ -1461,12 +1462,14 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         slot: Slot,
         head_block_root: Hash256,
+        head_payload_status: StatePayloadStatus,
         validator_index: u64,
         payload_attributes: PayloadAttributes,
     ) -> bool {
         let proposers_key = ProposerKey {
             slot,
             head_block_root,
+            head_payload_status,
         };
 
         let existing = self.proposers().write().await.insert(
@@ -1491,10 +1494,12 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         current_slot: Slot,
         head_block_root: Hash256,
+        head_payload_status: StatePayloadStatus,
     ) -> Option<PayloadAttributes> {
         let proposers_key = ProposerKey {
             slot: current_slot,
             head_block_root,
+            head_payload_status,
         };
 
         let proposer = self.proposers().read().await.get(&proposers_key).cloned()?;
@@ -1518,6 +1523,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         finalized_block_hash: ExecutionBlockHash,
         current_slot: Slot,
         head_block_root: Hash256,
+        head_payload_status: StatePayloadStatus,
     ) -> Result<PayloadStatus, Error> {
         let _timer = metrics::start_timer_vec(
             &metrics::EXECUTION_LAYER_REQUEST_TIMES,
@@ -1534,7 +1540,9 @@ impl<E: EthSpec> ExecutionLayer<E> {
         );
 
         let next_slot = current_slot + 1;
-        let payload_attributes = self.payload_attributes(next_slot, head_block_root).await;
+        let payload_attributes = self
+            .payload_attributes(next_slot, head_block_root, head_payload_status)
+            .await;
 
         // Compute the "lookahead", the time between when the payload will be produced and now.
         if let Some(ref payload_attributes) = payload_attributes
