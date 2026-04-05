@@ -101,6 +101,7 @@ pub enum Error {
         from_state_slot: Slot,
         target_slot: Slot,
     },
+    FinalizedStateAlreadySet,
 }
 
 pub trait HandleUnavailable<T> {

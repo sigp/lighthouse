@@ -42,7 +42,7 @@ use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
-use types::SignedExecutionPayloadEnvelope;
+use types::StatePayloadStatus;
 use types::data::CustodyIndex;
 use types::{
     BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList,
@@ -427,7 +427,6 @@ where
         mut weak_subj_state: BeaconState<E>,
         weak_subj_block: SignedBeaconBlock<E>,
         weak_subj_blobs: Option<BlobSidecarList<E>>,
-        weak_subj_payload: Option<SignedExecutionPayloadEnvelope<E>>,
         genesis_state: BeaconState<E>,
     ) -> Result<Self, String> {
         let store = self
@@ -435,9 +434,15 @@ where
             .clone()
             .ok_or("weak_subjectivity_state requires a store")?;
 
-        // Ensure the state is advanced to an epoch boundary.
+        // Pre-gloas ensure the state is advanced to an epoch boundary.
+        // Post-gloas checkpoint states are always pending (post-block) and cannot
+        // be advanced across epoch boundaries without first checking for a payload
+        // envelope.
         let slots_per_epoch = E::slots_per_epoch();
-        if weak_subj_state.slot() % slots_per_epoch != 0 {
+
+        if !weak_subj_state.fork_name_unchecked().gloas_enabled()
+            && weak_subj_state.slot() % slots_per_epoch != 0
+        {
             debug!(
                 state_slot = %weak_subj_state.slot(),
                 block_slot = %weak_subj_block.slot(),
@@ -570,7 +575,7 @@ where
         // Write the state, block and blobs non-atomically, it doesn't matter if they're forgotten
         // about on a crash restart.
         store
-            .update_finalized_state(
+            .set_initial_finalized_state(
                 weak_subj_state_root,
                 weak_subj_block_root,
                 weak_subj_state.clone(),
@@ -603,13 +608,6 @@ where
                     .map_err(|e| format!("Failed to store weak subjectivity blobs: {e:?}"))?;
             }
         }
-        if let Some(ref envelope) = weak_subj_payload {
-            store
-                .put_payload_envelope(&weak_subj_block_root, envelope.clone())
-                .map_err(|e| {
-                    format!("Failed to store weak subjectivity payload envelope: {e:?}")
-                })?;
-        }
 
         // Stage the database's metadata fields for atomic storage when `build` is called.
         // This prevents the database from restarting in an inconsistent state if the anchor
@@ -626,25 +624,18 @@ where
                 .map_err(|e| format!("Failed to initialize data column info: {:?}", e))?,
         );
 
-        if self
-            .spec
-            .fork_name_at_slot::<E>(weak_subj_slot)
-            .gloas_enabled()
+        if weak_subj_state.fork_name_unchecked().gloas_enabled()
+            && weak_subj_state.payload_status() != StatePayloadStatus::Pending
         {
-            let envelope = weak_subj_payload.as_ref().ok_or_else(|| {
-                "Gloas checkpoint sync requires an execution payload envelope".to_string()
-            })?;
-            if envelope.message.beacon_block_root != weak_subj_block_root {
-                return Err(format!(
-                    "Envelope beacon_block_root {:?} does not match block root {:?}",
-                    envelope.message.beacon_block_root, weak_subj_block_root
-                ));
-            }
+            return Err(format!(
+                "Checkpoint sync state must be Pending (post-block) for Gloas, got {:?}",
+                weak_subj_state.payload_status()
+            ));
         }
-        // TODO(gloas): add check that checkpoint state is Pending
+
         let snapshot = BeaconSnapshot {
             beacon_block_root: weak_subj_block_root,
-            execution_envelope: weak_subj_payload.map(Arc::new),
+            execution_envelope: None,
             beacon_block: Arc::new(weak_subj_block),
             beacon_state: weak_subj_state,
         };

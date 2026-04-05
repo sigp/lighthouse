@@ -172,11 +172,13 @@ where
         let mut anchor_state = anchor.beacon_state;
         let mut anchor_block_header = anchor_state.latest_block_header().clone();
 
-        // The anchor state MUST be on an epoch boundary (it should be advanced by the caller).
-        if !anchor_state
-            .slot()
-            .as_u64()
-            .is_multiple_of(E::slots_per_epoch())
+        // Pre-gloas the anchor state MUST be on an epoch boundary (it should be advanced by the caller).
+        // Post-gloas this requirement is relaxed.
+        if !anchor_state.fork_name_unchecked().gloas_enabled()
+            && !anchor_state
+                .slot()
+                .as_u64()
+                .is_multiple_of(E::slots_per_epoch())
         {
             return Err(Error::UnalignedCheckpoint {
                 block_slot: anchor_block_header.slot,

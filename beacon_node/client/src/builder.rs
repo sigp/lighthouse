@@ -372,7 +372,6 @@ where
                     anchor_state,
                     anchor_block,
                     anchor_blobs,
-                    None,
                     genesis_state,
                 )?
             }
@@ -446,21 +445,6 @@ where
                     None
                 };
 
-                let envelope = if spec
-                    .fork_name_at_slot::<E>(finalized_block_slot)
-                    .gloas_enabled()
-                {
-                    debug!("Downloading payload");
-                    remote
-                        .get_beacon_execution_payload_envelope(BlockId::Slot(finalized_block_slot))
-                        .await
-                        .map_err(|e| format!("Error fetching finalized blobs from remote: {e:?}"))?
-                        .map(|resp| resp.into_data())
-                } else {
-                    None
-                };
-                debug!("Downloaded finalized payload");
-
                 let genesis_state = genesis_state(&runtime_context, &config).await?;
 
                 info!(
@@ -470,7 +454,7 @@ where
                     "Loaded checkpoint block and state"
                 );
 
-                builder.weak_subjectivity_state(state, block, blobs, envelope, genesis_state)?
+                builder.weak_subjectivity_state(state, block, blobs, genesis_state)?
             }
             ClientGenesis::DepositContract => {
                 return Err("Loading genesis from deposit contract no longer supported".to_string());
