@@ -282,8 +282,11 @@ impl<E: EthSpec> PendingComponents<E> {
                 .flatten()
                 .map(|blob| blob.seen_timestamp())
                 .max(),
-            // TODO(das): To be fixed with https://github.com/sigp/lighthouse/pull/6850
-            AvailableBlockData::DataColumns(_) => None,
+            AvailableBlockData::DataColumns(_) => self
+                .verified_data_columns
+                .iter()
+                .map(|data_column| data_column.seen_timestamp())
+                .max(),
         };
 
         let AvailabilityPendingExecutedBlock {

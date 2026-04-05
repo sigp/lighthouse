@@ -11,7 +11,7 @@ use bls::AggregateSignature;
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::{
     AttestationFromBlock, ForkChoiceStore, InvalidAttestation, InvalidBlock,
-    PayloadVerificationStatus, QueuedAttestation,
+    InvalidPayloadAttestation, PayloadVerificationStatus, QueuedAttestation,
 };
 use state_processing::state_advance::complete_state_advance;
 use std::fmt;
@@ -73,9 +73,9 @@ impl ForkChoiceTest {
         Self { harness }
     }
 
-    /// Creates a new tester with the GLOAS fork active at epoch 1.
+    /// Creates a new tester with the Gloas fork active at epoch 1.
     /// Genesis is a standard Fulu block (epoch 0), so block production works normally.
-    /// Tests that need GLOAS semantics should advance the chain into epoch 1 first.
+    /// Tests that need Gloas semantics should advance the chain into epoch 1 first.
     /// Get a value from the `ForkChoice` instantiation.
     fn get<T, U>(&self, func: T) -> U
     where
@@ -969,8 +969,8 @@ async fn non_block_payload_attestation_for_previous_slot_is_rejected() {
     assert!(
         matches!(
             result,
-            Err(ForkChoiceError::InvalidAttestation(
-                InvalidAttestation::PayloadAttestationNotCurrentSlot { .. }
+            Err(ForkChoiceError::InvalidPayloadAttestation(
+                InvalidPayloadAttestation::PayloadAttestationNotCurrentSlot { .. }
             ))
         ),
         "gossip payload attestation for previous slot should be rejected, got: {:?}",

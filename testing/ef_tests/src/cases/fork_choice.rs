@@ -1018,7 +1018,7 @@ impl<E: EthSpec> Tester<E> {
             .chain
             .canonical_head
             .fork_choice_write_lock()
-            .on_execution_payload(block_root);
+            .on_valid_payload_envelope_received(block_root);
 
         if valid {
             result.map_err(|e| {

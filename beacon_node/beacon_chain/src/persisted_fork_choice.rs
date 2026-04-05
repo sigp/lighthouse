@@ -22,26 +22,37 @@ pub struct PersistedForkChoice {
     pub fork_choice_store: PersistedForkChoiceStoreV28,
 }
 
-macro_rules! impl_store_item {
-    ($type:ty) => {
-        impl store::StoreItem for $type {
-            fn db_column() -> DBColumn {
-                DBColumn::ForkChoice
-            }
+impl PersistedForkChoiceV28 {
+    pub fn from_bytes(bytes: &[u8], store_config: &StoreConfig) -> Result<Self, Error> {
+        let decompressed_bytes = store_config
+            .decompress_bytes(bytes)
+            .map_err(Error::Compression)?;
+        Self::from_ssz_bytes(&decompressed_bytes).map_err(Into::into)
+    }
 
-            fn as_store_bytes(&self) -> Vec<u8> {
-                self.as_ssz_bytes()
-            }
+    pub fn as_bytes(&self, store_config: &StoreConfig) -> Result<Vec<u8>, Error> {
+        let encode_timer = metrics::start_timer(&metrics::FORK_CHOICE_ENCODE_TIMES);
+        let ssz_bytes = self.as_ssz_bytes();
+        drop(encode_timer);
 
-            fn from_store_bytes(bytes: &[u8]) -> std::result::Result<Self, Error> {
-                Self::from_ssz_bytes(bytes).map_err(Into::into)
-            }
-        }
-    };
+        let _compress_timer = metrics::start_timer(&metrics::FORK_CHOICE_COMPRESS_TIMES);
+        store_config
+            .compress_bytes(&ssz_bytes)
+            .map_err(Error::Compression)
+    }
+
+    pub fn as_kv_store_op(
+        &self,
+        key: Hash256,
+        store_config: &StoreConfig,
+    ) -> Result<KeyValueStoreOp, Error> {
+        Ok(KeyValueStoreOp::PutKeyValue(
+            DBColumn::ForkChoice,
+            key.as_slice().to_vec(),
+            self.as_bytes(store_config)?,
+        ))
+    }
 }
-
-impl_store_item!(PersistedForkChoiceV28);
-impl_store_item!(PersistedForkChoiceV29);
 
 impl PersistedForkChoiceV29 {
     pub fn from_bytes(bytes: &[u8], store_config: &StoreConfig) -> Result<Self, Error> {
@@ -80,6 +91,15 @@ impl From<PersistedForkChoiceV28> for PersistedForkChoiceV29 {
         Self {
             fork_choice: v28.fork_choice_v28.into(),
             fork_choice_store: v28.fork_choice_store,
+        }
+    }
+}
+
+impl From<PersistedForkChoiceV29> for PersistedForkChoiceV28 {
+    fn from(v29: PersistedForkChoiceV29) -> Self {
+        Self {
+            fork_choice_v28: v29.fork_choice.into(),
+            fork_choice_store: v29.fork_choice_store,
         }
     }
 }

@@ -1002,9 +1002,26 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn envelope_lookup_request(
         &mut self,
         lookup_id: SingleLookupId,
-        peer_id: PeerId,
+        lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
         block_root: Hash256,
-    ) -> Result<Id, RpcRequestSendError> {
+    ) -> Result<LookupRequestResult, RpcRequestSendError> {
+        let active_request_count_by_peer = self.active_request_count_by_peer();
+        let Some(peer_id) = lookup_peers
+            .read()
+            .iter()
+            .map(|peer| {
+                (
+                    active_request_count_by_peer.get(peer).copied().unwrap_or(0),
+                    rand::random::<u32>(),
+                    peer,
+                )
+            })
+            .min()
+            .map(|(_, _, peer)| *peer)
+        else {
+            return Ok(LookupRequestResult::Pending("no peers"));
+        };
+
         let id = SingleLookupReqId {
             lookup_id,
             req_id: self.next_id(),
@@ -1046,7 +1063,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             request_span,
         );
 
-        Ok(id.req_id)
+        Ok(LookupRequestResult::RequestSent(id.req_id))
     }
 
     /// Request necessary blobs for `block_root`. Requests only the necessary blobs by checking:
@@ -2014,6 +2031,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             (
                 "data_columns_by_range",
                 self.data_columns_by_range_requests.len(),
+            ),
+            (
+                "payload_envelopes_by_root",
+                self.payload_envelopes_by_root_requests.len(),
             ),
             (
                 "payload_envelopes_by_range",

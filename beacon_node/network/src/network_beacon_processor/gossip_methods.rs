@@ -1393,7 +1393,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             // EnvelopeError is unreachable. Only constructed during range sync envelope processing.
             Err(e @ BlockError::InternalError(_))
             | Err(e @ BlockError::BlobNotRequired(_))
-            | Err(e @ BlockError::EnvelopeError(_)) => {
+            | Err(e @ BlockError::EnvelopeError(_))
+            | Err(e @ BlockError::PayloadEnvelopeError { .. }) => {
                 error!(error = %e, "Internal block gossip validation error");
                 return None;
             }

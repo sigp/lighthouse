@@ -1,12 +1,10 @@
-use crate::beacon_chain::BeaconChainTypes;
+use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY};
 use crate::persisted_fork_choice::{PersistedForkChoiceV28, PersistedForkChoiceV29};
-use ssz::Decode;
+use std::collections::HashMap;
 use store::hot_cold_store::HotColdDB;
 use store::{DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
-use types::{EthSpec, Hash256};
-
-/// The key used to store the fork choice in the database.
-const FORK_CHOICE_DB_KEY: Hash256 = Hash256::ZERO;
+use tracing::warn;
+use types::EthSpec;
 
 /// Upgrade from schema v28 to v29.
 ///
@@ -14,24 +12,25 @@ const FORK_CHOICE_DB_KEY: Hash256 = Hash256::ZERO;
 ///   virtual tree walk).
 /// - Fails if the persisted fork choice contains any V17 (pre-Gloas) proto
 ///   nodes at or after the Gloas fork slot.
+///
+/// Returns a list of store ops to be applied atomically with the schema version write.
 pub fn upgrade_to_v29<T: BeaconChainTypes>(
     db: &HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>,
-) -> Result<(), StoreError> {
+) -> Result<Vec<KeyValueStoreOp>, StoreError> {
     let gloas_fork_slot = db
         .spec
         .gloas_fork_epoch
         .map(|epoch| epoch.start_slot(T::EthSpec::slots_per_epoch()));
 
-    // Load the persisted fork choice (v28 format, uncompressed SSZ).
+    // Load the persisted fork choice (v28 format).
     let Some(fc_bytes) = db
         .hot_db
         .get_bytes(DBColumn::ForkChoice, FORK_CHOICE_DB_KEY.as_slice())?
     else {
-        return Ok(());
+        return Ok(vec![]);
     };
 
-    let mut persisted_v28 =
-        PersistedForkChoiceV28::from_ssz_bytes(&fc_bytes).map_err(StoreError::SszDecodeError)?;
+    let persisted_v28 = PersistedForkChoiceV28::from_bytes(&fc_bytes, db.get_config())?;
 
     // Check for V17 nodes at/after the Gloas fork slot.
     if let Some(gloas_fork_slot) = gloas_fork_slot {
@@ -52,39 +51,71 @@ pub fn upgrade_to_v29<T: BeaconChainTypes>(
         }
     }
 
-    // Clear best_child/best_descendant — replaced by the virtual tree walk.
-    for node in &mut persisted_v28.fork_choice_v28.proto_array_v28.nodes {
-        node.best_child = None;
-        node.best_descendant = None;
+    // Read the previous proposer boost before converting to V29 (V29 no longer stores it).
+    let previous_proposer_boost = persisted_v28
+        .fork_choice_v28
+        .proto_array_v28
+        .previous_proposer_boost;
+
+    // Convert to v29.
+    let mut persisted_v29 = PersistedForkChoiceV29::from(persisted_v28);
+
+    // Subtract the proposer boost from the boosted node and all its ancestors.
+    //
+    // In the V28 schema, `apply_score_changes` baked the proposer boost directly into node
+    // weights and back-propagated it up the parent chain. In V29, the boost is computed
+    // on-the-fly during the virtual tree walk. If we don't subtract the baked-in boost here,
+    // it will be double-counted after the upgrade.
+    if !previous_proposer_boost.root.is_zero() && previous_proposer_boost.score > 0 {
+        let score = previous_proposer_boost.score;
+        let indices: HashMap<_, _> = persisted_v29
+            .fork_choice
+            .proto_array
+            .indices
+            .iter()
+            .cloned()
+            .collect();
+
+        if let Some(node_index) = indices.get(&previous_proposer_boost.root).copied() {
+            let nodes = &mut persisted_v29.fork_choice.proto_array.nodes;
+            let mut current = Some(node_index);
+            while let Some(idx) = current {
+                if let Some(node) = nodes.get_mut(idx) {
+                    *node.weight_mut() = node.weight().saturating_sub(score);
+                    current = node.parent();
+                } else {
+                    break;
+                }
+            }
+        } else {
+            warn!(
+                root = ?previous_proposer_boost.root,
+                "Proposer boost node missing from fork choice"
+            );
+        }
     }
 
-    // Convert to v29 and write back.
-    let persisted_v29 = PersistedForkChoiceV29::from(persisted_v28);
-    let fc_bytes = persisted_v29
-        .as_bytes(db.get_config())
-        .map_err(|e| StoreError::MigrationError(format!("failed to encode v29: {:?}", e)))?;
-    db.hot_db.do_atomically(vec![KeyValueStoreOp::PutKeyValue(
-        DBColumn::ForkChoice,
-        FORK_CHOICE_DB_KEY.as_slice().to_vec(),
-        fc_bytes,
-    )])?;
-
-    Ok(())
+    Ok(vec![
+        persisted_v29.as_kv_store_op(FORK_CHOICE_DB_KEY, db.get_config())?,
+    ])
 }
 
-/// Downgrade from schema v29 to v28 (no-op).
+/// Downgrade from schema v29 to v28.
 ///
+/// Converts the persisted fork choice from V29 format back to V28.
 /// Fails if the persisted fork choice contains any V29 proto nodes, as these contain
 /// payload-specific fields that cannot be losslessly converted back to V17 format.
+///
+/// Returns a list of store ops to be applied atomically with the schema version write.
 pub fn downgrade_from_v29<T: BeaconChainTypes>(
     db: &HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>,
-) -> Result<(), StoreError> {
+) -> Result<Vec<KeyValueStoreOp>, StoreError> {
     // Load the persisted fork choice (v29 format, compressed).
     let Some(fc_bytes) = db
         .hot_db
         .get_bytes(DBColumn::ForkChoice, FORK_CHOICE_DB_KEY.as_slice())?
     else {
-        return Ok(());
+        return Ok(vec![]);
     };
 
     let persisted_v29 =
@@ -111,5 +142,10 @@ pub fn downgrade_from_v29<T: BeaconChainTypes>(
         ));
     }
 
-    Ok(())
+    // Convert to v28 and encode.
+    let persisted_v28 = PersistedForkChoiceV28::from(persisted_v29);
+
+    Ok(vec![
+        persisted_v28.as_kv_store_op(FORK_CHOICE_DB_KEY, db.get_config())?,
+    ])
 }

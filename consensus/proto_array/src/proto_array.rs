@@ -117,10 +117,10 @@ pub struct ProtoNode {
     pub finalized_checkpoint: Checkpoint,
     #[superstruct(getter(copy))]
     pub weight: u64,
-    #[superstruct(getter(copy))]
+    #[superstruct(only(V17), partial_getter(copy))]
     #[ssz(with = "four_byte_option_usize")]
     pub best_child: Option<usize>,
-    #[superstruct(getter(copy))]
+    #[superstruct(only(V17), partial_getter(copy))]
     #[ssz(with = "four_byte_option_usize")]
     pub best_descendant: Option<usize>,
     /// Indicates if an execution node has marked this block as valid. Also contains the execution
@@ -143,6 +143,8 @@ pub struct ProtoNode {
     pub full_payload_weight: u64,
     #[superstruct(only(V29), partial_getter(copy))]
     pub execution_payload_block_hash: ExecutionBlockHash,
+    #[superstruct(only(V29), partial_getter(copy))]
+    pub execution_payload_parent_hash: ExecutionBlockHash,
     /// Equivalent to spec's `block_timeliness[root][ATTESTATION_TIMELINESS_INDEX]`.
     #[superstruct(only(V29), partial_getter(copy))]
     pub block_timeliness_attestation_threshold: bool,
@@ -163,8 +165,6 @@ pub struct ProtoNode {
     pub payload_data_availability_votes: BitVector<U512>,
     /// Whether the execution payload for this block has been received and validated locally.
     /// Maps to `root in store.payload_states` in the spec.
-    /// When true, `is_payload_timely` and `is_payload_data_available` return true
-    /// regardless of PTC vote counts.
     #[superstruct(only(V29), partial_getter(copy))]
     pub payload_received: bool,
     /// The proposer index for this block, used by `should_apply_proposer_boost`
@@ -181,7 +181,6 @@ pub struct ProtoNode {
 impl ProtoNode {
     /// Generic version of spec's `parent_payload_status` that works for pre-Gloas nodes by
     /// considering their parents Empty.
-    /// Pre-Gloas nodes have no ePBS, default to Empty.
     pub fn get_parent_payload_status(&self) -> PayloadStatus {
         self.parent_payload_status().unwrap_or(PayloadStatus::Empty)
     }
@@ -212,7 +211,7 @@ impl ProtoNode {
             return false;
         }
 
-        node.payload_timeliness_votes.num_set_bits() > E::ptc_size() / 2
+        node.payload_timeliness_votes.num_set_bits() > E::payload_timely_threshold()
     }
 
     pub fn is_payload_data_available<E: EthSpec>(&self) -> bool {
@@ -225,8 +224,8 @@ impl ProtoNode {
             return false;
         }
 
-        // TODO(gloas): add function on EthSpec for DATA_AVAILABILITY_TIMELY_THRESHOLD
-        node.payload_data_availability_votes.num_set_bits() > E::ptc_size() / 2
+        node.payload_data_availability_votes.num_set_bits()
+            > E::data_availability_timely_threshold()
     }
 }
 
@@ -368,7 +367,6 @@ pub struct ProtoArray {
     pub prune_threshold: usize,
     pub nodes: Vec<ProtoNode>,
     pub indices: HashMap<Hash256, usize>,
-    pub previous_proposer_boost: ProposerBoost,
 }
 
 impl ProtoArray {
@@ -491,19 +489,13 @@ impl ProtoArray {
                             .ok_or(Error::DeltaOverflow(parent_index))?;
                     }
                 } else {
-                    // V17 child of a V29 parent (fork transition): treat as FULL
-                    // since V17 nodes always have execution payloads inline.
-                    parent_delta.full_delta = parent_delta
-                        .full_delta
-                        .checked_add(delta)
-                        .ok_or(Error::DeltaOverflow(parent_index))?;
+                    // This is a v17 node with a v17 parent.
+                    // There is no empty or full weight for v17 nodes, so nothing to propagate.
+                    // In the tree walk, the v17 nodes have an empty child with 0 weight, which
+                    // wins by default (it is the only child).
                 }
             }
         }
-
-        // Proposer boost is now applied on-the-fly in `get_weight` during the
-        // walk, so clear any stale boost from a prior call.
-        self.previous_proposer_boost = ProposerBoost::default();
 
         Ok(())
     }
@@ -570,31 +562,31 @@ impl ProtoArray {
                         block_root: block.root,
                     })?;
 
-            let parent_payload_status: PayloadStatus = if let Some(parent_node) =
-                parent_index.and_then(|idx| self.nodes.get(idx))
-            {
-                // Get the parent's execution block hash, handling both V17 and V29 nodes.
-                // V17 parents occur during the Gloas fork transition.
-                // TODO(gloas): the spec's `get_parent_payload_status` assumes all blocks are
-                // post-Gloas with bids. Revisit once the spec clarifies fork-transition behavior.
-                let parent_el_block_hash = match parent_node {
-                    ProtoNode::V29(v29) => Some(v29.execution_payload_block_hash),
-                    ProtoNode::V17(v17) => v17.execution_status.block_hash(),
-                };
-                // Per spec's `is_parent_node_full`: if the child's EL parent hash
-                // matches the parent's EL block hash, the child extends the parent's
-                // payload chain, meaning the parent was Full.
-                if parent_el_block_hash.is_some_and(|hash| execution_payload_parent_hash == hash) {
-                    PayloadStatus::Full
+            let parent_payload_status: PayloadStatus =
+                if let Some(parent_node) = parent_index.and_then(|idx| self.nodes.get(idx)) {
+                    match parent_node {
+                        ProtoNode::V29(v29) => {
+                            // Both parent and child are Gloas blocks. The parent is full if the
+                            // block hash in the parent node matches the parent block hash in the
+                            // child bid.
+                            if execution_payload_parent_hash == v29.execution_payload_block_hash {
+                                PayloadStatus::Full
+                            } else {
+                                PayloadStatus::Empty
+                            }
+                        }
+                        ProtoNode::V17(_) => {
+                            // Parent is pre-Gloas, pre-Gloas blocks are treated as having Empty
+                            // payload status. This case is reached during the fork transition.
+                            PayloadStatus::Empty
+                        }
+                    }
                 } else {
-                    PayloadStatus::Empty
-                }
-            } else {
-                // Parent is missing (genesis or pruned due to finalization). Default to Full
-                // since this path should only be hit at Gloas genesis, and extending the payload
-                // chain is the safe default.
-                PayloadStatus::Full
-            };
+                    // TODO(gloas): re-assess this assumption
+                    // Parent is missing (genesis or pruned due to finalization). Default to Full
+                    // since this path should only be hit at Gloas genesis.
+                    PayloadStatus::Full
+                };
 
             // Per spec `get_forkchoice_store`: the anchor (genesis) block has
             // its payload state initialized (`payload_states = {anchor_root: ...}`).
@@ -614,14 +606,13 @@ impl ProtoArray {
                 justified_checkpoint: block.justified_checkpoint,
                 finalized_checkpoint: block.finalized_checkpoint,
                 weight: 0,
-                best_child: None,
-                best_descendant: None,
                 unrealized_justified_checkpoint: block.unrealized_justified_checkpoint,
                 unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint,
                 parent_payload_status,
                 empty_payload_weight: 0,
                 full_payload_weight: 0,
                 execution_payload_block_hash,
+                execution_payload_parent_hash,
                 // Per spec `get_forkchoice_store`: the anchor block's PTC votes are
                 // initialized to all-True, ensuring `is_payload_timely` and
                 // `is_payload_data_available` return true for the anchor.
@@ -641,11 +632,9 @@ impl ProtoArray {
                 // Anchor gets [True, True]. Others computed from time_into_slot.
                 block_timeliness_attestation_threshold: is_genesis
                     || (is_current_slot
-                        && time_into_slot < spec.get_unaggregated_attestation_due()),
-                // TODO(gloas): use GLOAS-specific PTC due threshold once
-                // `get_payload_attestation_due_ms` is on ChainSpec.
+                        && time_into_slot < spec.get_attestation_due::<E>(current_slot)),
                 block_timeliness_ptc_threshold: is_genesis
-                    || (is_current_slot && time_into_slot < spec.get_slot_duration() / 2),
+                    || (is_current_slot && time_into_slot < spec.get_payload_attestation_due()),
                 equivocating_attestation_score: 0,
             })
         };
@@ -682,11 +671,17 @@ impl ProtoArray {
     }
 
     /// Spec: `is_head_weak`.
-    ///
-    /// The spec adds weight from equivocating validators in the head slot's
-    /// committees. We approximate this with `equivocating_attestation_score`
-    /// which tracks equivocating validators that voted for this block (close
-    /// but not identical to committee membership).
+    // TODO(gloas): the spec adds weight from equivocating validators in the
+    // head slot's *committees*, regardless of who they voted for. We approximate
+    // with `equivocating_attestation_score` which only tracks equivocating
+    // validators whose vote pointed at this block. This under-counts when an
+    // equivocating validator is in the committee but voted for a different fork,
+    // which could allow a re-org the spec wouldn't. In practice the deviation
+    // is small — it requires equivocating validators voting for competing forks
+    // AND the head weight to be exactly at the reorg threshold boundary.
+    // Fixing this properly requires committee computation from BeaconState,
+    // which is not available in proto_array. The fix would be to pass
+    // pre-computed equivocating committee weight from the beacon_chain caller.
     fn is_head_weak<E: EthSpec>(
         &self,
         head_node: &ProtoNode,
@@ -729,7 +724,6 @@ impl ProtoArray {
             .nodes
             .get(block_index)
             .ok_or(Error::InvalidNodeIndex(block_index))?;
-        // TODO(gloas): handle parent unknown case?
         let parent_index = block
             .parent()
             .ok_or(Error::NodeUnknown(proposer_boost_root))?;
@@ -753,7 +747,6 @@ impl ProtoArray {
         // the parent's slot from the same proposer.
         let parent_slot = parent.slot();
         let parent_root = parent.root();
-        // TODO(gloas): handle proposer index for pre-Gloas blocks?
         let parent_proposer = parent.proposer_index();
 
         let has_equivocation = self.nodes.iter().any(|node| {
@@ -773,12 +766,10 @@ impl ProtoArray {
         Ok(!has_equivocation)
     }
 
-    /// Process an execution payload for a Gloas block.
+    /// Process a valid execution payload envelope for a Gloas block.
     ///
-    /// Sets `payload_received` to true, which makes `is_payload_timely` and
-    /// `is_payload_data_available` return true regardless of PTC votes.
-    /// This maps to `store.payload_states[root] = state` in the spec.
-    pub fn on_valid_execution_payload(&mut self, block_root: Hash256) -> Result<(), Error> {
+    /// Sets `payload_received` to true.
+    pub fn on_valid_payload_envelope_received(&mut self, block_root: Hash256) -> Result<(), Error> {
         let index = *self
             .indices
             .get(&block_root)
@@ -813,6 +804,8 @@ impl ProtoArray {
     }
 
     /// Updates the `verified_node_index` and all ancestors to have validated execution payloads.
+    ///
+    /// This function is a no-op if called for a Gloas block.
     ///
     /// Returns an error if:
     ///
@@ -857,18 +850,10 @@ impl ProtoArray {
                         });
                     }
                 },
-                // Gloas nodes don't carry `ExecutionStatus`. Mark the validated
-                // block as payload-received so that `is_payload_timely` /
-                // `is_payload_data_available` and `index == 1` attestations work.
-                ProtoNode::V29(node) => {
-                    if index == verified_node_index {
-                        node.payload_received = true;
-                    }
-                    if let Some(parent_index) = node.parent {
-                        parent_index
-                    } else {
-                        return Ok(());
-                    }
+                // Gloas nodes should not be marked valid by this function, which exists only
+                // for pre-Gloas fork choice.
+                ProtoNode::V29(_) => {
+                    return Ok(());
                 }
             };
 
@@ -879,6 +864,7 @@ impl ProtoArray {
     /// Invalidate zero or more blocks, as specified by the `InvalidationOperation`.
     ///
     /// See the documentation of `InvalidationOperation` for usage.
+    // TODO(gloas): this needs some tests for the mixed Gloas/pre-Gloas case.
     pub fn propagate_execution_payload_invalidation<E: EthSpec>(
         &mut self,
         op: &InvalidationOperation,
@@ -978,7 +964,7 @@ impl ProtoArray {
                     // This block is pre-merge, therefore it has no execution status. Nor do its
                     // ancestors.
                     Ok(ExecutionStatus::Irrelevant(_)) => break,
-                    Err(_) => (),
+                    Err(_) => break,
                 }
             }
 
@@ -1087,9 +1073,6 @@ impl ProtoArray {
             });
         }
 
-        // In the post-Gloas world, always use a virtual tree walk.
-        //
-        // Best child/best descendant is dead.
         let best_fc_node = self.find_head_walk::<E>(
             justified_index,
             current_slot,
@@ -1125,26 +1108,6 @@ impl ProtoArray {
         Ok((best_fc_node.root, best_fc_node.payload_status))
     }
 
-    /// Build a parent->children index. Invalid nodes are excluded
-    /// (they aren't in store.blocks in the spec).
-    fn build_children_index(&self) -> Vec<Vec<usize>> {
-        let mut children = vec![vec![]; self.nodes.len()];
-        for (i, node) in self.nodes.iter().enumerate() {
-            if node
-                .execution_status()
-                .is_ok_and(|status| status.is_invalid())
-            {
-                continue;
-            }
-            if let Some(parent) = node.parent()
-                && parent < children.len()
-            {
-                children[parent].push(i);
-            }
-        }
-        children
-    }
-
     /// Spec: `get_filtered_block_tree`.
     ///
     /// Returns the set of node indices on viable branches — those with at least
@@ -1155,7 +1118,6 @@ impl ProtoArray {
         current_slot: Slot,
         best_justified_checkpoint: Checkpoint,
         best_finalized_checkpoint: Checkpoint,
-        children_index: &[Vec<usize>],
     ) -> HashSet<usize> {
         let mut viable = HashSet::new();
         self.filter_block_tree::<E>(
@@ -1163,7 +1125,6 @@ impl ProtoArray {
             current_slot,
             best_justified_checkpoint,
             best_finalized_checkpoint,
-            children_index,
             &mut viable,
         );
         viable
@@ -1176,17 +1137,25 @@ impl ProtoArray {
         current_slot: Slot,
         best_justified_checkpoint: Checkpoint,
         best_finalized_checkpoint: Checkpoint,
-        children_index: &[Vec<usize>],
         viable: &mut HashSet<usize>,
     ) -> bool {
         let Some(node) = self.nodes.get(node_index) else {
             return false;
         };
 
-        let children = children_index
-            .get(node_index)
-            .map(|c| c.as_slice())
-            .unwrap_or(&[]);
+        // Skip invalid children — they aren't in store.blocks in the spec.
+        let children: Vec<usize> = self
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, child)| {
+                child.parent() == Some(node_index)
+                    && !child
+                        .execution_status()
+                        .is_ok_and(|status| status.is_invalid())
+            })
+            .map(|(i, _)| i)
+            .collect();
 
         if !children.is_empty() {
             // Evaluate ALL children (no short-circuit) to mark all viable branches.
@@ -1198,7 +1167,6 @@ impl ProtoArray {
                         current_slot,
                         best_justified_checkpoint,
                         best_finalized_checkpoint,
-                        children_index,
                         viable,
                     )
                 })
@@ -1243,16 +1211,12 @@ impl ProtoArray {
             payload_status: PayloadStatus::Pending,
         };
 
-        // Build parent->children index once for O(1) lookups.
-        let children_index = self.build_children_index();
-
         // Spec: `get_filtered_block_tree`.
         let viable_nodes = self.get_filtered_block_tree::<E>(
             start_index,
             current_slot,
             best_justified_checkpoint,
             best_finalized_checkpoint,
-            &children_index,
         );
 
         // Compute once rather than per-child per-level.
@@ -1261,7 +1225,7 @@ impl ProtoArray {
 
         loop {
             let children: Vec<_> = self
-                .get_node_children(&head, &children_index)?
+                .get_node_children(&head)?
                 .into_iter()
                 .filter(|(fc_node, _)| viable_nodes.contains(&fc_node.proto_node_index))
                 .collect();
@@ -1272,11 +1236,7 @@ impl ProtoArray {
 
             head = children
                 .into_iter()
-                .map(|(child, _)| -> Result<_, Error> {
-                    let proto_node = self
-                        .nodes
-                        .get(child.proto_node_index)
-                        .ok_or(Error::InvalidNodeIndex(child.proto_node_index))?;
+                .map(|(child, ref proto_node)| -> Result<_, Error> {
                     let weight = self.get_weight::<E>(
                         &child,
                         proto_node,
@@ -1424,76 +1384,36 @@ impl ProtoArray {
     fn get_node_children(
         &self,
         node: &IndexedForkChoiceNode,
-        children_index: &[Vec<usize>],
     ) -> Result<Vec<(IndexedForkChoiceNode, ProtoNode)>, Error> {
         if node.payload_status == PayloadStatus::Pending {
             let proto_node = self
                 .nodes
                 .get(node.proto_node_index)
                 .ok_or(Error::InvalidNodeIndex(node.proto_node_index))?;
-
-            // V17 (pre-GLOAS) nodes don't have payload_received or parent_payload_status.
-            // Skip the virtual Empty/Full split and return real children directly.
-            if proto_node.as_v17().is_ok() {
-                let child_indices = children_index
-                    .get(node.proto_node_index)
-                    .map(|c| c.as_slice())
-                    .unwrap_or(&[]);
-                return Ok(child_indices
-                    .iter()
-                    .filter_map(|&child_index| {
-                        let child_node = self.nodes.get(child_index)?;
-                        Some((
-                            IndexedForkChoiceNode {
-                                root: child_node.root(),
-                                proto_node_index: child_index,
-                                payload_status: PayloadStatus::Pending,
-                            },
-                            child_node.clone(),
-                        ))
-                    })
-                    .collect());
+            let mut children = vec![(node.with_status(PayloadStatus::Empty), proto_node.clone())];
+            // The FULL virtual child only exists if the payload has been received.
+            if proto_node.payload_received().is_ok_and(|received| received) {
+                children.push((node.with_status(PayloadStatus::Full), proto_node.clone()));
             }
-
-            // TODO(gloas) this is the actual change we want to keep once PTC is implemented
-            // let mut children = vec![(node.with_status(PayloadStatus::Empty), proto_node.clone())];
-            // // The FULL virtual child only exists if the payload has been received.
-            // if proto_node.payload_received().is_ok_and(|received| received) {
-            //     children.push((node.with_status(PayloadStatus::Full), proto_node.clone()));
-            // }
-
-            // TODO(gloas) remove this and uncomment the code above once we implement PTC
-            // Skip Empty/Full split: go straight to Full when payload received,
-            // giving full payload weight 100% without PTC votes.
-            let children = if proto_node.payload_received().is_ok_and(|received| received) {
-                vec![(node.with_status(PayloadStatus::Full), proto_node.clone())]
-            } else {
-                vec![(node.with_status(PayloadStatus::Empty), proto_node.clone())]
-            };
-            // TODO(gloas) delete up to here
-
             Ok(children)
         } else {
-            let child_indices = children_index
-                .get(node.proto_node_index)
-                .map(|c| c.as_slice())
-                .unwrap_or(&[]);
-            Ok(child_indices
+            Ok(self
+                .nodes
                 .iter()
-                .filter_map(|&child_index| {
-                    let child_node = self.nodes.get(child_index)?;
-                    // Skip parent_payload_status filter for V17 children (they don't have it)
-                    if child_node.get_parent_payload_status() != node.payload_status {
-                        return None;
-                    }
-                    Some((
+                .enumerate()
+                .filter(|(_, child_node)| {
+                    child_node.parent() == Some(node.proto_node_index)
+                        && child_node.get_parent_payload_status() == node.payload_status
+                })
+                .map(|(child_index, child_node)| {
+                    (
                         IndexedForkChoiceNode {
                             root: child_node.root(),
                             proto_node_index: child_index,
                             payload_status: PayloadStatus::Pending,
                         },
                         child_node.clone(),
-                    ))
+                    )
                 })
                 .collect())
         }

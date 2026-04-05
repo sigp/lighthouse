@@ -146,12 +146,8 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     let slot = block.message().slot();
     let sender_clone = network_tx.clone();
 
-    let build_sidecar_task_handle = spawn_build_data_sidecar_task(
-        chain.clone(),
-        block.clone(),
-        unverified_blobs,
-        current_span.clone(),
-    )?;
+    let build_sidecar_task_handle =
+        spawn_build_data_sidecar_task(chain.clone(), block.clone(), unverified_blobs)?;
 
     // Gossip verify the block and blobs/data columns separately.
     let gossip_verified_block_result = unverified_block.into_gossip_verified_block(&chain);
@@ -358,7 +354,6 @@ fn spawn_build_data_sidecar_task<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
     proofs_and_blobs: UnverifiedBlobs<T>,
-    current_span: Span,
 ) -> Result<impl Future<Output = BuildDataSidecarTaskResult<T>>, Rejection> {
     chain
         .clone()
@@ -368,7 +363,7 @@ fn spawn_build_data_sidecar_task<T: BeaconChainTypes>(
                 let Some((kzg_proofs, blobs)) = proofs_and_blobs else {
                     return Ok((vec![], vec![]));
                 };
-                let _guard = debug_span!(parent: current_span, "build_data_sidecars").entered();
+                let _span = debug_span!("build_data_sidecars").entered();
 
                 let peer_das_enabled = chain.spec.is_peer_das_enabled_for_epoch(block.epoch());
                 if !peer_das_enabled {

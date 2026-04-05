@@ -2938,6 +2938,7 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
             wss_state,
             wss_block.clone(),
             wss_blobs_opt.clone(),
+            None,
             genesis_state,
         )
         .unwrap()
@@ -3088,6 +3089,7 @@ async fn weak_subjectivity_sync_test(
             } else {
                 None
             },
+            None,
             genesis_state,
         )
         .unwrap()
