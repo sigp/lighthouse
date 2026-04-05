@@ -2765,6 +2765,13 @@ where
             .put_state(&state_root, pending_state)
             .expect("should store full state");
 
+        // Update fork choice so it knows the payload was received.
+        self.chain
+            .canonical_head
+            .fork_choice_write_lock()
+            .on_valid_payload_envelope_received(block_root)
+            .expect("should update fork choice with envelope");
+
         state_root
     }
 
