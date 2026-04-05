@@ -1899,8 +1899,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok(StatePayloadStatus::Pending);
         }
 
-
-        // If the latest block was at this slot, the state is definitively `Pending`. 
+        // If the latest block was at this slot, the state is definitively `Pending`.
         // Check this before loading the previous summary to avoid errors when the
         // previous state doesn't exist (e.g. checkpoint sync where only one state is stored).
         if summary.slot == summary.latest_block_slot {
