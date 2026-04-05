@@ -3,7 +3,7 @@
 //! Each chain type is stored in it's own map. A variety of helper functions are given along with
 //! this struct to simplify the logic of the other layers of sync.
 
-use super::chain::{ChainId, ProcessingResult, RemoveChain, SyncingChain};
+use super::chain::{ChainId, ChainSyncingState, ProcessingResult, RemoveChain, SyncingChain};
 use super::sync_type::RangeSyncType;
 use crate::metrics;
 use crate::sync::batch::BatchMetricsState;
@@ -558,6 +558,30 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                     &[sync_type, state.into()],
                     count as i64,
                 );
+            }
+        }
+    }
+
+    /// Resume any chains that were paused waiting for the given parent envelope.
+    pub fn resume_chains_awaiting_envelope(
+        &mut self,
+        parent_root: Hash256,
+        network: &mut SyncNetworkContext<T>,
+    ) {
+        for chain in self
+            .finalized_chains
+            .values_mut()
+            .chain(self.head_chains.values_mut())
+        {
+            if chain.state
+                == (ChainSyncingState::AwaitingEnvelope { parent_root })
+            {
+                debug!(
+                    ?parent_root,
+                    "Resuming chain after parent envelope received"
+                );
+                chain.state = ChainSyncingState::Syncing;
+                let _ = chain.resume(network);
             }
         }
     }

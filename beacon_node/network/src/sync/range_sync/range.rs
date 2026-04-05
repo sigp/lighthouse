@@ -266,6 +266,15 @@ where
         }
     }
 
+    /// Resume any chains that were paused waiting for the given parent envelope.
+    pub fn resume_chains_awaiting_envelope(
+        &mut self,
+        parent_root: Hash256,
+        network: &mut SyncNetworkContext<T>,
+    ) {
+        self.chains.resume_chains_awaiting_envelope(parent_root, network);
+    }
+
     /// A peer has disconnected. This removes the peer from any ongoing chains and mappings. A
     /// disconnected peer could remove a chain
     pub fn peer_disconnect(&mut self, network: &mut SyncNetworkContext<T>, peer_id: &PeerId) {

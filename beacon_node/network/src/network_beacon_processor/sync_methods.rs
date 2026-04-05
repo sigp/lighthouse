@@ -42,11 +42,19 @@ pub enum ChainSegmentProcessId {
 }
 
 /// Returned when a chain segment import fails.
+/// Returned when a chain segment import fails.
 struct ChainSegmentFailed {
     /// To be displayed in logs.
     message: String,
     /// Used to penalize peers.
     peer_action: Option<PeerAction>,
+}
+
+/// Result of processing a batch of blocks.
+enum BlockBatchResult {
+    Ok { imported_blocks: usize },
+    ParentEnvelopeUnknown { parent_root: Hash256 },
+    Err { imported_blocks: usize, failed: Option<ChainSegmentFailed> },
 }
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
@@ -633,7 +641,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .process_blocks(downloaded_blocks.iter(), notify_execution_layer)
             .await
         {
-            (imported_blocks, Ok(_)) => {
+            BlockBatchResult::Ok { imported_blocks } => {
                 debug!(
                             batch_epoch = %epoch,
                             first_block_slot = start_slot,
@@ -647,17 +655,27 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     imported_blocks,
                 }
             }
-            (imported_blocks, Err(e)) => {
-                debug!(
-                            batch_epoch = %epoch,
-                            first_block_slot = start_slot,
-                            chain = chain_id,
-                            last_block_slot = end_slot,
-                            imported_blocks,
-                            error = %e.message,
-                            service = "sync",
-                            "Batch processing failed");
-                match e.peer_action {
+            BlockBatchResult::ParentEnvelopeUnknown { parent_root } => {
+                warn!(
+                    batch_epoch = %epoch,
+                    ?parent_root,
+                    "Batch processing paused: parent envelope unknown"
+                );
+                BatchProcessResult::ParentEnvelopeUnknown { parent_root }
+            }
+            BlockBatchResult::Err { imported_blocks, failed } => {
+                if let Some(e) = &failed {
+                    debug!(
+                                batch_epoch = %epoch,
+                                first_block_slot = start_slot,
+                                chain = chain_id,
+                                last_block_slot = end_slot,
+                                imported_blocks,
+                                error = %e.message,
+                                service = "sync",
+                                "Batch processing failed");
+                }
+                match failed.and_then(|e| e.peer_action) {
                     Some(penalty) => BatchProcessResult::FaultyFailure {
                         imported_blocks,
                         penalty,
@@ -758,7 +776,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         &self,
         downloaded_blocks: impl Iterator<Item = &'a RangeSyncBlock<T::EthSpec>>,
         notify_execution_layer: NotifyExecutionLayer,
-    ) -> (usize, Result<(), ChainSegmentFailed>) {
+    ) -> BlockBatchResult {
         let blocks: Vec<_> = downloaded_blocks.cloned().collect();
         match self
             .chain
@@ -770,18 +788,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 if !imported_blocks.is_empty() {
                     self.chain.recompute_head_at_current_slot().await;
                 }
-                (imported_blocks.len(), Ok(()))
+                BlockBatchResult::Ok { imported_blocks: imported_blocks.len() }
             }
             ChainSegmentResult::Failed {
                 imported_blocks,
                 error,
             } => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_FAILED_TOTAL);
-                let r = self.handle_failed_chain_segment(error);
                 if !imported_blocks.is_empty() {
                     self.chain.recompute_head_at_current_slot().await;
                 }
-                (imported_blocks.len(), r)
+                // Intercept ParentEnvelopeUnknown before normal error handling.
+                if let BlockError::ParentEnvelopeUnknown { parent_root } = error {
+                    return BlockBatchResult::ParentEnvelopeUnknown { parent_root };
+                }
+                let r = self.handle_failed_chain_segment(error);
+                BlockBatchResult::Err {
+                    imported_blocks: imported_blocks.len(),
+                    failed: r.err(),
+                }
             }
         }
     }

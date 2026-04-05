@@ -156,6 +156,8 @@ pub enum ChainSyncingState {
     Stopped,
     /// The chain is undergoing syncing.
     Syncing,
+    /// The chain is paused waiting for a parent envelope to be fetched.
+    AwaitingEnvelope { parent_root: Hash256 },
 }
 
 impl<T: BeaconChainTypes> SyncingChain<T> {
@@ -638,6 +640,19 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
                 // Simply re-download all batches in `AwaitingDownload` state.
                 self.attempt_send_awaiting_download_batches(network, "non-faulty-failure")
+            }
+            BatchProcessResult::ParentEnvelopeUnknown { parent_root } => {
+                batch.processing_completed(BatchProcessingResult::NonFaultyFailure)?;
+
+                // Pause the chain until the missing parent envelope is fetched.
+                debug!(
+                    ?parent_root,
+                    "Chain paused: awaiting parent envelope"
+                );
+                self.state = ChainSyncingState::AwaitingEnvelope {
+                    parent_root: *parent_root,
+                };
+                Ok(KeepChain)
             }
         }
     }
@@ -1175,7 +1190,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     pub fn is_syncing(&self) -> bool {
         match self.state {
             ChainSyncingState::Syncing => true,
-            ChainSyncingState::Stopped => false,
+            ChainSyncingState::Stopped | ChainSyncingState::AwaitingEnvelope { .. } => false,
         }
     }
 

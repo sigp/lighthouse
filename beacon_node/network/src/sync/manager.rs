@@ -233,6 +233,11 @@ pub enum BatchProcessResult {
         penalty: PeerAction,
     },
     NonFaultyFailure,
+    /// The batch processing failed because the parent block's execution payload envelope
+    /// is not yet available. The chain should pause until the envelope is fetched.
+    ParentEnvelopeUnknown {
+        parent_root: Hash256,
+    },
 }
 
 /// The result of processing multiple data columns.
@@ -972,9 +977,20 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncMessage::BlockComponentProcessed {
                 process_type,
                 result,
-            } => self
-                .block_lookups
-                .on_processing_result(process_type, result, &mut self.network),
+            } => {
+                // If a payload envelope was successfully imported, resume any range
+                // sync chains that were waiting for it.
+                if let BlockProcessType::SinglePayloadEnvelope { block_root, .. } = &process_type {
+                    if matches!(&result, BlockProcessingResult::Ok(_)) {
+                        self.range_sync.resume_chains_awaiting_envelope(
+                            *block_root,
+                            &mut self.network,
+                        );
+                    }
+                }
+                self.block_lookups
+                    .on_processing_result(process_type, result, &mut self.network)
+            }
             SyncMessage::GossipBlockProcessResult {
                 block_root,
                 imported,
@@ -985,6 +1001,23 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             ),
             SyncMessage::BatchProcessed { sync_type, result } => match sync_type {
                 ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
+                    // If the batch failed due to a missing parent envelope, trigger
+                    // an envelope lookup before pausing the chain.
+                    if let BatchProcessResult::ParentEnvelopeUnknown { parent_root } = &result {
+                        let peers: Vec<_> = self
+                            .network
+                            .network_globals()
+                            .peers
+                            .read()
+                            .synced_peers()
+                            .cloned()
+                            .collect();
+                        let _ = self.block_lookups.search_parent_envelope_of_child(
+                            *parent_root,
+                            &peers,
+                            &mut self.network,
+                        );
+                    }
                     self.range_sync.handle_block_process_result(
                         &mut self.network,
                         chain_id,
