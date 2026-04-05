@@ -9,7 +9,6 @@ use crate::utils::{
 use crate::version::{V1, V2, V3, unsupported_version_rejection};
 use crate::{StateId, attester_duties, proposer_duties, sync_committees};
 use beacon_chain::attestation_verification::VerifiedAttestation;
-use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{AttestationError, BeaconChain, BeaconChainError, BeaconChainTypes};
 use bls::PublicKeyBytes;
 use eth2::types::{
@@ -871,7 +870,7 @@ pub fn post_validator_aggregate_and_proofs<T: BeaconChainTypes>(
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     not_synced_filter?;
-                    let seen_timestamp = timestamp_now();
+                    let seen_timestamp = chain.slot_clock.now_duration().unwrap_or_default();
                     let mut verified_aggregates = Vec::with_capacity(aggregates.len());
                     let mut messages = Vec::with_capacity(aggregates.len());
                     let mut failures = Vec::new();
