@@ -168,16 +168,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(BeaconChainError::TokioJoin)?
             .ok_or(BeaconChainError::RuntimeShutdown)??;
 
-        // TODO(gloas): optimistic sync is not supported for Gloas, maybe we could re-add it
-        if payload_verification_outcome
-            .payload_verification_status
-            .is_optimistic()
-        {
-            return Err(EnvelopeError::OptimisticSyncNotSupported {
-                block_root: import_data.block_root,
-            });
-        }
-
         Ok(ExecutedEnvelope::new(
             signed_envelope,
             import_data,
