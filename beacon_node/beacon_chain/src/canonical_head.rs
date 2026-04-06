@@ -799,9 +799,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // The execution layer updates might attempt to take a write-lock on fork choice, so it's
         // important to ensure the fork-choice lock isn't being held.
-        let el_update_handle =
-            spawn_execution_layer_updates(
-            self.clone(), new_forkchoice_update_parameters,
+        let el_update_handle = spawn_execution_layer_updates(
+            self.clone(),
+            new_forkchoice_update_parameters,
             new_payload_status.as_state_payload_status(),
         )?;
 
