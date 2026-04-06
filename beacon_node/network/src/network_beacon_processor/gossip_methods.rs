@@ -3350,13 +3350,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                     }
 
+                    //여기로 옮기기
                     EnvelopeError::BadSignature
                     | EnvelopeError::BuilderIndexMismatch { .. }
                     | EnvelopeError::SlotMismatch { .. }
                     | EnvelopeError::BlockHashMismatch { .. }
                     | EnvelopeError::UnknownValidator { .. }
                     | EnvelopeError::IncorrectBlockProposer { .. }
-                    | EnvelopeError::ExecutionPayloadError(_) => {
+                    | EnvelopeError::PriorToFinalization { .. }
+                    | EnvelopeError::ExecutionPayloadError(_)
+                    | EnvelopeError::EnvelopeProcessingError(_)
+                    | EnvelopeError::BlockError(_) => {
                         warn!(error = ?e, "Could not verify envelope for gossip. Rejecting");
                         self.propagate_validation_result(
                             message_id,
@@ -3433,20 +3437,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                     EnvelopeError::BeaconChainError(_)
                     | EnvelopeError::BeaconStateError(_)
-                    | EnvelopeError::BlockProcessingError(_)
-                    | EnvelopeError::EnvelopeProcessingError(_)
-                    | EnvelopeError::BlockError(_)
-                    | EnvelopeError::PriorToFinalization { .. } => {
-                        warn!(error = ?e, "Could not verify envelope for gossip. Rejecting");
+                    | EnvelopeError::BlockProcessingError(_) => {
+                        debug!(error = ?e, "Could not verify envelope for gossip. Ignoring");
                         self.propagate_validation_result(
                             message_id,
                             peer_id,
-                            MessageAcceptance::Reject,
-                        );
-                        self.gossip_penalize_peer(
-                            peer_id,
-                            PeerAction::LowToleranceError,
-                            "gossip_envelope_error",
+                            MessageAcceptance::Ignore,
                         );
                     }
 
