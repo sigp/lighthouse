@@ -1941,6 +1941,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let beacon_block_root;
         let beacon_state_root;
         let target;
+        let is_attesting_to_head_slot;
         let current_epoch_attesting_info: Option<(Checkpoint, usize)>;
         let head_timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_HEAD_SCRAPE_SECONDS);
         let head_span = debug_span!("attestation_production_head_scrape").entered();
@@ -1977,7 +1978,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 });
             }
 
-            if request_slot >= head_state.slot() {
+            is_attesting_to_head_slot = request_slot >= head_state.slot();
+            if is_attesting_to_head_slot {
                 // When attesting to the head slot or later, always use the head of the chain.
                 beacon_block_root = head.beacon_block_root;
                 beacon_state_root = head.beacon_state_root();
@@ -2080,6 +2082,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 )
             };
 
+        // TODO(gloas): add integration test: verify that
+        // `produce_unaggregated_attestation` sets index=1 when payload received for a prior
+        // slot, index=0 for same-slot, and index=0 when payload not received.
+        //
+        // For gloas the attestation data index indicates payload presence:
+        // `payload_present=false` for same-slot attestations or when payload not received.
+        // `payload_present=true` when attesting to a prior slot whose payload has been received.
+        let payload_present = if self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(request_slot)
+            .gloas_enabled()
+            && !is_attesting_to_head_slot
+        {
+            self.canonical_head
+                .fork_choice_read_lock()
+                .is_payload_received(&beacon_block_root)
+        } else {
+            false
+        };
+
         Ok(Attestation::<T::EthSpec>::empty_for_signing(
             request_index,
             committee_len,
@@ -2087,6 +2109,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             beacon_block_root,
             justified_checkpoint,
             target,
+            payload_present,
             &self.spec,
         )?)
     }

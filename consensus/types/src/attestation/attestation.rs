@@ -109,6 +109,7 @@ impl<E: EthSpec> Attestation<E> {
         beacon_block_root: Hash256,
         source: Checkpoint,
         target: Checkpoint,
+        payload_present: bool,
         spec: &ChainSpec,
     ) -> Result<Self, Error> {
         if spec.fork_name_at_slot::<E>(slot).electra_enabled() {
@@ -116,12 +117,19 @@ impl<E: EthSpec> Attestation<E> {
             committee_bits
                 .set(committee_index as usize, true)
                 .map_err(|_| Error::InvalidCommitteeIndex)?;
+            // Gloas attestation data index now indicates payload presence.
+            // Pre-gloas index is always 0.
+            let index = if spec.fork_name_at_slot::<E>(slot).gloas_enabled() && payload_present {
+                1u64
+            } else {
+                0u64
+            };
             Ok(Attestation::Electra(AttestationElectra {
                 aggregation_bits: BitList::with_capacity(committee_length)
                     .map_err(|_| Error::InvalidCommitteeLength)?,
                 data: AttestationData {
                     slot,
-                    index: 0u64,
+                    index,
                     beacon_block_root,
                     source,
                     target,

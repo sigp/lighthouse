@@ -204,6 +204,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             item.beacon_block_root,
             item.source,
             item.target,
+            false,
             spec,
         )
         .map_err(Error::AttestationError)?;
