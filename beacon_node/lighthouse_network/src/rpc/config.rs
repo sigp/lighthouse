@@ -110,13 +110,13 @@ impl RateLimiterConfig {
     // blocks and a decent syncing rate for honest nodes. Malicious nodes would need to
     // spread out their requests over the time window to max out bandwidth on the server.
     pub const DEFAULT_BLOCKS_BY_RANGE_QUOTA: Quota =
-        Quota::n_every(NonZeroU64::new(128).unwrap(), 10);
+        Quota::n_every(NonZeroU64::new(32).unwrap(), 10);
     pub const DEFAULT_BLOCKS_BY_ROOT_QUOTA: Quota =
-        Quota::n_every(NonZeroU64::new(128).unwrap(), 10);
+        Quota::n_every(NonZeroU64::new(32).unwrap(), 10);
     pub const DEFAULT_PAYLOAD_ENVELOPES_BY_RANGE_QUOTA: Quota =
-        Quota::n_every(NonZeroU64::new(128).unwrap(), 10);
+        Quota::n_every(NonZeroU64::new(32).unwrap(), 10);
     pub const DEFAULT_PAYLOAD_ENVELOPES_BY_ROOT_QUOTA: Quota =
-        Quota::n_every(NonZeroU64::new(128).unwrap(), 10);
+        Quota::n_every(NonZeroU64::new(32).unwrap(), 10);
     // `DEFAULT_BLOCKS_BY_RANGE_QUOTA` * (target + 1) to account for high usage
     pub const DEFAULT_BLOBS_BY_RANGE_QUOTA: Quota =
         Quota::n_every(NonZeroU64::new(896).unwrap(), 10);
