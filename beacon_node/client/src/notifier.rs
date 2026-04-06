@@ -364,44 +364,66 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 } else {
                     head_root.to_string()
                 };
+                let is_gloas_head = cached_head
+                    .snapshot
+                    .beacon_block
+                    .message()
+                    .body()
+                    .fork_name()
+                    .gloas_enabled();
 
-                let block_hash = match beacon_chain.canonical_head.head_execution_status() {
-                    Ok(ExecutionStatus::Irrelevant(_)) => "n/a".to_string(),
-                    Ok(ExecutionStatus::Valid(hash)) => {
-                        metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 0);
-                        format!("{} (verified)", hash)
-                    }
-                    Ok(ExecutionStatus::Optimistic(hash)) => {
-                        metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 1);
-                        warn!(
-                            info = "chain not fully verified, \
-                            block and attestation production disabled until execution engine syncs",
-                        execution_block_hash = ?hash,
-                            "Head is optimistic"
-                        );
-                        format!("{} (unverified)", hash)
-                    }
-                    Ok(ExecutionStatus::Invalid(hash)) => {
-                        crit!(
-                            msg = "this scenario may be unrecoverable",
-                            execution_block_hash = ?hash,
-                            "Head execution payload is invalid"
-                        );
-                        format!("{} (invalid)", hash)
-                    }
-                    Err(_) => "unknown".to_string(),
-                };
+                if is_gloas_head {
+                    let payload_envelope_status =
+                        head_payload_status_pretty(&cached_head.snapshot.beacon_state);
+                    info!(
+                        peers = peer_count_pretty(connected_peer_count),
+                        payload_envelope_status,
+                        finalized_root = %finalized_checkpoint.root,
+                        finalized_epoch = %finalized_checkpoint.epoch,
+                        epoch = %current_epoch,
+                        block = block_info,
+                        slot = %current_slot,
+                        "Synced"
+                    );
+                } else {
+                    let block_hash = match beacon_chain.canonical_head.head_execution_status() {
+                        Ok(ExecutionStatus::Irrelevant(_)) => "n/a".to_string(),
+                        Ok(ExecutionStatus::Valid(hash)) => {
+                            metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 0);
+                            format!("{} (verified)", hash)
+                        }
+                        Ok(ExecutionStatus::Optimistic(hash)) => {
+                            metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 1);
+                            warn!(
+                                info = "chain not fully verified, \
+                                block and attestation production disabled until execution engine syncs",
+                                execution_block_hash = ?hash,
+                                "Head is optimistic"
+                            );
+                            format!("{} (unverified)", hash)
+                        }
+                        Ok(ExecutionStatus::Invalid(hash)) => {
+                            crit!(
+                                msg = "this scenario may be unrecoverable",
+                                execution_block_hash = ?hash,
+                                "Head execution payload is invalid"
+                            );
+                            format!("{} (invalid)", hash)
+                        }
+                        Err(_) => "unknown".to_string(),
+                    };
 
-                info!(
-                    peers = peer_count_pretty(connected_peer_count),
-                    exec_hash = block_hash,
-                    finalized_root = %finalized_checkpoint.root,
-                    finalized_epoch = %finalized_checkpoint.epoch,
-                    epoch = %current_epoch,
-                    block = block_info,
-                    slot = %current_slot,
-                    "Synced"
-                );
+                    info!(
+                        peers = peer_count_pretty(connected_peer_count),
+                        exec_hash = block_hash,
+                        finalized_root = %finalized_checkpoint.root,
+                        finalized_epoch = %finalized_checkpoint.epoch,
+                        epoch = %current_epoch,
+                        block = block_info,
+                        slot = %current_slot,
+                        "Synced"
+                    );
+                }
             } else {
                 metrics::set_gauge(&metrics::IS_SYNCED, 0);
                 info!(
@@ -707,6 +729,40 @@ fn peer_count_pretty(peer_count: usize) -> String {
         String::from("--")
     } else {
         format!("{}", peer_count)
+    }
+}
+
+/// Returns a string describing the Gloas payload envelope status of the head block.
+///
+/// In Gloas (EIP-7732), execution payloads are decoupled from beacon blocks via PBS. The beacon
+/// block body contains a `signed_execution_payload_bid` rather than an `execution_payload`, so
+/// the traditional execution block hash is not available in fork choice. Instead, we display one
+/// of three states based on the head beacon state:
+///
+/// - `"Full"`: the previous block's payload bid was confirmed (bid block hash matches the latest
+///   confirmed block hash in state).
+/// - `"Pending"`: a bid was submitted for the previous slot, but the payload has not been
+///   confirmed yet.
+/// - `"Empty"`: no bid was submitted for the previous slot.
+fn head_payload_status_pretty<E: EthSpec>(head_state: &BeaconState<E>) -> &'static str {
+    match head_state {
+        BeaconState::Gloas(state) => {
+            // `is_parent_block_full` in the spec checks whether the previous block's execution
+            // payload bid block hash matches the latest confirmed block hash.
+            if state.latest_execution_payload_bid.block_hash == state.latest_block_hash {
+                "Full"
+            } else if state.latest_execution_payload_bid.block_hash
+                != ExecutionBlockHash::zero()
+            {
+                // A bid was submitted but the payload hasn't been confirmed yet.
+                "Pending"
+            } else {
+                // No bid was submitted for the previous slot.
+                "Empty"
+            }
+        }
+        // This function should only be called for Gloas head states.
+        _ => "n/a",
     }
 }
 
