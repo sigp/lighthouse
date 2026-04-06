@@ -2866,7 +2866,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // In the case of (2), skipping the block is valid since we should never import it.
                 // However, we will potentially get a `ParentUnknown` on a later block. The sync
                 // protocol will need to ensure this is handled gracefully.
-                Err(BlockError::WouldRevertFinalizedSlot { .. }) => continue,
+                Err(BlockError::WouldRevertFinalizedSlot { .. }) => {
+                    // Gloas: keep blocks at finalized slots so their envelopes can
+                    // still be processed. This handles the checkpoint sync case where
+                    // the checkpoint block is already finalized but its envelope hasn't
+                    // been stored yet.
+                    if block.as_block().fork_name_unchecked().gloas_enabled() {
+                        filtered_chain_segment.push((block_root, block));
+                    }
+                }
                 // The block has a known parent that does not descend from the finalized block.
                 // There is no need to process this block or any children.
                 Err(BlockError::NotFinalizedDescendant { block_parent_root }) => {
@@ -2935,6 +2943,39 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         };
 
+        // Strip already-known blocks (e.g. the checkpoint sync anchor) from the
+        // front of the segment and process only their envelopes. These blocks
+        // can't go through signature_verify_chain_segment because their parents
+        // may not be available.
+        while let Some((root, _)) = filtered_chain_segment.first() {
+            if !self
+                .canonical_head
+                .fork_choice_read_lock()
+                .contains_block(root)
+            {
+                break;
+            }
+            let (block_root, block) = filtered_chain_segment.remove(0);
+            let maybe_envelope = match block {
+                RangeSyncBlock::Gloas { envelope, .. } => envelope,
+                _ => None,
+            };
+            if let Some(envelope) = maybe_envelope
+                && let Err(error) = self
+                    .process_range_sync_envelope(
+                        block_root,
+                        envelope,
+                        notify_execution_layer,
+                    )
+                    .await
+            {
+                return ChainSegmentResult::Failed {
+                    imported_blocks,
+                    error: BlockError::EnvelopeError(Box::new(error)),
+                };
+            }
+        }
+
         while let Some((_root, block)) = filtered_chain_segment.first() {
             // Determine the epoch of the first block in the remaining segment.
             let start_epoch = block.epoch();
@@ -2978,6 +3019,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             for (signature_verified_block, maybe_envelope) in signature_verified_blocks {
                 let block_root = signature_verified_block.block_root();
                 let block_slot = signature_verified_block.slot();
+
                 match self
                     .process_block(
                         block_root,
@@ -3025,13 +3067,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             }
                         }
                     }
-                    Err(BlockError::DuplicateFullyImported(block_root)) => {
+                    Err(BlockError::DuplicateFullyImported(_))
+                    | Err(BlockError::WouldRevertFinalizedSlot { .. }) => {
                         debug!(
                             ?block_root,
                             "Ignoring already known block while processing chain segment"
                         );
                         // Gloas: still process the envelope for duplicate blocks. The envelope
-                        // may not have been persisted before a restart.
+                        // may not have been persisted before a restart, or the block may be the
+                        // checkpoint sync anchor whose envelope was never stored.
                         if let Some(envelope) = maybe_envelope
                             && let Err(error) = self
                                 .process_range_sync_envelope(

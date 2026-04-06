@@ -672,8 +672,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     }
                 }
             }
-            BatchProcessResult::NonFaultyFailure
-            | BatchProcessResult::ParentEnvelopeUnknown { .. } => {
+            BatchProcessResult::NonFaultyFailure => {
                 if let Err(e) = batch.processing_completed(BatchProcessingResult::NonFaultyFailure)
                 {
                     self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))?;
