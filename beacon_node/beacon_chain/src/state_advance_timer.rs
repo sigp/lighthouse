@@ -28,7 +28,6 @@ use tokio::time::{Instant, sleep, sleep_until};
 use tracing::{Instrument, debug, debug_span, error, instrument, warn};
 use types::{
     AttestationShufflingId, BeaconStateError, EthSpec, Hash256, RelativeEpoch, Slot,
-    StatePayloadStatus,
 };
 
 /// If the head slot is more than `MAX_ADVANCE_DISTANCE` from the current slot, then don't perform
