@@ -367,6 +367,10 @@ pub struct ProtoArray {
     pub prune_threshold: usize,
     pub nodes: Vec<ProtoNode>,
     pub indices: HashMap<Hash256, usize>,
+    /// Cached parent→children index. `children[i]` holds the node indices of all children of
+    /// node `i`. Maintained incrementally by `on_block` and `maybe_prune`.
+    #[serde(skip)]
+    pub children: Vec<Vec<usize>>,
 }
 
 impl ProtoArray {
@@ -660,6 +664,14 @@ impl ProtoArray {
 
         self.indices.insert(node.root(), node_index);
         self.nodes.push(node.clone());
+
+        // Maintain cached children index.
+        self.children.push(Vec::new());
+        if let Some(parent_index) = node.parent()
+            && let Some(siblings) = self.children.get_mut(parent_index)
+        {
+            siblings.push(node_index);
+        }
 
         if let Some(parent_index) = node.parent()
             && matches!(block.execution_status, ExecutionStatus::Valid(_))
@@ -1108,9 +1120,9 @@ impl ProtoArray {
         Ok((best_fc_node.root, best_fc_node.payload_status))
     }
 
-    /// Build parent→children index in O(n). Returns a vec where `result[i]` contains
-    /// the indices of all children of node `i`.
-    fn build_children_index(&self) -> Vec<Vec<usize>> {
+    /// Rebuild the cached `self.children` index from `self.nodes`. Called once after
+    /// deserialization to populate the transient field.
+    pub fn rebuild_children_index(&mut self) {
         let mut children = vec![Vec::new(); self.nodes.len()];
         for (i, node) in self.nodes.iter().enumerate() {
             if let Some(parent_idx) = node.parent()
@@ -1119,7 +1131,7 @@ impl ProtoArray {
                 children[parent_idx].push(i);
             }
         }
-        children
+        self.children = children;
     }
 
     /// Spec: `get_filtered_block_tree`.
@@ -1221,7 +1233,7 @@ impl ProtoArray {
             payload_status: PayloadStatus::Pending,
         };
 
-        let children_index = self.build_children_index();
+        let children_index = &self.children;
 
         // Spec: `get_filtered_block_tree`.
         let viable_nodes = self.get_filtered_block_tree::<E>(
@@ -1229,7 +1241,7 @@ impl ProtoArray {
             current_slot,
             best_justified_checkpoint,
             best_finalized_checkpoint,
-            &children_index,
+            children_index,
         );
 
         // Compute once rather than per-child per-level.
@@ -1238,7 +1250,7 @@ impl ProtoArray {
 
         loop {
             let children: Vec<_> = self
-                .get_node_children(&head, &children_index)?
+                .get_node_children(&head, children_index)?
                 .into_iter()
                 .filter(|(fc_node, _)| viable_nodes.contains(&fc_node.proto_node_index))
                 .collect();
@@ -1530,6 +1542,16 @@ impl ProtoArray {
 
         // Drop all the nodes prior to finalization.
         self.nodes = self.nodes.split_off(finalized_index);
+
+        // Drop pruned entries from children index and shift all remaining indices down.
+        self.children = self.children.split_off(finalized_index);
+        for children in self.children.iter_mut() {
+            children.retain_mut(|child_index| {
+                *child_index = child_index.wrapping_sub(finalized_index);
+                // Discard children that pointed into the pruned prefix (underflow).
+                *child_index < self.nodes.len()
+            });
+        }
 
         // Adjust the indices map.
         for (_root, index) in self.indices.iter_mut() {
