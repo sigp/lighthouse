@@ -6058,6 +6058,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.update_execution_engine_forkchoice(
                 current_slot,
                 forkchoice_update_params,
+                head_payload_status,
                 OverrideForkchoiceUpdate::AlreadyApplied,
             )
             .await?;
@@ -6070,6 +6071,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         current_slot: Slot,
         input_params: ForkchoiceUpdateParameters,
+        head_payload_status: StatePayloadStatus,
         override_forkchoice_update: OverrideForkchoiceUpdate,
     ) -> Result<(), Error> {
         let execution_layer = self
@@ -6122,12 +6124,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // Proposing the block for the merge is no longer supported.
                 return Ok(());
             };
-
-        let head_payload_status = self
-            .canonical_head
-            .cached_head()
-            .head_payload_status()
-            .as_state_payload_status();
 
         let forkchoice_updated_response = execution_layer
             .notify_forkchoice_updated(
