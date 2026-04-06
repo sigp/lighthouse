@@ -3350,7 +3350,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                     }
 
-                    //여기로 옮기기
                     EnvelopeError::BadSignature
                     | EnvelopeError::BuilderIndexMismatch { .. }
                     | EnvelopeError::SlotMismatch { .. }
