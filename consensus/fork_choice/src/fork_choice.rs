@@ -417,10 +417,20 @@ where
             if let Ok(signed_bid) = anchor_block.message().body().signed_execution_payload_bid() {
                 // Gloas: execution status is irrelevant post-Gloas; payload validation
                 // is decoupled from beacon blocks.
+                // For the genesis anchor, the block's bid is default (zeroed), so use
+                // latest_block_hash from the state which reflects the actual EL genesis hash.
+                let block_hash = if signed_bid.message.block_hash.into_root().is_zero() {
+                    (*anchor_state
+                        .latest_block_hash()
+                        .map_err(Error::BeaconStateError)?)
+                    .into()
+                } else {
+                    signed_bid.message.block_hash
+                };
                 (
                     ExecutionStatus::irrelevant(),
                     Some(signed_bid.message.parent_block_hash),
-                    Some(signed_bid.message.block_hash),
+                    Some(block_hash),
                 )
             } else if let Ok(execution_payload) = anchor_block.message().execution_payload() {
                 // Pre-Gloas forks: do not set payload hashes, they are only used post-Gloas.

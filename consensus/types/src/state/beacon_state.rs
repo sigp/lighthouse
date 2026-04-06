@@ -1284,6 +1284,9 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn payload_status(&self) -> StatePayloadStatus {
         if !self.fork_name_unchecked().gloas_enabled() {
             StatePayloadStatus::Pending
+        } else if self.slot() == 0 {
+            // The genesis state is always Pending: there is no genesis envelope.
+            StatePayloadStatus::Pending
         } else if self.is_parent_block_full() {
             StatePayloadStatus::Full
         } else {
