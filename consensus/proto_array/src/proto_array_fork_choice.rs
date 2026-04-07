@@ -1038,35 +1038,21 @@ impl ProtoArrayForkChoice {
             .unwrap_or(false)
     }
 
-    /// Returns the canonical payload status of a block by walking backwards from the head to the
-    /// child of `block_root`.
+    /// Returns the payload status of a block by comparing full and empty payload weight.
     ///
-    /// Returns `None` if the block is head, is not an ancestor of head, or has already been pruned
-    /// from fork choice.
-    pub fn get_canonical_payload_status(
-        &self,
-        block_root: &Hash256,
-        head_root: &Hash256,
-    ) -> Option<PayloadStatus> {
-        // Return `None` because the head root won't have
-        // a child in fork choice to check against.
-        if block_root == head_root {
-            return None;
-        }
+    /// Returns `None` if a non-gloas node.
+    pub fn get_payload_status_by_weight(&self, block_root: &Hash256) -> Option<PayloadStatus> {
+        let index = *self.proto_array.indices.get(block_root)?;
+        let node = self.proto_array.nodes.get(index)?;
 
-        let target_index = *self.proto_array.indices.get(block_root)?;
-        let mut current_index = *self.proto_array.indices.get(head_root)?;
-
-        loop {
-            let node = self.proto_array.nodes.get(current_index)?;
-            let parent_index = node.parent()?;
-
-            if parent_index == target_index {
-                return Some(node.get_parent_payload_status());
+        if let Ok(node) = node.as_v29() {
+            if node.full_payload_weight >= node.empty_payload_weight {
+                return Some(PayloadStatus::Full);
             }
+            return Some(PayloadStatus::Empty);
+        };
 
-            current_index = parent_index;
-        }
+        None
     }
 
     /// Returns the weight of a given block.

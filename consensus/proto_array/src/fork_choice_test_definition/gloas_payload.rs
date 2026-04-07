@@ -81,50 +81,74 @@ pub fn get_gloas_chain_following_test_definition() -> ForkChoiceTestDefinition {
         expected_payload_status: None,
     });
 
-    ops.push(Operation::AssertCanonicalPayloadStatus {
-        block_root: get_root(0),
-        head_root: get_root(3),
-        expected_status: Some(PayloadStatus::Full),
-    });
-    ops.push(Operation::AssertCanonicalPayloadStatus {
-        block_root: get_root(1),
-        head_root: get_root(3),
-        expected_status: Some(PayloadStatus::Full),
-    });
-    ops.push(Operation::AssertCanonicalPayloadStatus {
-        block_root: get_root(2),
-        head_root: get_root(3),
-        expected_status: None,
-    });
-
-    ops.push(Operation::SetPayloadTiebreak {
-        block_root: get_root(0),
-        is_timely: false,
-        is_data_available: false,
+    // Cross-slot attestation with payload_present=true to Full branch (root 3, slot 2).
+    // vote_slot=3 != block_slot=2, payload_present=true → Full weight.
+    ops.push(Operation::ProcessGloasAttestation {
+        validator_index: 0,
+        block_root: get_root(3),
+        attestation_slot: Slot::new(3),
+        payload_present: true,
     });
     ops.push(Operation::FindHead {
         justified_checkpoint: get_checkpoint(0),
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: vec![1],
+        expected_head: get_root(3),
+        current_slot: Slot::new(0),
+        expected_payload_status: None,
+    });
+
+    // Full weight propagated up: root 0 and root 1 should show Full.
+    ops.push(Operation::AssertPayloadStatusByWeight {
+        block_root: get_root(0),
+        expected_status: Some(PayloadStatus::Full),
+    });
+    ops.push(Operation::AssertPayloadStatusByWeight {
+        block_root: get_root(1),
+        expected_status: Some(PayloadStatus::Full),
+    });
+    // Root 2 (Empty branch) has no attestations → both weights zero → defaults to Full via >=.
+    ops.push(Operation::AssertPayloadStatusByWeight {
+        block_root: get_root(2),
+        expected_status: Some(PayloadStatus::Full),
+    });
+
+    // Cross-slot attestations with payload_present=false to Empty branch (root 4, slot 2).
+    // Two validators so Empty branch outweighs Full branch.
+    ops.push(Operation::ProcessGloasAttestation {
+        validator_index: 1,
+        block_root: get_root(4),
+        attestation_slot: Slot::new(3),
+        payload_present: false,
+    });
+    ops.push(Operation::ProcessGloasAttestation {
+        validator_index: 2,
+        block_root: get_root(4),
+        attestation_slot: Slot::new(3),
+        payload_present: false,
+    });
+    ops.push(Operation::FindHead {
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        justified_state_balances: vec![1, 1, 1],
         expected_head: get_root(4),
         current_slot: Slot::new(0),
         expected_payload_status: None,
     });
 
-    ops.push(Operation::AssertCanonicalPayloadStatus {
+    // Empty weight now dominates: root 0 flips to Empty.
+    ops.push(Operation::AssertPayloadStatusByWeight {
         block_root: get_root(0),
-        head_root: get_root(4),
         expected_status: Some(PayloadStatus::Empty),
     });
-    ops.push(Operation::AssertCanonicalPayloadStatus {
+    ops.push(Operation::AssertPayloadStatusByWeight {
         block_root: get_root(2),
-        head_root: get_root(4),
         expected_status: Some(PayloadStatus::Empty),
     });
-    ops.push(Operation::AssertCanonicalPayloadStatus {
+    // Root 1 (Full branch) still has 1 Full vote, 0 Empty → Full.
+    ops.push(Operation::AssertPayloadStatusByWeight {
         block_root: get_root(1),
-        head_root: get_root(4),
-        expected_status: None,
+        expected_status: Some(PayloadStatus::Full),
     });
 
     ForkChoiceTestDefinition {

@@ -61,6 +61,12 @@ pub enum Operation {
         block_root: Hash256,
         attestation_slot: Slot,
     },
+    ProcessGloasAttestation {
+        validator_index: usize,
+        block_root: Hash256,
+        attestation_slot: Slot,
+        payload_present: bool,
+    },
     ProcessPayloadAttestation {
         validator_index: usize,
         block_root: Hash256,
@@ -105,9 +111,8 @@ pub enum Operation {
         block_root: Hash256,
         expected: bool,
     },
-    AssertCanonicalPayloadStatus {
+    AssertPayloadStatusByWeight {
         block_root: Hash256,
-        head_root: Hash256,
         expected_status: Option<PayloadStatus>,
     },
 }
@@ -305,6 +310,27 @@ impl ForkChoiceTestDefinition {
                 } => {
                     fork_choice
                         .process_attestation(validator_index, block_root, attestation_slot, false)
+                        .unwrap_or_else(|_| {
+                            panic!(
+                                "process_attestation op at index {} returned error",
+                                op_index
+                            )
+                        });
+                    check_bytes_round_trip(&fork_choice);
+                }
+                Operation::ProcessGloasAttestation {
+                    validator_index,
+                    block_root,
+                    attestation_slot,
+                    payload_present,
+                } => {
+                    fork_choice
+                        .process_attestation(
+                            validator_index,
+                            block_root,
+                            attestation_slot,
+                            payload_present,
+                        )
                         .unwrap_or_else(|_| {
                             panic!(
                                 "process_attestation op at index {} returned error",
@@ -527,12 +553,11 @@ impl ForkChoiceTestDefinition {
                         op_index
                     );
                 }
-                Operation::AssertCanonicalPayloadStatus {
+                Operation::AssertPayloadStatusByWeight {
                     block_root,
-                    head_root,
                     expected_status,
                 } => {
-                    let actual = fork_choice.get_canonical_payload_status(&block_root, &head_root);
+                    let actual = fork_choice.get_payload_status_by_weight(&block_root);
                     assert_eq!(
                         actual, expected_status,
                         "canonical payload status mismatch at op index {}",
