@@ -6730,12 +6730,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         (None, block.state_root())
                     }
                 } else {
-                    // TODO(gloas): should use fork choice/cached head for last block in sequence
-                    opt_envelope
-                        .as_ref()
-                        .map_or((None, block.state_root()), |envelope| {
-                            (Some(envelope.clone()), envelope.message.state_root)
-                        })
+                    // Last block in the sequence: use fork choice to determine
+                    // whether the payload is canonical.
+                    let payload_received = self
+                        .canonical_head
+                        .fork_choice_read_lock()
+                        .proto_array()
+                        .is_payload_received(block_root);
+                    if payload_received {
+                        let envelope = opt_envelope.ok_or_else(|| {
+                            Error::DBInconsistent(format!("Missing envelope {block_root:?}"))
+                        })?;
+                        let state_root = envelope.message.state_root;
+                        (Some(envelope), state_root)
+                    } else {
+                        (None, block.state_root())
+                    }
                 }
             } else {
                 (None, block.state_root())

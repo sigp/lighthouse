@@ -8,8 +8,7 @@ use beacon_chain::{
     WhenSlotSkipped,
     custody_context::NodeCustodyType,
     test_utils::{
-        AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
-        fork_name_from_env, test_spec,
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, test_spec,
     },
 };
 use beacon_chain::{
@@ -48,12 +47,6 @@ enum DataSidecars<E: EthSpec> {
 }
 
 async fn get_chain_segment() -> Option<(Vec<BeaconSnapshot<E>>, Vec<Option<DataSidecars<E>>>)> {
-    // TODO(gloas): chain_dump is WIP for Gloas — envelope/fullness logic is incomplete.
-    // Skip until fork choice changes land.
-    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
-        return None;
-    }
-
     // The assumption that you can re-import a block based on what you have in your DB
     // is no longer true, as fullnodes stores less than what they sample.
     // We use a supernode here to build a chain segment.

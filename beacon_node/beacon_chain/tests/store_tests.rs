@@ -669,11 +669,6 @@ async fn forwards_iter_block_and_state_roots_until() {
     let head_slot = head_state.slot();
     assert_eq!(head_slot, num_blocks_produced);
 
-    // TODO(gloas): once fork choice tracks the canonical head envelope, the state root
-    // iterator should return the Full (post-envelope) state root for the head slot rather
-    // than the Pending (post-block) root. At that point, remove this flag and check all slots.
-    let gloas_enabled = chain.spec.fork_name_at_slot::<E>(head_slot).gloas_enabled();
-
     let test_range = |start_slot: Slot, end_slot: Slot| {
         let mut block_root_iter = chain
             .forwards_iter_block_roots_until(start_slot, end_slot)
@@ -689,13 +684,8 @@ async fn forwards_iter_block_and_state_roots_until() {
             let (iter_state_root, iter_slot) = state_root_iter.next().unwrap().unwrap();
             assert_eq!(iter_slot, slot);
 
-            // Skip the head slot state root check post-Gloas: the canonical head snapshot
-            // doesn't track the envelope yet, so `beacon_state_root()` returns the Pending
-            // root while the test tracks the Full root.
-            if !(gloas_enabled && slot == head_slot) {
-                let state_root = state_roots[slot.as_usize()];
-                assert_eq!(iter_state_root, state_root);
-            }
+            let state_root = state_roots[slot.as_usize()];
+            assert_eq!(iter_state_root, state_root);
         }
     };
 

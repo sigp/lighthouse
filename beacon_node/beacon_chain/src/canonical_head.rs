@@ -315,8 +315,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             .ok_or(Error::MissingBeaconBlock(beacon_block_root))?;
         let current_slot = fork_choice.fc_store().get_current_slot();
 
-        // TODO(gloas): pass a better payload status once fork choice is implemented
-        let payload_status = StatePayloadStatus::Pending;
+        let payload_status = head_payload_status.as_state_payload_status();
         let (_, beacon_state) = store
             .get_advanced_hot_state(
                 beacon_block_root,
@@ -381,11 +380,13 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         Ok((head, execution_status))
     }
 
-    // TODO(gloas) just a stub for now, implement this once we have fork choice.
-    /// Returns true if the payload for this block is canonical according to fork choice
+    /// Returns true if the payload for this block is canonical according to fork choice.
     /// Returns an error if the block root doesn't exist in fork choice.
-    pub fn block_has_canonical_payload(&self, _root: &Hash256) -> Result<bool, Error> {
-        Ok(true)
+    pub fn block_has_canonical_payload(&self, root: &Hash256) -> Result<bool, Error> {
+        Ok(self
+            .fork_choice_read_lock()
+            .proto_array()
+            .is_payload_received(root))
     }
 
     /// Returns a clone of `self.cached_head`.

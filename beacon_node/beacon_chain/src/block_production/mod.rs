@@ -56,10 +56,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             } else {
                 // Fetch the head state advanced through to `slot`, which should be present in the
                 // state cache thanks to the state advance timer.
-                // TODO(gloas): need to fix this once fork choice understands payloads
-                // for now we just use the existence of the head's payload envelope to determine
-                // whether we should build atop it
+                let head_payload_status = self
+                    .canonical_head
+                    .cached_head()
+                    .head_payload_status()
+                    .as_state_payload_status();
                 let (payload_status, parent_state_root) = if gloas_enabled
+                    && head_payload_status == StatePayloadStatus::Full
                     && let Ok(Some(envelope)) = self.store.get_payload_envelope(&head_block_root)
                 {
                     debug!(
