@@ -6731,13 +6731,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         (None, block.state_root())
                     }
                 } else {
-                    // Last block in the sequence: use fork choice to determine
+                    // Last block in the sequence: use canonical head to determine
                     // whether the payload is canonical.
-                    let payload_received = self
-                        .canonical_head
-                        .fork_choice_read_lock()
-                        .proto_array()
-                        .is_payload_received(block_root);
+                    let head = self.canonical_head.cached_head();
+                    assert_eq!(head.head_block_root(), *block_root);
+                    let payload_received = head.head_payload_status().as_state_payload_status()
+                        == StatePayloadStatus::Full;
                     if payload_received {
                         let envelope = opt_envelope.ok_or_else(|| {
                             Error::DBInconsistent(format!("Missing envelope {block_root:?}"))
