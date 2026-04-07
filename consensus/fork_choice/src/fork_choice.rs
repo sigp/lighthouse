@@ -1502,11 +1502,17 @@ where
         }
     }
 
-    /// Returns the payload status of a block. See
-    /// `ProtoArrayForkChoice::get_payload_status_by_weight`.
-    pub fn get_payload_status_by_weight(&self, block_root: &Hash256) -> Option<PayloadStatus> {
+    /// Returns the canonical payload status of a block. See
+    /// `ProtoArrayForkChoice::get_payload_status`.
+    pub fn get_canonical_payload_status(&self, block_root: &Hash256) -> Option<PayloadStatus> {
         if self.is_finalized_checkpoint_or_descendant(*block_root) {
-            self.proto_array.get_payload_status_by_weight(block_root)
+            let current_slot = self.fc_store.get_current_slot();
+            let proposer_boost_root = self.fc_store.proposer_boost_root();
+            self.proto_array.get_canonical_payload_status::<E>(
+                block_root,
+                current_slot,
+                proposer_boost_root,
+            )
         } else {
             None
         }

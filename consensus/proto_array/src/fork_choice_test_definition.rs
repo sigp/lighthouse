@@ -159,6 +159,7 @@ impl ForkChoiceTestDefinition {
         )
         .expect("should create fork choice struct");
         let equivocating_indices = BTreeSet::new();
+        let mut last_current_slot = Slot::new(0);
 
         for (op_index, op) in self.operations.into_iter().enumerate() {
             match op.clone() {
@@ -199,6 +200,7 @@ impl ForkChoiceTestDefinition {
                             op_index, op
                         );
                     }
+                    last_current_slot = current_slot;
                     check_bytes_round_trip(&fork_choice);
                 }
                 Operation::ProposerBoostFindHead {
@@ -557,7 +559,11 @@ impl ForkChoiceTestDefinition {
                     block_root,
                     expected_status,
                 } => {
-                    let actual = fork_choice.get_payload_status_by_weight(&block_root);
+                    let actual = fork_choice.get_canonical_payload_status::<MainnetEthSpec>(
+                        &block_root,
+                        last_current_slot,
+                        Hash256::zero(),
+                    );
                     assert_eq!(
                         actual, expected_status,
                         "canonical payload status mismatch at op index {}",

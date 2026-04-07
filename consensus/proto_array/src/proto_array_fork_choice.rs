@@ -1038,21 +1038,53 @@ impl ProtoArrayForkChoice {
             .unwrap_or(false)
     }
 
-    /// Returns the payload status of a block by comparing full and empty payload weight.
+    /// Returns the canonical payload status of a block by comparing full and empty payload weight.
+    /// When weights are equal, falls back to `get_payload_status_tiebreaker`.
     ///
     /// Returns `None` if a non-gloas node.
-    pub fn get_payload_status_by_weight(&self, block_root: &Hash256) -> Option<PayloadStatus> {
+    pub fn get_canonical_payload_status<E: EthSpec>(
+        &self,
+        block_root: &Hash256,
+        current_slot: Slot,
+        proposer_boost_root: Hash256,
+    ) -> Option<PayloadStatus> {
         let index = *self.proto_array.indices.get(block_root)?;
         let node = self.proto_array.nodes.get(index)?;
 
-        if let Ok(node) = node.as_v29() {
-            if node.full_payload_weight >= node.empty_payload_weight {
-                return Some(PayloadStatus::Full);
-            }
+        let v29 = node.as_v29().ok()?;
+
+        if !v29.payload_received {
             return Some(PayloadStatus::Empty);
+        }
+
+        if v29.full_payload_weight > v29.empty_payload_weight {
+            return Some(PayloadStatus::Full);
+        } else if v29.full_payload_weight < v29.empty_payload_weight {
+            return Some(PayloadStatus::Empty);
+        }
+
+        let tiebreaker_for_status = |status| {
+            let node_ref = IndexedForkChoiceNode {
+                root: node.root(),
+                proto_node_index: index,
+                payload_status: status,
+            };
+            self.proto_array.get_payload_status_tiebreaker::<E>(
+                &node_ref,
+                node,
+                current_slot,
+                proposer_boost_root,
+            )
         };
 
-        None
+        let full_tiebreaker = tiebreaker_for_status(PayloadStatus::Full).ok()?;
+        let empty_tiebreaker = tiebreaker_for_status(PayloadStatus::Empty).ok()?;
+
+        if full_tiebreaker >= empty_tiebreaker {
+            Some(PayloadStatus::Full)
+        } else {
+            Some(PayloadStatus::Empty)
+        }
     }
 
     /// Returns the weight of a given block.

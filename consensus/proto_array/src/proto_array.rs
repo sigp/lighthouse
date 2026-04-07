@@ -1419,7 +1419,7 @@ impl ProtoArray {
         }
     }
 
-    fn get_payload_status_tiebreaker<E: EthSpec>(
+    pub fn get_payload_status_tiebreaker<E: EthSpec>(
         &self,
         fc_node: &IndexedForkChoiceNode,
         proto_node: &ProtoNode,

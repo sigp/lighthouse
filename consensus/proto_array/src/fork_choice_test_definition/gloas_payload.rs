@@ -107,10 +107,10 @@ pub fn get_gloas_chain_following_test_definition() -> ForkChoiceTestDefinition {
         block_root: get_root(1),
         expected_status: Some(PayloadStatus::Full),
     });
-    // Root 2 (Empty branch) has no attestations → both weights zero → defaults to Full via >=.
+    // Root 2 has no payload received → always Empty.
     ops.push(Operation::AssertPayloadStatusByWeight {
         block_root: get_root(2),
-        expected_status: Some(PayloadStatus::Full),
+        expected_status: Some(PayloadStatus::Empty),
     });
 
     // Cross-slot attestations with payload_present=false to Empty branch (root 4, slot 2).

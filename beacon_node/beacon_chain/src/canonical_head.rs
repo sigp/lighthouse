@@ -397,7 +397,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         }
 
         self.fork_choice_read_lock()
-            .get_payload_status_by_weight(root)
+            .get_canonical_payload_status(root)
             .map(|status| status == PayloadStatus::Full)
     }
 
