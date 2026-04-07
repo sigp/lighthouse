@@ -1350,7 +1350,7 @@ async fn recover_from_invalid_head_by_importing_blocks() {
         "the fork block should become the head"
     );
 
-    let manual_get_head = rig
+    let (manual_get_head, _) = rig
         .harness
         .chain
         .canonical_head
@@ -1428,7 +1428,7 @@ async fn weights_after_resetting_optimistic_status() {
         .fork_choice_read_lock()
         .proto_array()
         .iter_nodes(&head.head_block_root())
-        .map(|node| (node.root, node.weight))
+        .map(|node| (node.root(), node.weight()))
         .collect::<HashMap<_, _>>();
 
     rig.invalidate_manually(roots[1]).await;
@@ -1438,7 +1438,7 @@ async fn weights_after_resetting_optimistic_status() {
         .canonical_head
         .fork_choice_write_lock()
         .proto_array_mut()
-        .set_all_blocks_to_optimistic::<E>(&rig.harness.chain.spec)
+        .set_all_blocks_to_optimistic::<E>()
         .unwrap();
 
     let new_weights = rig
@@ -1448,7 +1448,7 @@ async fn weights_after_resetting_optimistic_status() {
         .fork_choice_read_lock()
         .proto_array()
         .iter_nodes(&head.head_block_root())
-        .map(|node| (node.root, node.weight))
+        .map(|node| (node.root(), node.weight()))
         .collect::<HashMap<_, _>>();
 
     assert_eq!(original_weights, new_weights);

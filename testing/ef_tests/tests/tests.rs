@@ -962,6 +962,12 @@ fn epoch_processing_proposer_lookahead() {
 }
 
 #[test]
+fn epoch_processing_ptc_window() {
+    EpochProcessingHandler::<MinimalEthSpec, PtcWindow>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, PtcWindow>::default().run();
+}
+
+#[test]
 fn epoch_processing_builder_pending_payments() {
     EpochProcessingHandler::<MinimalEthSpec, BuilderPendingPayments>::default().run();
     EpochProcessingHandler::<MainnetEthSpec, BuilderPendingPayments>::default().run();
@@ -1063,6 +1069,12 @@ fn fast_confirmation() {
     for handler in &handlers {
         FastConfirmationHandler::<MinimalEthSpec>::new(handler).run();
     }
+}
+
+#[test]
+fn fork_choice_on_execution_payload() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("on_execution_payload").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("on_execution_payload").run();
 }
 
 #[test]

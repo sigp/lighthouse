@@ -1284,7 +1284,7 @@ impl FastConfirmationRule {
             //        get_latest_message_epoch(latest_messages[i]))
             // Use the VOTE's epoch, not the current epoch.
             let vote_root = vote.current_root();
-            let vote_epoch = vote.latest_message_epoch();
+            let vote_epoch = vote.latest_message_slot().epoch(E::slots_per_epoch());
             let vote_target =
                 if cached_valid && vote_root == cached_root && vote_epoch == cached_epoch {
                     Some(cached_target)
@@ -1364,7 +1364,7 @@ impl FastConfirmationRule {
             .indices
             .get(&root)
             .and_then(|&idx| proto_array.nodes.get(idx))
-            .map(|n| n.slot)
+            .map(|n| n.slot())
             .ok_or(Error::NodeNotFound(root))
     }
 
@@ -1377,7 +1377,7 @@ impl FastConfirmationRule {
             .indices
             .get(&root)
             .and_then(|&idx| proto_array.nodes.get(idx))
-            .map(|n| n.slot.epoch(E::slots_per_epoch()))
+            .map(|n| n.slot().epoch(E::slots_per_epoch()))
     }
 
     fn parent_root(&self, root: Hash256, proto_array: &ProtoArray) -> Option<Hash256> {
@@ -1385,9 +1385,9 @@ impl FastConfirmationRule {
             .indices
             .get(&root)
             .and_then(|&idx| proto_array.nodes.get(idx))
-            .and_then(|n| n.parent)
+            .and_then(|n| n.parent())
             .and_then(|parent_idx| proto_array.nodes.get(parent_idx))
-            .map(|n| n.root)
+            .map(|n| n.root())
     }
 
     fn is_ancestor(
@@ -1456,7 +1456,7 @@ impl FastConfirmationRule {
             .indices
             .get(&root)
             .and_then(|&idx| proto_array.nodes.get(idx))
-            .and_then(|n| n.unrealized_justified_checkpoint)
+            .and_then(|n| n.unrealized_justified_checkpoint())
             .ok_or(Error::UnrealizedJustificationNotFound(root))
     }
 
@@ -1469,7 +1469,7 @@ impl FastConfirmationRule {
             .indices
             .get(&root)
             .and_then(|&idx| proto_array.nodes.get(idx))
-            .and_then(|n| n.unrealized_justified_checkpoint)
+            .and_then(|n| n.unrealized_justified_checkpoint())
             .map(|cp| cp.epoch)
     }
 
@@ -1487,11 +1487,11 @@ impl FastConfirmationRule {
             .get(&root)
             .and_then(|&idx| proto_array.nodes.get(idx))?;
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
-        let block_epoch = node.slot.epoch(E::slots_per_epoch());
+        let block_epoch = node.slot().epoch(E::slots_per_epoch());
         if current_epoch > block_epoch {
-            node.unrealized_justified_checkpoint.map(|cp| cp.epoch)
+            node.unrealized_justified_checkpoint().map(|cp| cp.epoch)
         } else {
-            Some(node.justified_checkpoint.epoch)
+            Some(node.justified_checkpoint().epoch)
         }
     }
 
@@ -1619,10 +1619,10 @@ impl FastConfirmationRule {
                 let Some(node) = proto_array.nodes.get(current_idx) else {
                     break;
                 };
-                if node.slot <= terminal_slot {
+                if node.slot() <= terminal_slot {
                     break;
                 }
-                match node.parent {
+                match node.parent() {
                     Some(parent_idx) => current_idx = parent_idx,
                     None => break,
                 }

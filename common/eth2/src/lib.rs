@@ -2732,6 +2732,55 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// Path for `v1/beacon/execution_payload_envelope/{block_id}`
+    pub fn get_beacon_execution_payload_envelope_path(
+        &self,
+        block_id: BlockId,
+    ) -> Result<Url, Error> {
+        let mut path = self.eth_path(V1)?;
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("execution_payload_envelope")
+            .push(&block_id.to_string());
+        Ok(path)
+    }
+
+    /// `GET v1/beacon/execution_payload_envelope/{block_id}`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_execution_payload_envelope<E: EthSpec>(
+        &self,
+        block_id: BlockId,
+    ) -> Result<
+        Option<ExecutionOptimisticFinalizedBeaconResponse<SignedExecutionPayloadEnvelope<E>>>,
+        Error,
+    > {
+        let path = self.get_beacon_execution_payload_envelope_path(block_id)?;
+        self.get_opt(path)
+            .await
+            .map(|opt| opt.map(BeaconResponse::ForkVersioned))
+    }
+
+    /// `GET v1/beacon/execution_payload_envelope/{block_id}` in SSZ format
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_execution_payload_envelope_ssz<E: EthSpec>(
+        &self,
+        block_id: BlockId,
+    ) -> Result<Option<SignedExecutionPayloadEnvelope<E>>, Error> {
+        let path = self.get_beacon_execution_payload_envelope_path(block_id)?;
+        let opt_response = self
+            .get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_beacon_blocks_ssz)
+            .await?;
+        match opt_response {
+            Some(bytes) => SignedExecutionPayloadEnvelope::from_ssz_bytes(&bytes)
+                .map(Some)
+                .map_err(Error::InvalidSsz),
+            None => Ok(None),
+        }
+    }
+
     /// `GET v2/validator/blocks/{slot}` in ssz format
     pub async fn get_validator_blocks_ssz<E: EthSpec>(
         &self,
