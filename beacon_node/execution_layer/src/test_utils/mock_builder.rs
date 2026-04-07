@@ -117,6 +117,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
                 header.fee_recipient = fee_recipient;
             }
+            ExecutionPayloadHeaderRefMut::Gloas(header) => {
+                header.fee_recipient = fee_recipient;
+            }
         }
     }
 
@@ -135,6 +138,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
                 header.gas_limit = gas_limit;
             }
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
+                header.gas_limit = gas_limit;
+            }
+            ExecutionPayloadHeaderRefMut::Gloas(header) => {
                 header.gas_limit = gas_limit;
             }
         }
@@ -161,6 +167,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
                 header.parent_hash = ExecutionBlockHash::from_root(parent_hash);
             }
+            ExecutionPayloadHeaderRefMut::Gloas(header) => {
+                header.parent_hash = ExecutionBlockHash::from_root(parent_hash);
+            }
         }
     }
 
@@ -179,6 +188,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
                 header.prev_randao = prev_randao;
             }
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
+                header.prev_randao = prev_randao;
+            }
+            ExecutionPayloadHeaderRefMut::Gloas(header) => {
                 header.prev_randao = prev_randao;
             }
         }
@@ -201,6 +213,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
                 header.block_number = block_number;
             }
+            ExecutionPayloadHeaderRefMut::Gloas(header) => {
+                header.block_number = block_number;
+            }
         }
     }
 
@@ -221,6 +236,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
                 header.timestamp = timestamp;
             }
+            ExecutionPayloadHeaderRefMut::Gloas(header) => {
+                header.timestamp = timestamp;
+            }
         }
     }
 
@@ -239,6 +257,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
                 header.withdrawals_root = withdrawals_root;
             }
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
+                header.withdrawals_root = withdrawals_root;
+            }
+            ExecutionPayloadHeaderRefMut::Gloas(header) => {
                 header.withdrawals_root = withdrawals_root;
             }
         }
@@ -271,6 +292,10 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
                 header.block_hash = ExecutionBlockHash::from_root(header.tree_hash_root());
             }
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
+                header.extra_data = extra_data;
+                header.block_hash = ExecutionBlockHash::from_root(header.tree_hash_root());
+            }
+            ExecutionPayloadHeaderRefMut::Gloas(header) => {
                 header.extra_data = extra_data;
                 header.block_hash = ExecutionBlockHash::from_root(header.tree_hash_root());
             }
