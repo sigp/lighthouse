@@ -1,0 +1,42 @@
+participants:
+    - el_type: geth
+      el_image: ethpandaops/geth:epbs-devnet-0
+      cl_type: grandine
+      cl_image: ethpandaops/grandine:epbs-devnet-0
+      cl_extra_params:
+        - --subscribe-all-subnets
+        - --subscribe-all-data-column-subnets
+        - --enable-payload-build
+        - --features=TrustOwnBlockSignatures
+      count: 1
+    - el_type: geth
+      el_image: ethpandaops/geth:epbs-devnet-0
+      cl_type: lighthouse
+      cl_image: greendoor/lighthouse:local-epbs-devnet-0
+      count: 1
+    - el_type: geth
+      el_image: ethpandaops/geth:epbs-devnet-0
+      cl_type: lodestar
+      cl_image: ethpandaops/lodestar:epbs-devnet-0
+      count: 1
+
+network_params:
+    electra_fork_epoch: 0
+    gloas_fork_epoch: 2
+    seconds_per_slot: 12
+    preset: mainnet
+
+global_log_level: debug
+snooper_enabled: true
+
+additional_services:
+    - dora
+
+dora_params:
+    image: ethpandaops/dora:gloas-support
+
+port_publisher:
+    cl:
+      enabled: true
+    additional_services:
+      enabled: true
