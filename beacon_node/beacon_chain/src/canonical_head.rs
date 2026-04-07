@@ -692,8 +692,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .get_full_block(&new_view.head_block_root)?
                     .ok_or(Error::MissingBeaconBlock(new_view.head_block_root))?;
 
-                // TODO(gloas): update once we have fork choice
-                let payload_status = StatePayloadStatus::Pending;
+                let payload_status = new_payload_status.as_state_payload_status();
                 let (_, beacon_state) = self
                     .store
                     .get_advanced_hot_state(
