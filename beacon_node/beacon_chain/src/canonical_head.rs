@@ -380,13 +380,11 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         Ok((head, execution_status))
     }
 
-    /// Returns true if the payload for this block is canonical according to fork choice.
+    // TODO(gloas) just a stub for now, implement this once we have fork choice.
+    /// Returns true if the payload for this block is canonical according to fork choice
     /// Returns an error if the block root doesn't exist in fork choice.
-    pub fn block_has_canonical_payload(&self, root: &Hash256) -> Result<bool, Error> {
-        Ok(self
-            .fork_choice_read_lock()
-            .proto_array()
-            .is_payload_received(root))
+    pub fn block_has_canonical_payload(&self, _root: &Hash256) -> Result<bool, Error> {
+        Ok(true)
     }
 
     /// Returns a clone of `self.cached_head`.
