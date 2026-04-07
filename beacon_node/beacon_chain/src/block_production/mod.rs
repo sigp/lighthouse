@@ -28,12 +28,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Atomically read some values from the head whilst avoiding holding cached head `Arc` any
         // longer than necessary.
-        let (head_slot, head_block_root, head_state_root) = {
+        let (head_slot, head_block_root, head_state_root, head_payload_status) = {
             let head = self.canonical_head.cached_head();
             (
                 head.head_slot(),
                 head.head_block_root(),
                 head.head_state_root(),
+                head.head_payload_status(),
             )
         };
         let (state, state_root_opt) = if head_slot < slot {
@@ -56,13 +57,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             } else {
                 // Fetch the head state advanced through to `slot`, which should be present in the
                 // state cache thanks to the state advance timer.
-                let head_payload_status = self
-                    .canonical_head
-                    .cached_head()
-                    .head_payload_status()
-                    .as_state_payload_status();
                 let (payload_status, parent_state_root) = if gloas_enabled
-                    && head_payload_status == StatePayloadStatus::Full
+                    && head_payload_status.as_state_payload_status() == StatePayloadStatus::Full
                     && let Ok(Some(envelope)) = self.store.get_payload_envelope(&head_block_root)
                 {
                     debug!(
