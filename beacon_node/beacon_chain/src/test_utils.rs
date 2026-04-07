@@ -3000,8 +3000,7 @@ where
         if let Some(envelope) = opt_envelope {
             self.process_envelope(block_hash.into(), envelope, &mut new_state)
                 .await;
-            // Recompute head after processing the envelope: Gloas fork choice requires the
-            // payload envelope to be present before selecting a block as head.
+            // Recompute head after processing the envelope: the new envelope could become head.
             self.chain.recompute_head_at_current_slot().await;
         }
         Ok((block_hash, block_contents, new_state))
