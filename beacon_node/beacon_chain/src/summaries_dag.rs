@@ -251,7 +251,7 @@ impl StateSummariesDAG {
     ///
     /// Post-Gloas this yields only one `state_root` per slot, either the Full or Pending state's
     /// root. If a full state is an ancestor of the starting state root, then that slot is full
-    /// on the traversed chain, so the full state root is excluded (and the pending root excluded).
+    /// on the traversed chain, so the full state root is included (and the pending root excluded).
     pub fn ancestors_of(&self, mut state_root: Hash256) -> Result<Vec<(Hash256, Slot)>, Error> {
         // Sanity check that the first summary exists
         if !self.state_summaries_by_state_root.contains_key(&state_root) {
