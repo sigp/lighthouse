@@ -8,6 +8,7 @@ use crate::observed_aggregates::Error as ObservedAttestationsError;
 use crate::observed_attesters::Error as ObservedAttestersError;
 use crate::observed_block_producers::Error as ObservedBlockProducersError;
 use crate::observed_data_sidecars::Error as ObservedDataSidecarsError;
+use crate::payload_envelope_streamer::Error as EnvelopeStreamerError;
 use bls::PublicKeyBytes;
 use execution_layer::PayloadStatus;
 use fork_choice::ExecutionStatus;
@@ -16,6 +17,7 @@ use milhouse::Error as MilhouseError;
 use operation_pool::OpPoolError;
 use safe_arith::ArithError;
 use ssz_types::Error as SszTypesError;
+use state_processing::envelope_processing::EnvelopeProcessingError;
 use state_processing::{
     BlockProcessingError, BlockReplayError, EpochProcessingError, SlotProcessingError,
     block_signature_verifier::Error as BlockSignatureVerifierError,
@@ -156,6 +158,7 @@ pub enum BeaconChainError {
         reconstructed_transactions_root: Hash256,
     },
     BlockStreamerError(BlockStreamerError),
+    EnvelopeStreamerError(EnvelopeStreamerError),
     AddPayloadLogicError,
     ExecutionForkChoiceUpdateFailed(execution_layer::Error),
     PrepareProposerFailed(BlockProcessingError),
@@ -318,8 +321,10 @@ pub enum BlockProductionError {
     FailedToBuildBlobSidecars(String),
     MissingExecutionRequests,
     SszTypesError(ssz_types::Error),
+    EnvelopeProcessingError(EnvelopeProcessingError),
+    BlsError(bls::Error),
     // TODO(gloas): Remove this once Gloas is implemented
-    GloasNotImplemented,
+    GloasNotImplemented(String),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

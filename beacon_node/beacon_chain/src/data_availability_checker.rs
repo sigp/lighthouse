@@ -5,9 +5,7 @@ use crate::block_verification_types::{AvailabilityPendingExecutedBlock, Availabl
 use crate::data_availability_checker::overflow_lru_cache::{
     DataAvailabilityCheckerInner, ReconstructColumnsDecision,
 };
-use crate::{
-    BeaconChain, BeaconChainTypes, BeaconStore, BlockProcessStatus, CustodyContext, metrics,
-};
+use crate::{BeaconChain, BeaconChainTypes, BlockProcessStatus, CustodyContext, metrics};
 use educe::Educe;
 use kzg::Kzg;
 use slot_clock::SlotClock;
@@ -27,7 +25,6 @@ use types::{
 
 mod error;
 mod overflow_lru_cache;
-mod state_lru_cache;
 
 use crate::data_availability_checker::error::Error;
 use crate::data_column_verification::{
@@ -53,7 +50,6 @@ use types::new_non_zero_usize;
 /// `PendingComponents` are now never removed from the cache manually are only removed via LRU
 /// eviction to prevent race conditions (#7961), so we expect this cache to be full all the time.
 const OVERFLOW_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
-const STATE_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
 
 /// Cache to hold fully valid data that can't be imported to fork-choice yet. After Dencun hard-fork
 /// blocks have a sidecar of data that is received separately from the network. We call the concept
@@ -122,13 +118,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         complete_blob_backfill: bool,
         slot_clock: T::SlotClock,
         kzg: Arc<Kzg>,
-        store: BeaconStore<T>,
         custody_context: Arc<CustodyContext<T::EthSpec>>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         let inner = DataAvailabilityCheckerInner::new(
             OVERFLOW_LRU_CAPACITY_NON_ZERO,
-            store,
             custody_context.clone(),
             spec.clone(),
         )?;
@@ -469,7 +463,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// Collects metrics from the data availability checker.
     pub fn metrics(&self) -> DataAvailabilityCheckerMetrics {
         DataAvailabilityCheckerMetrics {
-            state_cache_size: self.availability_cache.state_cache_size(),
             block_cache_size: self.availability_cache.block_cache_size(),
         }
     }
@@ -565,7 +558,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
 /// Helper struct to group data availability checker metrics.
 pub struct DataAvailabilityCheckerMetrics {
-    pub state_cache_size: usize,
     pub block_cache_size: usize,
 }
 
@@ -899,7 +891,7 @@ impl<E: EthSpec> MaybeAvailableBlock<E> {
 mod test {
     use super::*;
     use crate::CustodyContext;
-    use crate::block_verification_types::RpcBlock;
+    use crate::block_verification_types::RangeSyncBlock;
     use crate::custody_context::NodeCustodyType;
     use crate::data_column_verification::CustodyDataColumn;
     use crate::test_utils::{
@@ -912,7 +904,6 @@ mod test {
     use std::collections::HashSet;
     use std::sync::Arc;
     use std::time::Duration;
-    use store::HotColdDB;
     use types::data::DataColumn;
     use types::{
         ChainSpec, ColumnIndex, DataColumnSidecarFulu, EthSpec, ForkName, MainnetEthSpec, Slot,
@@ -1094,7 +1085,7 @@ mod test {
 
     /// Regression test for KZG verification truncation bug (https://github.com/sigp/lighthouse/pull/7927)
     #[test]
-    fn verify_kzg_for_rpc_blocks_should_not_truncate_data_columns_fulu() {
+    fn verify_kzg_for_range_sync_blocks_should_not_truncate_data_columns_fulu() {
         let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
         let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
         let da_checker = new_da_checker(spec.clone());
@@ -1120,7 +1111,7 @@ mod test {
                             let invalid_sidecar = DataColumnSidecar::Fulu(DataColumnSidecarFulu {
                                 column: DataColumn::<E>::empty(),
                                 index: *d.index(),
-                                kzg_commitments: d.kzg_commitments().clone(),
+                                kzg_commitments: d.kzg_commitments().unwrap().clone(),
                                 kzg_proofs: d.kzg_proofs().clone(),
                                 signed_block_header: d.signed_block_header().unwrap().clone(),
                                 kzg_commitments_inclusion_proof: d
@@ -1137,17 +1128,14 @@ mod test {
 
                 let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
                 let da_checker = Arc::new(new_da_checker(spec.clone()));
-                RpcBlock::new(Arc::new(block), Some(block_data), &da_checker, spec.clone())
+                RangeSyncBlock::new(Arc::new(block), block_data, &da_checker, spec.clone())
                     .expect("should create RPC block with custody columns")
             })
             .collect::<Vec<_>>();
 
         let available_blocks = blocks_with_columns
-            .iter()
-            .filter_map(|block| match block {
-                RpcBlock::FullyAvailable(available_block) => Some(available_block.clone()),
-                RpcBlock::BlockOnly { .. } => None,
-            })
+            .into_iter()
+            .map(|block| block.into_available_block())
             .collect::<Vec<_>>();
 
         // WHEN verifying all blocks together (totalling 256 data columns)
@@ -1253,7 +1241,6 @@ mod test {
             spec.get_slot_duration(),
         );
         let kzg = get_kzg(&spec);
-        let store = Arc::new(HotColdDB::open_ephemeral(<_>::default(), spec.clone()).unwrap());
         let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
         let custody_context = Arc::new(CustodyContext::new(
             NodeCustodyType::Fullnode,
@@ -1265,7 +1252,6 @@ mod test {
             complete_blob_backfill,
             slot_clock,
             kzg,
-            store,
             custody_context,
             spec,
         )

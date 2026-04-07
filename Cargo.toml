@@ -117,16 +117,13 @@ bitvec = "1"
 bls = { path = "crypto/bls" }
 byteorder = "1"
 bytes = "1.11.1"
-# Turn off c-kzg's default features which include `blst/portable`. We can turn on blst's portable
-# feature ourselves when desired.
-c-kzg = { version = "2.1", default-features = false }
 cargo_metadata = "0.19"
 clap = { version = "4.5.4", features = ["derive", "cargo", "wrap_help"] }
 clap_utils = { path = "common/clap_utils" }
 compare_fields = "0.1"
 console-subscriber = "0.4"
 context_deserialize = "0.2"
-criterion = "0.5"
+criterion = "0.8"
 delay_map = "0.4"
 deposit_contract = { path = "common/deposit_contract" }
 directory = { path = "common/directory" }
@@ -148,7 +145,6 @@ ethereum_serde_utils = "0.8.0"
 ethereum_ssz = { version = "0.10.0", features = ["context_deserialize"] }
 ethereum_ssz_derive = "0.10.0"
 execution_layer = { path = "beacon_node/execution_layer" }
-exit-future = "0.2"
 filesystem = { path = "common/filesystem" }
 fixed_bytes = { path = "consensus/fixed_bytes" }
 fnv = "1"
@@ -164,7 +160,7 @@ http_api = { path = "beacon_node/http_api" }
 hyper = "1"
 initialized_validators = { path = "validator_client/initialized_validators" }
 int_to_bytes = { path = "consensus/int_to_bytes" }
-itertools = "0.10"
+itertools = "0.14"
 kzg = { path = "crypto/kzg" }
 libp2p = { git = "https://github.com/libp2p/rust-libp2p.git", default-features = false, features = ["identify", "yamux", "noise", "dns", "tcp", "tokio", "secp256k1", "macros", "metrics", "quic", "upnp", "gossipsub"] }
 libsecp256k1 = "0.7"
@@ -206,23 +202,22 @@ r2d2 = "0.8"
 rand = "0.9.0"
 rayon = "1.7"
 regex = "1"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "stream", "rustls-tls", "native-tls-vendored"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "stream", "rustls-tls"] }
 ring = "0.17"
 rpds = "0.11"
-rusqlite = { version = "0.28", features = ["bundled"] }
+rusqlite = { version = "0.38", features = ["bundled"] }
 rust_eth_kzg = "0.9"
 safe_arith = "0.1"
 sensitive_url = { version = "0.1", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_repr = "0.1"
-serde_yaml = "0.9"
 sha2 = "0.10"
 signing_method = { path = "validator_client/signing_method" }
 slasher = { path = "slasher", default-features = false }
 slashing_protection = { path = "validator_client/slashing_protection" }
 slot_clock = { path = "common/slot_clock" }
-smallvec = { version = "1.11.2", features = ["arbitrary"] }
+smallvec = "1"
 snap = "1"
 ssz_types = { version = "0.14.0", features = ["context_deserialize", "runtime_types"] }
 state_processing = { path = "consensus/state_processing" }
@@ -248,9 +243,9 @@ tracing_samplers = { path = "common/tracing_samplers" }
 tree_hash = "0.12.0"
 tree_hash_derive = "0.12.0"
 typenum = "1"
-types = { path = "consensus/types" }
+types = { path = "consensus/types", features = ["saturating-arith"] }
 url = "2"
-uuid = { version = "0.8", features = ["serde", "v4"] }
+uuid = { version = "1", features = ["serde", "v4"] }
 validator_client = { path = "validator_client" }
 validator_dir = { path = "common/validator_dir" }
 validator_http_api = { path = "validator_client/http_api" }
@@ -262,7 +257,8 @@ validator_test_rig = { path = "testing/validator_test_rig" }
 warp = { version = "0.3.7", default-features = false, features = ["tls"] }
 warp_utils = { path = "common/warp_utils" }
 workspace_members = { path = "common/workspace_members" }
-xdelta3 = { git = "https://github.com/sigp/xdelta3-rs", rev = "4db64086bb02e9febb584ba93b9d16bb2ae3825a" }
+xdelta3 = { git = "https://github.com/sigp/xdelta3-rs", rev = "fe3906605c87b6c0515bd7c8fc671f47875e3ccc" }
+yaml_serde = "0.10"
 zeroize = { version = "1", features = ["zeroize_derive", "serde"] }
 zip = { version = "6.0", default-features = false, features = ["deflate"] }
 zstd = "0.13"

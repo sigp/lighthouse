@@ -38,7 +38,7 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, debug_span, error, info, instrument, warn};
 use typenum::Unsigned;
 use types::data::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList};
 use types::*;
@@ -186,6 +186,7 @@ pub enum HotColdDBError {
     MissingHotHDiff(Hash256),
     MissingHDiff(Slot),
     MissingExecutionPayload(Hash256),
+    MissingExecutionPayloadEnvelope(Hash256),
     MissingFullBlockExecutionPayloadPruned(Hash256, Slot),
     MissingAnchorInfo,
     MissingFrozenBlockSlot(Hash256),
@@ -721,14 +722,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         })
     }
 
-    /// Fetch a block from the store, ignoring which fork variant it *should* be for.
-    pub fn get_block_any_variant<Payload: AbstractExecPayload<E>>(
-        &self,
-        block_root: &Hash256,
-    ) -> Result<Option<SignedBeaconBlock<E, Payload>>, Error> {
-        self.get_block_with(block_root, SignedBeaconBlock::any_from_ssz_bytes)
-    }
-
     /// Fetch a block from the store using a custom decode function.
     ///
     /// This is useful for e.g. ignoring the slot-indicated fork to forcefully load a block as if it
@@ -743,6 +736,32 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .map(|block_bytes| decoder(&block_bytes))
             .transpose()
             .map_err(|e| e.into())
+    }
+
+    pub fn get_payload_envelope(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<SignedExecutionPayloadEnvelope<E>>, Error> {
+        let key = block_root.as_slice();
+
+        match self
+            .hot_db
+            .get_bytes(SignedExecutionPayloadEnvelope::<E>::db_column(), key)?
+        {
+            Some(bytes) => {
+                let envelope = SignedExecutionPayloadEnvelope::from_ssz_bytes(&bytes)?;
+                Ok(Some(envelope))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Check if the payload envelope for a block exists on disk.
+    pub fn payload_envelope_exists(&self, block_root: &Hash256) -> Result<bool, Error> {
+        self.hot_db.key_exists(
+            SignedExecutionPayloadEnvelope::<E>::db_column(),
+            block_root.as_slice(),
+        )
     }
 
     /// Load the execution payload for a block from disk.
@@ -1027,6 +1046,33 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
+    // TODO(gloas) we should store the execution payload separately like we do for blocks.
+    /// Prepare a signed execution payload envelope for storage in the database.
+    pub fn payload_envelope_as_kv_store_ops(
+        &self,
+        key: &Hash256,
+        payload: &SignedExecutionPayloadEnvelope<E>,
+        ops: &mut Vec<KeyValueStoreOp>,
+    ) {
+        ops.push(KeyValueStoreOp::PutKeyValue(
+            SignedExecutionPayloadEnvelope::<E>::db_column(),
+            key.as_slice().into(),
+            payload.as_ssz_bytes(),
+        ));
+    }
+
+    pub fn put_payload_envelope(
+        &self,
+        block_root: &Hash256,
+        payload_envelope: SignedExecutionPayloadEnvelope<E>,
+    ) -> Result<(), Error> {
+        self.hot_db.put_bytes(
+            SignedExecutionPayloadEnvelope::<E>::db_column(),
+            block_root.as_slice(),
+            &payload_envelope.as_ssz_bytes(),
+        )
+    }
+
     /// Store a state in the store.
     pub fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error> {
         let mut ops: Vec<KeyValueStoreOp> = Vec::new();
@@ -1087,10 +1133,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn get_advanced_hot_state(
         &self,
         block_root: Hash256,
+        payload_status: StatePayloadStatus,
         max_slot: Slot,
         state_root: Hash256,
     ) -> Result<Option<(Hash256, BeaconState<E>)>, Error> {
-        if let Some(cached) = self.get_advanced_hot_state_from_cache(block_root, max_slot) {
+        if let Some(cached) =
+            self.get_advanced_hot_state_from_cache(block_root, payload_status, max_slot)
+        {
             return Ok(Some(cached));
         }
 
@@ -1112,7 +1161,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .into());
         }
 
-        let state_root = if block_root == split.block_root && split.slot <= max_slot {
+        // Split state should always be `Pending`.
+        let state_root = if block_root == split.block_root
+            && let StatePayloadStatus::Pending = payload_status
+            && split.slot <= max_slot
+        {
             split.state_root
         } else {
             state_root
@@ -1159,11 +1212,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn get_advanced_hot_state_from_cache(
         &self,
         block_root: Hash256,
+        payload_status: StatePayloadStatus,
         max_slot: Slot,
     ) -> Option<(Hash256, BeaconState<E>)> {
         self.state_cache
             .lock()
-            .get_by_block_root(block_root, max_slot)
+            .get_by_block_root(block_root, payload_status, max_slot)
     }
 
     /// Delete a state, ensuring it is removed from the LRU cache, as well as from on-disk.
@@ -1283,6 +1337,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     );
                 }
 
+                StoreOp::PutPayloadEnvelope(block_root, payload_envelope) => {
+                    self.payload_envelope_as_kv_store_ops(
+                        &block_root,
+                        &payload_envelope,
+                        &mut key_value_batch,
+                    );
+                }
+
                 StoreOp::PutStateSummary(state_root, summary) => {
                     key_value_batch.push(summary.as_kv_store_op(state_root));
                 }
@@ -1309,6 +1371,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     }
                 }
 
+                StoreOp::DeletePayloadEnvelope(block_root) => {
+                    key_value_batch.push(KeyValueStoreOp::DeleteKey(
+                        SignedExecutionPayloadEnvelope::<E>::db_column(),
+                        block_root.as_slice().to_vec(),
+                    ))
+                }
+
                 StoreOp::DeleteState(state_root, slot) => {
                     // Delete the hot state summary.
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(
@@ -1319,6 +1388,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     // NOTE: `hot_storage_strategy` can error if there are states in the database
                     // prior to the `anchor_slot`. This can happen if checkpoint sync has been
                     // botched and left some states in the database prior to completing.
+                    // Use `Pending` status here because snapshots and diffs are only stored for
+                    // `Pending` states.
                     if let Some(slot) = slot
                         && let Ok(strategy) = self.hot_storage_strategy(slot)
                     {
@@ -1450,14 +1521,24 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let blob_cache_ops = blobs_ops.clone();
         // Try to execute blobs store ops.
-        self.blobs_db
-            .do_atomically(self.convert_to_kv_batch(blobs_ops)?)?;
+        let kv_blob_ops = self.convert_to_kv_batch(blobs_ops)?;
+        {
+            let _span = debug_span!("write_blobs_db").entered();
+            self.blobs_db.do_atomically(kv_blob_ops)?;
+        }
 
         let hot_db_cache_ops = hot_db_ops.clone();
         // Try to execute hot db store ops.
-        let tx_res = match self.convert_to_kv_batch(hot_db_ops) {
-            Ok(kv_store_ops) => self.hot_db.do_atomically(kv_store_ops),
-            Err(e) => Err(e),
+        let tx_res = {
+            let _convert_span = debug_span!("convert_hot_db_ops").entered();
+            match self.convert_to_kv_batch(hot_db_ops) {
+                Ok(kv_store_ops) => {
+                    drop(_convert_span);
+                    let _span = debug_span!("write_hot_db").entered();
+                    self.hot_db.do_atomically(kv_store_ops)
+                }
+                Err(e) => Err(e),
+            }
         };
         // Rollback on failure
         if let Err(e) = tx_res {
@@ -1528,6 +1609,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
                     StoreOp::PutDataColumns(_, _) => (),
 
+                    StoreOp::PutPayloadEnvelope(_, _) => (),
+
                     StoreOp::PutState(_, _) => (),
 
                     StoreOp::PutStateSummary(_, _) => (),
@@ -1535,6 +1618,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     StoreOp::DeleteBlock(block_root) => {
                         guard.delete_block(&block_root);
                     }
+
+                    StoreOp::DeletePayloadEnvelope(_) => (),
 
                     StoreOp::DeleteState(_, _) => (),
 
@@ -1772,6 +1857,100 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
+    /// Compute the `StatePayloadStatus` for a stored state based on its summary.
+    ///
+    /// In future this might become a field of the summary, but this would require a whole DB
+    /// migration. For now we use an extra read from the DB to determine it.
+    fn get_hot_state_summary_payload_status(
+        &self,
+        summary: &HotStateSummary,
+    ) -> Result<StatePayloadStatus, Error> {
+        // Treat pre-Gloas states as `Pending`.
+        if !self
+            .spec
+            .fork_name_at_slot::<E>(summary.slot)
+            .gloas_enabled()
+        {
+            return Ok(StatePayloadStatus::Pending);
+        }
+
+        // Treat genesis state as `Pending` (`BeaconBlock` state).
+        let previous_state_root = summary.previous_state_root;
+        if previous_state_root.is_zero() {
+            return Ok(StatePayloadStatus::Pending);
+        }
+
+        // Load the hot state summary for the previous state.
+        //
+        // If it has the same slot as this summary then we know this summary is for a `Full` state
+        // (payload state), because they are always diffed against their same-slot `Pending` state.
+        //
+        // If the previous summary has a different slot AND the latest block is from `summary.slot`,
+        // then this state *must* be `Pending` (it is the summary for latest block itself).
+        //
+        // Otherwise, we are at a skipped slot and must traverse the graph of state summaries
+        // backwards until we reach a summary for the latest block. This recursion could be quite
+        // far in the case of a long skip. We could optimise this in future using the
+        // `diff_base_state` (like in `get_ancestor_state_root`), or by doing a proper DB
+        // migration.
+        let previous_state_summary = self
+            .load_hot_state_summary(&previous_state_root)?
+            .ok_or(Error::MissingHotStateSummary(previous_state_root))?;
+
+        if previous_state_summary.slot == summary.slot {
+            Ok(StatePayloadStatus::Full)
+        } else if summary.slot == summary.latest_block_slot {
+            Ok(StatePayloadStatus::Pending)
+        } else {
+            self.get_hot_state_summary_payload_status(&previous_state_summary)
+        }
+    }
+
+    /// Recompute the payload status for a state at `slot` that is stored in the cold DB.
+    ///
+    /// This function returns an error for any `slot` that is outside the range of slots stored in
+    /// the freezer DB.
+    ///
+    /// For all slots prior to Gloas, it returns `Pending`.
+    ///
+    /// For post-Gloas slots the algorithm is:
+    ///
+    /// 1. Load the most recently applied block at `slot` (may not be from `slot` in case of a skip)
+    /// 2. Load the canonical `state_root` at the slot of the block. If this `state_root` matches
+    ///    the one in the block then we know the state at *that* slot is canonically empty (no
+    ///    payload). Conversely, if it is different, we know that the block's slot is full (assuming
+    ///    no database corruption).
+    /// 3. The payload status of `slot` is the same as the payload status of `block.slot()`, because
+    ///    we only care about whether a beacon block or payload was applied most recently, and
+    ///    `block` is by definition the most-recently-applied block.
+    ///
+    /// All of this mucking around could be avoided if we do a schema migration to record the
+    /// payload status in the database. For now, this is simpler.
+    fn get_cold_state_payload_status(&self, slot: Slot) -> Result<StatePayloadStatus, Error> {
+        // Pre-Gloas states are always `Pending`.
+        if !self.spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
+            return Ok(StatePayloadStatus::Pending);
+        }
+
+        let block_root = self
+            .get_cold_block_root(slot)?
+            .ok_or(HotColdDBError::MissingFrozenBlock(slot))?;
+
+        let block = self
+            .get_blinded_block(&block_root)?
+            .ok_or(Error::MissingBlock(block_root))?;
+
+        let state_root = self
+            .get_cold_state_root(block.slot())?
+            .ok_or(HotColdDBError::MissingRestorePointState(block.slot()))?;
+
+        if block.state_root() != state_root {
+            Ok(StatePayloadStatus::Full)
+        } else {
+            Ok(StatePayloadStatus::Pending)
+        }
+    }
+
     fn load_hot_hdiff_buffer(&self, state_root: Hash256) -> Result<HDiffBuffer, Error> {
         if let Some(buffer) = self
             .state_cache
@@ -1867,13 +2046,22 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<Option<(BeaconState<E>, Hash256)>, Error> {
         metrics::inc_counter(&metrics::BEACON_STATE_HOT_GET_COUNT);
 
-        if let Some(HotStateSummary {
-            slot,
-            latest_block_root,
-            diff_base_state,
-            ..
-        }) = self.load_hot_state_summary(state_root)?
+        if let Some(
+            summary @ HotStateSummary {
+                slot,
+                latest_block_root,
+                diff_base_state,
+                ..
+            },
+        ) = self.load_hot_state_summary(state_root)?
         {
+            let payload_status = self.get_hot_state_summary_payload_status(&summary)?;
+            debug!(
+                %slot,
+                ?state_root,
+                ?payload_status,
+                "Loading hot state"
+            );
             let mut state = match self.hot_storage_strategy(slot)? {
                 strat @ StorageStrategy::Snapshot | strat @ StorageStrategy::DiffFrom(_) => {
                     let buffer_timer = metrics::start_timer_vec(
@@ -1925,6 +2113,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         base_state,
                         slot,
                         latest_block_root,
+                        payload_status,
                         update_cache,
                     )?
                 }
@@ -1942,19 +2131,26 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         base_state: BeaconState<E>,
         slot: Slot,
         latest_block_root: Hash256,
+        desired_payload_status: StatePayloadStatus,
         update_cache: bool,
     ) -> Result<BeaconState<E>, Error> {
-        if base_state.slot() == slot {
+        if base_state.slot() == slot && base_state.payload_status() == desired_payload_status {
             return Ok(base_state);
         }
 
-        let blocks = self.load_blocks_to_replay(base_state.slot(), slot, latest_block_root)?;
+        let (blocks, envelopes) = self.load_blocks_to_replay(
+            base_state.slot(),
+            slot,
+            latest_block_root,
+            desired_payload_status,
+        )?;
         let _t = metrics::start_timer(&metrics::STORE_BEACON_REPLAY_HOT_BLOCKS_TIME);
 
         // If replaying blocks, and `update_cache` is true, also cache the epoch boundary
         // state that this state is based on. It may be useful as the basis of more states
         // in the same epoch.
         let state_cache_hook = |state_root, state: &mut BeaconState<E>| {
+            // TODO(gloas): prevent caching of the payload_status=Full state?
             if !update_cache || state.slot() % E::slots_per_epoch() != 0 {
                 return Ok(());
             }
@@ -1978,9 +2174,19 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             Ok(())
         };
 
+        debug!(
+            %slot,
+            blocks = ?blocks.iter().map(|block| block.slot()).collect::<Vec<_>>(),
+            envelopes = ?envelopes.iter().map(|e| e.message.slot).collect::<Vec<_>>(),
+            payload_status = ?desired_payload_status,
+            "Replaying blocks and envelopes"
+        );
+
         self.replay_blocks(
             base_state,
             blocks,
+            envelopes,
+            desired_payload_status,
             slot,
             no_state_root_iter(),
             Some(Box::new(state_cache_hook)),
@@ -2284,7 +2490,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok(base_state);
         }
 
-        let blocks = self.load_cold_blocks(base_state.slot() + 1, slot)?;
+        let (blocks, envelopes) = self.load_cold_blocks(base_state.slot() + 1, slot)?;
 
         // Include state root for base state as it is required by block processing to not
         // have to hash the state.
@@ -2293,7 +2499,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             self.forwards_state_roots_iterator_until(base_state.slot(), slot, || {
                 Err(Error::StateShouldNotBeRequired(slot))
             })?;
-        let state = self.replay_blocks(base_state, blocks, slot, Some(state_root_iter), None)?;
+        let payload_status = self.get_cold_state_payload_status(slot)?;
+        let state = self.replay_blocks(
+            base_state,
+            blocks,
+            envelopes,
+            payload_status,
+            slot,
+            Some(state_root_iter),
+            None,
+        )?;
         debug!(
             target_slot = %slot,
             replay_time_ms = metrics::stop_timer_with_duration(replay_timer).as_millis(),
@@ -2386,40 +2601,78 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
-    /// Load cold blocks between `start_slot` and `end_slot` inclusive.
+    /// Load cold blocks and payload envelopes between `start_slot` and `end_slot` inclusive.
+    #[allow(clippy::type_complexity)]
     pub fn load_cold_blocks(
         &self,
         start_slot: Slot,
         end_slot: Slot,
-    ) -> Result<Vec<SignedBlindedBeaconBlock<E>>, Error> {
+    ) -> Result<
+        (
+            Vec<SignedBlindedBeaconBlock<E>>,
+            Vec<SignedExecutionPayloadEnvelope<E>>,
+        ),
+        Error,
+    > {
         let _t = metrics::start_timer(&metrics::STORE_BEACON_LOAD_COLD_BLOCKS_TIME);
         let block_root_iter =
             self.forwards_block_roots_iterator_until(start_slot, end_slot, || {
                 Err(Error::StateShouldNotBeRequired(end_slot))
             })?;
-        process_results(block_root_iter, |iter| {
+        let blocks = process_results(block_root_iter, |iter| {
             iter.map(|(block_root, _slot)| block_root)
                 .dedup()
                 .map(|block_root| {
                     self.get_blinded_block(&block_root)?
                         .ok_or(Error::MissingBlock(block_root))
                 })
-                .collect()
-        })?
+                .collect::<Result<Vec<_>, Error>>()
+        })??;
+
+        // If Gloas is not enabled for any slots in the range, just return `blocks`.
+        if !self.spec.fork_name_at_slot::<E>(start_slot).gloas_enabled()
+            && !self.spec.fork_name_at_slot::<E>(end_slot).gloas_enabled()
+        {
+            return Ok((blocks, vec![]));
+        }
+        let end_block_root = self
+            .get_cold_block_root(end_slot)?
+            .ok_or(HotColdDBError::MissingFrozenBlock(end_slot))?;
+        let desired_payload_status = self.get_cold_state_payload_status(end_slot)?;
+        let envelopes = self.load_payload_envelopes_for_blocks(
+            &blocks,
+            end_block_root,
+            desired_payload_status,
+        )?;
+
+        Ok((blocks, envelopes))
     }
 
-    /// Load the blocks between `start_slot` and `end_slot` by backtracking from `end_block_hash`.
+    /// Load the blocks & envelopes between `start_slot` and `end_slot` by backtracking from
+    /// `end_block_root`.
     ///
     /// Blocks are returned in slot-ascending order, suitable for replaying on a state with slot
     /// equal to `start_slot`, to reach a state with slot equal to `end_slot`.
+    ///
+    /// Payloads are also returned in slot-ascending order, but only payloads forming part of
+    /// the chain are loaded (payloads for EMPTY slots are omitted). Prior to Gloas, an empty
+    /// vec of payloads will be returned.
+    #[allow(clippy::type_complexity)]
     pub fn load_blocks_to_replay(
         &self,
         start_slot: Slot,
         end_slot: Slot,
-        end_block_hash: Hash256,
-    ) -> Result<Vec<SignedBeaconBlock<E, BlindedPayload<E>>>, Error> {
+        end_block_root: Hash256,
+        desired_payload_status: StatePayloadStatus,
+    ) -> Result<
+        (
+            Vec<SignedBlindedBeaconBlock<E>>,
+            Vec<SignedExecutionPayloadEnvelope<E>>,
+        ),
+        Error,
+    > {
         let _t = metrics::start_timer(&metrics::STORE_BEACON_LOAD_HOT_BLOCKS_TIME);
-        let mut blocks = ParentRootBlockIterator::new(self, end_block_hash)
+        let mut blocks = ParentRootBlockIterator::new(self, end_block_root)
             .map(|result| result.map(|(_, block)| block))
             // Include the block at the end slot (if any), it needs to be
             // replayed in order to construct the canonical state at `end_slot`.
@@ -2446,17 +2699,70 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             })
             .collect::<Result<Vec<_>, _>>()?;
         blocks.reverse();
-        Ok(blocks)
+
+        // If Gloas is not enabled for any slots in the range, just return `blocks`.
+        if !self.spec.fork_name_at_slot::<E>(start_slot).gloas_enabled()
+            && !self.spec.fork_name_at_slot::<E>(end_slot).gloas_enabled()
+        {
+            return Ok((blocks, vec![]));
+        }
+
+        let envelopes = self.load_payload_envelopes_for_blocks(
+            &blocks,
+            end_block_root,
+            desired_payload_status,
+        )?;
+
+        Ok((blocks, envelopes))
+    }
+
+    pub fn load_payload_envelopes_for_blocks(
+        &self,
+        blocks: &[SignedBlindedBeaconBlock<E>],
+        end_block_root: Hash256,
+        desired_payload_status: StatePayloadStatus,
+    ) -> Result<Vec<SignedExecutionPayloadEnvelope<E>>, Error> {
+        let mut envelopes = vec![];
+
+        for (block, next_block) in blocks.iter().tuple_windows() {
+            if block.fork_name_unchecked().gloas_enabled() {
+                // Check next block to see if this block's payload is canonical on this chain.
+                let block_hash = block.payload_bid_block_hash()?;
+                if !next_block.is_parent_block_full(block_hash) {
+                    // No payload at this slot (empty), nothing to load.
+                    continue;
+                }
+                // Using `parent_root` avoids computation.
+                let block_root = next_block.parent_root();
+                let envelope = self
+                    .get_payload_envelope(&block_root)?
+                    .ok_or(HotColdDBError::MissingExecutionPayloadEnvelope(block_root))?;
+                envelopes.push(envelope);
+            }
+        }
+
+        // Load the payload for the last block if desired.
+        if let StatePayloadStatus::Full = desired_payload_status {
+            let envelope = self.get_payload_envelope(&end_block_root)?.ok_or(
+                HotColdDBError::MissingExecutionPayloadEnvelope(end_block_root),
+            )?;
+            envelopes.push(envelope);
+        }
+
+        Ok(envelopes)
     }
 
     /// Replay `blocks` on top of `state` until `target_slot` is reached.
     ///
     /// Will skip slots as necessary. The returned state is not guaranteed
     /// to have any caches built, beyond those immediately required by block processing.
+    #[allow(clippy::too_many_arguments)]
     pub fn replay_blocks(
         &self,
         state: BeaconState<E>,
-        blocks: Vec<SignedBeaconBlock<E, BlindedPayload<E>>>,
+        blocks: Vec<SignedBlindedBeaconBlock<E>>,
+        envelopes: Vec<SignedExecutionPayloadEnvelope<E>>,
+        desired_payload_status: StatePayloadStatus,
         target_slot: Slot,
         state_root_iter: Option<impl Iterator<Item = Result<(Hash256, Slot), Error>>>,
         pre_slot_hook: Option<PreSlotHook<E, Error>>,
@@ -2465,7 +2771,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let mut block_replayer = BlockReplayer::new(state, &self.spec)
             .no_signature_verification()
-            .minimal_block_root_verification();
+            .minimal_block_root_verification()
+            .desired_state_payload_status(desired_payload_status);
 
         let have_state_root_iterator = state_root_iter.is_some();
         if let Some(state_root_iter) = state_root_iter {
@@ -2477,7 +2784,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
 
         block_replayer
-            .apply_blocks(blocks, Some(target_slot))
+            .apply_blocks(blocks, envelopes, Some(target_slot))
             .map(|block_replayer| {
                 if have_state_root_iterator && block_replayer.state_root_miss() {
                     warn!(
@@ -2963,12 +3270,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             Some(mut split) => {
                 debug!(?split, "Loaded split partial");
                 // Load the hot state summary to get the block root.
-                let latest_block_root = self
-                    .load_block_root_from_summary_any_version(&split.state_root)
-                    .ok_or(HotColdDBError::MissingSplitState(
-                        split.state_root,
-                        split.slot,
-                    ))?;
+                let latest_block_root =
+                    self.load_block_root_from_summary(&split.state_root).ok_or(
+                        HotColdDBError::MissingSplitState(split.state_root, split.slot),
+                    )?;
                 split.block_root = latest_block_root;
                 Ok(Some(split))
             }
@@ -2999,27 +3304,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .map_err(|e| Error::LoadHotStateSummary(*state_root, e.into()))
     }
 
-    /// Load a hot state's summary in V22 format, given its root.
-    pub fn load_hot_state_summary_v22(
-        &self,
-        state_root: &Hash256,
-    ) -> Result<Option<HotStateSummaryV22>, Error> {
-        self.hot_db
-            .get(state_root)
-            .map_err(|e| Error::LoadHotStateSummary(*state_root, e.into()))
-    }
-
-    /// Load the latest block root for a hot state summary either in modern form, or V22 form.
-    ///
-    /// This function is required to open a V22 database for migration to V24, or vice versa.
-    pub fn load_block_root_from_summary_any_version(
-        &self,
-        state_root: &Hash256,
-    ) -> Option<Hash256> {
+    /// Load the latest block root for a hot state summary.
+    pub fn load_block_root_from_summary(&self, state_root: &Hash256) -> Option<Hash256> {
         if let Ok(Some(summary)) = self.load_hot_state_summary(state_root) {
-            return Some(summary.latest_block_root);
-        }
-        if let Ok(Some(summary)) = self.load_hot_state_summary_v22(state_root) {
             return Some(summary.latest_block_root);
         }
         None
@@ -3932,11 +4219,15 @@ impl HotStateSummary {
         // slots where there isn't a skip).
         let latest_block_root = state.get_latest_block_root(state_root);
 
+        // Payload status of the state determines a lot about how it is stored.
+        let payload_status = state.payload_status();
+
         let get_state_root = |slot| {
             if slot == state.slot() {
+                // TODO(gloas): I think we can remove this case
                 Ok::<_, Error>(state_root)
             } else {
-                Ok(get_ancestor_state_root(store, state, slot).map_err(|e| {
+                Ok::<_, Error>(get_ancestor_state_root(store, state, slot).map_err(|e| {
                     Error::StateSummaryIteratorError {
                         error: e,
                         from_state_root: state_root,
@@ -3956,6 +4247,12 @@ impl HotStateSummary {
         let previous_state_root = if state.slot() == 0 {
             // Set to 0x0 for genesis state to prevent any sort of circular reference.
             Hash256::zero()
+        } else if let StatePayloadStatus::Full = payload_status
+            && state.slot() == state.latest_block_header().slot
+        {
+            // A Full state at a non-skipped slot builds off the Pending state of the same slot,
+            // i.e. the state with the same `state_root` as its `BeaconBlock`
+            state.latest_block_header().state_root
         } else {
             get_state_root(state.slot().safe_sub(1_u64)?)?
         };
@@ -3967,30 +4264,6 @@ impl HotStateSummary {
             diff_base_state,
             previous_state_root,
         })
-    }
-}
-
-/// Legacy hot state summary used in schema V22 and before.
-///
-/// This can be deleted when we remove V22 support.
-#[derive(Debug, Clone, Copy, Encode, Decode)]
-pub struct HotStateSummaryV22 {
-    pub slot: Slot,
-    pub latest_block_root: Hash256,
-    pub epoch_boundary_state_root: Hash256,
-}
-
-impl StoreItem for HotStateSummaryV22 {
-    fn db_column() -> DBColumn {
-        DBColumn::BeaconStateSummary
-    }
-
-    fn as_store_bytes(&self) -> Vec<u8> {
-        self.as_ssz_bytes()
-    }
-
-    fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        Ok(Self::from_ssz_bytes(bytes)?)
     }
 }
 

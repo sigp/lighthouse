@@ -22,8 +22,6 @@ pub use beacon_response::{
 };
 
 pub use self::error::{Error, ok_or_error, success_or_error};
-pub use reqwest;
-pub use reqwest::{StatusCode, Url};
 pub use sensitive_url::SensitiveUrl;
 
 use self::mixin::{RequestAccept, ResponseOptional};
@@ -35,14 +33,16 @@ use educe::Educe;
 use futures::Stream;
 #[cfg(feature = "events")]
 use futures_util::StreamExt;
+#[cfg(feature = "network")]
+use libp2p_identity::PeerId;
 use reqwest::{
-    Body, IntoUrl, RequestBuilder, Response,
+    Body, IntoUrl, RequestBuilder, Response, StatusCode, Url,
     header::{HeaderMap, HeaderValue},
 };
 #[cfg(feature = "events")]
 use reqwest_eventsource::{Event, RequestBuilderExt};
 use serde::{Serialize, de::DeserializeOwned};
-use ssz::Encode;
+use ssz::{Decode, Encode};
 use std::fmt;
 use std::future::Future;
 use std::time::Duration;
@@ -50,6 +50,7 @@ use std::time::Duration;
 pub const V1: EndpointVersion = EndpointVersion(1);
 pub const V2: EndpointVersion = EndpointVersion(2);
 pub const V3: EndpointVersion = EndpointVersion(3);
+pub const V4: EndpointVersion = EndpointVersion(4);
 
 pub const CONSENSUS_VERSION_HEADER: &str = "Eth-Consensus-Version";
 pub const EXECUTION_PAYLOAD_BLINDED_HEADER: &str = "Eth-Execution-Payload-Blinded";
@@ -895,6 +896,47 @@ impl BeaconNodeHttpClient {
         self.get_fork_contextual(path, |fork| fork)
             .await
             .map(|opt| opt.map(BeaconResponse::ForkVersioned))
+    }
+
+    /// `GET beacon/states/{state_id}/proposer_lookahead`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_states_proposer_lookahead(
+        &self,
+        state_id: StateId,
+    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<ValidatorIndexData>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("proposer_lookahead");
+
+        self.get_fork_contextual(path, |fork| fork)
+            .await
+            .map(|opt| opt.map(BeaconResponse::ForkVersioned))
+    }
+
+    /// `GET beacon/states/{state_id}/proposer_lookahead`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_states_proposer_lookahead_ssz(
+        &self,
+        state_id: StateId,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("proposer_lookahead");
+
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.default)
+            .await
     }
 
     /// `GET beacon/light_client/updates`
@@ -1760,7 +1802,7 @@ impl BeaconNodeHttpClient {
         &self,
         block_id: BlockId,
         validators: &[ValidatorId],
-    ) -> Result<GenericResponse<Vec<SyncCommitteeReward>>, Error> {
+    ) -> Result<ExecutionOptimisticFinalizedResponse<Vec<SyncCommitteeReward>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1777,7 +1819,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_rewards_blocks(
         &self,
         block_id: BlockId,
-    ) -> Result<GenericResponse<StandardBlockReward>, Error> {
+    ) -> Result<ExecutionOptimisticFinalizedResponse<StandardBlockReward>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1795,7 +1837,7 @@ impl BeaconNodeHttpClient {
         &self,
         epoch: Epoch,
         validators: &[ValidatorId],
-    ) -> Result<StandardAttestationRewards, Error> {
+    ) -> Result<ExecutionOptimisticFinalizedResponse<StandardAttestationRewards>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1934,6 +1976,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET node/identity`
+    #[cfg(feature = "network")]
     pub async fn get_node_identity(&self) -> Result<GenericResponse<IdentityData>, Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -1981,9 +2024,10 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET node/peers/{peer_id}`
+    #[cfg(feature = "network")]
     pub async fn get_node_peers_by_id(
         &self,
-        peer_id: &str,
+        peer_id: PeerId,
     ) -> Result<GenericResponse<PeerData>, Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -1991,7 +2035,7 @@ impl BeaconNodeHttpClient {
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("node")
             .push("peers")
-            .push(peer_id);
+            .push(&peer_id.to_string());
 
         self.get(path).await
     }
@@ -2129,6 +2173,24 @@ impl BeaconNodeHttpClient {
         epoch: Epoch,
     ) -> Result<DutiesResponse<Vec<ProposerData>>, Error> {
         let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("duties")
+            .push("proposer")
+            .push(&epoch.to_string());
+
+        self.get_with_timeout(path, self.timeouts.proposer_duties)
+            .await
+    }
+
+    /// `GET v2/validator/duties/proposer/{epoch}`
+    pub async fn get_validator_duties_proposer_v2(
+        &self,
+        epoch: Epoch,
+    ) -> Result<DutiesResponse<Vec<ProposerData>>, Error> {
+        let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -2397,6 +2459,326 @@ impl BeaconNodeHttpClient {
         // Generic handler is optional but this route should never 404 unless unimplemented, so
         // treat that as an error.
         opt_response.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))
+    }
+
+    /// returns `GET v4/validator/blocks/{slot}` URL path
+    pub async fn get_validator_blocks_v4_path(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+        skip_randao_verification: SkipRandaoVerification,
+        builder_booster_factor: Option<u64>,
+        graffiti_policy: Option<GraffitiPolicy>,
+    ) -> Result<Url, Error> {
+        let mut path = self.eth_path(V4)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("blocks")
+            .push(&slot.to_string());
+
+        path.query_pairs_mut()
+            .append_pair("randao_reveal", &randao_reveal.to_string());
+
+        if let Some(graffiti) = graffiti {
+            path.query_pairs_mut()
+                .append_pair("graffiti", &graffiti.to_string());
+        }
+
+        if skip_randao_verification == SkipRandaoVerification::Yes {
+            path.query_pairs_mut()
+                .append_pair("skip_randao_verification", "");
+        }
+
+        if let Some(builder_booster_factor) = builder_booster_factor {
+            path.query_pairs_mut()
+                .append_pair("builder_boost_factor", &builder_booster_factor.to_string());
+        }
+
+        if let Some(GraffitiPolicy::AppendClientVersions) = graffiti_policy {
+            path.query_pairs_mut()
+                .append_pair("graffiti_policy", "AppendClientVersions");
+        }
+
+        Ok(path)
+    }
+
+    /// `GET v4/validator/blocks/{slot}`
+    pub async fn get_validator_blocks_v4<E: EthSpec>(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+        builder_booster_factor: Option<u64>,
+        graffiti_policy: Option<GraffitiPolicy>,
+    ) -> Result<
+        (
+            ForkVersionedResponse<BeaconBlock<E>, ProduceBlockV4Metadata>,
+            ProduceBlockV4Metadata,
+        ),
+        Error,
+    > {
+        self.get_validator_blocks_v4_modular(
+            slot,
+            randao_reveal,
+            graffiti,
+            SkipRandaoVerification::No,
+            builder_booster_factor,
+            graffiti_policy,
+        )
+        .await
+    }
+
+    /// `GET v4/validator/blocks/{slot}`
+    pub async fn get_validator_blocks_v4_modular<E: EthSpec>(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+        skip_randao_verification: SkipRandaoVerification,
+        builder_booster_factor: Option<u64>,
+        graffiti_policy: Option<GraffitiPolicy>,
+    ) -> Result<
+        (
+            ForkVersionedResponse<BeaconBlock<E>, ProduceBlockV4Metadata>,
+            ProduceBlockV4Metadata,
+        ),
+        Error,
+    > {
+        let path = self
+            .get_validator_blocks_v4_path(
+                slot,
+                randao_reveal,
+                graffiti,
+                skip_randao_verification,
+                builder_booster_factor,
+                graffiti_policy,
+            )
+            .await?;
+
+        let opt_result = self
+            .get_response_with_response_headers(
+                path,
+                Accept::Json,
+                self.timeouts.get_validator_block,
+                |response, headers| async move {
+                    let header_metadata = ProduceBlockV4Metadata::try_from(&headers)
+                        .map_err(Error::InvalidHeaders)?;
+                    let block_response = response
+                        .json::<ForkVersionedResponse<BeaconBlock<E>, ProduceBlockV4Metadata>>()
+                        .await?;
+                    Ok((block_response, header_metadata))
+                },
+            )
+            .await?;
+
+        opt_result.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))
+    }
+
+    /// `GET v4/validator/blocks/{slot}` in ssz format
+    pub async fn get_validator_blocks_v4_ssz<E: EthSpec>(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+        builder_booster_factor: Option<u64>,
+        graffiti_policy: Option<GraffitiPolicy>,
+    ) -> Result<(BeaconBlock<E>, ProduceBlockV4Metadata), Error> {
+        self.get_validator_blocks_v4_modular_ssz::<E>(
+            slot,
+            randao_reveal,
+            graffiti,
+            SkipRandaoVerification::No,
+            builder_booster_factor,
+            graffiti_policy,
+        )
+        .await
+    }
+
+    /// `GET v4/validator/blocks/{slot}` in ssz format
+    pub async fn get_validator_blocks_v4_modular_ssz<E: EthSpec>(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+        skip_randao_verification: SkipRandaoVerification,
+        builder_booster_factor: Option<u64>,
+        graffiti_policy: Option<GraffitiPolicy>,
+    ) -> Result<(BeaconBlock<E>, ProduceBlockV4Metadata), Error> {
+        let path = self
+            .get_validator_blocks_v4_path(
+                slot,
+                randao_reveal,
+                graffiti,
+                skip_randao_verification,
+                builder_booster_factor,
+                graffiti_policy,
+            )
+            .await?;
+
+        let opt_response = self
+            .get_response_with_response_headers(
+                path,
+                Accept::Ssz,
+                self.timeouts.get_validator_block,
+                |response, headers| async move {
+                    let metadata = ProduceBlockV4Metadata::try_from(&headers)
+                        .map_err(Error::InvalidHeaders)?;
+                    let response_bytes = response.bytes().await?;
+
+                    let block = BeaconBlock::from_ssz_bytes_for_fork(
+                        &response_bytes,
+                        metadata.consensus_version,
+                    )
+                    .map_err(Error::InvalidSsz)?;
+
+                    Ok((block, metadata))
+                },
+            )
+            .await?;
+
+        opt_response.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))
+    }
+
+    /// `GET v1/validator/execution_payload_envelope/{slot}/{builder_index}`
+    pub async fn get_validator_execution_payload_envelope<E: EthSpec>(
+        &self,
+        slot: Slot,
+        builder_index: u64,
+    ) -> Result<ForkVersionedResponse<ExecutionPayloadEnvelope<E>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("execution_payload_envelope")
+            .push(&slot.to_string())
+            .push(&builder_index.to_string());
+
+        self.get(path).await
+    }
+
+    /// `GET v1/validator/execution_payload_envelope/{slot}/{builder_index}` in SSZ format
+    pub async fn get_validator_execution_payload_envelope_ssz<E: EthSpec>(
+        &self,
+        slot: Slot,
+        builder_index: u64,
+    ) -> Result<ExecutionPayloadEnvelope<E>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("execution_payload_envelope")
+            .push(&slot.to_string())
+            .push(&builder_index.to_string());
+
+        let opt_response = self
+            .get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_validator_block)
+            .await?;
+
+        let response_bytes = opt_response.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))?;
+
+        ExecutionPayloadEnvelope::from_ssz_bytes(&response_bytes).map_err(Error::InvalidSsz)
+    }
+
+    /// `POST v1/beacon/execution_payload_envelope`
+    pub async fn post_beacon_execution_payload_envelope<E: EthSpec>(
+        &self,
+        envelope: &SignedExecutionPayloadEnvelope<E>,
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("execution_payload_envelope");
+
+        self.post_generic_with_consensus_version(
+            path,
+            envelope,
+            Some(self.timeouts.proposal),
+            fork_name,
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// `POST v1/beacon/execution_payload_envelope` in SSZ format
+    pub async fn post_beacon_execution_payload_envelope_ssz<E: EthSpec>(
+        &self,
+        envelope: &SignedExecutionPayloadEnvelope<E>,
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("execution_payload_envelope");
+
+        self.post_generic_with_consensus_version_and_ssz_body(
+            path,
+            envelope.as_ssz_bytes(),
+            Some(self.timeouts.proposal),
+            fork_name,
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// Path for `v1/beacon/execution_payload_envelope/{block_id}`
+    pub fn get_beacon_execution_payload_envelope_path(
+        &self,
+        block_id: BlockId,
+    ) -> Result<Url, Error> {
+        let mut path = self.eth_path(V1)?;
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("execution_payload_envelope")
+            .push(&block_id.to_string());
+        Ok(path)
+    }
+
+    /// `GET v1/beacon/execution_payload_envelope/{block_id}`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_execution_payload_envelope<E: EthSpec>(
+        &self,
+        block_id: BlockId,
+    ) -> Result<
+        Option<ExecutionOptimisticFinalizedBeaconResponse<SignedExecutionPayloadEnvelope<E>>>,
+        Error,
+    > {
+        let path = self.get_beacon_execution_payload_envelope_path(block_id)?;
+        self.get_opt(path)
+            .await
+            .map(|opt| opt.map(BeaconResponse::ForkVersioned))
+    }
+
+    /// `GET v1/beacon/execution_payload_envelope/{block_id}` in SSZ format
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_execution_payload_envelope_ssz<E: EthSpec>(
+        &self,
+        block_id: BlockId,
+    ) -> Result<Option<SignedExecutionPayloadEnvelope<E>>, Error> {
+        let path = self.get_beacon_execution_payload_envelope_path(block_id)?;
+        let opt_response = self
+            .get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_beacon_blocks_ssz)
+            .await?;
+        match opt_response {
+            Some(bytes) => SignedExecutionPayloadEnvelope::from_ssz_bytes(&bytes)
+                .map(Some)
+                .map_err(Error::InvalidSsz),
+            None => Ok(None),
+        }
     }
 
     /// `GET v2/validator/blocks/{slot}` in ssz format

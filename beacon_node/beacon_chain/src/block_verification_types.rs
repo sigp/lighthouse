@@ -13,76 +13,70 @@ use types::{
     SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
-/// A block that has been received over RPC. It has 2 internal variants:
-///
-/// 1. `FullyAvailable`: A fully available block. This can either be a pre-deneb block, a
-///    post-Deneb block with blobs, a post-Fulu block with the columns the node is required to custody,
-///    or a post-Deneb block that doesn't require blobs/columns. Hence, it is fully self contained w.r.t
-///    verification. i.e. this block has all the required data to get verified and imported into fork choice.
-///
-/// 2. `BlockOnly`: This is a post-deneb block that requires blobs to be considered fully available.
-#[derive(Clone, Educe)]
-#[educe(Hash(bound(E: EthSpec)))]
-pub enum RpcBlock<E: EthSpec> {
-    FullyAvailable(AvailableBlock<E>),
-    BlockOnly {
-        block: Arc<SignedBeaconBlock<E>>,
-        block_root: Hash256,
-    },
+/// A wrapper around a `SignedBeaconBlock`. This varaint is constructed
+/// when lookup sync only fetches a single block. It does not contain
+/// any blobs or data columns.
+pub struct LookupBlock<E: EthSpec> {
+    block: Arc<SignedBeaconBlock<E>>,
+    block_root: Hash256,
 }
 
-impl<E: EthSpec> Debug for RpcBlock<E> {
+impl<E: EthSpec> LookupBlock<E> {
+    pub fn new(block: Arc<SignedBeaconBlock<E>>) -> Self {
+        let block_root = block.canonical_root();
+        Self { block, block_root }
+    }
+
+    pub fn block(&self) -> &SignedBeaconBlock<E> {
+        &self.block
+    }
+
+    pub fn block_root(&self) -> Hash256 {
+        self.block_root
+    }
+
+    pub fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
+        self.block.clone()
+    }
+}
+
+/// A fully available block that has been constructed by range sync.
+/// The block contains all the data required to import into fork choice.
+/// This includes any and all blobs/columns required, including zero if
+/// none are required. This can happen if the block is pre-deneb or if
+/// it's simply past the DA boundary.
+#[derive(Clone, Educe)]
+#[educe(Hash(bound(E: EthSpec)))]
+pub struct RangeSyncBlock<E: EthSpec> {
+    block: AvailableBlock<E>,
+}
+
+impl<E: EthSpec> Debug for RangeSyncBlock<E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "RpcBlock({:?})", self.block_root())
     }
 }
 
-impl<E: EthSpec> RpcBlock<E> {
+impl<E: EthSpec> RangeSyncBlock<E> {
     pub fn block_root(&self) -> Hash256 {
-        match self {
-            RpcBlock::FullyAvailable(available_block) => available_block.block_root(),
-            RpcBlock::BlockOnly { block_root, .. } => *block_root,
-        }
+        self.block.block_root()
     }
 
     pub fn as_block(&self) -> &SignedBeaconBlock<E> {
-        match self {
-            RpcBlock::FullyAvailable(available_block) => available_block.block(),
-            RpcBlock::BlockOnly { block, .. } => block,
-        }
+        self.block.block()
     }
 
     pub fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
-        match self {
-            RpcBlock::FullyAvailable(available_block) => available_block.block_cloned(),
-            RpcBlock::BlockOnly { block, .. } => block.clone(),
-        }
+        self.block.block_cloned()
     }
 
-    pub fn block_data(&self) -> Option<&AvailableBlockData<E>> {
-        match self {
-            RpcBlock::FullyAvailable(available_block) => Some(available_block.data()),
-            RpcBlock::BlockOnly { .. } => None,
-        }
+    pub fn block_data(&self) -> &AvailableBlockData<E> {
+        self.block.data()
     }
 }
 
-impl<E: EthSpec> RpcBlock<E> {
-    /// Constructs an `RpcBlock` from a block and optional availability data.
-    ///
-    /// This function creates an RpcBlock which can be in one of two states:
-    /// - `FullyAvailable`: When `block_data` is provided, the block contains all required
-    ///   data for verification.
-    /// - `BlockOnly`: When `block_data` is `None`, the block may still need additional
-    ///   data to be considered fully available (used during block lookups or when blobs
-    ///   will arrive separately).
-    ///
-    /// # Validation
-    ///
-    /// When `block_data` is provided, this function validates that:
-    /// - Block data is not provided when not required.
-    /// - Required blobs are present and match the expected count.
-    /// - Required custody columns are included based on the nodes custody requirements.
+impl<E: EthSpec> RangeSyncBlock<E> {
+    /// Constructs an `RangeSyncBlock` from a block and availability data.
     ///
     /// # Errors
     ///
@@ -92,61 +86,40 @@ impl<E: EthSpec> RpcBlock<E> {
     /// - `MissingCustodyColumns`: Block requires custody columns but they are incomplete.
     pub fn new<T>(
         block: Arc<SignedBeaconBlock<E>>,
-        block_data: Option<AvailableBlockData<E>>,
+        block_data: AvailableBlockData<E>,
         da_checker: &DataAvailabilityChecker<T>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError>
     where
         T: BeaconChainTypes<EthSpec = E>,
     {
-        match block_data {
-            Some(block_data) => Ok(RpcBlock::FullyAvailable(AvailableBlock::new(
-                block, block_data, da_checker, spec,
-            )?)),
-            None => Ok(RpcBlock::BlockOnly {
-                block_root: block.canonical_root(),
-                block,
-            }),
-        }
+        let available_block = AvailableBlock::new(block, block_data, da_checker, spec)?;
+        Ok(Self {
+            block: available_block,
+        })
     }
 
     #[allow(clippy::type_complexity)]
-    pub fn deconstruct(
-        self,
-    ) -> (
-        Hash256,
-        Arc<SignedBeaconBlock<E>>,
-        Option<AvailableBlockData<E>>,
-    ) {
-        match self {
-            RpcBlock::FullyAvailable(available_block) => {
-                let (block_root, block, block_data) = available_block.deconstruct();
-                (block_root, block, Some(block_data))
-            }
-            RpcBlock::BlockOnly { block, block_root } => (block_root, block, None),
-        }
+    pub fn deconstruct(self) -> (Hash256, Arc<SignedBeaconBlock<E>>, AvailableBlockData<E>) {
+        self.block.deconstruct()
     }
 
     pub fn n_blobs(&self) -> usize {
-        if let Some(block_data) = self.block_data() {
-            match block_data {
-                AvailableBlockData::NoData | AvailableBlockData::DataColumns(_) => 0,
-                AvailableBlockData::Blobs(blobs) => blobs.len(),
-            }
-        } else {
-            0
+        match self.block_data() {
+            AvailableBlockData::NoData | AvailableBlockData::DataColumns(_) => 0,
+            AvailableBlockData::Blobs(blobs) => blobs.len(),
         }
     }
 
     pub fn n_data_columns(&self) -> usize {
-        if let Some(block_data) = self.block_data() {
-            match block_data {
-                AvailableBlockData::NoData | AvailableBlockData::Blobs(_) => 0,
-                AvailableBlockData::DataColumns(columns) => columns.len(),
-            }
-        } else {
-            0
+        match self.block_data() {
+            AvailableBlockData::NoData | AvailableBlockData::Blobs(_) => 0,
+            AvailableBlockData::DataColumns(columns) => columns.len(),
         }
+    }
+
+    pub fn into_available_block(self) -> AvailableBlock<E> {
+        self.block
     }
 }
 
@@ -279,27 +252,12 @@ impl<E: EthSpec> AvailabilityPendingExecutedBlock<E> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BlockImportData<E: EthSpec> {
     pub block_root: Hash256,
     pub state: BeaconState<E>,
     pub parent_block: SignedBeaconBlock<E, BlindedPayload<E>>,
     pub consensus_context: ConsensusContext<E>,
-}
-
-impl<E: EthSpec> BlockImportData<E> {
-    pub fn __new_for_test(
-        block_root: Hash256,
-        state: BeaconState<E>,
-        parent_block: SignedBeaconBlock<E, BlindedPayload<E>>,
-    ) -> Self {
-        Self {
-            block_root,
-            state,
-            parent_block,
-            consensus_context: ConsensusContext::new(Slot::new(0)),
-        }
-    }
 }
 
 /// Trait for common block operations.
@@ -427,7 +385,7 @@ impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
     }
 }
 
-impl<E: EthSpec> AsBlock<E> for RpcBlock<E> {
+impl<E: EthSpec> AsBlock<E> for RangeSyncBlock<E> {
     fn slot(&self) -> Slot {
         self.as_block().slot()
     }
@@ -447,24 +405,42 @@ impl<E: EthSpec> AsBlock<E> for RpcBlock<E> {
         self.as_block().message()
     }
     fn as_block(&self) -> &SignedBeaconBlock<E> {
-        match self {
-            Self::BlockOnly {
-                block,
-                block_root: _,
-            } => block,
-            Self::FullyAvailable(available_block) => available_block.block(),
-        }
+        self.block.as_block()
     }
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
-        match self {
-            RpcBlock::FullyAvailable(available_block) => available_block.block_cloned(),
-            RpcBlock::BlockOnly {
-                block,
-                block_root: _,
-            } => block.clone(),
-        }
+        self.block.block_cloned()
     }
     fn canonical_root(&self) -> Hash256 {
-        self.as_block().canonical_root()
+        self.block.block_root()
+    }
+}
+
+impl<E: EthSpec> AsBlock<E> for LookupBlock<E> {
+    fn slot(&self) -> Slot {
+        self.block().slot()
+    }
+    fn epoch(&self) -> Epoch {
+        self.block().epoch()
+    }
+    fn parent_root(&self) -> Hash256 {
+        self.block().parent_root()
+    }
+    fn state_root(&self) -> Hash256 {
+        self.block().state_root()
+    }
+    fn signed_block_header(&self) -> SignedBeaconBlockHeader {
+        self.block().signed_block_header()
+    }
+    fn message(&self) -> BeaconBlockRef<'_, E> {
+        self.block().message()
+    }
+    fn as_block(&self) -> &SignedBeaconBlock<E> {
+        self.block()
+    }
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
+        self.block_cloned()
+    }
+    fn canonical_root(&self) -> Hash256 {
+        self.block_root
     }
 }

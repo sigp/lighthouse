@@ -58,6 +58,7 @@ JSON
 KeyManager
 Kurtosis
 LMDB
+LLM
 LLVM
 LRU
 LTO

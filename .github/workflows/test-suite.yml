@@ -72,6 +72,27 @@ jobs:
     steps:
         - name: Check that the pull request is not targeting the stable branch
           run: test ${{ github.base_ref }} != "stable"
+
+  forbidden-files-check:
+    name: forbidden-files-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for forbidden files
+        run: |
+          if [ -f .github/forbidden-files.txt ]; then
+            status=0
+            while IFS= read -r file || [ -n "$file" ]; do
+              # Skip comments and empty lines
+              [[ "$file" =~ ^#.*$ || -z "$file" ]] && continue
+              if [ -f "$file" ]; then
+                echo "::error::Forbidden file exists: $file"
+                status=1
+              fi
+            done < .github/forbidden-files.txt
+            exit $status
+          fi
+
   release-tests-ubuntu:
     name: release-tests-ubuntu
     needs: [check-labels]
@@ -319,6 +340,8 @@ jobs:
           bins: cargo-audit,cargo-deny
     - name: Check formatting with cargo fmt
       run: make cargo-fmt
+    - name: Check dependencies for unencrypted HTTP links
+      run: make insecure-deps
     - name: Lint code for quality and style with Clippy
       run: make lint-full
     - name: Certify Cargo.lock freshness
@@ -404,6 +427,22 @@ jobs:
         cache-target: release
     - name: Run Makefile to trigger the bash script
       run: make cli-local
+  cargo-hack:
+    name: cargo-hack
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - name: Get latest version of stable Rust
+      uses: moonrepo/setup-rust@v1
+      with:
+        channel: stable
+    - uses: taiki-e/install-action@cargo-hack
+    - name: Check types feature powerset
+      run: cargo hack check -p types --feature-powerset --no-dev-deps --exclude-features arbitrary-fuzz,portable
+    - name: Check eth2 feature powerset
+      run: cargo hack check -p eth2 --feature-powerset --no-dev-deps
   cargo-sort:
     name: cargo-sort
     needs: [check-labels]
@@ -428,6 +467,7 @@ jobs:
     needs: [
       'check-labels',
       'target-branch-check',
+      'forbidden-files-check',
       'release-tests-ubuntu',
       'beacon-chain-tests',
       'op-pool-tests',
@@ -446,6 +486,7 @@ jobs:
       'compile-with-beta-compiler',
       'cli-check',
       'lockbud',
+      'cargo-hack',
       'cargo-sort',
     ]
     steps:

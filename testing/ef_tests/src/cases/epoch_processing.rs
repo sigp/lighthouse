@@ -12,7 +12,7 @@ use state_processing::per_epoch_processing::effective_balance_updates::{
     process_effective_balance_updates, process_effective_balance_updates_slow,
 };
 use state_processing::per_epoch_processing::single_pass::{
-    SinglePassConfig, process_epoch_single_pass, process_proposer_lookahead,
+    SinglePassConfig, process_epoch_single_pass, process_proposer_lookahead, process_ptc_window,
 };
 use state_processing::per_epoch_processing::{
     altair, base,
@@ -79,6 +79,10 @@ pub struct InactivityUpdates;
 pub struct ParticipationFlagUpdates;
 #[derive(Debug)]
 pub struct ProposerLookahead;
+#[derive(Debug)]
+pub struct PtcWindow;
+#[derive(Debug)]
+pub struct BuilderPendingPayments;
 
 type_name!(
     JustificationAndFinalization,
@@ -100,6 +104,8 @@ type_name!(SyncCommitteeUpdates, "sync_committee_updates");
 type_name!(InactivityUpdates, "inactivity_updates");
 type_name!(ParticipationFlagUpdates, "participation_flag_updates");
 type_name!(ProposerLookahead, "proposer_lookahead");
+type_name!(PtcWindow, "ptc_window");
+type_name!(BuilderPendingPayments, "builder_pending_payments");
 
 impl<E: EthSpec> EpochTransition<E> for JustificationAndFinalization {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
@@ -293,6 +299,30 @@ impl<E: EthSpec> EpochTransition<E> for ProposerLookahead {
     }
 }
 
+impl<E: EthSpec> EpochTransition<E> for PtcWindow {
+    fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
+        if state.fork_name_unchecked().gloas_enabled() {
+            process_ptc_window(state, spec).map(|_| ())
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl<E: EthSpec> EpochTransition<E> for BuilderPendingPayments {
+    fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
+        process_epoch_single_pass(
+            state,
+            spec,
+            SinglePassConfig {
+                builder_pending_payments: true,
+                ..SinglePassConfig::disable_all()
+            },
+        )
+        .map(|_| ())
+    }
+}
+
 impl<E: EthSpec, T: EpochTransition<E>> LoadCase for EpochProcessing<E, T> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
         let spec = &testing_spec::<E>(fork_name);
@@ -353,6 +383,12 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
         }
 
         if !fork_name.fulu_enabled() && T::name() == "proposer_lookahead" {
+            return false;
+        }
+
+        if !fork_name.gloas_enabled()
+            && (T::name() == "builder_pending_payments" || T::name() == "ptc_window")
+        {
             return false;
         }
 

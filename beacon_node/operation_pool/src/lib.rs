@@ -1851,8 +1851,11 @@ mod release_tests {
         let mut spec = E::default_spec();
 
         // Give some room to sign surround slashings.
-        spec.altair_fork_epoch = Some(Epoch::new(3));
-        spec.bellatrix_fork_epoch = Some(Epoch::new(6));
+        spec.altair_fork_epoch = Some(Epoch::new(0));
+        spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+        spec.capella_fork_epoch = Some(Epoch::new(0));
+        spec.deneb_fork_epoch = Some(Epoch::new(2));
+        spec.electra_fork_epoch = Some(Epoch::new(4));
 
         // To make exits immediately valid.
         spec.shard_committee_period = 0;
@@ -1860,185 +1863,114 @@ mod release_tests {
         let num_validators = 32;
 
         let harness = get_harness::<E>(num_validators, Some(spec.clone()));
+        if let Some(mock_el) = harness.mock_execution_layer.as_ref() {
+            mock_el.server.all_payloads_valid();
+        }
         (harness, spec)
     }
 
-    /// Test several cross-fork voluntary exits:
-    ///
-    /// - phase0 exit (not valid after Bellatrix)
-    /// - phase0 exit signed with Altair fork version (only valid after Bellatrix)
-    #[tokio::test]
-    async fn cross_fork_exits() {
-        let (harness, spec) = cross_fork_harness::<MainnetEthSpec>();
-        let altair_fork_epoch = spec.altair_fork_epoch.unwrap();
-        let bellatrix_fork_epoch = spec.bellatrix_fork_epoch.unwrap();
-        let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
-
-        let op_pool = OperationPool::<MainnetEthSpec>::new();
-
-        // Sign an exit in phase0 with a phase0 epoch.
-        let exit1 = harness.make_voluntary_exit(0, Epoch::new(0));
-
-        // Advance to Altair.
-        harness
-            .extend_to_slot(altair_fork_epoch.start_slot(slots_per_epoch))
-            .await;
-        let altair_head = harness.chain.canonical_head.cached_head().snapshot;
-        assert_eq!(altair_head.beacon_state.current_epoch(), altair_fork_epoch);
-
-        // Add exit 1 to the op pool during Altair. It's still valid at this point and should be
-        // returned.
-        let verified_exit1 = exit1
-            .clone()
-            .validate(&altair_head.beacon_state, &harness.chain.spec)
-            .unwrap();
-        op_pool.insert_voluntary_exit(verified_exit1);
-        let exits =
-            op_pool.get_voluntary_exits(&altair_head.beacon_state, |_| true, &harness.chain.spec);
-        assert!(exits.contains(&exit1));
-        assert_eq!(exits.len(), 1);
-
-        // Advance to Bellatrix.
-        harness
-            .extend_to_slot(bellatrix_fork_epoch.start_slot(slots_per_epoch))
-            .await;
-        let bellatrix_head = harness.chain.canonical_head.cached_head().snapshot;
-        assert_eq!(
-            bellatrix_head.beacon_state.current_epoch(),
-            bellatrix_fork_epoch
-        );
-
-        // Sign an exit with the Altair domain and a phase0 epoch. This is a weird type of exit
-        // that is valid because after the Bellatrix fork we'll use the Altair fork domain to verify
-        // all prior epochs.
-        let unsigned_exit = VoluntaryExit {
-            epoch: Epoch::new(0),
-            validator_index: 2,
-        };
-        let exit2 = SignedVoluntaryExit {
-            message: unsigned_exit.clone(),
-            signature: harness.validator_keypairs[2]
-                .sk
-                .sign(unsigned_exit.signing_root(spec.compute_domain(
-                    Domain::VoluntaryExit,
-                    harness.spec.altair_fork_version,
-                    harness.chain.genesis_validators_root,
-                ))),
-        };
-
-        let verified_exit2 = exit2
-            .clone()
-            .validate(&bellatrix_head.beacon_state, &harness.chain.spec)
-            .unwrap();
-        op_pool.insert_voluntary_exit(verified_exit2);
-
-        // Attempting to fetch exit1 now should fail, despite it still being in the pool.
-        // exit2 should still be valid, because it was signed with the Altair fork domain.
-        assert_eq!(op_pool.voluntary_exits.read().len(), 2);
-        let exits =
-            op_pool.get_voluntary_exits(&bellatrix_head.beacon_state, |_| true, &harness.spec);
-        assert_eq!(&exits, &[exit2]);
-    }
+    // Voluntary exits signed post-Capella are perpetually valid across forks, so no
+    // cross-fork test is required here.
 
     /// Test several cross-fork proposer slashings:
     ///
-    /// - phase0 slashing (not valid after Bellatrix)
-    /// - Bellatrix signed with Altair fork version (not valid after Bellatrix)
-    /// - phase0 exit signed with Altair fork version (only valid after Bellatrix)
+    /// - Capella slashing (not valid after Electra)
+    /// - Electra signed with Deneb fork version (not valid after Electra)
+    /// - Capella exit signed with Deneb fork version (only valid after Electra)
     #[tokio::test]
     async fn cross_fork_proposer_slashings() {
         let (harness, spec) = cross_fork_harness::<MainnetEthSpec>();
         let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
-        let altair_fork_epoch = spec.altair_fork_epoch.unwrap();
-        let bellatrix_fork_epoch = spec.bellatrix_fork_epoch.unwrap();
-        let bellatrix_fork_slot = bellatrix_fork_epoch.start_slot(slots_per_epoch);
+        let deneb_fork_epoch = spec.deneb_fork_epoch.unwrap();
+        let electra_fork_epoch = spec.electra_fork_epoch.unwrap();
+        let electra_fork_slot = electra_fork_epoch.start_slot(slots_per_epoch);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
-        // Sign a proposer slashing in phase0 with a phase0 epoch.
+        // Sign a proposer slashing in Capella with a Capella slot.
         let slashing1 = harness.make_proposer_slashing_at_slot(0, Some(Slot::new(1)));
 
-        // Advance to Altair.
+        // Advance to Deneb.
         harness
-            .extend_to_slot(altair_fork_epoch.start_slot(slots_per_epoch))
+            .extend_to_slot(deneb_fork_epoch.start_slot(slots_per_epoch))
             .await;
-        let altair_head = harness.chain.canonical_head.cached_head().snapshot;
-        assert_eq!(altair_head.beacon_state.current_epoch(), altair_fork_epoch);
+        let deneb_head = harness.chain.canonical_head.cached_head().snapshot;
+        assert_eq!(deneb_head.beacon_state.current_epoch(), deneb_fork_epoch);
 
-        // Add slashing1 to the op pool during Altair. It's still valid at this point and should be
+        // Add slashing1 to the op pool during Deneb. It's still valid at this point and should be
         // returned.
         let verified_slashing1 = slashing1
             .clone()
-            .validate(&altair_head.beacon_state, &harness.chain.spec)
+            .validate(&deneb_head.beacon_state, &harness.chain.spec)
             .unwrap();
         op_pool.insert_proposer_slashing(verified_slashing1);
         let (proposer_slashings, _, _) =
-            op_pool.get_slashings_and_exits(&altair_head.beacon_state, &harness.chain.spec);
+            op_pool.get_slashings_and_exits(&deneb_head.beacon_state, &harness.chain.spec);
         assert!(proposer_slashings.contains(&slashing1));
         assert_eq!(proposer_slashings.len(), 1);
 
-        // Sign a proposer slashing with a Bellatrix slot using the Altair fork domain.
+        // Sign a proposer slashing with a Electra slot using the Deneb fork domain.
         //
-        // This slashing is valid only before the Bellatrix fork epoch.
-        let slashing2 = harness.make_proposer_slashing_at_slot(1, Some(bellatrix_fork_slot));
+        // This slashing is valid only before the Electra fork epoch.
+        let slashing2 = harness.make_proposer_slashing_at_slot(1, Some(electra_fork_slot));
         let verified_slashing2 = slashing2
             .clone()
-            .validate(&altair_head.beacon_state, &harness.chain.spec)
+            .validate(&deneb_head.beacon_state, &harness.chain.spec)
             .unwrap();
         op_pool.insert_proposer_slashing(verified_slashing2);
         let (proposer_slashings, _, _) =
-            op_pool.get_slashings_and_exits(&altair_head.beacon_state, &harness.chain.spec);
+            op_pool.get_slashings_and_exits(&deneb_head.beacon_state, &harness.chain.spec);
         assert!(proposer_slashings.contains(&slashing1));
         assert!(proposer_slashings.contains(&slashing2));
         assert_eq!(proposer_slashings.len(), 2);
 
-        // Advance to Bellatrix.
-        harness.extend_to_slot(bellatrix_fork_slot).await;
-        let bellatrix_head = harness.chain.canonical_head.cached_head().snapshot;
+        // Advance to Electra.
+        harness.extend_to_slot(electra_fork_slot).await;
+        let electra_head = harness.chain.canonical_head.cached_head().snapshot;
         assert_eq!(
-            bellatrix_head.beacon_state.current_epoch(),
-            bellatrix_fork_epoch
+            electra_head.beacon_state.current_epoch(),
+            electra_fork_epoch
         );
 
-        // Sign a proposer slashing with the Altair domain and a phase0 slot. This is a weird type
-        // of slashing that is only valid after the Bellatrix fork because we'll use the Altair fork
+        // Sign a proposer slashing with the Deneb domain and a Capella slot. This is a weird type
+        // of slashing that is only valid after the Electra fork because we'll use the Deneb fork
         // domain to verify all prior epochs.
         let slashing3 = harness.make_proposer_slashing_at_slot(2, Some(Slot::new(1)));
         let verified_slashing3 = slashing3
             .clone()
-            .validate(&bellatrix_head.beacon_state, &harness.chain.spec)
+            .validate(&electra_head.beacon_state, &harness.chain.spec)
             .unwrap();
         op_pool.insert_proposer_slashing(verified_slashing3);
 
         // Attempting to fetch slashing1 now should fail, despite it still being in the pool.
         // Likewise slashing2 is also invalid now because it should be signed with the
-        // Bellatrix fork version.
-        // slashing3 should still be valid, because it was signed with the Altair fork domain.
+        // Electra fork version.
+        // slashing3 should still be valid, because it was signed with the Deneb fork domain.
         assert_eq!(op_pool.proposer_slashings.read().len(), 3);
         let (proposer_slashings, _, _) =
-            op_pool.get_slashings_and_exits(&bellatrix_head.beacon_state, &harness.spec);
+            op_pool.get_slashings_and_exits(&electra_head.beacon_state, &harness.spec);
         assert!(proposer_slashings.contains(&slashing3));
         assert_eq!(proposer_slashings.len(), 1);
     }
 
     /// Test several cross-fork attester slashings:
     ///
-    /// - both target epochs in phase0 (not valid after Bellatrix)
-    /// - both target epochs in Bellatrix but signed with Altair domain (not valid after Bellatrix)
-    /// - Altair attestation that surrounds a phase0 attestation (not valid after Bellatrix)
-    /// - both target epochs in phase0 but signed with Altair domain (only valid after Bellatrix)
+    /// - both target epochs in Capella (not valid after Electra)
+    /// - both target epochs in Electra but signed with Deneb domain (not valid after Electra)
+    /// - Deneb attestation that surrounds a Capella attestation (not valid after Electra)
+    /// - both target epochs in Capella but signed with Deneb domain (only valid after Electra)
     #[tokio::test]
     async fn cross_fork_attester_slashings() {
         let (harness, spec) = cross_fork_harness::<MainnetEthSpec>();
         let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
         let zero_epoch = Epoch::new(0);
-        let altair_fork_epoch = spec.altair_fork_epoch.unwrap();
-        let bellatrix_fork_epoch = spec.bellatrix_fork_epoch.unwrap();
-        let bellatrix_fork_slot = bellatrix_fork_epoch.start_slot(slots_per_epoch);
+        let deneb_fork_epoch = spec.deneb_fork_epoch.unwrap();
+        let electra_fork_epoch = spec.electra_fork_epoch.unwrap();
+        let electra_fork_slot = electra_fork_epoch.start_slot(slots_per_epoch);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
-        // Sign an attester slashing with the phase0 fork version, with both target epochs in phase0.
+        // Sign an attester slashing with the Capella fork version, with both target epochs in Capella.
         let slashing1 = harness.make_attester_slashing_with_epochs(
             vec![0],
             None,
@@ -2047,55 +1979,55 @@ mod release_tests {
             Some(zero_epoch),
         );
 
-        // Advance to Altair.
+        // Advance to Deneb.
         harness
-            .extend_to_slot(altair_fork_epoch.start_slot(slots_per_epoch))
+            .extend_to_slot(deneb_fork_epoch.start_slot(slots_per_epoch))
             .await;
-        let altair_head = harness.chain.canonical_head.cached_head().snapshot;
-        assert_eq!(altair_head.beacon_state.current_epoch(), altair_fork_epoch);
+        let deneb_head = harness.chain.canonical_head.cached_head().snapshot;
+        assert_eq!(deneb_head.beacon_state.current_epoch(), deneb_fork_epoch);
 
-        // Add slashing1 to the op pool during Altair. It's still valid at this point and should be
+        // Add slashing1 to the op pool during Deneb. It's still valid at this point and should be
         // returned.
         let verified_slashing1 = slashing1
             .clone()
-            .validate(&altair_head.beacon_state, &harness.chain.spec)
+            .validate(&deneb_head.beacon_state, &harness.chain.spec)
             .unwrap();
         op_pool.insert_attester_slashing(verified_slashing1);
 
-        // Sign an attester slashing with two Bellatrix epochs using the Altair fork domain.
+        // Sign an attester slashing with two Electra epochs using the Deneb fork domain.
         //
-        // This slashing is valid only before the Bellatrix fork epoch.
+        // This slashing is valid only before the Electra fork epoch.
         let slashing2 = harness.make_attester_slashing_with_epochs(
             vec![1],
             None,
-            Some(bellatrix_fork_epoch),
+            Some(electra_fork_epoch),
             None,
-            Some(bellatrix_fork_epoch),
+            Some(electra_fork_epoch),
         );
         let verified_slashing2 = slashing2
             .clone()
-            .validate(&altair_head.beacon_state, &harness.chain.spec)
+            .validate(&deneb_head.beacon_state, &harness.chain.spec)
             .unwrap();
         op_pool.insert_attester_slashing(verified_slashing2);
         let (_, attester_slashings, _) =
-            op_pool.get_slashings_and_exits(&altair_head.beacon_state, &harness.chain.spec);
+            op_pool.get_slashings_and_exits(&deneb_head.beacon_state, &harness.chain.spec);
         assert!(attester_slashings.contains(&slashing1));
         assert!(attester_slashings.contains(&slashing2));
         assert_eq!(attester_slashings.len(), 2);
 
-        // Sign an attester slashing where an Altair attestation surrounds a phase0 one.
+        // Sign an attester slashing where a Deneb attestation surrounds a Capella one.
         //
-        // This slashing is valid only before the Bellatrix fork epoch.
+        // This slashing is valid only before the Electra fork epoch.
         let slashing3 = harness.make_attester_slashing_with_epochs(
             vec![2],
             Some(Epoch::new(0)),
-            Some(altair_fork_epoch),
+            Some(deneb_fork_epoch),
             Some(Epoch::new(1)),
-            Some(altair_fork_epoch - 1),
+            Some(deneb_fork_epoch - 1),
         );
         let verified_slashing3 = slashing3
             .clone()
-            .validate(&altair_head.beacon_state, &harness.chain.spec)
+            .validate(&deneb_head.beacon_state, &harness.chain.spec)
             .unwrap();
         op_pool.insert_attester_slashing(verified_slashing3);
 
@@ -2104,44 +2036,43 @@ mod release_tests {
         // slashed.
         let mut to_be_slashed = hashset! {0};
         let attester_slashings =
-            op_pool.get_attester_slashings(&altair_head.beacon_state, &mut to_be_slashed);
+            op_pool.get_attester_slashings(&deneb_head.beacon_state, &mut to_be_slashed);
         assert!(attester_slashings.contains(&slashing2));
         assert!(attester_slashings.contains(&slashing3));
         assert_eq!(attester_slashings.len(), 2);
 
-        // Advance to Bellatrix.
-        harness.extend_to_slot(bellatrix_fork_slot).await;
-        let bellatrix_head = harness.chain.canonical_head.cached_head().snapshot;
+        // Advance to Electra
+        harness.extend_to_slot(electra_fork_slot).await;
+        let electra_head = harness.chain.canonical_head.cached_head().snapshot;
         assert_eq!(
-            bellatrix_head.beacon_state.current_epoch(),
-            bellatrix_fork_epoch
+            electra_head.beacon_state.current_epoch(),
+            electra_fork_epoch
         );
 
-        // Sign an attester slashing with the Altair domain and phase0 epochs. This is a weird type
-        // of slashing that is only valid after the Bellatrix fork because we'll use the Altair fork
-        // domain to verify all prior epochs.
+        // Sign an attester slashing with the Deneb domain and Capella epochs. This is only valid
+        // after the Electra fork.
         let slashing4 = harness.make_attester_slashing_with_epochs(
             vec![3],
             Some(Epoch::new(0)),
-            Some(altair_fork_epoch - 1),
+            Some(deneb_fork_epoch - 1),
             Some(Epoch::new(0)),
-            Some(altair_fork_epoch - 1),
+            Some(deneb_fork_epoch - 1),
         );
         let verified_slashing4 = slashing4
             .clone()
-            .validate(&bellatrix_head.beacon_state, &harness.chain.spec)
+            .validate(&electra_head.beacon_state, &harness.chain.spec)
             .unwrap();
         op_pool.insert_attester_slashing(verified_slashing4);
 
         // All slashings except slashing4 are now invalid (despite being present in the pool).
         assert_eq!(op_pool.attester_slashings.read().len(), 4);
         let (_, attester_slashings, _) =
-            op_pool.get_slashings_and_exits(&bellatrix_head.beacon_state, &harness.spec);
+            op_pool.get_slashings_and_exits(&electra_head.beacon_state, &harness.spec);
         assert!(attester_slashings.contains(&slashing4));
         assert_eq!(attester_slashings.len(), 1);
 
         // Pruning the attester slashings should remove all but slashing4.
-        op_pool.prune_attester_slashings(&bellatrix_head.beacon_state);
+        op_pool.prune_attester_slashings(&electra_head.beacon_state);
         assert_eq!(op_pool.attester_slashings.read().len(), 1);
     }
 }
