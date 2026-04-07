@@ -5631,7 +5631,11 @@ async fn test_gloas_block_and_envelope_storage_generic(
     let mut state = genesis_state;
 
     let mut block_roots = vec![];
-    let mut stored_states = vec![(Slot::new(0), StatePayloadStatus::Full, genesis_state_root)];
+    let mut stored_states = vec![(
+        Slot::new(0),
+        StatePayloadStatus::Pending,
+        genesis_state_root,
+    )];
 
     for i in 1..=num_slots {
         let slot = Slot::new(i);
