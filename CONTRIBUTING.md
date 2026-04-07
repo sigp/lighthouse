@@ -131,10 +131,3 @@ make a mistake and learn from it, everyone wins.
 
 Please, make an issue and explain why. We're open to constructive criticism and
 will happily change our ways.
-## macOS Apple Silicon Requirements
-
-When building on macOS (Apple Silicon / M1/M2/M3), install these before running cargo build:
-
-- **cmake** (required by `leveldb-sys`): Download from https://cmake.org/download/ and add to PATH
-- **cargo-nextest** (required for `make test-ef`): Run `cargo install cargo-nextest --locked`
-- **Xcode Command Line Tools**: Run `xcode-select --install`
