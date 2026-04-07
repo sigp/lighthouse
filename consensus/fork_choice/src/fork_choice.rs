@@ -420,10 +420,9 @@ where
                 // For the genesis anchor, the block's bid is default (zeroed), so use
                 // latest_block_hash from the state which reflects the actual EL genesis hash.
                 let block_hash = if signed_bid.message.block_hash.into_root().is_zero() {
-                    (*anchor_state
+                    *anchor_state
                         .latest_block_hash()
-                        .map_err(Error::BeaconStateError)?)
-                    .into()
+                        .map_err(Error::BeaconStateError)?
                 } else {
                     signed_bid.message.block_hash
                 };
