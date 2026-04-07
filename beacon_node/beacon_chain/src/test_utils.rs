@@ -2772,6 +2772,9 @@ where
             .on_valid_payload_envelope_received(block_root)
             .expect("should update fork choice with envelope");
 
+        // Run fork choice because the envelope could become the head.
+        self.chain.recompute_head_at_current_slot().await;
+
         state_root
     }
 
@@ -3000,8 +3003,6 @@ where
         if let Some(envelope) = opt_envelope {
             self.process_envelope(block_hash.into(), envelope, &mut new_state)
                 .await;
-            // Recompute head after processing the envelope: the new envelope could become head.
-            self.chain.recompute_head_at_current_slot().await;
         }
         Ok((block_hash, block_contents, new_state))
     }

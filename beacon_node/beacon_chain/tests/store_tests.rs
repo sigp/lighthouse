@@ -53,7 +53,7 @@ use types::test_utils::{SeedableRng, XorShiftRng};
 use types::*;
 
 // Should ideally be divisible by 3.
-pub const LOW_VALIDATOR_COUNT: usize = 24;
+pub const LOW_VALIDATOR_COUNT: usize = 32;
 pub const HIGH_VALIDATOR_COUNT: usize = 64;
 
 // When set to true, cache any states fetched from the db.
@@ -5958,26 +5958,28 @@ async fn test_gloas_hot_state_hierarchy() {
         let slot = Slot::new(i);
         harness.advance_slot();
 
-        let (block_contents, envelope, pending_state) =
+        let (block_contents, envelope, mut pending_state) =
             harness.make_block_with_envelope(state.clone(), slot).await;
         let block_root = block_contents.0.canonical_root();
-
-        // Attest to previous block before processing next.
-        if i > 1 {
-            let state_root = state.update_tree_hash_cache().unwrap();
-            harness.attest_block(
-                &state,
-                state_root,
-                last_block_root.into(),
-                &block_contents.0,
-                &some_validators,
-            );
-        }
+        let signed_block = block_contents.0.clone();
 
         harness
             .process_block(slot, block_root, block_contents)
             .await
             .unwrap();
+
+        // Attest to the current block at its own slot (same-slot attestation).
+        // In Gloas, same-slot attestations have index=0 and route to Pending in
+        // fork choice, correctly propagating weight through the Full path.
+        // Use pending_state (at slot i) so the target root resolves correctly.
+        let pending_state_root = pending_state.update_tree_hash_cache().unwrap();
+        harness.attest_block(
+            &pending_state,
+            pending_state_root,
+            block_root.into(),
+            &signed_block,
+            &some_validators,
+        );
 
         let envelope = envelope.expect("Gloas block should have envelope");
         let mut full_state = pending_state;
@@ -5989,9 +5991,13 @@ async fn test_gloas_hot_state_hierarchy() {
         state = full_state;
     }
 
-    // Verify states can be loaded and have correct payload status.
-    let _head_state = harness.get_current_state();
-    let _head_slot = harness.head_slot();
+    // Head should be the block at slot 40 with full payload.
+    let head = harness.chain.canonical_head.cached_head();
+    assert_eq!(head.head_block_root(), last_block_root);
+    assert_eq!(
+        head.head_payload_status().as_state_payload_status(),
+        StatePayloadStatus::Full
+    );
 
     // States at all slots on the canonical chain should be retrievable.
     for slot_num in 1..=num_blocks {
