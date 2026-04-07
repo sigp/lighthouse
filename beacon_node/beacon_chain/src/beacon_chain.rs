@@ -904,6 +904,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Post-Gloas, the split state root is always the Pending root but the canonical state root
         // at the finalized slot may be the Full root (from the state_roots vector). Skip the
         // fast-path for Gloas to ensure consistency with the forwards state root iterator.
+        // TODO(gloas): revisit this if spec changes to finalize payload status.
         let split = self.store.get_split_info();
         if request_slot == split.slot
             && !self
