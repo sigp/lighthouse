@@ -4,6 +4,7 @@
 //! using a synthetic linear chain built via `ProtoArrayForkChoice`.
 
 use std::collections::BTreeSet;
+use std::time::Duration;
 
 use beacon_chain::fast_confirmation::{BalanceSourceData, FastConfirmationRule};
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
@@ -62,6 +63,10 @@ fn build_chain(num_validators: usize) -> BenchData {
         shuffling_id.clone(),
         shuffling_id.clone(),
         ExecutionStatus::irrelevant(),
+        None, // execution_payload_parent_hash
+        None, // execution_payload_block_hash
+        0,    // proposer_index
+        &spec,
     )
     .expect("create fork choice");
 
@@ -86,9 +91,12 @@ fn build_chain(num_validators: usize) -> BenchData {
             execution_status: ExecutionStatus::irrelevant(),
             unrealized_justified_checkpoint: Some(justified_checkpoint),
             unrealized_finalized_checkpoint: Some(finalized_checkpoint),
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
+            proposer_index: None,
         };
 
-        fc.process_block::<E>(block, slot, justified_checkpoint, finalized_checkpoint)
+        fc.process_block::<E>(block, slot, &spec, Duration::from_secs(0))
             .expect("process block");
 
         block_roots.push(root);
@@ -99,7 +107,7 @@ fn build_chain(num_validators: usize) -> BenchData {
 
     // All validators attest to the head.
     for val_idx in 0..num_validators {
-        fc.process_attestation(val_idx, head_root, Epoch::new(0))
+        fc.process_attestation(val_idx, head_root, Slot::new(0), false)
             .expect("process attestation");
     }
 
