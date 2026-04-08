@@ -9,10 +9,7 @@ edition = { workspace = true }
 test_logger = []
 
 [dependencies]
-chrono = { version = "0.4", default-features = false, features = [
-    "clock",
-    "std",
-] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 logroller = { workspace = true }
 metrics = { workspace = true }
 serde = { workspace = true }
@@ -23,5 +20,4 @@ tracing-appender = { workspace = true }
 tracing-core = { workspace = true }
 tracing-log = { workspace = true }
 tracing-subscriber = { workspace = true }
-types = { workspace = true }
 workspace_members = { workspace = true }

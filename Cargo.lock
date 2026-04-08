@@ -5557,7 +5557,6 @@ dependencies = [
  "tracing-core",
  "tracing-log",
  "tracing-subscriber",
- "types",
  "workspace_members",
 ]
 

@@ -12,7 +12,7 @@ use execution_layer::{
     },
 };
 use lighthouse_network::{NetworkGlobals, types::SyncState};
-use logging::{ShortHash, crit};
+use logging::crit;
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -360,14 +360,14 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 let block_info = if current_slot > head_slot {
                     "   …  empty".to_string()
                 } else {
-                    format!("{}", ShortHash(head_root))
+                    format!("{}", ExecutionBlockHash(head_root))
                 };
 
                 let block_hash = match beacon_chain.canonical_head.head_execution_status() {
                     Ok(ExecutionStatus::Irrelevant(_)) => "n/a".to_string(),
                     Ok(ExecutionStatus::Valid(hash)) => {
                         metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 0);
-                        format!("{} (verified)", ShortHash(hash.0))
+                        format!("{} (verified)", ExecutionBlockHash(hash.0))
                     }
                     Ok(ExecutionStatus::Optimistic(hash)) => {
                         metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 1);
@@ -377,7 +377,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                             execution_block_hash = ?hash,
                             "Head is optimistic"
                         );
-                        format!("{} (unverified)", ShortHash(hash.0))
+                        format!("{} (unverified)", ExecutionBlockHash(hash.0))
                     }
                     Ok(ExecutionStatus::Invalid(hash)) => {
                         crit!(
@@ -385,7 +385,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                             execution_block_hash = ?hash,
                             "Head execution payload is invalid"
                         );
-                        format!("{} (invalid)", ShortHash(hash.0))
+                        format!("{} (invalid)", ExecutionBlockHash(hash.0))
                     }
                     Err(_) => "unknown".to_string(),
                 };
@@ -393,7 +393,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 info!(
                     peers = peer_count_pretty(connected_peer_count),
                     exec_hash = block_hash,
-                    finalized_root = %ShortHash(finalized_checkpoint.root),
+                    finalized_root = %ExecutionBlockHash(finalized_checkpoint.root),
                     finalized_epoch = %finalized_checkpoint.epoch,
                     epoch = %current_epoch,
                     block = block_info,
