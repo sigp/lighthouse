@@ -20,6 +20,8 @@ impl StateId {
         Self(CoreStateId::Slot(slot))
     }
 
+    // TODO(gloas) add tests for finalized and justified checkpoint states to ensure
+    // we return the post block state for gloas
     /// Return the state root identified by `self`.
     pub fn root<T: BeaconChainTypes>(
         &self,
