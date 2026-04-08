@@ -125,6 +125,10 @@ impl fmt::Display for BlockId {
 pub enum StateId {
     Head,
     Genesis,
+    // Pre-gloas the finalized and justified states are the checkpoint block state
+    // advanced to the epoch boundary.
+    // Post-gloas these states are always the checkpoint post-block state and are not advanced
+    // to the epoch boundary.
     Finalized,
     Justified,
     Slot(Slot),
