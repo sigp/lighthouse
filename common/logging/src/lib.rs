@@ -1,5 +1,7 @@
+use std::fmt;
 use std::time::{Duration, Instant};
 use tracing_subscriber::EnvFilter;
+use types::Hash256;
 
 pub const MAX_MESSAGE_WIDTH: usize = 40;
 
@@ -53,5 +55,15 @@ pub fn create_test_tracing_subscriber() {
         let _ = tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::try_new("debug").unwrap())
             .try_init();
+    }
+}
+
+/// A short version of hash to display in log
+pub struct ShortHash(pub Hash256);
+
+impl fmt::Display for ShortHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let hash = format!("{}", self.0);
+        write!(f, "{}…{}", &hash[..6], &hash[hash.len() - 4..])
     }
 }
