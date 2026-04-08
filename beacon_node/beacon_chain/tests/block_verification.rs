@@ -77,10 +77,9 @@ async fn get_chain_segment() -> Option<(Vec<BeaconSnapshot<E>>, Vec<Option<DataS
             .unwrap();
         let block_epoch = full_block.epoch();
 
-        // TODO(gloas): probably need to update this test
         segment.push(BeaconSnapshot {
             beacon_block_root: snapshot.beacon_block_root,
-            execution_envelope: None,
+            execution_envelope: snapshot.execution_envelope,
             beacon_block: Arc::new(full_block),
             beacon_state: snapshot.beacon_state,
         });
@@ -1117,6 +1116,26 @@ async fn block_gossip_verification() {
             )
             .await
             .expect("should import valid gossip verified block");
+        // Post-Gloas, store the execution payload envelope and its Full state so that
+        // subsequent blocks can look up the parent's Full state.
+        if let Some(ref envelope) = snapshot.execution_envelope {
+            harness
+                .chain
+                .store
+                .put_payload_envelope(&snapshot.beacon_block_root, (**envelope).clone())
+                .expect("should store envelope");
+            harness
+                .chain
+                .store
+                .put_state(&envelope.message.state_root, &snapshot.beacon_state)
+                .expect("should store full state");
+            harness
+                .chain
+                .canonical_head
+                .fork_choice_write_lock()
+                .on_valid_payload_envelope_received(snapshot.beacon_block_root)
+                .expect("should update fork choice with envelope");
+        }
         if let Some(data_sidecars) = blobs_opt {
             verify_and_process_gossip_data_sidecars(&harness, data_sidecars).await;
         }

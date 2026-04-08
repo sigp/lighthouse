@@ -231,9 +231,13 @@ where
         }
 
         // Otherwise try to source a root from the previous block.
+        // Post-Gloas, the block's `state_root` is always the Pending (post-block) root.
+        // If the state is Full (post-envelope), the block root is wrong and we must fall
+        // through to compute the actual root.
         if let Some(prev_i) = i.checked_sub(1)
             && let Some(prev_block) = blocks.get(prev_i)
             && prev_block.slot() == slot
+            && self.state.payload_status() != StatePayloadStatus::Full
         {
             return Ok(prev_block.state_root());
         }
