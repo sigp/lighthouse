@@ -164,9 +164,6 @@ pub enum HotColdDBError {
         target_version: SchemaVersion,
         current_version: SchemaVersion,
     },
-    /// Recoverable error indicating that the database freeze point couldn't be updated
-    /// due to the finalized block not lying on an epoch boundary (should be infrequent).
-    FreezeSlotUnaligned(Slot),
     UnableToFreezeFullState {
         state_root: Hash256,
     },
