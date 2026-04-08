@@ -43,6 +43,27 @@ impl StateId {
                     chain.canonical_head.cached_head().finalized_checkpoint();
                 let (slot, execution_optimistic) =
                     checkpoint_slot_and_execution_optimistic(chain, finalized_checkpoint)?;
+
+                // Post-gloas the finalized state must be the post-block state
+                if chain
+                    .spec
+                    .fork_name_at_slot::<T::EthSpec>(slot)
+                    .gloas_enabled()
+                {
+                    let state_root = chain
+                        .canonical_head
+                        .fork_choice_read_lock()
+                        .get_block(&finalized_checkpoint.root)
+                        .ok_or_else(|| {
+                            warp_utils::reject::custom_not_found(format!(
+                                "block for finalized checkpoint {}",
+                                finalized_checkpoint.root
+                            ))
+                        })?
+                        .state_root;
+                    return Ok((state_root, execution_optimistic, true));
+                }
+
                 (slot, execution_optimistic, true)
             }
             CoreStateId::Justified => {
@@ -50,6 +71,27 @@ impl StateId {
                     chain.canonical_head.cached_head().justified_checkpoint();
                 let (slot, execution_optimistic) =
                     checkpoint_slot_and_execution_optimistic(chain, justified_checkpoint)?;
+
+                // Post-gloas the justified state must be the post-block state
+                if chain
+                    .spec
+                    .fork_name_at_slot::<T::EthSpec>(slot)
+                    .gloas_enabled()
+                {
+                    let state_root = chain
+                        .canonical_head
+                        .fork_choice_read_lock()
+                        .get_block(&justified_checkpoint.root)
+                        .ok_or_else(|| {
+                            warp_utils::reject::custom_not_found(format!(
+                                "block for justified checkpoint {}",
+                                justified_checkpoint.root
+                            ))
+                        })?
+                        .state_root;
+                    return Ok((state_root, execution_optimistic, false));
+                }
+
                 (slot, execution_optimistic, false)
             }
             CoreStateId::Slot(slot) => (
