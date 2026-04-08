@@ -53,7 +53,7 @@ impl StateId {
 
                 if chain
                     .spec
-                    .fork_name_at_slot::<T::EthSpec>(slot)
+                    .fork_name_at_slot::<T::EthSpec>(block.slot)
                     .gloas_enabled()
                 {
                     return Ok((block.state_root, execution_optimistic, true));
@@ -73,7 +73,7 @@ impl StateId {
 
                 if chain
                     .spec
-                    .fork_name_at_slot::<T::EthSpec>(slot)
+                    .fork_name_at_slot::<T::EthSpec>(block.slot)
                     .gloas_enabled()
                 {
                     return Ok((block.state_root, execution_optimistic, false));
