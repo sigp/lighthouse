@@ -18,7 +18,7 @@ use store::{Error as StoreError, HotColdDB, ItemStore};
 use superstruct::superstruct;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec,
-    Hash256, Slot,
+    Hash256, Slot, StatePayloadStatus,
 };
 
 #[derive(Debug)]
@@ -28,7 +28,11 @@ pub enum Error {
     FailedToReadState(StoreError),
     MissingState(Hash256),
     BeaconStateError(BeaconStateError),
-    UnalignedCheckpoint { block_slot: Slot, state_slot: Slot },
+    BadCheckpoint {
+        block_slot: Slot,
+        state_slot: Slot,
+        state_payload_status: StatePayloadStatus,
+    },
     Arith(ArithError),
 }
 
@@ -172,15 +176,18 @@ where
         let mut anchor_state = anchor.beacon_state;
         let mut anchor_block_header = anchor_state.latest_block_header().clone();
 
-        // The anchor state MUST be on an epoch boundary (it should be advanced by the caller).
-        if !anchor_state
-            .slot()
-            .as_u64()
-            .is_multiple_of(E::slots_per_epoch())
+        // In the post-Gloas realm, we now require the anchor to be UNADVANCED, and Pending.
+        if store
+            .get_chain_spec()
+            .fork_name_at_slot::<E>(anchor_state.slot())
+            .gloas_enabled()
+            && (anchor_state.slot() != anchor_block_header.slot
+                || anchor_state.payload_status() != StatePayloadStatus::Pending)
         {
-            return Err(Error::UnalignedCheckpoint {
+            return Err(Error::BadCheckpoint {
                 block_slot: anchor_block_header.slot,
                 state_slot: anchor_state.slot(),
+                state_payload_status: anchor_state.payload_status(),
             });
         }
 
@@ -190,11 +197,17 @@ where
         }
         let anchor_block_root = anchor_block_header.canonical_root();
         let anchor_epoch = anchor_state.current_epoch();
+        // TODO(gloas): is it safe to use the state's current epoch here rather than the actual
+        // justified epoch?
         let justified_checkpoint = Checkpoint {
             epoch: anchor_epoch,
             root: anchor_block_root,
         };
         let finalized_checkpoint = justified_checkpoint;
+
+        // TODO(gloas): we advance the state here inline, but we need the justified checkpoint
+        // passed in, see:
+        // https://github.com/ethereum/consensus-specs/issues/5074
         let justified_balances = JustifiedBalances::from_justified_state(&anchor_state)?;
         let justified_state_root = anchor_state.canonical_root()?;
 

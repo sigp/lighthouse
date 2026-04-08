@@ -34,7 +34,7 @@ use rand::RngCore;
 use rayon::prelude::*;
 use slasher::Slasher;
 use slot_clock::{SlotClock, TestingSlotClock};
-use state_processing::{AllCaches, per_slot_processing};
+use state_processing::AllCaches;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
@@ -45,7 +45,7 @@ use tree_hash::TreeHash;
 use types::data::CustodyIndex;
 use types::{
     BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList,
-    Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
+    Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot, StatePayloadStatus,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -433,20 +433,6 @@ where
             .clone()
             .ok_or("weak_subjectivity_state requires a store")?;
 
-        // Ensure the state is advanced to an epoch boundary.
-        let slots_per_epoch = E::slots_per_epoch();
-        if weak_subj_state.slot() % slots_per_epoch != 0 {
-            debug!(
-                state_slot = %weak_subj_state.slot(),
-                block_slot = %weak_subj_block.slot(),
-                "Advancing checkpoint state to boundary"
-            );
-            while weak_subj_state.slot() % slots_per_epoch != 0 {
-                per_slot_processing(&mut weak_subj_state, None, &self.spec)
-                    .map_err(|e| format!("Error advancing state: {e:?}"))?;
-            }
-        }
-
         // Prime all caches before storing the state in the database and computing the tree hash
         // root.
         weak_subj_state
@@ -476,6 +462,15 @@ where
                  is {:?} but should be {:?}",
                 weak_subj_state.genesis_validators_root(),
                 genesis_state.genesis_validators_root()
+            ));
+        }
+
+        // Checkpoint state must ALWAYS be pending, even post-Gloas. The finalized block's payload
+        // is not finalized.
+        if weak_subj_state.payload_status() == StatePayloadStatus::Full {
+            return Err(format!(
+                "Checkpoint state is a post-payload state but should be post-block, \
+                 state root: {weak_subj_state_root:?}"
             ));
         }
 
@@ -617,7 +612,6 @@ where
                 .map_err(|e| format!("Failed to initialize data column info: {:?}", e))?,
         );
 
-        // TODO(gloas): add check that checkpoint state is Pending
         let snapshot = BeaconSnapshot {
             beacon_block_root: weak_subj_block_root,
             execution_envelope: None,

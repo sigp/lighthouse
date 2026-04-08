@@ -396,16 +396,9 @@ where
         current_slot: Option<Slot>,
         spec: &ChainSpec,
     ) -> Result<Self, Error<T::Error>> {
-        // Sanity check: the anchor must lie on an epoch boundary.
-        if anchor_state.slot() % E::slots_per_epoch() != 0 {
-            return Err(Error::InvalidAnchor {
-                block_slot: anchor_block.slot(),
-                state_slot: anchor_state.slot(),
-            });
-        }
-
         let finalized_block_slot = anchor_block.slot();
         let finalized_block_state_root = anchor_block.state_root();
+        // TODO(gloas): need to plumb through finalized epoch
         let current_epoch_shuffling_id =
             AttestationShufflingId::new(anchor_block_root, anchor_state, RelativeEpoch::Current)
                 .map_err(Error::BeaconStateError)?;
@@ -420,6 +413,7 @@ where
                 // For the genesis anchor, the block's bid is default (zeroed), so use
                 // latest_block_hash from the state which reflects the actual EL genesis hash.
                 let block_hash = if signed_bid.message.block_hash.into_root().is_zero() {
+                    // TODO(gloas): why are we doing this, remove?
                     *anchor_state
                         .latest_block_hash()
                         .map_err(Error::BeaconStateError)?
