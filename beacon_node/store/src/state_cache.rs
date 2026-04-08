@@ -1,6 +1,7 @@
 use crate::hdiff::HDiffBuffer;
 use crate::{
     Error,
+    hot_cold_store::HotColdDBError,
     metrics::{self, HOT_METRIC},
 };
 use lru::LruCache;
@@ -131,10 +132,7 @@ impl<E: EthSpec> StateCache<E> {
         state: BeaconState<E>,
         pre_finalized_slots_to_retain: &[Slot],
     ) -> Result<(), Error> {
-        if state.slot() % E::slots_per_epoch() != 0 {
-            return Err(Error::FinalizedStateUnaligned);
-        }
-
+        // NOTE: `state` is no longer required to be aligned to an epoch boundary (!!)
         if self
             .finalized_state
             .as_ref()
@@ -144,6 +142,10 @@ impl<E: EthSpec> StateCache<E> {
         }
 
         let payload_status = state.payload_status();
+
+        if state.payload_status() == StatePayloadStatus::Full {
+            return Err(HotColdDBError::UnableToFreezeFullState { state_root }.into());
+        }
 
         // Add to block map.
         self.block_map

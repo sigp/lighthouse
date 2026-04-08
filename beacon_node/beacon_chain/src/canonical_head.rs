@@ -976,12 +976,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .finalized_checkpoint
             .epoch
             .start_slot(T::EthSpec::slots_per_epoch());
-        let new_finalized_state_root = if new_finalized_slot == finalized_proto_block.slot {
+        let new_finalized_state_root = if new_finalized_slot == finalized_proto_block.slot
+            || self
+                .spec
+                .fork_name_at_slot::<T::EthSpec>(finalized_proto_block.slot)
+                .gloas_enabled()
+        {
             // Fast-path for the common case where the finalized state is not at a skipped slot.
             //
             // This is mandatory post-Gloas because the state root iterator will return the
             // canonical state root at `new_finalized_slot`, which could be `Full`, but we need the
             // state root of the `Pending` no matter what.
+            // TODO(gloas): consider just always using this state root (even pre-Gloas)
             finalized_proto_block.state_root
         } else {
             // Use the `StateRootsIterator` directly rather than `BeaconChain::state_root_at_slot`

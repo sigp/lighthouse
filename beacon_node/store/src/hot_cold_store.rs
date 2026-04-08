@@ -3866,18 +3866,9 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         .into());
     }
 
-    // finalized_state.slot() must be at an epoch boundary else we may introduce bugs to the
-    // migration/pruning logic
-    if finalized_state.slot() % E::slots_per_epoch() != 0 {
-        return Err(HotColdDBError::FreezeSlotUnaligned(finalized_state.slot()).into());
-    }
-
-    // If the finalized state is from the same slot as the finalized block, then it must be the
-    // pending state for that slot. Finalization only finalizes the block root, and NOT the payload,
-    // so it would be wrong to finalize the full state.
-    if finalized_state.latest_block_header().slot == finalized_state.slot()
-        && finalized_state.payload_status() == StatePayloadStatus::Full
-    {
+    // Post-Gloas the finalized state must ALWAYS be a pending state. The payload of the finalized
+    // block is not itself finalized.
+    if finalized_state.payload_status() == StatePayloadStatus::Full {
         return Err(HotColdDBError::UnableToFreezeFullState {
             state_root: finalized_state_root,
         }
