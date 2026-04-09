@@ -201,7 +201,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// Perform a HTTP GET request.
-    pub async fn get<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
+    async fn get<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
         let response = self.get_response(url, |b| b).await?;
         Ok(response.json().await?)
     }
@@ -356,7 +356,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// Perform a HTTP POST request, returning a JSON response.
-    pub async fn post_with_response<T: Serialize, U: IntoUrl, R: DeserializeOwned>(
+    async fn post_with_response<T: Serialize, U: IntoUrl, R: DeserializeOwned>(
         &self,
         url: U,
         body: &T,

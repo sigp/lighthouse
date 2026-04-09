@@ -11,15 +11,13 @@ use eth2::types::{
     SyncCommitteeSelection, ValidatorId, ValidatorIndexData, ValidatorStatus,
     ValidatorsRequestBody,
 };
-use eth2::{BeaconNodeHttpClient, Timeouts};
 use http_api::test_utils::{ApiServer, create_api_server};
 use lighthouse_network::PeerId;
 use oas3::spec::{ObjectOrReference, ObjectSchema, Operation, Schema, SchemaType, SchemaTypeSet};
 use regex::RegexBuilder;
-use sensitive_url::SensitiveUrl;
+use reqwest::Client;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::{
     Address, Epoch, EthSpec, Hash256, MainnetEthSpec, PendingConsolidation, PendingDeposit,
@@ -48,7 +46,7 @@ struct ChainData {
 
 async fn new() -> (
     Arc<BeaconChainHarness<EphemeralHarnessType<E>>>,
-    BeaconNodeHttpClient,
+    Client,
     u16,
     PeerId,
     network::NetworkReceivers<E>,
@@ -105,10 +103,7 @@ async fn new() -> (
     harness.runtime.task_executor.spawn(server, "api_server");
 
     let port = listening_socket.port();
-    let client = BeaconNodeHttpClient::new(
-        SensitiveUrl::parse(&format!("http://127.0.0.1:{}", port)).unwrap(),
-        Timeouts::set_all(Duration::from_secs(12)),
-    );
+    let client = reqwest::Client::builder().build().unwrap();
 
     (harness, client, port, external_peer_id, network_rx)
 }
@@ -807,7 +802,8 @@ async fn http_api_spec_test() -> Result<(), String> {
             replace_parameter(endpoint, &harness, peer_id, attestation_data_root)
         );
 
-        let get_result_json: serde_json::Value = client.get(url.clone()).await.unwrap();
+        let get_result_json: serde_json::Value =
+            client.get(&url).send().await.unwrap().json().await.unwrap();
 
         check_field(&get_result_json, get_response_object_schema, endpoint)?;
 
@@ -822,7 +818,8 @@ async fn http_api_spec_test() -> Result<(), String> {
         // NOt all endpoints have "finalized" field, so we test a single endpoint modification
         if endpoint == "/eth/v1/beacon/states/{state_id}/fork" {
             // modify to remove one field from the response to test field check
-            let mut result_json_modify: serde_json::Value = client.get(url.clone()).await.unwrap();
+            let mut result_json_modify: serde_json::Value =
+                client.get(&url).send().await.unwrap().json().await.unwrap();
             result_json_modify
                 .as_object_mut()
                 .unwrap()
@@ -832,7 +829,8 @@ async fn http_api_spec_test() -> Result<(), String> {
             );
 
             // modify the type from Boolean to String to test type check
-            let mut result_json_modify: serde_json::Value = client.get(url.clone()).await.unwrap();
+            let mut result_json_modify: serde_json::Value =
+                client.get(&url).send().await.unwrap().json().await.unwrap();
             result_json_modify["execution_optimistic"] =
                 serde_json::Value::String("true".to_string());
             assert!(
@@ -840,7 +838,8 @@ async fn http_api_spec_test() -> Result<(), String> {
             );
 
             // manually modify the current_version (e.g., 0x01000000) to 9 characters instead of 8 to test Regex pattern check
-            let mut result_json_modify: serde_json::Value = client.get(url).await.unwrap();
+            let mut result_json_modify: serde_json::Value =
+                client.get(&url).send().await.unwrap().json().await.unwrap();
             result_json_modify["data"]["current_version"] =
                 serde_json::Value::String("0x123456789".to_string());
             assert!(
@@ -874,7 +873,12 @@ async fn http_api_spec_test() -> Result<(), String> {
             && !endpoint.contains("selections")
         {
             let post_result_json = client
-                .post_with_response(url.clone(), &request_body)
+                .post(url)
+                .json(&request_body)
+                .send()
+                .await
+                .unwrap()
+                .json()
                 .await
                 .unwrap();
 
