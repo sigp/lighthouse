@@ -576,13 +576,23 @@ async fn epoch_boundary_state_attestation_processing() {
             .get_blinded_block(&block_root)
             .unwrap()
             .expect("block exists");
-        // Use get_state as the state may be finalized by this point
+        // Use get_state as the state may be finalized by this point.
+        // For Gloas, use the Full state root from the envelope rather than the Pending
+        // state root from the block, since the cold DB stores Full state roots.
+        let state_root = if block.fork_name_unchecked().gloas_enabled() {
+            store
+                .get_payload_envelope(&block_root)
+                .expect("no error")
+                .expect("envelope exists")
+                .message
+                .state_root
+        } else {
+            block.state_root()
+        };
         let mut epoch_boundary_state = store
-            .get_state(&block.state_root(), None, CACHE_STATE_IN_TESTS)
+            .get_state(&state_root, None, CACHE_STATE_IN_TESTS)
             .expect("no error")
-            .unwrap_or_else(|| {
-                panic!("epoch boundary state should exist {:?}", block.state_root())
-            });
+            .unwrap_or_else(|| panic!("epoch boundary state should exist {:?}", state_root));
         let ebs_state_root = epoch_boundary_state.update_tree_hash_cache().unwrap();
         let mut ebs_of_ebs = store
             .get_state(&ebs_state_root, None, CACHE_STATE_IN_TESTS)

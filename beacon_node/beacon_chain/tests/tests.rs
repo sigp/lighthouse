@@ -1017,9 +1017,12 @@ async fn pseudo_finalize_test_generic(
     };
 
     // pseudo finalize
+    // Post-Gloas the finalized state must be Pending (the block's state_root), not Full
+    // (the envelope's state_root), because the payload of the finalized block is not finalized.
+    let finalized_state_root = head.beacon_block.message().state_root();
     harness
         .chain
-        .manually_finalize_state(head.beacon_state_root(), checkpoint)
+        .manually_finalize_state(finalized_state_root, checkpoint)
         .unwrap();
 
     let split = harness.chain.store.get_split_info();
