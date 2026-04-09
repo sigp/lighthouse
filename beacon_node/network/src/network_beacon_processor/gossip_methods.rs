@@ -3541,8 +3541,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
             }
             Err(
-                e @ PayloadBidError::BeaconChainError(_)
-                | e @ PayloadBidError::BeaconStateError(_)
+                e @ PayloadBidError::BeaconStateError(_)
                 | e @ PayloadBidError::InternalError(_)
                 | e @ PayloadBidError::UnableToReadSlot,
             ) => {

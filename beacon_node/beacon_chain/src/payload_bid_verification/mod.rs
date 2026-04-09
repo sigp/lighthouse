@@ -61,8 +61,6 @@ pub enum PayloadBidError {
         max_blobs_per_block: usize,
         blob_kzg_commitments_len: usize,
     },
-    /// Some Beacon Chain Error
-    BeaconChainError(Arc<BeaconChainError>),
     /// Some Beacon State error
     BeaconStateError(BeaconStateError),
     /// Internal error
@@ -78,11 +76,5 @@ impl std::fmt::Display for PayloadBidError {
 impl From<BeaconStateError> for PayloadBidError {
     fn from(e: BeaconStateError) -> Self {
         PayloadBidError::BeaconStateError(e)
-    }
-}
-
-impl From<BeaconChainError> for PayloadBidError {
-    fn from(e: BeaconChainError) -> Self {
-        PayloadBidError::BeaconChainError(Arc::new(e))
     }
 }
