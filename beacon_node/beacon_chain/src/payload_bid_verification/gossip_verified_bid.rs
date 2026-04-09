@@ -31,6 +31,8 @@ pub(crate) fn verify_bid_consistency<E: EthSpec>(
         return Err(PayloadBidError::InvalidBidSlot { bid_slot });
     }
 
+    // Execution payments are used by off protocol builders. In protocol bids
+    // should always have this value set to zero.
     if bid.execution_payment != 0 {
         return Err(PayloadBidError::ExecutionPaymentNonZero {
             execution_payment: bid.execution_payment,
