@@ -62,6 +62,7 @@ pub enum BeaconChainError {
     ForkChoiceStoreError(ForkChoiceStoreError),
     MissingBeaconBlock(Hash256),
     MissingBeaconState(Hash256),
+    MissingExecutionPayloadEnvelope(Hash256),
     MissingHotStateSummary(Hash256),
     SlotProcessingError(SlotProcessingError),
     EpochProcessingError(EpochProcessingError),

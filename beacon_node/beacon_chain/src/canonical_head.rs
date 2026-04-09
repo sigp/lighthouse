@@ -682,7 +682,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(fork_choice_read_lock);
 
         // If the head has changed, update `self.canonical_head`.
-        let new_cached_head = if new_view.head_block_root != old_view.head_block_root {
+        let new_cached_head = if new_view.head_block_root != old_view.head_block_root
+            || new_payload_status != old_payload_status
+        {
             metrics::inc_counter(&metrics::FORK_CHOICE_CHANGED_HEAD);
 
             let mut new_snapshot = {
@@ -692,19 +694,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .ok_or(Error::MissingBeaconBlock(new_view.head_block_root))?;
 
                 let payload_status = new_payload_status.as_state_payload_status();
+
+                // Load the execution envelope from the store if the head has a Full payload.
+                let (state_root, execution_envelope) = if payload_status == StatePayloadStatus::Full
+                {
+                    // TODO(gloas): include block root in error
+                    let envelope = self
+                        .store
+                        .get_payload_envelope(&new_view.head_block_root)?
+                        .map(Arc::new)
+                        .ok_or(Error::MissingExecutionPayloadEnvelope(
+                            new_view.head_block_root,
+                        ))?;
+
+                    (envelope.message.state_root, Some(envelope))
+                } else {
+                    (beacon_block.state_root(), None)
+                };
                 let (_, beacon_state) = self
                     .store
                     .get_advanced_hot_state(
                         new_view.head_block_root,
                         payload_status,
                         current_slot,
-                        beacon_block.state_root(),
+                        state_root,
                     )?
-                    .ok_or(Error::MissingBeaconState(beacon_block.state_root()))?;
+                    .ok_or(Error::MissingBeaconState(state_root))?;
 
                 BeaconSnapshot {
                     beacon_block: Arc::new(beacon_block),
-                    execution_envelope: None,
+                    execution_envelope,
                     beacon_block_root: new_view.head_block_root,
                     beacon_state,
                 }
@@ -768,7 +787,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let old_snapshot = &old_cached_head.snapshot;
 
         // If the head changed, perform some updates.
-        if new_snapshot.beacon_block_root != old_snapshot.beacon_block_root
+        if (new_snapshot.beacon_block_root != old_snapshot.beacon_block_root
+            || new_payload_status != old_payload_status)
             && let Err(e) =
                 self.after_new_head(&old_cached_head, &new_cached_head, new_head_proto_block)
         {
