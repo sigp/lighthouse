@@ -49,7 +49,6 @@ use crate::sync::block_lookups::{
 use crate::sync::custody_backfill_sync::CustodyBackFillSync;
 use crate::sync::network_context::{PeerGroup, RpcResponseResult};
 use beacon_chain::block_verification_types::AsBlock;
-use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
 };
@@ -854,7 +853,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     BlockComponent::Block(DownloadResult {
                         value: block.block_cloned(),
                         block_root,
-                        seen_timestamp: timestamp_now(),
+                        seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
                         peer_group: PeerGroup::from_single(peer_id),
                     }),
                 );
@@ -872,7 +871,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     BlockComponent::Blob(DownloadResult {
                         value: parent_root,
                         block_root,
-                        seen_timestamp: timestamp_now(),
+                        seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
                         peer_group: PeerGroup::from_single(peer_id),
                     }),
                 );
@@ -892,7 +891,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             BlockComponent::DataColumn(DownloadResult {
                                 value: parent_root,
                                 block_root,
-                                seen_timestamp: timestamp_now(),
+                                seen_timestamp: self
+                                    .chain
+                                    .slot_clock
+                                    .now_duration()
+                                    .unwrap_or_default(),
                                 peer_group: PeerGroup::from_single(peer_id),
                             }),
                         );
@@ -913,7 +916,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     BlockComponent::PartialDataColumn(DownloadResult {
                         value: parent_root,
                         block_root,
-                        seen_timestamp: timestamp_now(),
+                        seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
                         peer_group: PeerGroup::from_single(peer_id),
                     }),
                 );

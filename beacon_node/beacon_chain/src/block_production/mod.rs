@@ -15,6 +15,7 @@ mod gloas;
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Load a beacon state from the database for block production. This is a long-running process
     /// that should not be performed in an `async` context.
+    #[instrument(skip_all, level = "debug")]
     pub(crate) fn load_state_for_block_production(
         self: &Arc<Self>,
         slot: Slot,
@@ -227,7 +228,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             })
             .ok()?;
         drop(proposer_head_timer);
-        let re_org_parent_block = proposer_head.parent_node.root;
+        let re_org_parent_block = proposer_head.parent_node.root();
 
         let (state_root, state) = self
             .store
@@ -244,7 +245,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         info!(
             weak_head = ?canonical_head,
             parent = ?re_org_parent_block,
-            head_weight = proposer_head.head_node.weight,
+            head_weight = proposer_head.head_node.weight(),
             threshold_weight = proposer_head.re_org_head_weight_threshold,
             "Attempting re-org due to weak head"
         );

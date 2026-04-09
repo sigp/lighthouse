@@ -1670,6 +1670,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 current_slot,
                 indexed_attestation,
                 AttestationFromBlock::True,
+                &chain.spec,
             ) {
                 Ok(()) => Ok(()),
                 // Ignore invalid attestations whilst importing attestations from a block. The
@@ -1677,6 +1678,31 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 Err(ForkChoiceError::InvalidAttestation(_)) => Ok(()),
                 Err(e) => Err(BlockError::BeaconChainError(Box::new(e.into()))),
             }?;
+        }
+
+        // Register each payload attestation in the block with fork choice.
+        if let Ok(payload_attestations) = block.message().body().payload_attestations() {
+            for (i, payload_attestation) in payload_attestations.iter().enumerate() {
+                let indexed_payload_attestation = consensus_context
+                    .get_indexed_payload_attestation(&state, payload_attestation, &chain.spec)
+                    .map_err(|e| BlockError::PerBlockProcessingError(e.into_with_index(i)))?;
+
+                let ptc = state
+                    .get_ptc(indexed_payload_attestation.data.slot, &chain.spec)
+                    .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
+
+                // Ignore invalid payload attestations from blocks (same as
+                // regular attestations — the block may be old).
+                if let Err(e) = fork_choice.on_payload_attestation(
+                    current_slot,
+                    indexed_payload_attestation,
+                    AttestationFromBlock::True,
+                    &ptc.0,
+                ) && !matches!(e, ForkChoiceError::InvalidPayloadAttestation(_))
+                {
+                    return Err(BlockError::BeaconChainError(Box::new(e.into())));
+                }
+            }
         }
         drop(fork_choice);
 
@@ -1934,25 +1960,31 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
         // Post-Gloas we must also fetch a state with the correct payload status. If the current
         // block builds upon the payload of its parent block, then we know the parent block is FULL
         // and we need to load the full state.
-        let (payload_status, parent_state_root) =
-            if block.as_block().fork_name_unchecked().gloas_enabled()
-                && let Ok(parent_bid_block_hash) = parent_block.payload_bid_block_hash()
-            {
-                if block.as_block().is_parent_block_full(parent_bid_block_hash) {
-                    // TODO(gloas): loading the envelope here is not very efficient
-                    // TODO(gloas): check parent payload existence prior to this point?
-                    let envelope = chain.store.get_payload_envelope(&root)?.ok_or_else(|| {
-                        BeaconChainError::DBInconsistent(format!(
-                            "Missing envelope for parent block {root:?}",
-                        ))
-                    })?;
-                    (StatePayloadStatus::Full, envelope.message.state_root)
-                } else {
-                    (StatePayloadStatus::Pending, parent_block.state_root())
-                }
-            } else {
-                (StatePayloadStatus::Pending, parent_block.state_root())
+        let (payload_status, parent_state_root) = if parent_block.slot() == chain.spec.genesis_slot
+        {
+            // Genesis state is always pending, there is no such thing as a "genesis envelope".
+            // See: https://github.com/ethereum/consensus-specs/issues/5043
+            (StatePayloadStatus::Pending, parent_block.state_root())
+        } else if !block.as_block().fork_name_unchecked().gloas_enabled() {
+            // All pre-Gloas parent states are pending.
+            (StatePayloadStatus::Pending, parent_block.state_root())
+        } else if let Ok(parent_bid_block_hash) = parent_block.payload_bid_block_hash()
+            && block.as_block().is_parent_block_full(parent_bid_block_hash)
+        {
+            // Post-Gloas Full block case.
+            // TODO(gloas): loading the envelope here is not very efficient
+            let Some(envelope) = chain.store.get_payload_envelope(&root)? else {
+                return Err(BeaconChainError::DBInconsistent(format!(
+                    "Missing envelope for parent block {root:?}",
+                ))
+                .into());
             };
+            let state_root = envelope.message.state_root;
+            (StatePayloadStatus::Full, state_root)
+        } else {
+            // Post-Gloas empty block case (also covers the Gloas fork transition).
+            (StatePayloadStatus::Pending, parent_block.state_root())
+        };
         let (parent_state_root, state) = chain
             .store
             .get_advanced_hot_state(root, payload_status, block.slot(), parent_state_root)?

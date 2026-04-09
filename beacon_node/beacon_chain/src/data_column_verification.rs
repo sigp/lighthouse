@@ -7,13 +7,12 @@ use crate::kzg_utils::{
 use crate::observed_data_sidecars::{
     Error as ObservedDataSidecarsError, ObservationKey, ObservationStrategy, Observe,
 };
-use crate::validator_monitor::timestamp_now;
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, metrics};
 use educe::Educe;
 use fork_choice::ProtoBlock;
 use kzg::{Error as KzgError, Kzg};
 use proto_array::Block;
-use slot_clock::SlotClock;
+use slot_clock::{SlotClock, timestamp_now};
 use ssz_derive::Encode;
 use ssz_types::VariableList;
 use std::iter;
@@ -382,25 +381,33 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
 #[educe(PartialEq, Eq)]
 pub struct KzgVerifiedDataColumn<E: EthSpec> {
     data: Arc<DataColumnSidecar<E>>,
+    seen_timestamp: Duration,
 }
 
 impl<E: EthSpec> KzgVerifiedDataColumn<E> {
     pub fn new(
         data_column: Arc<DataColumnSidecar<E>>,
         kzg: &Kzg,
+        seen_timestamp: Duration,
     ) -> Result<Self, (Option<ColumnIndex>, KzgError)> {
-        verify_kzg_for_data_column(data_column, kzg)
+        verify_kzg_for_data_column(data_column, kzg, seen_timestamp)
     }
 
     /// Mark a data column as KZG verified. Caller must ONLY use this on columns constructed
     /// from EL blobs.
     pub fn from_execution_verified(data_column: Arc<DataColumnSidecar<E>>) -> Self {
-        Self { data: data_column }
+        Self {
+            data: data_column,
+            seen_timestamp: timestamp_now(),
+        }
     }
 
     /// Create a `KzgVerifiedDataColumn` from `DataColumnSidecar` for testing ONLY.
     pub(crate) fn __new_for_testing(data_column: Arc<DataColumnSidecar<E>>) -> Self {
-        Self { data: data_column }
+        Self {
+            data: data_column,
+            seen_timestamp: timestamp_now(),
+        }
     }
 
     pub fn from_batch_with_scoring(
@@ -410,7 +417,10 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
         verify_kzg_for_data_column_list(data_columns.iter(), kzg)?;
         Ok(data_columns
             .into_iter()
-            .map(|column| Self { data: column })
+            .map(|column| Self {
+                data: column,
+                seen_timestamp: timestamp_now(),
+            })
             .collect())
     }
 
@@ -594,6 +604,7 @@ impl<E: EthSpec> CustodyDataColumn<E> {
 #[educe(PartialEq, Eq)]
 pub struct KzgVerifiedCustodyDataColumn<E: EthSpec> {
     data: Arc<DataColumnSidecar<E>>,
+    seen_timestamp: Duration,
 }
 
 impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
@@ -601,8 +612,22 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
     /// include this column
     pub fn from_asserted_custody(kzg_verified: KzgVerifiedDataColumn<E>) -> Self {
         Self {
+            seen_timestamp: kzg_verified.seen_timestamp,
             data: kzg_verified.to_data_column(),
         }
+    }
+
+    /// Verify a column already marked as custody column
+    pub fn new(
+        data_column: CustodyDataColumn<E>,
+        kzg: &Kzg,
+        seen_timestamp: Duration,
+    ) -> Result<Self, (Option<ColumnIndex>, KzgError)> {
+        verify_kzg_for_data_column(data_column.clone_arc(), kzg, seen_timestamp)?;
+        Ok(Self {
+            data: data_column.data,
+            seen_timestamp,
+        })
     }
 
     pub fn reconstruct_columns(
@@ -619,10 +644,15 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
             spec,
         )?;
 
+        let seen_timestamp = timestamp_now();
+
         Ok(all_data_columns
             .into_iter()
             .map(|data| {
-                KzgVerifiedCustodyDataColumn::from_asserted_custody(KzgVerifiedDataColumn { data })
+                KzgVerifiedCustodyDataColumn::from_asserted_custody(KzgVerifiedDataColumn {
+                    data,
+                    seen_timestamp,
+                })
             })
             .collect::<Vec<_>>())
     }
@@ -639,6 +669,10 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
     }
     pub fn index(&self) -> ColumnIndex {
         *self.data.index()
+    }
+
+    pub fn seen_timestamp(&self) -> Duration {
+        self.seen_timestamp
     }
 }
 
@@ -695,6 +729,7 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumn<E> {
             .try_clone_full(header)
             .map(|data| KzgVerifiedCustodyDataColumn {
                 data: Arc::new(data),
+                seen_timestamp: self.latest_cell_timestamp,
             })
     }
 
@@ -711,6 +746,7 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumn<E> {
         }
         .map(|data| KzgVerifiedCustodyDataColumn {
             data: Arc::new(data),
+            seen_timestamp: self.latest_cell_timestamp,
         })
     }
 }
@@ -722,10 +758,14 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumn<E> {
 pub fn verify_kzg_for_data_column<E: EthSpec>(
     data_column: Arc<DataColumnSidecar<E>>,
     kzg: &Kzg,
+    seen_timestamp: Duration,
 ) -> Result<KzgVerifiedDataColumn<E>, (Option<ColumnIndex>, KzgError)> {
     let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES);
     validate_full_data_columns(kzg, iter::once(&data_column))?;
-    Ok(KzgVerifiedDataColumn { data: data_column })
+    Ok(KzgVerifiedDataColumn {
+        data: data_column,
+        seen_timestamp,
+    })
 }
 
 /// Complete kzg verification for a `VerifiablePartialDataColumn`.
@@ -824,8 +864,10 @@ pub fn validate_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes, O: Obse
     verify_slot_higher_than_parent(&parent_block, column_slot)?;
     verify_proposer_and_signature(&data_column_fulu.signed_block_header, &parent_block, chain)?;
     let kzg = &chain.kzg;
-    let kzg_verified_data_column = verify_kzg_for_data_column(data_column.clone(), kzg)
-        .map_err(|(_, e)| GossipDataColumnError::InvalidKzgProof(e))?;
+    let seen_timestamp = chain.slot_clock.now_duration().unwrap_or_default();
+    let kzg_verified_data_column =
+        verify_kzg_for_data_column(data_column.clone(), kzg, seen_timestamp)
+            .map_err(|(_, e)| GossipDataColumnError::InvalidKzgProof(e))?;
 
     chain
         .observed_slashable
