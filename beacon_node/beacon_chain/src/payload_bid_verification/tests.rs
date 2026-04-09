@@ -1,9 +1,12 @@
 use std::sync::Arc;
 
+use std::time::Duration;
+
 use bls::{Keypair, PublicKeyBytes, Signature};
 use ethereum_hashing::hash;
 use fork_choice::ForkChoice;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state};
+use slot_clock::{SlotClock, TestingSlotClock};
 use ssz::Encode;
 use store::{HotColdDB, StoreConfig};
 use types::{
@@ -46,6 +49,7 @@ struct TestContext {
     canonical_head: CanonicalHead<T>,
     bid_cache: GossipVerifiedPayloadBidCache<T>,
     preferences_cache: GossipVerifiedProposerPreferenceCache,
+    slot_clock: TestingSlotClock,
     keypairs: Vec<Keypair>,
     spec: ChainSpec,
     genesis_block_root: Hash256,
@@ -117,10 +121,17 @@ impl TestContext {
         let canonical_head =
             CanonicalHead::new(fork_choice, Arc::new(snapshot), PayloadStatus::Pending);
 
+        let slot_clock = TestingSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(0),
+            spec.get_slot_duration(),
+        );
+
         Self {
             canonical_head,
             bid_cache: GossipVerifiedPayloadBidCache::default(),
             preferences_cache: GossipVerifiedProposerPreferenceCache::default(),
+            slot_clock,
             keypairs,
             spec,
             genesis_block_root: block_root,
@@ -149,6 +160,7 @@ impl TestContext {
             canonical_head: &self.canonical_head,
             gossip_verified_payload_bid_cache: &self.bid_cache,
             gossip_verified_proposer_preferences_cache: &self.preferences_cache,
+            slot_clock: &self.slot_clock,
             spec: &self.spec,
         }
     }

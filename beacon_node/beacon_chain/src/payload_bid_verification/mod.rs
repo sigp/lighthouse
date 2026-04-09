@@ -41,6 +41,8 @@ pub enum PayloadBidError {
     },
     /// The bids slot is not the current slot or the next slot.
     InvalidBidSlot { bid_slot: Slot },
+    /// The slot clock cannot be read.
+    UnableToReadSlot,
     /// No proposer preferences for the current slot.
     NoProposerPreferences { slot: Slot },
     /// The builder doesn't have enough deposited funds to cover the bid.

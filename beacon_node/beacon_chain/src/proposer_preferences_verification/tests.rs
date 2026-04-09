@@ -1,9 +1,11 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use bls::Signature;
 use fork_choice::ForkChoice;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state};
 use proto_array::PayloadStatus;
+use slot_clock::{SlotClock, TestingSlotClock};
 use store::{HotColdDB, StoreConfig};
 use types::{
     Address, BeaconBlock, ChainSpec, Checkpoint, Epoch, EthSpec, ForkName, Hash256, MinimalEthSpec,
@@ -33,6 +35,7 @@ const NUM_VALIDATORS: usize = 64;
 struct TestContext {
     canonical_head: CanonicalHead<T>,
     preferences_cache: GossipVerifiedProposerPreferenceCache,
+    slot_clock: TestingSlotClock,
     spec: ChainSpec,
 }
 
@@ -78,9 +81,16 @@ impl TestContext {
         let canonical_head =
             CanonicalHead::new(fork_choice, Arc::new(snapshot), PayloadStatus::Pending);
 
+        let slot_clock = TestingSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(0),
+            spec.get_slot_duration(),
+        );
+
         Self {
             canonical_head,
             preferences_cache: GossipVerifiedProposerPreferenceCache::default(),
+            slot_clock,
             spec,
         }
     }
@@ -89,6 +99,7 @@ impl TestContext {
         GossipVerificationContext {
             canonical_head: &self.canonical_head,
             gossip_verified_proposer_preferences_cache: &self.preferences_cache,
+            slot_clock: &self.slot_clock,
             spec: &self.spec,
         }
     }

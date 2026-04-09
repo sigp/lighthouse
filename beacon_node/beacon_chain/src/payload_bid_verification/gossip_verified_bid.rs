@@ -6,6 +6,7 @@ use crate::{
     proposer_preferences_verification::proposer_preference_cache::GossipVerifiedProposerPreferenceCache,
 };
 use educe::Educe;
+use slot_clock::SlotClock;
 use state_processing::signature_sets::{
     execution_payload_bid_signature_set, get_builder_pubkey_from_state,
 };
@@ -73,6 +74,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub canonical_head: &'a CanonicalHead<T>,
     pub gossip_verified_payload_bid_cache: &'a GossipVerifiedPayloadBidCache<T>,
     pub gossip_verified_proposer_preferences_cache: &'a GossipVerifiedProposerPreferenceCache,
+    pub slot_clock: &'a T::SlotClock,
     pub spec: &'a ChainSpec,
 }
 
@@ -162,7 +164,10 @@ impl<T: BeaconChainTypes> GossipVerifiedPayloadBid<T> {
         }
 
         let cached_head = ctx.canonical_head.cached_head();
-        let current_slot = cached_head.head_slot();
+        let current_slot = ctx
+            .slot_clock
+            .now()
+            .ok_or(PayloadBidError::UnableToReadSlot)?;
         let head_state = &cached_head.snapshot.beacon_state;
 
         let Some(proposer_preferences) = ctx
@@ -215,6 +220,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             gossip_verified_payload_bid_cache: &self.gossip_verified_payload_bid_cache,
             gossip_verified_proposer_preferences_cache: &self
                 .gossip_verified_proposer_preferences_cache,
+            slot_clock: &self.slot_clock,
             spec: &self.spec,
         }
     }

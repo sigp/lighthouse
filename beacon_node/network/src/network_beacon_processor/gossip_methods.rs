@@ -3543,7 +3543,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(
                 e @ PayloadBidError::BeaconChainError(_)
                 | e @ PayloadBidError::BeaconStateError(_)
-                | e @ PayloadBidError::InternalError(_),
+                | e @ PayloadBidError::InternalError(_)
+                | e @ PayloadBidError::UnableToReadSlot,
             ) => {
                 debug!(
                     %peer_id,
@@ -3616,7 +3617,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(
                 e @ ProposerPreferencesError::BeaconChainError(_)
                 | e @ ProposerPreferencesError::BeaconStateError(_)
-                | e @ ProposerPreferencesError::InvalidStateVariant,
+                | e @ ProposerPreferencesError::InvalidStateVariant
+                | e @ ProposerPreferencesError::UnableToReadSlot,
             ) => {
                 debug!(
                     %peer_id,

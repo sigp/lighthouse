@@ -6,6 +6,7 @@ use crate::{
         ProposerPreferencesError, proposer_preference_cache::GossipVerifiedProposerPreferenceCache,
     },
 };
+use slot_clock::SlotClock;
 use state_processing::signature_sets::{get_pubkey_from_state, proposer_preferences_signature_set};
 use tracing::debug;
 use types::{
@@ -72,6 +73,7 @@ pub(crate) fn verify_preferences_consistency<E: EthSpec>(
 pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub canonical_head: &'a CanonicalHead<T>,
     pub gossip_verified_proposer_preferences_cache: &'a GossipVerifiedProposerPreferenceCache,
+    pub slot_clock: &'a T::SlotClock,
     pub spec: &'a ChainSpec,
 }
 
@@ -122,7 +124,10 @@ impl GossipVerifiedProposerPreferences {
         let proposal_slot = signed_preferences.message.proposal_slot;
         let validator_index = signed_preferences.message.validator_index;
         let cached_head = ctx.canonical_head.cached_head();
-        let current_slot = cached_head.head_slot();
+        let current_slot = ctx
+            .slot_clock
+            .now()
+            .ok_or(ProposerPreferencesError::UnableToReadSlot)?;
         let head_state = &cached_head.snapshot.beacon_state;
 
         if ctx
@@ -160,6 +165,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             canonical_head: &self.canonical_head,
             gossip_verified_proposer_preferences_cache: &self
                 .gossip_verified_proposer_preferences_cache,
+            slot_clock: &self.slot_clock,
             spec: &self.spec,
         }
     }
