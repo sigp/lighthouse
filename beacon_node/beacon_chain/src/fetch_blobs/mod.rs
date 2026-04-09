@@ -19,7 +19,6 @@ use crate::data_column_verification::{KzgVerifiedCustodyDataColumn, KzgVerifiedD
 use crate::fetch_blobs::fetch_blobs_beacon_adapter::FetchBlobsBeaconAdapter;
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_data_sidecars::ObservationKey;
-use crate::validator_monitor::timestamp_now;
 use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
     metrics,
@@ -29,6 +28,7 @@ use execution_layer::json_structures::{BlobAndProofV1, BlobAndProofV2};
 use metrics::{TryExt, inc_counter};
 #[cfg(test)]
 use mockall_double::double;
+use slot_clock::timestamp_now;
 use ssz_types::FixedVector;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::sync::Arc;
