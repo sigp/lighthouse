@@ -291,7 +291,7 @@ async fn populate_chain_data(harness: &BeaconChainHarness<EphemeralHarnessType<E
 async fn extract_all_endpoints() -> ObjectSchemaByEndpoint {
     // Obtain the complete Beacon APIs yaml file using the latest release version (not the dev versino)
     let yaml = reqwest::get(
-        " https://github.com/ethereum/beacon-APIs/releases/latest/download/beacon-node-oapi.yaml",
+        "https://github.com/ethereum/beacon-APIs/releases/latest/download/beacon-node-oapi.yaml",
     )
     .await
     .unwrap()
