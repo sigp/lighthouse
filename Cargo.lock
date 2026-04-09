@@ -9663,7 +9663,6 @@ dependencies = [
  "serde",
  "slot_clock",
  "thiserror 2.0.17",
- "tower 0.5.2",
  "tracing",
  "types",
  "validator_metrics",

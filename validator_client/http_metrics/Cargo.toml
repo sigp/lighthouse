@@ -17,7 +17,6 @@ parking_lot = { workspace = true }
 serde = { workspace = true }
 slot_clock = { workspace = true }
 thiserror = { workspace = true }
-tower = { workspace = true }
 tracing = { workspace = true }
 types = { workspace = true }
 validator_metrics = { workspace = true }

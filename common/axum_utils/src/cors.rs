@@ -175,6 +175,9 @@ pub fn build_cors_layer(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{Router, routing::get};
+    use http::{Request, StatusCode};
+    use tower::ServiceExt;
 
     fn parse_origin(s: &str) -> Result<(), CorsError> {
         s.parse::<Origin>()?;
@@ -338,10 +341,6 @@ mod tests {
 
     #[tokio::test]
     async fn verify_cors_layer() {
-        use axum::{Router, routing::get};
-        use http::{Request, StatusCode};
-        use tower::ServiceExt;
-
         let config = HttpConfig {
             allow_origin: Some("http://localhost:3000".to_string()),
             listen_addr: "127.0.0.1".parse().unwrap(),
@@ -385,10 +384,6 @@ mod tests {
 
     #[tokio::test]
     async fn wildcard_overrides_exact() {
-        use axum::{Router, routing::get};
-        use http::{Request, StatusCode};
-        use tower::ServiceExt;
-
         // Mix specific origin with wildcard
         let config = HttpConfig {
             allow_origin: Some("http://localhost:3000,*".to_string()),
@@ -479,10 +474,6 @@ mod tests {
 
     #[tokio::test]
     async fn verify_allowed_headers() {
-        use axum::{Router, routing::get};
-        use http::{Request, StatusCode};
-        use tower::ServiceExt;
-
         let config = HttpConfig {
             allow_origin: Some("http://localhost:3000".to_string()),
             listen_addr: "127.0.0.1".parse().unwrap(),
