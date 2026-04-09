@@ -3044,18 +3044,28 @@ async fn weak_subjectivity_sync_test(
         .block_root_at_slot(checkpoint_slot, WhenSlotSkipped::Prev)
         .unwrap()
         .unwrap();
-    let wss_state_root = harness
-        .chain
-        .state_root_at_slot(checkpoint_slot)
-        .unwrap()
-        .unwrap();
-
     let wss_block = harness
         .chain
         .store
         .get_full_block(&wss_block_root)
         .unwrap()
         .unwrap();
+    // Post-Gloas, the WSS state must be the Pending (post-block) state. The block's `state_root`
+    // is always the Pending root. `state_root_at_slot` returns the Full root (from `state_roots`
+    // in the head state), so we use the block's root directly for Gloas.
+    let wss_state_root = if harness
+        .spec
+        .fork_name_at_slot::<E>(checkpoint_slot)
+        .gloas_enabled()
+    {
+        wss_block.state_root()
+    } else {
+        harness
+            .chain
+            .state_root_at_slot(checkpoint_slot)
+            .unwrap()
+            .unwrap()
+    };
     let wss_blobs_opt = harness
         .chain
         .get_or_reconstruct_blobs(&wss_block_root)
@@ -3165,6 +3175,38 @@ async fn weak_subjectivity_sync_test(
         assert_eq!(store_wss_blobs_opt, wss_blobs_opt);
     }
 
+    // Store the WSS block's envelope in the new chain (required for Gloas forward sync).
+    // The first forward block needs the checkpoint block's envelope to determine the parent's
+    // Full state.
+    if let Some(envelope) = harness
+        .chain
+        .store
+        .get_payload_envelope(&wss_block_root)
+        .unwrap()
+    {
+        let wss_snapshot = harness
+            .chain
+            .chain_dump()
+            .unwrap()
+            .into_iter()
+            .find(|s| s.beacon_block_root == wss_block_root)
+            .unwrap();
+        beacon_chain
+            .store
+            .put_payload_envelope(&wss_block_root, envelope)
+            .unwrap();
+        // Also store the Full state so the parent state can be loaded.
+        let full_state_root = wss_snapshot
+            .execution_envelope
+            .as_ref()
+            .map(|e| e.message.state_root)
+            .unwrap();
+        beacon_chain
+            .store
+            .put_state(&full_state_root, &wss_snapshot.beacon_state)
+            .unwrap();
+    }
+
     // Apply blocks forward to reach head.
     let chain_dump = harness.chain.chain_dump().unwrap();
     let new_blocks = chain_dump
@@ -3210,6 +3252,12 @@ async fn weak_subjectivity_sync_test(
             beacon_chain
                 .store
                 .put_state(&full_state_root, &snapshot.beacon_state)
+                .unwrap();
+            // Update fork choice so head selection accounts for Full payload status.
+            beacon_chain
+                .canonical_head
+                .fork_choice_write_lock()
+                .on_valid_payload_envelope_received(block_root)
                 .unwrap();
         }
 
@@ -3461,13 +3509,21 @@ async fn weak_subjectivity_sync_test(
         assert_eq!(state.canonical_root().unwrap(), state_root);
     }
 
-    // Anchor slot is still set to the slot of the checkpoint block.
-    // Note: since hot tree states the anchor slot is set to the aligned ws state slot
-    // https://github.com/sigp/lighthouse/pull/6750
-    let wss_aligned_slot = if checkpoint_slot % E::slots_per_epoch() == 0 {
-        checkpoint_slot
+    // Anchor slot is set to the WSS state slot. Pre-Gloas, the state is advanced to an epoch
+    // boundary, so the anchor is naturally aligned. Post-Gloas, the state is at the block's slot
+    // (not advanced), so the anchor slot may not be epoch-aligned.
+    let wss_aligned_slot = if wss_state_slot % E::slots_per_epoch() == 0 {
+        wss_state_slot
+    } else if harness
+        .spec
+        .fork_name_at_slot::<E>(wss_state_slot)
+        .gloas_enabled()
+    {
+        // Post-Gloas: anchor slot is the block/state slot (no alignment).
+        wss_state_slot
     } else {
-        (checkpoint_slot.epoch(E::slots_per_epoch()) + Epoch::new(1))
+        // Pre-Gloas.
+        (wss_state_slot.epoch(E::slots_per_epoch()) + Epoch::new(1))
             .start_slot(E::slots_per_epoch())
     };
     assert_eq!(store.get_anchor_info().anchor_slot, wss_aligned_slot);

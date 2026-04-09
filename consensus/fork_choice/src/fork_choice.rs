@@ -790,7 +790,7 @@ where
             }));
         }
 
-        // Check block is a descendant of the finalized block at the checkpoint finalized slot.
+        // Check block is a descendant of the finalized block at the finalized block's slot.
         //
         // Note: the specification uses `hash_tree_root(block)` instead of `block.parent_root` for
         // the start of this search. I claim that since `block.slot > finalized_slot` it is
