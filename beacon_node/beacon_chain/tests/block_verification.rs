@@ -195,6 +195,51 @@ where
     }
 }
 
+/// Pre-store execution payload envelopes and their Full states in the harness's store.
+///
+/// Post-Gloas, block N+1 needs block N's envelope and Full state to be available when it is
+/// imported. This function stores all envelopes from the chain segment so that
+/// `process_chain_segment` can import all blocks successfully.
+// TODO(gloas): this is a bit of a hack that can be removed once `process_chain_segment` handles
+// payload envelopes
+fn store_envelopes_for_chain_segment(
+    chain_segment: &[BeaconSnapshot<E>],
+    harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+) {
+    for snapshot in chain_segment {
+        if let Some(ref envelope) = snapshot.execution_envelope {
+            harness
+                .chain
+                .store
+                .put_payload_envelope(&snapshot.beacon_block_root, (**envelope).clone())
+                .expect("should store envelope");
+            harness
+                .chain
+                .store
+                .put_state(&envelope.message.state_root, &snapshot.beacon_state)
+                .expect("should store full state");
+        }
+    }
+}
+
+/// Update fork choice with envelope payload status for all blocks in the chain segment.
+///
+/// Must be called after the blocks have been imported into fork choice.
+fn update_fork_choice_with_envelopes(
+    chain_segment: &[BeaconSnapshot<E>],
+    harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+) {
+    for snapshot in chain_segment {
+        if snapshot.execution_envelope.is_some() {
+            let _ = harness
+                .chain
+                .canonical_head
+                .fork_choice_write_lock()
+                .on_valid_payload_envelope_received(snapshot.beacon_block_root);
+        }
+    }
+}
+
 fn junk_signature() -> Signature {
     let kp = generate_deterministic_keypair(VALIDATOR_COUNT);
     let message = Hash256::from_slice(&[42; 32]);
@@ -304,6 +349,7 @@ async fn chain_segment_full_segment() {
     let Some((chain_segment, chain_segment_blobs)) = get_chain_segment().await else {
         return;
     };
+    store_envelopes_for_chain_segment(&chain_segment, &harness);
     let blocks: Vec<RangeSyncBlock<E>> =
         chain_segment_blocks(&chain_segment, &chain_segment_blobs, harness.chain.clone())
             .into_iter()
@@ -329,6 +375,7 @@ async fn chain_segment_full_segment() {
         .into_block_error()
         .expect("should import chain segment");
 
+    update_fork_choice_with_envelopes(&chain_segment, &harness);
     harness.chain.recompute_head_at_current_slot().await;
 
     assert_eq!(
@@ -351,6 +398,7 @@ async fn chain_segment_varying_chunk_size() {
 
     for chunk_size in &[1, 2, 31, 32, 33] {
         let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
+        store_envelopes_for_chain_segment(&chain_segment, &harness);
 
         harness
             .chain
@@ -366,6 +414,7 @@ async fn chain_segment_varying_chunk_size() {
                 .unwrap_or_else(|_| panic!("should import chain segment of len {}", chunk_size));
         }
 
+        update_fork_choice_with_envelopes(&chain_segment, &harness);
         harness.chain.recompute_head_at_current_slot().await;
 
         assert_eq!(
@@ -521,6 +570,7 @@ async fn assert_invalid_signature(
     snapshots: &[BeaconSnapshot<E>],
     item: &str,
 ) {
+    store_envelopes_for_chain_segment(chain_segment, harness);
     let blocks: Vec<RangeSyncBlock<E>> = snapshots
         .iter()
         .zip(chain_segment_blobs.iter())
@@ -547,10 +597,22 @@ async fn assert_invalid_signature(
     harness.chain.recompute_head_at_current_slot().await;
 
     // Ensure the block will be rejected if imported on its own (without gossip checking).
-    let ancestor_blocks = chain_segment
+    // Only include blocks that haven't been imported yet (after the finalized slot) to avoid
+    // `WouldRevertFinalizedSlot` errors when part 1 already imported and finalized some blocks.
+    // Use the fork choice finalized checkpoint directly, as the cached head may not reflect
+    // finalization that occurred during process_chain_segment.
+    let finalized_slot = harness
+        .chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .finalized_checkpoint()
+        .epoch
+        .start_slot(E::slots_per_epoch());
+    let ancestor_blocks: Vec<RangeSyncBlock<E>> = chain_segment
         .iter()
         .take(block_index)
         .zip(chain_segment_blobs.iter())
+        .filter(|(snapshot, _)| snapshot.beacon_block.slot() > finalized_slot)
         .map(|(snapshot, blobs)| {
             build_range_sync_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
         })
@@ -561,6 +623,7 @@ async fn assert_invalid_signature(
         .chain
         .process_chain_segment(ancestor_blocks, NotifyExecutionLayer::Yes)
         .await;
+    update_fork_choice_with_envelopes(chain_segment, harness);
     harness.chain.recompute_head_at_current_slot().await;
 
     let process_res = harness
@@ -601,6 +664,7 @@ async fn get_invalid_sigs_harness(
     chain_segment: &[BeaconSnapshot<E>],
 ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
+    store_envelopes_for_chain_segment(chain_segment, &harness);
     harness
         .chain
         .slot_clock
