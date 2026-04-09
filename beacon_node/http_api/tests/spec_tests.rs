@@ -290,9 +290,8 @@ async fn populate_chain_data(harness: &BeaconChainHarness<EphemeralHarnessType<E
 // Extract the full ObjectSchema for each endpoint, the ObjectSchema contains all info that we need for the checks
 async fn extract_all_endpoints() -> ObjectSchemaByEndpoint {
     // Obtain the complete Beacon APIs yaml file using the latest release version (not the dev versino)
-    // TODO: switch to latest release before the Gloas upgrade
     let yaml = reqwest::get(
-        "https://github.com/ethereum/beacon-APIs/releases/download/v4.0.0/beacon-node-oapi.yaml",
+        " https://github.com/ethereum/beacon-APIs/releases/latest/download/beacon-node-oapi.yaml",
     )
     .await
     .unwrap()
