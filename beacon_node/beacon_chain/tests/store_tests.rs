@@ -3923,12 +3923,21 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
 
     let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
 
-    let split_slot = Slot::new(E::slots_per_epoch() * 4);
+    let finalized_epoch_start_slot = Slot::new(E::slots_per_epoch() * 4);
     let pre_skips = 1;
     let post_skips = 1;
 
-    // Build the chain up to the intended split slot, with 3 skips before the split.
-    let slots = (1..=split_slot.as_u64() - pre_skips)
+    // Post-Gloas the split is at the finalized block's slot, not the epoch boundary.
+    // The last block is at `split_slot - pre_skips`, so the finalized split will be there.
+    let is_gloas = fork_name_from_env().is_some_and(|f| f.gloas_enabled());
+    let split_slot = if is_gloas {
+        finalized_epoch_start_slot - pre_skips
+    } else {
+        finalized_epoch_start_slot
+    };
+
+    // Build the chain up to the intended finalized epoch slot, with 1 skip before the split.
+    let slots = (1..=finalized_epoch_start_slot.as_u64() - pre_skips)
         .map(Slot::new)
         .collect::<Vec<_>>();
 
@@ -3947,20 +3956,26 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     //
     // - one that is invalid because it conflicts with finalization (slot <= finalized_slot)
     // - one that is valid because its slot is not finalized (slot > finalized_slot)
+    //
+    // Note: block verification uses finalized_checkpoint.epoch.start_slot() (=
+    // finalized_epoch_start_slot) for the finalized slot check.
     let (unadvanced_split_state, unadvanced_split_state_root) =
         harness.get_current_state_and_root();
 
     let ((invalid_fork_block, _), _) = harness
-        .make_block(unadvanced_split_state.clone(), split_slot)
+        .make_block(unadvanced_split_state.clone(), finalized_epoch_start_slot)
         .await;
     let ((valid_fork_block, _), _) = harness
-        .make_block(unadvanced_split_state.clone(), split_slot + 1)
+        .make_block(
+            unadvanced_split_state.clone(),
+            finalized_epoch_start_slot + 1,
+        )
         .await;
 
     // Advance the chain so that the intended split slot is finalized.
     // Do not attest in the epoch boundary slot, to make attestation production later easier (no
     // equivocations).
-    let finalizing_slot = split_slot + 2 * E::slots_per_epoch();
+    let finalizing_slot = finalized_epoch_start_slot + 2 * E::slots_per_epoch();
     for _ in 0..pre_skips + post_skips {
         harness.advance_slot();
     }
