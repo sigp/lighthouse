@@ -103,7 +103,7 @@ async fn new() -> (
     harness.runtime.task_executor.spawn(server, "api_server");
 
     let port = listening_socket.port();
-    let client = reqwest::Client::builder().build().unwrap();
+    let client = Client::builder().build().unwrap();
 
     (harness, client, port, external_peer_id, network_rx)
 }
