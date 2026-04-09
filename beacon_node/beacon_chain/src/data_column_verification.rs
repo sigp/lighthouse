@@ -685,6 +685,22 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumn<E> {
                 data: Arc::new(data),
             })
     }
+
+    /// Try to convert the partial data column into a full one, returning None if the conversion
+    /// fails.
+    /// May clone the column if the Arc cannot be unwrapped.
+    pub fn try_into_full(
+        self,
+        header: &PartialDataColumnHeader<E>,
+    ) -> Option<KzgVerifiedCustodyDataColumn<E>> {
+        match Arc::try_unwrap(self.data) {
+            Ok(data) => data.try_into_full(header),
+            Err(data) => data.try_clone_full(header),
+        }
+        .map(|data| KzgVerifiedCustodyDataColumn {
+            data: Arc::new(data),
+        })
+    }
 }
 
 /// Complete kzg verification for a `DataColumnSidecar`.

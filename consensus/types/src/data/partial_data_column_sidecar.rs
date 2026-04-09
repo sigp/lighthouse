@@ -227,6 +227,8 @@ pub struct PartialDataColumn<E: EthSpec> {
 }
 
 impl<E: EthSpec> PartialDataColumn<E> {
+    /// Equivalent to a call to `clone` followed by `try_into_full`, but returns early if conversion
+    /// is not possible.
     pub fn try_clone_full(
         &self,
         header: &PartialDataColumnHeader<E>,
@@ -240,6 +242,24 @@ impl<E: EthSpec> PartialDataColumn<E> {
             column: self.sidecar.column.clone(),
             kzg_commitments: header.kzg_commitments.clone(),
             kzg_proofs: self.sidecar.kzg_proofs.clone(),
+            signed_block_header: header.signed_block_header.clone(),
+            kzg_commitments_inclusion_proof: header.kzg_commitments_inclusion_proof.clone(),
+        }))
+    }
+
+    pub fn try_into_full(
+        self,
+        header: &PartialDataColumnHeader<E>,
+    ) -> Option<DataColumnSidecar<E>> {
+        if !self.sidecar.is_complete() {
+            return None;
+        }
+
+        Some(DataColumnSidecar::Fulu(DataColumnSidecarFulu {
+            index: self.index,
+            column: self.sidecar.column,
+            kzg_commitments: header.kzg_commitments.clone(),
+            kzg_proofs: self.sidecar.kzg_proofs,
             signed_block_header: header.signed_block_header.clone(),
             kzg_commitments_inclusion_proof: header.kzg_commitments_inclusion_proof.clone(),
         }))

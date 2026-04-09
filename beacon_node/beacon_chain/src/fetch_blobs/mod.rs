@@ -329,34 +329,43 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
         return Ok(None);
     }
 
-    // Initialize the partial assembler with the columns from the engine
-    let Some(assembler) = chain_adapter.partial_assembler() else {
-        return Ok(None);
+    let full_columns = match chain_adapter.partial_assembler() {
+        Some(assembler) => {
+            // Initialize the partial assembler with the columns from the engine and return any full
+            // columns for publishing
+            assembler
+                .merge_partials(block_root, custody_columns_to_import, header)
+                .ok_or_else(|| {
+                    FetchEngineBlobError::InternalError(
+                        "Failed to merge partials into assembler".to_string(),
+                    )
+                })?
+                .full_columns
+        }
+        None => {
+            // Partial columns are disabled, so let's try to directly convert the columns we got
+            // from the EL into full columns.
+            custody_columns_to_import
+                .into_iter()
+                .filter_map(|col| col.try_into_full(&header))
+                .collect()
+        }
     };
-    let merge_result = assembler
-        .merge_partials(block_root, custody_columns_to_import, header)
-        .ok_or_else(|| {
-            FetchEngineBlobError::InternalError(
-                "Failed to merge partials into assembler".to_string(),
-            )
-        })?;
 
     // Publish complete columns
-    if !merge_result.full_columns.is_empty() {
-        publish_fn(EngineGetBlobsOutput::CustodyColumns(
-            merge_result.full_columns.clone(),
-        ));
+    if !full_columns.is_empty() {
+        publish_fn(EngineGetBlobsOutput::CustodyColumns(full_columns.clone()));
     }
     // We publish all partials at the calling site, regardless of result, as previous publishs
     // have been blocked, waiting for the results of this call
 
     // Process complete columns through DA checker
-    let availability_processing_status = if !merge_result.full_columns.is_empty() {
+    let availability_processing_status = if !full_columns.is_empty() {
         chain_adapter
             .process_engine_blobs(
                 slot,
                 block_root,
-                EngineGetBlobsOutput::CustodyColumns(merge_result.full_columns),
+                EngineGetBlobsOutput::CustodyColumns(full_columns),
             )
             .await?
     } else {
