@@ -1,12 +1,10 @@
-use std::net::SocketAddr;
-
-use axum::Router;
-use axum_server::tls_rustls::RustlsConfig;
-
 use crate::{
     server::{Server, error::BuilderError},
     tls::TlsConfig,
 };
+use axum::Router;
+use axum_server::tls_rustls::RustlsConfig;
+use std::net::SocketAddr;
 
 pub struct ServerBuilder {
     router: Option<Router>,
