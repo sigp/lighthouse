@@ -1635,18 +1635,9 @@ impl ProtoArray {
         best_finalized_checkpoint: Checkpoint,
     ) -> bool {
         let finalized_root = best_finalized_checkpoint.root;
-        // Use the finalized block's actual slot rather than the epoch start slot, because
-        // the finalized block may be at a slot prior to the epoch start (e.g. checkpoint sync
-        // with an unaligned checkpoint where the anchor block is mid-epoch).
-        let Some(finalized_slot) = self
-            .indices
-            .get(&finalized_root)
-            .and_then(|index| self.nodes.get(*index))
-            .map(|node| node.slot())
-        else {
-            // Finalized block should always be found in fork choice.
-            return false;
-        };
+        let finalized_slot = best_finalized_checkpoint
+            .epoch
+            .start_slot(E::slots_per_epoch());
 
         let Some(mut node) = self
             .indices

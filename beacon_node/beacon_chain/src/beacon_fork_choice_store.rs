@@ -196,9 +196,25 @@ where
             anchor_block_header.state_root = unadvanced_state_root;
         }
         let anchor_block_root = anchor_block_header.canonical_root();
-        let anchor_epoch = anchor_state.current_epoch();
-        // TODO(gloas): is it safe to use the state's current epoch here rather than the actual
-        // justified epoch?
+        // For Gloas, the anchor state is always at the block's slot (unadvanced). If the block
+        // is mid-epoch (unaligned checkpoint), `current_epoch()` gives the block's epoch, but
+        // the checkpoint actually references the next epoch boundary. Use the next epoch so that
+        // `compute_start_slot_at_epoch(anchor_epoch) >= block.slot`, which is required for
+        // `get_ancestor` in `on_block` to work correctly.
+        //
+        // Pre-Gloas, the state is advanced to the checkpoint slot (always an epoch boundary),
+        // so `current_epoch()` is already correct.
+        // TODO(gloas): probably better if we get the true finalized epoch as an input
+        let anchor_epoch = if store
+            .get_chain_spec()
+            .fork_name_at_slot::<E>(anchor_state.slot())
+            .gloas_enabled()
+            && anchor_state.slot() % E::slots_per_epoch() != 0
+        {
+            anchor_state.next_epoch()?
+        } else {
+            anchor_state.current_epoch()
+        };
         let justified_checkpoint = Checkpoint {
             epoch: anchor_epoch,
             root: anchor_block_root,
