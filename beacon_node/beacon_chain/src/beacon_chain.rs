@@ -2299,11 +2299,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn verify_partial_data_column_sidecar_for_gossip(
         self: &Arc<Self>,
         data_column_sidecar: PartialDataColumn<T::EthSpec>,
+        seen_timestamp: Duration,
     ) -> PartialColumnVerificationResult<T::EthSpec> {
         metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
         let _timer =
             metrics::start_timer(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
-        let ret = validate_partial_data_column_sidecar_for_gossip(data_column_sidecar, self);
+        let ret = validate_partial_data_column_sidecar_for_gossip(
+            data_column_sidecar,
+            self,
+            seen_timestamp,
+        );
         if matches!(ret, PartialColumnVerificationResult::Ok { .. }) {
             metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES);
         }

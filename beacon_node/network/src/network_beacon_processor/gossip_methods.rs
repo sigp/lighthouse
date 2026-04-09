@@ -821,7 +821,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let result = self
             .chain
-            .verify_partial_data_column_sidecar_for_gossip(column);
+            .verify_partial_data_column_sidecar_for_gossip(column, seen_duration);
 
         let header = match result {
             PartialColumnVerificationResult::Ok { header, column } => {
@@ -839,8 +839,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
 
                 // Log metrics to keep track of propagation delay times.
-                if let Some(duration) = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
+                if let Some(duration) = UNIX_EPOCH
+                    .elapsed()
                     .ok()
                     .and_then(|now| now.checked_sub(seen_duration))
                 {
@@ -855,7 +855,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     column,
                     header.clone(),
                     slot,
-                    seen_duration,
                 )
                 .await;
                 Some(header)
@@ -1391,7 +1390,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         verified_partial: KzgVerifiedPartialDataColumn<T::EthSpec>,
         verified_header: GossipVerifiedPartialDataColumnHeader<T::EthSpec>,
         slot: Slot,
-        _seen_duration: Duration,
     ) {
         let processing_start_time = Instant::now();
         let block_root = verified_partial.block_root();

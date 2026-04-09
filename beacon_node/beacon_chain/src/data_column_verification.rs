@@ -7,6 +7,7 @@ use crate::kzg_utils::{
 use crate::observed_data_sidecars::{
     Error as ObservedDataSidecarsError, ObservationKey, ObservationStrategy, Observe,
 };
+use crate::validator_monitor::timestamp_now;
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, metrics};
 use educe::Educe;
 use fork_choice::ProtoBlock;
@@ -18,6 +19,7 @@ use ssz_types::VariableList;
 use std::iter;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::{debug, instrument};
 use tree_hash::TreeHash;
 use types::{
@@ -433,18 +435,25 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
 #[educe(PartialEq, Eq)]
 pub struct KzgVerifiedPartialDataColumn<E: EthSpec> {
     data: PartialDataColumn<E>,
+    latest_cell_timestamp: Duration,
 }
 
 impl<E: EthSpec> KzgVerifiedPartialDataColumn<E> {
     /// Create a `KzgVerifiedPartialDataColumn` for testing ONLY.
     pub(crate) fn __new_for_testing(data_column: PartialDataColumn<E>) -> Self {
-        Self { data: data_column }
+        Self {
+            data: data_column,
+            latest_cell_timestamp: timestamp_now(),
+        }
     }
 
     /// Mark a partial data column as KZG verified. Caller must ONLY use this on columns constructed
     /// from EL blobs.
     pub fn from_execution_verified(data_column: PartialDataColumn<E>) -> Self {
-        Self { data: data_column }
+        Self {
+            data: data_column,
+            latest_cell_timestamp: timestamp_now(),
+        }
     }
 
     pub fn to_data_column(self) -> PartialDataColumn<E> {
@@ -639,6 +648,7 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
 #[educe(PartialEq, Eq)]
 pub struct KzgVerifiedCustodyPartialDataColumn<E: EthSpec> {
     data: Arc<PartialDataColumn<E>>,
+    latest_cell_timestamp: Duration,
 }
 
 impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumn<E> {
@@ -646,6 +656,7 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumn<E> {
     /// include this column
     pub fn from_asserted_custody(kzg_verified: KzgVerifiedPartialDataColumn<E>) -> Self {
         Self {
+            latest_cell_timestamp: kzg_verified.latest_cell_timestamp,
             data: Arc::new(kzg_verified.to_data_column()),
         }
     }
@@ -672,6 +683,7 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumn<E> {
                     index: self.data.index,
                     sidecar,
                 }),
+                latest_cell_timestamp: self.latest_cell_timestamp.max(other.latest_cell_timestamp),
             })
     }
 
@@ -725,6 +737,7 @@ pub fn verify_kzg_for_partial_data_column<E: EthSpec>(
     unverified_cells: Vec<usize>,
     header: &GossipVerifiedPartialDataColumnHeader<E>,
     kzg: &Kzg,
+    seen_timestamp: Duration,
 ) -> Result<KzgVerifiedPartialDataColumn<E>, GossipPartialDataColumnError> {
     let Some(filtered_column) = data_column
         .sidecar
@@ -740,7 +753,10 @@ pub fn verify_kzg_for_partial_data_column<E: EthSpec>(
         header.header.kzg_commitments.as_ref(),
     )
     .map_err(|(_, e)| GossipDataColumnError::InvalidKzgProof(e))?;
-    Ok(KzgVerifiedPartialDataColumn { data: data_column })
+    Ok(KzgVerifiedPartialDataColumn {
+        data: data_column,
+        latest_cell_timestamp: seen_timestamp,
+    })
 }
 
 /// Complete kzg verification for a list of `DataColumnSidecar`s.
@@ -836,6 +852,7 @@ pub fn validate_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes, O: Obse
 pub fn validate_partial_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
     mut column: PartialDataColumn<T::EthSpec>,
     chain: &BeaconChain<T>,
+    seen_timestamp: Duration,
 ) -> PartialColumnVerificationResult<T::EthSpec> {
     let block_root = column.block_root;
 
@@ -922,7 +939,13 @@ pub fn validate_partial_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
     // We do not have to check block related data here, as we create the verifiable column from
     // gossip accepted block
     let kzg = &chain.kzg;
-    let column = match verify_kzg_for_partial_data_column(column, missing_cells, &header, kzg) {
+    let column = match verify_kzg_for_partial_data_column(
+        column,
+        missing_cells,
+        &header,
+        kzg,
+        seen_timestamp,
+    ) {
         Ok(column) => column,
         Err(err) => {
             return PartialColumnVerificationResult::ErrWithValidHeader { err, header };
@@ -1258,6 +1281,7 @@ mod test {
     use execution_layer::test_utils::generate_blobs;
     use ssz::BitList;
     use std::sync::Arc;
+    use std::time::UNIX_EPOCH;
     use types::{
         DataColumnSidecar, DataColumnSidecarFulu, DataColumnSubnetId, EthSpec, ForkName,
         MainnetEthSpec, PartialDataColumn, PartialDataColumnHeader, PartialDataColumnSidecar,
@@ -1468,7 +1492,11 @@ mod test {
             },
         };
 
-        let result = validate_partial_data_column_sidecar_for_gossip(column, &harness.chain);
+        let result = validate_partial_data_column_sidecar_for_gossip(
+            column,
+            &harness.chain,
+            UNIX_EPOCH.elapsed().unwrap(),
+        );
         assert!(
             matches!(
                 result,
@@ -1506,7 +1534,11 @@ mod test {
             },
         };
 
-        let result = validate_partial_data_column_sidecar_for_gossip(column, &harness.chain);
+        let result = validate_partial_data_column_sidecar_for_gossip(
+            column,
+            &harness.chain,
+            UNIX_EPOCH.elapsed().unwrap(),
+        );
         assert!(
             matches!(
                 result,
@@ -1540,7 +1572,11 @@ mod test {
             },
         };
 
-        let result = validate_partial_data_column_sidecar_for_gossip(column, &harness.chain);
+        let result = validate_partial_data_column_sidecar_for_gossip(
+            column,
+            &harness.chain,
+            UNIX_EPOCH.elapsed().unwrap(),
+        );
         assert!(
             matches!(
                 result,
