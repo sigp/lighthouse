@@ -33,7 +33,7 @@ use lighthouse_network::{Enr, PeerId, types::SyncState};
 use network::NetworkReceivers;
 use network_utils::enr_ext::EnrExt;
 use operation_pool::attestation_storage::CheckpointKey;
-use proto_array::ExecutionStatus;
+use proto_array::{ExecutionStatus, core::ProtoNode};
 use reqwest::{RequestBuilder, Response, StatusCode};
 use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
@@ -3130,51 +3130,65 @@ impl ApiTester {
             .nodes
             .iter()
             .map(|node| {
-                let execution_status = if node.execution_status.is_execution_enabled() {
-                    Some(node.execution_status.to_string())
+                let execution_status = if node
+                    .execution_status()
+                    .is_ok_and(|status| status.is_execution_enabled())
+                {
+                    node.execution_status()
+                        .ok()
+                        .map(|status| status.to_string())
                 } else {
                     None
                 };
                 ForkChoiceNode {
-                    slot: node.slot,
-                    block_root: node.root,
+                    slot: node.slot(),
+                    block_root: node.root(),
                     parent_root: node
-                        .parent
+                        .parent()
                         .and_then(|index| expected_proto_array.nodes.get(index))
-                        .map(|parent| parent.root),
-                    justified_epoch: node.justified_checkpoint.epoch,
-                    finalized_epoch: node.finalized_checkpoint.epoch,
-                    weight: node.weight,
+                        .map(|parent| parent.root()),
+                    justified_epoch: node.justified_checkpoint().epoch,
+                    finalized_epoch: node.finalized_checkpoint().epoch,
+                    weight: node.weight(),
                     validity: execution_status,
                     execution_block_hash: node
-                        .execution_status
-                        .block_hash()
+                        .execution_status()
+                        .ok()
+                        .and_then(|status| status.block_hash())
                         .map(|block_hash| block_hash.into_root()),
                     extra_data: ForkChoiceExtraData {
-                        target_root: node.target_root,
-                        justified_root: node.justified_checkpoint.root,
-                        finalized_root: node.finalized_checkpoint.root,
+                        target_root: node.target_root(),
+                        justified_root: node.justified_checkpoint().root,
+                        finalized_root: node.finalized_checkpoint().root,
                         unrealized_justified_root: node
-                            .unrealized_justified_checkpoint
+                            .unrealized_justified_checkpoint()
                             .map(|checkpoint| checkpoint.root),
                         unrealized_finalized_root: node
-                            .unrealized_finalized_checkpoint
+                            .unrealized_finalized_checkpoint()
                             .map(|checkpoint| checkpoint.root),
                         unrealized_justified_epoch: node
-                            .unrealized_justified_checkpoint
+                            .unrealized_justified_checkpoint()
                             .map(|checkpoint| checkpoint.epoch),
                         unrealized_finalized_epoch: node
-                            .unrealized_finalized_checkpoint
+                            .unrealized_finalized_checkpoint()
                             .map(|checkpoint| checkpoint.epoch),
-                        execution_status: node.execution_status.to_string(),
+                        execution_status: node
+                            .execution_status()
+                            .ok()
+                            .map(|status| status.to_string())
+                            .unwrap_or_else(|| "irrelevant".to_string()),
                         best_child: node
-                            .best_child
+                            .best_child()
+                            .ok()
+                            .flatten()
                             .and_then(|index| expected_proto_array.nodes.get(index))
-                            .map(|child| child.root),
+                            .map(|child| child.root()),
                         best_descendant: node
-                            .best_descendant
+                            .best_descendant()
+                            .ok()
+                            .flatten()
                             .and_then(|index| expected_proto_array.nodes.get(index))
-                            .map(|descendant| descendant.root),
+                            .map(|descendant| descendant.root()),
                     },
                 }
             })
@@ -7180,6 +7194,7 @@ impl ApiTester {
             .core_proto_array_mut()
             .nodes
             .last_mut()
+            && let ProtoNode::V17(head_node) = head_node
         {
             head_node.execution_status = ExecutionStatus::Optimistic(ExecutionBlockHash::zero())
         }

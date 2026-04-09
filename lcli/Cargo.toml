@@ -35,7 +35,6 @@ network_utils = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde_yaml = { workspace = true }
 snap = { workspace = true }
 state_processing = { workspace = true }
 store = { workspace = true }
@@ -44,6 +43,7 @@ tracing-subscriber = { workspace = true }
 tree_hash = { workspace = true }
 types = { workspace = true }
 validator_dir = { workspace = true }
+yaml_serde = { workspace = true }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 malloc_utils = { workspace = true, features = ["jemalloc"] }

@@ -975,9 +975,10 @@ async fn proposer_duties_with_gossip_tolerance() {
     assert_eq!(harness.chain.slot().unwrap(), num_initial);
 
     // Set the clock to just before the next epoch.
-    harness.chain.slot_clock.advance_time(
-        Duration::from_secs(spec.seconds_per_slot) - spec.maximum_gossip_clock_disparity(),
-    );
+    harness
+        .chain
+        .slot_clock
+        .advance_time(spec.get_slot_duration() - spec.maximum_gossip_clock_disparity());
     assert_eq!(
         harness
             .chain
@@ -1081,9 +1082,10 @@ async fn proposer_duties_v2_with_gossip_tolerance() {
     assert_eq!(harness.chain.slot().unwrap(), num_initial);
 
     // Set the clock to just before the next epoch.
-    harness.chain.slot_clock.advance_time(
-        Duration::from_secs(spec.seconds_per_slot) - spec.maximum_gossip_clock_disparity(),
-    );
+    harness
+        .chain
+        .slot_clock
+        .advance_time(spec.get_slot_duration() - spec.maximum_gossip_clock_disparity());
     assert_eq!(
         harness
             .chain

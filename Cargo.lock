@@ -42,10 +42,10 @@ dependencies = [
  "regex",
  "rpassword",
  "serde",
- "serde_yaml",
  "tracing",
  "types",
  "validator_dir",
+ "yaml_serde",
  "zeroize",
 ]
 
@@ -1974,8 +1974,8 @@ dependencies = [
  "hex",
  "serde",
  "serde_json",
- "serde_yaml",
  "types",
+ "yaml_serde",
 ]
 
 [[package]]
@@ -2006,7 +2006,6 @@ dependencies = [
  "sensitive_url",
  "serde",
  "serde_json",
- "serde_yaml",
  "slasher",
  "slasher_service",
  "slot_clock",
@@ -2019,6 +2018,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "types",
+ "yaml_serde",
 ]
 
 [[package]]
@@ -2944,7 +2944,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_repr",
- "serde_yaml",
  "snap",
  "ssz_types",
  "state_processing",
@@ -2953,6 +2952,7 @@ dependencies = [
  "tree_hash_derive",
  "typenum",
  "types",
+ "yaml_serde",
 ]
 
 [[package]]
@@ -3253,7 +3253,7 @@ dependencies = [
  "hex",
  "num-bigint",
  "serde",
- "serde_yaml",
+ "yaml_serde",
 ]
 
 [[package]]
@@ -3305,13 +3305,13 @@ dependencies = [
  "pretty_reqwest_error",
  "reqwest",
  "sensitive_url",
- "serde_yaml",
  "sha2",
  "tempfile",
  "tokio",
  "tracing",
  "types",
  "url",
+ "yaml_serde",
  "zip",
 ]
 
@@ -3672,6 +3672,7 @@ name = "fork_choice"
 version = "0.1.0"
 dependencies = [
  "beacon_chain",
+ "bls",
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "fixed_bytes",
@@ -4920,7 +4921,6 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
- "serde_yaml",
  "snap",
  "state_processing",
  "store",
@@ -4929,6 +4929,7 @@ dependencies = [
  "tree_hash",
  "types",
  "validator_dir",
+ "yaml_serde",
 ]
 
 [[package]]
@@ -5359,6 +5360,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "libyaml-rs"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e126dda6f34391ab7b444f9922055facc83c07a910da3eb16f1e4d9c45dc777"
+
+[[package]]
 name = "libz-rs-sys"
 version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5412,7 +5419,6 @@ dependencies = [
  "sensitive_url",
  "serde",
  "serde_json",
- "serde_yaml",
  "slasher",
  "slashing_protection",
  "store",
@@ -5426,6 +5432,7 @@ dependencies = [
  "validator_client",
  "validator_dir",
  "validator_manager",
+ "yaml_serde",
  "zeroize",
 ]
 
@@ -7061,9 +7068,11 @@ dependencies = [
  "fixed_bytes",
  "safe_arith",
  "serde",
- "serde_yaml",
+ "smallvec",
  "superstruct",
+ "typenum",
  "types",
+ "yaml_serde",
 ]
 
 [[package]]
@@ -8082,19 +8091,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "serde_yaml"
-version = "0.9.34+deprecated"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47"
-dependencies = [
- "indexmap 2.12.1",
- "itoa",
- "ryu",
- "serde",
- "unsafe-libyaml",
 ]
 
 [[package]]
@@ -9380,7 +9376,6 @@ dependencies = [
  "safe_arith",
  "serde",
  "serde_json",
- "serde_yaml",
  "smallvec",
  "ssz_types",
  "state_processing",
@@ -9393,6 +9388,7 @@ dependencies = [
  "tree_hash",
  "tree_hash_derive",
  "typenum",
+ "yaml_serde",
 ]
 
 [[package]]
@@ -9479,12 +9475,6 @@ dependencies = [
  "crypto-common",
  "subtle",
 ]
-
-[[package]]
-name = "unsafe-libyaml"
-version = "0.2.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
 name = "unsigned-varint"
@@ -9991,7 +9981,6 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "serde_yaml",
  "slashing_protection",
  "slot_clock",
  "ssz_types",
@@ -10001,6 +9990,7 @@ dependencies = [
  "types",
  "url",
  "validator_store",
+ "yaml_serde",
  "zip",
 ]
 
@@ -10513,6 +10503,19 @@ dependencies = [
  "arraydeque",
  "encoding_rs",
  "hashlink 0.11.0",
+]
+
+[[package]]
+name = "yaml_serde"
+version = "0.10.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08c7c1b1a6a7c8a6b2741a6c21a4f8918e51899b111cfa08d1288202656e3975"
+dependencies = [
+ "indexmap 2.12.1",
+ "itoa",
+ "libyaml-rs",
+ "ryu",
+ "serde",
 ]
 
 [[package]]
