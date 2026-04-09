@@ -195,7 +195,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
 
         assembly.has_local_blobs = true;
 
-        let columns = assembly
+        assembly
             .columns
             .values()
             .filter_map(|value| {
@@ -205,8 +205,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
                     None
                 }
             })
-            .collect();
-        columns
+            .collect()
     }
 
     /// Get header for a block if we have an active assembly
