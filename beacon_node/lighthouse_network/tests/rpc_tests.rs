@@ -46,8 +46,10 @@ fn bellatrix_block_small(spec: &ChainSpec) -> BeaconBlock<E> {
 /// Hence, we generate a bellatrix block just greater than `MAX_RPC_SIZE` to test rejection on the rpc layer.
 fn bellatrix_block_large(spec: &ChainSpec) -> BeaconBlock<E> {
     let mut block = BeaconBlockBellatrix::<E>::empty(spec);
+    // 11,000 × 1KB ≈ 11MB, just above the 10MB max_payload_size.
+    // Previously used 100,000 txs (~100MB) which caused hangs and timeouts.
     let tx = VariableList::try_from(vec![0; 1024]).unwrap();
-    let txs = VariableList::try_from(std::iter::repeat_n(tx, 100000).collect::<Vec<_>>()).unwrap();
+    let txs = VariableList::try_from(std::iter::repeat_n(tx, 11000).collect::<Vec<_>>()).unwrap();
 
     block.body.execution_payload.execution_payload.transactions = txs;
 
