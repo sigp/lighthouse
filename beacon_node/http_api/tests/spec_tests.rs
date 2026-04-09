@@ -289,7 +289,7 @@ async fn populate_chain_data(harness: &BeaconChainHarness<EphemeralHarnessType<E
 
 // Extract the full ObjectSchema for each endpoint, the ObjectSchema contains all info that we need for the checks
 async fn extract_all_endpoints() -> ObjectSchemaByEndpoint {
-    // Obtain the complete Beacon APIs yaml file using the latest release version (not the dev versino)
+    // Obtain the complete Beacon APIs yaml file using the latest release version (not the dev version)
     let yaml = reqwest::get(
         "https://github.com/ethereum/beacon-APIs/releases/latest/download/beacon-node-oapi.yaml",
     )
@@ -452,7 +452,7 @@ fn check_field(
     // object_schema.schema_type can be None (e.g., when it is an array)
     if let Some(ref type_set) = object_schema.schema_type {
         // object_schema.schema_type returns type: Option<TypeSet> where TypeSet is an enum: https://docs.rs/oas3/latest/oas3/spec/enum.SchemaTypeSet.html
-        // all TypeSets (under schema_type in ObjctSchema) in the beacon API spec are Single
+        // all TypeSets (under schema_type in ObjectSchema) in the beacon API spec are Single
         match type_set {
             SchemaTypeSet::Single(schema_type) => {
                 check_type(result_json, schema_type, object_schema, endpoint)?;
