@@ -255,7 +255,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_gossip_partial_data_column_sidecar(
         self: &Arc<Self>,
         peer_id: PeerId,
-        column_sidecar: PartialDataColumn<T::EthSpec>,
+        column_sidecar: Box<PartialDataColumn<T::EthSpec>>,
         seen_timestamp: Duration,
         topic: GossipTopic,
     ) -> Result<(), Error<T::EthSpec>> {

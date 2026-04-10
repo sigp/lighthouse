@@ -108,7 +108,7 @@ pub enum NetworkEvent<E: EthSpec> {
         /// The peer from which we received this message.
         source: PeerId,
         /// The partial column data.
-        column: PartialDataColumn<E>,
+        column: Box<PartialDataColumn<E>>,
         /// The topic that this message was sent on.
         topic: GossipTopic,
     },
@@ -1434,7 +1434,7 @@ impl<E: EthSpec> Network<E> {
                             // Notify the network
                             return Some(NetworkEvent::PartialDataColumnSidecar {
                                 source: peer_id,
-                                column,
+                                column: Box::new(column),
                                 topic,
                             });
                         }

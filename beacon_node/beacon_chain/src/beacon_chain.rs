@@ -2298,7 +2298,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[instrument(skip_all, level = "trace")]
     pub fn verify_partial_data_column_sidecar_for_gossip(
         self: &Arc<Self>,
-        data_column_sidecar: PartialDataColumn<T::EthSpec>,
+        data_column_sidecar: Box<PartialDataColumn<T::EthSpec>>,
         seen_timestamp: Duration,
     ) -> PartialColumnVerificationResult<T::EthSpec> {
         metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);

@@ -72,7 +72,7 @@ pub enum RouterMessage<E: EthSpec> {
     /// by the beacon chain after successful verification.
     PubsubMessage(MessageId, PeerId, PubsubMessage<E>, bool),
     /// A partial data column sidecar has been received via gossipsub partial protocol.
-    PartialDataColumnSidecar(PeerId, PartialDataColumn<E>, GossipTopic),
+    PartialDataColumnSidecar(PeerId, Box<PartialDataColumn<E>>, GossipTopic),
     /// The peer manager has requested we re-status a peer.
     StatusPeer(PeerId),
     /// The peer has an updated custody group count from METADATA.

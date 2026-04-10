@@ -421,7 +421,9 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                             .filter(|col| custody_columns_indices.contains(&col.index))
                             .map(|col| {
                                 KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(
-                                    KzgVerifiedPartialDataColumn::from_execution_verified(col),
+                                    KzgVerifiedPartialDataColumn::from_execution_verified(
+                                        Arc::new(col),
+                                    ),
                                 )
                             })
                             .collect::<Vec<_>>()

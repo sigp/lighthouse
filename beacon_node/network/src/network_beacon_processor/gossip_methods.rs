@@ -812,7 +812,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn process_gossip_partial_data_column_sidecar(
         self: &Arc<Self>,
         peer_id: PeerId,
-        column: PartialDataColumn<T::EthSpec>,
+        column: Box<PartialDataColumn<T::EthSpec>>,
         seen_duration: Duration,
         topic: GossipTopic,
     ) {

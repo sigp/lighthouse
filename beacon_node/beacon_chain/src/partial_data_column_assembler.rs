@@ -343,7 +343,7 @@ mod tests {
             },
         };
         KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(
-            KzgVerifiedPartialDataColumn::__new_for_testing(partial),
+            KzgVerifiedPartialDataColumn::__new_for_testing(Arc::new(partial)),
         )
     }
 
