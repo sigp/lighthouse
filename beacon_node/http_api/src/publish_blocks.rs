@@ -523,8 +523,7 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
     for data_col in data_column_sidecars {
         if let DataColumnSidecar::Fulu(fulu_data_col) = data_col.as_ref() {
             let mut partial = fulu_data_col.to_partial();
-            let header = partial.sidecar.take_header();
-            if let Some(header) = header {
+            if let Some(header) = partial.sidecar.header.take() {
                 partial_header = Some(header);
             }
             partial_columns.push(Arc::new(partial));

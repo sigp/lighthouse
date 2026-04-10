@@ -9,13 +9,11 @@ use kzg::KzgProof;
 use merkle_proof::verify_merkle_proof;
 use ssz::BitList;
 use ssz_derive::{Decode, Encode};
-use ssz_types::{FixedVector, VariableList};
+use ssz_types::{FixedVector, ListEncodedOption, VariableList};
 use std::fmt::Display;
-use std::mem;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
-use typenum::U1;
 
 pub type CellBitmap<E> = BitList<<E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
@@ -24,13 +22,13 @@ pub type CellBitmap<E> = BitList<<E as EthSpec>::MaxBlobCommitmentsPerBlock>;
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, Encode, Decode, TreeHash, TestRandom, Educe)]
+#[derive(Debug, Clone, Encode, Decode, TreeHash, Educe)]
 #[educe(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
 pub struct PartialDataColumnSidecar<E: EthSpec> {
     pub cells_present_bitmap: CellBitmap<E>,
     pub column: VariableList<Cell<E>, E::MaxBlobCommitmentsPerBlock>,
     pub kzg_proofs: VariableList<KzgProof, E::MaxBlobCommitmentsPerBlock>,
-    pub header: VariableList<PartialDataColumnHeader<E>, U1>,
+    pub header: ListEncodedOption<PartialDataColumnHeader<E>>,
 }
 
 /// Equivalent to `PartialDataColumnSidecar`, but containing references to the cells. This is done
@@ -42,7 +40,7 @@ pub struct PartialDataColumnSidecarRef<'a, E: EthSpec> {
     // this from the `PartialDataColumnSidecar` type above. This avoids a few ugly `expect` calls.
     pub column: Vec<&'a Cell<E>>,
     pub kzg_proofs: Vec<&'a KzgProof>,
-    pub header: Vec<&'a PartialDataColumnHeader<E>>,
+    pub header: ListEncodedOption<&'a PartialDataColumnHeader<E>>,
 }
 
 impl<E: EthSpec> PartialDataColumnSidecar<E> {
@@ -89,7 +87,7 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
             cells_present_bitmap: new_bitmap,
             column: new_column,
             kzg_proofs: new_proofs,
-            header: self.header.iter().collect(),
+            header: self.header.as_ref().into(),
         })
     }
 
@@ -141,16 +139,12 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
             cells_present_bitmap: new_bitmap,
             column: new_column,
             kzg_proofs: new_proofs,
-            header: if !self.header.is_empty() {
+            header: if !self.header.is_some() {
                 self.header.clone()
             } else {
                 other.header.clone()
             },
         })
-    }
-
-    pub fn take_header(&mut self) -> Option<PartialDataColumnHeader<E>> {
-        Vec::from(mem::take(&mut self.header)).pop()
     }
 }
 
@@ -310,7 +304,7 @@ mod tests {
             cells_present_bitmap: bitmap,
             column,
             kzg_proofs: proofs,
-            header: VariableList::new(vec![]).unwrap(),
+            header: None.into(),
         }
     }
 
@@ -409,17 +403,17 @@ mod tests {
     #[test]
     fn merge_preserves_header_from_self() {
         let mut a = make_sidecar(4, &[0]);
-        a.header = VariableList::new(vec![make_header(4)]).unwrap();
+        a.header = Some(make_header(4)).into();
         let b = make_sidecar(4, &[1]);
         let merged = a.merge(&b).unwrap();
-        assert!(!merged.header.is_empty());
+        assert!(merged.header.is_some());
 
         // If self has no header, use other's
         let c = make_sidecar(4, &[0]);
         let mut d = make_sidecar(4, &[1]);
-        d.header = VariableList::new(vec![make_header(4)]).unwrap();
+        d.header = Some(make_header(4)).into();
         let merged2 = c.merge(&d).unwrap();
-        assert!(!merged2.header.is_empty());
+        assert!(merged2.header.is_some());
     }
 
     // -- is_complete tests --

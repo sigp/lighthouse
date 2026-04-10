@@ -229,11 +229,12 @@ impl<E: EthSpec> DataColumnSidecarFulu<E> {
                 cells_present_bitmap: bitmap,
                 column: self.column.clone(),
                 kzg_proofs: self.kzg_proofs.clone(),
-                header: VariableList::repeat_full(PartialDataColumnHeader {
+                header: Some(PartialDataColumnHeader {
                     kzg_commitments: self.kzg_commitments.clone(),
                     signed_block_header: self.signed_block_header.clone(),
                     kzg_commitments_inclusion_proof: self.kzg_commitments_inclusion_proof.clone(),
-                }),
+                })
+                .into(),
             },
         }
     }

@@ -50,7 +50,7 @@ impl<E: EthSpec> OutgoingPartialColumn<E> {
             .expect("Taking length from bitmap with same bound"),
             column: vec![],
             kzg_proofs: vec![],
-            header: vec![header],
+            header: Some(header).into(),
         }
         .as_ssz_bytes();
 
@@ -256,7 +256,7 @@ mod tests {
     use bls::Signature;
     use fixed_bytes::FixedBytesExtended;
     use libp2p::identity::Keypair;
-    use ssz_types::{FixedVector, VariableList};
+    use ssz_types::FixedVector;
     use types::{
         BeaconBlockHeader, MinimalEthSpec, PartialDataColumnHeader, SignedBeaconBlockHeader, Slot,
     };
@@ -318,7 +318,7 @@ mod tests {
                     .collect::<Vec<_>>()
                     .try_into()
                     .unwrap(),
-                header: VariableList::new(vec![]).unwrap(),
+                header: None.into(),
             },
         })
     }

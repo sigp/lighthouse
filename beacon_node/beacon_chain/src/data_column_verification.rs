@@ -899,7 +899,7 @@ pub fn validate_partial_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
     let block_root = column.block_root;
 
     // Remove the header (if any) to avoid wasted memory.
-    let header = column.sidecar.take_header();
+    let header = column.sidecar.header.take();
 
     let header = if let Some(header) = header {
         // Header was sent, so it is required to be valid
@@ -1530,7 +1530,7 @@ mod test {
                 cells_present_bitmap: empty_bitmap,
                 column: vec![].try_into().unwrap(),
                 kzg_proofs: vec![].try_into().unwrap(),
-                header: ssz_types::VariableList::new(vec![]).unwrap(),
+                header: None.into(),
             },
         };
 
@@ -1572,7 +1572,7 @@ mod test {
                 kzg_proofs: vec![types::KzgProof::empty(), types::KzgProof::empty()]
                     .try_into()
                     .unwrap(),
-                header: ssz_types::VariableList::new(vec![]).unwrap(),
+                header: None.into(),
             },
         };
 
@@ -1610,7 +1610,7 @@ mod test {
                 cells_present_bitmap: bitmap,
                 column: vec![types::Cell::<E>::default()].try_into().unwrap(),
                 kzg_proofs: vec![types::KzgProof::empty()].try_into().unwrap(),
-                header: ssz_types::VariableList::new(vec![]).unwrap(),
+                header: None.into(),
             },
         };
 

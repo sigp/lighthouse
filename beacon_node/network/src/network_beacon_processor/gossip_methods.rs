@@ -1308,7 +1308,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             );
 
             let mut column = col.to_partial();
-            let header = column.sidecar.take_header();
+            let header = column.sidecar.header.take();
             if let Some(header) = header {
                 self.send_network_message(NetworkMessage::PublishPartialColumns {
                     columns: vec![Arc::new(column)],

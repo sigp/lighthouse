@@ -270,8 +270,8 @@ mod tests {
         cell
     }
 
-    fn make_header(num_commitments: usize) -> Arc<PartialDataColumnHeader<E>> {
-        Arc::new(PartialDataColumnHeader {
+    fn make_header(num_commitments: usize) -> PartialDataColumnHeader<E> {
+        PartialDataColumnHeader {
             kzg_commitments: vec![KzgCommitment([0u8; 48]); num_commitments]
                 .try_into()
                 .unwrap(),
@@ -289,7 +289,7 @@ mod tests {
                 vec![Hash256::zero(); E::kzg_commitments_inclusion_proof_depth()],
             )
             .unwrap(),
-        })
+        }
     }
 
     fn make_partial(
@@ -326,11 +326,7 @@ mod tests {
             .try_into()
             .unwrap();
 
-        let header_list = if include_header {
-            VariableList::new(vec![(*make_header(total_blobs)).clone()]).unwrap()
-        } else {
-            VariableList::new(vec![]).unwrap()
-        };
+        let header = include_header.then(|| make_header(total_blobs)).into();
 
         let partial = PartialDataColumn {
             block_root,
@@ -339,7 +335,7 @@ mod tests {
                 cells_present_bitmap: bitmap,
                 column,
                 kzg_proofs: proofs,
-                header: header_list,
+                header,
             },
         };
         KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(
@@ -358,16 +354,16 @@ mod tests {
         let assembler = make_assembler();
         let root = Hash256::repeat_byte(1);
         let header = make_header(4);
-        assert!(assembler.init(root, header.clone()));
+        assert!(assembler.init(root, Arc::new(header.clone())));
         let retrieved = assembler.get_header(&root).unwrap();
-        assert_eq!(*retrieved, *header);
+        assert_eq!(*retrieved, header);
     }
 
     #[test]
     fn init_returns_false_if_already_exists() {
         let assembler = make_assembler();
         let root = Hash256::repeat_byte(1);
-        let header = make_header(4);
+        let header = Arc::new(make_header(4));
         assert!(assembler.init(root, header.clone()));
         assert!(!assembler.init(root, header));
     }
@@ -378,7 +374,7 @@ mod tests {
     fn merge_partials_tracks_added_cells() {
         let assembler = make_assembler();
         let root = Hash256::repeat_byte(1);
-        let header = make_header(4);
+        let header = Arc::new(make_header(4));
 
         let partial = make_partial(root, 0, 4, &[0, 1, 2]);
         let result = assembler
@@ -399,7 +395,7 @@ mod tests {
     fn merge_partials_ignores_already_complete_column() {
         let assembler = make_assembler();
         let root = Hash256::repeat_byte(1);
-        let header = make_header(4);
+        let header = Arc::new(make_header(4));
 
         // Complete the column
         let partial = make_partial(root, 0, 4, &[0, 1, 2, 3]);
@@ -422,7 +418,7 @@ mod tests {
     fn merge_partials_completes_column_progressively() {
         let assembler = make_assembler();
         let root = Hash256::repeat_byte(1);
-        let header = make_header(4);
+        let header = Arc::new(make_header(4));
 
         let partial1 = make_partial(root, 0, 4, &[0, 1]);
         let result1 = assembler
@@ -441,7 +437,7 @@ mod tests {
     fn merge_partials_returns_updated_partials() {
         let assembler = make_assembler();
         let root = Hash256::repeat_byte(1);
-        let header = make_header(4);
+        let header = Arc::new(make_header(4));
 
         let partial = make_partial(root, 0, 4, &[0, 2]);
         let result = assembler
@@ -457,7 +453,7 @@ mod tests {
     fn mark_as_complete_replaces_incomplete() {
         let assembler = make_assembler();
         let root = Hash256::repeat_byte(1);
-        let header = make_header(4);
+        let header = Arc::new(make_header(4));
 
         // Merge an incomplete partial first
         let partial = make_partial(root, 0, 4, &[0, 1]);
@@ -522,7 +518,7 @@ mod tests {
         let assembler = make_assembler();
         let root = Hash256::repeat_byte(1);
         // Header at slot 0 → epoch 0
-        let header = make_header(4);
+        let header = Arc::new(make_header(4));
         assembler.init(root, header);
         assert!(assembler.get_header(&root).is_some());
 
@@ -536,7 +532,7 @@ mod tests {
         let assembler = make_assembler();
         let root = Hash256::repeat_byte(1);
         // Header at slot 100 → epoch 100/8 = 12 for MinimalEthSpec (8 slots/epoch)
-        let mut header = (*make_header(4)).clone();
+        let mut header = make_header(4);
         header.signed_block_header.message.slot = Slot::new(100);
         let header = Arc::new(header);
         assembler.init(root, header);
