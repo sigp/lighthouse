@@ -19,7 +19,6 @@ use crate::data_column_verification::{KzgVerifiedCustodyDataColumn, KzgVerifiedD
 use crate::fetch_blobs::fetch_blobs_beacon_adapter::FetchBlobsBeaconAdapter;
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_data_sidecars::ObservationKey;
-use crate::validator_monitor::timestamp_now;
 use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
     metrics,
@@ -29,10 +28,11 @@ use execution_layer::json_structures::{BlobAndProofV1, BlobAndProofV2};
 use metrics::{TryExt, inc_counter};
 #[cfg(test)]
 use mockall_double::double;
+use slot_clock::timestamp_now;
 use ssz_types::FixedVector;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::sync::Arc;
-use tracing::{Span, debug, instrument, warn};
+use tracing::{debug, instrument, warn};
 use types::data::{BlobSidecarError, DataColumnSidecarError};
 use types::{
     BeaconStateError, Blob, BlobSidecar, ColumnIndex, EthSpec, FullPayload, Hash256, KzgProofs,
@@ -356,12 +356,10 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
     let spec = chain_adapter.spec().clone();
     let chain_adapter_cloned = chain_adapter.clone();
     let custody_columns_indices = custody_columns_indices.to_vec();
-    let current_span = Span::current();
     chain_adapter
         .executor()
         .spawn_blocking_handle(
             move || {
-                let _guard = current_span.enter();
                 let mut timer = metrics::start_timer_vec(
                     &metrics::DATA_COLUMN_SIDECAR_COMPUTATION,
                     &[&blobs.len().to_string()],

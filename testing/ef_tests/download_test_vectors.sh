@@ -71,10 +71,10 @@ fi
 # Download FCR (Fast Confirmation Rule) test vectors.
 # These are hosted separately until merged into consensus-spec-tests releases.
 # Source: https://github.com/ethereum/consensus-specs/pull/4747
-# Spec commit: 8241c1d7
-FCR_TESTS_URL="${FCR_TESTS_URL:-https://github.com/user-attachments/files/26166458/fcr-fulu-8241c1d7.tar.gz}"
+# Spec commit: d1ce367e
+FCR_TESTS_URL="${FCR_TESTS_URL:-https://github.com/user-attachments/files/26561030/fcr-fulu-d1ce367e.tar.gz}"
 if [[ -n "${FCR_TESTS_URL}" ]]; then
-	fcr_tarball="fcr-fulu-8241c1d7.tar.gz"
+	fcr_tarball="fcr-fulu-d1ce367e.tar.gz"
 	echo "Downloading FCR test vectors"
 	curl --progress-bar --location --show-error --retry 3 --retry-all-errors --fail \
 		--output "${fcr_tarball}" "${FCR_TESTS_URL}" \

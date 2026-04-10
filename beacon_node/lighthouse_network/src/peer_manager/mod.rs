@@ -3087,6 +3087,9 @@ mod tests {
         const MAX_TEST_PEERS: usize = 300;
 
         proptest! {
+            // 64 cases (down from default 256) keeps this test under 10s while
+            // still providing good random coverage of the pruning logic.
+            #![proptest_config(ProptestConfig::with_cases(64))]
             #[test]
             fn prune_excess_peers(peer_conditions in proptest::collection::vec(peer_condition_strategy(), DEFAULT_TARGET_PEERS..=MAX_TEST_PEERS)) {
                 let target_peer_count = DEFAULT_TARGET_PEERS;

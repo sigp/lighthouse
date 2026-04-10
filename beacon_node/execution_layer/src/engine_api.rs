@@ -79,7 +79,7 @@ impl From<reqwest::Error> for Error {
             e.status(),
             Some(StatusCode::UNAUTHORIZED) | Some(StatusCode::FORBIDDEN)
         ) {
-            Error::Auth(auth::Error::InvalidToken)
+            Error::Auth(auth::Error::InvalidToken(e.to_string()))
         } else {
             Error::HttpClient(e.into())
         }

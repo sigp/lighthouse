@@ -9,7 +9,6 @@ use crate::utils::{
 use crate::version::{V1, V2, V3, unsupported_version_rejection};
 use crate::{StateId, attester_duties, proposer_duties, sync_committees};
 use beacon_chain::attestation_verification::VerifiedAttestation;
-use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{AttestationError, BeaconChain, BeaconChainError, BeaconChainTypes};
 use bls::PublicKeyBytes;
 use eth2::types::{
@@ -671,7 +670,7 @@ pub fn post_validator_prepare_beacon_proposer<T: BeaconChainTypes>(
                         .await;
 
                     // TODO(gloas): verify this is correct. We skip proposer preparation for
-                    // GLOAS because the execution payload is no longer embedded in the beacon
+                    // Gloas because the execution payload is no longer embedded in the beacon
                     // block (it's in the payload envelope), so the head block's
                     // execution_payload() is unavailable.
                     let next_slot = current_slot + 1;
@@ -871,7 +870,7 @@ pub fn post_validator_aggregate_and_proofs<T: BeaconChainTypes>(
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     not_synced_filter?;
-                    let seen_timestamp = timestamp_now();
+                    let seen_timestamp = chain.slot_clock.now_duration().unwrap_or_default();
                     let mut verified_aggregates = Vec::with_capacity(aggregates.len());
                     let mut messages = Vec::with_capacity(aggregates.len());
                     let mut failures = Vec::new();
