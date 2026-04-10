@@ -448,6 +448,11 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     fn payload_timely_threshold() -> usize {
         Self::PTCSize::to_usize() / 2
     }
+
+    /// Returns the `DATA_AVAILABILITY_TIMELY_THRESHOLD` constant (PTC_SIZE / 2).
+    fn data_availability_timely_threshold() -> usize {
+        Self::PTCSize::to_usize() / 2
+    }
 }
 
 /// Macro to inherit some type values from another EthSpec.

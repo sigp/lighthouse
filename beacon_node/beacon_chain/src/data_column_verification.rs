@@ -5,13 +5,12 @@ use crate::kzg_utils::{reconstruct_data_columns, validate_data_columns};
 use crate::observed_data_sidecars::{
     Error as ObservedDataSidecarsError, ObservationKey, ObservationStrategy, Observe,
 };
-use crate::validator_monitor::timestamp_now;
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, metrics};
 use educe::Educe;
 use fork_choice::ProtoBlock;
 use kzg::{Error as KzgError, Kzg};
 use proto_array::Block;
-use slot_clock::SlotClock;
+use slot_clock::{SlotClock, timestamp_now};
 use ssz_derive::Encode;
 use ssz_types::VariableList;
 use std::iter;
@@ -570,8 +569,9 @@ pub fn validate_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes, O: Obse
     verify_slot_higher_than_parent(&parent_block, column_slot)?;
     verify_proposer_and_signature(data_column_fulu, &parent_block, chain)?;
     let kzg = &chain.kzg;
+    let seen_timestamp = chain.slot_clock.now_duration().unwrap_or_default();
     let kzg_verified_data_column =
-        verify_kzg_for_data_column(data_column.clone(), kzg, timestamp_now())
+        verify_kzg_for_data_column(data_column.clone(), kzg, seen_timestamp)
             .map_err(|(_, e)| GossipDataColumnError::InvalidKzgProof(e))?;
 
     chain

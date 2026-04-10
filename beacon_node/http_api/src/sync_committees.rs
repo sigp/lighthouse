@@ -4,10 +4,7 @@ use crate::utils::publish_pubsub_message;
 use beacon_chain::sync_committee_verification::{
     Error as SyncVerificationError, VerifiedSyncCommitteeMessage,
 };
-use beacon_chain::{
-    BeaconChain, BeaconChainError, BeaconChainTypes, StateSkipConfig,
-    validator_monitor::timestamp_now,
-};
+use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, StateSkipConfig};
 use eth2::types::{self as api_types};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
@@ -188,7 +185,7 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
 ) -> Result<(), warp::reject::Rejection> {
     let mut failures = vec![];
 
-    let seen_timestamp = timestamp_now();
+    let seen_timestamp = chain.slot_clock.now_duration().unwrap_or_default();
 
     for (i, sync_committee_signature) in sync_committee_signatures.iter().enumerate() {
         let subnet_positions = match get_subnet_positions_for_sync_committee_message(
@@ -319,7 +316,7 @@ pub fn process_signed_contribution_and_proofs<T: BeaconChainTypes>(
     let mut verified_contributions = Vec::with_capacity(signed_contribution_and_proofs.len());
     let mut failures = vec![];
 
-    let seen_timestamp = timestamp_now();
+    let seen_timestamp = chain.slot_clock.now_duration().unwrap_or_default();
 
     if let Some(latest_optimistic_update) = chain
         .light_client_server_cache
