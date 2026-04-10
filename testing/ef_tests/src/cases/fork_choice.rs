@@ -22,6 +22,8 @@ use beacon_chain::{
 use execution_layer::{PayloadStatusV1, json_structures::JsonPayloadStatusV1Status};
 use serde::Deserialize;
 use ssz_derive::Decode;
+use state_processing::VerifySignatures;
+use state_processing::envelope_processing::{VerifyStateRoot, process_execution_payload_envelope};
 use state_processing::state_advance::complete_state_advance;
 use std::future::Future;
 use std::sync::Arc;
@@ -998,19 +1000,52 @@ impl<E: EthSpec> Tester<E> {
         valid: bool,
     ) -> Result<(), Error> {
         let block_root = signed_envelope.message.beacon_block_root;
+        let store = &self.harness.chain.store;
+        let spec = &self.harness.chain.spec;
 
         // Store the envelope in the database so that child blocks extending
         // the FULL path can load the parent's post-payload state.
         if valid {
-            self.harness
-                .chain
-                .store
+            store
                 .put_payload_envelope(&block_root, signed_envelope.clone())
                 .map_err(|e| {
                     Error::InternalError(format!(
                         "Failed to store payload envelope for {block_root:?}: {e:?}",
                     ))
                 })?;
+
+            // Compute the Full (post-payload) state by applying the envelope to the
+            // Pending state, then store it. This matches the spec's on_execution_payload.
+            let block = store
+                .get_blinded_block(&block_root)
+                .map_err(|e| Error::InternalError(format!("Failed to load block: {e:?}")))?
+                .ok_or_else(|| {
+                    Error::InternalError(format!("Block not found for root {block_root:?}"))
+                })?;
+            let block_state_root = block.state_root();
+
+            let mut state = store
+                .get_hot_state(&block_state_root, CACHE_STATE_IN_TESTS)
+                .map_err(|e| Error::InternalError(format!("Failed to load state: {e:?}")))?
+                .ok_or_else(|| {
+                    Error::InternalError(format!("State not found for root {block_state_root:?}"))
+                })?;
+
+            process_execution_payload_envelope(
+                &mut state,
+                Some(block_state_root),
+                signed_envelope,
+                VerifySignatures::False,
+                VerifyStateRoot::True,
+                spec,
+            )
+            .map_err(|e| {
+                Error::InternalError(format!("Failed to process execution payload: {e:?}"))
+            })?;
+
+            store
+                .put_state(&signed_envelope.message.state_root, &state)
+                .map_err(|e| Error::InternalError(format!("Failed to store Full state: {e:?}")))?;
         }
 
         let result = self
