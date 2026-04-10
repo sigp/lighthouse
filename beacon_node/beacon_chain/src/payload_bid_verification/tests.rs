@@ -23,9 +23,7 @@ use crate::{
     canonical_head::CanonicalHead,
     payload_bid_verification::{
         PayloadBidError,
-        gossip_verified_bid::{
-            GossipVerificationContext, GossipVerifiedPayloadBid, SignatureVerifiedPayloadBid,
-        },
+        gossip_verified_bid::{GossipVerificationContext, GossipVerifiedPayloadBid},
         payload_bid_cache::GossipVerifiedPayloadBidCache,
     },
     proposer_preferences_verification::{
@@ -240,10 +238,10 @@ fn builder_already_seen_for_slot() {
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
     let bid = make_signed_bid(slot, 42, Address::ZERO, 30_000_000, 100, Hash256::ZERO);
-    let sig_verified = SignatureVerifiedPayloadBid {
+    let verified = GossipVerifiedPayloadBid {
         signed_bid: bid.clone(),
     };
-    ctx.bid_cache.insert_seen_builder(sig_verified);
+    ctx.bid_cache.insert_seen_builder(&verified);
 
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(matches!(

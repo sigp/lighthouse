@@ -1,22 +1,16 @@
-//! The incremental processing steps are represented as a sequence of wrapper-types around the bid.
-//! There is a linear progression of types, starting at a `SignedExecutionPayloadBid` and finishing
-//! with an `GossipVerifiedPayloadBid` which is then inserted into the `GossipVerifiedPayloadBidCache`
+//! Gossip verification for execution payload bids.
+//!
+//! A `SignedExecutionPayloadBid` is verified and wrapped as a `GossipVerifiedPayloadBid`,
+//! which is then inserted into the `GossipVerifiedPayloadBidCache`.
 //!
 //! ```ignore
 //!    SignedExecutionPayloadBid
 //!              |
 //!              ▼
-//!    SignatureVerifiedPayloadBid -------> Insert into GossipVerifiedPayloadBidCache::seen_builder
-//!              |
-//!              ▼
-//!    GossipVerifiedPayloadBid -------> Insert into GossipVerifiedPayloadBidCache::highest_bid
+//!    GossipVerifiedPayloadBid -------> Insert into GossipVerifiedPayloadBidCache
 //! ```
 
-use std::sync::Arc;
-
 use types::{BeaconStateError, Hash256, Slot};
-
-use crate::BeaconChainError;
 
 pub mod gossip_verified_bid;
 pub mod payload_bid_cache;

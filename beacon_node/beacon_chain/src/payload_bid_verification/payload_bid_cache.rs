@@ -4,10 +4,7 @@ use std::{
 };
 
 use crate::{
-    BeaconChainTypes,
-    payload_bid_verification::gossip_verified_bid::{
-        GossipVerifiedPayloadBid, SignatureVerifiedPayloadBid,
-    },
+    BeaconChainTypes, payload_bid_verification::gossip_verified_bid::GossipVerifiedPayloadBid,
 };
 use parking_lot::RwLock;
 use types::{BuilderIndex, ExecutionBlockHash, Hash256, SignedExecutionPayloadBid, Slot};
@@ -69,9 +66,8 @@ impl<T: BeaconChainTypes> GossipVerifiedPayloadBidCache<T> {
             .is_some_and(|seen_builders| seen_builders.contains(&builder_index))
     }
 
-    /// Insert a builder into the seen cache. This function assumes signature verification
-    /// has already been performed.
-    pub fn insert_seen_builder(&self, bid: SignatureVerifiedPayloadBid<T>) {
+    /// Insert a builder into the seen cache.
+    pub fn insert_seen_builder(&self, bid: &GossipVerifiedPayloadBid<T>) {
         let mut seen_builder = self.seen_builder.write();
         seen_builder
             .entry(bid.signed_bid.message.slot)
@@ -103,9 +99,7 @@ mod tests {
 
     use super::GossipVerifiedPayloadBidCache;
     use crate::{
-        payload_bid_verification::gossip_verified_bid::{
-            GossipVerifiedPayloadBid, SignatureVerifiedPayloadBid,
-        },
+        payload_bid_verification::gossip_verified_bid::GossipVerifiedPayloadBid,
         test_utils::EphemeralHarnessType,
     };
 
@@ -134,19 +128,6 @@ mod tests {
         }
     }
 
-    fn make_sig_verified(slot: Slot, builder_index: u64) -> SignatureVerifiedPayloadBid<T> {
-        SignatureVerifiedPayloadBid {
-            signed_bid: Arc::new(SignedExecutionPayloadBid {
-                message: ExecutionPayloadBid {
-                    slot,
-                    builder_index,
-                    ..ExecutionPayloadBid::default()
-                },
-                signature: Signature::empty(),
-            }),
-        }
-    }
-
     #[test]
     fn prune_removes_old_retains_current() {
         let cache = GossipVerifiedPayloadBidCache::<T>::default();
@@ -154,14 +135,9 @@ mod tests {
         let root = Hash256::ZERO;
 
         for slot in [1, 2, 3, 7, 8, 9, 10] {
-            cache.insert_highest_bid(make_gossip_verified(
-                Slot::new(slot),
-                slot,
-                hash,
-                root,
-                slot * 100,
-            ));
-            cache.insert_seen_builder(make_sig_verified(Slot::new(slot), slot));
+            let verified = make_gossip_verified(Slot::new(slot), slot, hash, root, slot * 100);
+            cache.insert_seen_builder(&verified);
+            cache.insert_highest_bid(verified);
         }
 
         cache.prune(Slot::new(8));

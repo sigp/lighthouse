@@ -1,15 +1,13 @@
-//! The incremental processing steps are represented as a sequence of wrapper-types around the preferences.
-//! There is a linear progression of types, starting at a `SignedProposerPreferences` and finishing
-//! with a `GossipVerifiedProposerPreferences` which is then inserted into the `GossipVerifiedProposerPreferenceCache`
+//! Gossip verification for proposer preferences.
+//!
+//! A `SignedProposerPreferences` is verified and wrapped as a `GossipVerifiedProposerPreferences`,
+//! which is then inserted into the `GossipVerifiedProposerPreferenceCache`.
 //!
 //! ```ignore
 //!    SignedProposerPreferences
 //!              |
 //!              ▼
-//!    SignatureVerifiedProposerPreferences -------> Insert into GossipVerifiedProposerPreferenceCache::seen
-//!              |
-//!              ▼
-//!    GossipVerifiedProposerPreferences -------> Insert into GossipVerifiedProposerPreferenceCache::preferences
+//!    GossipVerifiedProposerPreferences -------> Insert into GossipVerifiedProposerPreferenceCache
 //! ```
 
 use std::sync::Arc;

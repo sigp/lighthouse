@@ -3,9 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::proposer_preferences_verification::gossip_verified_proposer_preferences::{
-    GossipVerifiedProposerPreferences, SignatureVerifiedProposerPreferences,
-};
+use crate::proposer_preferences_verification::gossip_verified_proposer_preferences::GossipVerifiedProposerPreferences;
 use parking_lot::RwLock;
 use types::{SignedProposerPreferences, Slot};
 
@@ -43,7 +41,7 @@ impl GossipVerifiedProposerPreferenceCache {
             .is_some_and(|seen| seen.contains(&validator_index))
     }
 
-    pub fn insert_seen_validator(&self, preferences: SignatureVerifiedProposerPreferences) {
+    pub fn insert_seen_validator(&self, preferences: &GossipVerifiedProposerPreferences) {
         let slot = preferences.signed_preferences.message.proposal_slot;
         let validator_index = preferences.signed_preferences.message.validator_index;
         self.seen
@@ -69,26 +67,10 @@ mod tests {
     use types::{Address, ProposerPreferences, SignedProposerPreferences, Slot};
 
     use super::GossipVerifiedProposerPreferenceCache;
-    use crate::proposer_preferences_verification::gossip_verified_proposer_preferences::{
-        GossipVerifiedProposerPreferences, SignatureVerifiedProposerPreferences,
-    };
+    use crate::proposer_preferences_verification::gossip_verified_proposer_preferences::GossipVerifiedProposerPreferences;
 
     fn make_gossip_verified(slot: Slot, validator_index: u64) -> GossipVerifiedProposerPreferences {
         GossipVerifiedProposerPreferences {
-            signed_preferences: Arc::new(SignedProposerPreferences {
-                message: ProposerPreferences {
-                    proposal_slot: slot,
-                    validator_index,
-                    fee_recipient: Address::ZERO,
-                    gas_limit: 30_000_000,
-                },
-                signature: Signature::empty(),
-            }),
-        }
-    }
-
-    fn make_sig_verified(slot: Slot, validator_index: u64) -> SignatureVerifiedProposerPreferences {
-        SignatureVerifiedProposerPreferences {
             signed_preferences: Arc::new(SignedProposerPreferences {
                 message: ProposerPreferences {
                     proposal_slot: slot,
@@ -106,8 +88,9 @@ mod tests {
         let cache = GossipVerifiedProposerPreferenceCache::default();
 
         for slot in [1, 2, 3, 7, 8, 9, 10] {
-            cache.insert_preferences(make_gossip_verified(Slot::new(slot), slot));
-            cache.insert_seen_validator(make_sig_verified(Slot::new(slot), slot));
+            let verified = make_gossip_verified(Slot::new(slot), slot);
+            cache.insert_seen_validator(&verified);
+            cache.insert_preferences(verified);
         }
 
         cache.prune(Slot::new(8));

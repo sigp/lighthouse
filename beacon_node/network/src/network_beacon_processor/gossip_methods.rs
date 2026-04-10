@@ -3489,50 +3489,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let verification_result = self.chain.verify_payload_bid_for_gossip(bid.clone());
 
         match verification_result {
-            Ok(verified_bid) => {
-                debug!(
-                    slot = ?verified_bid.signed_bid.message.slot,
-                    "New bid received"
-                );
-
+            Ok(_) => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
             }
             Err(
-                e @ PayloadBidError::NoProposerPreferences { .. }
-                | e @ PayloadBidError::BuilderAlreadySeen { .. }
-                | e @ PayloadBidError::BidValueBelowCached { .. }
-                | e @ PayloadBidError::ParentBlockRootUnknown { .. }
-                | e @ PayloadBidError::BuilderCantCoverBid { .. },
+                PayloadBidError::BadSignature
+                | PayloadBidError::InvalidBuilder { .. }
+                | PayloadBidError::InvalidFeeRecipient
+                | PayloadBidError::InvalidGasLimit
+                | PayloadBidError::ExecutionPaymentNonZero { .. }
+                | PayloadBidError::InvalidBlobKzgCommitments { .. },
             ) => {
-                debug!(
-                    %peer_id,
-                    error = ?e,
-                    "Ignoring payload bid"
-                );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-            }
-            Err(e @ PayloadBidError::InvalidBidSlot { .. }) => {
-                // Timing-related: honest peers may hit this due to clock skew or propagation delay.
-                debug!(
-                    %peer_id,
-                    error = ?e,
-                    "Ignoring payload bid with invalid slot"
-                );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-            }
-            Err(
-                e @ PayloadBidError::BadSignature
-                | e @ PayloadBidError::InvalidBuilder { .. }
-                | e @ PayloadBidError::InvalidFeeRecipient
-                | e @ PayloadBidError::InvalidGasLimit
-                | e @ PayloadBidError::ExecutionPaymentNonZero { .. }
-                | e @ PayloadBidError::InvalidBlobKzgCommitments { .. },
-            ) => {
-                debug!(
-                    %peer_id,
-                    error = ?e,
-                    "Rejecting invalid payload bid"
-                );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(
                     peer_id,
@@ -3541,15 +3508,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
             }
             Err(
-                e @ PayloadBidError::BeaconStateError(_)
-                | e @ PayloadBidError::InternalError(_)
-                | e @ PayloadBidError::UnableToReadSlot,
+                PayloadBidError::NoProposerPreferences { .. }
+                | PayloadBidError::BuilderAlreadySeen { .. }
+                | PayloadBidError::BidValueBelowCached { .. }
+                | PayloadBidError::ParentBlockRootUnknown { .. }
+                | PayloadBidError::BuilderCantCoverBid { .. }
+                | PayloadBidError::BeaconStateError(_)
+                | PayloadBidError::InternalError(_)
+                | PayloadBidError::InvalidBidSlot { .. }
+                | PayloadBidError::UnableToReadSlot,
             ) => {
-                debug!(
-                    %peer_id,
-                    error = ?e,
-                    "Internal error verifying payload bid"
-                );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
         }

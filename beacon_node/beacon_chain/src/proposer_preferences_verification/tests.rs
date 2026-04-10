@@ -20,7 +20,6 @@ use crate::{
         ProposerPreferencesError,
         gossip_verified_proposer_preferences::{
             GossipVerificationContext, GossipVerifiedProposerPreferences,
-            SignatureVerifiedProposerPreferences,
         },
         proposer_preference_cache::GossipVerifiedProposerPreferenceCache,
     },
@@ -143,10 +142,10 @@ fn already_seen_validator() {
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(1);
 
-    let sig_verified = SignatureVerifiedProposerPreferences {
+    let verified = GossipVerifiedProposerPreferences {
         signed_preferences: make_signed_preferences(slot, 42),
     };
-    ctx.preferences_cache.insert_seen_validator(sig_verified);
+    ctx.preferences_cache.insert_seen_validator(&verified);
 
     let prefs = make_signed_preferences(slot, 42);
     let result = GossipVerifiedProposerPreferences::new(prefs, &gossip);

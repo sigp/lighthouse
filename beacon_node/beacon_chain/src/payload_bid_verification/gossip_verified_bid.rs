@@ -80,40 +80,6 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub spec: &'a ChainSpec,
 }
 
-/// A wrapper around a `SignedExecutionPayloadBid` that indicates that it's signature has been verified.
-#[derive(Educe)]
-#[educe(
-    Debug(bound = "T: BeaconChainTypes"),
-    Clone(bound = "T: BeaconChainTypes")
-)]
-pub struct SignatureVerifiedPayloadBid<T: BeaconChainTypes> {
-    pub signed_bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>,
-}
-
-impl<T: BeaconChainTypes> SignatureVerifiedPayloadBid<T> {
-    pub fn new(
-        signed_bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>,
-        state: &BeaconState<T::EthSpec>,
-        ctx: &GossipVerificationContext<'_, T>,
-    ) -> Result<Self, PayloadBidError> {
-        execution_payload_bid_signature_set(
-            state,
-            |i| get_builder_pubkey_from_state(state, i),
-            &signed_bid,
-            ctx.spec,
-        )
-        .map_err(|_| PayloadBidError::BadSignature)?
-        .ok_or(PayloadBidError::BadSignature)?
-        .verify()
-        .then_some(())
-        .ok_or(PayloadBidError::BadSignature)?;
-
-        let signature_verified_bid = Self { signed_bid };
-
-        Ok(signature_verified_bid)
-    }
-}
-
 /// A wrapper around a `SignedExecutionPayloadBid` that indicates it has been approved for re-gossiping on
 /// the p2p network.
 #[derive(Educe)]
@@ -123,14 +89,6 @@ impl<T: BeaconChainTypes> SignatureVerifiedPayloadBid<T> {
 )]
 pub struct GossipVerifiedPayloadBid<T: BeaconChainTypes> {
     pub signed_bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>,
-}
-
-impl<T: BeaconChainTypes> From<SignatureVerifiedPayloadBid<T>> for GossipVerifiedPayloadBid<T> {
-    fn from(bid: SignatureVerifiedPayloadBid<T>) -> Self {
-        Self {
-            signed_bid: bid.signed_bid,
-        }
-    }
 }
 
 impl<T: BeaconChainTypes> GossipVerifiedPayloadBid<T> {
@@ -199,13 +157,23 @@ impl<T: BeaconChainTypes> GossipVerifiedPayloadBid<T> {
             ctx.spec,
         )?;
 
-        let signature_verified_bid =
-            SignatureVerifiedPayloadBid::new(signed_bid.clone(), head_state, ctx)?;
+        // Verify signature
+        execution_payload_bid_signature_set(
+            head_state,
+            |i| get_builder_pubkey_from_state(head_state, i),
+            &signed_bid,
+            ctx.spec,
+        )
+        .map_err(|_| PayloadBidError::BadSignature)?
+        .ok_or(PayloadBidError::BadSignature)?
+        .verify()
+        .then_some(())
+        .ok_or(PayloadBidError::BadSignature)?;
+
+        let gossip_verified_bid = GossipVerifiedPayloadBid { signed_bid };
 
         ctx.gossip_verified_payload_bid_cache
-            .insert_seen_builder(signature_verified_bid.clone());
-
-        let gossip_verified_bid: GossipVerifiedPayloadBid<T> = signature_verified_bid.into();
+            .insert_seen_builder(&gossip_verified_bid);
 
         ctx.gossip_verified_payload_bid_cache
             .insert_highest_bid(gossip_verified_bid.clone());

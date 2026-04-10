@@ -77,43 +77,10 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub spec: &'a ChainSpec,
 }
 
-#[derive(Debug, Clone)]
-pub struct SignatureVerifiedProposerPreferences {
-    pub signed_preferences: Arc<SignedProposerPreferences>,
-}
-
-impl SignatureVerifiedProposerPreferences {
-    pub fn new<T: BeaconChainTypes>(
-        signed_preferences: Arc<SignedProposerPreferences>,
-        state: &BeaconState<T::EthSpec>,
-        ctx: &GossipVerificationContext<'_, T>,
-    ) -> Result<Self, ProposerPreferencesError> {
-        proposer_preferences_signature_set(
-            state,
-            |i| get_pubkey_from_state(state, i),
-            &signed_preferences,
-            ctx.spec,
-        )
-        .map_err(|_| ProposerPreferencesError::BadSignature)?
-        .verify()
-        .then_some(())
-        .ok_or(ProposerPreferencesError::BadSignature)?;
-
-        Ok(Self { signed_preferences })
-    }
-}
-
+/// A wrapper around `SignedProposerPreferences` that has been verified for gossip propagation.
 #[derive(Debug, Clone)]
 pub struct GossipVerifiedProposerPreferences {
     pub signed_preferences: Arc<SignedProposerPreferences>,
-}
-
-impl From<SignatureVerifiedProposerPreferences> for GossipVerifiedProposerPreferences {
-    fn from(verified: SignatureVerifiedProposerPreferences) -> Self {
-        Self {
-            signed_preferences: verified.signed_preferences,
-        }
-    }
 }
 
 impl GossipVerifiedProposerPreferences {
@@ -142,13 +109,22 @@ impl GossipVerifiedProposerPreferences {
 
         verify_preferences_consistency(&signed_preferences.message, current_slot, head_state)?;
 
-        let signature_verified =
-            SignatureVerifiedProposerPreferences::new(signed_preferences, head_state, ctx)?;
+        // Verify signature
+        proposer_preferences_signature_set(
+            head_state,
+            |i| get_pubkey_from_state(head_state, i),
+            &signed_preferences,
+            ctx.spec,
+        )
+        .map_err(|_| ProposerPreferencesError::BadSignature)?
+        .verify()
+        .then_some(())
+        .ok_or(ProposerPreferencesError::BadSignature)?;
+
+        let gossip_verified = GossipVerifiedProposerPreferences { signed_preferences };
 
         ctx.gossip_verified_proposer_preferences_cache
-            .insert_seen_validator(signature_verified.clone());
-
-        let gossip_verified: GossipVerifiedProposerPreferences = signature_verified.into();
+            .insert_seen_validator(&gossip_verified);
 
         ctx.gossip_verified_proposer_preferences_cache
             .insert_preferences(gossip_verified.clone());
