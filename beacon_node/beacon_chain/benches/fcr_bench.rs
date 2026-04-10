@@ -62,6 +62,10 @@ fn build_chain(num_validators: usize) -> BenchData {
         shuffling_id.clone(),
         shuffling_id.clone(),
         ExecutionStatus::irrelevant(),
+        None,
+        None,
+        0,
+        &spec,
     )
     .expect("create fork choice");
 
@@ -86,9 +90,12 @@ fn build_chain(num_validators: usize) -> BenchData {
             execution_status: ExecutionStatus::irrelevant(),
             unrealized_justified_checkpoint: Some(justified_checkpoint),
             unrealized_finalized_checkpoint: Some(finalized_checkpoint),
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
+            proposer_index: Some(0),
         };
 
-        fc.process_block::<E>(block, slot, justified_checkpoint, finalized_checkpoint)
+        fc.process_block::<E>(block, slot, &spec, std::time::Duration::ZERO)
             .expect("process block");
 
         block_roots.push(root);
@@ -99,7 +106,7 @@ fn build_chain(num_validators: usize) -> BenchData {
 
     // All validators attest to the head.
     for val_idx in 0..num_validators {
-        fc.process_attestation(val_idx, head_root, Epoch::new(0))
+        fc.process_attestation(val_idx, head_root, Slot::new(0), false)
             .expect("process attestation");
     }
 
