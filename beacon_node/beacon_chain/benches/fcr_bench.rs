@@ -4,6 +4,7 @@
 //! using a synthetic linear chain built via `ProtoArrayForkChoice`.
 
 use std::collections::BTreeSet;
+use std::time::Duration;
 
 use beacon_chain::fast_confirmation::{BalanceSourceData, FastConfirmationRule};
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
@@ -62,9 +63,9 @@ fn build_chain(num_validators: usize) -> BenchData {
         shuffling_id.clone(),
         shuffling_id.clone(),
         ExecutionStatus::irrelevant(),
-        None,
-        None,
-        0,
+        None, // execution_payload_parent_hash
+        None, // execution_payload_block_hash
+        0,    // proposer_index
         &spec,
     )
     .expect("create fork choice");
@@ -92,10 +93,10 @@ fn build_chain(num_validators: usize) -> BenchData {
             unrealized_finalized_checkpoint: Some(finalized_checkpoint),
             execution_payload_parent_hash: None,
             execution_payload_block_hash: None,
-            proposer_index: Some(0),
+            proposer_index: None,
         };
 
-        fc.process_block::<E>(block, slot, &spec, std::time::Duration::ZERO)
+        fc.process_block::<E>(block, slot, &spec, Duration::from_secs(0))
             .expect("process block");
 
         block_roots.push(root);

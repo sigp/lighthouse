@@ -925,9 +925,9 @@ where
         let canonical_head = CanonicalHead::new(
             fork_choice,
             Arc::new(head_snapshot),
-            head_payload_status,
             &self.spec,
             self.chain_config.enable_fast_confirmation,
+            head_payload_status,
         );
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
         let complete_blob_backfill = self.chain_config.complete_blob_backfill;
