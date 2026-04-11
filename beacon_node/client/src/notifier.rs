@@ -366,7 +366,24 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 };
 
                 let block_hash = match beacon_chain.canonical_head.head_execution_status() {
-                    Ok(ExecutionStatus::Irrelevant(_)) => "n/a".to_string(),
+                    Ok(ExecutionStatus::Irrelevant(_)) => {
+                        // For Gloas (ePBS), `ExecutionStatus` is always `Irrelevant` because
+                        // the execution payload is delivered via a separate
+                        // `SignedExecutionPayloadEnvelope` rather than embedded in the block body.
+                        // Show "pending" to indicate the slot's payload has not yet been
+                        // committed, rather than implying there is no execution layer.
+                        //
+                        // TODO: distinguish "pending" / "empty" / "full" once the Gloas state
+                        // transition updates `latest_block_hash` to track committed payloads
+                        // per <https://github.com/sigp/lighthouse/issues/9099>.
+                        if cached_head.snapshot.beacon_block.fork_name_unchecked()
+                            == ForkName::Gloas
+                        {
+                            "pending".to_string()
+                        } else {
+                            "n/a".to_string()
+                        }
+                    }
                     Ok(ExecutionStatus::Valid(hash)) => {
                         metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 0);
                         format!("{} (verified)", hash)
