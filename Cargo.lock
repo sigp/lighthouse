@@ -3587,6 +3587,7 @@ name = "fork_choice"
 version = "0.1.0"
 dependencies = [
  "beacon_chain",
+ "bls",
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "fixed_bytes",
@@ -7028,7 +7029,9 @@ dependencies = [
  "fixed_bytes",
  "safe_arith",
  "serde",
+ "smallvec",
  "superstruct",
+ "typenum",
  "types",
  "yaml_serde",
 ]

@@ -1,7 +1,6 @@
 use crate::{EthSpec, ForkName, PayloadAttestationData};
 use bls::AggregateSignature;
 use context_deserialize::context_deserialize;
-use core::slice::Iter;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
@@ -17,12 +16,6 @@ pub struct IndexedPayloadAttestation<E: EthSpec> {
     pub attesting_indices: VariableList<u64, E::PTCSize>,
     pub data: PayloadAttestationData,
     pub signature: AggregateSignature,
-}
-
-impl<E: EthSpec> IndexedPayloadAttestation<E> {
-    pub fn attesting_indices_iter(&self) -> Iter<'_, u64> {
-        self.attesting_indices.iter()
-    }
 }
 
 #[cfg(test)]
