@@ -275,8 +275,6 @@ debug = true
 
 [patch.crates-io]
 quick-protobuf = { git = "https://github.com/sigp/quick-protobuf.git", rev = "87c4ccb9bb2af494de375f5f6c62850badd26304" }
-ethereum_ssz = { git = "https://github.com/sigp/ethereum_ssz", rev = "2a161aec0e7e78064c8075717da4c5efb7883b76" }
-ssz_types = { git = "https://github.com/macladson/ssz_types", branch = "improved-arbitrary" }
 
 
 [patch."https://github.com/libp2p/rust-libp2p.git"]
