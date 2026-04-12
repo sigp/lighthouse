@@ -3542,57 +3542,29 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match verification_result {
             Ok(_) => {
-                debug!("New proposer preferences received");
-
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
             }
-            Err(e @ ProposerPreferencesError::AlreadySeen { .. }) => {
-                debug!(
-                    %peer_id,
-                    error = ?e,
-                    "Ignoring already seen proposer preferences"
-                );
+            Err(
+                ProposerPreferencesError::AlreadySeen { .. }
+                | ProposerPreferencesError::InvalidProposalEpoch { .. }
+                | ProposerPreferencesError::ProposalSlotAlreadyPassed { .. }
+                | ProposerPreferencesError::BeaconChainError(_)
+                | ProposerPreferencesError::BeaconStateError(_)
+                | ProposerPreferencesError::InvalidStateVariant
+                | ProposerPreferencesError::UnableToReadSlot,
+            ) => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
             Err(
-                e @ ProposerPreferencesError::InvalidProposalEpoch { .. }
-                | e @ ProposerPreferencesError::ProposalSlotAlreadyPassed { .. },
+                ProposerPreferencesError::InvalidProposalSlot { .. }
+                | ProposerPreferencesError::BadSignature,
             ) => {
-                debug!(
-                    %peer_id,
-                    error = ?e,
-                    "Ignoring proposer preferences with invalid timing"
-                );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-            }
-            Err(
-                e @ ProposerPreferencesError::InvalidProposalSlot { .. }
-                | e @ ProposerPreferencesError::BadSignature,
-            ) => {
-                debug!(
-                    %peer_id,
-                    error = ?e,
-                    "Rejecting invalid proposer preferences"
-                );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(
                     peer_id,
                     PeerAction::LowToleranceError,
                     "invalid_gossip_proposer_preferences",
                 );
-            }
-            Err(
-                e @ ProposerPreferencesError::BeaconChainError(_)
-                | e @ ProposerPreferencesError::BeaconStateError(_)
-                | e @ ProposerPreferencesError::InvalidStateVariant
-                | e @ ProposerPreferencesError::UnableToReadSlot,
-            ) => {
-                debug!(
-                    %peer_id,
-                    error = ?e,
-                    "Internal error verifying proposer preferences"
-                );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
         }
     }

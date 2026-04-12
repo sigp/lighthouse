@@ -111,6 +111,8 @@ impl<T: BeaconChainTypes> GossipVerifiedPayloadBid<T> {
             });
         }
 
+        // TODO(gloas): Extract into `bid_value_over_threshold` on the bid cache and potentially
+        // make this more sophisticate than just a <= check.
         if let Some(cached_bid) = ctx.gossip_verified_payload_bid_cache.get_highest_bid(
             bid_slot,
             bid_parent_block_hash,

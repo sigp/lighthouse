@@ -217,6 +217,20 @@ fn correct_proposer_bad_signature() {
     ));
 }
 
+#[test]
+fn validator_index_out_of_bounds() {
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
+    let slot = Slot::new(1);
+
+    let prefs = make_signed_preferences(slot, u64::MAX);
+    let result = GossipVerifiedProposerPreferences::new(prefs, &gossip);
+    assert!(matches!(
+        result,
+        Err(ProposerPreferencesError::InvalidProposalSlot { .. })
+    ));
+}
+
 // TODO(gloas) add successful proposer preferences check once we have proposer preferences signing logic
 
 #[test]

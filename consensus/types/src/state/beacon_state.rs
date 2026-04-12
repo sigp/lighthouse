@@ -24,7 +24,7 @@ use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
 
 use crate::{
-    Address, ExecutionBlockHash, ExecutionPayloadBid, Withdrawal,
+    Address, ExecutionBlockHash, ExecutionPayloadBid, ProposerPreferences, Withdrawal,
     attestation::{
         AttestationData, AttestationDuty, BeaconCommittee, Checkpoint, CommitteeIndex, PTC,
         ParticipationFlags, PendingAttestation,
@@ -1347,6 +1347,41 @@ impl<E: EthSpec> BeaconState<E> {
 
             self.compute_proposer_index(&indices, &seed, spec)
         }
+    }
+
+    /// Check if the validator is the proposer for the given slot in the current or next epoch.
+    pub fn is_valid_proposal_slot(&self, preferences: &ProposerPreferences) -> bool {
+        let current_epoch = self.current_epoch();
+        let proposal_epoch = preferences.proposal_slot.epoch(E::slots_per_epoch());
+
+        if proposal_epoch < current_epoch {
+            return false;
+        }
+
+        let next_epoch = current_epoch.saturating_add(1u64);
+        if proposal_epoch > next_epoch {
+            return false;
+        }
+
+        let epoch_offset = proposal_epoch
+            .as_u64()
+            .saturating_sub(current_epoch.as_u64());
+        let slot_in_epoch = preferences
+            .proposal_slot
+            .as_u64()
+            .safe_rem(E::slots_per_epoch());
+        let index = epoch_offset
+            .safe_mul(E::slots_per_epoch())
+            .and_then(|v| v.safe_add(slot_in_epoch?));
+
+        let Ok(index) = index else {
+            return false;
+        };
+
+        self.proposer_lookahead()
+            .ok()
+            .and_then(|lookahead| lookahead.get(index as usize).copied())
+            .is_some_and(|proposer| proposer == preferences.validator_index)
     }
 
     /// Returns the beacon proposer index for each `slot` in `epoch`.
@@ -3266,9 +3301,7 @@ impl<E: EthSpec> BeaconState<E> {
         bid_amount: u64,
         spec: &ChainSpec,
     ) -> Result<bool, BeaconStateError> {
-        let Some(builder) = self.builders()?.get(builder_index as usize) else {
-            return Ok(false);
-        };
+        let builder = self.get_builder(builder_index)?;
 
         let builder_balance = builder.balance;
         let pending_withdrawals_amount =
@@ -3287,9 +3320,7 @@ impl<E: EthSpec> BeaconState<E> {
         builder_index: BuilderIndex,
         spec: &ChainSpec,
     ) -> Result<bool, BeaconStateError> {
-        let Some(builder) = self.builders()?.get(builder_index as usize) else {
-            return Ok(false);
-        };
+        let builder = self.get_builder(builder_index)?;
 
         Ok(builder.deposit_epoch < self.finalized_checkpoint().epoch
             && builder.withdrawable_epoch == spec.far_future_epoch)

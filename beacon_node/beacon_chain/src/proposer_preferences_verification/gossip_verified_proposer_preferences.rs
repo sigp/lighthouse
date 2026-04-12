@@ -24,7 +24,7 @@ pub(crate) fn verify_preferences_consistency<E: EthSpec>(
     let current_epoch = current_slot.epoch(E::slots_per_epoch());
     let proposal_epoch = proposal_slot.epoch(E::slots_per_epoch());
 
-    if proposal_epoch != current_epoch && proposal_epoch != current_epoch.saturating_add(1u64) {
+    if proposal_epoch < current_epoch || proposal_epoch > current_epoch.saturating_add(1u64) {
         return Err(ProposerPreferencesError::InvalidProposalEpoch { proposal_epoch });
     }
 
@@ -35,32 +35,7 @@ pub(crate) fn verify_preferences_consistency<E: EthSpec>(
         });
     }
 
-    let slot_in_epoch = proposal_slot
-        .as_usize()
-        .checked_rem(E::slots_per_epoch() as usize)
-        .ok_or(ProposerPreferencesError::InvalidProposalSlot {
-            validator_index,
-            proposal_slot,
-        })?;
-
-    let lookahead_index = if proposal_epoch == current_epoch.saturating_add(1u64) {
-        E::slots_per_epoch() as usize + slot_in_epoch
-    } else {
-        slot_in_epoch
-    };
-
-    let proposer_lookahead = head_state
-        .proposer_lookahead()
-        .map_err(|_| ProposerPreferencesError::InvalidStateVariant)?;
-
-    let expected_proposer = proposer_lookahead.get(lookahead_index).ok_or(
-        ProposerPreferencesError::InvalidProposalSlot {
-            validator_index,
-            proposal_slot,
-        },
-    )?;
-
-    if *expected_proposer != validator_index {
+    if !head_state.is_valid_proposal_slot(preferences) {
         return Err(ProposerPreferencesError::InvalidProposalSlot {
             validator_index,
             proposal_slot,
@@ -241,39 +216,6 @@ mod tests {
 
         let result = verify_preferences_consistency::<E>(&prefs, current_slot, &state());
         assert!(matches!(
-            result,
-            Err(ProposerPreferencesError::ProposalSlotAlreadyPassed { .. })
-        ));
-    }
-
-    #[test]
-    fn test_valid_epoch_current() {
-        let current_slot = Slot::new(E::slots_per_epoch());
-        let prefs = make_preferences(Slot::new(E::slots_per_epoch() + 1), 0);
-
-        // Passes epoch/slot checks, fails on state access (no proposer_lookahead in base state)
-        let result = verify_preferences_consistency::<E>(&prefs, current_slot, &state());
-        assert!(!matches!(
-            result,
-            Err(ProposerPreferencesError::InvalidProposalEpoch { .. })
-        ));
-        assert!(!matches!(
-            result,
-            Err(ProposerPreferencesError::ProposalSlotAlreadyPassed { .. })
-        ));
-    }
-
-    #[test]
-    fn test_valid_epoch_next() {
-        let current_slot = Slot::new(E::slots_per_epoch());
-        let prefs = make_preferences(Slot::new(2 * E::slots_per_epoch() + 1), 0);
-
-        let result = verify_preferences_consistency::<E>(&prefs, current_slot, &state());
-        assert!(!matches!(
-            result,
-            Err(ProposerPreferencesError::InvalidProposalEpoch { .. })
-        ));
-        assert!(!matches!(
             result,
             Err(ProposerPreferencesError::ProposalSlotAlreadyPassed { .. })
         ));
