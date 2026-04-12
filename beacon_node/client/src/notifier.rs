@@ -364,15 +364,11 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 } else {
                     head_root.to_string()
                 };
-                let is_gloas_head = cached_head
-                    .snapshot
-                    .beacon_block
-                    .message()
-                    .body()
-                    .fork_name()
-                    .gloas_enabled();
-
-                if is_gloas_head {
+                if beacon_chain
+                    .spec
+                    .fork_name_at_slot::<T::EthSpec>(head_slot)
+                    .gloas_enabled()
+                {
                     let payload_envelope_status =
                         head_payload_status_pretty(&cached_head.snapshot.beacon_state);
                     info!(
@@ -733,31 +729,14 @@ fn peer_count_pretty(peer_count: usize) -> String {
 }
 
 /// Returns a string describing the Gloas payload envelope status of the head block.
-///
-/// In Gloas (EIP-7732), execution payloads are decoupled from beacon blocks via PBS. The beacon
-/// block body contains a `signed_execution_payload_bid` rather than an `execution_payload`, so
-/// the traditional execution block hash is not available in fork choice. Instead, we display one
-/// of three states based on the head beacon state:
-///
-/// - `"Full"`: the previous block's payload bid was confirmed (bid block hash matches the latest
-///   confirmed block hash in state).
-/// - `"Pending"`: a bid was submitted for the previous slot, but the payload has not been
-///   confirmed yet.
-/// - `"Empty"`: no bid was submitted for the previous slot.
 fn head_payload_status_pretty<E: EthSpec>(head_state: &BeaconState<E>) -> &'static str {
     match head_state {
         BeaconState::Gloas(state) => {
-            // `is_parent_block_full` in the spec checks whether the previous block's execution
-            // payload bid block hash matches the latest confirmed block hash.
-            if state.latest_execution_payload_bid.block_hash == state.latest_block_hash {
+            if head_state.is_parent_block_full() {
                 "Full"
-            } else if state.latest_execution_payload_bid.block_hash
-                != ExecutionBlockHash::zero()
-            {
-                // A bid was submitted but the payload hasn't been confirmed yet.
+            } else if state.latest_execution_payload_bid.block_hash != ExecutionBlockHash::zero() {
                 "Pending"
             } else {
-                // No bid was submitted for the previous slot.
                 "Empty"
             }
         }

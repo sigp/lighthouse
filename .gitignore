@@ -17,3 +17,4 @@ genesis.ssz
 
 # VSCode
 /.vscode
+.DS_Store
