@@ -1,3 +1,4 @@
+mod apply_hdiff;
 mod block_root;
 mod check_deposit_data;
 mod generate_bootnode_enr;
@@ -639,6 +640,28 @@ fn main() {
                         .display_order(0)
                 )
         )
+        .subcommand(
+            Command::new("apply-hdiff")
+                .about("Applies an HDiff to a BeaconState and emits timings for each step")
+                .arg(
+                    Arg::new("state-path")
+                        .long("state-path")
+                        .value_name("PATH")
+                        .action(ArgAction::Set)
+                        .required(true)
+                        .help("Path to SSZ-encoded BeaconState file.")
+                        .display_order(0)
+                )
+                .arg(
+                    Arg::new("hdiff-path")
+                        .long("hdiff-path")
+                        .value_name("PATH")
+                        .action(ArgAction::Set)
+                        .required(true)
+                        .help("Path to SSZ-encoded HDiff file.")
+                        .display_order(0)
+                )
+        )
         .get_matches();
 
     let result = matches
@@ -769,6 +792,11 @@ fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> 
             let network_config = get_network_config()?;
             http_sync::run::<E>(env, network_config, matches)
                 .map_err(|e| format!("Failed to run http-sync command: {}", e))
+        }
+        Some(("apply-hdiff", matches)) => {
+            let network_config = get_network_config()?;
+            apply_hdiff::run::<E>(network_config, matches)
+                .map_err(|e| format!("Failed to run apply-hdiff command: {}", e))
         }
         Some((other, _)) => Err(format!("Unknown subcommand {}. See --help.", other)),
         _ => Err("No subcommand provided. See --help.".to_string()),
