@@ -109,33 +109,6 @@ For VSCode users, this is already configured in the repository's `.vscode/settin
 }
 ```
 
-### test_logger
-
-The test_logger, located in `/common/logging/` can be used to create a `Logger` that by
-default returns a NullLogger. But if `--features 'logging/test_logger'` is passed while
-testing the logs are displayed. This can be very helpful while debugging tests.
-
-Example:
-
-```
-$ cargo nextest run -p beacon_chain -E 'test(validator_pubkey_cache::test::basic_operation)' --features 'logging/test_logger'
-    Finished test [unoptimized + debuginfo] target(s) in 0.20s
-     Running unittests (target/debug/deps/beacon_chain-975363824f1143bc)
-
-running 1 test
-Sep 19 19:23:25.192 INFO Beacon chain initialized, head_slot: 0, head_block: 0x2353…dcf4, head_state: 0xef4b…4615, module: beacon_chain::builder:649
-Sep 19 19:23:25.192 INFO Saved beacon chain to disk, module: beacon_chain::beacon_chain:3608
-Sep 19 19:23:26.798 INFO Beacon chain initialized, head_slot: 0, head_block: 0x2353…dcf4, head_state: 0xef4b…4615, module: beacon_chain::builder:649
-Sep 19 19:23:26.798 INFO Saved beacon chain to disk, module: beacon_chain::beacon_chain:3608
-Sep 19 19:23:28.407 INFO Beacon chain initialized, head_slot: 0, head_block: 0xdcdd…501f, head_state: 0x3055…032c, module: beacon_chain::builder:649
-Sep 19 19:23:28.408 INFO Saved beacon chain to disk, module: beacon_chain::beacon_chain:3608
-Sep 19 19:23:30.069 INFO Beacon chain initialized, head_slot: 0, head_block: 0xa739…1b22, head_state: 0xac1c…eab6, module: beacon_chain::builder:649
-Sep 19 19:23:30.069 INFO Saved beacon chain to disk, module: beacon_chain::beacon_chain:3608
-test validator_pubkey_cache::test::basic_operation ... ok
-
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 51 filtered out; finished in 6.46s
-```
-
 ### Consensus Spec Tests
 
 The
