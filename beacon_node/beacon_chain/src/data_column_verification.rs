@@ -1317,7 +1317,8 @@ mod test {
     };
     use crate::observed_data_sidecars::Observe;
     use crate::test_utils::{
-        BeaconChainHarness, EphemeralHarnessType, generate_data_column_sidecars_from_block,
+        BeaconChainHarness, EphemeralHarnessType, fork_name_from_env,
+        generate_data_column_sidecars_from_block, test_spec,
     };
     use eth2::types::BlobsBundle;
     use execution_layer::test_utils::generate_blobs;
@@ -1452,33 +1453,48 @@ mod test {
         ));
     }
 
-    /// Build a Fulu harness with partial columns enabled.
-    async fn partial_column_harness() -> BeaconChainHarness<EphemeralHarnessType<E>> {
-        let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    #[tokio::test]
+    async fn test_partial_message_verification_fulu() {
+        let spec = if fork_name_from_env().is_some() {
+            Arc::new(test_spec::<E>())
+        } else {
+            Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()))
+        };
+
+        // Only run these tests if columns are enabled.
+        if !spec.is_fulu_scheduled() {
+            return;
+        }
+        // Gloas is not supported yet.
+        if spec.is_gloas_scheduled() {
+            return;
+        }
+
         let chain_config = ChainConfig {
             enable_partial_columns: true,
             ..Default::default()
         };
         let harness = BeaconChainHarness::builder(E::default())
-            .spec(spec.into())
+            .spec(spec)
             .deterministic_keypairs(64)
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .chain_config(chain_config)
             .build();
-        harness.advance_slot();
-        harness
+
+        partial_empty_message_without_cells_returns_error(&harness).await;
+        partial_inconsistent_present_count_returns_error(&harness).await;
+        partial_inconsistent_max_count_returns_error(&harness).await;
+        partial_header_with_empty_commitments_fails(&harness).await;
+        partial_header_root_mismatch_fails(&harness).await;
+        partial_header_with_invalid_inclusion_proof_fails(&harness).await;
     }
 
-    /// Build a partial column harness with a block containing 1 blob commitment
-    /// and the header pre-cached in the partial assembler.
-    async fn partial_column_harness_with_block() -> (
-        BeaconChainHarness<EphemeralHarnessType<E>>,
-        types::Hash256,
-        Arc<PartialDataColumnHeader<E>>,
-    ) {
-        let harness = partial_column_harness().await;
-
+    /// Build a block containing 1 blob and pre-cache the header in the partial assembler.
+    async fn add_block_and_header(
+        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+    ) -> (types::Hash256, Arc<PartialDataColumnHeader<E>>) {
+        harness.advance_slot();
         // Generate a block with 1 blob so we have valid data columns.
         let fork = harness
             .spec
@@ -1510,12 +1526,13 @@ mod test {
             .unwrap()
             .init(block_root, header.clone());
 
-        (harness, block_root, header)
+        (block_root, header)
     }
 
-    #[tokio::test]
-    async fn partial_empty_message_without_cells_returns_error() {
-        let (harness, block_root, header) = partial_column_harness_with_block().await;
+    async fn partial_empty_message_without_cells_returns_error(
+        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+    ) {
+        let (block_root, header) = add_block_and_header(harness).await;
 
         // Create a headerless partial with no cells — should trigger EmptyMessage.
         let num_commitments = header.kzg_commitments.len();
@@ -1551,9 +1568,10 @@ mod test {
         );
     }
 
-    #[tokio::test]
-    async fn partial_inconsistent_present_count_returns_error() {
-        let (harness, block_root, header) = partial_column_harness_with_block().await;
+    async fn partial_inconsistent_present_count_returns_error(
+        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+    ) {
+        let (block_root, header) = add_block_and_header(harness).await;
 
         // Create a bitmap that says 2 bits are set, but only provide 1 cell/proof.
         let num_commitments = header.kzg_commitments.len();
@@ -1593,9 +1611,10 @@ mod test {
         );
     }
 
-    #[tokio::test]
-    async fn partial_inconsistent_max_count_returns_error() {
-        let (harness, block_root, _header) = partial_column_harness_with_block().await;
+    async fn partial_inconsistent_max_count_returns_error(
+        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+    ) {
+        let (block_root, _header) = add_block_and_header(harness).await;
 
         // Create a bitmap with length different from the number of commitments in the header.
         // Header has 1 commitment, but we use a bitmap with capacity 3.
@@ -1631,10 +1650,9 @@ mod test {
         );
     }
 
-    #[tokio::test]
-    async fn partial_header_with_empty_commitments_fails() {
-        let harness = partial_column_harness().await;
-
+    async fn partial_header_with_empty_commitments_fails(
+        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+    ) {
         let slot = harness.get_current_slot();
         let state = harness.get_current_state();
         let ((block, _), _) = harness
@@ -1660,9 +1678,10 @@ mod test {
         );
     }
 
-    #[tokio::test]
-    async fn partial_header_root_mismatch_fails() {
-        let (harness, _block_root, header) = partial_column_harness_with_block().await;
+    async fn partial_header_root_mismatch_fails(
+        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+    ) {
+        let (_block_root, header) = add_block_and_header(harness).await;
 
         // Use a wrong group_id (not matching the header's block root)
         let wrong_root = types::Hash256::repeat_byte(0xff);
@@ -1679,9 +1698,10 @@ mod test {
         );
     }
 
-    #[tokio::test]
-    async fn partial_header_with_invalid_inclusion_proof_fails() {
-        let (harness, block_root, header) = partial_column_harness_with_block().await;
+    async fn partial_header_with_invalid_inclusion_proof_fails(
+        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+    ) {
+        let (block_root, header) = add_block_and_header(harness).await;
 
         // Corrupt the inclusion proof
         let mut header = PartialDataColumnHeader::clone(&header);
