@@ -6,13 +6,16 @@ use bls::{Keypair, PublicKeyBytes, Signature};
 use ethereum_hashing::hash;
 use fork_choice::ForkChoice;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state};
+use kzg::KzgCommitment;
 use slot_clock::{SlotClock, TestingSlotClock};
 use ssz::Encode;
+use ssz_types::VariableList;
 use store::{HotColdDB, StoreConfig};
 use types::{
     Address, BeaconBlock, BeaconStateError, ChainSpec, Checkpoint, Domain, Epoch, EthSpec,
-    ExecutionPayloadBid, ForkName, Hash256, MinimalEthSpec, ProposerPreferences, SignedBeaconBlock,
-    SignedExecutionPayloadBid, SignedProposerPreferences, SignedRoot, Slot,
+    ExecutionBlockHash, ExecutionPayloadBid, ForkName, Hash256, MinimalEthSpec,
+    ProposerPreferences, SignedBeaconBlock, SignedExecutionPayloadBid, SignedProposerPreferences,
+    SignedRoot, Slot,
 };
 
 use proto_array::PayloadStatus;
@@ -51,6 +54,7 @@ struct TestContext {
     keypairs: Vec<Keypair>,
     spec: ChainSpec,
     genesis_block_root: Hash256,
+    inactive_builder_index: u64,
 }
 
 fn builder_withdrawal_credentials(pubkey: &bls::PublicKey, spec: &ChainSpec) -> Hash256 {
@@ -96,6 +100,18 @@ impl TestContext {
             root: Hash256::ZERO,
         };
 
+        let inactive_keypair = &keypairs[NUM_BUILDERS];
+        let inactive_creds = builder_withdrawal_credentials(&inactive_keypair.pk, &spec);
+        let inactive_builder_index = state
+            .add_builder_to_registry(
+                PublicKeyBytes::from(inactive_keypair.pk.clone()),
+                inactive_creds,
+                BUILDER_BALANCE,
+                Slot::new(E::slots_per_epoch()),
+                &spec,
+            )
+            .expect("should register inactive builder");
+
         let mut genesis_block = BeaconBlock::empty(&spec);
         *genesis_block.state_root_mut() = state
             .update_tree_hash_cache()
@@ -133,6 +149,7 @@ impl TestContext {
             keypairs,
             spec,
             genesis_block_root: block_root,
+            inactive_builder_index,
         }
     }
 
@@ -358,7 +375,7 @@ fn execution_payment_nonzero() {
 }
 
 #[test]
-fn invalid_builder_index() {
+fn unknown_builder_index() {
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(0);
@@ -379,6 +396,28 @@ fn invalid_builder_index() {
         Err(PayloadBidError::BeaconStateError(
             BeaconStateError::UnknownBuilder(9999)
         ))
+    ));
+}
+
+#[test]
+fn inactive_builder() {
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
+    let slot = Slot::new(0);
+    seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
+
+    let bid = make_signed_bid(
+        slot,
+        ctx.inactive_builder_index,
+        Address::ZERO,
+        30_000_000,
+        100,
+        ctx.genesis_block_root,
+    );
+    let result = GossipVerifiedPayloadBid::new(bid, &gossip);
+    assert!(matches!(
+        result,
+        Err(PayloadBidError::InvalidBuilder { .. })
     ));
 }
 
@@ -425,6 +464,40 @@ fn parent_block_root_unknown() {
 }
 
 #[test]
+fn invalid_blob_kzg_commitments() {
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
+    let slot = Slot::new(0);
+    seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
+
+    let max_blobs = ctx
+        .spec
+        .max_blobs_per_block(slot.epoch(E::slots_per_epoch())) as usize;
+    let commitments: Vec<KzgCommitment> = (0..=max_blobs)
+        .map(|_| KzgCommitment::empty_for_testing())
+        .collect();
+
+    let bid = Arc::new(SignedExecutionPayloadBid {
+        message: ExecutionPayloadBid {
+            slot,
+            builder_index: 0,
+            fee_recipient: Address::ZERO,
+            gas_limit: 30_000_000,
+            value: 0,
+            parent_block_root: ctx.genesis_block_root,
+            blob_kzg_commitments: VariableList::new(commitments).unwrap(),
+            ..ExecutionPayloadBid::default()
+        },
+        signature: Signature::empty(),
+    });
+    let result = GossipVerifiedPayloadBid::new(bid, &gossip);
+    assert!(matches!(
+        result,
+        Err(PayloadBidError::InvalidBlobKzgCommitments { .. })
+    ));
+}
+
+#[test]
 fn bad_signature() {
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
@@ -442,6 +515,12 @@ fn bad_signature() {
     );
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(matches!(result, Err(PayloadBidError::BadSignature)));
+    assert!(!ctx.bid_cache.seen_builder_index(&slot, 0));
+    assert!(
+        ctx.bid_cache
+            .get_highest_bid(slot, ExecutionBlockHash::zero(), ctx.genesis_block_root)
+            .is_none()
+    );
 }
 
 #[test]
@@ -511,6 +590,13 @@ fn two_builders_coexist_in_cache() {
     // Both builders should be seen.
     assert!(ctx.bid_cache.seen_builder_index(&slot, 0));
     assert!(ctx.bid_cache.seen_builder_index(&slot, 1));
+
+    let highest = ctx
+        .bid_cache
+        .get_highest_bid(slot, ExecutionBlockHash::zero(), ctx.genesis_block_root)
+        .expect("should have highest bid");
+    assert_eq!(highest.message.value, 1);
+    assert_eq!(highest.message.builder_index, 1);
 }
 
 #[test]

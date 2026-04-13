@@ -1350,38 +1350,40 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Check if the validator is the proposer for the given slot in the current or next epoch.
-    pub fn is_valid_proposal_slot(&self, preferences: &ProposerPreferences) -> bool {
+    pub fn is_valid_proposal_slot(
+        &self,
+        preferences: &ProposerPreferences,
+    ) -> Result<bool, BeaconStateError> {
         let current_epoch = self.current_epoch();
         let proposal_epoch = preferences.proposal_slot.epoch(E::slots_per_epoch());
 
         if proposal_epoch < current_epoch {
-            return false;
+            return Ok(false);
         }
 
         let next_epoch = current_epoch.saturating_add(1u64);
         if proposal_epoch > next_epoch {
-            return false;
+            return Ok(false);
         }
 
-        let epoch_offset = proposal_epoch
-            .as_u64()
-            .saturating_sub(current_epoch.as_u64());
+        let epoch_offset = proposal_epoch.as_u64().safe_sub(current_epoch.as_u64())?;
+
         let slot_in_epoch = preferences
             .proposal_slot
             .as_u64()
-            .safe_rem(E::slots_per_epoch());
+            .safe_rem(E::slots_per_epoch())?;
+
         let index = epoch_offset
             .safe_mul(E::slots_per_epoch())
-            .and_then(|v| v.safe_add(slot_in_epoch?));
+            .and_then(|v| v.safe_add(slot_in_epoch))?;
 
-        let Ok(index) = index else {
-            return false;
-        };
+        let proposer_lookahead = self.proposer_lookahead()?;
 
-        self.proposer_lookahead()
-            .ok()
-            .and_then(|lookahead| lookahead.get(index as usize).copied())
-            .is_some_and(|proposer| proposer == preferences.validator_index)
+        let proposer = proposer_lookahead
+            .get(index as usize)
+            .ok_or(BeaconStateError::ProposerLookaheadOutOfBounds { i: index as usize })?;
+
+        Ok(*proposer == preferences.validator_index)
     }
 
     /// Returns the beacon proposer index for each `slot` in `epoch`.

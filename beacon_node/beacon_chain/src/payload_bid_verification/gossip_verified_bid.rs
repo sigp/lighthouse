@@ -307,30 +307,6 @@ mod tests {
     }
 
     #[test]
-    fn test_valid_bid_slot_current_hits_builder_check() {
-        let (state, spec) = state_and_spec();
-        let current_slot = Slot::new(10);
-        let bid = make_bid(current_slot, Address::ZERO, 30_000_000);
-        let prefs = make_preferences(Address::ZERO, 30_000_000);
-
-        // Passes slot/payment/preference checks, fails on is_active_builder (base state has no builders).
-        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
-        assert!(matches!(result, Err(PayloadBidError::BeaconStateError(_))));
-    }
-
-    #[test]
-    fn test_valid_bid_slot_next_hits_builder_check() {
-        let (state, spec) = state_and_spec();
-        let current_slot = Slot::new(10);
-        let bid = make_bid(Slot::new(11), Address::ZERO, 30_000_000);
-        let prefs = make_preferences(Address::ZERO, 30_000_000);
-
-        // Passes slot/payment/preference checks, fails on is_active_builder (base state has no builders).
-        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
-        assert!(matches!(result, Err(PayloadBidError::BeaconStateError(_))));
-    }
-
-    #[test]
     fn test_execution_payment_nonzero() {
         let (state, spec) = state_and_spec();
         let current_slot = Slot::new(10);

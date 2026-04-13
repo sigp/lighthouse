@@ -3550,7 +3550,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | ProposerPreferencesError::ProposalSlotAlreadyPassed { .. }
                 | ProposerPreferencesError::BeaconChainError(_)
                 | ProposerPreferencesError::BeaconStateError(_)
-                | ProposerPreferencesError::InvalidStateVariant
                 | ProposerPreferencesError::UnableToReadSlot,
             ) => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
