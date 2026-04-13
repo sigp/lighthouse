@@ -7,11 +7,14 @@ use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::cmp::Ordering;
+use std::marker::PhantomData;
 use std::ops::RangeInclusive;
 use std::str::FromStr;
 use std::sync::LazyLock;
 use superstruct::superstruct;
+use typenum::Unsigned;
 use types::state::HistoricalSummary;
+use types::state::Validators;
 use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, Slot, Validator};
 
 static EMPTY_PUBKEY: LazyLock<PublicKeyBytes> = LazyLock::new(PublicKeyBytes::empty);
@@ -27,6 +30,7 @@ pub enum Error {
     InvalidSszState(ssz::DecodeError),
     InvalidBalancesLength,
     LessThanStart(Slot, Slot),
+    Milhouse(milhouse::Error),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
@@ -94,14 +98,15 @@ pub enum StorageStrategy {
 }
 
 /// Hierarchical diff output and working buffer.
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct HDiffBuffer {
+#[derive(Debug, Clone)]
+pub struct HDiffBuffer<E: EthSpec> {
     state: Vec<u8>,
-    balances: Vec<u64>,
-    inactivity_scores: Vec<u64>,
-    validators: Vec<Validator>,
-    historical_roots: Vec<Hash256>,
-    historical_summaries: Vec<HistoricalSummary>,
+    balances: List<u64, E::ValidatorRegistryLimit>,
+    inactivity_scores: List<u64, E::ValidatorRegistryLimit>,
+    validators: Validators<E>,
+    historical_roots: List<Hash256, E::HistoricalRootsLimit>,
+    historical_summaries: List<HistoricalSummary, E::HistoricalRootsLimit>,
+    _phantom: PhantomData<E>,
 }
 
 /// Hierarchical state diff.
@@ -169,33 +174,32 @@ pub struct AppendOnlyDiff<T: Encode + Decode> {
     values: Vec<T>,
 }
 
-impl HDiffBuffer {
-    pub fn from_state<E: EthSpec>(mut beacon_state: BeaconState<E>) -> Self {
+impl<E: EthSpec> HDiffBuffer<E> {
+    pub fn from_state(mut beacon_state: BeaconState<E>) -> Self {
         let _t = metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_FROM_STATE_TIME);
-        // Set state.balances to empty list, and then serialize state as ssz
-        let balances_list = std::mem::take(beacon_state.balances_mut());
+        // Take lists directly from the state, preserving persistent tree structure.
+        let balances = std::mem::take(beacon_state.balances_mut());
         let inactivity_scores = if let Ok(inactivity_scores) = beacon_state.inactivity_scores_mut()
         {
-            std::mem::take(inactivity_scores).to_vec()
+            std::mem::take(inactivity_scores)
         } else {
             // If this state is pre-altair consider the list empty. If the target state
-            // is post altair, all its items will show up in the diff as is.
-            vec![]
+            // is post altair, all its items will show up in the diff as is
+            List::empty()
         };
-        let validators = std::mem::take(beacon_state.validators_mut()).to_vec();
-        let historical_roots = std::mem::take(beacon_state.historical_roots_mut()).to_vec();
+        let validators = std::mem::take(beacon_state.validators_mut());
+        let historical_roots = std::mem::take(beacon_state.historical_roots_mut());
         let historical_summaries =
             if let Ok(historical_summaries) = beacon_state.historical_summaries_mut() {
-                std::mem::take(historical_summaries).to_vec()
+                std::mem::take(historical_summaries)
             } else {
                 // If this state is pre-capella consider the list empty. The diff will
                 // include all items in the target state. If both states are
                 // pre-capella the diff will be empty.
-                vec![]
+                List::empty()
             };
 
         let state = beacon_state.as_ssz_bytes();
-        let balances = balances_list.to_vec();
 
         HDiffBuffer {
             state,
@@ -204,31 +208,23 @@ impl HDiffBuffer {
             validators,
             historical_roots,
             historical_summaries,
+            _phantom: PhantomData,
         }
     }
 
-    pub fn as_state<E: EthSpec>(&self, spec: &ChainSpec) -> Result<BeaconState<E>, Error> {
+    pub fn as_state(&self, spec: &ChainSpec) -> Result<BeaconState<E>, Error> {
         let _t = metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_INTO_STATE_TIME);
         let mut state =
             BeaconState::from_ssz_bytes(&self.state, spec).map_err(Error::InvalidSszState)?;
 
-        *state.balances_mut() = List::try_from_iter(self.balances.iter().copied())
-            .map_err(|_| Error::InvalidBalancesLength)?;
-
+        *state.balances_mut() = self.balances.clone();
         if let Ok(inactivity_scores) = state.inactivity_scores_mut() {
-            *inactivity_scores = List::try_from_iter(self.inactivity_scores.iter().copied())
-                .map_err(|_| Error::InvalidBalancesLength)?;
+            *inactivity_scores = self.inactivity_scores.clone();
         }
-
-        *state.validators_mut() = List::try_from_iter(self.validators.iter().cloned())
-            .map_err(|_| Error::InvalidBalancesLength)?;
-
-        *state.historical_roots_mut() = List::try_from_iter(self.historical_roots.iter().copied())
-            .map_err(|_| Error::InvalidBalancesLength)?;
-
+        *state.validators_mut() = self.validators.clone();
+        *state.historical_roots_mut() = self.historical_roots.clone();
         if let Ok(historical_summaries) = state.historical_summaries_mut() {
-            *historical_summaries = List::try_from_iter(self.historical_summaries.iter().copied())
-                .map_err(|_| Error::InvalidBalancesLength)?;
+            *historical_summaries = self.historical_summaries.clone();
         }
 
         Ok(state)
@@ -246,9 +242,9 @@ impl HDiffBuffer {
 }
 
 impl HDiff {
-    pub fn compute(
-        source: &HDiffBuffer,
-        target: &HDiffBuffer,
+    pub fn compute<E: EthSpec>(
+        source: &HDiffBuffer<E>,
+        target: &HDiffBuffer<E>,
         config: &StoreConfig,
     ) -> Result<Self, Error> {
         let state_diff = BytesDiff::compute(&source.state, &target.state)?;
@@ -259,7 +255,7 @@ impl HDiff {
             config,
         )?;
         let validators_diff =
-            ValidatorsDiff::compute(&source.validators, &target.validators, config)?;
+            ValidatorsDiff::compute::<E>(&source.validators, &target.validators, config)?;
         let historical_roots =
             AppendOnlyDiff::compute(&source.historical_roots, &target.historical_roots)?;
         let historical_summaries =
@@ -275,14 +271,18 @@ impl HDiff {
         }))
     }
 
-    pub fn apply(&self, source: &mut HDiffBuffer, config: &StoreConfig) -> Result<(), Error> {
+    pub fn apply<E: EthSpec>(
+        &self,
+        source: &mut HDiffBuffer<E>,
+        config: &StoreConfig,
+    ) -> Result<(), Error> {
         let source_state = std::mem::take(&mut source.state);
         self.state_diff().apply(&source_state, &mut source.state)?;
         self.balances_diff().apply(&mut source.balances, config)?;
         self.inactivity_scores_diff()
             .apply(&mut source.inactivity_scores, config)?;
         self.validators_diff()
-            .apply(&mut source.validators, config)?;
+            .apply::<E>(&mut source.validators, config)?;
         self.historical_roots().apply(&mut source.historical_roots);
         self.historical_summaries()
             .apply(&mut source.historical_summaries);
@@ -378,7 +378,11 @@ impl BytesDiff {
 }
 
 impl CompressedU64Diff {
-    pub fn compute(xs: &[u64], ys: &[u64], config: &StoreConfig) -> Result<Self, Error> {
+    pub fn compute<N: Unsigned>(
+        xs: &List<u64, N>,
+        ys: &List<u64, N>,
+        config: &StoreConfig,
+    ) -> Result<Self, Error> {
         if xs.len() > ys.len() {
             return Err(Error::DiffDeletionsNotSupported);
         }
@@ -400,7 +404,11 @@ impl CompressedU64Diff {
         })
     }
 
-    pub fn apply(&self, xs: &mut Vec<u64>, config: &StoreConfig) -> Result<(), Error> {
+    pub fn apply<N: Unsigned>(
+        &self,
+        xs: &mut List<u64, N>,
+        config: &StoreConfig,
+    ) -> Result<(), Error> {
         // Decompress balances diff.
         let balances_diff_bytes = config
             .decompress_bytes(&self.bytes)
@@ -418,7 +426,7 @@ impl CompressedU64Diff {
             if let Some(x) = xs.get_mut(i) {
                 *x = x.wrapping_add(diff);
             } else {
-                xs.push(diff);
+                xs.push(diff).map_err(Error::Milhouse)?;
             }
         }
 
@@ -432,9 +440,9 @@ impl CompressedU64Diff {
 }
 
 impl ValidatorsDiff {
-    pub fn compute(
-        xs: &[Validator],
-        ys: &[Validator],
+    pub fn compute<E: EthSpec>(
+        xs: &Validators<E>,
+        ys: &Validators<E>,
         config: &StoreConfig,
     ) -> Result<Self, Error> {
         if xs.len() > ys.len() {
@@ -527,7 +535,11 @@ impl ValidatorsDiff {
         })
     }
 
-    pub fn apply(&self, xs: &mut Vec<Validator>, config: &StoreConfig) -> Result<(), Error> {
+    pub fn apply<E: EthSpec>(
+        &self,
+        xs: &mut Validators<E>,
+        config: &StoreConfig,
+    ) -> Result<(), Error> {
         let validator_diff_bytes = config
             .decompress_bytes(&self.bytes)
             .map_err(Error::Compression)?;
@@ -571,7 +583,7 @@ impl ValidatorsDiff {
                     x.withdrawable_epoch = diff.withdrawable_epoch;
                 }
             } else {
-                xs.push(diff)
+                xs.push(diff).map_err(Error::Milhouse)?;
             }
         }
 
@@ -590,8 +602,8 @@ struct ValidatorDiffEntry {
     validator_diff: Validator,
 }
 
-impl<T: Decode + Encode + Copy> AppendOnlyDiff<T> {
-    pub fn compute(xs: &[T], ys: &[T]) -> Result<Self, Error> {
+impl<T: Decode + Encode + Copy + milhouse::Value> AppendOnlyDiff<T> {
+    pub fn compute<N: Unsigned>(xs: &List<T, N>, ys: &List<T, N>) -> Result<Self, Error> {
         match xs.len().cmp(&ys.len()) {
             Ordering::Less => Ok(Self {
                 values: ys.iter().skip(xs.len()).copied().collect(),
@@ -602,8 +614,11 @@ impl<T: Decode + Encode + Copy> AppendOnlyDiff<T> {
         }
     }
 
-    pub fn apply(&self, xs: &mut Vec<T>) {
-        xs.extend(self.values.iter().copied());
+    pub fn apply<N: Unsigned>(&self, xs: &mut List<T, N>) {
+        for value in self.values.iter().copied() {
+            // Append-only diffs should not exceed the list capacity in practice.
+            let _ = xs.push(value);
+        }
     }
 
     /// Byte size of this instance
@@ -807,6 +822,9 @@ impl StorageStrategy {
 mod tests {
     use super::*;
     use rand::{Rng, SeedableRng, rng, rngs::SmallRng};
+    use types::MainnetEthSpec;
+
+    type E = MainnetEthSpec;
 
     #[test]
     fn default_storage_strategy() {
@@ -879,12 +897,15 @@ mod tests {
 
     #[test]
     fn compressed_u64_vs_bytes_diff() {
-        let x_values = vec![99u64, 55, 123, 6834857, 0, 12];
-        let y_values = vec![98u64, 55, 312, 1, 1, 2, 4, 5];
+        let x_values: List<u64, <E as EthSpec>::ValidatorRegistryLimit> =
+            List::new(vec![99u64, 55, 123, 6834857, 0, 12]).unwrap();
+        let y_values: List<u64, <E as EthSpec>::ValidatorRegistryLimit> =
+            List::new(vec![98u64, 55, 312, 1, 1, 2, 4, 5]).unwrap();
         let config = &StoreConfig::default();
 
-        let to_bytes =
-            |nums: &[u64]| -> Vec<u8> { nums.iter().flat_map(|x| x.to_be_bytes()).collect() };
+        let to_bytes = |list: &List<u64, <E as EthSpec>::ValidatorRegistryLimit>| -> Vec<u8> {
+            list.iter().flat_map(|x| x.to_be_bytes()).collect()
+        };
 
         let x_bytes = to_bytes(&x_values);
         let y_bytes = to_bytes(&y_values);
@@ -893,6 +914,7 @@ mod tests {
 
         let mut y_from_u64_diff = x_values;
         u64_diff.apply(&mut y_from_u64_diff, config).unwrap();
+        y_from_u64_diff.apply_updates().unwrap();
 
         assert_eq!(y_values, y_from_u64_diff);
 
@@ -913,16 +935,19 @@ mod tests {
 
         let mut rng = rng();
         let config = &StoreConfig::default();
-        let xs = (0..10)
-            .map(|_| rand_validator(&mut rng))
-            .collect::<Vec<_>>();
+        let xs: Validators<E> = List::new(
+            (0..10)
+                .map(|_| rand_validator(&mut rng))
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
         let mut ys = xs.clone();
-        ys[5] = rand_validator(&mut rng);
-        ys.push(rand_validator(&mut rng));
-        let diff = ValidatorsDiff::compute(&xs, &ys, config).unwrap();
+        *ys.get_mut(5).unwrap() = rand_validator(&mut rng);
+        ys.push(rand_validator(&mut rng)).unwrap();
+        let diff = ValidatorsDiff::compute::<E>(&xs, &ys, config).unwrap();
 
         let mut xs_out = xs.clone();
-        diff.apply(&mut xs_out, config).unwrap();
+        diff.apply::<E>(&mut xs_out, config).unwrap();
         assert_eq!(xs_out, ys);
     }
 
@@ -950,36 +975,40 @@ mod tests {
     fn hdiff_version_stability() {
         let mut rng = SmallRng::seed_from_u64(0xffeeccdd00aa);
 
-        let pre_balances = vec![32_000_000_000, 16_000_000_000, 0];
-        let post_balances = vec![31_000_000_000, 17_000_000, 0, 0];
+        let pre_balances = List::new(vec![32_000_000_000, 16_000_000_000, 0]).unwrap();
+        let post_balances = List::new(vec![31_000_000_000, 17_000_000, 0, 0]).unwrap();
 
-        let pre_inactivity_scores = vec![1, 1, 1];
-        let post_inactivity_scores = vec![0, 0, 0, 1];
+        let pre_inactivity_scores = List::new(vec![1, 1, 1]).unwrap();
+        let post_inactivity_scores = List::new(vec![0, 0, 0, 1]).unwrap();
 
-        let pre_validators = (0..3).map(|_| rand_validator(&mut rng)).collect::<Vec<_>>();
+        let pre_validators: Validators<E> =
+            List::new((0..3).map(|_| rand_validator(&mut rng)).collect::<Vec<_>>()).unwrap();
         let post_validators = pre_validators.clone();
 
-        let pre_historical_roots = vec![Hash256::repeat_byte(0xff)];
-        let post_historical_roots = vec![Hash256::repeat_byte(0xff), Hash256::repeat_byte(0xee)];
+        let pre_historical_roots = List::new(vec![Hash256::repeat_byte(0xff)]).unwrap();
+        let post_historical_roots =
+            List::new(vec![Hash256::repeat_byte(0xff), Hash256::repeat_byte(0xee)]).unwrap();
 
-        let pre_historical_summaries = vec![HistoricalSummary::default()];
+        let pre_historical_summaries = List::new(vec![HistoricalSummary::default()]).unwrap();
         let post_historical_summaries = pre_historical_summaries.clone();
 
-        let pre_buffer = HDiffBuffer {
+        let pre_buffer: HDiffBuffer<E> = HDiffBuffer {
             state: vec![0, 1, 2, 3, 3, 2, 1, 0],
             balances: pre_balances,
             inactivity_scores: pre_inactivity_scores,
             validators: pre_validators,
             historical_roots: pre_historical_roots,
             historical_summaries: pre_historical_summaries,
+            _phantom: PhantomData,
         };
-        let post_buffer = HDiffBuffer {
+        let post_buffer: HDiffBuffer<E> = HDiffBuffer {
             state: vec![0, 1, 3, 2, 2, 3, 1, 1],
             balances: post_balances,
             inactivity_scores: post_inactivity_scores,
             validators: post_validators,
             historical_roots: post_historical_roots,
             historical_summaries: post_historical_summaries,
+            _phantom: PhantomData,
         };
 
         let config = StoreConfig::default();

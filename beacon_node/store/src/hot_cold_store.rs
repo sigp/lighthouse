@@ -1951,7 +1951,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
-    fn load_hot_hdiff_buffer(&self, state_root: Hash256) -> Result<HDiffBuffer, Error> {
+    fn load_hot_hdiff_buffer(&self, state_root: Hash256) -> Result<HDiffBuffer<E>, Error> {
         if let Some(buffer) = self
             .state_cache
             .lock()
@@ -2537,7 +2537,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Returns `HDiffBuffer` for the specified slot, or `HDiffBuffer` for the `ReplayFrom` slot if
     /// the diff for the specified slot is not stored.
-    fn load_hdiff_buffer_for_slot(&self, slot: Slot) -> Result<(Slot, HDiffBuffer), Error> {
+    fn load_hdiff_buffer_for_slot(&self, slot: Slot) -> Result<(Slot, HDiffBuffer<E>), Error> {
         if let Some(buffer) = self.historic_state_cache.lock().get_hdiff_buffer(slot) {
             debug!(
                 %slot,

@@ -5,6 +5,7 @@ use crate::{
 };
 use lru::LruCache;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use tracing::instrument;
 use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, Slot, execution::StatePayloadStatus};
@@ -42,7 +43,7 @@ pub struct StateCache<E: EthSpec> {
     // the state_root
     states: LruCache<Hash256, (Hash256, BeaconState<E>)>,
     block_map: BlockMap,
-    hdiff_buffers: HotHDiffBufferCache,
+    hdiff_buffers: HotHDiffBufferCache<E>,
     max_epoch: Epoch,
     head_block_root: Hash256,
     headroom: NonZeroUsize,
@@ -56,11 +57,12 @@ pub struct StateCache<E: EthSpec> {
 /// The cache always retains the hdiff buffer for the most recent snapshot so that even if the
 /// cache capacity is 1, this snapshot never needs to be loaded from disk.
 #[derive(Debug)]
-pub struct HotHDiffBufferCache {
+pub struct HotHDiffBufferCache<E: EthSpec> {
     /// Cache of HDiffBuffers for states *prior* to the `finalized_state`.
     ///
     /// Maps state_root -> (slot, buffer).
-    hdiff_buffers: LruCache<Hash256, (Slot, HDiffBuffer)>,
+    hdiff_buffers: LruCache<Hash256, (Slot, HDiffBuffer<E>)>,
+    _phantom: PhantomData<E>,
 }
 
 #[derive(Debug)]
@@ -286,7 +288,7 @@ impl<E: EthSpec> StateCache<E> {
         self.states.get(&state_root).map(|(_, state)| state.clone())
     }
 
-    pub fn put_hdiff_buffer(&mut self, state_root: Hash256, slot: Slot, buffer: &HDiffBuffer) {
+    pub fn put_hdiff_buffer(&mut self, state_root: Hash256, slot: Slot, buffer: &HDiffBuffer<E>) {
         // Only accept HDiffBuffers prior to finalization. Later states should be stored as proper
         // states, not HDiffBuffers.
         if let Some(finalized_state) = &self.finalized_state
@@ -297,7 +299,10 @@ impl<E: EthSpec> StateCache<E> {
         self.hdiff_buffers.put(state_root, slot, buffer.clone());
     }
 
-    pub fn get_hdiff_buffer_by_state_root(&mut self, state_root: Hash256) -> Option<HDiffBuffer> {
+    pub fn get_hdiff_buffer_by_state_root(
+        &mut self,
+        state_root: Hash256,
+    ) -> Option<HDiffBuffer<E>> {
         if let Some(buffer) = self.hdiff_buffers.get(&state_root) {
             metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_HIT, HOT_METRIC);
             let timer =
@@ -470,14 +475,15 @@ impl BlockMap {
     }
 }
 
-impl HotHDiffBufferCache {
+impl<E: EthSpec> HotHDiffBufferCache<E> {
     pub fn new(capacity: NonZeroUsize) -> Self {
         Self {
             hdiff_buffers: LruCache::new(capacity),
+            _phantom: PhantomData,
         }
     }
 
-    pub fn get(&mut self, state_root: &Hash256) -> Option<HDiffBuffer> {
+    pub fn get(&mut self, state_root: &Hash256) -> Option<HDiffBuffer<E>> {
         self.hdiff_buffers
             .get(state_root)
             .map(|(_, buffer)| buffer.clone())
@@ -486,7 +492,7 @@ impl HotHDiffBufferCache {
     /// Put a value in the cache, making room for it if necessary.
     ///
     /// If the value was inserted then `true` is returned.
-    pub fn put(&mut self, state_root: Hash256, slot: Slot, buffer: HDiffBuffer) -> bool {
+    pub fn put(&mut self, state_root: Hash256, slot: Slot, buffer: HDiffBuffer<E>) -> bool {
         // If the cache is not full, simply insert the value.
         if self.hdiff_buffers.len() != self.hdiff_buffers.cap().get() {
             self.hdiff_buffers.put(state_root, (slot, buffer));
