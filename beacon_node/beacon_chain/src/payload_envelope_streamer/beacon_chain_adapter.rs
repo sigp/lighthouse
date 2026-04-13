@@ -33,7 +33,10 @@ impl<T: BeaconChainTypes> EnvelopeStreamerBeaconAdapter<T> {
         self.chain.store.get_split_info().slot
     }
 
-    pub(crate) fn block_has_canonical_payload(&self, root: &Hash256) -> Result<bool, BeaconChainError> {
+    pub(crate) fn block_has_canonical_payload(
+        &self,
+        root: &Hash256,
+    ) -> Result<bool, BeaconChainError> {
         self.chain.canonical_head.block_has_canonical_payload(root)
     }
 }

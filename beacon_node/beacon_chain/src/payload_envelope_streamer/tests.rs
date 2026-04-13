@@ -288,10 +288,11 @@ async fn stream_envelopes_error() {
     let (mut mock, _runtime) = mock_adapter();
     mock.expect_get_split_slot().return_const(Slot::new(0));
     mock_envelopes(&mut mock, &chain);
-    mock.expect_block_has_canonical_payload()
-        .returning(|_| Err(BeaconChainError::ForkChoiceError(
+    mock.expect_block_has_canonical_payload().returning(|_| {
+        Err(BeaconChainError::ForkChoiceError(
             ForkChoiceError::DoesNotDescendFromFinalizedCheckpoint,
-        )));
+        ))
+    });
 
     let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
     let mut stream = streamer.launch_stream(roots(&chain));

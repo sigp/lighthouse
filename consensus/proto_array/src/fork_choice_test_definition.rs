@@ -561,11 +561,13 @@ impl ForkChoiceTestDefinition {
                     block_root,
                     expected_status,
                 } => {
-                    let actual = fork_choice.get_canonical_payload_status::<MainnetEthSpec>(
-                        &block_root,
-                        last_current_slot,
-                        Hash256::zero(),
-                    ).unwrap();
+                    let actual = fork_choice
+                        .get_canonical_payload_status::<MainnetEthSpec>(
+                            &block_root,
+                            last_current_slot,
+                            Hash256::zero(),
+                        )
+                        .unwrap();
                     assert_eq!(
                         actual, expected_status,
                         "canonical payload status mismatch at op index {}",
