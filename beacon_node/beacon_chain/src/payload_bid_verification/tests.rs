@@ -10,8 +10,8 @@ use slot_clock::{SlotClock, TestingSlotClock};
 use ssz::Encode;
 use store::{HotColdDB, StoreConfig};
 use types::{
-    Address, BeaconBlock, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ExecutionPayloadBid,
-    ForkName, Hash256, MinimalEthSpec, ProposerPreferences, SignedBeaconBlock,
+    Address, BeaconBlock, BeaconStateError, ChainSpec, Checkpoint, Domain, Epoch, EthSpec,
+    ExecutionPayloadBid, ForkName, Hash256, MinimalEthSpec, ProposerPreferences, SignedBeaconBlock,
     SignedExecutionPayloadBid, SignedProposerPreferences, SignedRoot, Slot,
 };
 
@@ -376,9 +376,9 @@ fn invalid_builder_index() {
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(matches!(
         result,
-        Err(PayloadBidError::InvalidBuilder {
-            builder_index: 9999
-        })
+        Err(PayloadBidError::BeaconStateError(
+            BeaconStateError::UnknownBuilder(9999)
+        ))
     ));
 }
 
