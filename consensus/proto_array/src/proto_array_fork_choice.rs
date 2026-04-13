@@ -1047,26 +1047,36 @@ impl ProtoArrayForkChoice {
         block_root: &Hash256,
         current_slot: Slot,
         proposer_boost_root: Hash256,
-    ) -> Option<PayloadStatus> {
-        let index = *self.proto_array.indices.get(block_root)?;
-        let node = self.proto_array.nodes.get(index)?;
+    ) -> Result<PayloadStatus, Error> {
+        let block_index = self
+            .proto_array
+            .indices
+            .get(block_root)
+            .ok_or(Error::NodeUnknown(*block_root))?;
+        let node = self
+            .proto_array
+            .nodes
+            .get(*block_index)
+            .ok_or(Error::InvalidNodeIndex(*block_index))?;
 
-        let v29 = node.as_v29().ok()?;
+        let v29 = node.as_v29().map_err(|_| Error::InvalidNodeVariant {
+            block_root: *block_root,
+        })?;
 
         if !v29.payload_received {
-            return Some(PayloadStatus::Empty);
+            return Ok(PayloadStatus::Empty);
         }
 
         if v29.full_payload_weight > v29.empty_payload_weight {
-            return Some(PayloadStatus::Full);
+            return Ok(PayloadStatus::Full);
         } else if v29.full_payload_weight < v29.empty_payload_weight {
-            return Some(PayloadStatus::Empty);
+            return Ok(PayloadStatus::Empty);
         }
 
         let tiebreaker_for_status = |status| {
             let node_ref = IndexedForkChoiceNode {
                 root: node.root(),
-                proto_node_index: index,
+                proto_node_index: *block_index,
                 payload_status: status,
             };
             self.proto_array.get_payload_status_tiebreaker::<E>(
@@ -1077,13 +1087,13 @@ impl ProtoArrayForkChoice {
             )
         };
 
-        let full_tiebreaker = tiebreaker_for_status(PayloadStatus::Full).ok()?;
-        let empty_tiebreaker = tiebreaker_for_status(PayloadStatus::Empty).ok()?;
+        let full_tiebreaker = tiebreaker_for_status(PayloadStatus::Full)?;
+        let empty_tiebreaker = tiebreaker_for_status(PayloadStatus::Empty)?;
 
         if full_tiebreaker >= empty_tiebreaker {
-            Some(PayloadStatus::Full)
+            Ok(PayloadStatus::Full)
         } else {
-            Some(PayloadStatus::Empty)
+            Ok(PayloadStatus::Empty)
         }
     }
 

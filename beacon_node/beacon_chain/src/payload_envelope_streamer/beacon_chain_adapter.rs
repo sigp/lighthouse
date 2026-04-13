@@ -5,7 +5,7 @@ use mockall::automock;
 use task_executor::TaskExecutor;
 use types::{Hash256, SignedExecutionPayloadEnvelope, Slot};
 
-use crate::{BeaconChain, BeaconChainTypes};
+use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 
 /// An adapter to the `BeaconChain` functionalities to remove `BeaconChain` from direct dependency to enable testing envelope streamer logic.
 pub(crate) struct EnvelopeStreamerBeaconAdapter<T: BeaconChainTypes> {
@@ -33,7 +33,7 @@ impl<T: BeaconChainTypes> EnvelopeStreamerBeaconAdapter<T> {
         self.chain.store.get_split_info().slot
     }
 
-    pub(crate) fn block_has_canonical_payload(&self, root: &Hash256) -> Option<bool> {
+    pub(crate) fn block_has_canonical_payload(&self, root: &Hash256) -> Result<bool, BeaconChainError> {
         self.chain.canonical_head.block_has_canonical_payload(root)
     }
 }

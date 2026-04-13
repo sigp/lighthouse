@@ -78,6 +78,7 @@ pub enum Error<T> {
     UnrealizedVoteProcessing(state_processing::EpochProcessingError),
     ValidatorStatuses(BeaconStateError),
     ChainSpecError(String),
+    DoesNotDescendFromFinalizedCheckpoint,
 }
 
 impl<T> From<InvalidAttestation> for Error<T> {
@@ -1504,7 +1505,7 @@ where
 
     /// Returns the canonical payload status of a block. See
     /// `ProtoArrayForkChoice::get_payload_status`.
-    pub fn get_canonical_payload_status(&self, block_root: &Hash256) -> Option<PayloadStatus> {
+    pub fn get_canonical_payload_status(&self, block_root: &Hash256) -> Result<PayloadStatus, Error<T::Error>> {
         if self.is_finalized_checkpoint_or_descendant(*block_root) {
             let current_slot = self.fc_store.get_current_slot();
             let proposer_boost_root = self.fc_store.proposer_boost_root();
@@ -1512,9 +1513,9 @@ where
                 block_root,
                 current_slot,
                 proposer_boost_root,
-            )
+            ).map_err(Error::ProtoArrayError)
         } else {
-            None
+            Err(Error::DoesNotDescendFromFinalizedCheckpoint)
         }
     }
 

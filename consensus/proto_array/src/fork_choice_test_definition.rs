@@ -113,7 +113,7 @@ pub enum Operation {
     },
     AssertPayloadStatusByWeight {
         block_root: Hash256,
-        expected_status: Option<PayloadStatus>,
+        expected_status: PayloadStatus,
     },
 }
 
@@ -563,7 +563,7 @@ impl ForkChoiceTestDefinition {
                         &block_root,
                         last_current_slot,
                         Hash256::zero(),
-                    );
+                    ).unwrap();
                     assert_eq!(
                         actual, expected_status,
                         "canonical payload status mismatch at op index {}",

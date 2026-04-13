@@ -11,7 +11,7 @@ use futures::Stream;
 use mockall_double::double;
 use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 use types::{EthSpec, Hash256, SignedExecutionPayloadEnvelope};
 
 #[cfg(not(test))]
@@ -125,19 +125,22 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
                             }
 
                             match streamer.adapter.block_has_canonical_payload(root) {
-                                Some(is_envelope_canonical) => {
+                                Ok(is_envelope_canonical) => {
                                     if is_envelope_canonical {
                                         results.push((*root, Ok(Some(envelope))));
                                     } else {
                                         results.push((*root, Ok(None)));
                                     }
                                 }
-                                None => {
+                                Err(e) => {
+                                    info!(
+                                        error = ?e,
+                                        block_root = ?root,
+                                        "error verifying canonicity of payload envelope"
+                                    );
                                     results.push((
                                         *root,
-                                        Err(BeaconChainError::EnvelopeStreamerError(
-                                            Error::BlockMissingFromForkChoice,
-                                        )),
+                                        Err(e),
                                     ));
                                 }
                             }

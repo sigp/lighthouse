@@ -1,4 +1,5 @@
 use super::*;
+use crate::beacon_chain::ForkChoiceError;
 use crate::payload_envelope_streamer::beacon_chain_adapter::MockEnvelopeStreamerBeaconAdapter;
 use crate::test_utils::EphemeralHarnessType;
 use bls::{FixedBytesExtended, Signature};
@@ -115,7 +116,7 @@ fn mock_canonical_head(mock: &mut MockEnvelopeStreamerBeaconAdapter<T>, chain: &
         .map(|e| e.block_root)
         .collect();
     mock.expect_block_has_canonical_payload()
-        .returning(move |root| Some(!non_canonical.contains(root)));
+        .returning(move |root| Ok(!non_canonical.contains(root)));
 }
 
 fn unwrap_result(
@@ -280,7 +281,7 @@ async fn stream_envelopes_by_root() {
 }
 
 /// When `block_has_canonical_payload` returns an error, the streamer should
-/// yield `Err(EnvelopeStreamerError(BlockMissingFromForkChoice))` for those roots.
+/// propagate that error for those roots.
 #[tokio::test]
 async fn stream_envelopes_error() {
     let chain = build_chain(4, &[], &[], &[]);
@@ -288,7 +289,9 @@ async fn stream_envelopes_error() {
     mock.expect_get_split_slot().return_const(Slot::new(0));
     mock_envelopes(&mut mock, &chain);
     mock.expect_block_has_canonical_payload()
-        .returning(|_| None);
+        .returning(|_| Err(BeaconChainError::ForkChoiceError(
+            ForkChoiceError::DoesNotDescendFromFinalizedCheckpoint,
+        )));
 
     let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
     let mut stream = streamer.launch_stream(roots(&chain));
@@ -300,13 +303,8 @@ async fn stream_envelopes_error() {
             .unwrap_or_else(|| panic!("stream ended early at index {i}"));
         assert_eq!(root, entry.block_root, "root mismatch at index {i}");
         assert!(
-            matches!(
-                result.as_ref(),
-                Err(BeaconChainError::EnvelopeStreamerError(
-                    Error::BlockMissingFromForkChoice
-                ))
-            ),
-            "expected BlockMissingFromForkChoice error at index {i}, got {:?}",
+            result.as_ref().is_err(),
+            "expected error at index {i}, got {:?}",
             result
         );
     }

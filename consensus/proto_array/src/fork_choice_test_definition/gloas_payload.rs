@@ -101,16 +101,16 @@ pub fn get_gloas_chain_following_test_definition() -> ForkChoiceTestDefinition {
     // Full weight propagated up: root 0 and root 1 should show Full.
     ops.push(Operation::AssertPayloadStatusByWeight {
         block_root: get_root(0),
-        expected_status: Some(PayloadStatus::Full),
+        expected_status: PayloadStatus::Full,
     });
     ops.push(Operation::AssertPayloadStatusByWeight {
         block_root: get_root(1),
-        expected_status: Some(PayloadStatus::Full),
+        expected_status: PayloadStatus::Full,
     });
     // Root 2 has no payload received → always Empty.
     ops.push(Operation::AssertPayloadStatusByWeight {
         block_root: get_root(2),
-        expected_status: Some(PayloadStatus::Empty),
+        expected_status: PayloadStatus::Empty,
     });
 
     // Cross-slot attestations with payload_present=false to Empty branch (root 4, slot 2).
@@ -139,16 +139,16 @@ pub fn get_gloas_chain_following_test_definition() -> ForkChoiceTestDefinition {
     // Empty weight now dominates: root 0 flips to Empty.
     ops.push(Operation::AssertPayloadStatusByWeight {
         block_root: get_root(0),
-        expected_status: Some(PayloadStatus::Empty),
+        expected_status: PayloadStatus::Empty,
     });
     ops.push(Operation::AssertPayloadStatusByWeight {
         block_root: get_root(2),
-        expected_status: Some(PayloadStatus::Empty),
+        expected_status: PayloadStatus::Empty,
     });
     // Root 1 (Full branch) still has 1 Full vote, 0 Empty → Full.
     ops.push(Operation::AssertPayloadStatusByWeight {
         block_root: get_root(1),
-        expected_status: Some(PayloadStatus::Full),
+        expected_status: PayloadStatus::Full,
     });
 
     ForkChoiceTestDefinition {
