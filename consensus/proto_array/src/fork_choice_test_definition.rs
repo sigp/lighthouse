@@ -30,6 +30,8 @@ pub enum Operation {
         justified_state_balances: Vec<u64>,
         expected_head: Hash256,
         current_slot: Slot,
+        // TODO(gloas): Make this non-optional. `find_head` always returns a `PayloadStatus`
+        // (Empty for pre-GLOAS), so every test should assert on it explicitly.
         #[serde(default)]
         expected_payload_status: Option<PayloadStatus>,
     },
