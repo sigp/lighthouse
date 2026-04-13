@@ -43,60 +43,78 @@ pub struct PartialDataColumnSidecarRef<'a, E: EthSpec> {
     pub header: ListEncodedOption<&'a PartialDataColumnHeader<E>>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum PartialDataColumnSidecarError {
+    UnexpectedBounds,
+    InternallyInconsistent,
+    Unmergable,
+}
+
 impl<E: EthSpec> PartialDataColumnSidecar<E> {
     pub fn is_complete(&self) -> bool {
-        self.cells_present_bitmap.iter().all(|bit| bit)
+        self.cells_present_bitmap.num_set_bits() == self.cells_present_bitmap.len()
     }
 
     /// Creates a reference to this sidecar containing only the blob indices for which the passed
     /// closure returns `true` and is present in `self`. Will return `None` if there is no overlap.
-    pub fn filter<F>(&self, filter: F) -> Option<PartialDataColumnSidecarRef<'_, E>>
+    pub fn filter<F>(
+        &self,
+        filter: F,
+    ) -> Result<Option<PartialDataColumnSidecarRef<'_, E>>, PartialDataColumnSidecarError>
     where
         F: Fn(usize) -> bool,
     {
+        let len = self.len()?;
+
         let mut new_bitmap = self.cells_present_bitmap.clone();
-        let mut new_column = Vec::new();
-        let mut new_proofs = Vec::new();
-        let mut column_idx = 0;
+        let mut new_column = Vec::with_capacity(len);
+        let mut new_proofs = Vec::with_capacity(len);
+        let mut iter = self.column.iter().zip(self.kzg_proofs.iter());
 
         for (blob_idx, present) in self.cells_present_bitmap.iter().enumerate() {
             if present {
+                let (cell, proof) = iter
+                    .next()
+                    .ok_or(PartialDataColumnSidecarError::UnexpectedBounds)?;
                 if filter(blob_idx) {
                     // Keep this cell
-                    let cell = self.column.get(column_idx)?;
                     new_column.push(cell);
-                    let proof = self.kzg_proofs.get(column_idx)?;
                     new_proofs.push(proof);
                 } else {
                     // Mark as not present
                     new_bitmap
                         .set(blob_idx, false)
-                        .expect("Within bounds due to clone above");
+                        .map_err(|_| PartialDataColumnSidecarError::UnexpectedBounds)?;
                 }
-                column_idx = column_idx
-                    .checked_add(1)
-                    .expect("Will not have more cells than 2^64 - 1");
             }
         }
 
         if new_column.is_empty() {
-            return None;
+            return Ok(None);
         }
 
-        Some(PartialDataColumnSidecarRef {
+        Ok(Some(PartialDataColumnSidecarRef {
             cells_present_bitmap: new_bitmap,
             column: new_column,
             kzg_proofs: new_proofs,
             header: self.header.as_ref().into(),
-        })
+        }))
     }
 
-    pub fn merge(&self, other: &Self) -> Option<Self> {
+    pub fn merge(&self, other: &Self) -> Result<Self, PartialDataColumnSidecarError> {
+        // Check that each sidecar is internally consistent by checking the lengths.
+        self.len()?;
+        other.len()?;
+        if self.cells_present_bitmap.len() != other.cells_present_bitmap.len() {
+            return Err(PartialDataColumnSidecarError::Unmergable);
+        }
+
         let new_bitmap = self.cells_present_bitmap.union(&other.cells_present_bitmap);
-        let mut new_column = VariableList::default();
-        let mut new_proofs = VariableList::default();
-        let mut self_cell_idx = 0usize;
-        let mut other_cell_idx = 0usize;
+        let len = new_bitmap.num_set_bits();
+        let mut new_column = Vec::with_capacity(len);
+        let mut new_proofs = Vec::with_capacity(len);
+        let mut self_iter = self.column.iter().zip(self.kzg_proofs.iter());
+        let mut other_iter = other.column.iter().zip(other.kzg_proofs.iter());
 
         for presence_bits in self
             .cells_present_bitmap
@@ -106,45 +124,49 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
             match presence_bits {
                 (false, false) => {}
                 (true, other) => {
-                    new_column
-                        .push(self.column.get(self_cell_idx)?.clone())
-                        .expect("Has same capacity");
-                    new_proofs
-                        .push(*self.kzg_proofs.get(self_cell_idx)?)
-                        .expect("Has same capacity");
-                    self_cell_idx = self_cell_idx
-                        .checked_add(1)
-                        .expect("Will not have more cells than 2^64 - 1");
+                    let (cell, proof) = self_iter
+                        .next()
+                        .ok_or(PartialDataColumnSidecarError::UnexpectedBounds)?;
+                    new_column.push(cell.clone());
+                    new_proofs.push(*proof);
                     if other {
-                        other_cell_idx = other_cell_idx
-                            .checked_add(1)
-                            .expect("Will not have more cells than 2^64 - 1");
+                        other_iter
+                            .next()
+                            .ok_or(PartialDataColumnSidecarError::UnexpectedBounds)?;
                     }
                 }
                 (false, true) => {
-                    new_column
-                        .push(other.column.get(other_cell_idx)?.clone())
-                        .expect("Has same capacity");
-                    new_proofs
-                        .push(*other.kzg_proofs.get(other_cell_idx)?)
-                        .expect("Has same capacity");
-                    other_cell_idx = other_cell_idx
-                        .checked_add(1)
-                        .expect("Will not have more cells than 2^64 - 1");
+                    let (cell, proof) = other_iter
+                        .next()
+                        .ok_or(PartialDataColumnSidecarError::UnexpectedBounds)?;
+                    new_column.push(cell.clone());
+                    new_proofs.push(*proof);
                 }
             }
         }
 
-        Some(Self {
+        Ok(Self {
             cells_present_bitmap: new_bitmap,
-            column: new_column,
-            kzg_proofs: new_proofs,
-            header: if !self.header.is_some() {
+            column: new_column
+                .try_into()
+                .map_err(|_| PartialDataColumnSidecarError::UnexpectedBounds)?,
+            kzg_proofs: new_proofs
+                .try_into()
+                .map_err(|_| PartialDataColumnSidecarError::UnexpectedBounds)?,
+            header: if self.header.is_some() {
                 self.header.clone()
             } else {
                 other.header.clone()
             },
         })
+    }
+
+    fn len(&self) -> Result<usize, PartialDataColumnSidecarError> {
+        let len = self.cells_present_bitmap.num_set_bits();
+        if len != self.kzg_proofs.len() || len != self.column.len() {
+            return Err(PartialDataColumnSidecarError::InternallyInconsistent);
+        }
+        Ok(len)
     }
 }
 
@@ -191,8 +213,7 @@ impl<E: EthSpec, P: AbstractExecPayload<E>> TryFrom<&SignedBeaconBlock<E, P>>
             kzg_commitments_inclusion_proof: block
                 .message()
                 .body()
-                .kzg_commitments_merkle_proof()?
-                .clone(),
+                .kzg_commitments_merkle_proof()?,
         })
     }
 }
@@ -339,7 +360,7 @@ mod tests {
     #[test]
     fn filter_keeps_matching_cells() {
         let sidecar = make_sidecar(6, &[0, 2, 4]);
-        let filtered = sidecar.filter(|idx| idx == 0 || idx == 4).unwrap();
+        let filtered = sidecar.filter(|idx| idx == 0 || idx == 4).unwrap().unwrap();
         assert_eq!(filtered.column.len(), 2);
         assert_eq!(filtered.kzg_proofs.len(), 2);
         assert!(filtered.cells_present_bitmap.get(0).unwrap());
@@ -350,13 +371,18 @@ mod tests {
     #[test]
     fn filter_returns_none_when_no_overlap() {
         let sidecar = make_sidecar(6, &[0, 2, 4]);
-        assert!(sidecar.filter(|idx| idx == 1 || idx == 3).is_none());
+        assert!(
+            sidecar
+                .filter(|idx| idx == 1 || idx == 3)
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
     fn filter_preserves_all_when_all_match() {
         let sidecar = make_sidecar(6, &[0, 2, 4]);
-        let filtered = sidecar.filter(|_| true).unwrap();
+        let filtered = sidecar.filter(|_| true).unwrap().unwrap();
         assert_eq!(filtered.column.len(), 3);
         assert_eq!(filtered.kzg_proofs.len(), 3);
         assert_eq!(filtered.cells_present_bitmap, sidecar.cells_present_bitmap);

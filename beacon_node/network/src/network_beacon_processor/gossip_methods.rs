@@ -1045,6 +1045,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "gossip_partial_data_column_low",
                 );
             }
+            GossipPartialDataColumnError::InternalError(_) => {
+                error!(
+                    error = ?err,
+                    %block_root,
+                    %index,
+                    "Internal error while processing partial column"
+                );
+            }
         }
     }
 

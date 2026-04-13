@@ -6,6 +6,7 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use tracing::error;
 use types::data::{ColumnIndex, DataColumnSidecar, PartialDataColumn, PartialDataColumnHeader};
 use types::{DataColumnSidecarFulu, Epoch, EthSpec, Hash256};
 
@@ -100,8 +101,12 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
                 let old_len = column.sidecar.column.len();
 
                 // Merge with existing partial
-                let Some(merged) = existing.merge(&partial) else {
-                    continue;
+                let merged = match existing.merge(&partial) {
+                    Ok(merged) => merged,
+                    Err(err) => {
+                        error!("Unexpected error merging partial data column: {:?}", err);
+                        continue;
+                    }
                 };
 
                 let adding_cells = merged

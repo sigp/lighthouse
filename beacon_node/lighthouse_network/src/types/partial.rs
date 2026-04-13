@@ -6,7 +6,7 @@ use ssz::{Decode, Encode};
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::Arc;
-use tracing::debug;
+use tracing::{debug, error};
 use types::{
     CellBitmap, EthSpec, Hash256, PartialDataColumn, PartialDataColumnHeader,
     PartialDataColumnPartsMetadata, PartialDataColumnSidecar, PartialDataColumnSidecarRef,
@@ -210,6 +210,10 @@ impl<E: EthSpec> Partial for OutgoingPartialColumn<E> {
                     .partial_column
                     .sidecar
                     .filter(|idx| want.get(idx).expect("Bound checked above"))
+                    .map_err(|err| {
+                        error!(?err, "Unexpected error filtering sidecar");
+                        PartialError::InvalidFormat
+                    })?
                     .map(|sidecar| {
                         debug!(
                             peer=%peer_id,

@@ -24,7 +24,7 @@ use tree_hash::TreeHash;
 use types::{
     BeaconStateError, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarFulu,
     DataColumnSubnetId, EthSpec, Hash256, PartialDataColumn, PartialDataColumnHeader,
-    SignedBeaconBlockHeader, Slot, StatePayloadStatus,
+    PartialDataColumnSidecarError, SignedBeaconBlockHeader, Slot, StatePayloadStatus,
 };
 
 /// An error occurred while validating a gossip data column.
@@ -212,6 +212,8 @@ pub enum GossipPartialDataColumnError {
     /// A peer sent us a partial message even though we did not advertize support for it, penalize
     /// it
     PartialColumnsDisabled,
+    /// There was an unexpected error while performing an operation on the partial data column.
+    InternalError(PartialDataColumnSidecarError),
     /// The partial data column does not contain a header, and we do not have it cached.
     ///
     /// ## Peer scoring
@@ -713,7 +715,7 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumn<E> {
         self.data.index
     }
 
-    pub fn merge(&self, other: &Self) -> Option<Self> {
+    pub fn merge(&self, other: &Self) -> Result<Self, PartialDataColumnSidecarError> {
         self.data
             .sidecar
             .merge(&other.data.sidecar)
@@ -788,6 +790,7 @@ pub fn verify_kzg_for_partial_data_column<E: EthSpec>(
     let Some(filtered_column) = data_column
         .sidecar
         .filter(|idx| unverified_cells.contains(&idx))
+        .map_err(GossipPartialDataColumnError::InternalError)?
     else {
         return Err(GossipDataColumnError::PriorKnownUnpublished.into());
     };
