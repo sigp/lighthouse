@@ -283,9 +283,10 @@ impl HDiff {
             .apply(&mut source.inactivity_scores, config)?;
         self.validators_diff()
             .apply::<E>(&mut source.validators, config)?;
-        self.historical_roots().apply(&mut source.historical_roots);
+        self.historical_roots()
+            .apply(&mut source.historical_roots)?;
         self.historical_summaries()
-            .apply(&mut source.historical_summaries);
+            .apply(&mut source.historical_summaries)?;
 
         Ok(())
     }
@@ -614,11 +615,11 @@ impl<T: Decode + Encode + Copy + milhouse::Value> AppendOnlyDiff<T> {
         }
     }
 
-    pub fn apply<N: Unsigned>(&self, xs: &mut List<T, N>) {
+    pub fn apply<N: Unsigned>(&self, xs: &mut List<T, N>) -> Result<(), Error> {
         for value in self.values.iter().copied() {
-            // Append-only diffs should not exceed the list capacity in practice.
-            let _ = xs.push(value);
+            xs.push(value).map_err(Error::Milhouse)?;
         }
+        Ok(())
     }
 
     /// Byte size of this instance
