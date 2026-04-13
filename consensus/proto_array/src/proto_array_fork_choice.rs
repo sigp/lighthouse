@@ -1053,23 +1053,30 @@ impl ProtoArrayForkChoice {
             .indices
             .get(block_root)
             .ok_or(Error::NodeUnknown(*block_root))?;
+
         let node = self
             .proto_array
             .nodes
             .get(*block_index)
             .ok_or(Error::InvalidNodeIndex(*block_index))?;
 
-        let v29 = node.as_v29().map_err(|_| Error::InvalidNodeVariant {
-            block_root: *block_root,
-        })?;
+        let (Ok(payload_received), Ok(full_payload_weight), Ok(empty_payload_weight)) = (
+            node.payload_received(),
+            node.full_payload_weight(),
+            node.empty_payload_weight(),
+        ) else {
+            return Err(Error::InvalidNodeVariant {
+                block_root: *block_root,
+            });
+        };
 
-        if !v29.payload_received {
+        if !payload_received {
             return Ok(PayloadStatus::Empty);
         }
 
-        if v29.full_payload_weight > v29.empty_payload_weight {
+        if full_payload_weight > empty_payload_weight {
             return Ok(PayloadStatus::Full);
-        } else if v29.full_payload_weight < v29.empty_payload_weight {
+        } else if full_payload_weight < empty_payload_weight {
             return Ok(PayloadStatus::Empty);
         }
 
