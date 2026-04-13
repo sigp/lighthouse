@@ -1032,6 +1032,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "gossip_partial_data_column_low",
                 );
             }
+            GossipPartialDataColumnError::PartialColumnsDisabled => {
+                error!(
+                    error = ?err,
+                    %block_root,
+                    %index,
+                    "Received partial column while disabled"
+                );
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "gossip_partial_data_column_low",
+                );
+            }
         }
     }
 

@@ -2271,11 +2271,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let _timer = metrics::start_timer(
             &metrics::PARTIAL_DATA_COLUMN_SIDECAR_HEADER_GOSSIP_VERIFICATION_TIMES,
         );
-        if let Some(cached_header) = self
-            .data_availability_checker
-            .partial_assembler()
-            .and_then(|a| a.get_header(&block_root))
-        {
+        let Some(assembler) = self.data_availability_checker.partial_assembler() else {
+            return Err(GossipPartialDataColumnError::PartialColumnsDisabled);
+        };
+        if let Some(cached_header) = assembler.get_header(&block_root) {
             return if *cached_header == data_column_header {
                 metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_DUPES);
                 Ok(GossipVerifiedPartialDataColumnHeader::new_from_cached(

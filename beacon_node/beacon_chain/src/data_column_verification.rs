@@ -206,6 +206,12 @@ impl From<BeaconStateError> for GossipDataColumnError {
 #[derive(Debug)]
 pub enum GossipPartialDataColumnError {
     GossipDataColumnError(GossipDataColumnError),
+    /// Partial messages are disabled and we can not validate them.
+    ///
+    /// ## Peer scoring
+    /// A peer sent us a partial message even though we did not advertize support for it, penalize
+    /// it
+    PartialColumnsDisabled,
     /// The partial data column does not contain a header, and we do not have it cached.
     ///
     /// ## Peer scoring
@@ -226,7 +232,7 @@ pub enum GossipPartialDataColumnError {
         group_id: Hash256,
         header_hash: Hash256,
     },
-    /// The partial message has neither a header nor cells
+    /// The partial message has neither a header nor cells.
     ///
     /// ## Peer scoring
     /// The column sidecar is invalid and the peer is faulty
@@ -524,10 +530,10 @@ impl<E: EthSpec> GossipVerifiedPartialDataColumnHeader<E> {
         let header = Arc::new(header);
 
         // Cache the valid header
-        let newly_cached = chain
-            .data_availability_checker
-            .partial_assembler()
-            .is_some_and(|a| a.init(group_id, header.clone()));
+        let Some(assembler) = chain.data_availability_checker.partial_assembler() else {
+            return Err(GossipPartialDataColumnError::PartialColumnsDisabled);
+        };
+        let newly_cached = assembler.init(group_id, header.clone());
 
         chain
             .observed_slashable
@@ -910,11 +916,15 @@ pub fn validate_partial_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
             }
         }
     } else {
+        let Some(assembler) = chain.data_availability_checker.partial_assembler() else {
+            return PartialColumnVerificationResult::Err(
+                GossipPartialDataColumnError::PartialColumnsDisabled,
+            );
+        };
+
         // There is no header, so we check if we have a cached one to use
-        let Some(header) = chain
-            .data_availability_checker
-            .partial_assembler()
-            .and_then(|a| a.get_header(&column.block_root))
+        let Some(header) = assembler
+            .get_header(&column.block_root)
             .map(GossipVerifiedPartialDataColumnHeader::new_from_cached)
         else {
             return PartialColumnVerificationResult::Err(
