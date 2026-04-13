@@ -1,6 +1,7 @@
 mod apply_hdiff;
 mod block_root;
 mod check_deposit_data;
+mod compute_hdiff;
 mod generate_bootnode_enr;
 mod http_sync;
 mod indexed_attestations;
@@ -662,6 +663,37 @@ fn main() {
                         .display_order(0)
                 )
         )
+        .subcommand(
+            Command::new("compute-hdiff")
+                .about("Computes an HDiff between two BeaconStates and writes it to a file")
+                .arg(
+                    Arg::new("source-state-path")
+                        .long("source-state-path")
+                        .value_name("PATH")
+                        .action(ArgAction::Set)
+                        .required(true)
+                        .help("Path to SSZ-encoded source BeaconState file.")
+                        .display_order(0)
+                )
+                .arg(
+                    Arg::new("target-state-path")
+                        .long("target-state-path")
+                        .value_name("PATH")
+                        .action(ArgAction::Set)
+                        .required(true)
+                        .help("Path to SSZ-encoded target BeaconState file.")
+                        .display_order(0)
+                )
+                .arg(
+                    Arg::new("output-path")
+                        .long("output-path")
+                        .value_name("PATH")
+                        .action(ArgAction::Set)
+                        .required(true)
+                        .help("Path to write the SSZ-encoded HDiff output.")
+                        .display_order(0)
+                )
+        )
         .get_matches();
 
     let result = matches
@@ -797,6 +829,11 @@ fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> 
             let network_config = get_network_config()?;
             apply_hdiff::run::<E>(network_config, matches)
                 .map_err(|e| format!("Failed to run apply-hdiff command: {}", e))
+        }
+        Some(("compute-hdiff", matches)) => {
+            let network_config = get_network_config()?;
+            compute_hdiff::run::<E>(network_config, matches)
+                .map_err(|e| format!("Failed to run compute-hdiff command: {}", e))
         }
         Some((other, _)) => Err(format!("Unknown subcommand {}. See --help.", other)),
         _ => Err("No subcommand provided. See --help.".to_string()),
