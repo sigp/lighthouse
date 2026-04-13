@@ -1019,7 +1019,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             GossipPartialDataColumnError::EmptyMessage
             | GossipPartialDataColumnError::InconsistentPresentCount { .. }
-            | GossipPartialDataColumnError::InconsistentMaxCount { .. } => {
+            | GossipPartialDataColumnError::InconsistentCommitmentsLength { .. } => {
                 debug!(
                     error = ?err,
                     %block_root,

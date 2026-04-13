@@ -244,7 +244,7 @@ pub enum GossipPartialDataColumnError {
     ///
     /// ## Peer scoring
     /// The column sidecar is invalid and the peer is faulty
-    InconsistentMaxCount {
+    InconsistentCommitmentsLength {
         bitmap_len: usize,
         commitments_len: usize,
     },
@@ -952,7 +952,7 @@ pub fn validate_partial_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
     let commitments_len = header.as_header().kzg_commitments.len();
     if bitmap_len != commitments_len {
         return PartialColumnVerificationResult::ErrWithValidHeader {
-            err: GossipPartialDataColumnError::InconsistentMaxCount {
+            err: GossipPartialDataColumnError::InconsistentCommitmentsLength {
                 bitmap_len,
                 commitments_len,
             },
@@ -1642,7 +1642,7 @@ mod test {
             matches!(
                 result,
                 PartialColumnVerificationResult::ErrWithValidHeader {
-                    err: GossipPartialDataColumnError::InconsistentMaxCount { .. },
+                    err: GossipPartialDataColumnError::InconsistentCommitmentsLength { .. },
                     ..
                 }
             ),
