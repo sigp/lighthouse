@@ -612,6 +612,11 @@ pub fn get_gloas_interleaved_attestations_test_definition() -> ForkChoiceTestDef
         current_slot: Slot::new(1),
         expected_payload_status: None,
     });
+    // Weights are tied (1 vote each branch), tiebreaker is Empty.
+    ops.push(Operation::AssertPayloadStatusByWeight {
+        block_root: get_root(0),
+        expected_status: PayloadStatus::Empty,
+    });
 
     // Step 5: Flip tiebreaker to Full → Full branch wins.
     ops.push(Operation::SetPayloadTiebreak {
@@ -626,6 +631,11 @@ pub fn get_gloas_interleaved_attestations_test_definition() -> ForkChoiceTestDef
         expected_head: get_root(3),
         current_slot: Slot::new(100),
         expected_payload_status: None,
+    });
+    // Weights still tied, tiebreaker flipped to Full.
+    ops.push(Operation::AssertPayloadStatusByWeight {
+        block_root: get_root(0),
+        expected_status: PayloadStatus::Full,
     });
 
     // Step 6: Add extra CL weight to Empty branch → overrides Full tiebreaker.
