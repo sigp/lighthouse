@@ -277,22 +277,34 @@ impl HDiff {
         source: &mut HDiffBuffer<E>,
         config: &StoreConfig,
     ) -> Result<(), Error> {
+        let t = std::time::Instant::now();
         let source_state = std::mem::take(&mut source.state);
         self.state_diff().apply(&source_state, &mut source.state)?;
+        eprintln!("  state_diff (xdelta3) apply: {:?}", t.elapsed());
 
+        let t = std::time::Instant::now();
         self.balances_diff().apply(&mut source.balances, config)?;
+        eprintln!("  balances_diff apply: {:?}", t.elapsed());
 
+        let t = std::time::Instant::now();
         self.inactivity_scores_diff()
             .apply(&mut source.inactivity_scores, config)?;
+        eprintln!("  inactivity_scores_diff apply: {:?}", t.elapsed());
 
+        let t = std::time::Instant::now();
         self.validators_diff()
             .apply::<E>(&mut source.validators, config)?;
+        eprintln!("  validators_diff apply: {:?}", t.elapsed());
 
+        let t = std::time::Instant::now();
         self.historical_roots()
             .apply(&mut source.historical_roots)?;
+        eprintln!("  historical_roots apply: {:?}", t.elapsed());
 
+        let t = std::time::Instant::now();
         self.historical_summaries()
             .apply(&mut source.historical_summaries)?;
+        eprintln!("  historical_summaries apply: {:?}", t.elapsed());
 
         Ok(())
     }
