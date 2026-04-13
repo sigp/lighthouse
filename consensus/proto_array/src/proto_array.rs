@@ -1021,9 +1021,7 @@ impl ProtoArray {
                             block_root: node.root(),
                         });
                     }
-                    // V29 nodes don't have execution_status. Zero their weight
-                    // so invalidation propagates across the V17→V29 boundary.
-                    Err(_) => *node.weight_mut() = 0,
+                    Err(_) => (),
                 }
 
                 invalidated_indices.insert(index);
