@@ -54,11 +54,12 @@ pub fn run<E: EthSpec>(
     let compute_time = t.elapsed();
     println!("HDiff compute: {:?}", compute_time);
 
+    print_hdiff_sizes(&hdiff);
+
     // Encode and write to file
     let t = Instant::now();
     let hdiff_bytes = hdiff.as_ssz_bytes();
     println!("HDiff SSZ encode: {:?}", t.elapsed());
-    println!("HDiff size: {} bytes", hdiff_bytes.len());
 
     let mut output_file = File::create(&output_path)
         .map_err(|e| format!("Unable to create output file {:?}: {:?}", output_path, e))?;
@@ -69,6 +70,23 @@ pub fn run<E: EthSpec>(
     println!("Written to {}", output_path.display());
 
     Ok(())
+}
+
+fn print_hdiff_sizes(hdiff: &HDiff) {
+    let sizes = hdiff.sizes();
+    let labels = [
+        "state_diff",
+        "balances_diff",
+        "inactivity_scores_diff",
+        "validators_diff",
+        "historical_roots",
+        "historical_summaries",
+    ];
+    println!("HDiff component sizes:");
+    for (label, size) in labels.iter().zip(sizes.iter()) {
+        println!("  {}: {} bytes", label, size);
+    }
+    println!("  total: {} bytes", hdiff.size());
 }
 
 fn read_file(path: &PathBuf) -> Result<Vec<u8>, String> {

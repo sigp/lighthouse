@@ -38,6 +38,8 @@ pub fn run<E: EthSpec>(
     let hdiff_decode_time = t.elapsed();
     println!("HDiff SSZ decode: {:?}", hdiff_decode_time);
 
+    print_hdiff_sizes(&hdiff);
+
     // Convert BeaconState to HDiffBuffer
     let t = Instant::now();
     let mut buffer = HDiffBuffer::from_state(state);
@@ -68,6 +70,23 @@ pub fn run<E: EthSpec>(
     );
 
     Ok(())
+}
+
+fn print_hdiff_sizes(hdiff: &HDiff) {
+    let sizes = hdiff.sizes();
+    let labels = [
+        "state_diff",
+        "balances_diff",
+        "inactivity_scores_diff",
+        "validators_diff",
+        "historical_roots",
+        "historical_summaries",
+    ];
+    println!("HDiff component sizes:");
+    for (label, size) in labels.iter().zip(sizes.iter()) {
+        println!("  {}: {} bytes", label, size);
+    }
+    println!("  total: {} bytes", hdiff.size());
 }
 
 fn read_file(path: &PathBuf) -> Result<Vec<u8>, String> {
