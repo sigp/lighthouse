@@ -1,10 +1,11 @@
 #![cfg(not(debug_assertions))]
+#![allow(clippy::result_large_err)]
 
-use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::{
     BeaconChainError, BlockError, ChainConfig, ExecutionPayloadError,
-    INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, NotifyExecutionLayer, OverrideForkchoiceUpdate,
-    StateSkipConfig, WhenSlotSkipped,
+    INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, NotifyExecutionLayer, StateSkipConfig,
+    WhenSlotSkipped,
     canonical_head::{CachedHead, CanonicalHead},
     test_utils::{BeaconChainHarness, EphemeralHarnessType, fork_name_from_env, test_spec},
 };
@@ -136,25 +137,6 @@ impl InvalidPayloadRig {
     fn previous_payload_attributes(&self) -> PayloadAttributes {
         let (_, payload_attributes) = self.previous_forkchoice_update_params();
         payload_attributes
-    }
-
-    fn move_to_terminal_block(&self) {
-        let mock_execution_layer = self.harness.mock_execution_layer.as_ref().unwrap();
-        mock_execution_layer
-            .server
-            .execution_block_generator()
-            .move_to_terminal_block()
-            .unwrap();
-    }
-
-    fn latest_execution_block_hash(&self) -> ExecutionBlockHash {
-        let mock_execution_layer = self.harness.mock_execution_layer.as_ref().unwrap();
-        mock_execution_layer
-            .server
-            .execution_block_generator()
-            .latest_execution_block()
-            .unwrap()
-            .block_hash
     }
 
     async fn build_blocks(&mut self, num_blocks: u64, is_valid: Payload) -> Vec<Hash256> {
@@ -393,7 +375,6 @@ async fn valid_invalid_syncing() {
         return;
     }
     let mut rig = InvalidPayloadRig::new();
-    rig.move_to_terminal_block();
 
     rig.import_block(Payload::Valid).await;
     rig.import_block(Payload::Invalid {
@@ -411,7 +392,6 @@ async fn invalid_payload_invalidates_parent() {
         return;
     }
     let mut rig = InvalidPayloadRig::new().enable_attestations();
-    rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
     rig.move_to_first_justification(Payload::Syncing).await;
 
@@ -443,7 +423,6 @@ async fn immediate_forkchoice_update_invalid_test(
     invalid_payload: impl FnOnce(Option<ExecutionBlockHash>) -> Payload,
 ) {
     let mut rig = InvalidPayloadRig::new().enable_attestations();
-    rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
     rig.move_to_first_justification(Payload::Syncing).await;
 
@@ -501,7 +480,6 @@ async fn justified_checkpoint_becomes_invalid() {
         return;
     }
     let mut rig = InvalidPayloadRig::new().enable_attestations();
-    rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
     rig.move_to_first_justification(Payload::Syncing).await;
 
@@ -549,7 +527,6 @@ async fn pre_finalized_latest_valid_hash() {
     let finalized_epoch = 2;
 
     let mut rig = InvalidPayloadRig::new().enable_attestations();
-    rig.move_to_terminal_block();
     let mut blocks = vec![];
     blocks.push(rig.import_block(Payload::Valid).await); // Import a valid transition block.
     blocks.extend(rig.build_blocks(num_blocks - 1, Payload::Syncing).await);
@@ -598,7 +575,6 @@ async fn latest_valid_hash_will_not_validate() {
     const LATEST_VALID_SLOT: u64 = 3;
 
     let mut rig = InvalidPayloadRig::new().enable_attestations();
-    rig.move_to_terminal_block();
 
     let mut blocks = vec![];
     blocks.push(rig.import_block(Payload::Valid).await); // Import a valid transition block.
@@ -649,7 +625,6 @@ async fn latest_valid_hash_is_junk() {
     let finalized_epoch = 3;
 
     let mut rig = InvalidPayloadRig::new().enable_attestations();
-    rig.move_to_terminal_block();
     let mut blocks = vec![];
     blocks.push(rig.import_block(Payload::Valid).await); // Import a valid transition block.
     blocks.extend(rig.build_blocks(num_blocks, Payload::Syncing).await);
@@ -694,7 +669,6 @@ async fn invalidates_all_descendants() {
     let finalized_slot = E::slots_per_epoch() * 2;
 
     let mut rig = InvalidPayloadRig::new().enable_attestations();
-    rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
     let blocks = rig.build_blocks(num_blocks, Payload::Syncing).await;
 
@@ -712,19 +686,13 @@ async fn invalidates_all_descendants() {
     assert_eq!(fork_parent_state.slot(), fork_parent_slot);
     let ((fork_block, _), _fork_post_state) =
         rig.harness.make_block(fork_parent_state, fork_slot).await;
-    let fork_rpc_block = RpcBlock::new(
-        fork_block.clone(),
-        None,
-        &rig.harness.chain.data_availability_checker,
-        rig.harness.chain.spec.clone(),
-    )
-    .unwrap();
+    let fork_lookup_block = LookupBlock::new(fork_block.clone());
     let fork_block_root = rig
         .harness
         .chain
         .process_block(
-            fork_rpc_block.block_root(),
-            fork_rpc_block,
+            fork_lookup_block.block_root(),
+            fork_lookup_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -804,7 +772,6 @@ async fn switches_heads() {
     let finalized_slot = E::slots_per_epoch() * 2;
 
     let mut rig = InvalidPayloadRig::new().enable_attestations();
-    rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
     let blocks = rig.build_blocks(num_blocks, Payload::Syncing).await;
 
@@ -823,19 +790,13 @@ async fn switches_heads() {
     let ((fork_block, _), _fork_post_state) =
         rig.harness.make_block(fork_parent_state, fork_slot).await;
     let fork_parent_root = fork_block.parent_root();
-    let fork_rpc_block = RpcBlock::new(
-        fork_block.clone(),
-        None,
-        &rig.harness.chain.data_availability_checker,
-        rig.harness.chain.spec.clone(),
-    )
-    .unwrap();
+    let fork_lookup_block = LookupBlock::new(fork_block.clone());
     let fork_block_root = rig
         .harness
         .chain
         .process_block(
-            fork_rpc_block.block_root(),
-            fork_rpc_block,
+            fork_lookup_block.block_root(),
+            fork_lookup_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -906,7 +867,6 @@ async fn invalid_during_processing() {
         return;
     }
     let mut rig = InvalidPayloadRig::new();
-    rig.move_to_terminal_block();
 
     let roots = &[
         rig.import_block(Payload::Valid).await,
@@ -941,7 +901,6 @@ async fn invalid_after_optimistic_sync() {
         return;
     }
     let mut rig = InvalidPayloadRig::new().enable_attestations();
-    rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
 
     let mut roots = vec![
@@ -982,7 +941,6 @@ async fn manually_validate_child() {
         return;
     }
     let mut rig = InvalidPayloadRig::new().enable_attestations();
-    rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
 
     let parent = rig.import_block(Payload::Syncing).await;
@@ -1003,7 +961,6 @@ async fn manually_validate_parent() {
         return;
     }
     let mut rig = InvalidPayloadRig::new().enable_attestations();
-    rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
 
     let parent = rig.import_block(Payload::Syncing).await;
@@ -1024,7 +981,6 @@ async fn payload_preparation() {
         return;
     }
     let mut rig = InvalidPayloadRig::new();
-    rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await;
 
     let el = rig.execution_layer();
@@ -1088,7 +1044,6 @@ async fn invalid_parent() {
         return;
     }
     let mut rig = InvalidPayloadRig::new();
-    rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
 
     // Import a syncing block atop the transition block (we'll call this the "parent block" since we
@@ -1119,15 +1074,9 @@ async fn invalid_parent() {
     ));
 
     // Ensure the block built atop an invalid payload is invalid for import.
-    let rpc_block = RpcBlock::new(
-        block.clone(),
-        None,
-        &rig.harness.chain.data_availability_checker,
-        rig.harness.chain.spec.clone(),
-    )
-    .unwrap();
+    let lookup_block = LookupBlock::new(block.clone());
     assert!(matches!(
-        rig.harness.chain.process_block(rpc_block.block_root(), rpc_block, NotifyExecutionLayer::Yes, BlockImportSource::Lookup,
+        rig.harness.chain.process_block(lookup_block.block_root(), lookup_block, NotifyExecutionLayer::Yes, BlockImportSource::Lookup,
             || Ok(()),
         ).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
@@ -1156,89 +1105,12 @@ async fn invalid_parent() {
     ));
 }
 
-/// Tests to ensure that we will still send a proposer preparation
-#[tokio::test]
-async fn payload_preparation_before_transition_block() {
-    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
-        return;
-    }
-    let rig = InvalidPayloadRig::new();
-    let el = rig.execution_layer();
-
-    // Run the watchdog routine so that the status of the execution engine is set. This ensures
-    // that we don't end up with `eth_syncing` requests later in this function that will impede
-    // testing.
-    el.watchdog_task().await;
-
-    let head = rig.harness.chain.head_snapshot();
-    assert_eq!(
-        head.beacon_block
-            .message()
-            .body()
-            .execution_payload()
-            .unwrap()
-            .block_hash(),
-        ExecutionBlockHash::zero(),
-        "the head block is post-bellatrix but pre-transition"
-    );
-
-    let current_slot = rig.harness.chain.slot().unwrap();
-    let next_slot = current_slot + 1;
-    let proposer = head
-        .beacon_state
-        .get_beacon_proposer_index(next_slot, &rig.harness.chain.spec)
-        .unwrap();
-    let fee_recipient = Address::repeat_byte(99);
-
-    // Provide preparation data to the EL for `proposer`.
-    el.update_proposer_preparation(
-        Epoch::new(0),
-        [(
-            &ProposerPreparationData {
-                validator_index: proposer as u64,
-                fee_recipient,
-            },
-            &None,
-        )],
-    )
-    .await;
-
-    rig.move_to_terminal_block();
-
-    rig.harness
-        .chain
-        .prepare_beacon_proposer(current_slot)
-        .await
-        .unwrap();
-    let forkchoice_update_params = rig
-        .harness
-        .chain
-        .canonical_head
-        .fork_choice_read_lock()
-        .get_forkchoice_update_parameters();
-    rig.harness
-        .chain
-        .update_execution_engine_forkchoice(
-            current_slot,
-            forkchoice_update_params,
-            OverrideForkchoiceUpdate::Yes,
-        )
-        .await
-        .unwrap();
-
-    let (fork_choice_state, payload_attributes) = rig.previous_forkchoice_update_params();
-    let latest_block_hash = rig.latest_execution_block_hash();
-    assert_eq!(payload_attributes.suggested_fee_recipient(), fee_recipient);
-    assert_eq!(fork_choice_state.head_block_hash, latest_block_hash);
-}
-
 #[tokio::test]
 async fn attesting_to_optimistic_head() {
     if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
         return;
     }
     let mut rig = InvalidPayloadRig::new();
-    rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
 
     let root = rig.import_block(Payload::Syncing).await;
@@ -1361,7 +1233,6 @@ impl InvalidHeadSetup {
     async fn new() -> InvalidHeadSetup {
         let slots_per_epoch = E::slots_per_epoch();
         let mut rig = InvalidPayloadRig::new().enable_attestations();
-        rig.move_to_terminal_block();
         rig.import_block(Payload::Valid).await; // Import a valid transition block.
 
         // Import blocks until the first time the chain finalizes. This avoids
@@ -1459,18 +1330,12 @@ async fn recover_from_invalid_head_by_importing_blocks() {
     } = InvalidHeadSetup::new().await;
 
     // Import the fork block, it should become the head.
-    let fork_rpc_block = RpcBlock::new(
-        fork_block.clone(),
-        None,
-        &rig.harness.chain.data_availability_checker,
-        rig.harness.chain.spec.clone(),
-    )
-    .unwrap();
+    let fork_lookup_block = LookupBlock::new(fork_block.clone());
     rig.harness
         .chain
         .process_block(
-            fork_rpc_block.block_root(),
-            fork_rpc_block,
+            fork_lookup_block.block_root(),
+            fork_lookup_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -1485,7 +1350,7 @@ async fn recover_from_invalid_head_by_importing_blocks() {
         "the fork block should become the head"
     );
 
-    let manual_get_head = rig
+    let (manual_get_head, _) = rig
         .harness
         .chain
         .canonical_head
@@ -1546,7 +1411,6 @@ async fn weights_after_resetting_optimistic_status() {
         return;
     }
     let mut rig = InvalidPayloadRig::new().enable_attestations();
-    rig.move_to_terminal_block();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
 
     let mut roots = vec![];
@@ -1564,7 +1428,7 @@ async fn weights_after_resetting_optimistic_status() {
         .fork_choice_read_lock()
         .proto_array()
         .iter_nodes(&head.head_block_root())
-        .map(|node| (node.root, node.weight))
+        .map(|node| (node.root(), node.weight()))
         .collect::<HashMap<_, _>>();
 
     rig.invalidate_manually(roots[1]).await;
@@ -1574,7 +1438,7 @@ async fn weights_after_resetting_optimistic_status() {
         .canonical_head
         .fork_choice_write_lock()
         .proto_array_mut()
-        .set_all_blocks_to_optimistic::<E>(&rig.harness.chain.spec)
+        .set_all_blocks_to_optimistic::<E>()
         .unwrap();
 
     let new_weights = rig
@@ -1584,7 +1448,7 @@ async fn weights_after_resetting_optimistic_status() {
         .fork_choice_read_lock()
         .proto_array()
         .iter_nodes(&head.head_block_root())
-        .map(|node| (node.root, node.weight))
+        .map(|node| (node.root(), node.weight()))
         .collect::<HashMap<_, _>>();
 
     assert_eq!(original_weights, new_weights);

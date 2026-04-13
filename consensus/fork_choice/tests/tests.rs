@@ -7,9 +7,11 @@ use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconForkChoiceStore, ChainConfig, ForkChoiceError,
     StateSkipConfig, WhenSlotSkipped,
 };
+use bls::AggregateSignature;
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::{
-    ForkChoiceStore, InvalidAttestation, InvalidBlock, PayloadVerificationStatus, QueuedAttestation,
+    AttestationFromBlock, ForkChoiceStore, InvalidAttestation, InvalidBlock,
+    InvalidPayloadAttestation, PayloadVerificationStatus, QueuedAttestation,
 };
 use state_processing::state_advance::complete_state_advance;
 use std::fmt;
@@ -19,8 +21,8 @@ use store::MemoryStore;
 use types::SingleAttestation;
 use types::{
     BeaconBlockRef, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, ForkName, Hash256,
-    IndexedAttestation, MainnetEthSpec, RelativeEpoch, SignedBeaconBlock, Slot, SubnetId,
-    test_utils::generate_deterministic_keypair,
+    IndexedAttestation, IndexedPayloadAttestation, MainnetEthSpec, PayloadAttestationData,
+    RelativeEpoch, SignedBeaconBlock, Slot, SubnetId, test_utils::generate_deterministic_keypair,
 };
 
 pub type E = MainnetEthSpec;
@@ -71,6 +73,9 @@ impl ForkChoiceTest {
         Self { harness }
     }
 
+    /// Creates a new tester with the Gloas fork active at epoch 1.
+    /// Genesis is a standard Fulu block (epoch 0), so block production works normally.
+    /// Tests that need Gloas semantics should advance the chain into epoch 1 first.
     /// Get a value from the `ForkChoice` instantiation.
     fn get<T, U>(&self, func: T) -> U
     where
@@ -921,6 +926,56 @@ async fn invalid_attestation_future_block() {
             },
         )
         .await;
+}
+
+/// Gossip payload attestations must be for the current slot. A payload attestation for slot S
+/// received at slot S+1 should be rejected per the spec.
+#[tokio::test]
+async fn non_block_payload_attestation_for_previous_slot_is_rejected() {
+    let test = ForkChoiceTest::new()
+        .apply_blocks_without_new_attestations(1)
+        .await;
+
+    let chain = &test.harness.chain;
+    let block_a = chain
+        .block_at_slot(Slot::new(1), WhenSlotSkipped::Prev)
+        .expect("lookup should succeed")
+        .expect("block A should exist");
+    let block_a_root = block_a.canonical_root();
+    let s_plus_1 = block_a.slot().saturating_add(1_u64);
+
+    let payload_attestation = IndexedPayloadAttestation::<E> {
+        attesting_indices: vec![0_u64].try_into().expect("valid attesting indices"),
+        data: PayloadAttestationData {
+            beacon_block_root: block_a_root,
+            slot: Slot::new(1),
+            payload_present: true,
+            blob_data_available: true,
+        },
+        signature: AggregateSignature::empty(),
+    };
+
+    let ptc = &[0_usize];
+
+    let result = chain
+        .canonical_head
+        .fork_choice_write_lock()
+        .on_payload_attestation(
+            s_plus_1,
+            &payload_attestation,
+            AttestationFromBlock::False,
+            ptc,
+        );
+    assert!(
+        matches!(
+            result,
+            Err(ForkChoiceError::InvalidPayloadAttestation(
+                InvalidPayloadAttestation::PayloadAttestationNotCurrentSlot { .. }
+            ))
+        ),
+        "gossip payload attestation for previous slot should be rejected, got: {:?}",
+        result
+    );
 }
 
 /// Specification v0.12.1:

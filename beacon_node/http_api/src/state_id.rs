@@ -2,6 +2,7 @@ use crate::ExecutionOptimistic;
 use crate::metrics;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::types::StateId as CoreStateId;
+use proto_array::Block;
 use std::fmt;
 use std::str::FromStr;
 use types::{BeaconState, Checkpoint, EthSpec, Fork, Hash256, Slot};
@@ -19,6 +20,8 @@ impl StateId {
         Self(CoreStateId::Slot(slot))
     }
 
+    // TODO(gloas) add tests for finalized and justified checkpoint states to ensure
+    // we return the post block state for gloas
     /// Return the state root identified by `self`.
     pub fn root<T: BeaconChainTypes>(
         &self,
@@ -41,15 +44,41 @@ impl StateId {
             CoreStateId::Finalized => {
                 let finalized_checkpoint =
                     chain.canonical_head.cached_head().finalized_checkpoint();
-                let (slot, execution_optimistic) =
-                    checkpoint_slot_and_execution_optimistic(chain, finalized_checkpoint)?;
+
+                let slot = finalized_checkpoint
+                    .epoch
+                    .start_slot(T::EthSpec::slots_per_epoch());
+                let (block, execution_optimistic) =
+                    checkpoint_block_and_execution_optimistic(chain, finalized_checkpoint)?;
+
+                if chain
+                    .spec
+                    .fork_name_at_slot::<T::EthSpec>(block.slot)
+                    .gloas_enabled()
+                {
+                    return Ok((block.state_root, execution_optimistic, true));
+                }
+
                 (slot, execution_optimistic, true)
             }
             CoreStateId::Justified => {
                 let justified_checkpoint =
                     chain.canonical_head.cached_head().justified_checkpoint();
-                let (slot, execution_optimistic) =
-                    checkpoint_slot_and_execution_optimistic(chain, justified_checkpoint)?;
+
+                let slot = justified_checkpoint
+                    .epoch
+                    .start_slot(T::EthSpec::slots_per_epoch());
+                let (block, execution_optimistic) =
+                    checkpoint_block_and_execution_optimistic(chain, justified_checkpoint)?;
+
+                if chain
+                    .spec
+                    .fork_name_at_slot::<T::EthSpec>(block.slot)
+                    .gloas_enabled()
+                {
+                    return Ok((block.state_root, execution_optimistic, false));
+                }
+
                 (slot, execution_optimistic, false)
             }
             CoreStateId::Slot(slot) => (
@@ -254,13 +283,11 @@ impl fmt::Display for StateId {
     }
 }
 
-/// Returns the first slot of the checkpoint's `epoch` and the execution status of the checkpoint's
-/// `root`.
-pub fn checkpoint_slot_and_execution_optimistic<T: BeaconChainTypes>(
+/// Returns checkpoint block and the execution status of the checkpoint's `root`.
+pub fn checkpoint_block_and_execution_optimistic<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     checkpoint: Checkpoint,
-) -> Result<(Slot, ExecutionOptimistic), warp::reject::Rejection> {
-    let slot = checkpoint.epoch.start_slot(T::EthSpec::slots_per_epoch());
+) -> Result<(Block, ExecutionOptimistic), warp::reject::Rejection> {
     let fork_choice = chain.canonical_head.fork_choice_read_lock();
     let finalized_checkpoint = fork_choice.cached_fork_choice_view().finalized_checkpoint;
 
@@ -277,5 +304,9 @@ pub fn checkpoint_slot_and_execution_optimistic<T: BeaconChainTypes>(
         .map_err(BeaconChainError::ForkChoiceError)
         .map_err(warp_utils::reject::unhandled_error)?;
 
-    Ok((slot, execution_optimistic))
+    let block = fork_choice.get_block(&checkpoint.root).ok_or_else(|| {
+        warp_utils::reject::custom_not_found(format!("Block {:?} not found", checkpoint.root))
+    })?;
+
+    Ok((block, execution_optimistic))
 }

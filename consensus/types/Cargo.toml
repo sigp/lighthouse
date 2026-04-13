@@ -1,10 +1,7 @@
 [package]
 name = "types"
 version = "0.2.1"
-authors = [
-    "Paul Hauner <paul@paulhauner.com>",
-    "Age Manning <Age@AgeManning.com>",
-]
+authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com>"]
 edition = { workspace = true }
 
 [features]
@@ -16,12 +13,12 @@ sqlite = ["dep:rusqlite"]
 arbitrary = [
     "dep:arbitrary",
     "bls/arbitrary",
+    "kzg/arbitrary",
     "ethereum_ssz/arbitrary",
     "milhouse/arbitrary",
     "ssz_types/arbitrary",
     "swap_or_not_shuffle/arbitrary",
 ]
-arbitrary-fuzz = ["arbitrary"]
 portable = ["bls/supranational-portable"]
 
 [dependencies]
@@ -56,7 +53,6 @@ rusqlite = { workspace = true, optional = true }
 safe_arith = { workspace = true }
 serde = { workspace = true, features = ["rc"] }
 serde_json = { workspace = true }
-serde_yaml = { workspace = true }
 smallvec = { workspace = true }
 ssz_types = { workspace = true }
 superstruct = { workspace = true }
@@ -67,6 +63,7 @@ tracing = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
 typenum = { workspace = true }
+yaml_serde = { workspace = true }
 
 [dev-dependencies]
 beacon_chain = { workspace = true }

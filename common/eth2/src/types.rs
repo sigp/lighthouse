@@ -37,9 +37,6 @@ pub mod beacon_response {
     pub use crate::beacon_response::*;
 }
 
-#[cfg(feature = "lighthouse")]
-use crate::lighthouse::BlockReward;
-
 // Re-export error types from the unified error module
 pub use crate::error::{ErrorMessage, Failure, IndexedErrorMessage, ResponseError as Error};
 
@@ -128,7 +125,15 @@ impl fmt::Display for BlockId {
 pub enum StateId {
     Head,
     Genesis,
+    /// Pre-gloas the finalized state is the checkpoint block state
+    /// advanced to the epoch boundary.
+    /// Post-gloas this state is always the checkpoint post-block state and is not advanced
+    /// to the epoch boundary.
     Finalized,
+    /// Pre-gloas the justified state is the checkpoint block state
+    /// advanced to the epoch boundary.
+    /// Post-gloas this state is always the checkpoint post-block state and is not advanced
+    /// to the epoch boundary.
     Justified,
     Slot(Slot),
     Root(Hash256),
@@ -711,6 +716,15 @@ pub struct DataColumnIndicesQuery {
 #[serde(transparent)]
 pub struct ValidatorIndexData(#[serde(with = "serde_utils::quoted_u64_vec")] pub Vec<u64>);
 
+impl<'de, T> ContextDeserialize<'de, T> for ValidatorIndexData {
+    fn context_deserialize<D>(deserializer: D, _context: T) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Self::deserialize(deserializer)
+    }
+}
+
 /// Borrowed variant of `ValidatorIndexData`, for serializing/sending.
 #[derive(Clone, Copy, Serialize)]
 #[serde(transparent)]
@@ -1065,6 +1079,33 @@ pub struct BlockGossip {
     pub block: Hash256,
 }
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub struct SseExecutionPayload {
+    pub slot: Slot,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub builder_index: u64,
+    pub block_hash: ExecutionBlockHash,
+    pub block_root: Hash256,
+    pub state_root: Hash256,
+    pub execution_optimistic: bool,
+}
+
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub struct SseExecutionPayloadGossip {
+    pub slot: Slot,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub builder_index: u64,
+    pub block_hash: ExecutionBlockHash,
+    pub block_root: Hash256,
+    pub state_root: Hash256,
+}
+
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub struct SseExecutionPayloadAvailable {
+    pub slot: Slot,
+    pub block_root: Hash256,
+}
+
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct SseChainReorg {
     pub slot: Slot,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -1128,6 +1169,8 @@ pub struct SseExtendedPayloadAttributesGeneric<T> {
 
 pub type SseExtendedPayloadAttributes = SseExtendedPayloadAttributesGeneric<SsePayloadAttributes>;
 pub type VersionedSsePayloadAttributes = ForkVersionedResponse<SseExtendedPayloadAttributes>;
+pub type VersionedSseExecutionPayloadBid<E> = ForkVersionedResponse<SignedExecutionPayloadBid<E>>;
+pub type VersionedSsePayloadAttestationMessage = ForkVersionedResponse<PayloadAttestationMessage>;
 
 impl<'de> ContextDeserialize<'de, ForkName> for SsePayloadAttributes {
     fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
@@ -1199,13 +1242,16 @@ pub enum EventKind<E: EthSpec> {
     LateHead(SseLateHead),
     LightClientFinalityUpdate(Box<BeaconResponse<LightClientFinalityUpdate<E>>>),
     LightClientOptimisticUpdate(Box<BeaconResponse<LightClientOptimisticUpdate<E>>>),
-    #[cfg(feature = "lighthouse")]
-    BlockReward(BlockReward),
     PayloadAttributes(VersionedSsePayloadAttributes),
     ProposerSlashing(Box<ProposerSlashing>),
     AttesterSlashing(Box<AttesterSlashing<E>>),
     BlsToExecutionChange(Box<SignedBlsToExecutionChange>),
     BlockGossip(Box<BlockGossip>),
+    ExecutionPayload(SseExecutionPayload),
+    ExecutionPayloadGossip(SseExecutionPayloadGossip),
+    ExecutionPayloadAvailable(SseExecutionPayloadAvailable),
+    ExecutionPayloadBid(Box<VersionedSseExecutionPayloadBid<E>>),
+    PayloadAttestationMessage(Box<VersionedSsePayloadAttestationMessage>),
 }
 
 impl<E: EthSpec> EventKind<E> {
@@ -1225,12 +1271,15 @@ impl<E: EthSpec> EventKind<E> {
             EventKind::LateHead(_) => "late_head",
             EventKind::LightClientFinalityUpdate(_) => "light_client_finality_update",
             EventKind::LightClientOptimisticUpdate(_) => "light_client_optimistic_update",
-            #[cfg(feature = "lighthouse")]
-            EventKind::BlockReward(_) => "block_reward",
             EventKind::ProposerSlashing(_) => "proposer_slashing",
             EventKind::AttesterSlashing(_) => "attester_slashing",
             EventKind::BlsToExecutionChange(_) => "bls_to_execution_change",
             EventKind::BlockGossip(_) => "block_gossip",
+            EventKind::ExecutionPayload(_) => "execution_payload",
+            EventKind::ExecutionPayloadGossip(_) => "execution_payload_gossip",
+            EventKind::ExecutionPayloadAvailable(_) => "execution_payload_available",
+            EventKind::ExecutionPayloadBid(_) => "execution_payload_bid",
+            EventKind::PayloadAttestationMessage(_) => "payload_attestation_message",
         }
     }
 
@@ -1302,10 +1351,6 @@ impl<E: EthSpec> EventKind<E> {
                     })?),
                 )))
             }
-            #[cfg(feature = "lighthouse")]
-            "block_reward" => Ok(EventKind::BlockReward(serde_json::from_str(data).map_err(
-                |e| ServerError::InvalidServerSentEvent(format!("Block Reward: {:?}", e)),
-            )?)),
             "attester_slashing" => Ok(EventKind::AttesterSlashing(
                 serde_json::from_str(data).map_err(|e| {
                     ServerError::InvalidServerSentEvent(format!("Attester Slashing: {:?}", e))
@@ -1324,6 +1369,40 @@ impl<E: EthSpec> EventKind<E> {
             "block_gossip" => Ok(EventKind::BlockGossip(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Block Gossip: {:?}", e)),
             )?)),
+            "execution_payload" => Ok(EventKind::ExecutionPayload(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Execution Payload: {:?}", e))
+                })?,
+            )),
+            "execution_payload_gossip" => Ok(EventKind::ExecutionPayloadGossip(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!(
+                        "Execution Payload Gossip: {:?}",
+                        e
+                    ))
+                })?,
+            )),
+            "execution_payload_available" => Ok(EventKind::ExecutionPayloadAvailable(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!(
+                        "Execution Payload Available: {:?}",
+                        e
+                    ))
+                })?,
+            )),
+            "execution_payload_bid" => Ok(EventKind::ExecutionPayloadBid(Box::new(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Execution Payload Bid: {:?}", e))
+                })?,
+            ))),
+            "payload_attestation_message" => Ok(EventKind::PayloadAttestationMessage(Box::new(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!(
+                        "Payload Attestation Message: {:?}",
+                        e
+                    ))
+                })?,
+            ))),
             _ => Err(ServerError::InvalidServerSentEvent(
                 "Could not parse event tag".to_string(),
             )),
@@ -1355,12 +1434,15 @@ pub enum EventTopic {
     PayloadAttributes,
     LightClientFinalityUpdate,
     LightClientOptimisticUpdate,
-    #[cfg(feature = "lighthouse")]
-    BlockReward,
     AttesterSlashing,
     ProposerSlashing,
     BlsToExecutionChange,
     BlockGossip,
+    ExecutionPayload,
+    ExecutionPayloadGossip,
+    ExecutionPayloadAvailable,
+    ExecutionPayloadBid,
+    PayloadAttestationMessage,
 }
 
 impl FromStr for EventTopic {
@@ -1382,12 +1464,15 @@ impl FromStr for EventTopic {
             "late_head" => Ok(EventTopic::LateHead),
             "light_client_finality_update" => Ok(EventTopic::LightClientFinalityUpdate),
             "light_client_optimistic_update" => Ok(EventTopic::LightClientOptimisticUpdate),
-            #[cfg(feature = "lighthouse")]
-            "block_reward" => Ok(EventTopic::BlockReward),
             "attester_slashing" => Ok(EventTopic::AttesterSlashing),
             "proposer_slashing" => Ok(EventTopic::ProposerSlashing),
             "bls_to_execution_change" => Ok(EventTopic::BlsToExecutionChange),
             "block_gossip" => Ok(EventTopic::BlockGossip),
+            "execution_payload" => Ok(EventTopic::ExecutionPayload),
+            "execution_payload_gossip" => Ok(EventTopic::ExecutionPayloadGossip),
+            "execution_payload_available" => Ok(EventTopic::ExecutionPayloadAvailable),
+            "execution_payload_bid" => Ok(EventTopic::ExecutionPayloadBid),
+            "payload_attestation_message" => Ok(EventTopic::PayloadAttestationMessage),
             _ => Err("event topic cannot be parsed.".to_string()),
         }
     }
@@ -1410,12 +1495,19 @@ impl fmt::Display for EventTopic {
             EventTopic::LateHead => write!(f, "late_head"),
             EventTopic::LightClientFinalityUpdate => write!(f, "light_client_finality_update"),
             EventTopic::LightClientOptimisticUpdate => write!(f, "light_client_optimistic_update"),
-            #[cfg(feature = "lighthouse")]
-            EventTopic::BlockReward => write!(f, "block_reward"),
             EventTopic::AttesterSlashing => write!(f, "attester_slashing"),
             EventTopic::ProposerSlashing => write!(f, "proposer_slashing"),
             EventTopic::BlsToExecutionChange => write!(f, "bls_to_execution_change"),
             EventTopic::BlockGossip => write!(f, "block_gossip"),
+            EventTopic::ExecutionPayload => write!(f, "execution_payload"),
+            EventTopic::ExecutionPayloadGossip => write!(f, "execution_payload_gossip"),
+            EventTopic::ExecutionPayloadAvailable => {
+                write!(f, "execution_payload_available")
+            }
+            EventTopic::ExecutionPayloadBid => write!(f, "execution_payload_bid"),
+            EventTopic::PayloadAttestationMessage => {
+                write!(f, "payload_attestation_message")
+            }
         }
     }
 }

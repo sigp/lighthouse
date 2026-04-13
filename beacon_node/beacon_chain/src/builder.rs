@@ -7,7 +7,6 @@ use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
-use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
 use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sidecars_gloas};
 use crate::light_client_server_cache::LightClientServerCache;
@@ -359,6 +358,7 @@ where
         Ok((
             BeaconSnapshot {
                 beacon_block_root,
+                execution_envelope: None,
                 beacon_block: Arc::new(beacon_block),
                 beacon_state,
             },
@@ -617,8 +617,10 @@ where
                 .map_err(|e| format!("Failed to initialize data column info: {:?}", e))?,
         );
 
+        // TODO(gloas): add check that checkpoint state is Pending
         let snapshot = BeaconSnapshot {
             beacon_block_root: weak_subj_block_root,
+            execution_envelope: None,
             beacon_block: Arc::new(weak_subj_block),
             beacon_state: weak_subj_state,
         };
@@ -774,57 +776,33 @@ where
             slot_clock.now().ok_or("Unable to read slot")?
         };
 
-        let initial_head_block_root = fork_choice
+        let (initial_head_block_root, head_payload_status) = fork_choice
             .get_head(current_slot, &self.spec)
             .map_err(|e| format!("Unable to get fork choice head: {:?}", e))?;
 
-        // Try to decode the head block according to the current fork, if that fails, try
-        // to backtrack to before the most recent fork.
-        let (head_block_root, head_block, head_reverted) =
-            match store.get_full_block(&initial_head_block_root) {
-                Ok(Some(block)) => (initial_head_block_root, block, false),
-                Ok(None) => return Err("Head block not found in store".into()),
-                Err(StoreError::SszDecodeError(_)) => {
-                    error!(
-                        message = "This node has likely missed a hard fork. \
-                        It will try to revert the invalid blocks and keep running, \
-                        but any stray blocks and states will not be deleted. \
-                        Long-term you should consider re-syncing this node.",
-                        "Error decoding head block"
-                    );
-                    let (block_root, block) = revert_to_fork_boundary(
-                        current_slot,
-                        initial_head_block_root,
-                        store.clone(),
-                        &self.spec,
-                    )?;
+        let head_block_root = initial_head_block_root;
+        let head_block = store
+            .get_full_block(&initial_head_block_root)
+            .map_err(|e| descriptive_db_error("head block", &e))?
+            .ok_or("Head block not found in store")?;
 
-                    (block_root, block, true)
-                }
-                Err(e) => return Err(descriptive_db_error("head block", &e)),
-            };
+        let state_payload_status = head_payload_status.as_state_payload_status();
 
         let (_head_state_root, head_state) = store
-            .get_advanced_hot_state(head_block_root, current_slot, head_block.state_root())
+            .get_advanced_hot_state(
+                head_block_root,
+                state_payload_status,
+                current_slot,
+                head_block.state_root(),
+            )
             .map_err(|e| descriptive_db_error("head state", &e))?
             .ok_or("Head state not found in store")?;
-
-        // If the head reverted then we need to reset fork choice using the new head's finalized
-        // checkpoint.
-        if head_reverted {
-            fork_choice = reset_fork_choice_to_finalization(
-                head_block_root,
-                &head_state,
-                store.clone(),
-                Some(current_slot),
-                &self.spec,
-            )?;
-        }
 
         let head_shuffling_ids = BlockShufflingIds::try_from_head(head_block_root, &head_state)?;
 
         let mut head_snapshot = BeaconSnapshot {
             beacon_block_root: head_block_root,
+            execution_envelope: None,
             beacon_block: Arc::new(head_block),
             beacon_state: head_state,
         };
@@ -944,7 +922,8 @@ where
 
         let genesis_validators_root = head_snapshot.beacon_state.genesis_validators_root();
         let genesis_time = head_snapshot.beacon_state.genesis_time();
-        let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot));
+        let canonical_head =
+            CanonicalHead::new(fork_choice, Arc::new(head_snapshot), head_payload_status);
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
         let complete_blob_backfill = self.chain_config.complete_blob_backfill;
 
@@ -1056,6 +1035,7 @@ where
             )),
             beacon_proposer_cache,
             block_times_cache: <_>::default(),
+            envelope_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
             validator_pubkey_cache: RwLock::new(validator_pubkey_cache),
             early_attester_cache: <_>::default(),
@@ -1116,6 +1096,11 @@ where
             let cgc_change_effective_slot =
                 cgc_changed.effective_epoch.start_slot(E::slots_per_epoch());
             beacon_chain.update_data_column_custody_info(Some(cgc_change_effective_slot));
+
+            // Persist change to disk.
+            beacon_chain
+                .persist_custody_context()
+                .map_err(|e| format!("Failed writing updated CGC: {e:?}"))?;
         }
 
         info!(
