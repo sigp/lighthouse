@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 use std::marker::PhantomData;
 use std::ops::RangeInclusive;
 use std::str::FromStr;
@@ -278,13 +279,18 @@ impl HDiff {
     ) -> Result<(), Error> {
         let source_state = std::mem::take(&mut source.state);
         self.state_diff().apply(&source_state, &mut source.state)?;
+
         self.balances_diff().apply(&mut source.balances, config)?;
+
         self.inactivity_scores_diff()
             .apply(&mut source.inactivity_scores, config)?;
+
         self.validators_diff()
             .apply::<E>(&mut source.validators, config)?;
+
         self.historical_roots()
             .apply(&mut source.historical_roots)?;
+
         self.historical_summaries()
             .apply(&mut source.historical_summaries)?;
 
@@ -410,24 +416,48 @@ impl CompressedU64Diff {
         xs: &mut List<u64, N>,
         config: &StoreConfig,
     ) -> Result<(), Error> {
-        // Decompress balances diff.
-        let balances_diff_bytes = config
+        // Decompress diff bytes.
+        let diff_bytes = config
             .decompress_bytes(&self.bytes)
             .map_err(Error::Compression)?;
 
-        for (i, diff_bytes) in balances_diff_bytes
-            .chunks(u64::BITS as usize / 8)
-            .enumerate()
-        {
-            let diff = diff_bytes
-                .try_into()
-                .map(u64::from_be_bytes)
-                .map_err(|_| Error::BalancesIncompleteChunk)?;
+        let num_diffs = diff_bytes.len() / 8;
+        let num_existing = xs.len();
 
-            if let Some(x) = xs.get_mut(i) {
-                *x = x.wrapping_add(diff);
-            } else {
-                xs.push(diff).map_err(Error::Milhouse)?;
+        // Parse diff values.
+        let diffs = diff_bytes
+            .chunks_exact(8)
+            .map(|chunk| -> Result<u64, Error> {
+                let arr: [u8; 8] = chunk
+                    .try_into()
+                    .map_err(|_| Error::BalancesIncompleteChunk)?;
+                Ok(u64::from_be_bytes(arr))
+            })
+            .collect::<Result<Vec<u64>, _>>()?;
+
+        // Count non-zero diffs among existing elements to choose strategy.
+        let num_changed = diffs.iter().take(num_existing).filter(|d| **d != 0).count();
+        let num_appended = num_diffs.saturating_sub(num_existing);
+
+        if num_changed + num_appended > num_existing / 2 {
+            // Dense: rebuild list from scratch (faster than per-element copy-on-write when
+            // many elements change).
+            let mut new_values = Vec::with_capacity(num_diffs);
+            for (x, diff) in xs.iter().zip(diffs.iter()) {
+                new_values.push(x.wrapping_add(*diff));
+            }
+            new_values.extend_from_slice(&diffs[num_existing..]);
+            *xs = List::new(new_values).map_err(Error::Milhouse)?;
+        } else if num_changed > 0 || num_appended > 0 {
+            // Sparse: only update non-zero diffs using copy-on-write.
+            for (i, diff) in diffs.iter().enumerate().take(num_existing) {
+                if *diff != 0
+                    && let Some(x) = xs.get_mut(i) {
+                        *x = x.wrapping_add(*diff);
+                    }
+            }
+            for diff in &diffs[num_existing..] {
+                xs.push(*diff).map_err(Error::Milhouse)?;
             }
         }
 
@@ -545,16 +575,28 @@ impl ValidatorsDiff {
             .decompress_bytes(&self.bytes)
             .map_err(Error::Compression)?;
 
-        for diff_bytes in
-            validator_diff_bytes.chunks(<ValidatorDiffEntry as Decode>::ssz_fixed_len())
-        {
-            let ValidatorDiffEntry {
-                index,
-                validator_diff: diff,
-            } = ValidatorDiffEntry::from_ssz_bytes(diff_bytes)
-                .map_err(|_| Error::BalancesIncompleteChunk)?;
+        // Parse all diff entries from SSZ bytes.
+        let entry_size = <ValidatorDiffEntry as Decode>::ssz_fixed_len();
+        let entries: Vec<ValidatorDiffEntry> = validator_diff_bytes
+            .chunks(entry_size)
+            .map(|diff_bytes| {
+                ValidatorDiffEntry::from_ssz_bytes(diff_bytes)
+                    .map_err(|_| Error::BalancesIncompleteChunk)
+            })
+            .collect::<Result<_, _>>()?;
 
-            if let Some(x) = xs.get_mut(index as usize) {
+        // Build a BTreeMap of updates for bulk application.
+        let mut updates = BTreeMap::new();
+
+        for ValidatorDiffEntry {
+            index,
+            validator_diff: diff,
+        } in entries
+        {
+            let idx = index as usize;
+
+            if let Some(x) = xs.get(idx) {
+                let mut x = x.clone();
                 // Note: a pubkey change implies index re-use. In that case over-write
                 // withdrawal_credentials and slashed inconditionally as their default values
                 // are valid values.
@@ -583,10 +625,13 @@ impl ValidatorsDiff {
                 if diff.withdrawable_epoch != Epoch::new(0) {
                     x.withdrawable_epoch = diff.withdrawable_epoch;
                 }
+                updates.insert(idx, x);
             } else {
-                xs.push(diff).map_err(Error::Milhouse)?;
+                updates.insert(idx, diff);
             }
         }
+
+        xs.bulk_update(updates).map_err(Error::Milhouse)?;
 
         Ok(())
     }
