@@ -50,12 +50,19 @@ pub struct PartialDataColumnSidecarRef<'a, E: EthSpec> {
 pub enum PartialDataColumnSidecarError {
     UnexpectedBounds,
     InternallyInconsistent,
-    Unmergable,
+    DifferingLengths { lhs_len: usize, rhs_len: usize },
+    ConflictingData,
 }
 
 impl<E: EthSpec> PartialDataColumnSidecar<E> {
     pub fn is_complete(&self) -> bool {
         self.cells_present_bitmap.num_set_bits() == self.cells_present_bitmap.len()
+    }
+
+    pub fn get(&self, idx: usize) -> Option<(&Cell<E>, &KzgProof)> {
+        self.column
+            .get(idx)
+            .and_then(|cell| self.kzg_proofs.get(idx).map(|proof| (cell, proof)))
     }
 
     /// Creates a reference to this sidecar containing only the blob indices for which the passed

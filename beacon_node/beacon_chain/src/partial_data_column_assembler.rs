@@ -8,10 +8,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tracing::error;
 use types::core::{Epoch, EthSpec, Hash256};
-use types::data::{
-    ColumnIndex, DataColumnSidecar, DataColumnSidecarFulu, PartialDataColumn,
-    PartialDataColumnHeader,
-};
+use types::data::{ColumnIndex, PartialDataColumnHeader};
 
 /// Assembles partial data columns into complete columns
 pub struct PartialDataColumnAssembler<E: EthSpec> {
@@ -29,7 +26,8 @@ struct PartialAssembly<E: EthSpec> {
 
 #[derive(Clone, Debug)]
 pub enum AssemblyColumn<E: EthSpec> {
-    Complete,
+    // As the actual column is Arc'd inside, storing it redundantly here will not increase memory usage.
+    Complete(KzgVerifiedCustodyDataColumn<E>),
     Incomplete(KzgVerifiedCustodyPartialDataColumn<E>),
 }
 
@@ -135,8 +133,8 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
 
             // Check if merged column is now complete by trying to convert into full
             let column = if let Some(full_column) = merged.try_clone_full(&header) {
-                full_columns.push(full_column);
-                AssemblyColumn::Complete
+                full_columns.push(full_column.clone());
+                AssemblyColumn::Complete(full_column)
             } else {
                 AssemblyColumn::Incomplete(merged.clone())
             };
@@ -156,21 +154,40 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
 
     /// Mark a column as assembled. Returns true if the column was previously incomplete or not
     /// in the assembly at all.
-    pub fn mark_as_complete(&self, block_root: Hash256, column: &DataColumnSidecarFulu<E>) -> bool {
+    pub fn mark_as_complete(
+        &self,
+        block_root: Hash256,
+        column: &KzgVerifiedCustodyDataColumn<E>,
+    ) -> bool {
+        // TODO(gloas): support partial messages
+        let Ok(fulu) = column.as_data_column().as_fulu() else {
+            return false;
+        };
+
         let mut assemblies = self.assemblies.write();
         let assembly = assemblies.get_or_insert_mut(block_root, || PartialAssembly {
             header: Arc::new(PartialDataColumnHeader {
-                kzg_commitments: column.kzg_commitments.clone(),
-                signed_block_header: column.signed_block_header.clone(),
-                kzg_commitments_inclusion_proof: column.kzg_commitments_inclusion_proof.clone(),
+                kzg_commitments: fulu.kzg_commitments.clone(),
+                signed_block_header: fulu.signed_block_header.clone(),
+                kzg_commitments_inclusion_proof: fulu.kzg_commitments_inclusion_proof.clone(),
             }),
             has_local_blobs: false,
             columns: Default::default(),
         });
         let prev = assembly
             .columns
-            .insert(column.index, AssemblyColumn::Complete);
-        !matches!(prev, Some(AssemblyColumn::Complete))
+            .insert(column.index(), AssemblyColumn::Complete(column.clone()));
+        !matches!(prev, Some(AssemblyColumn::Complete(_)))
+    }
+
+    /// Returns true if the given column is complete.
+    pub fn is_complete(&self, block_root: Hash256, column_index: ColumnIndex) -> bool {
+        self.assemblies.read().peek(&block_root).is_some_and(|a| {
+            matches!(
+                a.columns.get(&column_index),
+                Some(AssemblyColumn::Complete(_))
+            )
+        })
     }
 
     /// Get the current partial for a specific column if it exists in assembly
@@ -249,26 +266,21 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
     }
 }
 
-/// Result of initializing with engine blobs
-pub struct InitResult<E: EthSpec> {
-    /// Columns that were already complete
-    pub complete_columns: Vec<Arc<DataColumnSidecar<E>>>,
-    /// Columns that need further assembly via gossip
-    pub incomplete_partials: Vec<Arc<PartialDataColumn<E>>>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::data_column_verification::{
-        KzgVerifiedCustodyPartialDataColumn, KzgVerifiedPartialDataColumn,
+        KzgVerifiedCustodyPartialDataColumn, KzgVerifiedDataColumn, KzgVerifiedPartialDataColumn,
     };
     use bls::{FixedBytesExtended, Signature};
     use kzg::{KzgCommitment, KzgProof};
     use ssz_types::{FixedVector, VariableList};
     use types::block::{BeaconBlockHeader, SignedBeaconBlockHeader};
     use types::core::{EthSpec, Hash256, MinimalEthSpec, Slot};
-    use types::data::{Cell, CellBitmap, PartialDataColumnSidecar};
+    use types::data::{
+        Cell, CellBitmap, DataColumnSidecar, DataColumnSidecarFulu, PartialDataColumn,
+        PartialDataColumnSidecar,
+    };
 
     type E = MinimalEthSpec;
 
@@ -348,6 +360,12 @@ mod tests {
         };
         KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(
             KzgVerifiedPartialDataColumn::__new_for_testing(Arc::new(partial)),
+        )
+    }
+
+    fn make_full_column(fulu: DataColumnSidecarFulu<E>) -> KzgVerifiedCustodyDataColumn<E> {
+        KzgVerifiedCustodyDataColumn::from_asserted_custody(
+            KzgVerifiedDataColumn::__new_for_testing(Arc::new(DataColumnSidecar::Fulu(fulu))),
         )
     }
 
@@ -467,7 +485,7 @@ mod tests {
         let partial = make_partial(root, 0, 4, &[0, 1]);
         assembler.merge_partials(root, vec![partial], header);
 
-        let full_column = DataColumnSidecarFulu::<E> {
+        let full_column = make_full_column(DataColumnSidecarFulu::<E> {
             index: 0,
             column: vec![Cell::<E>::default(); 4].try_into().unwrap(),
             kzg_commitments: vec![KzgCommitment([0u8; 48]); 4].try_into().unwrap(),
@@ -486,7 +504,7 @@ mod tests {
                 vec![Hash256::zero(); E::kzg_commitments_inclusion_proof_depth()],
             )
             .unwrap(),
-        };
+        });
         assert!(assembler.mark_as_complete(root, &full_column));
     }
 
@@ -495,7 +513,7 @@ mod tests {
         let assembler = make_assembler();
         let root = Hash256::repeat_byte(1);
 
-        let full_column = DataColumnSidecarFulu::<E> {
+        let full_column = make_full_column(DataColumnSidecarFulu::<E> {
             index: 0,
             column: vec![Cell::<E>::default(); 4].try_into().unwrap(),
             kzg_commitments: vec![KzgCommitment([0u8; 48]); 4].try_into().unwrap(),
@@ -514,7 +532,7 @@ mod tests {
                 vec![Hash256::zero(); E::kzg_commitments_inclusion_proof_depth()],
             )
             .unwrap(),
-        };
+        });
         assert!(assembler.mark_as_complete(root, &full_column));
         assert!(!assembler.mark_as_complete(root, &full_column));
     }

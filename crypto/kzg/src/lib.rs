@@ -21,10 +21,10 @@ pub const BYTES_PER_PROOF: usize = 48;
 use crate::trusted_setup::load_trusted_setup;
 use rayon::prelude::*;
 pub use rust_eth_kzg::{
-    constants::{BYTES_PER_CELL, CELLS_PER_EXT_BLOB},
     Cell, CellIndex as CellID, CellRef, TrustedSetup as PeerDASTrustedSetup,
+    constants::{BYTES_PER_CELL, CELLS_PER_EXT_BLOB},
 };
-use tracing::{instrument, Span};
+use tracing::{Span, instrument};
 
 // Note: Both `NUMBER_OF_COLUMNS` and `CELLS_PER_EXT_BLOB` are preset values - however this
 // is a constant in the KZG library - be aware that overriding `NUMBER_OF_COLUMNS` will break KZG
@@ -50,8 +50,6 @@ pub enum Error {
     ReconstructFailed(String),
     /// Kzg was not initialized with PeerDAS enabled.
     DASContextUninitialized,
-    /// A partial column was provided without necessary data
-    PartialWithoutHeader,
 }
 
 impl From<rust_eth_kzg::Error> for Error {

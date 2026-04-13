@@ -21,7 +21,8 @@ use tracing::{debug, error, instrument};
 use types::data::{BlobIdentifier, FixedBlobSidecarList, PartialDataColumn};
 use types::{
     BlobSidecar, BlobSidecarList, BlockImportSource, ChainSpec, DataColumnSidecar,
-    DataColumnSidecarList, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot, new_non_zero_usize,
+    DataColumnSidecarList, Epoch, EthSpec, Hash256, PartialDataColumnSidecarError,
+    PartialDataColumnSidecarRef, SignedBeaconBlock, Slot, new_non_zero_usize,
 };
 
 mod error;
@@ -186,94 +187,104 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             })
     }
 
-    /// Check if the full data column is in the availability cache.
-    /// Returns None if this is not checkable due to conflicting data, and a vec of missing cells
-    /// (cells in the incoming column that aren't cached yet) otherwise.
-    pub fn determine_missing_cells_full(
-        &self,
-        block_root: &Hash256,
-        data_column: &DataColumnSidecar<T::EthSpec>,
-    ) -> Option<Vec<usize>> {
+    /// Filter out all cells that are already cached for the given `block_root`.
+    /// Returns None if all cells are already cached.
+    /// Returns an error if any cells or proofs mismatch the cached cells.
+    pub fn missing_cells_for_column_sidecar<'a>(
+        &'_ self,
+        data_column: &'a DataColumnSidecar<T::EthSpec>,
+    ) -> Result<Option<PartialDataColumnSidecarRef<'a, T::EthSpec>>, MissingCellsError> {
+        let block_root = data_column.block_root();
         let column_index = *data_column.index();
-        let cell_count = data_column.column().len();
 
-        // Check DA checker cache first - if we have a full column cached, nothing is missing
-        if self
-            .availability_cache
-            .peek_pending_components(block_root, |components| {
-                components
-                    .and_then(|c| c.get_cached_data_column(column_index))
-                    .is_some()
-            })
+        // Check DA checker cache first - if we have a full column cached, nothing is missing.
+        // We return Some(true) from the peek if it exists and matches, Some(false) if it exists but
+        // does not match, and None if it doesn't exist.
+        if let Some(matches) =
+            self.availability_cache
+                .peek_pending_components(&block_root, |components| {
+                    components
+                        .and_then(|c| c.get_cached_data_column(column_index))
+                        .map(|cached| *cached == *data_column)
+                })
         {
-            return Some(vec![]);
+            return if matches {
+                Ok(None)
+            } else {
+                Err(MissingCellsError::MismatchesCachedColumn)
+            };
         }
 
         // Check assembler for partial columns
         if let Some(assembler) = &self.partial_assembler {
-            match assembler.get_partial(block_root, column_index) {
+            match assembler.get_partial(&block_root, column_index) {
                 Some(AssemblyColumn::Incomplete(cached_partial)) => {
-                    // Compare: find which cells from incoming full column aren't in cached partial
-                    compare_full_to_partial(cell_count, cached_partial.as_data_column())
+                    return data_column.try_filter_to_partial_ref(|idx, cell, proof| {
+                        match cached_partial.as_data_column().sidecar.get(idx) {
+                            None => Ok(true),
+                            Some((cached_cell, cached_proof)) => {
+                                if cell == cached_cell && proof == cached_proof {
+                                    Ok(false)
+                                } else {
+                                    Err(MissingCellsError::MismatchesCachedColumn)
+                                }
+                            }
+                        }
+                    });
                 }
-                Some(AssemblyColumn::Complete) => Some(vec![]),
+                // This can happen if the column has been marked as completed already but has not
+                // reached the availability cache yet.
+                Some(AssemblyColumn::Complete(_)) => {
+                    return Ok(None);
+                }
                 None => {
                     // No cached data, all cells are "missing" (new data we want)
-                    Some((0..cell_count).collect())
                 }
             }
-        } else {
-            // No assembler, all cells are missing
-            Some((0..cell_count).collect())
         }
+        // No cached data, all cells are "missing" (new data we want)
+        data_column.try_filter_to_partial_ref(|_, _, _| Ok(true))
     }
 
-    /// Check if the partial data column is in the availability cache.
-    /// Returns None if this is not checkable due to conflicting data, and a vec of missing cells
-    /// (cells in the incoming column that aren't cached yet) otherwise.
-    pub fn determine_missing_cells_partial(
-        &self,
-        block_root: &Hash256,
-        data_column: &PartialDataColumn<T::EthSpec>,
-    ) -> Option<Vec<usize>> {
-        let column_index = data_column.index;
+    /// Filter out all cells that are already cached for the given `block_root`.
+    /// Returns input for kzg verification, or None if all cells are already cached.
+    pub fn missing_cells_for_partial_column_sidecar<'a>(
+        &'_ self,
+        partial_data_column: &'a PartialDataColumn<T::EthSpec>,
+    ) -> Result<Option<PartialDataColumnSidecarRef<'a, T::EthSpec>>, MissingCellsError> {
+        let column_index = partial_data_column.index;
+        let block_root = partial_data_column.block_root;
 
-        // Check DA checker cache first - if we have a full column cached, nothing is missing
+        // Check DA checker cache first - if we have a full column cached, nothing is missing.
         if self
             .availability_cache
-            .peek_pending_components(block_root, |components| {
-                components
-                    .and_then(|c| c.get_cached_data_column(column_index))
-                    .is_some()
+            .peek_pending_components(&block_root, |components| {
+                components.is_some_and(|c| c.get_cached_data_column(column_index).is_some())
             })
         {
-            return Some(vec![]);
+            return Ok(None);
         }
 
         // Check assembler for partial columns
         if let Some(assembler) = &self.partial_assembler {
-            match assembler.get_partial(block_root, column_index) {
+            match assembler.get_partial(&block_root, column_index) {
                 Some(AssemblyColumn::Incomplete(cached_partial)) => {
-                    // Compare: find which cells from incoming full column aren't in cached partial
-                    return compare_partial_to_partial(
-                        data_column,
-                        cached_partial.as_data_column(),
-                    );
+                    return Ok(partial_data_column.sidecar.filter(|idx| {
+                        cached_partial.as_data_column().sidecar.get(idx).is_none()
+                    })?);
                 }
-                Some(AssemblyColumn::Complete) => return Some(vec![]),
-                None => {}
+                // This can happen if the column has been marked as completed already but has not
+                // reached the availability cache yet.
+                Some(AssemblyColumn::Complete(_)) => {
+                    return Ok(None);
+                }
+                None => {
+                    // No cached data, all cells are "missing" (new data we want)
+                }
             }
         }
-
-        // No assembler or no data, return all cells as missing
-        let incoming_cells: Vec<usize> = data_column
-            .sidecar
-            .cells_present_bitmap
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, present)| present.then_some(idx))
-            .collect();
-        Some(incoming_cells)
+        // No cached data, all cells are "missing" (new data we want)
+        Ok(partial_data_column.sidecar.filter(|_| true)?)
     }
 
     /// Get a blob from the availability cache.
@@ -405,6 +416,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .filter(|col| sampling_columns.contains(&col.index()))
             .map(|c| KzgVerifiedCustodyDataColumn::from_asserted_custody(c.into_inner()))
             .collect::<Vec<_>>();
+
+        if let Some(assembler) = &self.partial_assembler {
+            for column in &custody_columns {
+                assembler.mark_as_complete(block_root, column);
+            }
+        }
 
         self.availability_cache
             .put_kzg_verified_data_columns(block_root, custody_columns)
@@ -998,67 +1015,19 @@ impl<E: EthSpec> MaybeAvailableBlock<E> {
     }
 }
 
-/// Compare an incoming full column (all cells present, indices 0..cell_count) against a cached partial.
-/// Returns cells from the incoming column that aren't in the cached partial, or None on data conflict.
-fn compare_full_to_partial<E: EthSpec>(
-    incoming_cell_count: usize,
-    cached_partial: &PartialDataColumn<E>,
-) -> Option<Vec<usize>> {
-    let cached_bitmap = &cached_partial.sidecar.cells_present_bitmap;
-
-    // Check that cell counts match
-    if cached_bitmap.len() != incoming_cell_count {
-        debug!(
-            cached_len = cached_bitmap.len(),
-            incoming_len = incoming_cell_count,
-            "Cell count mismatch in column comparison"
-        );
-        return None;
-    }
-
-    // Find cells that are in incoming (all of them for a full column) but not in cached
-    let missing_cells: Vec<usize> = (0..incoming_cell_count)
-        .filter(|&idx| {
-            !cached_bitmap
-                .get(idx)
-                .expect("idx within bounds due to length check above")
-        })
-        .collect();
-
-    Some(missing_cells)
+pub enum MissingCellsError {
+    /// The provided column is not matching with the existing cached column.
+    /// This is to be treated as a KZG verification failure.
+    MismatchesCachedColumn,
+    /// An error occurred while operating on the column. It is possibly malformed.
+    /// This is not expected to happen for columns passing basic validation.
+    UnexpectedError(PartialDataColumnSidecarError),
 }
 
-/// Compare an incoming partial column against a cached partial.
-/// Returns cells from the incoming column that aren't in the cached partial, or None on data conflict.
-fn compare_partial_to_partial<E: EthSpec>(
-    incoming: &PartialDataColumn<E>,
-    cached_partial: &PartialDataColumn<E>,
-) -> Option<Vec<usize>> {
-    let incoming_bitmap = &incoming.sidecar.cells_present_bitmap;
-    let cached_bitmap = &cached_partial.sidecar.cells_present_bitmap;
-
-    // Check that cell counts match
-    if incoming_bitmap.len() != cached_bitmap.len() {
-        debug!(
-            incoming_len = incoming_bitmap.len(),
-            cached_len = cached_bitmap.len(),
-            "Cell count mismatch in column comparison"
-        );
-        return None;
+impl From<PartialDataColumnSidecarError> for MissingCellsError {
+    fn from(e: PartialDataColumnSidecarError) -> Self {
+        Self::UnexpectedError(e)
     }
-
-    // Find cells that are in incoming but not in cached
-    let missing_cells: Vec<usize> = incoming_bitmap
-        .iter()
-        .zip(cached_bitmap.iter())
-        .enumerate()
-        .filter_map(|(idx, (in_incoming, in_cached))| {
-            // Cell is "missing" (from cache) if it's in incoming but not in cached
-            (in_incoming && !in_cached).then_some(idx)
-        })
-        .collect();
-
-    Some(missing_cells)
 }
 
 #[cfg(test)]

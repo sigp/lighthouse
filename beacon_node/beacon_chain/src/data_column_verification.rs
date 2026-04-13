@@ -1,6 +1,7 @@
 use crate::block_verification::{
     BlockSlashInfo, get_validator_pubkey_cache, process_block_slash_info,
 };
+use crate::data_availability_checker::MissingCellsError;
 use crate::kzg_utils::{
     reconstruct_data_columns, validate_full_data_columns, validate_partial_data_columns,
 };
@@ -27,7 +28,8 @@ use types::data::{
 };
 use types::{
     BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSubnetId,
-    EthSpec, Hash256, SignedBeaconBlockHeader, Slot, StatePayloadStatus,
+    EthSpec, Hash256, PartialDataColumnSidecarRef, SignedBeaconBlockHeader, Slot,
+    StatePayloadStatus,
 };
 
 /// An error occurred while validating a gossip data column.
@@ -69,6 +71,13 @@ pub enum GossipDataColumnError {
     ///
     /// The data column sidecar is invalid and the peer is faulty.
     InvalidKzgProof(kzg::Error),
+    /// The column mismatches the cached (possibly partial) column.
+    /// This is equivalent to failed kzg verification.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The data column sidecar is invalid and the peer is faulty.
+    MismatchesCachedColumn,
     /// The column was gossiped over an incorrect subnet.
     ///
     /// ## Peer scoring
@@ -332,24 +341,29 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
         // In this case, we should accept it for gossip propagation.
         verify_is_unknown_sidecar(chain, &column_sidecar)?;
 
-        if chain
+        match chain
             .data_availability_checker
-            .determine_missing_cells_full(&column_sidecar.block_root(), column_sidecar.as_ref())
-            .map(|cells| cells.is_empty())
-            .unwrap_or(false)
+            .missing_cells_for_column_sidecar(&column_sidecar)
         {
-            // Observe this data column so we don't process it again.
-            if O::observe() {
-                observe_gossip_data_column(&column_sidecar, chain)?;
+            Ok(Some(_)) => Ok(Self {
+                block_root: column_sidecar.block_root(),
+                data_column: KzgVerifiedDataColumn::from_execution_verified(column_sidecar),
+                _phantom: Default::default(),
+            }),
+            Ok(None) => {
+                // Observe this data column so we don't process it again.
+                if O::observe() {
+                    observe_gossip_data_column(&column_sidecar, chain)?;
+                }
+                Err(GossipDataColumnError::PriorKnownUnpublished)
             }
-            return Err(GossipDataColumnError::PriorKnownUnpublished);
+            Err(MissingCellsError::MismatchesCachedColumn) => {
+                Err(GossipDataColumnError::MismatchesCachedColumn)
+            }
+            Err(MissingCellsError::UnexpectedError(_)) => {
+                todo!("handle unexpected error")
+            }
         }
-
-        Ok(Self {
-            block_root: column_sidecar.block_root(),
-            data_column: KzgVerifiedDataColumn::from_execution_verified(column_sidecar),
-            _phantom: Default::default(),
-        })
     }
 
     /// Create a `GossipVerifiedDataColumn` from `DataColumnSidecar` for testing ONLY.
@@ -396,14 +410,6 @@ pub struct KzgVerifiedDataColumn<E: EthSpec> {
 }
 
 impl<E: EthSpec> KzgVerifiedDataColumn<E> {
-    pub fn new(
-        data_column: Arc<DataColumnSidecar<E>>,
-        kzg: &Kzg,
-        seen_timestamp: Duration,
-    ) -> Result<Self, (Option<ColumnIndex>, KzgError)> {
-        verify_kzg_for_data_column(data_column, kzg, seen_timestamp)
-    }
-
     /// Mark a data column as KZG verified. Caller must ONLY use this on columns constructed
     /// from EL blobs.
     pub fn from_execution_verified(data_column: Arc<DataColumnSidecar<E>>) -> Self {
@@ -628,19 +634,6 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
         }
     }
 
-    /// Verify a column already marked as custody column
-    pub fn new(
-        data_column: CustodyDataColumn<E>,
-        kzg: &Kzg,
-        seen_timestamp: Duration,
-    ) -> Result<Self, (Option<ColumnIndex>, KzgError)> {
-        verify_kzg_for_data_column(data_column.clone_arc(), kzg, seen_timestamp)?;
-        Ok(Self {
-            data: data_column.data,
-            seen_timestamp,
-        })
-    }
-
     pub fn reconstruct_columns(
         kzg: &Kzg,
         partial_set_of_columns: &[Self],
@@ -733,11 +726,14 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumn<E> {
         // Check that each sidecar is internally consistent by checking the lengths.
         self_sidecar.verify_len()?;
         other_sidecar.verify_len()?;
-        if self.data.block_root != other.data.block_root
-            || self.data.index != other.data.index
-            || self_sidecar.cells_present_bitmap.len() != other_sidecar.cells_present_bitmap.len()
-        {
-            return Err(PartialDataColumnSidecarError::Unmergable);
+        if self.data.block_root != other.data.block_root || self.data.index != other.data.index {
+            return Err(PartialDataColumnSidecarError::ConflictingData);
+        }
+        if self_sidecar.cells_present_bitmap.len() != other_sidecar.cells_present_bitmap.len() {
+            return Err(PartialDataColumnSidecarError::DifferingLengths {
+                lhs_len: self_sidecar.cells_present_bitmap.len(),
+                rhs_len: other_sidecar.cells_present_bitmap.len(),
+            });
         }
 
         let new_bitmap = self_sidecar
@@ -843,11 +839,22 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumn<E> {
 #[instrument(skip_all, level = "debug")]
 pub fn verify_kzg_for_data_column<E: EthSpec>(
     data_column: Arc<DataColumnSidecar<E>>,
+    cells_to_verify: PartialDataColumnSidecarRef<E>,
     kzg: &Kzg,
     seen_timestamp: Duration,
 ) -> Result<KzgVerifiedDataColumn<E>, (Option<ColumnIndex>, KzgError)> {
     let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES);
-    validate_full_data_columns(kzg, iter::once(&data_column))?;
+    let Ok(kzg_commitments) = data_column.kzg_commitments() else {
+        return Err((
+            Some(*data_column.index()),
+            KzgError::InconsistentArrayLength("todo(gloas)".to_string()),
+        ));
+    };
+    validate_partial_data_columns(
+        kzg,
+        iter::once((*data_column.index(), cells_to_verify)),
+        kzg_commitments,
+    )?;
     Ok(KzgVerifiedDataColumn {
         data: data_column,
         seen_timestamp,
@@ -859,29 +866,21 @@ pub fn verify_kzg_for_data_column<E: EthSpec>(
 /// Returns an error if the kzg verification check fails.
 #[instrument(skip_all, level = "debug")]
 pub fn verify_kzg_for_partial_data_column<E: EthSpec>(
-    data_column: Box<PartialDataColumn<E>>,
-    unverified_cells: Vec<usize>,
+    data_column: Arc<PartialDataColumn<E>>,
+    cells_to_verify: PartialDataColumnSidecarRef<E>,
     header: &GossipVerifiedPartialDataColumnHeader<E>,
     kzg: &Kzg,
     seen_timestamp: Duration,
 ) -> Result<KzgVerifiedPartialDataColumn<E>, GossipPartialDataColumnError> {
-    let Some(filtered_column) = data_column
-        .sidecar
-        .filter(|idx| unverified_cells.contains(&idx))
-        .map_err(GossipPartialDataColumnError::InternalError)?
-    else {
-        return Err(GossipDataColumnError::PriorKnownUnpublished.into());
-    };
-
     let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES);
     validate_partial_data_columns(
         kzg,
-        iter::once((data_column.index, filtered_column)),
+        iter::once((data_column.index, cells_to_verify)),
         header.header.kzg_commitments.as_ref(),
     )
     .map_err(|(_, e)| GossipDataColumnError::InvalidKzgProof(e))?;
     Ok(KzgVerifiedPartialDataColumn {
-        data: data_column.into(),
+        data: data_column,
         latest_cell_timestamp: seen_timestamp,
     })
 }
@@ -930,17 +929,22 @@ pub fn validate_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes, O: Obse
     // particular instance hasn't been seen / published on the gossip network yet (passed the
     // `verify_is_unknown_sidecar` check above). In this case, we should accept it for gossip
     // propagation.
-    if let Some(cells) = chain
+    let Some(cells_to_kzg_verify) = chain
         .data_availability_checker
-        .determine_missing_cells_full(&data_column.block_root(), data_column.as_ref())
-        && cells.is_empty()
-    {
+        .missing_cells_for_column_sidecar(&data_column)
+        .map_err(|err| match err {
+            MissingCellsError::MismatchesCachedColumn => {
+                GossipDataColumnError::MismatchesCachedColumn
+            }
+            MissingCellsError::UnexpectedError(_) => todo!("handle unexpected error"),
+        })?
+    else {
         // Observe this data column so we don't process it again.
         if O::observe() {
             observe_gossip_data_column(&data_column, chain)?;
         }
         return Err(GossipDataColumnError::PriorKnownUnpublished);
-    }
+    };
 
     verify_column_inclusion_proof(data_column_fulu)?;
     let parent_block = verify_parent_block_and_finalized_descendant(
@@ -952,9 +956,13 @@ pub fn validate_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes, O: Obse
     verify_proposer_and_signature(&data_column_fulu.signed_block_header, &parent_block, chain)?;
     let kzg = &chain.kzg;
     let seen_timestamp = chain.slot_clock.now_duration().unwrap_or_default();
-    let kzg_verified_data_column =
-        verify_kzg_for_data_column(data_column.clone(), kzg, seen_timestamp)
-            .map_err(|(_, e)| GossipDataColumnError::InvalidKzgProof(e))?;
+    let kzg_verified_data_column = verify_kzg_for_data_column(
+        data_column.clone(),
+        cells_to_kzg_verify,
+        kzg,
+        seen_timestamp,
+    )
+    .map_err(|(_, e)| GossipDataColumnError::InvalidKzgProof(e))?;
 
     chain
         .observed_slashable
@@ -1051,30 +1059,33 @@ pub fn validate_partial_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
         };
     }
 
-    let Some(missing_cells) = chain
+    let column = Arc::from(column);
+    let cells_to_kzg_verify = match chain
         .data_availability_checker
-        .determine_missing_cells_partial(&block_root, &column)
-    else {
-        // TODO(dknopik): This shuld be a different error
-        return PartialColumnVerificationResult::ErrWithValidHeader {
-            err: GossipDataColumnError::PriorKnownUnpublished.into(),
-            header,
-        };
+        .missing_cells_for_partial_column_sidecar(&column)
+    {
+        Ok(Some(cells_to_kzg_verify)) => cells_to_kzg_verify,
+        Ok(None) => {
+            return PartialColumnVerificationResult::ErrWithValidHeader {
+                err: GossipDataColumnError::PriorKnownUnpublished.into(),
+                header,
+            };
+        }
+        Err(MissingCellsError::MismatchesCachedColumn) => {
+            return PartialColumnVerificationResult::ErrWithValidHeader {
+                err: GossipDataColumnError::MismatchesCachedColumn.into(),
+                header,
+            };
+        }
+        Err(MissingCellsError::UnexpectedError(e)) => todo!("handle unexpected error {:?}", e),
     };
-
-    if missing_cells.is_empty() {
-        return PartialColumnVerificationResult::ErrWithValidHeader {
-            err: GossipDataColumnError::PriorKnownUnpublished.into(),
-            header,
-        };
-    }
 
     // We do not have to check block related data here, as we create the verifiable column from
     // gossip accepted block
     let kzg = &chain.kzg;
     let column = match verify_kzg_for_partial_data_column(
-        column,
-        missing_cells,
+        column.clone(),
+        cells_to_kzg_verify,
         &header,
         kzg,
         seen_timestamp,

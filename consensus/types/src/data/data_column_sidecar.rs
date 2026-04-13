@@ -19,7 +19,10 @@ use tree_hash_derive::TreeHash;
 use crate::{
     block::{BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, SignedBeaconBlockHeader},
     core::{Epoch, EthSpec, Hash256, Slot},
-    data::{CellBitmap, PartialDataColumn, PartialDataColumnHeader, PartialDataColumnSidecar},
+    data::{
+        CellBitmap, PartialDataColumn, PartialDataColumnHeader, PartialDataColumnSidecar,
+        PartialDataColumnSidecarError, PartialDataColumnSidecarRef,
+    },
     fork::ForkName,
     kzg_ext::{KzgCommitments, KzgError},
     state::BeaconStateError,
@@ -136,6 +139,49 @@ impl<E: EthSpec> DataColumnSidecar<E> {
                 DataColumnSidecarGloas::from_ssz_bytes(bytes)?,
             )),
         }
+    }
+
+    /// Convert this full data column into a partial data column reference for KZG verification.
+    /// The header will NOT be set.
+    ///
+    /// Uses the supplied filter to determine which cells to include in the partial sidecar.
+    pub fn try_filter_to_partial_ref<F, Err>(
+        &self,
+        filter: F,
+    ) -> Result<Option<PartialDataColumnSidecarRef<'_, E>>, Err>
+    where
+        F: Fn(usize, &Cell<E>, &KzgProof) -> Result<bool, Err>,
+        Err: From<PartialDataColumnSidecarError>,
+    {
+        let len = self.column().len();
+        let mut new_bitmap = CellBitmap::<E>::with_capacity(len)
+            .map_err(|_| PartialDataColumnSidecarError::UnexpectedBounds)?;
+        let mut new_column = Vec::with_capacity(len);
+        let mut new_proofs = Vec::with_capacity(len);
+        let iter = self.column().iter().zip(self.kzg_proofs().iter());
+
+        for (blob_idx, (cell, proof)) in iter.enumerate() {
+            if filter(blob_idx, cell, proof)? {
+                // Keep this cell
+                new_column.push(cell);
+                new_proofs.push(proof);
+                // Mark as present
+                new_bitmap
+                    .set(blob_idx, true)
+                    .map_err(|_| PartialDataColumnSidecarError::UnexpectedBounds)?;
+            }
+        }
+
+        if new_column.is_empty() {
+            return Ok(None);
+        }
+
+        Ok(Some(PartialDataColumnSidecarRef {
+            cells_present_bitmap: new_bitmap,
+            column: new_column,
+            kzg_proofs: new_proofs,
+            header: None.into(),
+        }))
     }
 }
 

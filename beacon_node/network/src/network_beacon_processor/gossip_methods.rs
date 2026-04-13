@@ -743,6 +743,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | GossipDataColumnError::InvalidSubnetId { .. }
                     | GossipDataColumnError::InvalidInclusionProof
                     | GossipDataColumnError::InvalidKzgProof { .. }
+                    | GossipDataColumnError::MismatchesCachedColumn
                     | GossipDataColumnError::UnexpectedDataColumn
                     | GossipDataColumnError::InvalidColumnIndex(_)
                     | GossipDataColumnError::MaxBlobsPerBlockExceeded { .. }
@@ -943,6 +944,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | GossipDataColumnError::InvalidSubnetId { .. }
                 | GossipDataColumnError::InvalidInclusionProof
                 | GossipDataColumnError::InvalidKzgProof { .. }
+                | GossipDataColumnError::MismatchesCachedColumn
                 | GossipDataColumnError::UnexpectedDataColumn
                 | GossipDataColumnError::InvalidColumnIndex(_)
                 | GossipDataColumnError::MaxBlobsPerBlockExceeded { .. }
@@ -1323,7 +1325,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 .chain
                 .data_availability_checker
                 .partial_assembler()
-                .is_some_and(|a| a.mark_as_complete(block_root, col))
+                .is_some_and(|a| !a.is_complete(block_root, verified_data_column.index()))
         {
             metrics::inc_counter_vec(
                 &metrics::BEACON_USEFUL_FULL_COLUMNS_RECEIVED_TOTAL,
