@@ -103,9 +103,7 @@ pub fn verify_execution_payload<E: EthSpec>(
     parent_state_root: Option<Hash256>,
     spec: &ChainSpec,
 ) -> Result<(), EnvelopeProcessingError> {
-    if verify_signatures.is_true()
-        && !signed_envelope.verify_signature_with_state(state, spec)?
-    {
+    if verify_signatures.is_true() && !signed_envelope.verify_signature_with_state(state, spec)? {
         return Err(EnvelopeProcessingError::BadSignature);
     }
 

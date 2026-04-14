@@ -1973,14 +1973,13 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
         {
             // Post-Gloas Full block case.
             // TODO(gloas): loading the envelope here is not very efficient
-            let Some(envelope) = chain.store.get_payload_envelope(&root)? else {
+            let Some(_envelope) = chain.store.get_payload_envelope(&root)? else {
                 return Err(BeaconChainError::DBInconsistent(format!(
                     "Missing envelope for parent block {root:?}",
                 ))
                 .into());
             };
-            let state_root = envelope.message.state_root;
-            (StatePayloadStatus::Full, state_root)
+            (StatePayloadStatus::Full, parent_block.state_root())
         } else {
             // Post-Gloas empty block case (also covers the Gloas fork transition).
             (StatePayloadStatus::Pending, parent_block.state_root())

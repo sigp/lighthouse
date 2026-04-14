@@ -434,26 +434,17 @@ where
             .clone()
             .ok_or("weak_subjectivity_state requires a store")?;
 
-        // Pre-Gloas: advance the state to an epoch boundary to preserve existing checkpoint sync
-        // behavior. Post-Gloas: the state cannot be advanced without the execution payload
-        // envelope, so it stays at the block's slot.
         let slots_per_epoch = E::slots_per_epoch();
-        if !self
-            .spec
-            .fork_name_at_slot::<E>(weak_subj_state.slot())
-            .gloas_enabled()
-        {
-            if weak_subj_state.slot() % slots_per_epoch != 0 {
-                debug!(
-                    state_slot = %weak_subj_state.slot(),
-                    block_slot = %weak_subj_block.slot(),
-                    "Advancing checkpoint state to boundary"
-                );
-            }
-            while weak_subj_state.slot() % slots_per_epoch != 0 {
-                per_slot_processing(&mut weak_subj_state, None, &self.spec)
-                    .map_err(|e| format!("Error advancing state: {e:?}"))?;
-            }
+        if weak_subj_state.slot() % slots_per_epoch != 0 {
+            debug!(
+                state_slot = %weak_subj_state.slot(),
+                block_slot = %weak_subj_block.slot(),
+                "Advancing checkpoint state to boundary"
+            );
+        }
+        while weak_subj_state.slot() % slots_per_epoch != 0 {
+            per_slot_processing(&mut weak_subj_state, None, &self.spec)
+                .map_err(|e| format!("Error advancing state: {e:?}"))?;
         }
 
         // Prime all caches before storing the state in the database and computing the tree hash

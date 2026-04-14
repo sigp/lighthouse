@@ -59,15 +59,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // state cache thanks to the state advance timer.
                 let (payload_status, parent_state_root) = if gloas_enabled
                     && head_payload_status.as_state_payload_status() == StatePayloadStatus::Full
-                    && let Ok(Some(envelope)) = self.store.get_payload_envelope(&head_block_root)
+                    && let Ok(Some(_envelope)) = self.store.get_payload_envelope(&head_block_root)
                 {
                     debug!(
                         %slot,
-                        parent_state_root = ?envelope.message.state_root,
+                        parent_state_root = ?head_state_root,
                         parent_block_root = ?head_block_root,
                         "Building Gloas block on full state"
                     );
-                    (StatePayloadStatus::Full, envelope.message.state_root)
+                    (StatePayloadStatus::Full, head_state_root)
                 } else {
                     (StatePayloadStatus::Pending, head_state_root)
                 };

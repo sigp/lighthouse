@@ -901,17 +901,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Fast-path for the split slot (which usually corresponds to the finalized slot).
-        // Post-Gloas, the split state root is always the Pending root but the canonical state root
-        // at the finalized slot may be the Full root (from the state_roots vector). Skip the
-        // fast-path for Gloas to ensure consistency with the forwards state root iterator.
-        // TODO(gloas): revisit this if spec changes to finalize payload status.
         let split = self.store.get_split_info();
-        if request_slot == split.slot
-            && !self
-                .spec
-                .fork_name_at_slot::<T::EthSpec>(split.slot)
-                .gloas_enabled()
-        {
+        if request_slot == split.slot {
             return Ok(Some(split.state_root));
         }
 
@@ -6725,8 +6716,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         let envelope = opt_envelope.ok_or_else(|| {
                             Error::DBInconsistent(format!("Missing envelope {block_root:?}"))
                         })?;
-                        let state_root = envelope.message.state_root;
-                        (Some(envelope), state_root)
+                        (Some(envelope), block.state_root())
                     } else {
                         (None, block.state_root())
                     }
@@ -6741,8 +6731,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         let envelope = opt_envelope.ok_or_else(|| {
                             Error::DBInconsistent(format!("Missing envelope {block_root:?}"))
                         })?;
-                        let state_root = envelope.message.state_root;
-                        (Some(envelope), state_root)
+                        (Some(envelope), block.state_root())
                     } else {
                         (None, block.state_root())
                     }

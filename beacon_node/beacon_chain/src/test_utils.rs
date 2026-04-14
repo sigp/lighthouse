@@ -2697,25 +2697,24 @@ where
         signed_envelope: SignedExecutionPayloadEnvelope<E>,
         pending_state: &mut BeaconState<E>,
     ) -> Hash256 {
-        let state_root = signed_envelope.message.state_root;
+        let block_state_root = pending_state
+            .update_tree_hash_cache()
+            .expect("should compute pending state root");
+        let state_root = block_state_root;
         debug!(
             slot = %signed_envelope.message.slot,
             ?state_root,
             "Processing execution payload envelope"
         );
-        let block_state_root = pending_state
-            .update_tree_hash_cache()
-            .expect("should compute pending state root");
 
-        state_processing::envelope_processing::process_execution_payload_envelope(
+        state_processing::envelope_processing::verify_execution_payload(
             pending_state,
-            Some(block_state_root),
             &signed_envelope,
             state_processing::VerifySignatures::True,
-            state_processing::envelope_processing::VerifyStateRoot::True,
+            Some(block_state_root),
             &self.spec,
         )
-        .expect("should process envelope");
+        .expect("should verify envelope");
 
         // Notify the EL of the new payload so forkchoiceUpdated can reference it.
         let block = self

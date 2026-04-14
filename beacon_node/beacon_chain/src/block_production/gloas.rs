@@ -9,7 +9,7 @@ use execution_layer::{
 use operation_pool::CompactAttestationRef;
 use ssz::Encode;
 use state_processing::common::get_attesting_indices_from_state;
-use state_processing::envelope_processing::{VerifyStateRoot, process_execution_payload_envelope};
+use state_processing::envelope_processing::verify_execution_payload;
 use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::per_block_processing::{
     compute_timestamp_at_slot, get_expected_withdrawals, verify_attestation_for_block_inclusion,
@@ -488,6 +488,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     bls_to_execution_changes: bls_to_execution_changes
                         .try_into()
                         .map_err(BlockProductionError::SszTypesError)?,
+                    parent_execution_requests: ExecutionRequests::default(),
                     signed_execution_payload_bid,
                     payload_attestations: payload_attestations
                         .try_into()
@@ -559,27 +560,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 builder_index: payload_data.builder_index,
                 beacon_block_root,
                 slot: payload_data.slot,
-                state_root: Hash256::ZERO,
             };
 
-            let mut signed_envelope = SignedExecutionPayloadEnvelope {
+            let signed_envelope = SignedExecutionPayloadEnvelope {
                 message: execution_payload_envelope,
                 signature: Signature::empty(),
             };
 
-            // We skip state root verification here because the relevant state root
-            // cant be calculated until after the new block has been constructed.
-            process_execution_payload_envelope(
-                &mut state,
-                None,
+            // Verify the envelope against the state. This performs no state mutation.
+            verify_execution_payload(
+                &state,
                 &signed_envelope,
                 VerifySignatures::False,
-                VerifyStateRoot::False,
+                Some(state_root),
                 &self.spec,
             )
             .map_err(BlockProductionError::EnvelopeProcessingError)?;
-
-            signed_envelope.message.state_root = state.update_tree_hash_cache()?;
 
             // Cache the envelope for later retrieval by the validator for signing and publishing.
             let envelope_slot = payload_data.slot;
@@ -705,6 +701,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             value: bid_value,
             execution_payment: EXECUTION_PAYMENT_TRUSTLESS_BUILD,
             blob_kzg_commitments,
+            execution_requests_root: execution_requests.tree_hash_root(),
         };
 
         // Store payload data for envelope construction after block is created

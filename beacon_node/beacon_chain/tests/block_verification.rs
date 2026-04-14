@@ -216,7 +216,7 @@ fn store_envelopes_for_chain_segment(
             harness
                 .chain
                 .store
-                .put_state(&envelope.message.state_root, &snapshot.beacon_state)
+                .put_state(&snapshot.beacon_block.state_root(), &snapshot.beacon_state)
                 .expect("should store full state");
         }
     }
@@ -1165,7 +1165,7 @@ async fn block_gossip_verification() {
             harness
                 .chain
                 .store
-                .put_state(&envelope.message.state_root, &snapshot.beacon_state)
+                .put_state(&snapshot.beacon_block.state_root(), &snapshot.beacon_state)
                 .expect("should store full state");
             harness
                 .chain

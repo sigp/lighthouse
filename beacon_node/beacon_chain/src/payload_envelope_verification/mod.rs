@@ -44,6 +44,7 @@ pub use execution_pending_envelope::ExecutionPendingEnvelope;
 #[derive(PartialEq)]
 pub struct EnvelopeImportData<E: EthSpec> {
     pub block_root: Hash256,
+    pub state_root: Hash256,
     pub post_state: Box<BeaconState<E>>,
 }
 
@@ -249,9 +250,6 @@ impl From<EnvelopeProcessingError> for EnvelopeError {
                 committed_bid,
                 envelope,
             },
-            EnvelopeProcessingError::BlockProcessingError(e) => {
-                EnvelopeError::BlockProcessingError(e)
-            }
             e => EnvelopeError::EnvelopeProcessingError(e),
         }
     }

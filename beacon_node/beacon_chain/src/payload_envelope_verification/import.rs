@@ -198,6 +198,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let EnvelopeImportData {
             block_root,
+            state_root,
             post_state,
         } = import_data;
 
@@ -208,6 +209,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     chain.import_execution_payload_envelope(
                         envelope,
                         block_root,
+                        state_root,
                         *post_state,
                         payload_verification_outcome.payload_verification_status,
                     )
@@ -231,6 +233,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         signed_envelope: AvailableEnvelope<T::EthSpec>,
         block_root: Hash256,
+        state_root: Hash256,
         state: BeaconState<T::EthSpec>,
         payload_verification_status: PayloadVerificationStatus,
     ) -> Result<Hash256, EnvelopeError> {
@@ -285,10 +288,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             block_root,
             signed_envelope.clone(),
         ));
-        ops.push(StoreOp::PutState(
-            signed_envelope.message.state_root,
-            &state,
-        ));
+        ops.push(StoreOp::PutState(state_root, &state));
 
         let db_span = info_span!("persist_payloads_and_blobs").entered();
 
@@ -365,7 +365,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 builder_index: signed_envelope.message.builder_index,
                 block_hash: signed_envelope.block_hash(),
                 block_root,
-                state_root: signed_envelope.message.state_root,
+                // The envelope no longer carries a state_root.
+                state_root: Hash256::ZERO,
                 execution_optimistic: payload_verification_status.is_optimistic(),
             }));
         }

@@ -224,7 +224,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
                     builder_index,
                     block_hash: signed_envelope.message.payload.block_hash,
                     block_root: beacon_block_root,
-                    state_root: signed_envelope.message.state_root,
+                    state_root: block.state_root(),
                 },
             ));
         }
@@ -340,7 +340,6 @@ mod tests {
             builder_index,
             beacon_block_root: Hash256::ZERO,
             slot,
-            state_root: Hash256::ZERO,
         }
     }
 
@@ -365,6 +364,7 @@ mod tests {
                 voluntary_exits: VariableList::empty(),
                 sync_aggregate: SyncAggregate::empty(),
                 bls_to_execution_changes: VariableList::empty(),
+                parent_execution_requests: ExecutionRequests::default(),
                 signed_execution_payload_bid: SignedExecutionPayloadBid::empty(),
                 payload_attestations: VariableList::empty(),
                 _phantom: PhantomData,

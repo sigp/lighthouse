@@ -167,6 +167,7 @@ pub enum HotColdDBError {
     UnableToFreezeFullState {
         state_root: Hash256,
     },
+    FreezeSlotUnaligned(Slot),
     FreezeSlotError {
         current_split_slot: Slot,
         proposed_split_slot: Slot,
@@ -3863,9 +3864,15 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         .into());
     }
 
+    if finalized_state.slot() % E::slots_per_epoch() != 0 {
+        return Err(HotColdDBError::FreezeSlotUnaligned(finalized_state.slot()).into());
+    }
+
     // Post-Gloas the finalized state must ALWAYS be a pending state. The payload of the finalized
     // block is not itself finalized.
-    if finalized_state.payload_status() == StatePayloadStatus::Full {
+    if finalized_state.latest_block_header().slot == finalized_state.slot()
+        && finalized_state.payload_status() == StatePayloadStatus::Full
+    {
         return Err(HotColdDBError::UnableToFreezeFullState {
             state_root: finalized_state_root,
         }

@@ -20,7 +20,6 @@ use beacon_chain::test_utils::{
 use beacon_chain::{BeaconChain, WhenSlotSkipped};
 use beacon_processor::{work_reprocessing_queue::*, *};
 use bls::Signature;
-use fixed_bytes::FixedBytesExtended;
 use itertools::Itertools;
 use libp2p::gossipsub::MessageAcceptance;
 use lighthouse_network::rpc::InboundRequestId;
@@ -2130,7 +2129,6 @@ fn make_test_payload_envelope(
             builder_index: 0,
             beacon_block_root,
             slot,
-            state_root: Hash256::zero(),
         },
         signature: Signature::empty(),
     }

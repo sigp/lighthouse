@@ -92,7 +92,6 @@ mod tests {
             builder_index: 0,
             beacon_block_root: Hash256::ZERO,
             slot,
-            state_root: Hash256::ZERO,
         }
     }
 

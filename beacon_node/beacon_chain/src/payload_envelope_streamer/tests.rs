@@ -71,7 +71,6 @@ fn build_chain(
                     builder_index: 0,
                     beacon_block_root: block_root,
                     slot,
-                    state_root: Hash256::zero(),
                 },
                 signature: Signature::empty(),
             })

@@ -577,18 +577,7 @@ async fn epoch_boundary_state_attestation_processing() {
             .unwrap()
             .expect("block exists");
         // Use get_state as the state may be finalized by this point.
-        // For Gloas, use the Full state root from the envelope rather than the Pending
-        // state root from the block, since the cold DB stores Full state roots.
-        let state_root = if block.fork_name_unchecked().gloas_enabled() {
-            store
-                .get_payload_envelope(&block_root)
-                .expect("no error")
-                .expect("envelope exists")
-                .message
-                .state_root
-        } else {
-            block.state_root()
-        };
+        let state_root = block.state_root();
         let mut epoch_boundary_state = store
             .get_state(&state_root, None, CACHE_STATE_IN_TESTS)
             .expect("no error")
@@ -3226,15 +3215,11 @@ async fn weak_subjectivity_sync_test(
             .store
             .put_payload_envelope(&wss_block_root, envelope)
             .unwrap();
-        // Also store the Full state so the parent state can be loaded.
-        let full_state_root = wss_snapshot
-            .execution_envelope
-            .as_ref()
-            .map(|e| e.message.state_root)
-            .unwrap();
+        // Also store the state so the parent state can be loaded.
+        let state_root = wss_snapshot.beacon_block.state_root();
         beacon_chain
             .store
-            .put_state(&full_state_root, &wss_snapshot.beacon_state)
+            .put_state(&state_root, &wss_snapshot.beacon_state)
             .unwrap();
     }
 
@@ -3279,7 +3264,7 @@ async fn weak_subjectivity_sync_test(
                 .store
                 .put_payload_envelope(&block_root, envelope.as_ref().clone())
                 .unwrap();
-            let full_state_root = envelope.message.state_root;
+            let full_state_root = snapshot.beacon_block.state_root();
             beacon_chain
                 .store
                 .put_state(&full_state_root, &snapshot.beacon_state)
@@ -5772,11 +5757,9 @@ async fn test_gloas_block_and_envelope_storage_generic(
         // Process the envelope.
         let envelope = envelope.expect("Gloas block should have envelope");
         let mut full_state = pending_state.clone();
-        let envelope_state_root = envelope.message.state_root;
         let full_state_root = harness
             .process_envelope(block_root, envelope, &mut full_state)
             .await;
-        assert_eq!(full_state_root, envelope_state_root);
         stored_states.push((slot, StatePayloadStatus::Full, full_state_root));
 
         block_roots.push(block_root);

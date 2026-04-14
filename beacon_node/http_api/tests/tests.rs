@@ -3948,7 +3948,6 @@ impl ApiTester {
         assert_eq!(envelope.beacon_block_root, block_root);
         assert_eq!(envelope.slot, slot);
         assert_eq!(envelope.builder_index, BUILDER_INDEX_SELF_BUILD);
-        assert_ne!(envelope.state_root, Hash256::ZERO);
     }
 
     /// Sign an execution payload envelope.

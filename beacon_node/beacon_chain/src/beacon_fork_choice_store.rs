@@ -18,7 +18,7 @@ use store::{Error as StoreError, HotColdDB, ItemStore};
 use superstruct::superstruct;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec,
-    Hash256, Slot, StatePayloadStatus,
+    Hash256, Slot,
 };
 
 #[derive(Debug)]
@@ -28,11 +28,7 @@ pub enum Error {
     FailedToReadState(StoreError),
     MissingState(Hash256),
     BeaconStateError(BeaconStateError),
-    BadCheckpoint {
-        block_slot: Slot,
-        state_slot: Slot,
-        state_payload_status: StatePayloadStatus,
-    },
+    UnalignedCheckpoint { block_slot: Slot, state_slot: Slot },
     Arith(ArithError),
 }
 
@@ -176,18 +172,14 @@ where
         let mut anchor_state = anchor.beacon_state;
         let mut anchor_block_header = anchor_state.latest_block_header().clone();
 
-        // In the post-Gloas realm, we now require the anchor to be UNADVANCED, and Pending.
-        if store
-            .get_chain_spec()
-            .fork_name_at_slot::<E>(anchor_state.slot())
-            .gloas_enabled()
-            && (anchor_state.slot() != anchor_block_header.slot
-                || anchor_state.payload_status() != StatePayloadStatus::Pending)
+        if !anchor_state
+            .slot()
+            .as_u64()
+            .is_multiple_of(E::slots_per_epoch())
         {
-            return Err(Error::BadCheckpoint {
+            return Err(Error::UnalignedCheckpoint {
                 block_slot: anchor_block_header.slot,
                 state_slot: anchor_state.slot(),
-                state_payload_status: anchor_state.payload_status(),
             });
         }
 
@@ -196,25 +188,7 @@ where
             anchor_block_header.state_root = unadvanced_state_root;
         }
         let anchor_block_root = anchor_block_header.canonical_root();
-        // For Gloas, the anchor state is always at the block's slot (unadvanced). If the block
-        // is mid-epoch (unaligned checkpoint), `current_epoch()` gives the block's epoch, but
-        // the checkpoint actually references the next epoch boundary. Use the next epoch so that
-        // `compute_start_slot_at_epoch(anchor_epoch) >= block.slot`, which is required for
-        // `get_ancestor` in `on_block` to work correctly.
-        //
-        // Pre-Gloas, the state is advanced to the checkpoint slot (always an epoch boundary),
-        // so `current_epoch()` is already correct.
-        // TODO(gloas): probably better if we get the true finalized epoch as an input
-        let anchor_epoch = if store
-            .get_chain_spec()
-            .fork_name_at_slot::<E>(anchor_state.slot())
-            .gloas_enabled()
-            && anchor_state.slot() % E::slots_per_epoch() != 0
-        {
-            anchor_state.next_epoch()?
-        } else {
-            anchor_state.current_epoch()
-        };
+        let anchor_epoch = anchor_state.current_epoch();
         let justified_checkpoint = Checkpoint {
             epoch: anchor_epoch,
             root: anchor_block_root,

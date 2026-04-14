@@ -132,7 +132,10 @@ impl<E: EthSpec> StateCache<E> {
         state: BeaconState<E>,
         pre_finalized_slots_to_retain: &[Slot],
     ) -> Result<(), Error> {
-        // NOTE: `state` is no longer required to be aligned to an epoch boundary (!!)
+        if state.slot() % E::slots_per_epoch() != 0 {
+            return Err(Error::FinalizedStateUnaligned);
+        }
+
         if self
             .finalized_state
             .as_ref()

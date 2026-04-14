@@ -23,7 +23,7 @@ use execution_layer::{PayloadStatusV1, json_structures::JsonPayloadStatusV1Statu
 use serde::Deserialize;
 use ssz_derive::Decode;
 use state_processing::VerifySignatures;
-use state_processing::envelope_processing::{VerifyStateRoot, process_execution_payload_envelope};
+use state_processing::envelope_processing::verify_execution_payload;
 use state_processing::state_advance::complete_state_advance;
 use std::future::Future;
 use std::sync::Arc;
@@ -1024,19 +1024,18 @@ impl<E: EthSpec> Tester<E> {
                 })?;
             let block_state_root = block.state_root();
 
-            let mut state = store
+            let state = store
                 .get_hot_state(&block_state_root, CACHE_STATE_IN_TESTS)
                 .map_err(|e| Error::InternalError(format!("Failed to load state: {e:?}")))?
                 .ok_or_else(|| {
                     Error::InternalError(format!("State not found for root {block_state_root:?}"))
                 })?;
 
-            process_execution_payload_envelope(
-                &mut state,
-                Some(block_state_root),
+            verify_execution_payload(
+                &state,
                 signed_envelope,
                 VerifySignatures::False,
-                VerifyStateRoot::True,
+                Some(block_state_root),
                 spec,
             )
             .map_err(|e| {
@@ -1044,7 +1043,7 @@ impl<E: EthSpec> Tester<E> {
             })?;
 
             store
-                .put_state(&signed_envelope.message.state_root, &state)
+                .put_state(&block_state_root, &state)
                 .map_err(|e| Error::InternalError(format!("Failed to store Full state: {e:?}")))?;
         }
 

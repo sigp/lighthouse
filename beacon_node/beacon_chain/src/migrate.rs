@@ -6,7 +6,7 @@ use std::mem;
 use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use store::hot_cold_store::migrate_database;
+use store::hot_cold_store::{HotColdDBError, migrate_database};
 use store::{Error, ItemStore, Split, StoreOp};
 pub use store::{HotColdDB, MemoryStore};
 use tracing::{debug, error, info, warn};
@@ -107,6 +107,10 @@ pub enum PruningError {
     MissingSummaryForFinalizedCheckpoint(Hash256),
     MissingBlindedBlock(Hash256),
     SummariesDagError(&'static str, SummariesDagError),
+    IncorrectFinalizedState {
+        new_finalized_slot: Slot,
+        state_slot: Slot,
+    },
     EmptyFinalizedStates,
     EmptyFinalizedBlocks,
 }
@@ -348,6 +352,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 // Migration run, return the split before the migration
                 split_change.previous
             }
+            Err(Error::HotColdDBError(HotColdDBError::FreezeSlotUnaligned(slot))) => {
+                debug!(
+                    slot = %slot,
+                    "Database migration deferred: finalized state is not epoch-aligned"
+                );
+                return;
+            }
             Err(e) => {
                 warn!(error = ?e, "Database migration failed");
                 return;
@@ -498,7 +509,18 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         new_finalized_checkpoint: Checkpoint,
         split_prior_to_migration: Split,
     ) -> Result<PruningOutcome, BeaconChainError> {
-        let new_finalized_slot = new_finalized_state.slot();
+        let new_finalized_slot = new_finalized_checkpoint
+            .epoch
+            .start_slot(E::slots_per_epoch());
+
+        if new_finalized_state.slot() != new_finalized_slot {
+            return Err(BeaconChainError::PruningError(
+                PruningError::IncorrectFinalizedState {
+                    new_finalized_slot,
+                    state_slot: new_finalized_state.slot(),
+                },
+            ));
+        }
 
         debug!(
             split_prior_to_migration = ?split_prior_to_migration,
@@ -556,6 +578,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             );
         }
 
+        // `new_finalized_state_root` is the *state at the slot of the finalized epoch*,
+        // rather than the state of the latest finalized block. These two values will only
+        // differ when the first slot of the finalized epoch is a skip slot.
         let finalized_and_descendant_state_roots_of_finalized_checkpoint =
             HashSet::<Hash256>::from_iter(
                 std::iter::once(new_finalized_state_root).chain(
@@ -628,17 +653,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
         for (_, summaries) in state_summaries_dag.summaries_by_slot_ascending() {
             for (state_root, summary) in summaries {
-                // This check catches [3] above but not [0] or any blocks after (f).
-                // XXX: this value should not be used anywhere else in this function (only valid if
-                // it is && with the check below).
-                let state_descends_from_finalized_block_but_not_checkpoint = summary
-                    .latest_block_root
-                    != new_finalized_checkpoint.root
-                    && summary.slot.epoch(E::slots_per_epoch()) < new_finalized_checkpoint.epoch;
-
                 let should_prune = if finalized_and_descendant_state_roots_of_finalized_checkpoint
                     .contains(&state_root)
-                    && !state_descends_from_finalized_block_but_not_checkpoint
                 {
                     // This state is a viable descendant of the finalized checkpoint, so does not
                     // conflict with finality and can be built on or become a head
