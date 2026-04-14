@@ -12,10 +12,9 @@ use ssz::Encode;
 use ssz_types::VariableList;
 use store::{HotColdDB, StoreConfig};
 use types::{
-    Address, BeaconBlock, BeaconStateError, ChainSpec, Checkpoint, Domain, Epoch, EthSpec,
-    ExecutionBlockHash, ExecutionPayloadBid, ForkName, Hash256, MinimalEthSpec,
-    ProposerPreferences, SignedBeaconBlock, SignedExecutionPayloadBid, SignedProposerPreferences,
-    SignedRoot, Slot,
+    Address, BeaconBlock, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ExecutionBlockHash,
+    ExecutionPayloadBid, ForkName, Hash256, MinimalEthSpec, ProposerPreferences, SignedBeaconBlock,
+    SignedExecutionPayloadBid, SignedProposerPreferences, SignedRoot, Slot,
 };
 
 use proto_array::PayloadStatus;
@@ -393,9 +392,9 @@ fn unknown_builder_index() {
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(matches!(
         result,
-        Err(PayloadBidError::BeaconStateError(
-            BeaconStateError::UnknownBuilder(9999)
-        ))
+        Err(PayloadBidError::InvalidBuilder {
+            builder_index: 9999
+        })
     ));
 }
 

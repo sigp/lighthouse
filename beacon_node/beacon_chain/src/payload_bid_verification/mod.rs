@@ -22,6 +22,8 @@ mod tests;
 pub enum PayloadBidError {
     /// The bid's parent block root is unknown.
     ParentBlockRootUnknown { parent_block_root: Hash256 },
+    /// The bid's parent block root is known but not on the canonical chain.
+    ParentBlockRootNotCanonical { parent_block_root: Hash256 },
     /// The signature is invalid.
     BadSignature,
     /// A bid for this builder at this slot has already been seen.

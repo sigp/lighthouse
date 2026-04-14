@@ -3512,6 +3512,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | PayloadBidError::BuilderAlreadySeen { .. }
                 | PayloadBidError::BidValueBelowCached { .. }
                 | PayloadBidError::ParentBlockRootUnknown { .. }
+                | PayloadBidError::ParentBlockRootNotCanonical { .. }
                 | PayloadBidError::BuilderCantCoverBid { .. }
                 | PayloadBidError::BeaconStateError(_)
                 | PayloadBidError::InternalError(_)

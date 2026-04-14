@@ -58,7 +58,8 @@ pub(crate) fn verify_bid_consistency<E: EthSpec>(
 
     let builder_index = bid.builder_index;
 
-    let is_active_builder = head_state.is_active_builder(builder_index, spec)
+    let is_active_builder = head_state
+        .is_active_builder(builder_index, spec)
         .map_err(|_| PayloadBidError::InvalidBuilder { builder_index })?;
 
     if !is_active_builder {
@@ -144,8 +145,17 @@ impl<T: BeaconChainTypes> GossipVerifiedPayloadBid<T> {
 
         let fork_choice = ctx.canonical_head.fork_choice_read_lock();
 
+        // TODO(gloas) reprocess bids whose parent_block_root becomes known & canonical after a reorg?
         if !fork_choice.contains_block(&bid_parent_block_root) {
             return Err(PayloadBidError::ParentBlockRootUnknown {
+                parent_block_root: bid_parent_block_root,
+            });
+        }
+
+        // TODO(gloas) reprocess bids whose parent_block_root becomes canonical after a reorg.
+        let head_root = cached_head.head_block_root();
+        if !fork_choice.is_descendant(bid_parent_block_root, head_root) {
+            return Err(PayloadBidError::ParentBlockRootNotCanonical {
                 parent_block_root: bid_parent_block_root,
             });
         }
