@@ -1936,7 +1936,7 @@ async fn happy_path_unknown_block_parent(depth: usize) {
     }
 }
 
-/// Assert that sync completes from a GossipUnknownParentBlob / UnknownDataColumnParent
+/// Assert that sync completes from an UnknownDataColumnParent
 async fn happy_path_unknown_data_parent(depth: usize) {
     let Some(mut r) = TestRig::new_after_fulu() else {
         return;

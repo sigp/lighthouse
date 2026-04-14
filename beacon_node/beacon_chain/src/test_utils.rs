@@ -3606,8 +3606,6 @@ where
                     .await
                     .unwrap();
             }
-        } else {
-            panic!("We no longer support blobs over gossip");
         }
     }
 }

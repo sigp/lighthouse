@@ -326,10 +326,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
 
 type BuildDataSidecarTaskResult<T> = Result<Vec<GossipVerifiedDataColumn<T>>, Rejection>;
 
-/// Convert blobs to either:
-///
-/// 1. Blob sidecars if prior to peer DAS, or
-/// 2. Data column sidecars if post peer DAS.
+/// Convert blobs to data column sidecars.
 fn spawn_build_data_sidecar_task<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,

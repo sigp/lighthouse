@@ -14,6 +14,7 @@ use beacon_chain::{
     attestation_verification::{
         VerifiedAttestation, obtain_indexed_attestation_and_committees_per_slot,
     },
+    blob_verification::KzgVerifiedBlob,
     custody_context::NodeCustodyType,
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
 };
@@ -26,9 +27,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::{
     Attestation, AttestationRef, AttesterSlashing, AttesterSlashingRef, BeaconBlock, BeaconState,
-    BlobsList, BlockImportSource, Checkpoint, DataColumnSidecar, DataColumnSidecarList,
-    DataColumnSubnetId, ExecutionBlockHash, Hash256, IndexedAttestation, KzgProof,
-    ProposerPreparationData, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot, Uint256,
+    BlobSidecar, BlobsList, BlockImportSource, Checkpoint, DataColumnSidecar,
+    DataColumnSidecarList, DataColumnSubnetId, ExecutionBlockHash, Hash256, IndexedAttestation,
+    KzgProof, ProposerPreparationData, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
+    Uint256,
 };
 
 // When set to true, cache any states fetched from the db.
@@ -637,52 +639,73 @@ impl<E: EthSpec> Tester<E> {
         &self,
         block: SignedBeaconBlock<E>,
         blobs: Option<BlobsList<E>>,
-        _kzg_proofs: Option<Vec<KzgProof>>,
+        kzg_proofs: Option<Vec<KzgProof>>,
         valid: bool,
     ) -> Result<(), Error> {
         let block_root = block.canonical_root();
 
-        // let mut blob_success = true;
-        let blob_success = true;
+        let mut blob_success = true;
 
-        // Convert blobs and kzg_proofs into sidecars, then plumb them into the availability tracker
-        // if let Some(blobs) = blobs.clone() {
-        //     let proofs = kzg_proofs.unwrap();
-        //     let commitments = block
-        //         .message()
-        //         .body()
-        //         .blob_kzg_commitments()
-        //         .unwrap()
-        //         .clone();
+        if let Some(blobs) = blobs.clone() {
+            let proofs = kzg_proofs.unwrap();
+            let commitments = block
+                .message()
+                .body()
+                .blob_kzg_commitments()
+                .unwrap()
+                .clone();
 
-        //     // Zipping will stop when any of the zipped lists runs out, which is what we want. Some
-        //     // of the tests don't provide enough proofs/blobs, and should fail the availability
-        //     // check.
-        //     for (i, ((blob, kzg_proof), kzg_commitment)) in blobs
-        //         .into_iter()
-        //         .zip(proofs)
-        //         .zip(commitments.into_iter())
-        //         .enumerate()
-        //     {
+            // Zipping will stop when any of the zipped lists runs out, which is what we want. Some
+            // of the tests don't provide enough proofs/blobs, and should fail the availability
+            // check.
+            let verified_blobs: Vec<KzgVerifiedBlob<E>> = blobs
+                .into_iter()
+                .zip(proofs)
+                .zip(commitments)
+                .enumerate()
+                .filter_map(|(i, ((blob, kzg_proof), kzg_commitment))| {
+                    let blob_sidecar = Arc::new(BlobSidecar {
+                        index: i as u64,
+                        blob,
+                        kzg_commitment,
+                        kzg_proof,
+                        signed_block_header: block.signed_block_header(),
+                        kzg_commitment_inclusion_proof: block
+                            .message()
+                            .body()
+                            .kzg_commitment_merkle_proof(i)
+                            .unwrap(),
+                    });
 
-        //         let chain = self.harness.chain.clone();
-        //         let blob =
-        //             match KzgVerifiedBlob::new(blob_sidecar.clone(), *blob_sidecar.index(), &chain)
-        //             {
-        //                 Ok(gossip_verified_blob) => gossip_verified_blob,
-        //                 Err(GossipBlobError::KzgError(_)) => {
-        //                     blob_success = false;
-        //                     GossipVerifiedBlob::__assumed_valid(blob_sidecar)
-        //                 }
-        //                 Err(_) => GossipVerifiedBlob::__assumed_valid(blob_sidecar),
-        //             };
-        //         let result =
-        //             self.block_on_dangerous(self.harness.chain.process_gossip_blob(blob))?;
-        //         if valid {
-        //             assert!(result.is_ok());
-        //         }
-        //     }
-        // };
+                    match KzgVerifiedBlob::new(
+                        blob_sidecar.clone(),
+                        &self.harness.chain.kzg,
+                        Duration::default(),
+                    ) {
+                        Ok(verified) => Some(verified),
+                        Err(_) => {
+                            blob_success = false;
+                            None
+                        }
+                    }
+                })
+                .collect();
+
+            if !verified_blobs.is_empty() {
+                let result = self
+                    .harness
+                    .chain
+                    .data_availability_checker
+                    .put_kzg_verified_blobs(block_root, verified_blobs);
+                if valid {
+                    assert!(
+                        result.is_ok(),
+                        "put_kzg_verified_blobs failed: {:?}",
+                        result
+                    );
+                }
+            }
+        };
 
         let block = Arc::new(block);
         let result: Result<Result<Hash256, ()>, _> = self

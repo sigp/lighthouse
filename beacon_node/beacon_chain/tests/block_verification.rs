@@ -1365,7 +1365,7 @@ async fn verify_and_process_gossip_data_sidecars(
 ) {
     match data_sidecars {
         DataSidecars::Blobs(_blob_sidecars) => {
-            panic!("We dont support blobs anymore");
+            // Blob gossip is deprecated, blobs are available via RPC.
         }
         DataSidecars::DataColumns(column_sidecars) => {
             let gossip_verified = column_sidecars
