@@ -43,8 +43,8 @@ use crate::{
 };
 use eth2::types::{EventKind, SseChainReorg, SseFinalizedCheckpoint, SseLateHead};
 use fork_choice::{
-    ExecutionStatus, ForkChoiceStore, ForkChoiceView, ForkchoiceUpdateParameters, ProtoBlock,
-    ResetPayloadStatuses,
+    ExecutionStatus, ForkChoiceStore, ForkChoiceView, ForkchoiceUpdateParameters, PayloadStatus,
+    ProtoBlock, ResetPayloadStatuses,
 };
 use itertools::process_results;
 
@@ -691,20 +691,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 // Load the execution envelope from the store if the head has a Full payload.
                 let state_root = beacon_block.state_root();
-                let execution_envelope =
-                    if new_payload_status.as_state_payload_status() == StatePayloadStatus::Full {
-                        let envelope = self
-                            .store
-                            .get_payload_envelope(&new_view.head_block_root)?
-                            .map(Arc::new)
-                            .ok_or(Error::MissingExecutionPayloadEnvelope(
-                                new_view.head_block_root,
-                            ))?;
+                let execution_envelope = if new_payload_status == PayloadStatus::Full {
+                    let envelope = self
+                        .store
+                        .get_payload_envelope(&new_view.head_block_root)?
+                        .map(Arc::new)
+                        .ok_or(Error::MissingExecutionPayloadEnvelope(
+                            new_view.head_block_root,
+                        ))?;
 
-                        Some(envelope)
-                    } else {
-                        None
-                    };
+                    Some(envelope)
+                } else {
+                    None
+                };
                 let (_, beacon_state) = self
                     .store
                     .get_advanced_hot_state(new_view.head_block_root, current_slot, state_root)?
