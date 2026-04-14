@@ -681,6 +681,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         {
             metrics::inc_counter(&metrics::FORK_CHOICE_CHANGED_HEAD);
 
+            // TODO(gloas): could optimise this to reuse state and rest of snapshot if just the
+            // payload status has changed.
             let mut new_snapshot = {
                 let beacon_block = self
                     .store
@@ -688,9 +690,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .ok_or(Error::MissingBeaconBlock(new_view.head_block_root))?;
 
                 // Load the execution envelope from the store if the head has a Full payload.
-                let (state_root, execution_envelope) =
+                let state_root = beacon_block.state_root();
+                let execution_envelope =
                     if new_payload_status.as_state_payload_status() == StatePayloadStatus::Full {
-                        // TODO(gloas): include block root in error
                         let envelope = self
                             .store
                             .get_payload_envelope(&new_view.head_block_root)?
@@ -699,9 +701,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 new_view.head_block_root,
                             ))?;
 
-                        (beacon_block.state_root(), Some(envelope))
+                        Some(envelope)
                     } else {
-                        (beacon_block.state_root(), None)
+                        None
                     };
                 let (_, beacon_state) = self
                     .store
