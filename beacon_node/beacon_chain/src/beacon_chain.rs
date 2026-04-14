@@ -6692,7 +6692,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Collect states, using the next blocks to determine if states are full (have Gloas
         // payloads).
         for (i, (block_root, block)) in blocks.iter().enumerate() {
-            let (opt_envelope, state_root) = if block.fork_name_unchecked().gloas_enabled() {
+            let opt_envelope = if block.fork_name_unchecked().gloas_enabled() {
                 let opt_envelope = self.store.get_payload_envelope(block_root)?.map(Arc::new);
 
                 if let Some((_, next_block)) = blocks.get(i + 1) {
@@ -6701,9 +6701,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         let envelope = opt_envelope.ok_or_else(|| {
                             Error::DBInconsistent(format!("Missing envelope {block_root:?}"))
                         })?;
-                        (Some(envelope), block.state_root())
+                        Some(envelope)
                     } else {
-                        (None, block.state_root())
+                        None
                     }
                 } else {
                     // Last block in the sequence: use canonical head to determine
@@ -6716,14 +6716,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         let envelope = opt_envelope.ok_or_else(|| {
                             Error::DBInconsistent(format!("Missing envelope {block_root:?}"))
                         })?;
-                        (Some(envelope), block.state_root())
+                        Some(envelope)
                     } else {
-                        (None, block.state_root())
+                        None
                     }
                 }
             } else {
-                (None, block.state_root())
+                None
             };
+            let state_root = block.state_root();
 
             let mut beacon_state = self
                 .store

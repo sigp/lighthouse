@@ -44,8 +44,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconSnapshot<E, Payload> {
         }
     }
 
-    /// Returns the state root from `self.beacon_block` or `self.execution_envelope` as
-    /// appropriate.
+    /// Returns the state root from `self.beacon_block`.
     ///
     /// ## Caution
     ///
