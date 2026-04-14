@@ -3330,11 +3330,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "New envelope received"
                 );
 
-                self.propagate_validation_result(
-                    message_id.clone(),
-                    peer_id,
-                    MessageAcceptance::Accept,
-                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
                 verified_envelope
             }
