@@ -718,21 +718,8 @@ async fn block_replayer_hooks() {
         .add_attested_blocks_at_slots(state.clone(), state_root, &block_slots, &all_validators)
         .await;
 
-    // In Gloas, the end state from `add_attested_blocks_at_slots` is Full (post-envelope),
-    // so we need to replay to the Full state to match.
-    let desired_payload_status = if end_state.fork_name_unchecked().gloas_enabled() {
-        StatePayloadStatus::Full
-    } else {
-        StatePayloadStatus::Pending
-    };
-    let (blocks, envelopes) = store
-        .load_blocks_to_replay(
-            Slot::new(0),
-            max_slot,
-            end_block_root.into(),
-            desired_payload_status,
-            StatePayloadStatus::Pending,
-        )
+    let blocks = store
+        .load_blocks_to_replay(Slot::new(0), max_slot, end_block_root.into())
         .unwrap();
 
     let mut pre_slots = vec![];
@@ -741,7 +728,6 @@ async fn block_replayer_hooks() {
     let mut post_block_slots = vec![];
 
     let mut replay_state = BlockReplayer::<MinimalEthSpec>::new(state, &chain.spec)
-        .desired_state_payload_status(desired_payload_status)
         .pre_slot_hook(Box::new(|_, state| {
             pre_slots.push(state.slot());
             Ok(())
@@ -768,7 +754,7 @@ async fn block_replayer_hooks() {
             post_block_slots.push(block.slot());
             Ok(())
         }))
-        .apply_blocks(blocks, envelopes, None)
+        .apply_blocks(blocks, vec![], None)
         .unwrap()
         .into_state();
 
@@ -5920,96 +5906,29 @@ async fn test_gloas_block_replay_with_envelopes() {
 
     let end_slot = Slot::new(num_blocks);
 
-    // Load blocks for Pending replay (no envelopes for the last block).
-    let (blocks_pending, envelopes_pending) = store
-        .load_blocks_to_replay(
-            Slot::new(0),
-            end_slot,
-            last_block_root,
-            StatePayloadStatus::Pending,
-            StatePayloadStatus::Pending,
-        )
+    // Load blocks for replay.
+    let blocks = store
+        .load_blocks_to_replay(Slot::new(0), end_slot, last_block_root)
         .unwrap();
-    assert!(
-        !blocks_pending.is_empty(),
-        "should have blocks for pending replay"
-    );
-    // For Pending, no envelope for the first block (slot 0) or last block; envelopes for
-    // intermediate blocks whose payloads are canonical.
-    let expected_pending_envelopes = blocks_pending.len().saturating_sub(2);
+    assert!(!blocks.is_empty(), "should have blocks for replay");
+
+    // Replay blocks and verify against the expected pending (post-block) state.
+    let mut replayed = BlockReplayer::<MinimalEthSpec>::new(genesis_state, store.get_chain_spec())
+        .no_signature_verification()
+        .minimal_block_root_verification()
+        .apply_blocks(blocks, vec![], None)
+        .expect("should replay blocks")
+        .into_state();
+    replayed.apply_pending_mutations().unwrap();
+
+    let (_, mut expected) = pending_states.get(&end_slot).unwrap().clone();
+    expected.apply_pending_mutations().unwrap();
+
+    replayed.drop_all_caches().unwrap();
+    expected.drop_all_caches().unwrap();
     assert_eq!(
-        envelopes_pending.len(),
-        expected_pending_envelopes,
-        "pending replay should have envelopes for all blocks except the last"
-    );
-    assert!(
-        blocks_pending
-            .iter()
-            .skip(1)
-            .take(envelopes_pending.len())
-            .map(|block| block.slot())
-            .eq(envelopes_pending
-                .iter()
-                .map(|envelope| envelope.message.slot)),
-        "block and envelope slots should match"
-    );
-
-    // Load blocks for Full replay (envelopes for all blocks including the last).
-    let (blocks_full, envelopes_full) = store
-        .load_blocks_to_replay(
-            Slot::new(0),
-            end_slot,
-            last_block_root,
-            StatePayloadStatus::Full,
-            StatePayloadStatus::Pending,
-        )
-        .unwrap();
-    assert_eq!(
-        envelopes_full.len(),
-        expected_pending_envelopes + 1,
-        "full replay should have one more envelope than pending replay"
-    );
-
-    // Replay to Pending state and verify.
-    let mut replayed_pending =
-        BlockReplayer::<MinimalEthSpec>::new(genesis_state.clone(), store.get_chain_spec())
-            .no_signature_verification()
-            .minimal_block_root_verification()
-            .desired_state_payload_status(StatePayloadStatus::Pending)
-            .apply_blocks(blocks_pending, envelopes_pending, None)
-            .expect("should replay blocks to pending state")
-            .into_state();
-    replayed_pending.apply_pending_mutations().unwrap();
-
-    let (_, mut expected_pending) = pending_states.get(&end_slot).unwrap().clone();
-    expected_pending.apply_pending_mutations().unwrap();
-
-    replayed_pending.drop_all_caches().unwrap();
-    expected_pending.drop_all_caches().unwrap();
-    assert_eq!(
-        replayed_pending, expected_pending,
-        "replayed pending state should match stored pending state"
-    );
-
-    // Replay to Full state and verify.
-    let mut replayed_full =
-        BlockReplayer::<MinimalEthSpec>::new(genesis_state, store.get_chain_spec())
-            .no_signature_verification()
-            .minimal_block_root_verification()
-            .desired_state_payload_status(StatePayloadStatus::Full)
-            .apply_blocks(blocks_full, envelopes_full, None)
-            .expect("should replay blocks to full state")
-            .into_state();
-    replayed_full.apply_pending_mutations().unwrap();
-
-    let (_, mut expected_full) = full_states.get(&end_slot).unwrap().clone();
-    expected_full.apply_pending_mutations().unwrap();
-
-    replayed_full.drop_all_caches().unwrap();
-    expected_full.drop_all_caches().unwrap();
-    assert_eq!(
-        replayed_full, expected_full,
-        "replayed full state should match stored full state"
+        replayed, expected,
+        "replayed state should match stored state"
     );
     check_db_invariants(&harness);
 }

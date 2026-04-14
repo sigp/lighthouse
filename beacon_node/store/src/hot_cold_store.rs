@@ -1857,107 +1857,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
-    /// Compute the `StatePayloadStatus` for a stored state based on its summary.
-    ///
-    /// In future this might become a field of the summary, but this would require a whole DB
-    /// migration. For now we use an extra read from the DB to determine it.
-    fn get_hot_state_summary_payload_status(
-        &self,
-        state_root: &Hash256,
-        summary: &HotStateSummary,
-    ) -> Result<StatePayloadStatus, Error> {
-        // Treat pre-Gloas states as `Pending`.
-        if !self
-            .spec
-            .fork_name_at_slot::<E>(summary.slot)
-            .gloas_enabled()
-        {
-            return Ok(StatePayloadStatus::Pending);
-        }
-
-        // Treat genesis state as `Pending` (`BeaconBlock` state).
-        let previous_state_root = summary.previous_state_root;
-        if previous_state_root.is_zero() {
-            return Ok(StatePayloadStatus::Pending);
-        }
-
-        // If this state is the split state, it is always Pending.
-        let split = self.get_split_info();
-        if *state_root == split.state_root {
-            return Ok(StatePayloadStatus::Pending);
-        }
-
-        // Load the hot state summary for the previous state.
-        //
-        // If it has the same slot as this summary then we know this summary is for a `Full` state
-        // (payload state), because they are always diffed against their same-slot `Pending` state.
-        //
-        // If the previous summary has a different slot AND the latest block is from `summary.slot`,
-        // then this state *must* be `Pending` (it is the summary for latest block itself).
-        //
-        // Otherwise, we are at a skipped slot and must traverse the graph of state summaries
-        // backwards until we reach a summary for the latest block. This recursion could be quite
-        // far in the case of a long skip. We could optimise this in future using the
-        // `diff_base_state` (like in `get_ancestor_state_root`), or by doing a proper DB
-        // migration.
-        let previous_state_summary = self
-            .load_hot_state_summary(&previous_state_root)?
-            .ok_or(Error::MissingHotStateSummary(previous_state_root))?;
-
-        if previous_state_summary.slot == summary.slot {
-            Ok(StatePayloadStatus::Full)
-        } else if summary.slot == summary.latest_block_slot {
-            Ok(StatePayloadStatus::Pending)
-        } else {
-            self.get_hot_state_summary_payload_status(&previous_state_root, &previous_state_summary)
-        }
-    }
-
-    /// Recompute the payload status for a state at `slot` that is stored in the cold DB.
-    ///
-    /// This function returns an error for any `slot` that is outside the range of slots stored in
-    /// the freezer DB.
-    ///
-    /// For all slots prior to Gloas, it returns `Pending`.
-    ///
-    /// For post-Gloas slots the algorithm is:
-    ///
-    /// 1. Load the most recently applied block at `slot` (may not be from `slot` in case of a skip)
-    /// 2. Load the canonical `state_root` at the slot of the block. If this `state_root` matches
-    ///    the one in the block then we know the state at *that* slot is canonically empty (no
-    ///    payload). Conversely, if it is different, we know that the block's slot is full (assuming
-    ///    no database corruption).
-    /// 3. The payload status of `slot` is the same as the payload status of `block.slot()`, because
-    ///    we only care about whether a beacon block or payload was applied most recently, and
-    ///    `block` is by definition the most-recently-applied block.
-    ///
-    /// All of this mucking around could be avoided if we do a schema migration to record the
-    /// payload status in the database. For now, this is simpler.
-    fn get_cold_state_payload_status(&self, slot: Slot) -> Result<StatePayloadStatus, Error> {
-        // Pre-Gloas states are always `Pending`.
-        if !self.spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
-            return Ok(StatePayloadStatus::Pending);
-        }
-
-        let block_root = self
-            .get_cold_block_root(slot)?
-            .ok_or(HotColdDBError::MissingFrozenBlock(slot))?;
-
-        let block = self
-            .get_blinded_block(&block_root)?
-            .ok_or(Error::MissingBlock(block_root))?;
-
-        let state_root = self
-            .get_cold_state_root(block.slot())?
-            .ok_or(HotColdDBError::MissingRestorePointState(block.slot()))?;
-
-        if block.state_root() != state_root {
-            Ok(StatePayloadStatus::Full)
-        } else {
-            Ok(StatePayloadStatus::Pending)
-        }
-    }
-
     fn load_hot_hdiff_buffer(&self, state_root: Hash256) -> Result<HDiffBuffer, Error> {
         if let Some(buffer) = self
             .state_cache
@@ -2053,14 +1952,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<Option<(BeaconState<E>, Hash256)>, Error> {
         metrics::inc_counter(&metrics::BEACON_STATE_HOT_GET_COUNT);
 
-        if let Some(
-            summary @ HotStateSummary {
-                slot,
-                latest_block_root,
-                diff_base_state,
-                ..
-            },
-        ) = self.load_hot_state_summary(state_root)?
+        if let Some(HotStateSummary {
+            slot,
+            latest_block_root,
+            diff_base_state,
+            ..
+        }) = self.load_hot_state_summary(state_root)?
         {
             debug!(
                 %slot,
@@ -2092,11 +1989,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     state
                 }
                 StorageStrategy::ReplayFrom(from_slot) => {
-                    // We only compute the `payload_status` in the `ReplayFrom` case because the
-                    // function `get_hot_state_summary_payload_status` will fail for `Full` states
-                    // prior to the split slot (the ones required for the hdiff grid).
-                    let payload_status =
-                        self.get_hot_state_summary_payload_status(state_root, &summary)?;
                     let from_state_root = diff_base_state.get_root(from_slot)?;
 
                     let (mut base_state, _) = self
@@ -2123,7 +2015,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         base_state,
                         slot,
                         latest_block_root,
-                        payload_status,
                         update_cache,
                     )?
                 }
@@ -2141,27 +2032,19 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         base_state: BeaconState<E>,
         slot: Slot,
         latest_block_root: Hash256,
-        desired_payload_status: StatePayloadStatus,
         update_cache: bool,
     ) -> Result<BeaconState<E>, Error> {
-        if base_state.slot() == slot && base_state.payload_status() == desired_payload_status {
+        if base_state.slot() == slot {
             return Ok(base_state);
         }
 
-        let (blocks, envelopes) = self.load_blocks_to_replay(
-            base_state.slot(),
-            slot,
-            latest_block_root,
-            desired_payload_status,
-            base_state.payload_status(),
-        )?;
+        let blocks = self.load_blocks_to_replay(base_state.slot(), slot, latest_block_root)?;
         let _t = metrics::start_timer(&metrics::STORE_BEACON_REPLAY_HOT_BLOCKS_TIME);
 
         // If replaying blocks, and `update_cache` is true, also cache the epoch boundary
         // state that this state is based on. It may be useful as the basis of more states
         // in the same epoch.
         let state_cache_hook = |state_root, state: &mut BeaconState<E>| {
-            // TODO(gloas): prevent caching of the payload_status=Full state?
             if !update_cache || state.slot() % E::slots_per_epoch() != 0 {
                 return Ok(());
             }
@@ -2188,16 +2071,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         debug!(
             %slot,
             blocks = ?blocks.iter().map(|block| block.slot()).collect::<Vec<_>>(),
-            envelopes = ?envelopes.iter().map(|e| e.message.slot).collect::<Vec<_>>(),
-            payload_status = ?desired_payload_status,
-            "Replaying blocks and envelopes"
+            "Replaying blocks"
         );
 
         self.replay_blocks(
             base_state,
             blocks,
-            envelopes,
-            desired_payload_status,
             slot,
             no_state_root_iter(),
             Some(Box::new(state_cache_hook)),
@@ -2502,8 +2381,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
 
         let base_slot = base_state.slot();
-        let (blocks, envelopes) =
-            self.load_cold_blocks(base_slot + 1, slot, base_state.payload_status(), base_slot)?;
+        let blocks = self.load_cold_blocks(base_slot + 1, slot)?;
 
         // Include state root for base state as it is required by block processing to not
         // have to hash the state.
@@ -2512,16 +2390,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             self.forwards_state_roots_iterator_until(base_state.slot(), slot, || {
                 Err(Error::StateShouldNotBeRequired(slot))
             })?;
-        let payload_status = self.get_cold_state_payload_status(slot)?;
-        let state = self.replay_blocks(
-            base_state,
-            blocks,
-            envelopes,
-            payload_status,
-            slot,
-            Some(state_root_iter),
-            None,
-        )?;
+        let state = self.replay_blocks(base_state, blocks, slot, Some(state_root_iter), None)?;
         debug!(
             target_slot = %slot,
             replay_time_ms = metrics::stop_timer_with_duration(replay_timer).as_millis(),
@@ -2614,81 +2483,39 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
-    /// Load cold blocks and payload envelopes between `start_slot` and `end_slot` inclusive.
-    #[allow(clippy::type_complexity)]
+    /// Load cold blocks between `start_slot` and `end_slot` inclusive.
     pub fn load_cold_blocks(
         &self,
         start_slot: Slot,
         end_slot: Slot,
-        base_payload_status: StatePayloadStatus,
-        base_state_slot: Slot,
-    ) -> Result<
-        (
-            Vec<SignedBlindedBeaconBlock<E>>,
-            Vec<SignedExecutionPayloadEnvelope<E>>,
-        ),
-        Error,
-    > {
+    ) -> Result<Vec<SignedBlindedBeaconBlock<E>>, Error> {
         let _t = metrics::start_timer(&metrics::STORE_BEACON_LOAD_COLD_BLOCKS_TIME);
         let block_root_iter =
             self.forwards_block_roots_iterator_until(start_slot, end_slot, || {
                 Err(Error::StateShouldNotBeRequired(end_slot))
             })?;
-        let blocks = process_results(block_root_iter, |iter| {
+        process_results(block_root_iter, |iter| {
             iter.map(|(block_root, _slot)| block_root)
                 .dedup()
                 .map(|block_root| {
                     self.get_blinded_block(&block_root)?
                         .ok_or(Error::MissingBlock(block_root))
                 })
-                .collect::<Result<Vec<_>, Error>>()
-        })??;
-
-        // If Gloas is not enabled for any slots in the range, just return `blocks`.
-        if !self.spec.fork_name_at_slot::<E>(start_slot).gloas_enabled()
-            && !self.spec.fork_name_at_slot::<E>(end_slot).gloas_enabled()
-        {
-            return Ok((blocks, vec![]));
-        }
-        let end_block_root = self
-            .get_cold_block_root(end_slot)?
-            .ok_or(HotColdDBError::MissingFrozenBlock(end_slot))?;
-        let desired_payload_status = self.get_cold_state_payload_status(end_slot)?;
-        let envelopes = self.load_payload_envelopes_for_blocks(
-            &blocks,
-            end_block_root,
-            desired_payload_status,
-            base_payload_status,
-            base_state_slot,
-        )?;
-
-        Ok((blocks, envelopes))
+                .collect()
+        })?
     }
 
-    /// Load the blocks & envelopes between `start_slot` and `end_slot` by backtracking from
+    /// Load the blocks between `start_slot` and `end_slot` by backtracking from
     /// `end_block_root`.
     ///
     /// Blocks are returned in slot-ascending order, suitable for replaying on a state with slot
     /// equal to `start_slot`, to reach a state with slot equal to `end_slot`.
-    ///
-    /// Payloads are also returned in slot-ascending order, but only payloads forming part of
-    /// the chain are loaded (payloads for EMPTY slots are omitted). Prior to Gloas, an empty
-    /// vec of payloads will be returned.
-    #[allow(clippy::type_complexity)]
     pub fn load_blocks_to_replay(
         &self,
         start_slot: Slot,
         end_slot: Slot,
         end_block_root: Hash256,
-        desired_payload_status: StatePayloadStatus,
-        base_payload_status: StatePayloadStatus,
-    ) -> Result<
-        (
-            Vec<SignedBlindedBeaconBlock<E>>,
-            Vec<SignedExecutionPayloadEnvelope<E>>,
-        ),
-        Error,
-    > {
+    ) -> Result<Vec<SignedBlindedBeaconBlock<E>>, Error> {
         let _t = metrics::start_timer(&metrics::STORE_BEACON_LOAD_HOT_BLOCKS_TIME);
         let mut blocks = ParentRootBlockIterator::new(self, end_block_root)
             .map(|result| result.map(|(_, block)| block))
@@ -2717,90 +2544,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             })
             .collect::<Result<Vec<_>, _>>()?;
         blocks.reverse();
-
-        // If Gloas is not enabled for any slots in the range, just return `blocks`.
-        if !self.spec.fork_name_at_slot::<E>(start_slot).gloas_enabled()
-            && !self.spec.fork_name_at_slot::<E>(end_slot).gloas_enabled()
-        {
-            return Ok((blocks, vec![]));
-        }
-
-        let envelopes = self.load_payload_envelopes_for_blocks(
-            &blocks,
-            end_block_root,
-            desired_payload_status,
-            base_payload_status,
-            start_slot,
-        )?;
-
-        Ok((blocks, envelopes))
-    }
-
-    pub fn load_payload_envelopes_for_blocks(
-        &self,
-        blocks: &[SignedBlindedBeaconBlock<E>],
-        end_block_root: Hash256,
-        desired_payload_status: StatePayloadStatus,
-        base_payload_status: StatePayloadStatus,
-        base_state_slot: Slot,
-    ) -> Result<Vec<SignedExecutionPayloadEnvelope<E>>, Error> {
-        let mut envelopes = vec![];
-
-        for (i, (block, next_block)) in blocks.iter().tuple_windows().enumerate() {
-            if block.fork_name_unchecked().gloas_enabled() {
-                // Skip the anchor block's envelope if the base state already has it applied
-                // (Full status). The anchor block is at the base state's slot and is skipped
-                // by the block replayer. If the base state is Full, the replayer won't consume
-                // this block's envelope, so including it would cause the iterator to misalign.
-                if i == 0
-                    && base_payload_status == StatePayloadStatus::Full
-                    && block.slot() <= base_state_slot
-                {
-                    continue;
-                }
-
-                // Check next block to see if this block's payload is canonical on this chain.
-                let block_hash = block.payload_bid_block_hash()?;
-                if !next_block.is_parent_block_full(block_hash) {
-                    // No payload at this slot (empty), nothing to load.
-                    continue;
-                }
-                // Using `parent_root` avoids computation.
-                let block_root = next_block.parent_root();
-                let envelope = self
-                    .get_payload_envelope(&block_root)?
-                    .ok_or(HotColdDBError::MissingExecutionPayloadEnvelope(block_root))?;
-                envelopes.push(envelope);
-            }
-        }
-
-        // Load the payload for the last block if desired, unless the base state is already Full
-        // and no blocks after the base will be applied (the replayer will skip them all).
-        let base_already_full = base_payload_status == StatePayloadStatus::Full
-            && blocks.last().is_none_or(|b| b.slot() <= base_state_slot);
-        if let StatePayloadStatus::Full = desired_payload_status
-            && !base_already_full
-        {
-            let envelope = self.get_payload_envelope(&end_block_root)?.ok_or(
-                HotColdDBError::MissingExecutionPayloadEnvelope(end_block_root),
-            )?;
-            envelopes.push(envelope);
-        }
-
-        Ok(envelopes)
+        Ok(blocks)
     }
 
     /// Replay `blocks` on top of `state` until `target_slot` is reached.
     ///
     /// Will skip slots as necessary. The returned state is not guaranteed
     /// to have any caches built, beyond those immediately required by block processing.
-    #[allow(clippy::too_many_arguments)]
     pub fn replay_blocks(
         &self,
         state: BeaconState<E>,
         blocks: Vec<SignedBlindedBeaconBlock<E>>,
-        envelopes: Vec<SignedExecutionPayloadEnvelope<E>>,
-        desired_payload_status: StatePayloadStatus,
         target_slot: Slot,
         state_root_iter: Option<impl Iterator<Item = Result<(Hash256, Slot), Error>>>,
         pre_slot_hook: Option<PreSlotHook<E, Error>>,
@@ -2810,7 +2564,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let mut block_replayer = BlockReplayer::new(state, &self.spec)
             .no_signature_verification()
             .minimal_block_root_verification()
-            .desired_state_payload_status(desired_payload_status);
+            .desired_state_payload_status(StatePayloadStatus::Pending);
 
         let have_state_root_iterator = state_root_iter.is_some();
         if let Some(state_root_iter) = state_root_iter {
@@ -2822,7 +2576,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
 
         block_replayer
-            .apply_blocks(blocks, envelopes, Some(target_slot))
+            .apply_blocks(blocks, vec![], Some(target_slot))
             .map(|block_replayer| {
                 if have_state_root_iterator && block_replayer.state_root_miss() {
                     warn!(
@@ -3860,17 +3614,6 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         return Err(HotColdDBError::FreezeSlotUnaligned(finalized_state.slot()).into());
     }
 
-    // Post-Gloas the finalized state must ALWAYS be a pending state. The payload of the finalized
-    // block is not itself finalized.
-    if finalized_state.latest_block_header().slot == finalized_state.slot()
-        && finalized_state.payload_status() == StatePayloadStatus::Full
-    {
-        return Err(HotColdDBError::UnableToFreezeFullState {
-            state_root: finalized_state_root,
-        }
-        .into());
-    }
-
     let mut cold_db_block_ops = vec![];
 
     // Iterate in descending order until the current split slot
@@ -4267,12 +4010,8 @@ impl HotStateSummary {
         // slots where there isn't a skip).
         let latest_block_root = state.get_latest_block_root(state_root);
 
-        // Payload status of the state determines a lot about how it is stored.
-        let payload_status = state.payload_status();
-
         let get_state_root = |slot| {
             if slot == state.slot() {
-                // TODO(gloas): I think we can remove this case
                 Ok::<_, Error>(state_root)
             } else {
                 Ok::<_, Error>(get_ancestor_state_root(store, state, slot).map_err(|e| {
@@ -4295,12 +4034,6 @@ impl HotStateSummary {
         let previous_state_root = if state.slot() == 0 {
             // Set to 0x0 for genesis state to prevent any sort of circular reference.
             Hash256::zero()
-        } else if let StatePayloadStatus::Full = payload_status
-            && state.slot() == state.latest_block_header().slot
-        {
-            // A Full state at a non-skipped slot builds off the Pending state of the same slot,
-            // i.e. the state with the same `state_root` as its `BeaconBlock`
-            state.latest_block_header().state_root
         } else {
             get_state_root(state.slot().safe_sub(1_u64)?)?
         };
