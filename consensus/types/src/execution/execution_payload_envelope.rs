@@ -21,7 +21,6 @@ pub struct ExecutionPayloadEnvelope<E: EthSpec> {
     pub builder_index: u64,
     pub beacon_block_root: Hash256,
     pub slot: Slot,
-    pub state_root: Hash256,
 }
 
 impl<E: EthSpec> ExecutionPayloadEnvelope<E> {
@@ -33,7 +32,6 @@ impl<E: EthSpec> ExecutionPayloadEnvelope<E> {
             builder_index: 0,
             beacon_block_root: Hash256::zero(),
             slot: Slot::new(0),
-            state_root: Hash256::zero(),
         }
     }
 

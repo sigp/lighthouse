@@ -1,9 +1,7 @@
 use crate::{
     BlockProcessingError, BlockSignatureStrategy, ConsensusContext, SlotProcessingError,
     VerifyBlockRoot, VerifySignatures,
-    envelope_processing::{
-        EnvelopeProcessingError, VerifyStateRoot, process_execution_payload_envelope,
-    },
+    envelope_processing::{EnvelopeProcessingError, verify_execution_payload},
     per_block_processing,
     per_epoch_processing::EpochProcessingSummary,
     per_slot_processing,
@@ -250,36 +248,34 @@ where
         Ok(state_root)
     }
 
-    /// Apply an execution payload envelope to `self.state`.
+    /// Verify an execution payload envelope against `self.state`.
     ///
     /// The `block_state_root` MUST be the `state_root` of the most recently applied block.
     ///
-    /// Returns the `state_root` of `self.state` after payload application.
+    /// Since `verify_execution_payload` performs no state mutation, the state root remains
+    /// unchanged (equal to `block_state_root`).
     fn apply_payload_envelope(
         &mut self,
         envelope: &SignedExecutionPayloadEnvelope<E>,
         block_state_root: Hash256,
     ) -> Result<Hash256, Error> {
-        // TODO(gloas): bulk signature verification could be relevant here?
         let verify_payload_signatures =
             if let BlockSignatureStrategy::NoVerification = self.block_sig_strategy {
                 VerifySignatures::False
             } else {
                 VerifySignatures::True
             };
-        // TODO(gloas): state root verif enabled during initial prototyping
-        let verify_state_root = VerifyStateRoot::True;
-        process_execution_payload_envelope(
-            &mut self.state,
-            Some(block_state_root),
+        verify_execution_payload(
+            &self.state,
             envelope,
             verify_payload_signatures,
-            verify_state_root,
+            Some(block_state_root),
             self.spec,
         )
         .map_err(BlockReplayError::from)?;
 
-        Ok(envelope.message.state_root)
+        // No state mutation - the state root is unchanged from the post-block root.
+        Ok(block_state_root)
     }
 
     /// Apply `blocks` atop `self.state`, taking care of slot processing.

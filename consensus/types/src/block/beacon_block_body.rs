@@ -167,6 +167,8 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     #[superstruct(only(Electra, Fulu))]
     pub execution_requests: ExecutionRequests<E>,
     #[superstruct(only(Gloas))]
+    pub parent_execution_requests: ExecutionRequests<E>,
+    #[superstruct(only(Gloas))]
     pub signed_execution_payload_bid: SignedExecutionPayloadBid<E>,
     #[superstruct(only(Gloas))]
     pub payload_attestations: VariableList<PayloadAttestation<E>, E::MaxPayloadAttestations>,
@@ -564,6 +566,7 @@ impl<E: EthSpec> From<BeaconBlockBodyGloas<E, BlindedPayload<E>>>
             voluntary_exits,
             sync_aggregate,
             bls_to_execution_changes,
+            parent_execution_requests,
             signed_execution_payload_bid,
             payload_attestations,
             _phantom,
@@ -580,6 +583,7 @@ impl<E: EthSpec> From<BeaconBlockBodyGloas<E, BlindedPayload<E>>>
             voluntary_exits,
             sync_aggregate,
             bls_to_execution_changes,
+            parent_execution_requests,
             signed_execution_payload_bid,
             payload_attestations,
             _phantom: PhantomData,
@@ -898,6 +902,7 @@ impl<E: EthSpec> From<BeaconBlockBodyGloas<E, FullPayload<E>>>
             voluntary_exits,
             sync_aggregate,
             bls_to_execution_changes,
+            parent_execution_requests,
             signed_execution_payload_bid,
             payload_attestations,
             _phantom,
@@ -915,6 +920,7 @@ impl<E: EthSpec> From<BeaconBlockBodyGloas<E, FullPayload<E>>>
                 voluntary_exits,
                 sync_aggregate,
                 bls_to_execution_changes,
+                parent_execution_requests,
                 signed_execution_payload_bid,
                 payload_attestations,
                 _phantom: PhantomData,

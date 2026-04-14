@@ -183,6 +183,8 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
     if is_execution_enabled(state, block.body()) {
         let body = block.body();
         if state.fork_name_unchecked().gloas_enabled() {
+            // Process deferred execution requests from the parent's envelope.
+            process_parent_execution_payload(state, block, spec)?;
             withdrawals::gloas::process_withdrawals::<E>(state, spec)?;
             process_execution_payload_bid(state, block, verify_signatures, spec)?;
         } else {
@@ -549,6 +551,98 @@ pub fn can_builder_cover_bid<E: EthSpec>(
     } else {
         Ok(builder_balance.safe_sub(min_balance)? >= bid_amount)
     }
+}
+
+/// Process the parent block's deferred execution payload effects.
+///
+/// This implements the spec's `process_parent_execution_payload` function, which processes
+/// execution requests that were deferred from the parent block's envelope. This is called
+/// at the beginning of block processing, before `process_block_header`.
+///
+/// The function:
+/// 1. Checks if the parent block was "full" (i.e. its envelope was received)
+/// 2. If full, validates the `parent_execution_requests` from the block body
+/// 3. Processes deposits, withdrawals, and consolidations from those requests
+/// 4. Queues the builder pending payment from the parent's committed bid
+/// 5. Updates `execution_payload_availability` and `latest_block_hash`
+pub fn process_parent_execution_payload<E: EthSpec, Payload: AbstractExecPayload<E>>(
+    state: &mut BeaconState<E>,
+    block: BeaconBlockRef<'_, E, Payload>,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    let bid = state.latest_execution_payload_bid()?.clone();
+
+    // Check if parent block is full: bid.parent_block_hash == latest_block_hash
+    // means the parent's envelope extended the execution chain.
+    if bid.parent_block_hash != *state.latest_block_hash()? {
+        return Ok(());
+    }
+
+    let parent_execution_requests = block.body().parent_execution_requests()?;
+
+    // Verify execution requests match the committed bid's execution_requests_root
+    let requests_root = parent_execution_requests.tree_hash_root();
+    block_verify!(
+        requests_root == bid.execution_requests_root,
+        BlockProcessingError::ExecutionRequestsRootMismatch {
+            expected: bid.execution_requests_root,
+            found: requests_root,
+        }
+    );
+
+    // Process execution requests from the parent's envelope
+    process_operations::process_deposit_requests_post_gloas(
+        state,
+        &parent_execution_requests.deposits,
+        spec,
+    )?;
+    process_operations::process_withdrawal_requests(
+        state,
+        &parent_execution_requests.withdrawals,
+        spec,
+    )?;
+    process_operations::process_consolidation_requests(
+        state,
+        &parent_execution_requests.consolidations,
+        spec,
+    )?;
+
+    // Queue the builder pending payment from the parent's committed bid
+    let parent_slot = state
+        .slot()
+        .as_u64()
+        .checked_sub(1)
+        .ok_or(ArithError::Overflow)?;
+    let payment_index =
+        E::slots_per_epoch().safe_add(parent_slot.safe_rem(E::slots_per_epoch())?)? as usize;
+    let payment_mut = state
+        .builder_pending_payments_mut()?
+        .get_mut(payment_index)
+        .ok_or(BlockProcessingError::BeaconStateError(
+            BeaconStateError::InvalidBuilderPendingPaymentsIndex(payment_index),
+        ))?;
+
+    let payment_withdrawal = payment_mut.withdrawal.clone();
+    *payment_mut = BuilderPendingPayment::default();
+
+    if payment_withdrawal.amount > 0 {
+        state
+            .builder_pending_withdrawals_mut()?
+            .push(payment_withdrawal)
+            .map_err(|e| BlockProcessingError::BeaconStateError(e.into()))?;
+    }
+
+    // Update execution payload availability for the parent slot
+    let availability_index = (parent_slot as usize).safe_rem(E::slots_per_historical_root())?;
+    state
+        .execution_payload_availability_mut()?
+        .set(availability_index, true)
+        .map_err(BlockProcessingError::BitfieldError)?;
+
+    // Update latest_block_hash to the committed bid's block_hash
+    *state.latest_block_hash_mut()? = bid.block_hash;
+
+    Ok(())
 }
 
 pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>>(
