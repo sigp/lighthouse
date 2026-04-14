@@ -82,7 +82,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             &signed_envelope,
             // verify signature already done for GossipVerifiedEnvelope
             VerifySignatures::False,
-            Some(snapshot.state_root),
+            snapshot.state_root,
             &chain.spec,
         )?;
 

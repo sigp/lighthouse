@@ -17,7 +17,7 @@ use std::{
 };
 use types::{
     AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
-    Slot, StatePayloadStatus,
+    Slot,
 };
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
@@ -108,19 +108,6 @@ pub enum PayloadStatus {
     Empty = 0,
     Full = 1,
     Pending = 2,
-}
-
-impl PayloadStatus {
-    /// Convert a `PayloadStatus` into the equivalent `StatePayloadStatus`.
-    ///
-    /// This maps `Empty` onto `StatePayloadStatus::Pending` because empty and pending fork choice
-    /// nodes correspond to the exact same state.
-    pub fn as_state_payload_status(self) -> StatePayloadStatus {
-        match self {
-            Self::Empty | Self::Pending => StatePayloadStatus::Pending,
-            Self::Full => StatePayloadStatus::Full,
-        }
-    }
 }
 
 /// Spec's `ForkChoiceNode` augmented with ProtoNode index.

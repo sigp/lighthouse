@@ -93,14 +93,14 @@ impl From<ArithError> for EnvelopeProcessingError {
 /// from the envelope are deferred to be processed in the next block via
 /// `process_parent_execution_payload`.
 ///
-/// `parent_state_root` should be the post-block state root (used to fill in the block header
+/// `block_state_root` should be the post-block state root (used to fill in the block header
 /// for beacon_block_root verification). If `None`, the latest_block_header must already have
 /// its state_root filled in.
 pub fn verify_execution_payload<E: EthSpec>(
     state: &BeaconState<E>,
     signed_envelope: &SignedExecutionPayloadEnvelope<E>,
     verify_signatures: VerifySignatures,
-    parent_state_root: Option<Hash256>,
+    block_state_root: Hash256,
     spec: &ChainSpec,
 ) -> Result<(), EnvelopeProcessingError> {
     if verify_signatures.is_true() && !signed_envelope.verify_signature_with_state(state, spec)? {
@@ -116,7 +116,7 @@ pub fn verify_execution_payload<E: EthSpec>(
     if header.state_root == Hash256::default() {
         // The caller must provide the post-block state root so we can compute
         // the block header root without mutating state.
-        header.state_root = parent_state_root.unwrap_or_default();
+        header.state_root = block_state_root;
     }
     let latest_block_header_root = header.tree_hash_root();
     envelope_verify!(

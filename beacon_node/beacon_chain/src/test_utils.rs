@@ -2690,28 +2690,24 @@ where
         Ok(block_hash)
     }
 
-    /// Process an execution payload envelope for a Gloas block.
+    /// Verify an execution payload envelope for a Gloas block.
     pub async fn process_envelope(
         &self,
         block_root: Hash256,
         signed_envelope: SignedExecutionPayloadEnvelope<E>,
-        pending_state: &mut BeaconState<E>,
-    ) -> Hash256 {
-        let block_state_root = pending_state
-            .update_tree_hash_cache()
-            .expect("should compute pending state root");
-        let state_root = block_state_root;
+        state: &BeaconState<E>,
+        block_state_root: Hash256,
+    ) {
         debug!(
             slot = %signed_envelope.message.slot,
-            ?state_root,
             "Processing execution payload envelope"
         );
 
         state_processing::envelope_processing::verify_execution_payload(
-            pending_state,
+            state,
             &signed_envelope,
             state_processing::VerifySignatures::True,
-            Some(block_state_root),
+            block_state_root,
             &self.spec,
         )
         .expect("should verify envelope");
@@ -2758,12 +2754,6 @@ where
             .put_payload_envelope(&block_root, signed_envelope)
             .expect("should store envelope");
 
-        // Store the Full state.
-        self.chain
-            .store
-            .put_state(&state_root, pending_state)
-            .expect("should store full state");
-
         // Update fork choice so it knows the payload was received.
         self.chain
             .canonical_head
@@ -2773,8 +2763,6 @@ where
 
         // Run fork choice because the envelope could become the head.
         self.chain.recompute_head_at_current_slot().await;
-
-        state_root
     }
 
     /// Builds a `RangeSyncBlock` from a `SignedBeaconBlock` and blobs or data columns retrieved from
@@ -2988,7 +2976,7 @@ where
         BlockError,
     > {
         self.set_current_slot(slot);
-        let (block_contents, opt_envelope, mut new_state) =
+        let (block_contents, opt_envelope, new_state) =
             self.make_block_with_envelope(state, slot).await;
 
         let block_hash = self
@@ -3000,8 +2988,14 @@ where
             .await?;
 
         if let Some(envelope) = opt_envelope {
-            self.process_envelope(block_hash.into(), envelope, &mut new_state)
-                .await;
+            let block_state_root = block_contents.0.state_root();
+            self.process_envelope(
+                block_hash.into(),
+                envelope,
+                &new_state,
+                block_state_root,
+            )
+            .await;
         }
         Ok((block_hash, block_contents, new_state))
     }

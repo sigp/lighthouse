@@ -46,7 +46,7 @@ use tree_hash::TreeHash;
 use types::data::CustodyIndex;
 use types::{
     BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList,
-    Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot, StatePayloadStatus,
+    Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -476,15 +476,6 @@ where
                  is {:?} but should be {:?}",
                 weak_subj_state.genesis_validators_root(),
                 genesis_state.genesis_validators_root()
-            ));
-        }
-
-        // Checkpoint state must ALWAYS be pending, even post-Gloas. The finalized block's payload
-        // is not finalized.
-        if weak_subj_state.payload_status() == StatePayloadStatus::Full {
-            return Err(format!(
-                "Checkpoint state is a post-payload state but should be post-block, \
-                 state root: {weak_subj_state_root:?}"
             ));
         }
 

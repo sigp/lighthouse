@@ -572,7 +572,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 &state,
                 &signed_envelope,
                 VerifySignatures::False,
-                Some(state_root),
+                state_root,
                 &self.spec,
             )
             .map_err(BlockProductionError::EnvelopeProcessingError)?;

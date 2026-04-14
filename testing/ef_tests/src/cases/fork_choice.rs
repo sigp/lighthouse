@@ -1035,7 +1035,7 @@ impl<E: EthSpec> Tester<E> {
                 &state,
                 signed_envelope,
                 VerifySignatures::False,
-                Some(block_state_root),
+                block_state_root,
                 spec,
             )
             .map_err(|e| {

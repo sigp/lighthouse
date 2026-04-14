@@ -37,7 +37,7 @@ use crate::{
     execution::{
         Eth1Data, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
         ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
-        ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut, StatePayloadStatus,
+        ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
     },
     fork::{Fork, ForkName, ForkVersionDecode, InconsistentFork, map_fork_name},
     light_client::consts::{
@@ -1270,27 +1270,6 @@ impl<E: EthSpec> BeaconState<E> {
             )),
             // TODO(EIP-7732): investigate calling functions
             BeaconState::Gloas(_) => Err(BeaconStateError::IncorrectStateVariant),
-        }
-    }
-
-    /// Determine the payload status of this state.
-    ///
-    /// Prior to Gloas this is always `Pending`.
-    ///
-    /// Post-Gloas, the definition of the `StatePayloadStatus` is:
-    ///
-    /// - `Full` if this state is the result of envelope processing.
-    /// - `Pending` if this state is the result of block processing.
-    pub fn payload_status(&self) -> StatePayloadStatus {
-        if !self.fork_name_unchecked().gloas_enabled() {
-            StatePayloadStatus::Pending
-        } else if self.slot() == 0 {
-            // The genesis state is always Pending: there is no genesis envelope.
-            StatePayloadStatus::Pending
-        } else if self.is_parent_block_full() {
-            StatePayloadStatus::Full
-        } else {
-            StatePayloadStatus::Pending
         }
     }
 
