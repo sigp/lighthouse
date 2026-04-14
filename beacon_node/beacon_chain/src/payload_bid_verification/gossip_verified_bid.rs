@@ -58,7 +58,10 @@ pub(crate) fn verify_bid_consistency<E: EthSpec>(
 
     let builder_index = bid.builder_index;
 
-    if !head_state.is_active_builder(builder_index, spec)? {
+    let is_active_builder = head_state.is_active_builder(builder_index, spec)
+        .map_err(|_| PayloadBidError::InvalidBuilder { builder_index })?;
+
+    if !is_active_builder {
         return Err(PayloadBidError::InvalidBuilder { builder_index });
     }
 

@@ -3308,6 +3308,7 @@ impl<E: EthSpec> BeaconState<E> {
         let builder_balance = builder.balance;
         let pending_withdrawals_amount =
             self.get_pending_balance_to_withdraw_for_builder(builder_index)?;
+
         let min_balance = spec
             .min_deposit_amount
             .safe_add(pending_withdrawals_amount)?;
