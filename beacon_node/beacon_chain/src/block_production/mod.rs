@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use proto_array::ProposerHeadError;
 use slot_clock::SlotClock;
 use tracing::{debug, error, info, instrument, warn};
-use types::{BeaconState, Hash256, Slot, StatePayloadStatus};
+use types::{BeaconState, Hash256, Slot};
 
 use crate::{
     BeaconChain, BeaconChainTypes, BlockProductionError, StateSkipConfig,
@@ -28,13 +28,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Atomically read some values from the head whilst avoiding holding cached head `Arc` any
         // longer than necessary.
-        let (head_slot, head_block_root, head_state_root, head_payload_status) = {
+        let (head_slot, head_block_root, head_state_root) = {
             let head = self.canonical_head.cached_head();
             (
                 head.head_slot(),
                 head.head_block_root(),
                 head.head_state_root(),
-                head.head_payload_status(),
             )
         };
         let (state, state_root_opt) = if head_slot < slot {
@@ -57,28 +56,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             } else {
                 // Fetch the head state advanced through to `slot`, which should be present in the
                 // state cache thanks to the state advance timer.
-                let (payload_status, parent_state_root) = if gloas_enabled
-                    && head_payload_status.as_state_payload_status() == StatePayloadStatus::Full
-                    && let Ok(Some(_envelope)) = self.store.get_payload_envelope(&head_block_root)
-                {
-                    debug!(
-                        %slot,
-                        parent_state_root = ?head_state_root,
-                        parent_block_root = ?head_block_root,
-                        "Building Gloas block on full state"
-                    );
-                    (StatePayloadStatus::Full, head_state_root)
-                } else {
-                    (StatePayloadStatus::Pending, head_state_root)
-                };
+                let parent_state_root = head_state_root;
                 let (state_root, state) = self
                     .store
-                    .get_advanced_hot_state(
-                        head_block_root,
-                        payload_status,
-                        slot,
-                        parent_state_root,
-                    )
+                    .get_advanced_hot_state(head_block_root, slot, parent_state_root)
                     .map_err(BlockProductionError::FailedToLoadState)?
                     .ok_or(BlockProductionError::UnableToProduceAtSlot(slot))?;
                 (state, Some(state_root))
@@ -231,11 +212,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let (state_root, state) = self
             .store
-            .get_advanced_hot_state_from_cache(
-                re_org_parent_block,
-                StatePayloadStatus::Pending,
-                slot,
-            )
+            .get_advanced_hot_state_from_cache(re_org_parent_block, slot)
             .or_else(|| {
                 warn!(reason = "no state in cache", "Not attempting re-org");
                 None

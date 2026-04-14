@@ -315,14 +315,8 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             .ok_or(Error::MissingBeaconBlock(beacon_block_root))?;
         let current_slot = fork_choice.fc_store().get_current_slot();
 
-        let payload_status = head_payload_status.as_state_payload_status();
         let (_, beacon_state) = store
-            .get_advanced_hot_state(
-                beacon_block_root,
-                payload_status,
-                current_slot,
-                beacon_block.state_root(),
-            )?
+            .get_advanced_hot_state(beacon_block_root, current_slot, beacon_block.state_root())?
             .ok_or(Error::MissingBeaconState(beacon_block.state_root()))?;
 
         let snapshot = BeaconSnapshot {
@@ -693,32 +687,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .get_full_block(&new_view.head_block_root)?
                     .ok_or(Error::MissingBeaconBlock(new_view.head_block_root))?;
 
-                let payload_status = new_payload_status.as_state_payload_status();
-
                 // Load the execution envelope from the store if the head has a Full payload.
-                let (state_root, execution_envelope) = if payload_status == StatePayloadStatus::Full
-                {
-                    // TODO(gloas): include block root in error
-                    let envelope = self
-                        .store
-                        .get_payload_envelope(&new_view.head_block_root)?
-                        .map(Arc::new)
-                        .ok_or(Error::MissingExecutionPayloadEnvelope(
-                            new_view.head_block_root,
-                        ))?;
+                let (state_root, execution_envelope) =
+                    if new_payload_status.as_state_payload_status() == StatePayloadStatus::Full {
+                        // TODO(gloas): include block root in error
+                        let envelope = self
+                            .store
+                            .get_payload_envelope(&new_view.head_block_root)?
+                            .map(Arc::new)
+                            .ok_or(Error::MissingExecutionPayloadEnvelope(
+                                new_view.head_block_root,
+                            ))?;
 
-                    (beacon_block.state_root(), Some(envelope))
-                } else {
-                    (beacon_block.state_root(), None)
-                };
+                        (beacon_block.state_root(), Some(envelope))
+                    } else {
+                        (beacon_block.state_root(), None)
+                    };
                 let (_, beacon_state) = self
                     .store
-                    .get_advanced_hot_state(
-                        new_view.head_block_root,
-                        payload_status,
-                        current_slot,
-                        state_root,
-                    )?
+                    .get_advanced_hot_state(new_view.head_block_root, current_slot, state_root)?
                     .ok_or(Error::MissingBeaconState(state_root))?;
 
                 BeaconSnapshot {

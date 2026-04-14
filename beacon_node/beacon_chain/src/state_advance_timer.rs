@@ -272,23 +272,17 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
         }
     }
 
-    let (head_block_root, head_block_state_root, head_payload_status) = {
+    let (head_block_root, head_block_state_root) = {
         let head = beacon_chain.canonical_head.cached_head();
         (
             head.snapshot.beacon_block_root,
             head.snapshot.beacon_state_root(),
-            head.head_payload_status(),
         )
     };
 
     let (head_state_root, mut state) = beacon_chain
         .store
-        .get_advanced_hot_state(
-            head_block_root,
-            head_payload_status.as_state_payload_status(),
-            current_slot,
-            head_block_state_root,
-        )?
+        .get_advanced_hot_state(head_block_root, current_slot, head_block_state_root)?
         .ok_or(Error::HeadMissingFromSnapshotCache(head_block_root))?;
 
     let initial_slot = state.slot();

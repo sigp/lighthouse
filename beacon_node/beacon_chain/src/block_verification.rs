@@ -1957,36 +1957,10 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
         // particularly important if `block` descends from the finalized/split block, but at a slot
         // prior to the finalized slot (which is invalid and inaccessible in our DB schema).
         //
-        // Post-Gloas we must also fetch a state with the correct payload status. If the current
-        // block builds upon the payload of its parent block, then we know the parent block is FULL
-        // and we need to load the full state.
-        let (payload_status, parent_state_root) = if parent_block.slot() == chain.spec.genesis_slot
-        {
-            // Genesis state is always pending, there is no such thing as a "genesis envelope".
-            // See: https://github.com/ethereum/consensus-specs/issues/5043
-            (StatePayloadStatus::Pending, parent_block.state_root())
-        } else if !block.as_block().fork_name_unchecked().gloas_enabled() {
-            // All pre-Gloas parent states are pending.
-            (StatePayloadStatus::Pending, parent_block.state_root())
-        } else if let Ok(parent_bid_block_hash) = parent_block.payload_bid_block_hash()
-            && block.as_block().is_parent_block_full(parent_bid_block_hash)
-        {
-            // Post-Gloas Full block case.
-            // TODO(gloas): loading the envelope here is not very efficient
-            let Some(_envelope) = chain.store.get_payload_envelope(&root)? else {
-                return Err(BeaconChainError::DBInconsistent(format!(
-                    "Missing envelope for parent block {root:?}",
-                ))
-                .into());
-            };
-            (StatePayloadStatus::Full, parent_block.state_root())
-        } else {
-            // Post-Gloas empty block case (also covers the Gloas fork transition).
-            (StatePayloadStatus::Pending, parent_block.state_root())
-        };
+        let parent_state_root = parent_block.state_root();
         let (parent_state_root, state) = chain
             .store
-            .get_advanced_hot_state(root, payload_status, block.slot(), parent_state_root)?
+            .get_advanced_hot_state(root, block.slot(), parent_state_root)?
             .ok_or_else(|| {
                 BeaconChainError::DBInconsistent(
                     format!("Missing state for parent block {root:?}",),
@@ -2010,7 +1984,7 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
         }
 
         let beacon_state_root = if state.slot() == parent_block.slot()
-            && let StatePayloadStatus::Pending = payload_status
+            && let StatePayloadStatus::Pending = state.payload_status()
         {
             // Sanity check.
             if parent_state_root != parent_block.state_root() {
