@@ -13,7 +13,7 @@ use ssz_types::VariableList;
 use store::{HotColdDB, StoreConfig};
 use types::{
     Address, BeaconBlock, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadBid, ForkName, Hash256, MinimalEthSpec, ProposerPreferences, SignedBeaconBlock,
+    ExecutionPayloadBid, Hash256, MinimalEthSpec, ProposerPreferences, SignedBeaconBlock,
     SignedExecutionPayloadBid, SignedProposerPreferences, SignedRoot, Slot,
 };
 
@@ -33,7 +33,7 @@ use crate::{
         gossip_verified_proposer_preferences::GossipVerifiedProposerPreferences,
         proposer_preference_cache::GossipVerifiedProposerPreferenceCache,
     },
-    test_utils::EphemeralHarnessType,
+    test_utils::{EphemeralHarnessType, fork_name_from_env, test_spec},
 };
 
 type E = MinimalEthSpec;
@@ -67,7 +67,7 @@ fn builder_withdrawal_credentials(pubkey: &bls::PublicKey, spec: &ChainSpec) -> 
 
 impl TestContext {
     fn new() -> Self {
-        let spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
+        let spec = test_spec::<E>();
         let store = Arc::new(
             HotColdDB::open_ephemeral(StoreConfig::default(), Arc::new(spec.clone()))
                 .expect("should open ephemeral store"),
@@ -269,6 +269,9 @@ fn seed_preferences(ctx: &TestContext, slot: Slot, fee_recipient: Address, gas_l
 
 #[test]
 fn no_proposer_preferences_for_slot() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     let bid = make_signed_bid(
@@ -289,6 +292,9 @@ fn no_proposer_preferences_for_slot() {
 
 #[test]
 fn builder_already_seen_for_slot() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(0);
@@ -312,6 +318,9 @@ fn builder_already_seen_for_slot() {
 
 #[test]
 fn bid_value_below_cached() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(0);
@@ -332,6 +341,9 @@ fn bid_value_below_cached() {
 
 #[test]
 fn invalid_bid_slot() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(5);
@@ -354,6 +366,9 @@ fn invalid_bid_slot() {
 
 #[test]
 fn fee_recipient_mismatch() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(0);
@@ -373,6 +388,9 @@ fn fee_recipient_mismatch() {
 
 #[test]
 fn gas_limit_mismatch() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(0);
@@ -392,6 +410,9 @@ fn gas_limit_mismatch() {
 
 #[test]
 fn execution_payment_nonzero() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(0);
@@ -416,6 +437,9 @@ fn execution_payment_nonzero() {
 
 #[test]
 fn unknown_builder_index() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(0);
@@ -441,6 +465,9 @@ fn unknown_builder_index() {
 
 #[test]
 fn inactive_builder() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(0);
@@ -463,6 +490,9 @@ fn inactive_builder() {
 
 #[test]
 fn builder_cant_cover_bid() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(0);
@@ -486,6 +516,9 @@ fn builder_cant_cover_bid() {
 
 #[test]
 fn parent_block_root_unknown() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(0);
@@ -505,6 +538,9 @@ fn parent_block_root_unknown() {
 
 #[test]
 fn parent_block_root_not_canonical() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(0);
@@ -523,6 +559,9 @@ fn parent_block_root_not_canonical() {
 
 #[test]
 fn invalid_blob_kzg_commitments() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(0);
@@ -557,6 +596,9 @@ fn invalid_blob_kzg_commitments() {
 
 #[test]
 fn bad_signature() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(0);
@@ -583,6 +625,9 @@ fn bad_signature() {
 
 #[test]
 fn valid_bid() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(0);
@@ -607,6 +652,9 @@ fn valid_bid() {
 
 #[test]
 fn two_builders_coexist_in_cache() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(0);
@@ -659,6 +707,9 @@ fn two_builders_coexist_in_cache() {
 
 #[test]
 fn bid_equal_to_cached_value_rejected() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(0);

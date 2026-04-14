@@ -8,7 +8,7 @@ use proto_array::PayloadStatus;
 use slot_clock::{SlotClock, TestingSlotClock};
 use store::{HotColdDB, StoreConfig};
 use types::{
-    Address, BeaconBlock, ChainSpec, Checkpoint, Epoch, EthSpec, ForkName, Hash256, MinimalEthSpec,
+    Address, BeaconBlock, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, MinimalEthSpec,
     ProposerPreferences, SignedBeaconBlock, SignedProposerPreferences, Slot,
 };
 
@@ -23,7 +23,7 @@ use crate::{
         },
         proposer_preference_cache::GossipVerifiedProposerPreferenceCache,
     },
-    test_utils::EphemeralHarnessType,
+    test_utils::{EphemeralHarnessType, fork_name_from_env, test_spec},
 };
 
 type E = MinimalEthSpec;
@@ -40,7 +40,7 @@ struct TestContext {
 
 impl TestContext {
     fn new() -> Self {
-        let spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
+        let spec = test_spec::<E>();
         let store = Arc::new(
             HotColdDB::open_ephemeral(StoreConfig::default(), Arc::new(spec.clone()))
                 .expect("should open ephemeral store"),
@@ -138,6 +138,9 @@ fn make_signed_preferences(
 
 #[test]
 fn already_seen_validator() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(1);
@@ -160,6 +163,9 @@ fn already_seen_validator() {
 
 #[test]
 fn invalid_epoch_too_far_ahead() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
 
@@ -174,6 +180,9 @@ fn invalid_epoch_too_far_ahead() {
 
 #[test]
 fn proposal_slot_already_passed() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
 
@@ -187,6 +196,9 @@ fn proposal_slot_already_passed() {
 
 #[test]
 fn wrong_proposer_for_slot() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(1);
@@ -204,6 +216,9 @@ fn wrong_proposer_for_slot() {
 
 #[test]
 fn correct_proposer_bad_signature() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(1);
@@ -224,6 +239,9 @@ fn correct_proposer_bad_signature() {
 
 #[test]
 fn validator_index_out_of_bounds() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(1);
@@ -240,6 +258,9 @@ fn validator_index_out_of_bounds() {
 
 #[test]
 fn preferences_for_next_epoch_slot() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
 
