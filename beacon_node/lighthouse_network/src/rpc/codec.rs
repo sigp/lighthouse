@@ -1088,9 +1088,11 @@ mod tests {
         let mut block: BeaconBlockBellatrix<_, FullPayload<Spec>> =
             BeaconBlockBellatrix::empty(spec);
 
+        // 11,000 × 1KB ≈ 11MB, just above the 10MB max_payload_size.
+        // Previously used 100,000 txs (~100MB) which made this test take >60s.
         let tx = VariableList::try_from(vec![0; 1024]).unwrap();
         let txs =
-            VariableList::try_from(std::iter::repeat_n(tx, 100000).collect::<Vec<_>>()).unwrap();
+            VariableList::try_from(std::iter::repeat_n(tx, 11000).collect::<Vec<_>>()).unwrap();
 
         block.body.execution_payload.execution_payload.transactions = txs;
 

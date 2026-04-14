@@ -620,11 +620,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // Back-sync batches are dispatched with a different `Work` variant so
         // they can be rate-limited.
         let work = match process_id {
-            ChainSegmentProcessId::RangeBatchId(_, _) => {
+            ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
                 let process_fn = async move {
                     processor.process_chain_segment(process_id, blocks).await;
                 };
-                Work::ChainSegment(Box::pin(process_fn))
+                Work::ChainSegment {
+                    process_fn: Box::pin(process_fn),
+                    process_id: (chain_id, epoch.as_u64()),
+                }
             }
             ChainSegmentProcessId::BackSyncBatchId(_) => {
                 let process_fn =

@@ -331,11 +331,28 @@ impl FuluPreset {
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
-pub struct GloasPreset {}
+pub struct GloasPreset {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub ptc_size: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_payload_attestations: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub builder_registry_limit: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub builder_pending_withdrawals_limit: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_builders_per_withdrawals_sweep: u64,
+}
 
 impl GloasPreset {
     pub fn from_chain_spec<E: EthSpec>(_spec: &ChainSpec) -> Self {
-        Self {}
+        Self {
+            ptc_size: E::ptc_size() as u64,
+            max_payload_attestations: E::max_payload_attestations() as u64,
+            builder_registry_limit: E::BuilderRegistryLimit::to_u64(),
+            builder_pending_withdrawals_limit: E::builder_pending_withdrawals_limit() as u64,
+            max_builders_per_withdrawals_sweep: E::max_builders_per_withdrawals_sweep() as u64,
+        }
     }
 }
 
@@ -359,7 +376,7 @@ mod test {
     fn preset_from_file<T: DeserializeOwned>(preset_name: &str, filename: &str) -> T {
         let f = File::open(presets_base_path().join(preset_name).join(filename))
             .expect("preset file exists");
-        serde_yaml::from_reader(f).unwrap()
+        yaml_serde::from_reader(f).unwrap()
     }
 
     fn preset_test<E: EthSpec>() {
