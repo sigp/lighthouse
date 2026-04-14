@@ -754,7 +754,7 @@ async fn block_replayer_hooks() {
             post_block_slots.push(block.slot());
             Ok(())
         }))
-        .apply_blocks(blocks, vec![], None)
+        .apply_blocks(blocks, None)
         .unwrap()
         .into_state();
 
@@ -5916,7 +5916,7 @@ async fn test_gloas_block_replay_with_envelopes() {
     let mut replayed = BlockReplayer::<MinimalEthSpec>::new(genesis_state, store.get_chain_spec())
         .no_signature_verification()
         .minimal_block_root_verification()
-        .apply_blocks(blocks, vec![], None)
+        .apply_blocks(blocks, None)
         .expect("should replay blocks")
         .into_state();
     replayed.apply_pending_mutations().unwrap();

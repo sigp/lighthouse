@@ -2563,8 +2563,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let mut block_replayer = BlockReplayer::new(state, &self.spec)
             .no_signature_verification()
-            .minimal_block_root_verification()
-            .desired_state_payload_status(StatePayloadStatus::Pending);
+            .minimal_block_root_verification();
 
         let have_state_root_iterator = state_root_iter.is_some();
         if let Some(state_root_iter) = state_root_iter {
@@ -2576,7 +2575,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
 
         block_replayer
-            .apply_blocks(blocks, vec![], Some(target_slot))
+            .apply_blocks(blocks, Some(target_slot))
             .map(|block_replayer| {
                 if have_state_root_iterator && block_replayer.state_root_miss() {
                     warn!(
