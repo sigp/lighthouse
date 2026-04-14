@@ -4,8 +4,6 @@ use crate::{
     service::NetworkMessage,
     sync::SyncMessage,
 };
-use beacon_chain::block_verification_types::AsBlock;
-use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use beacon_chain::store::Error;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
@@ -23,6 +21,11 @@ use beacon_chain::{
     payload_envelope_verification::{
         EnvelopeError, gossip_verified_envelope::GossipVerifiedEnvelope,
     },
+};
+use beacon_chain::{block_verification_types::AsBlock, payload_bid_verification::PayloadBidError};
+use beacon_chain::{
+    data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn},
+    proposer_preferences_verification::ProposerPreferencesError,
 };
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
@@ -3470,26 +3473,103 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
+    #[instrument(
+        name = "lh_process_execution_payload_bid",
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(parent_block_hash = ?bid.message.parent_block_hash, parent_block_root = ?bid.message.parent_block_root),
+    )]
     pub fn process_gossip_execution_payload_bid(
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        payload_bid: SignedExecutionPayloadBid<T::EthSpec>,
+        bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>,
     ) {
-        // TODO(EIP-7732): Implement proper payload bid gossip processing.
-        // This should integrate with a payload execution bid verification module once it's implemented.
+        let verification_result = self.chain.verify_payload_bid_for_gossip(bid.clone());
 
-        trace!(
-            %peer_id,
-            slot = %payload_bid.message.slot,
-            value = %payload_bid.message.value,
-            "Processing execution payload bid"
-        );
-
-        // For now, ignore all payload bids since verification is not implemented
-        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+        match verification_result {
+            Ok(_) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+            }
+            Err(
+                PayloadBidError::BadSignature
+                | PayloadBidError::InvalidBuilder { .. }
+                | PayloadBidError::InvalidFeeRecipient
+                | PayloadBidError::InvalidGasLimit
+                | PayloadBidError::ExecutionPaymentNonZero { .. }
+                | PayloadBidError::InvalidBlobKzgCommitments { .. },
+            ) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "invalid_gossip_payload_bid",
+                );
+            }
+            Err(
+                PayloadBidError::NoProposerPreferences { .. }
+                | PayloadBidError::BuilderAlreadySeen { .. }
+                | PayloadBidError::BidValueBelowCached { .. }
+                | PayloadBidError::ParentBlockRootUnknown { .. }
+                | PayloadBidError::ParentBlockRootNotCanonical { .. }
+                | PayloadBidError::BuilderCantCoverBid { .. }
+                | PayloadBidError::BeaconStateError(_)
+                | PayloadBidError::InternalError(_)
+                | PayloadBidError::InvalidBidSlot { .. }
+                | PayloadBidError::UnableToReadSlot,
+            ) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+        }
     }
 
+    #[instrument(
+        name = "lh_process_proposer_preferences",
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(validator_index = ?proposer_preferences.message.validator_index, proposal_slot = ?proposer_preferences.message.proposal_slot),
+    )]
+    pub fn process_gossip_proposer_preferences(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        proposer_preferences: Arc<SignedProposerPreferences>,
+    ) {
+        let verification_result = self
+            .chain
+            .verify_proposer_preferences_for_gossip(proposer_preferences);
+
+        match verification_result {
+            Ok(_) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+            }
+            Err(
+                ProposerPreferencesError::AlreadySeen { .. }
+                | ProposerPreferencesError::InvalidProposalEpoch { .. }
+                | ProposerPreferencesError::ProposalSlotAlreadyPassed { .. }
+                | ProposerPreferencesError::BeaconChainError(_)
+                | ProposerPreferencesError::BeaconStateError(_)
+                | ProposerPreferencesError::UnableToReadSlot,
+            ) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            Err(
+                ProposerPreferencesError::InvalidProposalSlot { .. }
+                | ProposerPreferencesError::BadSignature,
+            ) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "invalid_gossip_proposer_preferences",
+                );
+            }
+        }
+    }
+
+    // TODO(gloas) dont forget to add tracing instrumentation
     pub fn process_gossip_payload_attestation(
         self: &Arc<Self>,
         message_id: MessageId,
@@ -3508,25 +3588,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
 
         // For now, ignore all payload attestation messages since verification is not implemented
-        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-    }
-
-    pub fn process_gossip_proposer_preferences(
-        self: &Arc<Self>,
-        message_id: MessageId,
-        peer_id: PeerId,
-        proposer_preferences: SignedProposerPreferences,
-    ) {
-        // TODO(EIP-7732): Implement proper proposer preferences gossip processing.
-
-        trace!(
-            %peer_id,
-            validator_index = proposer_preferences.message.validator_index,
-            slot = %proposer_preferences.message.proposal_slot,
-            "Processing proposer preferences"
-        );
-
-        // For now, ignore all proposer preferences since verification is not implemented
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
     }
 }
