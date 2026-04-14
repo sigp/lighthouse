@@ -1439,7 +1439,7 @@ impl ProtoArray {
         }
     }
 
-    fn should_extend_payload<E: EthSpec>(
+    pub fn should_extend_payload<E: EthSpec>(
         &self,
         fc_node: &IndexedForkChoiceNode,
         proto_node: &ProtoNode,

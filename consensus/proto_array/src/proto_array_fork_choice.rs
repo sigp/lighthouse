@@ -1006,6 +1006,34 @@ impl ProtoArrayForkChoice {
         })
     }
 
+    /// Returns whether the proposer should extend the parent's execution payload chain.
+    ///
+    /// This checks timeliness, data availability, and proposer boost conditions per the spec.
+    pub fn should_extend_payload<E: EthSpec>(
+        &self,
+        block_root: &Hash256,
+        proposer_boost_root: Hash256,
+    ) -> Result<bool, String> {
+        let block_index = self
+            .proto_array
+            .indices
+            .get(block_root)
+            .ok_or_else(|| format!("Unknown block root: {block_root:?}"))?;
+        let proto_node = self
+            .proto_array
+            .nodes
+            .get(*block_index)
+            .ok_or_else(|| format!("Missing node at index: {block_index}"))?;
+        let fc_node = IndexedForkChoiceNode {
+            root: proto_node.root(),
+            proto_node_index: *block_index,
+            payload_status: proto_node.get_parent_payload_status(),
+        };
+        self.proto_array
+            .should_extend_payload::<E>(&fc_node, proto_node, proposer_boost_root)
+            .map_err(|e| format!("{e:?}"))
+    }
+
     /// Returns the `block.execution_status` field, if the block is present.
     pub fn get_block_execution_status(&self, block_root: &Hash256) -> Option<ExecutionStatus> {
         let block = self.get_proto_node(block_root)?;

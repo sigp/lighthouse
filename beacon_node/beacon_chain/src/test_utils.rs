@@ -2989,13 +2989,8 @@ where
 
         if let Some(envelope) = opt_envelope {
             let block_state_root = block_contents.0.state_root();
-            self.process_envelope(
-                block_hash.into(),
-                envelope,
-                &new_state,
-                block_state_root,
-            )
-            .await;
+            self.process_envelope(block_hash.into(), envelope, &new_state, block_state_root)
+                .await;
         }
         Ok((block_hash, block_contents, new_state))
     }

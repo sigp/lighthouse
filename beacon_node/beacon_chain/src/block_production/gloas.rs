@@ -661,6 +661,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(|e| BlockProductionError::BeaconChain(Box::new(e)))?,
         };
 
+        let parent_bid = state.latest_execution_payload_bid()?;
+
+        let should_extend_payload = self
+            .canonical_head
+            .fork_choice_read_lock()
+            .should_extend_payload(&parent_root)?;
+
+        let parent_block_hash = if should_extend_payload {
+            // Build on parent bid's payload.
+            parent_bid.block_hash
+        } else {
+            // Skip parent bid's payload.
+            parent_bid.parent_block_hash
+        };
+
         // TODO(gloas) this should be BlockProductionVersion::V4
         // V3 is okay for now as long as we're not connected to a builder
         // TODO(gloas) add builder boost factor
@@ -668,6 +683,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.clone(),
             &state,
             parent_root,
+            parent_block_hash,
             proposer_index,
             builder_params,
         )?;
@@ -685,13 +701,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             blobs_and_proofs: _,
         } = block_proposal_contents;
 
-        let state_root = state.update_tree_hash_cache()?;
-
         // TODO(gloas) since we are defaulting to local building, execution payment is 0
         // execution payment should only be set to > 0 for trusted building.
         let bid = ExecutionPayloadBid::<T::EthSpec> {
-            parent_block_hash: state.latest_block_hash()?.to_owned(),
-            parent_block_root: state.get_latest_block_root(state_root),
+            parent_block_hash,
+            parent_block_root: parent_root,
             block_hash: payload.block_hash,
             prev_randao: payload.prev_randao,
             fee_recipient: Address::ZERO,
@@ -737,6 +751,7 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     state: &BeaconState<T::EthSpec>,
     parent_beacon_block_root: Hash256,
+    parent_block_hash: ExecutionBlockHash,
     proposer_index: u64,
     builder_params: BuilderParams,
 ) -> Result<PreparePayloadHandle<T::EthSpec>, BlockProductionError> {
@@ -748,10 +763,14 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
         compute_timestamp_at_slot(state, state.slot(), spec).map_err(BeaconStateError::from)?;
     let random = *state.get_randao_mix(current_epoch)?;
 
-    let latest_execution_block_hash = *state.latest_block_hash()?;
-    let latest_gas_limit = state.latest_execution_payload_bid()?.gas_limit;
+    // TODO(gloas): this gas limit calc is not necessarily right
+    let parent_bid = state.latest_execution_payload_bid()?;
+    let latest_gas_limit = parent_bid.gas_limit;
 
-    let withdrawals = if state.is_parent_block_full() {
+    let is_parent_block_full = parent_block_hash == parent_bid.block_hash;
+    // TODO(gloas): wrong, I think. Need to process parent exec payload if we are building on top of
+    // it
+    let withdrawals = if is_parent_block_full {
         Withdrawals::<T::EthSpec>::from(get_expected_withdrawals(state, spec)?).into()
     } else {
         // If the previous payload was missed, carry forward the withdrawals from the state.
@@ -770,7 +789,7 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
                     timestamp,
                     random,
                     proposer_index,
-                    latest_execution_block_hash,
+                    parent_block_hash,
                     latest_gas_limit,
                     builder_params,
                     withdrawals,
