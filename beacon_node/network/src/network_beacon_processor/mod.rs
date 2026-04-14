@@ -870,16 +870,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
         let custody_columns = self.chain.sampling_columns_for_epoch(epoch);
         let self_cloned = self.clone();
-        let publish_fn = move |blobs_or_data_column| {
+        let publish_fn = move |columns: EngineGetBlobsOutput<T>| {
             if publish_blobs {
-                match blobs_or_data_column {
-                    EngineGetBlobsOutput::CustodyColumns(columns) => {
-                        self_cloned.publish_data_columns_gradually(
-                            columns.into_iter().map(|c| c.clone_arc()).collect(),
-                            block_root,
-                        );
-                    }
-                };
+                self_cloned.publish_data_columns_gradually(
+                    columns.into_iter().map(|c| c.clone_arc()).collect(),
+                    block_root,
+                );
             }
         };
 

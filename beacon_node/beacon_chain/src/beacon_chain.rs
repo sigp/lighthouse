@@ -3138,14 +3138,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
-        match &engine_get_blobs_output {
-            EngineGetBlobsOutput::CustodyColumns(columns) => {
-                self.emit_sse_data_column_sidecar_events(
-                    &block_root,
-                    columns.iter().map(|column| column.as_data_column()),
-                );
-            }
-        }
+        self.emit_sse_data_column_sidecar_events(
+            &block_root,
+            engine_get_blobs_output
+                .iter()
+                .map(|column| column.as_data_column()),
+        );
 
         self.check_engine_blobs_availability_and_import(slot, block_root, engine_get_blobs_output)
             .await
@@ -3596,22 +3594,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         engine_get_blobs_output: EngineGetBlobsOutput<T>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        let availability = match engine_get_blobs_output {
-            EngineGetBlobsOutput::CustodyColumns(data_columns) => {
-                // TODO(gloas) verify that this check is no longer relevant for gloas
-                self.check_data_column_sidecar_header_signature_and_slashability(
-                    block_root,
-                    data_columns
-                        .iter()
-                        .filter_map(|c| match c.as_data_column() {
-                            DataColumnSidecar::Fulu(column) => Some(column),
-                            _ => None,
-                        }),
-                )?;
-                self.data_availability_checker
-                    .put_kzg_verified_custody_data_columns(block_root, data_columns)?
-            }
-        };
+        // TODO(gloas) verify that this check is no longer relevant for gloas
+        self.check_data_column_sidecar_header_signature_and_slashability(
+            block_root,
+            engine_get_blobs_output
+                .iter()
+                .filter_map(|c| match c.as_data_column() {
+                    DataColumnSidecar::Fulu(column) => Some(column),
+                    _ => None,
+                }),
+        )?;
+        let availability = self
+            .data_availability_checker
+            .put_kzg_verified_custody_data_columns(block_root, engine_get_blobs_output)?;
 
         self.process_availability(slot, availability, || Ok(()))
             .await

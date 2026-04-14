@@ -39,12 +39,7 @@ use types::{
 /// Result from engine get blobs to be passed onto `DataAvailabilityChecker` and published to the
 /// gossip network. The data columns have not been marked as observed yet, as they may not
 /// be published immediately.
-#[derive(Debug)]
-// TODO(gloas) this doesn't need to be an enum
-pub enum EngineGetBlobsOutput<T: BeaconChainTypes> {
-    /// A filtered list of custody data columns to be imported into the `DataAvailabilityChecker`.
-    CustodyColumns(Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>),
-}
+pub type EngineGetBlobsOutput<T: BeaconChainTypes> = Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>;
 
 #[derive(Debug)]
 pub enum FetchEngineBlobError {
@@ -225,16 +220,10 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
     // Up until this point we have not observed the data columns in the gossip cache, which allows
     // them to arrive independently while this function is running. In publish_fn we will observe
     // them and then publish any columns that had not already been observed.
-    publish_fn(EngineGetBlobsOutput::CustodyColumns(
-        custody_columns_to_import.clone(),
-    ));
+    publish_fn(custody_columns_to_import.clone());
 
     let availability_processing_status = chain_adapter
-        .process_engine_blobs(
-            block.slot(),
-            block_root,
-            EngineGetBlobsOutput::CustodyColumns(custody_columns_to_import),
-        )
+        .process_engine_blobs(block.slot(), block_root, custody_columns_to_import)
         .await?;
 
     Ok(Some(availability_processing_status))
