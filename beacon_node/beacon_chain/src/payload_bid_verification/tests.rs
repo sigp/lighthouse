@@ -17,7 +17,8 @@ use types::{
     SignedExecutionPayloadBid, SignedProposerPreferences, SignedRoot, Slot,
 };
 
-use proto_array::PayloadStatus;
+use proto_array::{Block as ProtoBlock, ExecutionStatus, PayloadStatus};
+use types::AttestationShufflingId;
 
 use crate::{
     beacon_fork_choice_store::BeaconForkChoiceStore,
@@ -177,6 +178,46 @@ impl TestContext {
             slot_clock: &self.slot_clock,
             spec: &self.spec,
         }
+    }
+
+    fn insert_non_canonical_block(&self) -> Hash256 {
+        let shuffling_id = AttestationShufflingId {
+            shuffling_epoch: Epoch::new(0),
+            shuffling_decision_block: self.genesis_block_root,
+        };
+        let fork_block_root = Hash256::repeat_byte(0xab);
+        let mut fc = self.canonical_head.fork_choice_write_lock();
+        fc.proto_array_mut()
+            .process_block::<E>(
+                ProtoBlock {
+                    slot: Slot::new(1),
+                    root: fork_block_root,
+                    parent_root: Some(self.genesis_block_root),
+                    target_root: fork_block_root,
+                    current_epoch_shuffling_id: shuffling_id.clone(),
+                    next_epoch_shuffling_id: shuffling_id,
+                    state_root: Hash256::ZERO,
+                    justified_checkpoint: Checkpoint {
+                        epoch: Epoch::new(0),
+                        root: self.genesis_block_root,
+                    },
+                    finalized_checkpoint: Checkpoint {
+                        epoch: Epoch::new(0),
+                        root: self.genesis_block_root,
+                    },
+                    execution_status: ExecutionStatus::irrelevant(),
+                    unrealized_justified_checkpoint: None,
+                    unrealized_finalized_checkpoint: None,
+                    execution_payload_parent_hash: Some(ExecutionBlockHash::zero()),
+                    execution_payload_block_hash: Some(ExecutionBlockHash::repeat_byte(0xab)),
+                    proposer_index: Some(0),
+                },
+                Slot::new(1),
+                &self.spec,
+                Duration::from_secs(0),
+            )
+            .expect("should insert fork block");
+        fork_block_root
     }
 }
 
@@ -459,6 +500,24 @@ fn parent_block_root_unknown() {
     assert!(
         matches!(err, PayloadBidError::ParentBlockRootUnknown { .. }),
         "expected ParentBlockRootUnknown, got: {err:?}"
+    );
+}
+
+#[test]
+fn parent_block_root_not_canonical() {
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
+    let slot = Slot::new(0);
+    seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
+
+    let fork_root = ctx.insert_non_canonical_block();
+    let bid = make_signed_bid(slot, 0, Address::ZERO, 30_000_000, 0, fork_root);
+    let result = GossipVerifiedPayloadBid::new(bid, &gossip);
+    assert!(result.is_err(), "expected error, got Ok");
+    let err = result.unwrap_err();
+    assert!(
+        matches!(err, PayloadBidError::ParentBlockRootNotCanonical { .. }),
+        "expected ParentBlockRootNotCanonical, got: {err:?}"
     );
 }
 
