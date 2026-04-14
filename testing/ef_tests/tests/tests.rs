@@ -961,6 +961,12 @@ fn epoch_processing_proposer_lookahead() {
 }
 
 #[test]
+fn epoch_processing_ptc_window() {
+    EpochProcessingHandler::<MinimalEthSpec, PtcWindow>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, PtcWindow>::default().run();
+}
+
+#[test]
 fn epoch_processing_builder_pending_payments() {
     EpochProcessingHandler::<MinimalEthSpec, BuilderPendingPayments>::default().run();
     EpochProcessingHandler::<MainnetEthSpec, BuilderPendingPayments>::default().run();
@@ -1030,6 +1036,12 @@ fn fork_choice_get_proposer_head() {
 fn fork_choice_deposit_with_reorg() {
     ForkChoiceHandler::<MinimalEthSpec>::new("deposit_with_reorg").run();
     // There is no mainnet variant for this test.
+}
+
+#[test]
+fn fork_choice_on_execution_payload() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("on_execution_payload").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("on_execution_payload").run();
 }
 
 #[test]

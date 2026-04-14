@@ -187,10 +187,9 @@ impl<E: EthSpec> Network<E> {
 
         // set up a collection of variables accessible outside of the network crate
         // Create an ENR or load from disk if appropriate
-        let next_fork_digest = ctx
-            .fork_context
-            .next_fork_digest()
-            .unwrap_or_else(|| ctx.fork_context.current_fork_digest());
+        // Per [spec](https://github.com/ethereum/consensus-specs/blob/1baa05e71148b0975e28918ac6022d2256b56f4a/specs/fulu/p2p-interface.md?plain=1#L636-L637)
+        // `nfd` must be zero-valued when no next fork is scheduled.
+        let next_fork_digest = ctx.fork_context.next_fork_digest().unwrap_or_default();
 
         let advertised_cgc = config
             .advertise_false_custody_group_count
@@ -1525,6 +1524,28 @@ impl<E: EthSpec> Network<E> {
                             request_type,
                         })
                     }
+                    RequestType::PayloadEnvelopesByRange(_) => {
+                        metrics::inc_counter_vec(
+                            &metrics::TOTAL_RPC_REQUESTS,
+                            &["payload_envelopes_by_range"],
+                        );
+                        Some(NetworkEvent::RequestReceived {
+                            peer_id,
+                            inbound_request_id,
+                            request_type,
+                        })
+                    }
+                    RequestType::PayloadEnvelopesByRoot(_) => {
+                        metrics::inc_counter_vec(
+                            &metrics::TOTAL_RPC_REQUESTS,
+                            &["payload_envelopes_by_root"],
+                        );
+                        Some(NetworkEvent::RequestReceived {
+                            peer_id,
+                            inbound_request_id,
+                            request_type,
+                        })
+                    }
                     RequestType::BlobsByRange(_) => {
                         metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_range"]);
                         Some(NetworkEvent::RequestReceived {
@@ -1639,6 +1660,16 @@ impl<E: EthSpec> Network<E> {
                     RpcSuccessResponse::BlocksByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRoot(Some(resp)))
                     }
+                    RpcSuccessResponse::PayloadEnvelopesByRange(resp) => self.build_response(
+                        id,
+                        peer_id,
+                        Response::PayloadEnvelopesByRange(Some(resp)),
+                    ),
+                    RpcSuccessResponse::PayloadEnvelopesByRoot(resp) => self.build_response(
+                        id,
+                        peer_id,
+                        Response::PayloadEnvelopesByRoot(Some(resp)),
+                    ),
                     RpcSuccessResponse::BlobsByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlobsByRoot(Some(resp)))
                     }
@@ -1673,6 +1704,12 @@ impl<E: EthSpec> Network<E> {
                 let response = match termination {
                     ResponseTermination::BlocksByRange => Response::BlocksByRange(None),
                     ResponseTermination::BlocksByRoot => Response::BlocksByRoot(None),
+                    ResponseTermination::PayloadEnvelopesByRange => {
+                        Response::PayloadEnvelopesByRange(None)
+                    }
+                    ResponseTermination::PayloadEnvelopesByRoot => {
+                        Response::PayloadEnvelopesByRoot(None)
+                    }
                     ResponseTermination::BlobsByRange => Response::BlobsByRange(None),
                     ResponseTermination::BlobsByRoot => Response::BlobsByRoot(None),
                     ResponseTermination::DataColumnsByRoot => Response::DataColumnsByRoot(None),

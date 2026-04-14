@@ -8,6 +8,7 @@ use crate::observed_aggregates::Error as ObservedAttestationsError;
 use crate::observed_attesters::Error as ObservedAttestersError;
 use crate::observed_block_producers::Error as ObservedBlockProducersError;
 use crate::observed_data_sidecars::Error as ObservedDataSidecarsError;
+use crate::payload_envelope_streamer::Error as EnvelopeStreamerError;
 use bls::PublicKeyBytes;
 use execution_layer::PayloadStatus;
 use fork_choice::ExecutionStatus;
@@ -157,6 +158,7 @@ pub enum BeaconChainError {
         reconstructed_transactions_root: Hash256,
     },
     BlockStreamerError(BlockStreamerError),
+    EnvelopeStreamerError(EnvelopeStreamerError),
     AddPayloadLogicError,
     ExecutionForkChoiceUpdateFailed(execution_layer::Error),
     PrepareProposerFailed(BlockProcessingError),

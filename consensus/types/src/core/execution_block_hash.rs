@@ -18,6 +18,18 @@ impl fmt::Debug for ExecutionBlockHash {
     }
 }
 
+impl fmt::Display for ExecutionBlockHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let hash = format!("{}", self.0);
+        write!(
+            f,
+            "{}…{}",
+            &hash[..6],
+            &hash[hash.len().saturating_sub(4)..]
+        )
+    }
+}
+
 impl ExecutionBlockHash {
     pub fn zero() -> Self {
         Self(Hash256::zero())
@@ -99,12 +111,6 @@ impl std::str::FromStr for ExecutionBlockHash {
         Hash256::from_str(s)
             .map(Self)
             .map_err(|e| format!("{:?}", e))
-    }
-}
-
-impl fmt::Display for ExecutionBlockHash {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
     }
 }
 

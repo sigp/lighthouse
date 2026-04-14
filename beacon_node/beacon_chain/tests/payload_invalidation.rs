@@ -1,7 +1,7 @@
 #![cfg(not(debug_assertions))]
 #![allow(clippy::result_large_err)]
 
-use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::{
     BeaconChainError, BlockError, ChainConfig, ExecutionPayloadError,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, NotifyExecutionLayer, StateSkipConfig,
@@ -686,19 +686,13 @@ async fn invalidates_all_descendants() {
     assert_eq!(fork_parent_state.slot(), fork_parent_slot);
     let ((fork_block, _), _fork_post_state) =
         rig.harness.make_block(fork_parent_state, fork_slot).await;
-    let fork_rpc_block = RpcBlock::new(
-        fork_block.clone(),
-        None,
-        &rig.harness.chain.data_availability_checker,
-        rig.harness.chain.spec.clone(),
-    )
-    .unwrap();
+    let fork_lookup_block = LookupBlock::new(fork_block.clone());
     let fork_block_root = rig
         .harness
         .chain
         .process_block(
-            fork_rpc_block.block_root(),
-            fork_rpc_block,
+            fork_lookup_block.block_root(),
+            fork_lookup_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -796,19 +790,13 @@ async fn switches_heads() {
     let ((fork_block, _), _fork_post_state) =
         rig.harness.make_block(fork_parent_state, fork_slot).await;
     let fork_parent_root = fork_block.parent_root();
-    let fork_rpc_block = RpcBlock::new(
-        fork_block.clone(),
-        None,
-        &rig.harness.chain.data_availability_checker,
-        rig.harness.chain.spec.clone(),
-    )
-    .unwrap();
+    let fork_lookup_block = LookupBlock::new(fork_block.clone());
     let fork_block_root = rig
         .harness
         .chain
         .process_block(
-            fork_rpc_block.block_root(),
-            fork_rpc_block,
+            fork_lookup_block.block_root(),
+            fork_lookup_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -1086,15 +1074,9 @@ async fn invalid_parent() {
     ));
 
     // Ensure the block built atop an invalid payload is invalid for import.
-    let rpc_block = RpcBlock::new(
-        block.clone(),
-        None,
-        &rig.harness.chain.data_availability_checker,
-        rig.harness.chain.spec.clone(),
-    )
-    .unwrap();
+    let lookup_block = LookupBlock::new(block.clone());
     assert!(matches!(
-        rig.harness.chain.process_block(rpc_block.block_root(), rpc_block, NotifyExecutionLayer::Yes, BlockImportSource::Lookup,
+        rig.harness.chain.process_block(lookup_block.block_root(), lookup_block, NotifyExecutionLayer::Yes, BlockImportSource::Lookup,
             || Ok(()),
         ).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
@@ -1348,18 +1330,12 @@ async fn recover_from_invalid_head_by_importing_blocks() {
     } = InvalidHeadSetup::new().await;
 
     // Import the fork block, it should become the head.
-    let fork_rpc_block = RpcBlock::new(
-        fork_block.clone(),
-        None,
-        &rig.harness.chain.data_availability_checker,
-        rig.harness.chain.spec.clone(),
-    )
-    .unwrap();
+    let fork_lookup_block = LookupBlock::new(fork_block.clone());
     rig.harness
         .chain
         .process_block(
-            fork_rpc_block.block_root(),
-            fork_rpc_block,
+            fork_lookup_block.block_root(),
+            fork_lookup_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -1374,7 +1350,7 @@ async fn recover_from_invalid_head_by_importing_blocks() {
         "the fork block should become the head"
     );
 
-    let manual_get_head = rig
+    let (manual_get_head, _) = rig
         .harness
         .chain
         .canonical_head
@@ -1452,7 +1428,7 @@ async fn weights_after_resetting_optimistic_status() {
         .fork_choice_read_lock()
         .proto_array()
         .iter_nodes(&head.head_block_root())
-        .map(|node| (node.root, node.weight))
+        .map(|node| (node.root(), node.weight()))
         .collect::<HashMap<_, _>>();
 
     rig.invalidate_manually(roots[1]).await;
@@ -1462,7 +1438,7 @@ async fn weights_after_resetting_optimistic_status() {
         .canonical_head
         .fork_choice_write_lock()
         .proto_array_mut()
-        .set_all_blocks_to_optimistic::<E>(&rig.harness.chain.spec)
+        .set_all_blocks_to_optimistic::<E>()
         .unwrap();
 
     let new_weights = rig
@@ -1472,7 +1448,7 @@ async fn weights_after_resetting_optimistic_status() {
         .fork_choice_read_lock()
         .proto_array()
         .iter_nodes(&head.head_block_root())
-        .map(|node| (node.root, node.weight))
+        .map(|node| (node.root(), node.weight()))
         .collect::<HashMap<_, _>>();
 
     assert_eq!(original_weights, new_weights);

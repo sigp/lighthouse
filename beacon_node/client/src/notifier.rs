@@ -374,7 +374,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         warn!(
                             info = "chain not fully verified, \
                             block and attestation production disabled until execution engine syncs",
-                        execution_block_hash = ?hash,
+                            execution_block_hash = ?hash,
                             "Head is optimistic"
                         );
                         format!("{} (unverified)", hash)

@@ -1014,7 +1014,7 @@ async fn block_replayer_peeking_state_roots() {
     let block_replayer = BlockReplayer::new(parent_state, &harness.chain.spec)
         .state_root_iter(state_root_iter.into_iter())
         .no_signature_verification()
-        .apply_blocks(vec![target_block], None)
+        .apply_blocks(vec![target_block], vec![], None)
         .unwrap();
 
     assert_eq!(

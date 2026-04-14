@@ -358,6 +358,7 @@ where
         Ok((
             BeaconSnapshot {
                 beacon_block_root,
+                execution_envelope: None,
                 beacon_block: Arc::new(beacon_block),
                 beacon_state,
             },
@@ -616,8 +617,10 @@ where
                 .map_err(|e| format!("Failed to initialize data column info: {:?}", e))?,
         );
 
+        // TODO(gloas): add check that checkpoint state is Pending
         let snapshot = BeaconSnapshot {
             beacon_block_root: weak_subj_block_root,
+            execution_envelope: None,
             beacon_block: Arc::new(weak_subj_block),
             beacon_state: weak_subj_state,
         };
@@ -773,7 +776,7 @@ where
             slot_clock.now().ok_or("Unable to read slot")?
         };
 
-        let initial_head_block_root = fork_choice
+        let (initial_head_block_root, head_payload_status) = fork_choice
             .get_head(current_slot, &self.spec)
             .map_err(|e| format!("Unable to get fork choice head: {:?}", e))?;
 
@@ -783,8 +786,15 @@ where
             .map_err(|e| descriptive_db_error("head block", &e))?
             .ok_or("Head block not found in store")?;
 
+        let state_payload_status = head_payload_status.as_state_payload_status();
+
         let (_head_state_root, head_state) = store
-            .get_advanced_hot_state(head_block_root, current_slot, head_block.state_root())
+            .get_advanced_hot_state(
+                head_block_root,
+                state_payload_status,
+                current_slot,
+                head_block.state_root(),
+            )
             .map_err(|e| descriptive_db_error("head state", &e))?
             .ok_or("Head state not found in store")?;
 
@@ -792,6 +802,7 @@ where
 
         let mut head_snapshot = BeaconSnapshot {
             beacon_block_root: head_block_root,
+            execution_envelope: None,
             beacon_block: Arc::new(head_block),
             beacon_state: head_state,
         };
@@ -911,7 +922,8 @@ where
 
         let genesis_validators_root = head_snapshot.beacon_state.genesis_validators_root();
         let genesis_time = head_snapshot.beacon_state.genesis_time();
-        let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot));
+        let canonical_head =
+            CanonicalHead::new(fork_choice, Arc::new(head_snapshot), head_payload_status);
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
         let complete_blob_backfill = self.chain_config.complete_blob_backfill;
 
