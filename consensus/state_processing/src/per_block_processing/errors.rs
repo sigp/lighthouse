@@ -113,6 +113,8 @@ pub enum BlockProcessingError {
         expected: Hash256,
         found: Hash256,
     },
+    /// Parent was not full but non-empty execution requests were provided
+    NonEmptyParentExecutionRequests,
 }
 
 impl From<BeaconStateError> for BlockProcessingError {

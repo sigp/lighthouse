@@ -618,7 +618,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[instrument(level = "debug", skip_all)]
     pub async fn produce_execution_payload_bid(
         self: Arc<Self>,
-        mut state: BeaconState<T::EthSpec>,
+        state: BeaconState<T::EthSpec>,
         produce_at_slot: Slot,
         bid_value: u64,
         builder_index: BuilderIndex,
