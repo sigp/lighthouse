@@ -99,8 +99,7 @@ use tracing::{Instrument, Span, debug, debug_span, error, info_span, instrument}
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSidecarList,
     Epoch, EthSpec, FullPayload, Hash256, InconsistentFork, KzgProofs, RelativeEpoch,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot, StatePayloadStatus,
-    data::DataColumnSidecarError,
+    SignedBeaconBlock, SignedBeaconBlockHeader, Slot, data::DataColumnSidecarError,
 };
 
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
@@ -1509,11 +1508,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
 
         let distance = block.slot().as_u64().saturating_sub(state.slot().as_u64());
         for _ in 0..distance {
-            // TODO(gloas): could do a similar optimisation here for Full blocks if we have access
-            // to the parent envelope and its `state_root`.
-            let state_root = if parent.beacon_block.slot() == state.slot()
-                && state.payload_status() == StatePayloadStatus::Pending
-            {
+            let state_root = if parent.beacon_block.slot() == state.slot() {
                 // If it happens that `pre_state` has *not* already been advanced forward a single
                 // slot, then there is no need to compute the state root for this
                 // `per_slot_processing` call since that state root is already stored in the parent
@@ -1957,10 +1952,9 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
         // particularly important if `block` descends from the finalized/split block, but at a slot
         // prior to the finalized slot (which is invalid and inaccessible in our DB schema).
         //
-        let parent_state_root = parent_block.state_root();
         let (parent_state_root, state) = chain
             .store
-            .get_advanced_hot_state(root, block.slot(), parent_state_root)?
+            .get_advanced_hot_state(root, block.slot(), parent_block.state_root())?
             .ok_or_else(|| {
                 BeaconChainError::DBInconsistent(
                     format!("Missing state for parent block {root:?}",),
@@ -1983,9 +1977,7 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
             );
         }
 
-        let beacon_state_root = if state.slot() == parent_block.slot()
-            && let StatePayloadStatus::Pending = state.payload_status()
-        {
+        let beacon_state_root = if state.slot() == parent_block.slot() {
             // Sanity check.
             if parent_state_root != parent_block.state_root() {
                 return Err(BeaconChainError::DBInconsistent(format!(
