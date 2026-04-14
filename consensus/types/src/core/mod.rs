@@ -63,11 +63,9 @@ impl Hash256Ext for Hash256 {
 
 pub struct ShortenedHash<'a>(&'a Hash256);
 
-// Slicing is safe here since `Hash256` is guaranteed at compile time to be 32 bytes.
-#[allow(clippy::indexing_slicing)]
 impl<'a> std::fmt::Display for ShortenedHash<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let hash: &[u8] = self.0.as_ref();
+        let hash: &[u8; 32] = self.0.as_ref();
         write!(
             f,
             // Format as hex, padded to 2 digits per byte.
