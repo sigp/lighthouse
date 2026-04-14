@@ -3270,7 +3270,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         if let Some(gossip_verified_envelope) = self
             .process_gossip_unverified_execution_payload_envelope(
-                message_id.clone(),
+                message_id,
                 peer_id,
                 envelope.clone(),
                 seen_timestamp,
@@ -3287,7 +3287,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
             self.process_gossip_verified_execution_payload_envelope(
                 peer_id,
-                message_id,
                 gossip_verified_envelope,
             )
             .await;
@@ -3342,7 +3341,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(e) => {
                 match e {
                     EnvelopeError::ExecutionPayloadError(ref epe) if !epe.penalize_peer() => {
-                        debug!(error = ?e, "Could not verify envelope for gossip. Ignoring");
                         self.propagate_validation_result(
                             message_id,
                             peer_id,
@@ -3356,11 +3354,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | EnvelopeError::BlockHashMismatch { .. }
                     | EnvelopeError::UnknownValidator { .. }
                     | EnvelopeError::IncorrectBlockProposer { .. }
-                    | EnvelopeError::PriorToFinalization { .. }
                     | EnvelopeError::ExecutionPayloadError(_)
                     | EnvelopeError::EnvelopeProcessingError(_)
                     | EnvelopeError::BlockError(_) => {
-                        warn!(error = ?e, "Could not verify envelope for gossip. Rejecting");
                         self.propagate_validation_result(
                             message_id,
                             peer_id,
@@ -3396,7 +3392,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                     inner_self
                                         .process_gossip_verified_execution_payload_envelope(
                                             peer_id,
-                                            message_id,
                                             verified_envelope,
                                         )
                                         .await;
@@ -3434,19 +3429,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         }
                     }
 
-                    EnvelopeError::BeaconChainError(_)
+                    EnvelopeError::PriorToFinalization { .. }
+                    | EnvelopeError::OptimisticSyncNotSupported { .. }
+                    | EnvelopeError::BeaconChainError(_)
                     | EnvelopeError::BeaconStateError(_)
-                    | EnvelopeError::BlockProcessingError(_) => {
-                        debug!(error = ?e, "Could not verify envelope for gossip. Ignoring");
-                        self.propagate_validation_result(
-                            message_id,
-                            peer_id,
-                            MessageAcceptance::Ignore,
-                        );
-                    }
-
-                    EnvelopeError::InternalError(_) => {
-                        debug!(error = ?e, "Could not verify envelope for gossip. Ignoring");
+                    | EnvelopeError::BlockProcessingError(_)
+                    | EnvelopeError::InternalError(_) => {
                         self.propagate_validation_result(
                             message_id,
                             peer_id,
@@ -3479,7 +3467,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     inner_self
                         .process_gossip_verified_execution_payload_envelope(
                             peer_id,
-                            message_id,
                             verified_envelope,
                         )
                         .await;
@@ -3505,7 +3492,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     async fn process_gossip_verified_execution_payload_envelope(
         self: Arc<Self>,
         peer_id: PeerId,
-        _message_id: MessageId,
         verified_envelope: GossipVerifiedEnvelope<T>,
     ) {
         let _processing_start_time = Instant::now();
@@ -3532,9 +3518,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // Nothing to do
             }
             Err(e) => match e {
-                EnvelopeError::ExecutionPayloadError(epe) if !epe.penalize_peer() => {
-                    debug!(error = ?e, "Envelope processing failed");
-                }
+                EnvelopeError::ExecutionPayloadError(epe) if !epe.penalize_peer() => {}
                 EnvelopeError::BadSignature
                 | EnvelopeError::BuilderIndexMismatch { .. }
                 | EnvelopeError::SlotMismatch { .. }
@@ -3542,7 +3526,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | EnvelopeError::UnknownValidator { .. }
                 | EnvelopeError::IncorrectBlockProposer { .. }
                 | EnvelopeError::ExecutionPayloadError(_) => {
-                    warn!(error = ?e, "Envelope processing failed");
                     self.gossip_penalize_peer(
                         peer_id,
                         PeerAction::LowToleranceError,
@@ -3550,14 +3533,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     );
                 }
 
-                EnvelopeError::BeaconChainError(_)
-                | EnvelopeError::BeaconStateError(_)
-                | EnvelopeError::BlockProcessingError(_)
-                | EnvelopeError::EnvelopeProcessingError(_)
+                EnvelopeError::EnvelopeProcessingError(_)
                 | EnvelopeError::BlockError(_)
-                | EnvelopeError::BlockRootUnknown { .. }
-                | EnvelopeError::PriorToFinalization { .. } => {
-                    warn!(error = ?e, "Envelope processing failed");
+                | EnvelopeError::BlockRootUnknown { .. } => {
                     self.gossip_penalize_peer(
                         peer_id,
                         PeerAction::LowToleranceError,
@@ -3565,9 +3543,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     );
                 }
 
-                EnvelopeError::InternalError(_) => {
-                    debug!(error = ?e, "Envelope processing failed");
-                }
+                EnvelopeError::PriorToFinalization { .. }
+                | EnvelopeError::OptimisticSyncNotSupported { .. }
+                | EnvelopeError::BeaconChainError(_)
+                | EnvelopeError::BeaconStateError(_)
+                | EnvelopeError::BlockProcessingError(_)
+                | EnvelopeError::InternalError(_) => {}
             },
         }
     }
