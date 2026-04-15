@@ -3512,20 +3512,11 @@ async fn weak_subjectivity_sync_test(
         assert_eq!(state.canonical_root().unwrap(), state_root);
     }
 
-    // Anchor slot is set to the WSS state slot. Pre-Gloas, the state is advanced to an epoch
-    // boundary, so the anchor is naturally aligned. Post-Gloas, the state is at the block's slot
-    // (not advanced), so the anchor slot may not be epoch-aligned.
+    // Anchor slot is set to the WSS state slot, which is always epoch-aligned (the state is
+    // advanced to an epoch boundary during checkpoint sync).
     let wss_aligned_slot = if wss_state_slot % E::slots_per_epoch() == 0 {
         wss_state_slot
-    } else if harness
-        .spec
-        .fork_name_at_slot::<E>(wss_state_slot)
-        .gloas_enabled()
-    {
-        // Post-Gloas: anchor slot is the block/state slot (no alignment).
-        wss_state_slot
     } else {
-        // Pre-Gloas.
         (wss_state_slot.epoch(E::slots_per_epoch()) + Epoch::new(1))
             .start_slot(E::slots_per_epoch())
     };
@@ -3899,14 +3890,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     let pre_skips = 1;
     let post_skips = 1;
 
-    // Post-Gloas the split is at the finalized block's slot, not the epoch boundary.
-    // The last block is at `split_slot - pre_skips`, so the finalized split will be there.
-    let is_gloas = fork_name_from_env().is_some_and(|f| f.gloas_enabled());
-    let split_slot = if is_gloas {
-        finalized_epoch_start_slot - pre_skips
-    } else {
-        finalized_epoch_start_slot
-    };
+    let split_slot = finalized_epoch_start_slot;
 
     // Build the chain up to the intended finalized epoch slot, with 1 skip before the split.
     let slots = (1..=finalized_epoch_start_slot.as_u64() - pre_skips)
