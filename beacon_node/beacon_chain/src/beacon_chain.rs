@@ -3206,10 +3206,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
 
         // Check if we have custody of this column
-        let sampling_columns = self
-            .data_availability_checker
-            .custody_context()
-            .sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()), &self.spec);
+        let sampling_columns =
+            self.sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()));
         let verified_partial = if sampling_columns.contains(&partial.index) {
             KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(verified_partial)
         } else {
