@@ -221,7 +221,7 @@ impl<E: EthSpec, P: AbstractExecPayload<E>> TryFrom<&SignedBeaconBlock<E, P>>
 #[derive(Debug, Clone, Encode, Decode, PartialEq, Eq)]
 pub struct PartialDataColumnPartsMetadata<E: EthSpec> {
     pub available: CellBitmap<E>,
-    pub request: CellBitmap<E>,
+    pub requests: CellBitmap<E>,
 }
 
 impl<E: EthSpec> Display for PartialDataColumnPartsMetadata<E> {
@@ -229,7 +229,7 @@ impl<E: EthSpec> Display for PartialDataColumnPartsMetadata<E> {
         write!(
             f,
             "(available: {}, requested: {})",
-            self.available, self.request
+            self.available, self.requests
         )
     }
 }

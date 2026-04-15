@@ -31,15 +31,15 @@ impl<E: EthSpec> OutgoingPartialColumn<E> {
         header_sent_set: HeaderSentSet,
     ) -> Self {
         // For now, always request all cells
-        let mut request = partial_column.sidecar.cells_present_bitmap.clone();
-        for idx in 0..request.len() {
-            request
+        let mut requests = partial_column.sidecar.cells_present_bitmap.clone();
+        for idx in 0..requests.len() {
+            requests
                 .set(idx, true)
                 .expect("Bound asserted via `len` above");
         }
         let metadata = PartialDataColumnPartsMetadata::<E> {
             available: partial_column.sidecar.cells_present_bitmap.clone(),
-            request: partial_column.sidecar.cells_present_bitmap.clone(),
+            requests: partial_column.sidecar.cells_present_bitmap.clone(),
         }
         .into();
 
@@ -87,9 +87,9 @@ impl<E: EthSpec> MaybeKnownMetadata<E> {
 
         if ![
             received.available.len(),
-            received.request.len(),
+            received.requests.len(),
             metadata.available.len(),
-            metadata.request.len(),
+            metadata.requests.len(),
         ]
         .into_iter()
         .all_equal()
@@ -97,12 +97,12 @@ impl<E: EthSpec> MaybeKnownMetadata<E> {
             return Err(PartialError::OutOfRange);
         }
         let new_available = metadata.available.union(&received.available);
-        let new_request = metadata.request.union(&received.request);
-        if metadata.available == new_available && metadata.request == new_request {
+        let new_request = metadata.requests.union(&received.requests);
+        if metadata.available == new_available && metadata.requests == new_request {
             return Ok(false);
         }
         metadata.available = new_available;
-        metadata.request = new_request;
+        metadata.requests = new_request;
         *encoded = metadata.as_ssz_bytes();
         Ok(true)
     }
@@ -133,7 +133,7 @@ impl<E: EthSpec> Metadata for MaybeKnownMetadata<E> {
 
         self.do_update(PartialDataColumnPartsMetadata {
             available: sidecar.cells_present_bitmap.clone(),
-            request: sidecar.cells_present_bitmap,
+            requests: sidecar.cells_present_bitmap,
         })
         .map(|_| ())
     }
@@ -196,7 +196,7 @@ impl<E: EthSpec> Partial for OutgoingPartialColumn<E> {
                     .map_err(|_| PartialError::InvalidFormat)?;
                 let expected_len = self.partial_column.sidecar.cells_present_bitmap.len();
                 if peer_metadata.available.len() != expected_len
-                    || peer_metadata.request.len() != expected_len
+                    || peer_metadata.requests.len() != expected_len
                 {
                     return Err(PartialError::InvalidFormat);
                 }
@@ -204,7 +204,7 @@ impl<E: EthSpec> Partial for OutgoingPartialColumn<E> {
                 let need = !peer_metadata
                     .available
                     .is_subset(&self.partial_column.sidecar.cells_present_bitmap);
-                let want = peer_metadata.request.difference(&peer_metadata.available);
+                let want = peer_metadata.requests.difference(&peer_metadata.available);
 
                 let send = self
                     .partial_column
@@ -230,8 +230,8 @@ impl<E: EthSpec> Partial for OutgoingPartialColumn<E> {
                                     available: peer_metadata
                                         .available
                                         .union(&sidecar.cells_present_bitmap),
-                                    request: peer_metadata
-                                        .request
+                                    requests: peer_metadata
+                                        .requests
                                         .union(&sidecar.cells_present_bitmap),
                                 },
                             )) as Box<dyn Metadata + 'static>,
@@ -341,7 +341,7 @@ mod tests {
         bitmap.set(0, true).unwrap();
         let received = PartialDataColumnPartsMetadata {
             available: bitmap.clone(),
-            request: bitmap,
+            requests: bitmap,
         };
         let changed = meta.do_update(received).unwrap();
         assert!(changed);
@@ -354,7 +354,7 @@ mod tests {
         bitmap1.set(0, true).unwrap();
         let mut meta: MaybeKnownMetadata<E> = PartialDataColumnPartsMetadata {
             available: bitmap1.clone(),
-            request: bitmap1,
+            requests: bitmap1,
         }
         .into();
 
@@ -363,7 +363,7 @@ mod tests {
         let changed = meta
             .do_update(PartialDataColumnPartsMetadata {
                 available: bitmap2.clone(),
-                request: bitmap2,
+                requests: bitmap2,
             })
             .unwrap();
         assert!(changed);
@@ -384,7 +384,7 @@ mod tests {
         bitmap.set(1, true).unwrap();
         let mut meta: MaybeKnownMetadata<E> = PartialDataColumnPartsMetadata {
             available: bitmap.clone(),
-            request: bitmap.clone(),
+            requests: bitmap.clone(),
         }
         .into();
 
@@ -394,7 +394,7 @@ mod tests {
         let changed = meta
             .do_update(PartialDataColumnPartsMetadata {
                 available: subset.clone(),
-                request: subset,
+                requests: subset,
             })
             .unwrap();
         assert!(!changed);
@@ -406,7 +406,7 @@ mod tests {
         bitmap4.set(0, true).unwrap();
         let mut meta: MaybeKnownMetadata<E> = PartialDataColumnPartsMetadata {
             available: bitmap4.clone(),
-            request: bitmap4,
+            requests: bitmap4,
         }
         .into();
 
@@ -414,7 +414,7 @@ mod tests {
         bitmap6.set(0, true).unwrap();
         let result = meta.do_update(PartialDataColumnPartsMetadata {
             available: bitmap6.clone(),
-            request: bitmap6,
+            requests: bitmap6,
         });
         assert!(result.is_err());
     }
@@ -461,7 +461,7 @@ mod tests {
         }
         let peer_meta = PartialDataColumnPartsMetadata::<E> {
             available: peer_available,
-            request: peer_request,
+            requests: peer_request,
         };
         let encoded = peer_meta.as_ssz_bytes();
 
@@ -490,7 +490,7 @@ mod tests {
         peer_available.set(2, true).unwrap();
         let peer_meta = PartialDataColumnPartsMetadata::<E> {
             available: peer_available.clone(),
-            request: peer_available,
+            requests: peer_available,
         };
         let encoded = peer_meta.as_ssz_bytes();
 
