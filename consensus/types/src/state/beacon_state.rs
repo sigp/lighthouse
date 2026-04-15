@@ -24,7 +24,7 @@ use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
 
 use crate::{
-    Address, ExecutionBlockHash, ExecutionPayloadBid, Withdrawal,
+    Address, ExecutionBlockHash, ExecutionPayloadBid, ProposerPreferences, Withdrawal,
     attestation::{
         AttestationData, AttestationDuty, BeaconCommittee, Checkpoint, CommitteeIndex, PTC,
         ParticipationFlags, PendingAttestation,
@@ -1347,6 +1347,43 @@ impl<E: EthSpec> BeaconState<E> {
 
             self.compute_proposer_index(&indices, &seed, spec)
         }
+    }
+
+    /// Check if the validator is the proposer for the given slot in the current or next epoch.
+    pub fn is_valid_proposal_slot(
+        &self,
+        preferences: &ProposerPreferences,
+    ) -> Result<bool, BeaconStateError> {
+        let current_epoch = self.current_epoch();
+        let proposal_epoch = preferences.proposal_slot.epoch(E::slots_per_epoch());
+
+        if proposal_epoch < current_epoch {
+            return Ok(false);
+        }
+
+        let next_epoch = current_epoch.saturating_add(1u64);
+        if proposal_epoch > next_epoch {
+            return Ok(false);
+        }
+
+        let epoch_offset = proposal_epoch.as_u64().safe_sub(current_epoch.as_u64())?;
+
+        let slot_in_epoch = preferences
+            .proposal_slot
+            .as_u64()
+            .safe_rem(E::slots_per_epoch())?;
+
+        let index = epoch_offset
+            .safe_mul(E::slots_per_epoch())
+            .and_then(|v| v.safe_add(slot_in_epoch))?;
+
+        let proposer_lookahead = self.proposer_lookahead()?;
+
+        let proposer = proposer_lookahead
+            .get(index as usize)
+            .ok_or(BeaconStateError::ProposerLookaheadOutOfBounds { i: index as usize })?;
+
+        Ok(*proposer == preferences.validator_index)
     }
 
     /// Returns the beacon proposer index for each `slot` in `epoch`.
@@ -3258,6 +3295,38 @@ impl<E: EthSpec> BeaconState<E> {
 
         Ok(effective_balance.safe_mul(MAX_RANDOM_VALUE)?
             >= max_effective_balance.safe_mul(random_value)?)
+    }
+
+    pub fn can_builder_cover_bid(
+        &self,
+        builder_index: BuilderIndex,
+        bid_amount: u64,
+        spec: &ChainSpec,
+    ) -> Result<bool, BeaconStateError> {
+        let builder = self.get_builder(builder_index)?;
+
+        let builder_balance = builder.balance;
+        let pending_withdrawals_amount =
+            self.get_pending_balance_to_withdraw_for_builder(builder_index)?;
+
+        let min_balance = spec
+            .min_deposit_amount
+            .safe_add(pending_withdrawals_amount)?;
+        if builder_balance < min_balance {
+            return Ok(false);
+        }
+        Ok(builder_balance.safe_sub(min_balance)? >= bid_amount)
+    }
+
+    pub fn is_active_builder(
+        &self,
+        builder_index: BuilderIndex,
+        spec: &ChainSpec,
+    ) -> Result<bool, BeaconStateError> {
+        let builder = self.get_builder(builder_index)?;
+
+        Ok(builder.deposit_epoch < self.finalized_checkpoint().epoch
+            && builder.withdrawable_epoch == spec.far_future_epoch)
     }
 }
 
