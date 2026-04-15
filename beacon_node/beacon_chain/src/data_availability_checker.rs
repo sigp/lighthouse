@@ -435,7 +435,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         if let Some(assembler) = &self.partial_assembler
             && let Ok(header) = block.try_into()
         {
-            assembler.init(block.canonical_root(), Arc::new(header));
+            assembler.init(executed_block.import_data.block_root, Arc::new(header));
         }
         self.availability_cache.put_executed_block(executed_block)
     }
