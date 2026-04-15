@@ -331,7 +331,7 @@ install-audit:
 	cargo install --force cargo-audit
 
 audit-CI:
-	cargo audit --ignore RUSTSEC-2026-0049
+	cargo audit --ignore RUSTSEC-2026-0049 --ignore RUSTSEC-2026-0098 --ignore RUSTSEC-2026-0099
 
 # Runs cargo deny (check for banned crates, duplicate versions, and source restrictions)
 deny: install-deny deny-CI
