@@ -39,7 +39,7 @@ impl<E: EthSpec> OutgoingPartialColumn<E> {
         }
         let metadata = PartialDataColumnPartsMetadata::<E> {
             available: partial_column.sidecar.cells_present_bitmap.clone(),
-            requests: partial_column.sidecar.cells_present_bitmap.clone(),
+            requests,
         }
         .into();
 
