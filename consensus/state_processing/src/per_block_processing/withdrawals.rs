@@ -495,8 +495,8 @@ pub mod gloas {
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
         // After process_parent_execution_payload, latest_block_hash is updated if parent was full.
-        // Withdrawals run when the chain is NOT extended (latest_block_hash != bid.block_hash).
-        if *state.latest_block_hash()? == state.latest_execution_payload_bid()?.block_hash {
+        // Return early if the parent block is empty (latest_block_hash != bid.block_hash).
+        if *state.latest_block_hash()? != state.latest_execution_payload_bid()?.block_hash {
             return Ok(());
         }
 

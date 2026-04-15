@@ -154,6 +154,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await
             .map_err(BlockProductionError::TokioJoin)??;
 
+        // Extract the parent's execution requests from the envelope (if parent was full).
+        let parent_execution_requests = parent_envelope
+            .as_ref()
+            .map(|env| env.message.execution_requests.clone())
+            .unwrap_or_default();
+
         // Part 2/3 (async)
         //
         // Produce the execution payload bid.
@@ -181,6 +187,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     chain.complete_partial_beacon_block_gloas(
                         partial_beacon_block,
                         execution_payload_bid,
+                        parent_execution_requests,
                         payload_data,
                         state,
                         verification,
@@ -435,6 +442,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         partial_beacon_block: PartialBeaconBlock<T::EthSpec>,
         signed_execution_payload_bid: SignedExecutionPayloadBid<T::EthSpec>,
+        parent_execution_requests: ExecutionRequests<T::EthSpec>,
         payload_data: Option<ExecutionPayloadData<T::EthSpec>>,
         mut state: BeaconState<T::EthSpec>,
         verification: ProduceBlockVerification,
@@ -496,7 +504,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     bls_to_execution_changes: bls_to_execution_changes
                         .try_into()
                         .map_err(BlockProductionError::SszTypesError)?,
-                    parent_execution_requests: ExecutionRequests::default(),
+                    parent_execution_requests,
                     signed_execution_payload_bid,
                     payload_attestations: payload_attestations
                         .try_into()
@@ -777,17 +785,21 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
     let is_parent_block_full = parent_block_hash == parent_bid.block_hash;
 
     let withdrawals = if is_parent_block_full {
-        let envelope = parent_envelope.ok_or_else(|| {
-            BlockProductionError::MissingExecutionPayloadEnvelope(parent_beacon_block_root)
-        })?;
-        let mut withdrawals_state = state.clone();
-        apply_parent_execution_payload(
-            &mut withdrawals_state,
-            parent_bid,
-            &envelope.message.execution_requests,
-            spec,
-        )?;
-        Withdrawals::<T::EthSpec>::from(get_expected_withdrawals(&withdrawals_state, spec)?).into()
+        if let Some(envelope) = parent_envelope {
+            let mut withdrawals_state = state.clone();
+            apply_parent_execution_payload(
+                &mut withdrawals_state,
+                parent_bid,
+                &envelope.message.execution_requests,
+                spec,
+            )?;
+            Withdrawals::<T::EthSpec>::from(get_expected_withdrawals(&withdrawals_state, spec)?)
+                .into()
+        } else {
+            // No envelope available (e.g. genesis). The parent had no execution requests,
+            // so compute withdrawals directly from the current state.
+            Withdrawals::<T::EthSpec>::from(get_expected_withdrawals(state, spec)?).into()
+        }
     } else {
         // If the previous payload was missed, carry forward the withdrawals from the state.
         state.payload_expected_withdrawals()?.to_vec()
