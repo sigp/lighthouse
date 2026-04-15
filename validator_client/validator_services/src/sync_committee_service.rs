@@ -214,7 +214,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     .map(|_| ())
                     .await
             }
-            .instrument(info_span!("sync_committee_signature_publish", %slot)),
+            .instrument(info_span!("lh_sync_committee_signature_publish", %slot)),
             "sync_committee_signature_publish",
         );
 
@@ -232,7 +232,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     .map(|_| ())
                     .await
             }
-            .instrument(info_span!("sync_committee_aggregate_publish", %slot)),
+            .instrument(info_span!("lh_sync_committee_aggregate_publish", %slot)),
             "sync_committee_aggregate_publish",
         );
 
@@ -324,7 +324,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                         .map(|_| ())
                         .await
                 }
-                .instrument(info_span!("publish_sync_committee_aggregate_for_subnet", %slot, ?beacon_block_root, %subnet_id)),
+                .instrument(info_span!("lh_publish_sync_committee_aggregate_for_subnet", %slot, ?beacon_block_root, %subnet_id)),
                 "sync_committee_aggregate_publish_subnet",
             );
         }
