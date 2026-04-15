@@ -1,9 +1,10 @@
 use std::{sync::Arc, time::Duration};
 
+use fork_choice::PayloadStatus;
 use proto_array::ProposerHeadError;
 use slot_clock::SlotClock;
 use tracing::{debug, error, info, instrument, warn};
-use types::{BeaconState, Hash256, Slot};
+use types::{BeaconState, Hash256, SignedExecutionPayloadEnvelope, Slot};
 
 use crate::{
     BeaconChain, BeaconChainTypes, BlockProductionError, StateSkipConfig,
@@ -15,11 +16,22 @@ mod gloas;
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Load a beacon state from the database for block production. This is a long-running process
     /// that should not be performed in an `async` context.
+    ///
+    /// The returned `PayloadStatus` is the payload status of the parent block to be built upon.
     #[instrument(skip_all, level = "debug")]
+    #[allow(clippy::type_complexity)]
     pub(crate) fn load_state_for_block_production(
         self: &Arc<Self>,
         slot: Slot,
-    ) -> Result<(BeaconState<T::EthSpec>, Option<Hash256>), BlockProductionError> {
+    ) -> Result<
+        (
+            BeaconState<T::EthSpec>,
+            Option<Hash256>,
+            PayloadStatus,
+            Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+        ),
+        BlockProductionError,
+    > {
         let fork_choice_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_FORK_CHOICE_TIMES);
         self.wait_for_fork_choice_before_block_production(slot)?;
         drop(fork_choice_timer);
@@ -27,16 +39,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let state_load_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_STATE_LOAD_TIMES);
 
         // Atomically read some values from the head whilst avoiding holding cached head `Arc` any
-        // longer than necessary.
-        let (head_slot, head_block_root, head_state_root) = {
+        // longer than necessary. If the head has a payload envelope (Gloas full head), cheaply
+        // clone the `Arc` so we can pass it to block production without a DB load.
+        let (head_slot, head_block_root, head_state_root, head_payload_status, head_envelope) = {
             let head = self.canonical_head.cached_head();
             (
                 head.head_slot(),
                 head.head_block_root(),
                 head.head_state_root(),
+                head.head_payload_status(),
+                head.snapshot.execution_envelope.clone(),
             )
         };
-        let (state, state_root_opt) = if head_slot < slot {
+        let (state, state_root_opt, payload_status, parent_envelope) = if head_slot < slot {
             // Attempt an aggressive re-org if configured and the conditions are right.
             // TODO(gloas): re-enable reorgs
             let gloas_enabled = self
@@ -52,7 +67,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     head_to_reorg = %head_block_root,
                     "Proposing block to re-org current head"
                 );
-                (re_org_state, Some(re_org_state_root))
+                // TODO(gloas): fix payload status for reorg feature
+                (
+                    re_org_state,
+                    Some(re_org_state_root),
+                    PayloadStatus::Pending,
+                    None,
+                )
             } else {
                 // Fetch the head state advanced through to `slot`, which should be present in the
                 // state cache thanks to the state advance timer.
@@ -62,7 +83,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .get_advanced_hot_state(head_block_root, slot, parent_state_root)
                     .map_err(BlockProductionError::FailedToLoadState)?
                     .ok_or(BlockProductionError::UnableToProduceAtSlot(slot))?;
-                (state, Some(state_root))
+                (state, Some(state_root), head_payload_status, head_envelope)
             }
         } else {
             warn!(
@@ -74,12 +95,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
                 .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
 
-            (state, None)
+            // TODO(gloas): unclear what the default should be here
+            // maybe this whole branch should just go in the bin
+            (state, None, PayloadStatus::Full, None)
         };
 
         drop(state_load_timer);
 
-        Ok((state, state_root_opt))
+        Ok((state, state_root_opt, payload_status, parent_envelope))
     }
 
     /// If configured, wait for the fork choice run at the start of the slot to complete.

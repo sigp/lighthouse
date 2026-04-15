@@ -1133,11 +1133,22 @@ where
                 GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
             let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
+            // Load the parent's payload envelope and status from the cached head.
+            let (parent_payload_status, parent_envelope) = {
+                let head = self.chain.canonical_head.cached_head();
+                (
+                    head.head_payload_status(),
+                    head.snapshot.execution_envelope.clone(),
+                )
+            };
+
             let (block, pending_state, _consensus_block_value) = self
                 .chain
                 .produce_block_on_state_gloas(
                     state,
                     None,
+                    parent_payload_status,
+                    parent_envelope,
                     slot,
                     randao_reveal,
                     graffiti_settings,

@@ -324,6 +324,7 @@ pub enum BlockProductionError {
     SszTypesError(ssz_types::Error),
     EnvelopeProcessingError(EnvelopeProcessingError),
     BlsError(bls::Error),
+    MissingExecutionPayloadEnvelope(Hash256),
     // TODO(gloas): Remove this once Gloas is implemented
     GloasNotImplemented(String),
 }
