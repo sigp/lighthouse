@@ -152,6 +152,7 @@ pub struct ChainSpec {
     pub proposer_score_boost: Option<u64>,
     pub reorg_head_weight_threshold: Option<u64>,
     pub reorg_parent_weight_threshold: Option<u64>,
+    pub reorg_max_epochs_since_finalization: Option<u64>,
 
     /*
      * Eth1
@@ -1149,6 +1150,7 @@ impl ChainSpec {
             proposer_score_boost: Some(40),
             reorg_head_weight_threshold: Some(20),
             reorg_parent_weight_threshold: Some(160),
+            reorg_max_epochs_since_finalization: Some(2),
 
             /*
              * Eth1
@@ -1554,6 +1556,7 @@ impl ChainSpec {
             proposer_score_boost: Some(40),
             reorg_head_weight_threshold: Some(20),
             reorg_parent_weight_threshold: Some(160),
+            reorg_max_epochs_since_finalization: Some(2),
 
             /*
              * Eth1
@@ -1982,6 +1985,13 @@ pub struct Config {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     proposer_score_boost: Option<MaybeQuoted<u64>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reorg_head_weight_threshold: Option<MaybeQuoted<u64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reorg_parent_weight_threshold: Option<MaybeQuoted<u64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reorg_max_epochs_since_finalization: Option<MaybeQuoted<u64>>,
 
     #[serde(with = "serde_utils::quoted_u64")]
     deposit_chain_id: u64,
@@ -2545,6 +2555,15 @@ impl Config {
             max_per_epoch_activation_churn_limit: spec.max_per_epoch_activation_churn_limit,
 
             proposer_score_boost: spec.proposer_score_boost.map(|value| MaybeQuoted { value }),
+            reorg_head_weight_threshold: spec
+                .reorg_head_weight_threshold
+                .map(|value| MaybeQuoted { value }),
+            reorg_parent_weight_threshold: spec
+                .reorg_parent_weight_threshold
+                .map(|value| MaybeQuoted { value }),
+            reorg_max_epochs_since_finalization: spec
+                .reorg_max_epochs_since_finalization
+                .map(|value| MaybeQuoted { value }),
 
             deposit_chain_id: spec.deposit_chain_id,
             deposit_network_id: spec.deposit_network_id,
@@ -2647,6 +2666,9 @@ impl Config {
             max_per_epoch_activation_churn_limit,
             churn_limit_quotient,
             proposer_score_boost,
+            reorg_head_weight_threshold,
+            reorg_parent_weight_threshold,
+            reorg_max_epochs_since_finalization,
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,
@@ -2743,6 +2765,10 @@ impl Config {
             max_per_epoch_activation_churn_limit,
             churn_limit_quotient,
             proposer_score_boost: proposer_score_boost.map(|q| q.value),
+            reorg_head_weight_threshold: reorg_head_weight_threshold.map(|q| q.value),
+            reorg_parent_weight_threshold: reorg_parent_weight_threshold.map(|q| q.value),
+            reorg_max_epochs_since_finalization: reorg_max_epochs_since_finalization
+                .map(|q| q.value),
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,
@@ -3692,10 +3718,6 @@ mod yaml_tests {
         "SYNC_MESSAGE_DUE_BPS_GLOAS",
         "CONTRIBUTION_DUE_BPS_GLOAS",
         "MAX_REQUEST_PAYLOADS",
-        // Gloas fork choice params not yet in Config
-        "REORG_HEAD_WEIGHT_THRESHOLD",
-        "REORG_PARENT_WEIGHT_THRESHOLD",
-        "REORG_MAX_EPOCHS_SINCE_FINALIZATION",
         // Heze networking
         "VIEW_FREEZE_CUTOFF_BPS",
         "INCLUSION_LIST_SUBMISSION_DUE_BPS",

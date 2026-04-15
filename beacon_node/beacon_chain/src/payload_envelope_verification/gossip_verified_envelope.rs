@@ -242,8 +242,8 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    /// Build a `GossipVerificationContext` from this `BeaconChain`.
-    pub fn gossip_verification_context(&self) -> GossipVerificationContext<'_, T> {
+    /// Build a `GossipVerificationContext` from this `BeaconChain` for `GossipVerifiedEnvelope`.
+    pub fn payload_envelope_gossip_verification_context(&self) -> GossipVerificationContext<'_, T> {
         GossipVerificationContext {
             canonical_head: &self.canonical_head,
             store: &self.store,
@@ -277,7 +277,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     let slot = envelope.slot();
                     let beacon_block_root = envelope.message.beacon_block_root;
 
-                    let ctx = chain.gossip_verification_context();
+                    let ctx = chain.payload_envelope_gossip_verification_context();
                     match GossipVerifiedEnvelope::new(envelope, &ctx) {
                         Ok(verified) => {
                             debug!(

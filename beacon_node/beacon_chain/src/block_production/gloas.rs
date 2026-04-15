@@ -117,6 +117,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     // TODO(gloas) need to implement builder boost factor logic
     #[instrument(level = "debug", skip_all)]
+    #[allow(clippy::too_many_arguments)]
     pub async fn produce_block_on_state_gloas(
         self: &Arc<Self>,
         state: BeaconState<T::EthSpec>,
