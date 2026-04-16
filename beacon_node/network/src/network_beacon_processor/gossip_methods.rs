@@ -289,7 +289,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             })
             .collect::<Vec<_>>();
 
-        for (result, package) in results.into_iter().zip(packages.into_iter()) {
+        for (result, package) in results.into_iter().zip(packages) {
             let result = match result {
                 Ok((indexed_attestation, attestation)) => Ok(VerifiedUnaggregate {
                     indexed_attestation,
@@ -495,7 +495,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .map(|result| result.map(|verified| verified.into_indexed_attestation()))
             .collect::<Vec<_>>();
 
-        for (result, package) in results.into_iter().zip(packages.into_iter()) {
+        for (result, package) in results.into_iter().zip(packages) {
             let result = match result {
                 Ok(indexed_attestation) => Ok(VerifiedAggregate {
                     indexed_attestation,

@@ -660,11 +660,8 @@ impl<E: EthSpec> Tester<E> {
             // Zipping will stop when any of the zipped lists runs out, which is what we want. Some
             // of the tests don't provide enough proofs/blobs, and should fail the availability
             // check.
-            for (i, ((blob, kzg_proof), kzg_commitment)) in blobs
-                .into_iter()
-                .zip(proofs)
-                .zip(commitments.into_iter())
-                .enumerate()
+            for (i, ((blob, kzg_proof), kzg_commitment)) in
+                blobs.into_iter().zip(proofs).zip(commitments).enumerate()
             {
                 let blob_sidecar = Arc::new(BlobSidecar {
                     index: i as u64,
