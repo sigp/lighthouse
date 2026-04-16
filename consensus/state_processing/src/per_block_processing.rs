@@ -620,36 +620,26 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
     process_operations::process_consolidation_requests(state, &requests.consolidations, spec)?;
 
     // Queue the builder payment
-    let payment_index = if parent_epoch == state.current_epoch() {
-        Some(
-            E::slots_per_epoch().safe_add(parent_slot.as_u64().safe_rem(E::slots_per_epoch())?)?
-                as usize,
-        )
+    if parent_epoch == state.current_epoch() {
+        let payment_index = E::slots_per_epoch()
+            .safe_add(parent_slot.as_u64().safe_rem(E::slots_per_epoch())?)?
+            as usize;
+        queue_builder_pending_payment(state, payment_index)?;
     } else if parent_epoch == state.previous_epoch() {
-        Some(parent_slot.as_u64().safe_rem(E::slots_per_epoch())? as usize)
-    } else {
+        let payment_index = parent_slot.as_u64().safe_rem(E::slots_per_epoch())? as usize;
+        queue_builder_pending_payment(state, payment_index)?;
+    } else if parent_bid.value > 0 {
         // Parent is older than previous epoch -- payment entry has already been
         // settled or evicted by process_builder_pending_payments at epoch boundaries.
-        None
-    };
-
-    if let Some(payment_index) = payment_index {
-        let payment_mut = state
-            .builder_pending_payments_mut()?
-            .get_mut(payment_index)
-            .ok_or(BlockProcessingError::BuilderPaymentIndexOutOfBounds(
-                payment_index,
-            ))?;
-
-        let payment_withdrawal = payment_mut.withdrawal.clone();
-        *payment_mut = BuilderPendingPayment::default();
-
-        if payment_withdrawal.amount > 0 {
-            state
-                .builder_pending_withdrawals_mut()?
-                .push(payment_withdrawal)
-                .map_err(|e| BlockProcessingError::BeaconStateError(e.into()))?;
-        }
+        // Append the withdrawal directly from the bid.
+        state
+            .builder_pending_withdrawals_mut()?
+            .push(BuilderPendingWithdrawal {
+                fee_recipient: parent_bid.fee_recipient,
+                amount: parent_bid.value,
+                builder_index: parent_bid.builder_index,
+            })
+            .map_err(|e| BlockProcessingError::BeaconStateError(e.into()))?;
     }
 
     // Update execution payload availability for the parent slot
@@ -663,6 +653,34 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
 
     // Update latest_block_hash to the parent bid's block_hash
     *state.latest_block_hash_mut()? = parent_bid.block_hash;
+
+    Ok(())
+}
+
+/// Spec: `queue_builder_pending_payment`.
+///
+/// Moves a pending payment from `builder_pending_payments[payment_index]` into
+/// `builder_pending_withdrawals`, then clears the slot.
+pub fn queue_builder_pending_payment<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    payment_index: usize,
+) -> Result<(), BlockProcessingError> {
+    let payment_mut = state
+        .builder_pending_payments_mut()?
+        .get_mut(payment_index)
+        .ok_or(BlockProcessingError::BuilderPaymentIndexOutOfBounds(
+            payment_index,
+        ))?;
+
+    let withdrawal = payment_mut.withdrawal.clone();
+    *payment_mut = BuilderPendingPayment::default();
+
+    if withdrawal.amount > 0 {
+        state
+            .builder_pending_withdrawals_mut()?
+            .push(withdrawal)
+            .map_err(|e| BlockProcessingError::BeaconStateError(e.into()))?;
+    }
 
     Ok(())
 }

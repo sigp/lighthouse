@@ -818,7 +818,7 @@ where
             }));
         }
 
-        let attestation_threshold = spec.get_unaggregated_attestation_due();
+        let attestation_threshold = spec.get_attestation_due::<E>(block.slot());
 
         // Add proposer score boost if the block is timely.
         // TODO(gloas): the spec's `update_proposer_boost_root` additionally checks that
