@@ -471,8 +471,8 @@ impl<S: ValidatorStore, T: SlotClock + 'static> DutiesService<S, T> {
             .voting_pubkeys(DoppelgangerStatus::only_safe);
         self.attesters
             .read()
-            .iter()
-            .filter_map(|(_, map)| map.get(&epoch))
+            .values()
+            .filter_map(|map| map.get(&epoch))
             .map(|(_, duty_and_proof)| duty_and_proof)
             .filter(|duty_and_proof| signing_pubkeys.contains(&duty_and_proof.duty.pubkey))
             .count()
@@ -533,8 +533,8 @@ impl<S: ValidatorStore, T: SlotClock + 'static> DutiesService<S, T> {
 
         self.attesters
             .read()
-            .iter()
-            .filter_map(|(_, map)| map.get(&epoch))
+            .values()
+            .filter_map(|map| map.get(&epoch))
             .map(|(_, duty_and_proof)| duty_and_proof)
             .filter(|duty_and_proof| {
                 duty_and_proof.duty.slot == slot
@@ -983,8 +983,8 @@ async fn poll_beacon_attesters<S: ValidatorStore + 'static, T: SlotClock + 'stat
         duties_service
             .attesters
             .read()
-            .iter()
-            .filter_map(|(_, map)| map.get(epoch))
+            .values()
+            .filter_map(|map| map.get(epoch))
             .filter(|(_, duty_and_proof)| {
                 duty_and_proof
                     .subscription_slots
