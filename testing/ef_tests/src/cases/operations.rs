@@ -442,7 +442,9 @@ impl<E: EthSpec> Operation<E> for SignedExecutionPayloadEnvelope<E> {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name.gloas_enabled()
+        // TODO(gloas): re-enable this test when enabled upstream
+        // fork_name.gloas_enabled()
+        false
     }
 
     fn decode(path: &Path, _: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
