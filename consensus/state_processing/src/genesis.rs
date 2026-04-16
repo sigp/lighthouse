@@ -167,9 +167,21 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         // Remove intermediate Fulu fork from `state.fork`.
         state.fork_mut().previous_version = spec.gloas_fork_version;
 
-        // Override latest execution payload header.
-        // Here's where we *would* clone the header but there is no header here so..
-        // TODO(EIP7732): check this
+        // Update latest_block_header to reflect the Gloas genesis block body which contains
+        // the EL genesis hash in the signed_execution_payload_bid. This is needed because
+        // BeaconState::new() created the header from BeaconBlock::empty() which has zero bid
+        // fields, but the spec requires the genesis block's bid to contain the EL block hash
+        // and the tree hash root of empty ExecutionRequests.
+        let mut genesis_block = BeaconBlock::<E>::empty(spec);
+        if let BeaconBlock::Gloas(ref mut blk) = genesis_block {
+            let state_bid = state
+                .latest_execution_payload_bid()
+                .expect("Gloas state must have latest_execution_payload_bid");
+            let bid = &mut blk.body.signed_execution_payload_bid.message;
+            bid.block_hash = state_bid.block_hash;
+            bid.execution_requests_root = state_bid.execution_requests_root;
+        }
+        state.latest_block_header_mut().body_root = genesis_block.body_root();
     }
 
     // Now that we have our validators, initialize the caches (including the committees)

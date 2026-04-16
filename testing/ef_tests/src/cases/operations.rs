@@ -441,7 +441,7 @@ impl<E: EthSpec> Operation<E> for SignedExecutionPayloadEnvelope<E> {
         "signed_envelope.ssz_snappy".into()
     }
 
-    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+    fn is_enabled_for_fork(_fork_name: ForkName) -> bool {
         // TODO(gloas): re-enable this test when enabled upstream
         // fork_name.gloas_enabled()
         false

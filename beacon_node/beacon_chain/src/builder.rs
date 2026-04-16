@@ -1163,6 +1163,20 @@ fn genesis_block<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<SignedBeaconBlock<E>, String> {
     let mut genesis_block = BeaconBlock::empty(spec);
+
+    // For Gloas, the genesis block's signed_execution_payload_bid must contain the EL genesis
+    // block hash and the tree hash root of an empty ExecutionRequests. This matches the spec's
+    // initialize_beacon_state_from_eth1 which populates these fields so that the genesis block
+    // body_root matches the state's latest_block_header.body_root.
+    if let BeaconBlock::Gloas(ref mut blk) = genesis_block {
+        let state_bid = genesis_state
+            .latest_execution_payload_bid()
+            .map_err(|e| format!("Error getting latest_execution_payload_bid: {:?}", e))?;
+        let bid = &mut blk.body.signed_execution_payload_bid.message;
+        bid.block_hash = state_bid.block_hash;
+        bid.execution_requests_root = state_bid.execution_requests_root;
+    }
+
     *genesis_block.state_root_mut() = genesis_state
         .update_tree_hash_cache()
         .map_err(|e| format!("Error hashing genesis state: {:?}", e))?;
