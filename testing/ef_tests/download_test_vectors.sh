@@ -17,7 +17,7 @@ if [[ "$version" == "nightly" || "$version" =~ ^nightly-[0-9]+$ ]]; then
 		fi
 	done
 
-	repo="nflaig/consensus-specs"
+	repo="ethereum/consensus-specs"
 	api="https://api.github.com"
 	auth_header="Authorization: token ${GITHUB_TOKEN}"
 
@@ -58,7 +58,7 @@ else
 		if [[ ! -e "${test}.tar.gz" ]]; then
 			echo "Downloading: ${version}/${test}.tar.gz"
 			curl --progress-bar --location --remote-name --show-error --retry 3 --retry-all-errors --fail \
-				"https://github.com/nflaig/consensus-specs/releases/download/${version}/${test}.tar.gz" \
+				"https://github.com/ethereum/consensus-specs/releases/download/${version}/${test}.tar.gz" \
 				|| {
 					echo "Curl failed. Aborting"
 					rm -f "${test}.tar.gz"
