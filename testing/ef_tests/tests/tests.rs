@@ -100,6 +100,12 @@ fn operations_execution_payload_bid() {
 }
 
 #[test]
+fn operations_parent_execution_payload() {
+    OperationsHandler::<MinimalEthSpec, ParentExecutionPayloadBlock<_>>::default().run();
+    OperationsHandler::<MainnetEthSpec, ParentExecutionPayloadBlock<_>>::default().run();
+}
+
+#[test]
 fn operations_payload_attestation() {
     OperationsHandler::<MinimalEthSpec, PayloadAttestation<_>>::default().run();
     OperationsHandler::<MainnetEthSpec, PayloadAttestation<_>>::default().run();

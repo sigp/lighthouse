@@ -12,8 +12,9 @@ use state_processing::per_block_processing::process_operations::{
     process_deposit_requests_pre_gloas, process_withdrawal_requests,
 };
 use state_processing::{
-    ConsensusContext,
+    BlockSignatureStrategy, ConsensusContext,
     envelope_processing::EnvelopeProcessingError,
+    per_block_processing,
     per_block_processing::{
         VerifyBlockRoot, VerifySignatures,
         errors::BlockProcessingError,
@@ -25,15 +26,16 @@ use state_processing::{
         },
         process_sync_aggregate, withdrawals,
     },
+    per_slot_processing,
 };
 use std::fmt::Debug;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyBellatrix,
     BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconBlockBodyFulu,
     BeaconState, BlindedPayload, ConsolidationRequest, Deposit, DepositRequest, ExecutionPayload,
-    ForkVersionDecode, FullPayload, PayloadAttestation, ProposerSlashing,
-    SignedBlsToExecutionChange, SignedExecutionPayloadEnvelope, SignedVoluntaryExit, SyncAggregate,
-    WithdrawalRequest,
+    ForkVersionDecode, FullPayload, PayloadAttestation, ProposerSlashing, RelativeEpoch,
+    SignedBeaconBlock, SignedBlsToExecutionChange, SignedExecutionPayloadEnvelope,
+    SignedVoluntaryExit, SyncAggregate, WithdrawalRequest,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -57,6 +59,12 @@ pub struct WithdrawalsPayload<E: EthSpec> {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExecutionPayloadBidBlock<E: EthSpec> {
     block: BeaconBlock<E>,
+}
+
+/// Newtype for testing parent execution payload processing.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ParentExecutionPayloadBlock<E: EthSpec> {
+    block: SignedBeaconBlock<E>,
 }
 
 #[derive(Debug, Clone)]
@@ -502,6 +510,54 @@ impl<E: EthSpec> Operation<E> for ExecutionPayloadBidBlock<E> {
     ) -> Result<(), BlockProcessingError> {
         process_execution_payload_bid(state, self.block.to_ref(), VerifySignatures::True, spec)?;
         Ok(())
+    }
+}
+
+impl<E: EthSpec> Operation<E> for ParentExecutionPayloadBlock<E> {
+    type Error = BlockProcessingError;
+
+    fn handler_name() -> String {
+        "parent_execution_payload".into()
+    }
+
+    fn filename() -> String {
+        "blocks_0.ssz_snappy".into()
+    }
+
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        fork_name.gloas_enabled()
+    }
+
+    fn decode(path: &Path, _fork_name: ForkName, spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file_with(path, |bytes| SignedBeaconBlock::from_ssz_bytes(bytes, spec))
+            .map(|block| ParentExecutionPayloadBlock { block })
+    }
+
+    fn apply_to(
+        &self,
+        state: &mut BeaconState<E>,
+        spec: &ChainSpec,
+        _: &Operations<E, Self>,
+    ) -> Result<(), BlockProcessingError> {
+        let block = self.block.message();
+
+        while state.slot() < block.slot() {
+            per_slot_processing(state, None, spec).unwrap();
+        }
+
+        state
+            .build_committee_cache(RelativeEpoch::Current, spec)
+            .unwrap();
+
+        let mut ctxt = ConsensusContext::new(state.slot());
+        per_block_processing(
+            state,
+            &self.block,
+            BlockSignatureStrategy::VerifyIndividual,
+            VerifyBlockRoot::True,
+            &mut ctxt,
+            spec,
+        )
     }
 }
 
