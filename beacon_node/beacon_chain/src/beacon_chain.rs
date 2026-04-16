@@ -6705,7 +6705,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 if let Some((_, next_block)) = blocks.get(i + 1) {
                     let block_hash = block.payload_bid_block_hash()?;
-                    if next_block.is_parent_block_full(block_hash) {
+                    if block.slot() > 0 && next_block.is_parent_block_full(block_hash) {
                         let envelope = opt_envelope.ok_or_else(|| {
                             Error::DBInconsistent(format!("Missing envelope {block_root:?}"))
                         })?;

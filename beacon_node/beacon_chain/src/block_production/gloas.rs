@@ -682,8 +682,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let parent_bid = state.latest_execution_payload_bid()?;
 
-        let parent_block_hash = if parent_payload_status == PayloadStatus::Full {
+        // TODO(gloas): need should_extend_payload check here as well
+        let parent_block_hash = if parent_payload_status == PayloadStatus::Full
+            || state.latest_block_header().slot == 0
+        {
             // Build on parent bid's payload.
+            // Genesis is a special-case where the payload status is Empty, but we still want to
+            // build on the genesis block hash.
             parent_bid.block_hash
         } else {
             // Skip parent bid's payload.
