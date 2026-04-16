@@ -3473,6 +3473,7 @@ impl ApiTester {
         self
     }
 
+    // TODO(EIP-7732): Add test_get_validator_duties_ptc function to test PTC duties endpoint
     pub async fn test_get_validator_duties_proposer_v2(self) -> Self {
         let current_epoch = self.chain.epoch().unwrap();
 
