@@ -439,7 +439,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
     }
 
     #[instrument(
-        name = "handle_aggregates",
+        name = "lh_handle_aggregates",
         skip_all,
         fields(%slot, %committee_index)
     )]
@@ -494,7 +494,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
     ///
     /// The given `validator_duties` should already be filtered to only contain those that match
     /// `slot`. Critical errors will be logged if this is not the case.
-    #[instrument(skip_all, fields(%slot, %attestation_data.beacon_block_root))]
+    #[instrument(name = "lh_sign_and_publish_attestations", skip_all, fields(%slot, %attestation_data.beacon_block_root))]
     async fn sign_and_publish_attestations(
         &self,
         slot: Slot,
