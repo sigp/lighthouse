@@ -35,6 +35,7 @@ use rayon::prelude::*;
 use slasher::Slasher;
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::AllCaches;
+use state_processing::genesis::genesis_block;
 use state_processing::per_slot_processing;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -45,8 +46,8 @@ use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
 use types::data::CustodyIndex;
 use types::{
-    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList,
-    Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
+    BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList, Epoch, EthSpec,
+    Hash256, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -322,7 +323,7 @@ where
             .clone()
             .ok_or("set_genesis_state requires a store")?;
 
-        let beacon_block = genesis_block(&mut beacon_state, &self.spec)?;
+        let beacon_block = make_genesis_block(&mut beacon_state, &self.spec)?;
 
         beacon_state
             .build_caches(&self.spec)
@@ -375,7 +376,7 @@ where
         // Since v4.4.0 we will set the anchor with a dummy state upper limit in order to prevent
         // historic states from being retained (unless `--archive` is set).
         let retain_historic_states = self.chain_config.archive;
-        let genesis_beacon_block = genesis_block(&mut beacon_state, &self.spec)?;
+        let genesis_beacon_block = make_genesis_block(&mut beacon_state, &self.spec)?;
         self.pending_io_batch.push(
             store
                 .init_anchor_info(
@@ -1158,31 +1159,19 @@ where
     }
 }
 
-fn genesis_block<E: EthSpec>(
+fn make_genesis_block<E: EthSpec>(
     genesis_state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<SignedBeaconBlock<E>, String> {
-    let mut genesis_block = BeaconBlock::empty(spec);
+    let mut block = genesis_block(genesis_state, spec)
+        .map_err(|e| format!("Error building genesis block: {:?}", e))?;
 
-    // For Gloas, the genesis block's signed_execution_payload_bid must contain the EL genesis
-    // block hash and the tree hash root of an empty ExecutionRequests. This matches the spec's
-    // initialize_beacon_state_from_eth1 which populates these fields so that the genesis block
-    // body_root matches the state's latest_block_header.body_root.
-    if let BeaconBlock::Gloas(ref mut blk) = genesis_block {
-        let state_bid = genesis_state
-            .latest_execution_payload_bid()
-            .map_err(|e| format!("Error getting latest_execution_payload_bid: {:?}", e))?;
-        let bid = &mut blk.body.signed_execution_payload_bid.message;
-        bid.block_hash = state_bid.block_hash;
-        bid.execution_requests_root = state_bid.execution_requests_root;
-    }
-
-    *genesis_block.state_root_mut() = genesis_state
+    *block.state_root_mut() = genesis_state
         .update_tree_hash_cache()
         .map_err(|e| format!("Error hashing genesis state: {:?}", e))?;
 
     Ok(SignedBeaconBlock::from_block(
-        genesis_block,
+        block,
         // Empty signature, which should NEVER be read. This isn't to-spec, but makes the genesis
         // block consistent with every other block.
         Signature::empty(),
