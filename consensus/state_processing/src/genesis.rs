@@ -174,9 +174,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         // and the tree hash root of empty ExecutionRequests.
         let mut genesis_block = BeaconBlock::<E>::empty(spec);
         if let BeaconBlock::Gloas(ref mut blk) = genesis_block {
-            let state_bid = state
-                .latest_execution_payload_bid()
-                .expect("Gloas state must have latest_execution_payload_bid");
+            let state_bid = state.latest_execution_payload_bid()?;
             let bid = &mut blk.body.signed_execution_payload_bid.message;
             bid.block_hash = state_bid.block_hash;
             bid.execution_requests_root = state_bid.execution_requests_root;
