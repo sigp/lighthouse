@@ -167,18 +167,23 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         // Remove intermediate Fulu fork from `state.fork`.
         state.fork_mut().previous_version = spec.gloas_fork_version;
 
+        // Keep the latest_block_hash at 0x00. It was set by `upgrade_to_gloas` but should be 0x00
+        // to match the spec.
+        *state.latest_block_hash_mut()? = ExecutionBlockHash::default();
+
         // Update latest_block_header to reflect the Gloas genesis block body which contains
         // the EL genesis hash in the signed_execution_payload_bid. This is needed because
         // BeaconState::new() created the header from BeaconBlock::empty() which has zero bid
         // fields, but the spec requires the genesis block's bid to contain the EL block hash
         // and the tree hash root of empty ExecutionRequests.
         let mut genesis_block = BeaconBlock::<E>::empty(spec);
-        if let BeaconBlock::Gloas(ref mut blk) = genesis_block {
-            let state_bid = state.latest_execution_payload_bid()?;
-            let bid = &mut blk.body.signed_execution_payload_bid.message;
-            bid.block_hash = state_bid.block_hash;
-            bid.execution_requests_root = state_bid.execution_requests_root;
-        }
+        let block = genesis_block
+            .as_gloas_mut()
+            .map_err(|()| BeaconStateError::IncorrectStateVariant)?;
+        let state_bid = state.latest_execution_payload_bid()?;
+        let bid = &mut block.body.signed_execution_payload_bid.message;
+        bid.block_hash = state_bid.block_hash;
+        bid.execution_requests_root = state_bid.execution_requests_root;
         state.latest_block_header_mut().body_root = genesis_block.body_root();
     }
 
