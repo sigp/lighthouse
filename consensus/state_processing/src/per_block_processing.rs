@@ -119,6 +119,11 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
 ) -> Result<(), BlockProcessingError> {
     let block = signed_block.message();
 
+    // Process deferred execution requests from the parent's envelope.
+    if signed_block.fork_name_unchecked().gloas_enabled() {
+        process_parent_execution_payload(state, block, spec)?;
+    }
+
     // Verify that the `SignedBeaconBlock` instantiation matches the fork at `signed_block.slot()`.
     signed_block
         .fork_name(spec)
@@ -183,8 +188,6 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
     if is_execution_enabled(state, block.body()) {
         let body = block.body();
         if state.fork_name_unchecked().gloas_enabled() {
-            // Process deferred execution requests from the parent's envelope.
-            process_parent_execution_payload(state, block, spec)?;
             withdrawals::gloas::process_withdrawals::<E>(state, spec)?;
             process_execution_payload_bid(state, block, verify_signatures, spec)?;
         } else {
