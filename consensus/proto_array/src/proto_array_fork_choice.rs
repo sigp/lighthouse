@@ -1040,8 +1040,6 @@ impl ProtoArrayForkChoice {
 
     /// Returns the canonical payload status of a block by comparing full and empty payload weight.
     /// When weights are equal, falls back to `get_payload_status_tiebreaker`.
-    ///
-    /// Returns `None` if a non-gloas node.
     pub fn get_canonical_payload_status<E: EthSpec>(
         &self,
         block_root: &Hash256,
