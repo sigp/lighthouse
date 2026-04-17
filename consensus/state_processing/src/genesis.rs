@@ -167,9 +167,13 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         // Remove intermediate Fulu fork from `state.fork`.
         state.fork_mut().previous_version = spec.gloas_fork_version;
 
-        // Keep the latest_block_hash at 0x00. It was set by `upgrade_to_gloas` but should be 0x00
-        // to match the spec.
-        *state.latest_block_hash_mut()? = ExecutionBlockHash::default();
+        // The genesis block's bid must have block_hash = 0x00 per spec (empty payload).
+        // Retain the EL genesis hash in latest_block_hash and parent_block_hash so the
+        // first post-genesis proposer can build on the correct EL head.
+        let el_genesis_hash = state.latest_execution_payload_bid()?.block_hash;
+        let bid = state.latest_execution_payload_bid_mut()?;
+        bid.parent_block_hash = el_genesis_hash;
+        bid.block_hash = ExecutionBlockHash::default();
 
         // Update latest_block_header to reflect the Gloas genesis block body which contains
         // the EL genesis hash in the signed_execution_payload_bid. This is needed because
