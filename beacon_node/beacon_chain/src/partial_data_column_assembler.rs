@@ -49,7 +49,8 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         }
     }
 
-    /// Returns true unless the header was already contained or the passed argument failed to convert to a header
+    /// Insert a `header` for the given `block_root` into the assembler.
+    /// Returns true unless there already is a header for the block root.
     pub fn init(&self, block_root: Hash256, header: Arc<PartialDataColumnHeader<E>>) -> bool {
         let mut assemblies = self.assemblies.write();
 
