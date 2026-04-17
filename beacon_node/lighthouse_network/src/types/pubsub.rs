@@ -465,7 +465,7 @@ impl<E: EthSpec> PubsubMessage<E> {
 }
 
 /// Decodes incoming partial data column sidecar from gossipsub partial protocol.
-/// Note: Currenly, data columns are the only supported partial messages. In future this could
+/// Note: Currently, data columns are the only supported partial messages. In future this could
 /// return an enum.
 pub fn decode_partial<E: EthSpec>(
     topic: &GossipTopic,
