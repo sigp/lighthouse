@@ -9,8 +9,8 @@ use safe_arith::{SafeArith, SafeArithIter};
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, BeaconState, BeaconStateError, ChainSpec, EthSpec, ExecPayload,
-    ExpectedWithdrawals, ExpectedWithdrawalsCapella, ExpectedWithdrawalsElectra,
-    ExpectedWithdrawalsGloas, Validator, Withdrawal, Withdrawals,
+    ExecutionBlockHash, ExpectedWithdrawals, ExpectedWithdrawalsCapella,
+    ExpectedWithdrawalsElectra, ExpectedWithdrawalsGloas, Validator, Withdrawal, Withdrawals,
 };
 
 /// Compute the next batch of withdrawals which should be included in a block.
@@ -495,8 +495,13 @@ pub mod gloas {
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
         // After process_parent_execution_payload, latest_block_hash is updated if parent was full.
-        // Return early if the parent block is empty (latest_block_hash != bid.block_hash).
-        if *state.latest_block_hash()? != state.latest_execution_payload_bid()?.block_hash {
+        // Return early if the parent block is empty (latest_block_hash != bid.block_hash)
+        // or if the parent block is the genesis block (The genesis block is empty by default).
+        let latest_block_hash = *state.latest_block_hash()?;
+        let latest_bid_block_hash = state.latest_execution_payload_bid()?.block_hash;
+        if latest_block_hash == ExecutionBlockHash::zero()
+            || latest_block_hash != latest_bid_block_hash
+        {
             return Ok(());
         }
 
