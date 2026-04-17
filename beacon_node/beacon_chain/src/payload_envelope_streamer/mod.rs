@@ -11,7 +11,7 @@ use futures::Stream;
 use mockall_double::double;
 use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 use types::{EthSpec, Hash256, SignedExecutionPayloadEnvelope};
 
 #[cfg(not(test))]
