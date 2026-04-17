@@ -556,8 +556,7 @@ fn process_builder_voluntary_exit<E: EthSpec>(
         )))?;
 
     // Verify the builder is active
-    let finalized_epoch = state.finalized_checkpoint().epoch;
-    if !builder.is_active_at_finalized_epoch(finalized_epoch, spec) {
+    if !state.is_active_builder(builder_index, spec)? {
         return Err(BlockOperationError::invalid(ExitInvalid::NotActive(
             signed_exit.message.validator_index,
         )));

@@ -3473,6 +3473,7 @@ impl ApiTester {
         self
     }
 
+    // TODO(EIP-7732): Add test_get_validator_duties_ptc function to test PTC duties endpoint
     pub async fn test_get_validator_duties_proposer_v2(self) -> Self {
         let current_epoch = self.chain.epoch().unwrap();
 
@@ -4745,7 +4746,7 @@ impl ApiTester {
             .beacon_state
             .validators()
             .into_iter()
-            .zip(fee_recipients.into_iter())
+            .zip(fee_recipients)
             .enumerate()
         {
             let actual_fee_recipient = self
@@ -4802,7 +4803,7 @@ impl ApiTester {
             .beacon_state
             .validators()
             .into_iter()
-            .zip(fee_recipients.into_iter())
+            .zip(fee_recipients)
             .enumerate()
         {
             let actual = self
@@ -4841,7 +4842,7 @@ impl ApiTester {
             .beacon_state
             .validators()
             .into_iter()
-            .zip(fee_recipients.into_iter())
+            .zip(fee_recipients)
             .enumerate()
         {
             let actual_fee_recipient = self
