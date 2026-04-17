@@ -38,4 +38,5 @@ pub mod gloas {
     pub const ATTESTATION_TIMELINESS_INDEX: usize = 0;
     pub const PTC_TIMELINESS_INDEX: usize = 1;
     pub const NUM_BLOCK_TIMELINESS_DEADLINES: usize = 2;
+    pub const PTC_SIZE: u64 = 512;
 }

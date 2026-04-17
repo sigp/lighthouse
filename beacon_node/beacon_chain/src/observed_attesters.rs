@@ -14,7 +14,7 @@
 //! - `ObservedSyncAggregators`: allows filtering sync committee contributions from the same aggregators in
 //!   the same slot and in the same subcommittee.
 
-use crate::types::consts::altair::TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE;
+use crate::types::consts::{altair::TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE, gloas::PTC_SIZE};
 use bitvec::vec::BitVec;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
@@ -42,6 +42,8 @@ pub type ObservedSyncContributors<E> =
 pub type ObservedAggregators<E> = AutoPruningEpochContainer<EpochHashSet, E>;
 pub type ObservedSyncAggregators<E> =
     AutoPruningSlotContainer<SlotSubcommitteeIndex, (), SyncAggregatorSlotHashSet, E>;
+pub type ObservedPayloadAttesters<E> =
+    AutoPruningSlotContainer<Slot, (), PayloadAttesterSlotHashSet, E>;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -233,6 +235,44 @@ impl Item<()> for SyncAggregatorSlotHashSet {
     /// Defaults to the `TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE`.
     fn default_capacity() -> usize {
         TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE as usize
+    }
+
+    fn len(&self) -> usize {
+        self.set.len()
+    }
+
+    fn validator_count(&self) -> usize {
+        self.set.len()
+    }
+
+    /// Inserts the `validator_index` in the set. Returns `true` if the `validator_index` was
+    /// already in the set.
+    fn insert(&mut self, validator_index: usize, _value: ()) -> bool {
+        !self.set.insert(validator_index)
+    }
+
+    /// Returns `true` if the `validator_index` is in the set.
+    fn get(&self, validator_index: usize) -> Option<()> {
+        self.set.contains(&validator_index).then_some(())
+    }
+}
+
+/// Stores a `HashSet` of validator indices that have sent a payload attestation gossip
+/// message during a slot.
+pub struct PayloadAttesterSlotHashSet {
+    set: HashSet<usize>,
+}
+
+impl Item<()> for PayloadAttesterSlotHashSet {
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            set: HashSet::with_capacity(capacity),
+        }
+    }
+
+    /// Defaults to `PTC_SIZE`, the maximum number of payload attesters per slot.
+    fn default_capacity() -> usize {
+        PTC_SIZE as usize
     }
 
     fn len(&self) -> usize {
