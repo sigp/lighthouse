@@ -220,6 +220,8 @@ pub async fn verify_full_sync_aggregates_up_to<E: EthSpec>(
     Ok(())
 }
 
+// TODO(EIP-7732): Add verify_ptc_duties_executed function to verify that PTC duties are being fetched and executed correctly when Gloas fork is enabled
+
 /// Verify that the first merged PoS block got finalized.
 pub async fn verify_transition_block_finalized<E: EthSpec>(
     network: LocalNetwork<E>,
