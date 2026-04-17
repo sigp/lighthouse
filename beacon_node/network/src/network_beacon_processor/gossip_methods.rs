@@ -203,8 +203,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
-    /// Send a message on `message_tx` that  `peer_id` should be propagated on
-    /// the gossip network.
+    /// Send a message on `message_tx` that `peer_id` has sent an invalid partial message and should
+    /// be penalized.
     pub(crate) fn propagate_partial_validation_failure(
         &self,
         propagation_source: PeerId,
