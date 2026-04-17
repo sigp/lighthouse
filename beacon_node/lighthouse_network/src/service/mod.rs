@@ -971,7 +971,7 @@ impl<E: EthSpec> Network<E> {
 
                 // add to metrics
                 if let Some(v) = metrics::get_int_gauge(
-                    &metrics::FAILED_PUBLISHES_PER_MAIN_TOPIC,
+                    &metrics::FAILED_PARTIAL_PUBLISHES_PER_MAIN_TOPIC,
                     &[&format!("{:?}", topic.kind())],
                 ) {
                     v.inc()
