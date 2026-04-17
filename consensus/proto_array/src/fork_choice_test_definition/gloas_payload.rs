@@ -890,4 +890,80 @@ mod tests {
         let test = get_gloas_payload_received_interleaving_test_definition();
         test.run();
     }
+
+    /// Test that execution payload invalidation propagates across the V17→V29 fork
+    /// boundary: after invalidating a V17 parent, head must not select any descendant.
+    ///
+    ///   genesis(V17) -> block_1(V17, slot 31) -> block_2(V29, slot 32)
+    #[test]
+    fn mixed_v17_v29_invalidation() {
+        let balances = vec![1];
+        let mut ops = vec![];
+
+        // V17 block at slot 31 (pre-Gloas).
+        ops.push(Operation::ProcessBlock {
+            slot: Slot::new(31),
+            root: get_root(1),
+            parent_root: get_root(0),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
+        });
+
+        // V29 block at slot 32 (first Gloas slot), child of block 1.
+        ops.push(Operation::ProcessBlock {
+            slot: Slot::new(32),
+            root: get_root(2),
+            parent_root: get_root(1),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            execution_payload_parent_hash: Some(get_hash(1)),
+            execution_payload_block_hash: Some(get_hash(2)),
+        });
+
+        // Vote for block 2 (V29) so both blocks have weight.
+        ops.push(Operation::ProcessAttestation {
+            validator_index: 0,
+            block_root: get_root(2),
+            attestation_slot: Slot::new(32),
+        });
+
+        // FindHead triggers apply_score_changes which materializes the vote.
+        ops.push(Operation::FindHead {
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            justified_state_balances: balances.clone(),
+            expected_head: get_root(2),
+            current_slot: Slot::new(32),
+            expected_payload_status: None,
+        });
+
+        // Invalidate block 1 (V17). filter_block_tree excludes the entire branch.
+        ops.push(Operation::InvalidatePayload {
+            head_block_root: get_root(1),
+            latest_valid_ancestor_root: Some(get_hash(0)),
+        });
+
+        // Head falls back to genesis — the invalid branch is no longer selectable.
+        ops.push(Operation::FindHead {
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            justified_state_balances: balances.clone(),
+            expected_head: get_root(0),
+            current_slot: Slot::new(32),
+            expected_payload_status: None,
+        });
+
+        ForkChoiceTestDefinition {
+            finalized_block_slot: Slot::new(0),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            operations: ops,
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
+            spec: Some(gloas_fork_boundary_spec()),
+        }
+        .run();
+    }
 }
