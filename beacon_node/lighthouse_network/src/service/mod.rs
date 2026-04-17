@@ -1018,6 +1018,19 @@ impl<E: EthSpec> Network<E> {
         propagation_source: PeerId,
         topic: GossipTopic,
     ) {
+        if let Some(client) = self
+            .network_globals
+            .peers
+            .read()
+            .peer_info(&propagation_source)
+            .map(|info| info.client().kind.as_ref())
+        {
+            metrics::inc_counter_vec(
+                &metrics::GOSSIP_UNACCEPTED_MESSAGES_PER_CLIENT,
+                &[client, "reject"],
+            )
+        }
+
         self.gossipsub_mut()
             .report_invalid_partial(propagation_source, &TopicHash::from(Topic::from(topic)));
     }
