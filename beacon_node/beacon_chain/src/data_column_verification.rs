@@ -24,7 +24,8 @@ use tree_hash::TreeHash;
 use types::{
     BeaconStateError, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarFulu,
     DataColumnSubnetId, EthSpec, Hash256, PartialDataColumn, PartialDataColumnHeader,
-    PartialDataColumnSidecarError, SignedBeaconBlockHeader, Slot, StatePayloadStatus,
+    PartialDataColumnSidecar, PartialDataColumnSidecarError, SignedBeaconBlockHeader, Slot,
+    StatePayloadStatus,
 };
 
 /// An error occurred while validating a gossip data column.
@@ -715,18 +716,93 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumn<E> {
         self.data.index
     }
 
+    /// Merge two verified partial data columns.
+    ///
+    /// Each column must be internally consistent. Additionally, the columns to be merged must have
+    /// the same block root and index.
+    /// An error is returned if the columns are internally inconsistent or incompatible for merging.
+    ///
+    /// If both columns contain the same cell, the cell from `self` is used - however, as they are
+    /// KZG verified, they will be the same.
     pub fn merge(&self, other: &Self) -> Result<Self, PartialDataColumnSidecarError> {
-        self.data
-            .sidecar
-            .merge(&other.data.sidecar)
-            .map(|sidecar| Self {
-                data: Arc::new(PartialDataColumn {
-                    block_root: self.data.block_root,
-                    index: self.data.index,
-                    sidecar,
-                }),
-                latest_cell_timestamp: self.latest_cell_timestamp.max(other.latest_cell_timestamp),
-            })
+        let self_sidecar = &self.data.sidecar;
+        let other_sidecar = &self.data.sidecar;
+
+        // Check that each sidecar is internally consistent by checking the lengths.
+        self_sidecar.verify_len()?;
+        other_sidecar.verify_len()?;
+        if self.data.block_root != other.data.block_root
+            || self.data.index != other.data.index
+            || self_sidecar.cells_present_bitmap.len() != other_sidecar.cells_present_bitmap.len()
+        {
+            return Err(PartialDataColumnSidecarError::Unmergable);
+        }
+
+        let new_bitmap = self_sidecar
+            .cells_present_bitmap
+            .union(&other_sidecar.cells_present_bitmap);
+        let len = new_bitmap.num_set_bits();
+        let mut new_column = Vec::with_capacity(len);
+        let mut new_proofs = Vec::with_capacity(len);
+        let mut self_iter = self_sidecar
+            .column
+            .iter()
+            .zip(self_sidecar.kzg_proofs.iter());
+        let mut other_iter = other_sidecar
+            .column
+            .iter()
+            .zip(other_sidecar.kzg_proofs.iter());
+
+        for presence_bits in self_sidecar
+            .cells_present_bitmap
+            .iter()
+            .zip(other_sidecar.cells_present_bitmap.iter())
+        {
+            match presence_bits {
+                (false, false) => {}
+                (true, other) => {
+                    let (cell, proof) = self_iter
+                        .next()
+                        .ok_or(PartialDataColumnSidecarError::UnexpectedBounds)?;
+                    new_column.push(cell.clone());
+                    new_proofs.push(*proof);
+                    if other {
+                        other_iter
+                            .next()
+                            .ok_or(PartialDataColumnSidecarError::UnexpectedBounds)?;
+                    }
+                }
+                (false, true) => {
+                    let (cell, proof) = other_iter
+                        .next()
+                        .ok_or(PartialDataColumnSidecarError::UnexpectedBounds)?;
+                    new_column.push(cell.clone());
+                    new_proofs.push(*proof);
+                }
+            }
+        }
+
+        Ok(Self {
+            data: Arc::new(PartialDataColumn {
+                block_root: self.data.block_root,
+                index: self.data.index,
+                sidecar: PartialDataColumnSidecar {
+                    cells_present_bitmap: new_bitmap,
+                    column: new_column
+                        .try_into()
+                        .map_err(|_| PartialDataColumnSidecarError::UnexpectedBounds)?,
+                    kzg_proofs: new_proofs
+                        .try_into()
+                        .map_err(|_| PartialDataColumnSidecarError::UnexpectedBounds)?,
+                    header: if self_sidecar.header.is_some() {
+                        self_sidecar.header.clone()
+                    } else {
+                        other_sidecar.header.clone()
+                    },
+                },
+            }),
+            latest_cell_timestamp: self.latest_cell_timestamp.max(other.latest_cell_timestamp),
+        })
     }
 
     pub fn try_clone_full(
@@ -1324,8 +1400,8 @@ mod test {
     use crate::ChainConfig;
     use crate::data_column_verification::{
         GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
-        GossipVerifiedPartialDataColumnHeader, PartialColumnVerificationResult,
-        validate_data_column_sidecar_for_gossip_fulu,
+        GossipVerifiedPartialDataColumnHeader, KzgVerifiedCustodyPartialDataColumn,
+        PartialColumnVerificationResult, validate_data_column_sidecar_for_gossip_fulu,
         validate_partial_data_column_sidecar_for_gossip,
     };
     use crate::observed_data_sidecars::Observe;
@@ -1335,12 +1411,15 @@ mod test {
     };
     use eth2::types::BlobsBundle;
     use execution_layer::test_utils::generate_blobs;
+    use kzg::KzgProof;
     use ssz::BitList;
+    use ssz_types::VariableList;
     use std::sync::Arc;
     use std::time::UNIX_EPOCH;
     use types::{
-        DataColumnSidecar, DataColumnSidecarFulu, DataColumnSubnetId, EthSpec, ForkName,
-        MainnetEthSpec, PartialDataColumn, PartialDataColumnHeader, PartialDataColumnSidecar,
+        Cell, CellBitmap, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSubnetId, EthSpec,
+        ForkName, MainnetEthSpec, PartialDataColumn, PartialDataColumnHeader,
+        PartialDataColumnSidecar,
     };
 
     type E = MainnetEthSpec;
@@ -1730,6 +1809,95 @@ mod test {
                 ))
             ),
             "Expected InvalidInclusionProof, got: {result:?}"
+        );
+    }
+
+    // -- merge tests --
+
+    fn make_cell(marker: u8) -> Cell<E> {
+        let mut cell = Cell::<E>::default();
+        cell[0] = marker;
+        cell
+    }
+
+    fn make_partial_with_marker(
+        total_blobs: usize,
+        present_indices: &[usize],
+        marker_base: u8,
+    ) -> KzgVerifiedCustodyPartialDataColumn<E> {
+        let mut bitmap = CellBitmap::<E>::with_capacity(total_blobs).unwrap();
+        for &idx in present_indices {
+            bitmap.set(idx, true).unwrap();
+        }
+
+        let column: VariableList<_, _> = present_indices
+            .iter()
+            .map(|&idx| make_cell(marker_base.wrapping_add(idx as u8)))
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        let proofs: VariableList<_, _> = present_indices
+            .iter()
+            .map(|_| KzgProof::empty())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+
+        KzgVerifiedCustodyPartialDataColumn {
+            data: Arc::new(PartialDataColumn {
+                block_root: Default::default(),
+                index: 0,
+                sidecar: PartialDataColumnSidecar {
+                    cells_present_bitmap: bitmap,
+                    column,
+                    kzg_proofs: proofs,
+                    header: None.into(),
+                },
+            }),
+            latest_cell_timestamp: Default::default(),
+        }
+    }
+
+    fn make_partial(
+        total_blobs: usize,
+        present_indices: &[usize],
+    ) -> KzgVerifiedCustodyPartialDataColumn<E> {
+        make_partial_with_marker(total_blobs, present_indices, 0)
+    }
+
+    #[test]
+    fn merge_disjoint_partials() {
+        let a = make_partial(6, &[0, 2]);
+        let b = make_partial(6, &[1, 3]);
+        let merged = a.merge(&b).unwrap();
+        assert_eq!(merged.data.sidecar.column.len(), 4);
+        assert_eq!(merged.data.sidecar.kzg_proofs.len(), 4);
+        for i in 0..4 {
+            assert!(merged.data.sidecar.cells_present_bitmap.get(i).unwrap());
+        }
+        assert!(!merged.data.sidecar.cells_present_bitmap.get(4).unwrap());
+    }
+
+    #[test]
+    fn merge_overlapping_partials_prefers_self() {
+        let a = make_partial_with_marker(4, &[0, 1], 0);
+        let b = make_partial_with_marker(4, &[1, 2], 100);
+        let merged = a.merge(&b).unwrap();
+        assert_eq!(merged.data.sidecar.column.len(), 3);
+        // Cell at bitmap index 1 is the second cell in the merged column.
+        // It should come from `a` (marker_base=0, so marker=0+1=1), not `b` (marker=100+1=101).
+        assert_eq!(merged.data.sidecar.column[1][0], 1);
+    }
+
+    #[test]
+    fn merge_with_empty_other() {
+        let a = make_partial(4, &[0, 2]);
+        let b = make_partial(4, &[]);
+        let merged = a.merge(&b).unwrap();
+        assert_eq!(merged.data.sidecar.column.len(), 2);
+        assert_eq!(
+            merged.data.sidecar.cells_present_bitmap,
+            a.data.sidecar.cells_present_bitmap
         );
     }
 }

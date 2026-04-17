@@ -101,67 +101,7 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
         }))
     }
 
-    pub fn merge(&self, other: &Self) -> Result<Self, PartialDataColumnSidecarError> {
-        // Check that each sidecar is internally consistent by checking the lengths.
-        self.verify_len()?;
-        other.verify_len()?;
-        if self.cells_present_bitmap.len() != other.cells_present_bitmap.len() {
-            return Err(PartialDataColumnSidecarError::Unmergable);
-        }
-
-        let new_bitmap = self.cells_present_bitmap.union(&other.cells_present_bitmap);
-        let len = new_bitmap.num_set_bits();
-        let mut new_column = Vec::with_capacity(len);
-        let mut new_proofs = Vec::with_capacity(len);
-        let mut self_iter = self.column.iter().zip(self.kzg_proofs.iter());
-        let mut other_iter = other.column.iter().zip(other.kzg_proofs.iter());
-
-        for presence_bits in self
-            .cells_present_bitmap
-            .iter()
-            .zip(other.cells_present_bitmap.iter())
-        {
-            match presence_bits {
-                (false, false) => {}
-                (true, other) => {
-                    let (cell, proof) = self_iter
-                        .next()
-                        .ok_or(PartialDataColumnSidecarError::UnexpectedBounds)?;
-                    new_column.push(cell.clone());
-                    new_proofs.push(*proof);
-                    if other {
-                        other_iter
-                            .next()
-                            .ok_or(PartialDataColumnSidecarError::UnexpectedBounds)?;
-                    }
-                }
-                (false, true) => {
-                    let (cell, proof) = other_iter
-                        .next()
-                        .ok_or(PartialDataColumnSidecarError::UnexpectedBounds)?;
-                    new_column.push(cell.clone());
-                    new_proofs.push(*proof);
-                }
-            }
-        }
-
-        Ok(Self {
-            cells_present_bitmap: new_bitmap,
-            column: new_column
-                .try_into()
-                .map_err(|_| PartialDataColumnSidecarError::UnexpectedBounds)?,
-            kzg_proofs: new_proofs
-                .try_into()
-                .map_err(|_| PartialDataColumnSidecarError::UnexpectedBounds)?,
-            header: if self.header.is_some() {
-                self.header.clone()
-            } else {
-                other.header.clone()
-            },
-        })
-    }
-
-    fn verify_len(&self) -> Result<usize, PartialDataColumnSidecarError> {
+    pub fn verify_len(&self) -> Result<usize, PartialDataColumnSidecarError> {
         let len = self.cells_present_bitmap.num_set_bits();
         if len != self.kzg_proofs.len() || len != self.column.len() {
             return Err(PartialDataColumnSidecarError::InternallyInconsistent);
@@ -389,57 +329,6 @@ mod tests {
 
         // Also, check that the encoded version matches
         assert_eq!(filtered.as_ssz_bytes(), sidecar.as_ssz_bytes());
-    }
-
-    // -- merge tests --
-
-    #[test]
-    fn merge_disjoint_partials() {
-        let a = make_sidecar(6, &[0, 2]);
-        let b = make_sidecar(6, &[1, 3]);
-        let merged = a.merge(&b).unwrap();
-        assert_eq!(merged.column.len(), 4);
-        assert_eq!(merged.kzg_proofs.len(), 4);
-        for i in 0..4 {
-            assert!(merged.cells_present_bitmap.get(i).unwrap());
-        }
-        assert!(!merged.cells_present_bitmap.get(4).unwrap());
-    }
-
-    #[test]
-    fn merge_overlapping_partials_prefers_self() {
-        let a = make_sidecar_with_marker(4, &[0, 1], 0);
-        let b = make_sidecar_with_marker(4, &[1, 2], 100);
-        let merged = a.merge(&b).unwrap();
-        assert_eq!(merged.column.len(), 3);
-        // Cell at bitmap index 1 is the second cell in the merged column.
-        // It should come from `a` (marker_base=0, so marker=0+1=1), not `b` (marker=100+1=101).
-        assert_eq!(merged.column[1][0], 1);
-    }
-
-    #[test]
-    fn merge_with_empty_other() {
-        let a = make_sidecar(4, &[0, 2]);
-        let b = make_sidecar(4, &[]);
-        let merged = a.merge(&b).unwrap();
-        assert_eq!(merged.column.len(), 2);
-        assert_eq!(merged.cells_present_bitmap, a.cells_present_bitmap);
-    }
-
-    #[test]
-    fn merge_preserves_header_from_self() {
-        let mut a = make_sidecar(4, &[0]);
-        a.header = Some(make_header(4)).into();
-        let b = make_sidecar(4, &[1]);
-        let merged = a.merge(&b).unwrap();
-        assert!(merged.header.is_some());
-
-        // If self has no header, use other's
-        let c = make_sidecar(4, &[0]);
-        let mut d = make_sidecar(4, &[1]);
-        d.header = Some(make_header(4)).into();
-        let merged2 = c.merge(&d).unwrap();
-        assert!(merged2.header.is_some());
     }
 
     // -- is_complete tests --
