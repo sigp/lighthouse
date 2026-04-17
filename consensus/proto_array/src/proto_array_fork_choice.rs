@@ -1038,68 +1038,22 @@ impl ProtoArrayForkChoice {
             .unwrap_or(false)
     }
 
-    /// Returns the canonical payload status of a block by comparing full and empty payload weight.
-    /// When weights are equal, falls back to `get_payload_status_tiebreaker`.
+    /// Returns the canonical payload status of a block, matching the decision
+    /// `get_head` would make between `(root, FULL)` and `(root, EMPTY)`.
     pub fn get_canonical_payload_status<E: EthSpec>(
         &self,
         block_root: &Hash256,
         current_slot: Slot,
         proposer_boost_root: Hash256,
+        spec: &ChainSpec,
     ) -> Result<PayloadStatus, Error> {
-        let block_index = self
-            .proto_array
-            .indices
-            .get(block_root)
-            .ok_or(Error::NodeUnknown(*block_root))?;
-
-        let node = self
-            .proto_array
-            .nodes
-            .get(*block_index)
-            .ok_or(Error::InvalidNodeIndex(*block_index))?;
-
-        let (Ok(payload_received), Ok(full_payload_weight), Ok(empty_payload_weight)) = (
-            node.payload_received(),
-            node.full_payload_weight(),
-            node.empty_payload_weight(),
-        ) else {
-            return Err(Error::InvalidNodeVariant {
-                block_root: *block_root,
-            });
-        };
-
-        if !payload_received {
-            return Ok(PayloadStatus::Empty);
-        }
-
-        if full_payload_weight > empty_payload_weight {
-            return Ok(PayloadStatus::Full);
-        } else if full_payload_weight < empty_payload_weight {
-            return Ok(PayloadStatus::Empty);
-        }
-
-        let tiebreaker_for_status = |status| {
-            let node_ref = IndexedForkChoiceNode {
-                root: node.root(),
-                proto_node_index: *block_index,
-                payload_status: status,
-            };
-            self.proto_array.get_payload_status_tiebreaker::<E>(
-                &node_ref,
-                node,
-                current_slot,
-                proposer_boost_root,
-            )
-        };
-
-        let full_tiebreaker = tiebreaker_for_status(PayloadStatus::Full)?;
-        let empty_tiebreaker = tiebreaker_for_status(PayloadStatus::Empty)?;
-
-        if full_tiebreaker >= empty_tiebreaker {
-            Ok(PayloadStatus::Full)
-        } else {
-            Ok(PayloadStatus::Empty)
-        }
+        self.proto_array.get_canonical_payload_status::<E>(
+            *block_root,
+            current_slot,
+            proposer_boost_root,
+            &self.balances,
+            spec,
+        )
     }
 
     /// Returns the weight of a given block.

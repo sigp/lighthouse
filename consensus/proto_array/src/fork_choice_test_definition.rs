@@ -4,6 +4,7 @@ mod gloas_payload;
 mod no_votes;
 mod votes;
 
+use crate::error::Error;
 use crate::proto_array_fork_choice::{Block, ExecutionStatus, PayloadStatus, ProtoArrayForkChoice};
 use crate::{InvalidationOperation, JustifiedBalances};
 use fixed_bytes::FixedBytesExtended;
@@ -116,6 +117,12 @@ pub enum Operation {
     AssertPayloadStatusByWeight {
         block_root: Hash256,
         expected_status: PayloadStatus,
+        /// Override `current_slot`. Defaults to the `current_slot` of the last `FindHead`.
+        #[serde(default)]
+        current_slot: Option<Slot>,
+        /// Override the proposer boost root. Defaults to `Hash256::zero()`.
+        #[serde(default)]
+        proposer_boost_root: Option<Hash256>,
     },
 }
 
@@ -202,6 +209,15 @@ impl ForkChoiceTestDefinition {
                             op_index, op
                         );
                     }
+                    assert_canonical_payload_status_matches_find_head(
+                        &fork_choice,
+                        &head,
+                        current_slot,
+                        Hash256::zero(),
+                        &spec,
+                        payload_status,
+                        op_index,
+                    );
                     last_current_slot = current_slot;
                     check_bytes_round_trip(&fork_choice);
                 }
@@ -215,7 +231,7 @@ impl ForkChoiceTestDefinition {
                     let justified_balances =
                         JustifiedBalances::from_effective_balances(justified_state_balances)
                             .unwrap();
-                    let (head, _payload_status) = fork_choice
+                    let (head, payload_status) = fork_choice
                         .find_head::<MainnetEthSpec>(
                             justified_checkpoint,
                             finalized_checkpoint,
@@ -233,6 +249,15 @@ impl ForkChoiceTestDefinition {
                         head, expected_head,
                         "Operation at index {} failed head check. Operation: {:?}",
                         op_index, op
+                    );
+                    assert_canonical_payload_status_matches_find_head(
+                        &fork_choice,
+                        &head,
+                        Slot::new(0),
+                        proposer_boost_root,
+                        &spec,
+                        payload_status,
+                        op_index,
                     );
                     check_bytes_round_trip(&fork_choice);
                 }
@@ -560,12 +585,15 @@ impl ForkChoiceTestDefinition {
                 Operation::AssertPayloadStatusByWeight {
                     block_root,
                     expected_status,
+                    current_slot,
+                    proposer_boost_root,
                 } => {
                     let actual = fork_choice
                         .get_canonical_payload_status::<MainnetEthSpec>(
                             &block_root,
-                            last_current_slot,
-                            Hash256::zero(),
+                            current_slot.unwrap_or(last_current_slot),
+                            proposer_boost_root.unwrap_or_else(Hash256::zero),
+                            &spec,
                         )
                         .unwrap();
                     assert_eq!(
@@ -595,6 +623,37 @@ fn get_checkpoint(i: u64) -> Checkpoint {
     Checkpoint {
         epoch: Epoch::new(i),
         root: get_root(i),
+    }
+}
+
+/// Checks that `get_canonical_payload_status` agrees with the `payload_status`
+/// returned by `find_head` for the head block.
+fn assert_canonical_payload_status_matches_find_head(
+    fork_choice: &ProtoArrayForkChoice,
+    head: &Hash256,
+    current_slot: Slot,
+    proposer_boost_root: Hash256,
+    spec: &ChainSpec,
+    expected: PayloadStatus,
+    op_index: usize,
+) {
+    match fork_choice.get_canonical_payload_status::<MainnetEthSpec>(
+        head,
+        current_slot,
+        proposer_boost_root,
+        spec,
+    ) {
+        Ok(actual) => assert_eq!(
+            actual, expected,
+            "get_canonical_payload_status disagreed with find_head for head {:?} at op index {}",
+            head, op_index
+        ),
+        // Skip the check for pre-gloas nodes
+        Err(Error::InvalidNodeVariant { .. }) => {}
+        Err(e) => panic!(
+            "get_canonical_payload_status failed at op index {}: {:?}",
+            op_index, e
+        ),
     }
 }
 

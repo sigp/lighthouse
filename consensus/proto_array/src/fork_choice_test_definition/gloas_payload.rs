@@ -102,15 +102,21 @@ pub fn get_gloas_chain_following_test_definition() -> ForkChoiceTestDefinition {
     ops.push(Operation::AssertPayloadStatusByWeight {
         block_root: get_root(0),
         expected_status: PayloadStatus::Full,
+        current_slot: None,
+        proposer_boost_root: None,
     });
     ops.push(Operation::AssertPayloadStatusByWeight {
         block_root: get_root(1),
         expected_status: PayloadStatus::Full,
+        current_slot: None,
+        proposer_boost_root: None,
     });
     // Root 2 has no payload received → always Empty.
     ops.push(Operation::AssertPayloadStatusByWeight {
         block_root: get_root(2),
         expected_status: PayloadStatus::Empty,
+        current_slot: None,
+        proposer_boost_root: None,
     });
 
     // Cross-slot attestations with payload_present=false to Empty branch (root 4, slot 2).
@@ -140,15 +146,21 @@ pub fn get_gloas_chain_following_test_definition() -> ForkChoiceTestDefinition {
     ops.push(Operation::AssertPayloadStatusByWeight {
         block_root: get_root(0),
         expected_status: PayloadStatus::Empty,
+        current_slot: None,
+        proposer_boost_root: None,
     });
     ops.push(Operation::AssertPayloadStatusByWeight {
         block_root: get_root(2),
         expected_status: PayloadStatus::Empty,
+        current_slot: None,
+        proposer_boost_root: None,
     });
     // Root 1 (Full branch) still has 1 Full vote, 0 Empty → Full.
     ops.push(Operation::AssertPayloadStatusByWeight {
         block_root: get_root(1),
         expected_status: PayloadStatus::Full,
+        current_slot: None,
+        proposer_boost_root: None,
     });
 
     ForkChoiceTestDefinition {
@@ -616,6 +628,8 @@ pub fn get_gloas_interleaved_attestations_test_definition() -> ForkChoiceTestDef
     ops.push(Operation::AssertPayloadStatusByWeight {
         block_root: get_root(0),
         expected_status: PayloadStatus::Empty,
+        current_slot: None,
+        proposer_boost_root: None,
     });
 
     // Step 5: Flip tiebreaker to Full → Full branch wins.
@@ -636,6 +650,8 @@ pub fn get_gloas_interleaved_attestations_test_definition() -> ForkChoiceTestDef
     ops.push(Operation::AssertPayloadStatusByWeight {
         block_root: get_root(0),
         expected_status: PayloadStatus::Full,
+        current_slot: None,
+        proposer_boost_root: None,
     });
 
     // Step 6: Add extra CL weight to Empty branch → overrides Full tiebreaker.
@@ -767,6 +783,151 @@ pub fn get_gloas_payload_received_interleaving_test_definition() -> ForkChoiceTe
         expected_head: get_root(1),
         current_slot: Slot::new(100),
         expected_payload_status: None,
+    });
+
+    ForkChoiceTestDefinition {
+        finalized_block_slot: Slot::new(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        operations: ops,
+        execution_payload_parent_hash: Some(get_hash(42)),
+        execution_payload_block_hash: Some(get_hash(0)),
+        spec: Some(gloas_spec()),
+    }
+}
+
+/// When `current_slot == node.slot + 1`, spec `get_weight` zeroes out Full and Empty
+/// weights so the tiebreaker decides. Tests that the zero-out is applied and
+/// doesn't just compare raw payload weights.
+pub fn get_gloas_previous_slot_tiebreaker_test_definition() -> ForkChoiceTestDefinition {
+    let mut ops = vec![];
+
+    // Block 1 at slot 1 with its payload received.
+    ops.push(Operation::ProcessBlock {
+        slot: Slot::new(1),
+        root: get_root(1),
+        parent_root: get_root(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        execution_payload_parent_hash: Some(get_hash(0)),
+        execution_payload_block_hash: Some(get_hash(1)),
+    });
+    ops.push(Operation::ProcessExecutionPayloadEnvelope {
+        block_root: get_root(1),
+    });
+
+    // Block 2 at slot 2 with a mismatched EL parent hash → parent payload status Empty.
+    ops.push(Operation::ProcessBlock {
+        slot: Slot::new(2),
+        root: get_root(2),
+        parent_root: get_root(1),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        execution_payload_parent_hash: Some(get_hash(99)),
+        execution_payload_block_hash: Some(get_hash(2)),
+    });
+
+    // More Full weight than Empty on block 1.
+    ops.push(Operation::ProcessGloasAttestation {
+        validator_index: 0,
+        block_root: get_root(1),
+        attestation_slot: Slot::new(2),
+        payload_present: true,
+    });
+
+    // Before zero-out (current_slot == block 1's slot), raw weights decide → Full.
+    ops.push(Operation::AssertPayloadStatusByWeight {
+        block_root: get_root(1),
+        expected_status: PayloadStatus::Full,
+        current_slot: Some(Slot::new(1)),
+        proposer_boost_root: None,
+    });
+
+    // At current_slot == block 1's slot + 1, both weights zero out and the
+    // tiebreaker picks Empty (block 2 extends block 1 with an Empty parent
+    // payload status).
+    ops.push(Operation::AssertPayloadStatusByWeight {
+        block_root: get_root(1),
+        expected_status: PayloadStatus::Empty,
+        current_slot: Some(Slot::new(2)),
+        proposer_boost_root: Some(get_root(2)),
+    });
+
+    ForkChoiceTestDefinition {
+        finalized_block_slot: Slot::new(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        operations: ops,
+        execution_payload_parent_hash: Some(get_hash(42)),
+        execution_payload_block_hash: Some(get_hash(0)),
+        spec: Some(gloas_spec()),
+    }
+}
+
+/// Proposer boost on a descendant can flip an ancestor's canonical payload status.
+/// Boost supports the ancestor's Full variant (via the descendant's Full parent
+/// payload status) but not Empty, so a large enough boost overrides raw Empty weight.
+pub fn get_gloas_proposer_boost_flips_ancestor_test_definition() -> ForkChoiceTestDefinition {
+    let mut ops = vec![];
+
+    // Block 1 at slot 1 with payload received.
+    ops.push(Operation::ProcessBlock {
+        slot: Slot::new(1),
+        root: get_root(1),
+        parent_root: get_root(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        execution_payload_parent_hash: Some(get_hash(0)),
+        execution_payload_block_hash: Some(get_hash(1)),
+    });
+    ops.push(Operation::ProcessExecutionPayloadEnvelope {
+        block_root: get_root(1),
+    });
+
+    // Block 2 at slot 3 with a Full parent payload status (skip slot 2 so
+    // block 1's previous-slot zero-out doesn't fire at current_slot 3).
+    ops.push(Operation::ProcessBlock {
+        slot: Slot::new(3),
+        root: get_root(2),
+        parent_root: get_root(1),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        execution_payload_parent_hash: Some(get_hash(1)),
+        execution_payload_block_hash: Some(get_hash(2)),
+    });
+
+    // One Empty vote on block 1. Balance totals are chosen so the proposer
+    // boost score exceeds the single Empty voter's balance.
+    ops.push(Operation::ProcessGloasAttestation {
+        validator_index: 0,
+        block_root: get_root(1),
+        attestation_slot: Slot::new(2),
+        payload_present: false,
+    });
+
+    ops.push(Operation::FindHead {
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        justified_state_balances: vec![100, 10000],
+        expected_head: get_root(1),
+        current_slot: Slot::new(3),
+        expected_payload_status: Some(PayloadStatus::Empty),
+    });
+
+    // Without boost: raw weights decide → Empty.
+    ops.push(Operation::AssertPayloadStatusByWeight {
+        block_root: get_root(1),
+        expected_status: PayloadStatus::Empty,
+        current_slot: Some(Slot::new(3)),
+        proposer_boost_root: None,
+    });
+
+    // With boost on block 2: boost supports block 1's Full variant → Full.
+    ops.push(Operation::AssertPayloadStatusByWeight {
+        block_root: get_root(1),
+        expected_status: PayloadStatus::Full,
+        current_slot: Some(Slot::new(3)),
+        proposer_boost_root: Some(get_root(2)),
     });
 
     ForkChoiceTestDefinition {
@@ -954,6 +1115,18 @@ mod tests {
     #[test]
     fn payload_received_interleaving() {
         let test = get_gloas_payload_received_interleaving_test_definition();
+        test.run();
+    }
+
+    #[test]
+    fn previous_slot_tiebreaker() {
+        let test = get_gloas_previous_slot_tiebreaker_test_definition();
+        test.run();
+    }
+
+    #[test]
+    fn proposer_boost_flips_ancestor() {
+        let test = get_gloas_proposer_boost_flips_ancestor_test_definition();
         test.run();
     }
 

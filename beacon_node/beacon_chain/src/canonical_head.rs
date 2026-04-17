@@ -383,7 +383,11 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     }
 
     /// Returns `true` if the payload for this block is canonical (Full) according to fork choice.
-    pub fn block_has_canonical_payload(&self, root: &Hash256) -> Result<bool, Error> {
+    pub fn block_has_canonical_payload(
+        &self,
+        root: &Hash256,
+        spec: &ChainSpec,
+    ) -> Result<bool, Error> {
         let cached_head = self.cached_head();
         let head_root = cached_head.head_block_root();
         let head_payload_status = cached_head.head_payload_status();
@@ -393,7 +397,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         }
 
         self.fork_choice_read_lock()
-            .get_canonical_payload_status(root)
+            .get_canonical_payload_status(root, spec)
             .map(|status| status == PayloadStatus::Full)
             .map_err(Error::ForkChoiceError)
     }
