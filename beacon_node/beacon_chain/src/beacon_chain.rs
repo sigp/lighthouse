@@ -2097,6 +2097,50 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )?)
     }
 
+    /// Produce a `PayloadAttestationData` for a PTC validator to sign.
+    ///
+    /// This is used by PTC (Payload Timeliness Committee) validators to attest to the
+    /// presence/absence of an execution payload and blobs for a given slot.
+    pub fn produce_payload_attestation_data(
+        &self,
+        request_slot: Slot,
+    ) -> Result<PayloadAttestationData, Error> {
+        let _timer = metrics::start_timer(&metrics::PAYLOAD_ATTESTATION_PRODUCTION_SECONDS);
+
+        // Payload attestations are only valid for the current slot
+        let current_slot = self.slot()?;
+        if request_slot != current_slot {
+            return Err(Error::InvalidSlot(request_slot));
+        }
+
+        // Check if we've seen a block for this slot from the canonical head
+        let head = self.head_snapshot();
+        if head.beacon_block.slot() != request_slot {
+            return Err(Error::NoBlockForSlot(request_slot));
+        }
+
+        let beacon_block_root = head.beacon_block_root;
+
+        // TODO(gloas) do we want to use a dedicated envelope cache instead?
+        // Maybe the new gloas DA cache? (Or should the gloas DA cache use
+        // the envelopes_times_cache internally?)
+        let payload_present = self
+            .envelope_times_cache
+            .read()
+            .cache
+            .contains_key(&beacon_block_root);
+
+        // TODO(EIP-7732): Check blob data availability. For now, default to true.
+        let blob_data_available = true;
+
+        Ok(PayloadAttestationData {
+            beacon_block_root,
+            slot: head.beacon_block.slot(),
+            payload_present,
+            blob_data_available,
+        })
+    }
+
     /// Performs the same validation as `Self::verify_unaggregated_attestation_for_gossip`, but for
     /// multiple attestations using batch BLS verification. Batch verification can provide
     /// significant CPU-time savings compared to individual verification.
