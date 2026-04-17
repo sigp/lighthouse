@@ -1693,7 +1693,7 @@ pub static PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_SUCCESSES: LazyLock<Res
     LazyLock::new(|| {
         try_create_int_counter(
             "beacon_partial_data_column_sidecar_header_processing_successes_total",
-            "Number of partial data column sidecars verified for gossip (excluding dupes)",
+            "Number of partial data column sidecar headers verified for gossip (excluding dupes)",
         )
     });
 pub static PARTIAL_DATA_COLUMN_SIDECAR_HEADER_GOSSIP_VERIFICATION_TIMES: LazyLock<
@@ -1701,7 +1701,7 @@ pub static PARTIAL_DATA_COLUMN_SIDECAR_HEADER_GOSSIP_VERIFICATION_TIMES: LazyLoc
 > = LazyLock::new(|| {
     try_create_histogram(
         "beacon_partial_data_column_sidecar_header_gossip_verification_seconds",
-        "Full runtime of partial data column sidecars gossip verification",
+        "Full runtime of partial data column sidecar headers gossip verification",
     )
 });
 pub static PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> =
