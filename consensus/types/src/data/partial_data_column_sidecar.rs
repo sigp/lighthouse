@@ -64,7 +64,7 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
     where
         F: Fn(usize) -> bool,
     {
-        let len = self.len()?;
+        let len = self.verify_len()?;
 
         let mut new_bitmap = self.cells_present_bitmap.clone();
         let mut new_column = Vec::with_capacity(len);
@@ -103,8 +103,8 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
 
     pub fn merge(&self, other: &Self) -> Result<Self, PartialDataColumnSidecarError> {
         // Check that each sidecar is internally consistent by checking the lengths.
-        self.len()?;
-        other.len()?;
+        self.verify_len()?;
+        other.verify_len()?;
         if self.cells_present_bitmap.len() != other.cells_present_bitmap.len() {
             return Err(PartialDataColumnSidecarError::Unmergable);
         }
@@ -161,7 +161,7 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
         })
     }
 
-    fn len(&self) -> Result<usize, PartialDataColumnSidecarError> {
+    fn verify_len(&self) -> Result<usize, PartialDataColumnSidecarError> {
         let len = self.cells_present_bitmap.num_set_bits();
         if len != self.kzg_proofs.len() || len != self.column.len() {
             return Err(PartialDataColumnSidecarError::InternallyInconsistent);
