@@ -1408,6 +1408,9 @@ impl<E: EthSpec> Network<E> {
                             error,
                             "Could not decode gossipsub partial message topic"
                         );
+                        // punish the peer
+                        self.gossipsub_mut()
+                            .report_invalid_partial(peer_id, &topic_hash);
                     })
                     .ok()?;
 
