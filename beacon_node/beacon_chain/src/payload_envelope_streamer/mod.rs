@@ -133,11 +133,6 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
                                     }
                                 }
                                 Err(e) => {
-                                    warn!(
-                                        error = ?e,
-                                        block_root = ?root,
-                                        "error verifying canonicity of payload envelope"
-                                    );
                                     results.push((*root, Err(e)));
                                 }
                             }
