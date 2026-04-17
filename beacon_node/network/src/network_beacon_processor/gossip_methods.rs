@@ -922,12 +922,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         %parent_root,
                         "Unknown parent hash for partial column"
                     );
-                    self.send_sync_message(SyncMessage::UnknownParentPartialDataColumn(
+                    self.send_sync_message(SyncMessage::UnknownParentPartialDataColumn {
                         peer_id,
                         block_root,
                         parent_root,
                         slot,
-                    ));
+                    });
                 }
                 GossipDataColumnError::PubkeyCacheTimeout
                 | GossipDataColumnError::BeaconChainError(_) => {
