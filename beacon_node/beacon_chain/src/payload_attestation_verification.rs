@@ -218,6 +218,8 @@ impl<E: EthSpec> VerifiedPayloadAttestationMessage<E> {
         payload_attestation_message: PayloadAttestationMessage,
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
+        // TODO(manas): i think we can have a shuffling cache. but this an interim solution
+        // can be discussed.
         let head_snapshot = chain.head_snapshot();
         let head_state = &head_snapshot.beacon_state;
 

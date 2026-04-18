@@ -134,8 +134,8 @@ struct RejectedAggregate<E: EthSpec> {
 }
 
 struct RejectedPayloadAttestation {
+    payload_attestation_message: Box<PayloadAttestationMessage>,
     error: PayloadAttestationError,
-    message_slot: Slot,
 }
 
 /// Data for an aggregated or unaggregated attestation that failed verification.
@@ -3669,17 +3669,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        payload_attestation_message: PayloadAttestationMessage,
+        payload_attestation_message: Box<PayloadAttestationMessage>,
     ) {
-        let message_slot = payload_attestation_message.data.slot;
-
-        let result = self
+        let result = match self
             .chain
-            .verify_payload_attestation_message_for_gossip(payload_attestation_message)
-            .map_err(|error| RejectedPayloadAttestation {
+            .verify_payload_attestation_message_for_gossip(*payload_attestation_message.clone())
+        {
+            Ok(verified) => Ok(verified),
+            Err(error) => Err(RejectedPayloadAttestation {
+                payload_attestation_message: payload_attestation_message.clone(),
                 error,
-                message_slot,
-            });
+            }),
+        };
 
         self.process_gossip_payload_attestation_result(result, message_id, peer_id);
     }
@@ -3717,14 +3718,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 }
             }
             Err(RejectedPayloadAttestation {
+                payload_attestation_message,
                 error,
-                message_slot,
             }) => {
                 self.handle_payload_attestation_verification_failure(
                     peer_id,
                     message_id,
                     error,
-                    message_slot,
+                    payload_attestation_message.data.slot,
                 );
             }
         }
