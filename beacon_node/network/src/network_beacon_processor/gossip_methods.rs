@@ -3687,7 +3687,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     fn process_gossip_payload_attestation_result(
         self: &Arc<Self>,
-        result: Result<VerifiedPayloadAttestationMessage<T::EthSpec>, RejectedPayloadAttestation>,
+        result: Result<VerifiedPayloadAttestationMessage<T>, RejectedPayloadAttestation>,
         message_id: MessageId,
         peer_id: PeerId,
     ) {

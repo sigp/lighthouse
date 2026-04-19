@@ -56,7 +56,8 @@ use crate::observed_data_sidecars::ObservedDataSidecars;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::observed_slashable::ObservedSlashable;
 use crate::payload_attestation_verification::{
-    Error as PayloadAttestationError, VerifiedPayloadAttestationMessage,
+    Error as PayloadAttestationError, GossipVerificationContext as PayloadAttestationGossipContext,
+    VerifiedPayloadAttestationMessage,
 };
 use crate::payload_bid_verification::payload_bid_cache::GossipVerifiedPayloadBidCache;
 #[cfg(not(test))]
@@ -2201,14 +2202,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    pub fn payload_attestation_gossip_context(&self) -> PayloadAttestationGossipContext<'_, T> {
+        PayloadAttestationGossipContext {
+            slot_clock: &self.slot_clock,
+            spec: &self.spec,
+            observed_payload_attesters: &self.observed_payload_attesters,
+            canonical_head: &self.canonical_head,
+            validator_pubkey_cache: &self.validator_pubkey_cache,
+        }
+    }
+
     pub fn verify_payload_attestation_message_for_gossip(
         &self,
         payload_attestation_message: PayloadAttestationMessage,
-    ) -> Result<VerifiedPayloadAttestationMessage<T::EthSpec>, PayloadAttestationError> {
+    ) -> Result<VerifiedPayloadAttestationMessage<T>, PayloadAttestationError> {
         metrics::inc_counter(&metrics::PAYLOAD_ATTESTATION_PROCESSING_REQUESTS);
         let _timer = metrics::start_timer(&metrics::PAYLOAD_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
 
-        VerifiedPayloadAttestationMessage::verify(payload_attestation_message, self).inspect(|_| {
+        let ctx = self.payload_attestation_gossip_context();
+        VerifiedPayloadAttestationMessage::new(payload_attestation_message, &ctx).inspect(|_| {
             metrics::inc_counter(&metrics::PAYLOAD_ATTESTATION_PROCESSING_SUCCESSES);
         })
     }
