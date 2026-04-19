@@ -65,6 +65,7 @@ fn build_chain(
                 message: ExecutionPayloadEnvelope {
                     payload: ExecutionPayloadGloas {
                         block_hash,
+                        slot_number: slot,
                         ..Default::default()
                     },
                     execution_requests: Default::default(),
