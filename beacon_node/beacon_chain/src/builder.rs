@@ -435,6 +435,7 @@ where
             .clone()
             .ok_or("weak_subjectivity_state requires a store")?;
 
+        // Ensure the state is advanced to an epoch boundary.
         let slots_per_epoch = E::slots_per_epoch();
         if weak_subj_state.slot() % slots_per_epoch != 0 {
             debug!(
@@ -442,10 +443,10 @@ where
                 block_slot = %weak_subj_block.slot(),
                 "Advancing checkpoint state to boundary"
             );
-        }
-        while weak_subj_state.slot() % slots_per_epoch != 0 {
-            per_slot_processing(&mut weak_subj_state, None, &self.spec)
-                .map_err(|e| format!("Error advancing state: {e:?}"))?;
+            while weak_subj_state.slot() % slots_per_epoch != 0 {
+                per_slot_processing(&mut weak_subj_state, None, &self.spec)
+                    .map_err(|e| format!("Error advancing state: {e:?}"))?;
+            }
         }
 
         // Prime all caches before storing the state in the database and computing the tree hash
