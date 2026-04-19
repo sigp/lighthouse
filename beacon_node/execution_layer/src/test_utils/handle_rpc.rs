@@ -507,7 +507,8 @@ pub async fn handle_rpc<E: EthSpec>(
         }
         ENGINE_FORKCHOICE_UPDATED_V1
         | ENGINE_FORKCHOICE_UPDATED_V2
-        | ENGINE_FORKCHOICE_UPDATED_V3 => {
+        | ENGINE_FORKCHOICE_UPDATED_V3
+        | ENGINE_FORKCHOICE_UPDATED_V4 => {
             let forkchoice_state: JsonForkchoiceStateV1 =
                 get_param(params, 0).map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
             let payload_attributes = match method {
@@ -552,6 +553,11 @@ pub async fn handle_rpc<E: EthSpec>(
                 ENGINE_FORKCHOICE_UPDATED_V3 => {
                     get_param::<Option<JsonPayloadAttributesV3>>(params, 1)
                         .map(|opt| opt.map(JsonPayloadAttributes::V3))
+                        .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
+                }
+                ENGINE_FORKCHOICE_UPDATED_V4 => {
+                    get_param::<Option<JsonPayloadAttributesV4>>(params, 1)
+                        .map(|opt| opt.map(JsonPayloadAttributes::V4))
                         .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
                 }
                 _ => unreachable!(),
@@ -607,7 +613,7 @@ pub async fn handle_rpc<E: EthSpec>(
                             ));
                         }
                     }
-                    ForkName::Deneb | ForkName::Electra | ForkName::Fulu | ForkName::Gloas => {
+                    ForkName::Deneb | ForkName::Electra | ForkName::Fulu => {
                         if method == ENGINE_FORKCHOICE_UPDATED_V1 {
                             return Err((
                                 format!("{} called after Deneb fork!", method),
@@ -617,6 +623,14 @@ pub async fn handle_rpc<E: EthSpec>(
                         if method == ENGINE_FORKCHOICE_UPDATED_V2 {
                             return Err((
                                 format!("{} called after Deneb fork!", method),
+                                FORK_REQUEST_MISMATCH_ERROR_CODE,
+                            ));
+                        }
+                    }
+                    ForkName::Gloas => {
+                        if method != ENGINE_FORKCHOICE_UPDATED_V4 {
+                            return Err((
+                                format!("{} called after Gloas fork! Use V4.", method),
                                 FORK_REQUEST_MISMATCH_ERROR_CODE,
                             ));
                         }

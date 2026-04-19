@@ -5965,6 +5965,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None
             };
 
+            let slot_number = if prepare_slot_fork.gloas_enabled() {
+                Some(prepare_slot.as_u64())
+            } else {
+                None
+            };
+
             let payload_attributes = PayloadAttributes::new(
                 self.slot_clock
                     .start_of(prepare_slot)
@@ -5974,6 +5980,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 execution_layer.get_suggested_fee_recipient(proposer).await,
                 withdrawals.map(Into::into),
                 parent_beacon_block_root,
+                slot_number,
             );
 
             execution_layer
