@@ -2,7 +2,7 @@ use super::Error;
 use crate::canonical_head::CanonicalHead;
 use crate::observed_attesters::ObservedPayloadAttesters;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
-use crate::{BeaconChainError, BeaconChainTypes};
+use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, metrics};
 use bls::AggregateSignature;
 use educe::Educe;
 use parking_lot::RwLock;
@@ -11,8 +11,6 @@ use state_processing::per_block_processing::signature_sets::indexed_payload_atte
 use std::borrow::Cow;
 use types::{ChainSpec, IndexedPayloadAttestation, PTC, PayloadAttestationMessage, Slot};
 
-/// Bundles only the dependencies needed for gossip verification of payload attestation messages,
-/// decoupling verification from the full `BeaconChain`.
 pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub slot_clock: &'a T::SlotClock,
     pub spec: &'a ChainSpec,
@@ -145,6 +143,31 @@ impl<T: BeaconChainTypes> VerifiedPayloadAttestationMessage<T> {
 
     pub fn into_payload_attestation_message(self) -> PayloadAttestationMessage {
         self.payload_attestation_message
+    }
+}
+
+impl<T: BeaconChainTypes> BeaconChain<T> {
+    pub fn payload_attestation_gossip_context(&self) -> GossipVerificationContext<'_, T> {
+        GossipVerificationContext {
+            slot_clock: &self.slot_clock,
+            spec: &self.spec,
+            observed_payload_attesters: &self.observed_payload_attesters,
+            canonical_head: &self.canonical_head,
+            validator_pubkey_cache: &self.validator_pubkey_cache,
+        }
+    }
+
+    pub fn verify_payload_attestation_message_for_gossip(
+        &self,
+        payload_attestation_message: PayloadAttestationMessage,
+    ) -> Result<VerifiedPayloadAttestationMessage<T>, Error> {
+        metrics::inc_counter(&metrics::PAYLOAD_ATTESTATION_PROCESSING_REQUESTS);
+        let _timer = metrics::start_timer(&metrics::PAYLOAD_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
+
+        let ctx = self.payload_attestation_gossip_context();
+        VerifiedPayloadAttestationMessage::new(payload_attestation_message, &ctx).inspect(|_| {
+            metrics::inc_counter(&metrics::PAYLOAD_ATTESTATION_PROCESSING_SUCCESSES);
+        })
     }
 }
 
