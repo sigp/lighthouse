@@ -109,6 +109,8 @@ pub fn get_gloas_chain_following_test_definition() -> ForkChoiceTestDefinition {
 pub fn get_gloas_payload_probe_test_definition() -> ForkChoiceTestDefinition {
     let mut ops = vec![];
 
+    // Block 1 at slot 1: child of genesis. Genesis has execution_payload_block_hash=zero
+    // (no execution payload at genesis), so all children have parent_payload_status=Empty.
     ops.push(Operation::ProcessBlock {
         slot: Slot::new(1),
         root: get_root(1),
@@ -212,8 +214,10 @@ pub fn get_gloas_payload_probe_test_definition() -> ForkChoiceTestDefinition {
         justified_checkpoint: get_checkpoint(0),
         finalized_checkpoint: get_checkpoint(0),
         operations: ops,
-        execution_payload_parent_hash: Some(get_hash(42)),
-        execution_payload_block_hash: Some(get_hash(0)),
+        // Genesis has zero execution block hash (no payload at genesis), which
+        // ensures all children get parent_payload_status=Empty.
+        execution_payload_parent_hash: Some(ExecutionBlockHash::zero()),
+        execution_payload_block_hash: Some(ExecutionBlockHash::zero()),
         spec: Some(gloas_spec()),
     }
 }
@@ -600,18 +604,20 @@ pub fn get_gloas_interleaved_attestations_test_definition() -> ForkChoiceTestDef
 
 /// Test interleaving of blocks, payload validation, and attestations.
 ///
-/// Scenario:
-///   - Genesis block (slot 0)
-///   - Block 1 (slot 1) extends genesis, Full chain
-///   - Block 2 (slot 1) extends genesis, Empty chain
-///   - Before payload arrives: payload_received is false for block 1
+/// Scenario (branching at block 1 since genesis has no payload):
+///   - Genesis block (slot 0) with zero execution block hash
+///   - Block 1 (slot 1) child of genesis (Empty parent status since genesis hash=zero)
+///   - Block 2 (slot 2) extends block 1 Full chain (parent_hash matches block 1's block_hash)
+///   - Block 3 (slot 2) extends block 1 Empty chain (parent_hash doesn't match)
+///   - Before payload arrives: payload_received is false for block 1, only Empty reachable
 ///   - Process execution payload for block 1 → payload_received becomes true
-///   - Payload attestations arrive voting block 1's payload as timely + available
-///   - Head should follow block 1 because the PTC votes now count (payload_received = true)
+///   - Both Full and Empty directions from block 1 become available
+///   - With equal weight, tiebreaker prefers Full → Block 2 wins
 pub fn get_gloas_payload_received_interleaving_test_definition() -> ForkChoiceTestDefinition {
     let mut ops = vec![];
 
-    // Block 1 at slot 1: extends genesis Full chain.
+    // Block 1 at slot 1: child of genesis. Genesis has zero block hash, so
+    // parent_payload_status = Empty regardless of block 1's execution_payload_parent_hash.
     ops.push(Operation::ProcessBlock {
         slot: Slot::new(1),
         root: get_root(1),
@@ -622,83 +628,94 @@ pub fn get_gloas_payload_received_interleaving_test_definition() -> ForkChoiceTe
         execution_payload_block_hash: Some(get_hash(1)),
     });
 
-    // Block 2 at slot 1: extends genesis Empty chain (parent_hash doesn't match genesis EL hash).
+    // Block 2 at slot 2: Full child of block 1 (parent_hash matches block 1's block_hash).
     ops.push(Operation::ProcessBlock {
-        slot: Slot::new(1),
+        slot: Slot::new(2),
         root: get_root(2),
-        parent_root: get_root(0),
+        parent_root: get_root(1),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        execution_payload_parent_hash: Some(get_hash(1)),
+        execution_payload_block_hash: Some(get_hash(2)),
+    });
+
+    // Block 3 at slot 2: Empty child of block 1 (parent_hash doesn't match block 1's block_hash).
+    ops.push(Operation::ProcessBlock {
+        slot: Slot::new(2),
+        root: get_root(3),
+        parent_root: get_root(1),
         justified_checkpoint: get_checkpoint(0),
         finalized_checkpoint: get_checkpoint(0),
         execution_payload_parent_hash: Some(get_hash(99)),
-        execution_payload_block_hash: Some(get_hash(100)),
+        execution_payload_block_hash: Some(get_hash(3)),
     });
 
-    // Both children have parent_payload_status set correctly.
+    // Verify parent_payload_status is set correctly.
     ops.push(Operation::AssertParentPayloadStatus {
         block_root: get_root(1),
+        expected_status: PayloadStatus::Empty,
+    });
+    ops.push(Operation::AssertParentPayloadStatus {
+        block_root: get_root(2),
         expected_status: PayloadStatus::Full,
     });
     ops.push(Operation::AssertParentPayloadStatus {
-        block_root: get_root(2),
+        block_root: get_root(3),
         expected_status: PayloadStatus::Empty,
     });
 
-    // Per spec `get_forkchoice_store`: genesis starts with payload_received=true
-    // (anchor block is in `payload_states`).
+    // Genesis does NOT have payload_received (no payload at genesis).
     ops.push(Operation::AssertPayloadReceived {
         block_root: get_root(0),
-        expected: true,
+        expected: false,
     });
 
-    // Give one vote to each child so they have equal weight.
+    // Block 1 does not have payload_received yet.
+    ops.push(Operation::AssertPayloadReceived {
+        block_root: get_root(1),
+        expected: false,
+    });
+
+    // Give one vote to each competing child so they have equal weight.
     ops.push(Operation::ProcessAttestation {
         validator_index: 0,
-        block_root: get_root(1),
-        attestation_slot: Slot::new(1),
+        block_root: get_root(2),
+        attestation_slot: Slot::new(2),
     });
     ops.push(Operation::ProcessAttestation {
         validator_index: 1,
-        block_root: get_root(2),
-        attestation_slot: Slot::new(1),
+        block_root: get_root(3),
+        attestation_slot: Slot::new(2),
     });
 
-    // Equal weight, payload_received=true on genesis → tiebreaker uses
-    // payload_received (not previous slot, equal payload weights) → prefers Full.
-    // Block 1 (Full) wins because it matches the Full preference.
+    // Before payload_received on block 1: only Empty direction available.
+    // Block 3 (Empty child) is reachable, Block 2 (Full child) is not.
     ops.push(Operation::FindHead {
         justified_checkpoint: get_checkpoint(0),
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: vec![1, 1],
-        expected_head: get_root(1),
+        expected_head: get_root(3),
         current_slot: Slot::new(100),
         expected_payload_status: None,
     });
 
-    // ProcessExecutionPayloadEnvelope on genesis is a no-op (already received at init).
+    // Process execution payload envelope for block 1 → payload_received becomes true.
     ops.push(Operation::ProcessExecutionPayloadEnvelope {
-        block_root: get_root(0),
+        block_root: get_root(1),
     });
 
     ops.push(Operation::AssertPayloadReceived {
-        block_root: get_root(0),
+        block_root: get_root(1),
         expected: true,
     });
 
-    // Set PTC votes on genesis as timely + data available (simulates PTC voting).
-    // This doesn't change the preference since genesis is not the previous slot
-    // (slot 0 + 1 != current_slot 100).
-    ops.push(Operation::SetPayloadTiebreak {
-        block_root: get_root(0),
-        is_timely: true,
-        is_data_available: true,
-    });
-
-    // Still prefers Full via payload_received tiebreaker → Block 1 (Full) wins.
+    // After payload_received on block 1: both Full and Empty directions available.
+    // Equal weight, tiebreaker prefers Full → Block 2 (Full child) wins.
     ops.push(Operation::FindHead {
         justified_checkpoint: get_checkpoint(0),
         finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: vec![1, 1],
-        expected_head: get_root(1),
+        expected_head: get_root(2),
         current_slot: Slot::new(100),
         expected_payload_status: None,
     });
@@ -708,8 +725,9 @@ pub fn get_gloas_payload_received_interleaving_test_definition() -> ForkChoiceTe
         justified_checkpoint: get_checkpoint(0),
         finalized_checkpoint: get_checkpoint(0),
         operations: ops,
-        execution_payload_parent_hash: Some(get_hash(42)),
-        execution_payload_block_hash: Some(get_hash(0)),
+        // Genesis has zero execution block hash (no payload at genesis).
+        execution_payload_parent_hash: Some(ExecutionBlockHash::zero()),
+        execution_payload_block_hash: Some(ExecutionBlockHash::zero()),
         spec: Some(gloas_spec()),
     }
 }
