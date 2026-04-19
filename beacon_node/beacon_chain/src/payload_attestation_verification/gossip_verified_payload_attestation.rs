@@ -55,10 +55,10 @@ impl<T: BeaconChainTypes> VerifiedPayloadAttestationMessage<T> {
             });
         }
 
-        // [IGNORE] `data.beacon_block_root` has been seen (via gossip or non-optimistic RPC).
+        // [IGNORE] `data.beacon_block_root` has been seen
         // [REJECT] `data.beacon_block_root` passes validation.
         //
-        // TODO(EIP-7732): These two conditions are conflated. We need a status table to
+        // TODO(gloas): These two conditions are conflated. We need a status table to
         // differentiate between:
         // 1. Blocks we haven't seen (IGNORE), and
         // 2. Blocks we've seen that are invalid (REJECT).
