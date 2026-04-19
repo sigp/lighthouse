@@ -3694,11 +3694,8 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
         blobs,
     } = bundle;
 
-    for (index, ((blob, kzg_commitment), kzg_proof)) in blobs
-        .into_iter()
-        .zip(commitments.into_iter())
-        .zip(proofs.into_iter())
-        .enumerate()
+    for (index, ((blob, kzg_commitment), kzg_proof)) in
+        blobs.into_iter().zip(commitments).zip(proofs).enumerate()
     {
         blob_sidecars.push(BlobSidecar {
             index: index as u64,
