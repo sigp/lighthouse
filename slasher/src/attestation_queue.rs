@@ -86,7 +86,7 @@ impl<E: EthSpec> AttestationBatch<E> {
                     validator_index,
                     "Dropping slasher attestation with out-of-range validator index"
                 );
-                continue;
+                break;
             }
 
             let subqueue_id = config.validator_chunk_index(validator_index);
