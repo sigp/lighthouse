@@ -2124,11 +2124,13 @@ fn make_test_payload_envelope(
 ) -> SignedExecutionPayloadEnvelope<E> {
     SignedExecutionPayloadEnvelope {
         message: ExecutionPayloadEnvelope {
-            payload: ExecutionPayloadGloas::default(),
+            payload: ExecutionPayloadGloas {
+                slot_number: slot,
+                ..ExecutionPayloadGloas::default()
+            },
             execution_requests: ExecutionRequests::default(),
             builder_index: 0,
             beacon_block_root,
-            slot,
         },
         signature: Signature::empty(),
     }

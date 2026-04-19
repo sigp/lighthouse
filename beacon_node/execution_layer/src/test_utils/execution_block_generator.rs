@@ -753,6 +753,9 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     withdrawals: pa.withdrawals.clone().try_into().unwrap(),
                     blob_gas_used: 0,
                     excess_blob_gas: 0,
+                    block_access_list: VariableList::empty(),
+                    // TODO(gloas): fix this in the actual BAL PR
+                    slot_number: 0_u64.into(),
                 }),
                 _ => unreachable!(),
             },

@@ -576,7 +576,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 execution_requests: payload_data.execution_requests,
                 builder_index: payload_data.builder_index,
                 beacon_block_root,
-                slot: payload_data.slot,
             };
 
             let signed_envelope = SignedExecutionPayloadEnvelope {

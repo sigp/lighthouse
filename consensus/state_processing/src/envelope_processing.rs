@@ -127,9 +127,9 @@ pub fn verify_execution_payload<E: EthSpec>(
         }
     );
     envelope_verify!(
-        envelope.slot == state.slot(),
+        envelope.slot() == state.slot(),
         EnvelopeProcessingError::SlotMismatch {
-            envelope_slot: envelope.slot,
+            envelope_slot: envelope.slot(),
             parent_state_slot: state.slot(),
         }
     );

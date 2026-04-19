@@ -2710,7 +2710,7 @@ where
         block_state_root: Hash256,
     ) {
         debug!(
-            slot = %signed_envelope.message.slot,
+            slot = %signed_envelope.slot(),
             "Processing execution payload envelope"
         );
 

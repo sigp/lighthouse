@@ -172,6 +172,7 @@ where
         let mut anchor_state = anchor.beacon_state;
         let mut anchor_block_header = anchor_state.latest_block_header().clone();
 
+        // The anchor state MUST be on an epoch boundary (it should be advanced by the caller).
         if !anchor_state
             .slot()
             .as_u64()
@@ -194,10 +195,6 @@ where
             root: anchor_block_root,
         };
         let finalized_checkpoint = justified_checkpoint;
-
-        // TODO(gloas): we advance the state here inline, but we need the justified checkpoint
-        // passed in, see:
-        // https://github.com/ethereum/consensus-specs/issues/5074
         let justified_balances = JustifiedBalances::from_justified_state(&anchor_state)?;
         let justified_state_root = anchor_state.canonical_root()?;
 
