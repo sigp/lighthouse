@@ -124,7 +124,6 @@ pub struct BeaconProcessorQueueLengths {
     chain_segment_queue: usize,
     backfill_chain_segment: usize,
     gossip_block_queue: usize,
-    gossip_blob_queue: usize,
     gossip_data_column_queue: usize,
     delayed_block_queue: usize,
     delayed_envelope_queue: usize,
@@ -197,7 +196,6 @@ impl BeaconProcessorQueueLengths {
             chain_segment_queue: 64,
             backfill_chain_segment: 64,
             gossip_block_queue: 1024,
-            gossip_blob_queue: 1024,
             gossip_data_column_queue: 1024,
             delayed_block_queue: 1024,
             delayed_envelope_queue: 1024,
@@ -211,7 +209,7 @@ impl BeaconProcessorQueueLengths {
             payload_envelopes_brange_queue: 1024,
             payload_envelopes_broots_queue: 1024,
             gossip_bls_to_execution_change_queue: 16384,
-            // TODO(EIP-7732): verify 1024 is preferable. I used same value as `gossip_block_queue` and `gossip_blob_queue`
+            // TODO(EIP-7732): verify 1024 is preferable.
             gossip_execution_payload_queue: 1024,
             // TODO(EIP-7732) how big should this queue be?
             gossip_execution_payload_bid_queue: 1024,
@@ -253,7 +251,6 @@ pub struct WorkQueues<E: EthSpec> {
     pub chain_segment_queue: FifoQueue<Work<E>>,
     pub backfill_chain_segment: FifoQueue<Work<E>>,
     pub gossip_block_queue: FifoQueue<Work<E>>,
-    pub gossip_blob_queue: FifoQueue<Work<E>>,
     pub gossip_data_column_queue: FifoQueue<Work<E>>,
     pub delayed_block_queue: FifoQueue<Work<E>>,
     pub delayed_envelope_queue: FifoQueue<Work<E>>,
@@ -321,7 +318,6 @@ impl<E: EthSpec> WorkQueues<E> {
         let chain_segment_queue = FifoQueue::new(queue_lengths.chain_segment_queue);
         let backfill_chain_segment = FifoQueue::new(queue_lengths.backfill_chain_segment);
         let gossip_block_queue = FifoQueue::new(queue_lengths.gossip_block_queue);
-        let gossip_blob_queue = FifoQueue::new(queue_lengths.gossip_blob_queue);
         let gossip_data_column_queue = FifoQueue::new(queue_lengths.gossip_data_column_queue);
         let delayed_block_queue = FifoQueue::new(queue_lengths.delayed_block_queue);
         let delayed_envelope_queue = FifoQueue::new(queue_lengths.delayed_envelope_queue);
@@ -386,7 +382,6 @@ impl<E: EthSpec> WorkQueues<E> {
             column_reconstruction_queue,
             backfill_chain_segment,
             gossip_block_queue,
-            gossip_blob_queue,
             gossip_data_column_queue,
             delayed_block_queue,
             delayed_envelope_queue,

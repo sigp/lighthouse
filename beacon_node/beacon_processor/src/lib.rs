@@ -390,7 +390,6 @@ pub enum Work<E: EthSpec> {
         process_batch: Box<dyn FnOnce(Vec<GossipAggregatePackage<E>>) + Send + Sync>,
     },
     GossipBlock(AsyncFn),
-    GossipBlobSidecar(AsyncFn),
     GossipDataColumnSidecar(AsyncFn),
     DelayedImportBlock {
         beacon_block_slot: Slot,
@@ -468,7 +467,6 @@ pub enum WorkType {
     UnknownLightClientOptimisticUpdate,
     GossipAggregateBatch,
     GossipBlock,
-    GossipBlobSidecar,
     GossipDataColumnSidecar,
     DelayedImportBlock,
     DelayedImportEnvelope,
@@ -522,7 +520,6 @@ impl<E: EthSpec> Work<E> {
             Work::GossipAggregate { .. } => WorkType::GossipAggregate,
             Work::GossipAggregateBatch { .. } => WorkType::GossipAggregateBatch,
             Work::GossipBlock(_) => WorkType::GossipBlock,
-            Work::GossipBlobSidecar(_) => WorkType::GossipBlobSidecar,
             Work::GossipDataColumnSidecar(_) => WorkType::GossipDataColumnSidecar,
             Work::DelayedImportBlock { .. } => WorkType::DelayedImportBlock,
             Work::DelayedImportEnvelope { .. } => WorkType::DelayedImportEnvelope,
@@ -832,8 +829,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         } else if let Some(item) = work_queues.gossip_execution_payload_queue.pop()
                         {
                             Some(item)
-                        } else if let Some(item) = work_queues.gossip_blob_queue.pop() {
-                            Some(item)
                         } else if let Some(item) = work_queues.gossip_data_column_queue.pop() {
                             Some(item)
                         } else if let Some(item) = work_queues.column_reconstruction_queue.pop() {
@@ -1140,9 +1135,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::GossipBlock { .. } => {
                                 work_queues.gossip_block_queue.push(work, work_id)
                             }
-                            Work::GossipBlobSidecar { .. } => {
-                                work_queues.gossip_blob_queue.push(work, work_id)
-                            }
                             Work::GossipDataColumnSidecar { .. } => {
                                 work_queues.gossip_data_column_queue.push(work, work_id)
                             }
@@ -1280,7 +1272,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         }
                         WorkType::GossipAggregateBatch => 0, // No queue
                         WorkType::GossipBlock => work_queues.gossip_block_queue.len(),
-                        WorkType::GossipBlobSidecar => work_queues.gossip_blob_queue.len(),
                         WorkType::GossipDataColumnSidecar => {
                             work_queues.gossip_data_column_queue.len()
                         }
@@ -1504,7 +1495,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
             | Work::ColumnReconstruction(process_fn) => task_spawner.spawn_async(process_fn),
             Work::IgnoredRpcBlock { process_fn } => task_spawner.spawn_blocking(process_fn),
             Work::GossipBlock(work)
-            | Work::GossipBlobSidecar(work)
             | Work::GossipDataColumnSidecar(work)
             | Work::GossipExecutionPayload(work) => task_spawner.spawn_async(async move {
                 work.await;
