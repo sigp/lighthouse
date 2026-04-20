@@ -468,11 +468,7 @@ impl<E: EthSpec> Operation<E> for SignedExecutionPayloadEnvelope<E> {
             .as_ref()
             .is_some_and(|e| e.execution_valid);
         if valid {
-            let block_state_root = state.update_tree_hash_cache().map_err(|_| {
-                EnvelopeProcessingError::BeaconStateError(
-                    types::BeaconStateError::TreeHashCacheNotInitialized,
-                )
-            })?;
+            let block_state_root = state.update_tree_hash_cache()?;
             verify_execution_payload(state, self, VerifySignatures::True, block_state_root, spec)
         } else {
             Err(EnvelopeProcessingError::ExecutionInvalid)
