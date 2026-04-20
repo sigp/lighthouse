@@ -1,8 +1,7 @@
 use crate::AvailabilityProcessingStatus;
+use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
 use crate::fetch_blobs::fetch_blobs_beacon_adapter::MockFetchBlobsBeaconAdapter;
-use crate::fetch_blobs::{
-    EngineGetBlobsOutput, FetchEngineBlobError, fetch_and_process_engine_blobs_inner,
-};
+use crate::fetch_blobs::{FetchEngineBlobError, fetch_and_process_engine_blobs_inner};
 use crate::test_utils::{EphemeralHarnessType, get_kzg};
 use bls::Signature;
 use eth2::types::BlobsBundle;
@@ -249,10 +248,10 @@ mod get_blobs_v2 {
     }
 }
 
-/// Extract the `EngineGetBlobsOutput` passed to the `publish_fn`.
+/// Extract the `Vec<KzgVerifiedCustodyDataColumn<E>>` passed to the `publish_fn`.
 fn extract_published_blobs(
-    publish_fn_args: Arc<Mutex<Vec<EngineGetBlobsOutput<T>>>>,
-) -> EngineGetBlobsOutput<T> {
+    publish_fn_args: Arc<Mutex<Vec<Vec<KzgVerifiedCustodyDataColumn<E>>>>>,
+) -> Vec<KzgVerifiedCustodyDataColumn<E>> {
     let mut calls = publish_fn_args.lock().unwrap();
     assert_eq!(calls.len(), 1);
     calls.pop().unwrap()
@@ -321,8 +320,8 @@ fn create_test_block_and_blobs(
 
 #[allow(clippy::type_complexity)]
 fn mock_publish_fn() -> (
-    impl Fn(EngineGetBlobsOutput<T>) + Send + 'static,
-    Arc<Mutex<Vec<EngineGetBlobsOutput<T>>>>,
+    impl Fn(Vec<KzgVerifiedCustodyDataColumn<E>>) + Send + 'static,
+    Arc<Mutex<Vec<Vec<KzgVerifiedCustodyDataColumn<E>>>>>,
 ) {
     // Keep track of the arguments captured by `publish_fn`.
     let captured_args = Arc::new(Mutex::new(vec![]));

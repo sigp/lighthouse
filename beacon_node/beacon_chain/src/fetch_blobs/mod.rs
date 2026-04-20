@@ -36,11 +36,6 @@ use types::{
     VersionedHash,
 };
 
-/// Result from engine get blobs to be passed onto `DataAvailabilityChecker` and published to the
-/// gossip network. The data columns have not been marked as observed yet, as they may not
-/// be published immediately.
-pub type EngineGetBlobsOutput<T: BeaconChainTypes> = Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>;
-
 #[derive(Debug)]
 pub enum FetchEngineBlobError {
     BeaconStateError(BeaconStateError),
@@ -64,7 +59,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
     custody_columns: &[ColumnIndex],
-    publish_fn: impl Fn(EngineGetBlobsOutput<T>) + Send + 'static,
+    publish_fn: impl Fn(Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
     fetch_and_process_engine_blobs_inner(
         FetchBlobsBeaconAdapter::new(chain),
@@ -83,7 +78,7 @@ async fn fetch_and_process_engine_blobs_inner<T: BeaconChainTypes>(
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
     custody_columns: &[ColumnIndex],
-    publish_fn: impl Fn(EngineGetBlobsOutput<T>) + Send + 'static,
+    publish_fn: impl Fn(Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
     let versioned_hashes = if let Some(kzg_commitments) = block
         .message()
@@ -133,7 +128,7 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
     versioned_hashes: Vec<VersionedHash>,
     custody_columns_indices: &[ColumnIndex],
-    publish_fn: impl Fn(EngineGetBlobsOutput<T>) + Send + 'static,
+    publish_fn: impl Fn(Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
     let num_expected_blobs = versioned_hashes.len();
 

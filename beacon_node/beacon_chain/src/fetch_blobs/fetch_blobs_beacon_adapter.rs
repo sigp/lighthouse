@@ -1,4 +1,5 @@
-use crate::fetch_blobs::{EngineGetBlobsOutput, FetchEngineBlobError};
+use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
+use crate::fetch_blobs::FetchEngineBlobError;
 use crate::observed_data_sidecars::ObservationKey;
 use crate::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes};
 use execution_layer::json_structures::BlobAndProofV2;
@@ -72,7 +73,7 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
         &self,
         slot: Slot,
         block_root: Hash256,
-        blobs: EngineGetBlobsOutput<T>,
+        blobs: Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>,
     ) -> Result<AvailabilityProcessingStatus, FetchEngineBlobError> {
         self.chain
             .process_engine_blobs(slot, block_root, blobs)

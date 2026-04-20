@@ -1148,7 +1148,7 @@ mod release_tests {
                 })
                 .collect::<Vec<_>>();
 
-            for att in aggs1.into_iter().chain(aggs2.into_iter()) {
+            for att in aggs1.into_iter().chain(aggs2) {
                 let attesting_indices =
                     get_attesting_indices_from_state(&state, att.to_ref()).unwrap();
                 op_pool.insert_attestation(att, attesting_indices).unwrap();

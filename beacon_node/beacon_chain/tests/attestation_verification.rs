@@ -19,8 +19,10 @@ use execution_layer::test_utils::generate_genesis_header;
 use fixed_bytes::FixedBytesExtended;
 use genesis::{DEFAULT_ETH1_BLOCK_HASH, interop_genesis_state};
 use int_to_bytes::int_to_bytes32;
+use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::per_slot_processing;
 use std::sync::{Arc, LazyLock};
+use tempfile::tempdir;
 use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
@@ -1956,5 +1958,60 @@ async fn gloas_aggregated_attestation_same_slot_index_must_be_zero() {
         matches!(result, Err(AttnError::CommitteeIndexNonZero(_))),
         "gloas: aggregate with index == 1 when head_block.slot == attestation.data.slot should be rejected, got {:?}",
         result.err()
+    );
+}
+
+/// Regression test: a SingleAttestation with a huge bogus attester_index must not be forwarded to
+/// the slasher. Previously the slasher received the IndexedAttestation before committee-membership
+/// validation, causing an OOM when the slasher tried to allocate based on the untrusted index.
+#[tokio::test]
+async fn unaggregated_attestation_bogus_attester_index_not_sent_to_slasher() {
+    let slasher_dir = tempdir().unwrap();
+    let spec = Arc::new(test_spec::<E>());
+    let slasher = Arc::new(
+        Slasher::<E>::open(SlasherConfig::new(slasher_dir.path().into()), spec.clone()).unwrap(),
+    );
+
+    let inner_slasher = slasher.clone();
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec)
+        .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
+        .fresh_ephemeral_store()
+        .initial_mutator(Box::new(move |builder| builder.slasher(inner_slasher)))
+        .mock_execution_layer()
+        .build();
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    harness.advance_slot();
+
+    // Build a valid SingleAttestation, then replace the attester_index with a huge value.
+    let (mut bogus_attestation, _, _) = get_valid_unaggregated_attestation(&harness.chain);
+    bogus_attestation.attester_index = 1 << 40; // ~2^40, would OOM the slasher
+
+    // Drain any attestations already queued from block production.
+    slasher
+        .process_queued(harness.get_current_slot().epoch(E::slots_per_epoch()))
+        .unwrap();
+    let queue_len_before = slasher.attestation_queue_len();
+    assert_eq!(queue_len_before, 0);
+
+    let result = harness
+        .chain
+        .verify_unaggregated_attestation_for_gossip(&bogus_attestation, None);
+    assert!(
+        result.is_err(),
+        "attestation with bogus index should fail verification"
+    );
+
+    assert_eq!(
+        slasher.attestation_queue_len(),
+        0,
+        "slasher queue length must not change — bogus attestation must not be forwarded"
     );
 }

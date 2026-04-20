@@ -2,10 +2,10 @@ use crate::sync::manager::BlockProcessType;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::block_verification_types::RangeSyncBlock;
-use beacon_chain::data_column_verification::{GossipDataColumnError, observe_gossip_data_column};
-use beacon_chain::fetch_blobs::{
-    EngineGetBlobsOutput, FetchEngineBlobError, fetch_and_process_engine_blobs,
+use beacon_chain::data_column_verification::{
+    GossipDataColumnError, KzgVerifiedCustodyDataColumn, observe_gossip_data_column,
 };
+use beacon_chain::fetch_blobs::{FetchEngineBlobError, fetch_and_process_engine_blobs};
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError};
 use beacon_processor::{
     BeaconProcessorSend, DuplicateCache, GossipAggregatePackage, GossipAttestationPackage, Work,
@@ -429,7 +429,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             processor.process_gossip_execution_payload_bid(
                 message_id,
                 peer_id,
-                *execution_payload_bid,
+                Arc::new(*execution_payload_bid),
             )
         };
 
@@ -473,12 +473,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             processor.process_gossip_proposer_preferences(
                 message_id,
                 peer_id,
-                *proposer_preferences,
+                Arc::new(*proposer_preferences),
             )
         };
 
         self.try_send(BeaconWorkEvent {
-            drop_during_sync: false,
+            drop_during_sync: true,
             work: Work::GossipProposerPreferences(Box::new(process_fn)),
         })
     }
@@ -870,7 +870,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
         let custody_columns = self.chain.sampling_columns_for_epoch(epoch);
         let self_cloned = self.clone();
-        let publish_fn = move |columns: EngineGetBlobsOutput<T>| {
+        let publish_fn = move |columns: Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>| {
             if publish_blobs {
                 self_cloned.publish_data_columns_gradually(
                     columns.into_iter().map(|c| c.clone_arc()).collect(),
