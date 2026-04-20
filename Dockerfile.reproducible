@@ -1,12 +1,15 @@
 # Single version tag to maintain for reproducible builds.
 # This multi-arch index digest resolves to the correct arch-specific image at build time.
-# To update: run `docker manifest inspect rust:X.Y-bullseye --verbose` and replace the digest below.
-# rust:1.88-bullseye
-ARG RUST_IMAGE="rust:1.88-bullseye@sha256:60c95b78b164bc809090509235ab00797a07740fe8733b48593cd42de72b5ee1"
+# To update: run `docker buildx imagetools inspect rust:X.Y-bookworm` and replace the digest below.
+# rust:1.88-bookworm
+ARG RUST_IMAGE="rust:1.88-bookworm@sha256:af306cfa71d987911a781c37b59d7d67d934f49684058f96cf72079c3626bfe0"
 FROM ${RUST_IMAGE} AS builder
 
-# Install specific version of the build dependencies
-RUN apt-get update && apt-get install -y libclang-dev=1:11.0-51+nmu5 cmake=3.18.4-2+deb11u1 libjemalloc-dev=5.2.1-3
+# Install pinned versions of the build dependencies
+RUN apt-get update && apt-get install -y \
+    libclang-dev=1:14.0-55.7~deb12u1 \
+    cmake=3.25.1-1 \
+    libjemalloc-dev=5.3.0-1
 
 ARG RUST_TARGET="x86_64-unknown-linux-gnu"
 
@@ -24,12 +27,12 @@ RUN make build-reproducible
 # libz lives under an arch-specific triplet dir; normalise to /libs/ for a clean COPY below.
 RUN mv /app/target/${RUST_TARGET}/release/lighthouse /lighthouse \
     && mkdir /libs \
-    && find /lib -maxdepth 3 -name "libz.so.1" -exec cp {} /libs/ \;
+    && find /usr/lib -maxdepth 3 -name "libz.so.1" -exec cp {} /libs/ \;
 
-# Final image: distroless/cc-debian11 (Bullseye) — matches builder OS for ABI compatibility.
+# Final image: distroless/cc-debian12 (Bookworm) — matches builder OS for ABI compatibility.
 # The cc variant already includes libc, libgcc, and libstdc++.
-# gcr.io/distroless/cc-debian11:nonroot
-FROM gcr.io/distroless/cc-debian11:nonroot@sha256:f7fa4923556853754e9ff647df410d5711fc4d99a8dafa777ec617cf4a6700f6
+# gcr.io/distroless/cc-debian12:nonroot
+FROM gcr.io/distroless/cc-debian12:nonroot@sha256:e2d29aec8061843706b7e484c444f78fafb05bfe47745505252b1769a05d14f1
 
 COPY --from=builder /libs/libz.so.1 /usr/lib/
 COPY --from=builder /lighthouse /lighthouse
