@@ -512,6 +512,17 @@ pub static ATTESTATION_PRODUCTION_HEAD_SCRAPE_SECONDS: LazyLock<Result<Histogram
     });
 
 /*
+ * Payload Attestation Production
+ */
+pub static PAYLOAD_ATTESTATION_PRODUCTION_SECONDS: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "beacon_payload_attestation_production_seconds",
+            "Full runtime of payload attestation production",
+        )
+    });
+
+/*
  * Fork Choice
  */
 pub static FORK_CHOICE_REQUESTS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {

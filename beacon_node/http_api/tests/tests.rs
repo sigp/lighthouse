@@ -3,7 +3,8 @@ use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
     BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
     test_utils::{
-        AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, test_spec,
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+        fork_name_from_env, test_spec,
     },
 };
 use bls::{AggregateSignature, Keypair, PublicKeyBytes, SecretKey, Signature, SignatureBytes};
@@ -4434,6 +4435,53 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_validator_payload_attestation_data(self) -> Self {
+        let slot = self.chain.slot().unwrap();
+        let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
+
+        let response = self
+            .client
+            .get_validator_payload_attestation_data(slot)
+            .await
+            .unwrap();
+
+        assert_eq!(response.version(), Some(fork_name));
+
+        let result = response.into_data();
+        let expected = self.chain.produce_payload_attestation_data(slot).unwrap();
+
+        assert_eq!(result.beacon_block_root, expected.beacon_block_root);
+        assert_eq!(result.slot, expected.slot);
+        assert_eq!(result.payload_present, expected.payload_present);
+        assert_eq!(result.blob_data_available, expected.blob_data_available);
+
+        let ssz_result = self
+            .client
+            .get_validator_payload_attestation_data_ssz(slot)
+            .await
+            .unwrap();
+
+        assert_eq!(ssz_result, expected);
+
+        self
+    }
+
+    pub async fn test_get_validator_payload_attestation_data_pre_gloas(self) -> Self {
+        let slot = self.chain.slot().unwrap();
+
+        // The endpoint should return a 400 error for pre-Gloas forks
+        match self
+            .client
+            .get_validator_payload_attestation_data(slot)
+            .await
+        {
+            Ok(result) => panic!("query for pre-Gloas slot should fail, got: {result:?}"),
+            Err(e) => assert_eq!(e.status().unwrap(), 400),
+        }
+
+        self
+    }
+
     #[allow(clippy::await_holding_lock)] // This is a test, so it should be fine.
     pub async fn test_get_validator_aggregate_attestation_v1(self) -> Self {
         let attestation = self
@@ -8054,6 +8102,30 @@ async fn get_validator_attestation_data_with_skip_slots() {
         .await
         .skip_slots(E::slots_per_epoch() * 2)
         .test_get_validator_attestation_data()
+        .await;
+}
+
+// TODO(EIP-7732): Remove `#[ignore]` once gloas beacon chain harness is implemented
+#[ignore]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_payload_attestation_data() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    ApiTester::new()
+        .await
+        .test_get_validator_payload_attestation_data()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_payload_attestation_data_pre_gloas() {
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    ApiTester::new()
+        .await
+        .test_get_validator_payload_attestation_data_pre_gloas()
         .await;
 }
 

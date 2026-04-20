@@ -248,6 +248,106 @@ pub fn get_validator_attestation_data<T: BeaconChainTypes>(
         .boxed()
 }
 
+// GET validator/payload_attestation_data/{slot}
+pub fn get_validator_payload_attestation_data<T: BeaconChainTypes>(
+    eth_v1: EthV1Filter,
+    chain_filter: ChainFilter<T>,
+    not_while_syncing_filter: NotWhileSyncingFilter,
+    task_spawner_filter: TaskSpawnerFilter<T>,
+) -> ResponseFilter {
+    use eth2::beacon_response::{EmptyMetadata, ForkVersionedResponse};
+    use ssz::Encode;
+    use warp::http::Response;
+
+    eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path("payload_attestation_data"))
+        .and(warp::path::param::<Slot>().or_else(|_| async {
+            Err(warp_utils::reject::custom_bad_request(
+                "Invalid slot".to_string(),
+            ))
+        }))
+        .and(warp::path::end())
+        .and(warp::header::optional::<Accept>("accept"))
+        .and(not_while_syncing_filter)
+        .and(task_spawner_filter)
+        .and(chain_filter)
+        .then(
+            |slot: Slot,
+             accept_header: Option<Accept>,
+             not_synced_filter: Result<(), Rejection>,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_response_task(Priority::P0, move || {
+                    not_synced_filter?;
+
+                    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
+
+                    // Payload attestations are only valid for Gloas and later forks
+                    if !fork_name.gloas_enabled() {
+                        return Err(warp_utils::reject::custom_bad_request(format!(
+                            "Payload attestations are not supported for fork: {fork_name}"
+                        )));
+                    }
+
+                    let payload_attestation_data = chain
+                        .produce_payload_attestation_data(slot)
+                        .map_err(|e| match e {
+                            BeaconChainError::InvalidSlot(_)
+                            | BeaconChainError::NoBlockForSlot(_) => {
+                                warp_utils::reject::custom_bad_request(format!(
+                                    "Unable to produce payload attestation data: {e:?}"
+                                ))
+                            }
+                            _ => warp_utils::reject::custom_server_error(format!(
+                                "Unable to produce payload attestation data: {e:?}"
+                            )),
+                        })?;
+
+                    match accept_header {
+                        Some(Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .header("Content-Type", "application/octet-stream")
+                            .header("Eth-Consensus-Version", fork_name.to_string())
+                            .body(payload_attestation_data.as_ssz_bytes().into())
+                            .map(|res: Response<warp::hyper::Body>| res)
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "Failed to build SSZ response: {e}"
+                                ))
+                            }),
+                        _ => {
+                            let json_response = ForkVersionedResponse {
+                                version: fork_name,
+                                metadata: EmptyMetadata {},
+                                data: payload_attestation_data,
+                            };
+                            Response::builder()
+                                .status(200)
+                                .header("Content-Type", "application/json")
+                                .header("Eth-Consensus-Version", fork_name.to_string())
+                                .body(
+                                    serde_json::to_string(&json_response)
+                                        .map_err(|e| {
+                                            warp_utils::reject::custom_server_error(format!(
+                                                "Failed to serialize response: {e}"
+                                            ))
+                                        })?
+                                        .into(),
+                                )
+                                .map_err(|e| {
+                                    warp_utils::reject::custom_server_error(format!(
+                                        "Failed to build JSON response: {e}"
+                                    ))
+                                })
+                        }
+                    }
+                })
+            },
+        )
+        .boxed()
+}
+
 // GET validator/blinded_blocks/{slot}
 pub fn get_validator_blinded_blocks<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
