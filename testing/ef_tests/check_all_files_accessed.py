@@ -49,8 +49,6 @@ excluded_paths = [
     "tests/.*/eip7805",
     # Heze fork is not implemented
     "tests/.*/heze/.*",
-    # TODO(gloas): remove these ignores as Gloas consensus is implemented
-    "tests/.*/gloas/fork_choice/.*",
     # Ignore MatrixEntry SSZ tests for now.
     "tests/.*/.*/ssz_static/MatrixEntry/.*",
     # TODO: partial data column not implemented yet
