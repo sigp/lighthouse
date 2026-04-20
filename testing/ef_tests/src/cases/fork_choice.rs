@@ -1001,7 +1001,7 @@ impl<E: EthSpec> Tester<E> {
         let spec = &self.harness.chain.spec;
 
         // Store the envelope in the database so that child blocks extending
-        // the FULL path can load the parent's post-payload state.
+        // the FULL path can load the parent's payload.
         if valid {
             store
                 .put_payload_envelope(&block_root, signed_envelope.clone())
@@ -1011,8 +1011,6 @@ impl<E: EthSpec> Tester<E> {
                     ))
                 })?;
 
-            // Compute the Full (post-payload) state by applying the envelope to the
-            // Pending state, then store it. This matches the spec's on_execution_payload.
             let block = store
                 .get_blinded_block(&block_root)
                 .map_err(|e| Error::InternalError(format!("Failed to load block: {e:?}")))?
@@ -1038,10 +1036,6 @@ impl<E: EthSpec> Tester<E> {
             .map_err(|e| {
                 Error::InternalError(format!("Failed to process execution payload: {e:?}"))
             })?;
-
-            store
-                .put_state(&block_state_root, &state)
-                .map_err(|e| Error::InternalError(format!("Failed to store Full state: {e:?}")))?;
         }
 
         let result = self

@@ -119,13 +119,8 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
 ) -> Result<(), BlockProcessingError> {
     let block = signed_block.message();
 
-    // Process deferred execution requests from the parent's envelope.
-    if signed_block.fork_name_unchecked().gloas_enabled() {
-        process_parent_execution_payload(state, block, spec)?;
-    }
-
     // Verify that the `SignedBeaconBlock` instantiation matches the fork at `signed_block.slot()`.
-    signed_block
+    let fork_name = signed_block
         .fork_name(spec)
         .map_err(BlockProcessingError::InconsistentBlockFork)?;
 
@@ -133,6 +128,11 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
     state
         .fork_name(spec)
         .map_err(BlockProcessingError::InconsistentStateFork)?;
+
+    // Process deferred execution requests from the parent's envelope.
+    if fork_name.gloas_enabled() {
+        process_parent_execution_payload(state, block, spec)?;
+    }
 
     // Build epoch cache if it hasn't already been built, or if it is no longer valid
     initialize_epoch_cache(state, spec)?;
@@ -624,10 +624,10 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
         let payment_index = E::slots_per_epoch()
             .safe_add(parent_slot.as_u64().safe_rem(E::slots_per_epoch())?)?
             as usize;
-        queue_builder_pending_payment(state, payment_index)?;
+        settle_builder_payment(state, payment_index)?;
     } else if parent_epoch == state.previous_epoch() {
         let payment_index = parent_slot.as_u64().safe_rem(E::slots_per_epoch())? as usize;
-        queue_builder_pending_payment(state, payment_index)?;
+        settle_builder_payment(state, payment_index)?;
     } else if parent_bid.value > 0 {
         // Parent is older than previous epoch -- payment entry has already been
         // settled or evicted by process_builder_pending_payments at epoch boundaries.
@@ -657,11 +657,11 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
     Ok(())
 }
 
-/// Spec: `queue_builder_pending_payment`.
+/// Spec: `settle_builder_payment`.
 ///
 /// Moves a pending payment from `builder_pending_payments[payment_index]` into
 /// `builder_pending_withdrawals`, then clears the slot.
-pub fn queue_builder_pending_payment<E: EthSpec>(
+pub fn settle_builder_payment<E: EthSpec>(
     state: &mut BeaconState<E>,
     payment_index: usize,
 ) -> Result<(), BlockProcessingError> {
