@@ -152,6 +152,10 @@ pub fn verify_execution_payload<E: EthSpec>(
     );
 
     // Verify consistency with expected withdrawals
+    // NOTE: we don't bother hashing here except in case of error, because we can just compare for
+    // equality directly. This equality check could be more straight-forward if the types were
+    // changed to match (currently we are comparing VariableList to List). This could happen
+    // coincidentally when we adopt ProgressiveList.
     envelope_verify!(
         payload.withdrawals.len() == state.payload_expected_withdrawals()?.len()
             && payload
