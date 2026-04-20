@@ -295,9 +295,6 @@ pub enum BlockProductionError {
     BeaconStateError(BeaconStateError),
     StateAdvanceError(StateAdvanceError),
     OpPoolError(OpPoolError),
-    /// The `BeaconChain` was explicitly configured _without_ a connection to eth1, therefore it
-    /// cannot produce blocks.
-    NoEth1ChainConnection,
     StateSlotTooHigh {
         produce_at_slot: Slot,
         state_slot: Slot,
@@ -325,6 +322,7 @@ pub enum BlockProductionError {
     SszTypesError(ssz_types::Error),
     EnvelopeProcessingError(EnvelopeProcessingError),
     BlsError(bls::Error),
+    MissingParentExecutionPayload,
     MissingExecutionPayloadEnvelope(Hash256),
     // TODO(gloas): Remove this once Gloas is implemented
     GloasNotImplemented(String),
