@@ -726,7 +726,7 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumn<E> {
     /// KZG verified, they will be the same.
     pub fn merge(&self, other: &Self) -> Result<Self, PartialDataColumnSidecarError> {
         let self_sidecar = &self.data.sidecar;
-        let other_sidecar = &self.data.sidecar;
+        let other_sidecar = &other.data.sidecar;
 
         // Check that each sidecar is internally consistent by checking the lengths.
         self_sidecar.verify_len()?;
