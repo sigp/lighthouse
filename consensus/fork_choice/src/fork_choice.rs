@@ -396,9 +396,16 @@ where
         current_slot: Option<Slot>,
         spec: &ChainSpec,
     ) -> Result<Self, Error<T::Error>> {
+        // Sanity check: the anchor must lie on an epoch boundary.
+        if anchor_state.slot() % E::slots_per_epoch() != 0 {
+            return Err(Error::InvalidAnchor {
+                block_slot: anchor_block.slot(),
+                state_slot: anchor_state.slot(),
+            });
+        }
+
         let finalized_block_slot = anchor_block.slot();
         let finalized_block_state_root = anchor_block.state_root();
-        // TODO(gloas): need to plumb through finalized epoch
         let current_epoch_shuffling_id =
             AttestationShufflingId::new(anchor_block_root, anchor_state, RelativeEpoch::Current)
                 .map_err(Error::BeaconStateError)?;
@@ -556,6 +563,9 @@ where
         // For Gloas blocks, `execution_status` is Irrelevant (no embedded payload).
         // If the payload envelope was received (Full), use the bid's block_hash as the
         // execution chain head. Otherwise fall back to the parent hash (Pending) or None.
+        // TODO(gloas): this is a bit messy, and we probably need a similar treatment for
+        // justified/finalized
+        // Can fix as part of: https://github.com/sigp/lighthouse/issues/8957
         let head_hash = self.get_block(&head_root).and_then(|b| {
             b.execution_status
                 .block_hash()
