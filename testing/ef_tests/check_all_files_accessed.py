@@ -49,8 +49,6 @@ excluded_paths = [
     "tests/.*/eip7805",
     # Heze fork is not implemented
     "tests/.*/heze/.*",
-    # TODO(gloas): get_parent_payload_status fork choice handler not implemented yet
-    "tests/.*/gloas/fork_choice/get_parent_payload_status/.*",
     # Ignore MatrixEntry SSZ tests for now.
     "tests/.*/.*/ssz_static/MatrixEntry/.*",
     # TODO: partial data column not implemented yet

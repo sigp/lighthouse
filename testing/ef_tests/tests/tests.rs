@@ -1051,6 +1051,12 @@ fn fork_choice_on_execution_payload_envelope() {
 }
 
 #[test]
+fn fork_choice_get_parent_payload_status() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("get_parent_payload_status").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("get_parent_payload_status").run();
+}
+
+#[test]
 fn optimistic_sync() {
     OptimisticSyncHandler::<MinimalEthSpec>::default().run();
     OptimisticSyncHandler::<MainnetEthSpec>::default().run();
