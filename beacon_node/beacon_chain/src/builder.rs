@@ -23,7 +23,7 @@ use crate::{
 use bls::Signature;
 use execution_layer::ExecutionLayer;
 use fixed_bytes::FixedBytesExtended;
-use fork_choice::{ForkChoice, ResetPayloadStatuses};
+use fork_choice::{ForkChoice, PayloadStatus, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
 use kzg::Kzg;
 use logging::crit;
@@ -794,9 +794,19 @@ where
 
         let head_shuffling_ids = BlockShufflingIds::try_from_head(head_block_root, &head_state)?;
 
+        // Load the execution envelope from the store if the head has a Full payload.
+        let execution_envelope = if head_payload_status == PayloadStatus::Full {
+            store
+                .get_payload_envelope(&head_block_root)
+                .map_err(|e| format!("Error loading head execution envelope: {:?}", e))?
+                .map(Arc::new)
+        } else {
+            None
+        };
+
         let mut head_snapshot = BeaconSnapshot {
             beacon_block_root: head_block_root,
-            execution_envelope: None,
+            execution_envelope,
             beacon_block: Arc::new(head_block),
             beacon_state: head_state,
         };

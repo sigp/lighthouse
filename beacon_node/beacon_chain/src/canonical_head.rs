@@ -319,9 +319,18 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             .get_advanced_hot_state(beacon_block_root, current_slot, beacon_block.state_root())?
             .ok_or(Error::MissingBeaconState(beacon_block.state_root()))?;
 
+        // Load the execution envelope from the store if the head has a Full payload.
+        let execution_envelope = if head_payload_status == PayloadStatus::Full {
+            store
+                .get_payload_envelope(&beacon_block_root)?
+                .map(Arc::new)
+        } else {
+            None
+        };
+
         let snapshot = BeaconSnapshot {
             beacon_block_root,
-            execution_envelope: None,
+            execution_envelope,
             beacon_block: Arc::new(beacon_block),
             beacon_state,
         };
