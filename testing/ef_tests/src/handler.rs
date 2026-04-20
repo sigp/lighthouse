@@ -723,9 +723,8 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
             return false;
         }
 
-        // on_execution_payload tests exist only for Gloas.
-        // TODO(gloas): they don't exist at all rn
-        if self.handler_name == "on_execution_payload" {
+        // on_execution_payload_envelope tests exist only for Gloas and later.
+        if self.handler_name == "on_execution_payload_envelope" && !fork_name.gloas_enabled() {
             return false;
         }
 

@@ -19,7 +19,9 @@ use beacon_chain::{
     custody_context::NodeCustodyType,
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
 };
-use execution_layer::{PayloadStatusV1, json_structures::JsonPayloadStatusV1Status};
+use execution_layer::{
+    PayloadStatusV1, PayloadStatusV1Status, json_structures::JsonPayloadStatusV1Status,
+};
 use serde::Deserialize;
 use ssz_derive::Decode;
 use state_processing::VerifySignatures;
@@ -997,20 +999,27 @@ impl<E: EthSpec> Tester<E> {
         valid: bool,
     ) -> Result<(), Error> {
         let block_root = signed_envelope.message.beacon_block_root;
+        let block_hash = signed_envelope.message.payload.block_hash;
         let store = &self.harness.chain.store;
         let spec = &self.harness.chain.spec;
 
-        // Store the envelope in the database so that child blocks extending
-        // the FULL path can load the parent's payload.
+        // Simulate the EL: pre-configure the mock execution engine to return VALID
+        // for envelopes the test expects to be valid. Invalid envelopes are left
+        // unconfigured so the mock EE's default (SYNCING) rejects them.
+        let el = self.harness.mock_execution_layer.as_ref().unwrap();
         if valid {
-            store
-                .put_payload_envelope(&block_root, signed_envelope.clone())
-                .map_err(|e| {
-                    Error::InternalError(format!(
-                        "Failed to store payload envelope for {block_root:?}: {e:?}",
-                    ))
-                })?;
+            el.server.set_new_payload_status(
+                block_hash,
+                PayloadStatusV1 {
+                    status: JsonPayloadStatusV1Status::Valid.into(),
+                    latest_valid_hash: Some(block_hash),
+                    validation_error: None,
+                },
+            );
+        }
 
+        // Attempt to verify the envelope against the block's post-state.
+        let verification_result = (|| {
             let block = store
                 .get_blinded_block(&block_root)
                 .map_err(|e| Error::InternalError(format!("Failed to load block: {e:?}")))?
@@ -1029,32 +1038,56 @@ impl<E: EthSpec> Tester<E> {
             verify_execution_payload(
                 &state,
                 signed_envelope,
-                VerifySignatures::False,
+                VerifySignatures::True,
                 block_state_root,
                 spec,
             )
             .map_err(|e| {
                 Error::InternalError(format!("Failed to process execution payload: {e:?}"))
             })?;
-        }
 
-        let result = self
-            .harness
-            .chain
-            .canonical_head
-            .fork_choice_write_lock()
-            .on_valid_payload_envelope_received(block_root);
+            // Check the mock EE's response for this block hash (simulates newPayload).
+            let ee_valid = el
+                .server
+                .ctx
+                .get_new_payload_status(&block_hash)
+                .and_then(|r| r.ok())
+                .is_some_and(|s| s.status == PayloadStatusV1Status::Valid);
+            if !ee_valid {
+                return Err(Error::InternalError(format!(
+                    "Mock EE rejected payload with block hash {block_hash:?}",
+                )));
+            }
+
+            Ok(())
+        })();
 
         if valid {
-            result.map_err(|e| {
-                Error::InternalError(format!(
-                    "on_execution_payload for block root {} failed: {:?}",
-                    block_root, e
-                ))
-            })?;
-        } else if result.is_ok() {
+            verification_result?;
+
+            // Store the envelope so that child blocks can load the parent's payload.
+            store
+                .put_payload_envelope(&block_root, signed_envelope.clone())
+                .map_err(|e| {
+                    Error::InternalError(format!(
+                        "Failed to store payload envelope for {block_root:?}: {e:?}",
+                    ))
+                })?;
+
+            self.harness
+                .chain
+                .canonical_head
+                .fork_choice_write_lock()
+                .on_valid_payload_envelope_received(block_root)
+                .map_err(|e| {
+                    Error::InternalError(format!(
+                        "on_execution_payload for block root {} failed: {:?}",
+                        block_root, e
+                    ))
+                })?;
+        } else if verification_result.is_ok() {
             return Err(Error::DidntFail(format!(
-                "on_execution_payload for block root {} should have failed",
+                "on_execution_payload envelope for block root {} should have failed",
                 block_root
             )));
         }

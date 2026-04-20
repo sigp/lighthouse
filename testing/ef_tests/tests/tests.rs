@@ -1045,9 +1045,9 @@ fn fork_choice_deposit_with_reorg() {
 }
 
 #[test]
-fn fork_choice_on_execution_payload() {
-    ForkChoiceHandler::<MinimalEthSpec>::new("on_execution_payload").run();
-    ForkChoiceHandler::<MainnetEthSpec>::new("on_execution_payload").run();
+fn fork_choice_on_execution_payload_envelope() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("on_execution_payload_envelope").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("on_execution_payload_envelope").run();
 }
 
 #[test]
