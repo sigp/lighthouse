@@ -7,15 +7,14 @@ use std::sync::Arc;
 use tracing::instrument;
 use tree_hash::TreeHash;
 use types::data::{
-    Cell, CellBitmap, DataColumn, DataColumnSidecarError, PartialDataColumn,
-    PartialDataColumnHeader,
+    Cell, CellBitmap, ColumnIndex, DataColumn, DataColumnSidecarError, PartialDataColumn,
+    PartialDataColumnHeader, PartialDataColumnSidecarRef,
 };
 use types::kzg_ext::KzgCommitments;
 use types::{
-    Blob, BlobSidecar, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecar,
-    DataColumnSidecarFulu, DataColumnSidecarGloas, DataColumnSidecarList, EthSpec, Hash256,
-    KzgCommitment, KzgProof, PartialDataColumnSidecarRef, SignedBeaconBlock,
-    SignedBeaconBlockHeader, SignedBlindedBeaconBlock, Slot,
+    Blob, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu,
+    DataColumnSidecarGloas, DataColumnSidecarList, EthSpec, Hash256, KzgCommitment, KzgProof,
+    SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlindedBeaconBlock, Slot,
 };
 
 /// Converts a blob ssz FixedVector to a reference to a fixed-size array

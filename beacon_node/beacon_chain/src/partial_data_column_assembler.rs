@@ -7,8 +7,11 @@ use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tracing::error;
-use types::data::{ColumnIndex, DataColumnSidecar, PartialDataColumn, PartialDataColumnHeader};
-use types::{DataColumnSidecarFulu, Epoch, EthSpec, Hash256};
+use types::core::{Epoch, EthSpec, Hash256};
+use types::data::{
+    ColumnIndex, DataColumnSidecar, DataColumnSidecarFulu, PartialDataColumn,
+    PartialDataColumnHeader,
+};
 
 /// Assembles partial data columns into complete columns
 pub struct PartialDataColumnAssembler<E: EthSpec> {
@@ -263,10 +266,9 @@ mod tests {
     use bls::{FixedBytesExtended, Signature};
     use kzg::{KzgCommitment, KzgProof};
     use ssz_types::{FixedVector, VariableList};
-    use types::{
-        BeaconBlockHeader, Cell, CellBitmap, EthSpec, Hash256, MinimalEthSpec,
-        PartialDataColumnSidecar, SignedBeaconBlockHeader, Slot,
-    };
+    use types::block::{BeaconBlockHeader, SignedBeaconBlockHeader};
+    use types::core::{EthSpec, Hash256, MinimalEthSpec, Slot};
+    use types::data::{Cell, CellBitmap, PartialDataColumnSidecar};
 
     type E = MinimalEthSpec;
 

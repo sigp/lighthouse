@@ -1,8 +1,11 @@
-use crate::test_utils::TestRandom;
 use crate::{
-    AbstractExecPayload, BLOB_KZG_COMMITMENTS_INDEX, BeaconStateError, Cell, ColumnIndex,
-    DataColumnSidecar, DataColumnSidecarFulu, EthSpec, Hash256, KzgCommitments, SignedBeaconBlock,
-    SignedBeaconBlockHeader, Slot,
+    block::{BLOB_KZG_COMMITMENTS_INDEX, SignedBeaconBlock, SignedBeaconBlockHeader},
+    core::{EthSpec, Hash256, Slot},
+    data::{Cell, ColumnIndex, DataColumnSidecar, DataColumnSidecarFulu},
+    execution::AbstractExecPayload,
+    kzg_ext::KzgCommitments,
+    state::BeaconStateError,
+    test_utils::TestRandom,
 };
 use educe::Educe;
 use kzg::KzgProof;

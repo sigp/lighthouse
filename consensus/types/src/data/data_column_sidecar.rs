@@ -1,6 +1,3 @@
-use crate::data::partial_data_column_sidecar::CellBitmap;
-use crate::data::partial_data_column_sidecar::PartialDataColumn;
-use crate::data::partial_data_column_sidecar::PartialDataColumnSidecar;
 use std::sync::Arc;
 
 use bls::Signature;
@@ -22,7 +19,7 @@ use tree_hash_derive::TreeHash;
 use crate::{
     block::{BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, SignedBeaconBlockHeader},
     core::{Epoch, EthSpec, Hash256, Slot},
-    data::PartialDataColumnHeader,
+    data::{CellBitmap, PartialDataColumn, PartialDataColumnHeader, PartialDataColumnSidecar},
     fork::ForkName,
     kzg_ext::{KzgCommitments, KzgError},
     state::BeaconStateError,

@@ -21,11 +21,13 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, instrument};
 use tree_hash::TreeHash;
+use types::data::{
+    ColumnIndex, PartialDataColumn, PartialDataColumnHeader, PartialDataColumnSidecar,
+    PartialDataColumnSidecarError,
+};
 use types::{
-    BeaconStateError, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarFulu,
-    DataColumnSubnetId, EthSpec, Hash256, PartialDataColumn, PartialDataColumnHeader,
-    PartialDataColumnSidecar, PartialDataColumnSidecarError, SignedBeaconBlockHeader, Slot,
-    StatePayloadStatus,
+    BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSubnetId,
+    EthSpec, Hash256, SignedBeaconBlockHeader, Slot, StatePayloadStatus,
 };
 
 /// An error occurred while validating a gossip data column.

@@ -7,9 +7,10 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::Arc;
 use tracing::{debug, error};
-use types::{
-    CellBitmap, EthSpec, Hash256, PartialDataColumn, PartialDataColumnHeader,
-    PartialDataColumnPartsMetadata, PartialDataColumnSidecar, PartialDataColumnSidecarRef,
+use types::core::{EthSpec, Hash256};
+use types::data::{
+    CellBitmap, PartialDataColumn, PartialDataColumnHeader, PartialDataColumnPartsMetadata,
+    PartialDataColumnSidecar, PartialDataColumnSidecarRef,
 };
 
 const PARTIAL_COLUMNS_VERSION_BYTE: u8 = 0;
@@ -261,9 +262,9 @@ mod tests {
     use fixed_bytes::FixedBytesExtended;
     use libp2p::identity::Keypair;
     use ssz_types::FixedVector;
-    use types::{
-        BeaconBlockHeader, MinimalEthSpec, PartialDataColumnHeader, SignedBeaconBlockHeader, Slot,
-    };
+    use types::block::{BeaconBlockHeader, SignedBeaconBlockHeader};
+    use types::core::{MinimalEthSpec, Slot};
+    use types::data::PartialDataColumnHeader;
 
     type E = MinimalEthSpec;
 

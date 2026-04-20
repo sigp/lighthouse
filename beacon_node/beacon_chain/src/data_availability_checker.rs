@@ -18,11 +18,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tracing::{debug, error, instrument};
-use types::data::{BlobIdentifier, FixedBlobSidecarList};
+use types::data::{BlobIdentifier, FixedBlobSidecarList, PartialDataColumn};
 use types::{
     BlobSidecar, BlobSidecarList, BlockImportSource, ChainSpec, DataColumnSidecar,
-    DataColumnSidecarList, Epoch, EthSpec, Hash256, PartialDataColumn, SignedBeaconBlock, Slot,
-    new_non_zero_usize,
+    DataColumnSidecarList, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot, new_non_zero_usize,
 };
 
 mod error;

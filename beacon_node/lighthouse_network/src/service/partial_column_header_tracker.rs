@@ -4,7 +4,7 @@ use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use types::Hash256;
+use types::core::Hash256;
 
 const MAX_BLOCKS: NonZeroUsize = NonZeroUsize::new(4).unwrap();
 
