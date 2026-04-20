@@ -16,6 +16,10 @@ env:
   DOCKER_REPRODUCIBLE_IMAGE_NAME: ${{ github.repository_owner }}/lighthouse-reproducible
   DOCKER_PASSWORD: ${{ secrets.DH_KEY }}
   DOCKER_USERNAME: ${{ secrets.DH_ORG }}
+  # appimagetool has no stable release tags; pin by SHA256 of the continuous binary.
+  # To update: curl the new binary, run sha256sum, replace the values below.
+  APPIMAGETOOL_SHA256_AMD64: a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0
+  APPIMAGETOOL_SHA256_ARM64: 1b00524ba8c6b678dc15ef88a5c25ec24def36cdfc7e3abb32ddcd068e8007fe
 
 jobs:
   extract-version:
@@ -48,15 +52,11 @@ jobs:
             platform: linux/amd64
             runner: ubuntu-22.04
             appimage_arch: x86_64
-            # sha256sum of appimagetool-x86_64.AppImage from continuous (2026-04-20)
-            appimagetool_sha256: a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0
           - arch: arm64
             rust_target: aarch64-unknown-linux-gnu
             platform: linux/arm64
             runner: ubuntu-22.04-arm
             appimage_arch: aarch64
-            # sha256sum of appimagetool-aarch64.AppImage from continuous (2026-04-20)
-            appimagetool_sha256: 1b00524ba8c6b678dc15ef88a5c25ec24def36cdfc7e3abb32ddcd068e8007fe
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -144,12 +144,12 @@ jobs:
       # ── Step 4: AppImage ─────────────────────────────────────────────────────
       - name: Download appimagetool
         run: |
-          # appimagetool has no stable release tags; pin by SHA256 of the continuous binary.
-          # To update: download the new binary, run sha256sum, update appimagetool_sha256 in the matrix above.
           curl -fsSL \
             "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${{ matrix.appimage_arch }}.AppImage" \
             -o appimagetool
-          echo "${{ matrix.appimagetool_sha256 }}  appimagetool" | sha256sum --check
+          # Verify against pinned SHA256 (see APPIMAGETOOL_SHA256_* env vars at top of file)
+          EXPECTED="APPIMAGETOOL_SHA256_$(echo '${{ matrix.appimage_arch }}' | tr '[:lower:]' '[:upper:]')"
+          echo "${!EXPECTED}  appimagetool" | sha256sum --check
           chmod +x appimagetool
 
       - name: Assemble AppDir
