@@ -95,6 +95,10 @@ pub enum PruningOutcome {
 /// Logic errors that can occur during pruning, none of these should ever happen.
 #[derive(Debug)]
 pub enum PruningError {
+    IncorrectFinalizedState {
+        state_slot: Slot,
+        new_finalized_slot: Slot,
+    },
     MissingInfoForCanonicalChain {
         slot: Slot,
     },
@@ -107,10 +111,6 @@ pub enum PruningError {
     MissingSummaryForFinalizedCheckpoint(Hash256),
     MissingBlindedBlock(Hash256),
     SummariesDagError(&'static str, SummariesDagError),
-    IncorrectFinalizedState {
-        new_finalized_slot: Slot,
-        state_slot: Slot,
-    },
     EmptyFinalizedStates,
     EmptyFinalizedBlocks,
 }
@@ -354,10 +354,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             }
             Err(Error::HotColdDBError(HotColdDBError::FreezeSlotUnaligned(slot))) => {
                 debug!(
-                    slot = %slot,
-                    "Database migration deferred: finalized state is not epoch-aligned"
+                    slot = slot.as_u64(),
+                    "Database migration postponed, unaligned finalized block"
                 );
-                return;
+                // Migration did not run, return the current split info
+                db.get_split_info()
             }
             Err(e) => {
                 warn!(error = ?e, "Database migration failed");
@@ -513,13 +514,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             .epoch
             .start_slot(E::slots_per_epoch());
 
+        // The finalized state must be for the epoch boundary slot, not the slot of the finalized
+        // block.
         if new_finalized_state.slot() != new_finalized_slot {
-            return Err(BeaconChainError::PruningError(
-                PruningError::IncorrectFinalizedState {
-                    new_finalized_slot,
-                    state_slot: new_finalized_state.slot(),
-                },
-            ));
+            return Err(PruningError::IncorrectFinalizedState {
+                state_slot: new_finalized_state.slot(),
+                new_finalized_slot,
+            }
+            .into());
         }
 
         debug!(
@@ -629,7 +631,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
         // Compute the set of finalized state roots that we must keep to make the dynamic HDiff system
         // work.
-        // TODO(gloas): this is slightly inefficient in that we currently keep 2x (pending and full)
         let required_finalized_diff_state_slots = store
             .hierarchy
             .closest_layer_points(new_finalized_slot, store.hot_hdiff_start_slot()?);
@@ -821,7 +822,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         finalized_blocks_desc: &[(Hash256, Slot)],
         hot_db_ops: &mut Vec<StoreOp<E>>,
     ) {
-        // TODO(gloas): get claude to work this one out
         let mut epoch_boundary_blocks = HashSet::new();
         let mut non_checkpoint_block_roots = HashSet::new();
 
