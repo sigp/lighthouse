@@ -1,8 +1,8 @@
 # Single version tag to maintain for reproducible builds.
 # This multi-arch index digest resolves to the correct arch-specific image at build time.
 # To update: run `docker buildx imagetools inspect rust:X.Y-bookworm` and replace the digest below.
-# rust:1.88-bookworm
-ARG RUST_IMAGE="rust:1.88-bookworm@sha256:af306cfa71d987911a781c37b59d7d67d934f49684058f96cf72079c3626bfe0"
+# rust:1.95-bookworm
+ARG RUST_IMAGE="rust:1.95-bookworm@sha256:225aa827d55fae9816a0492284592827e794a5247c6c6a961c3b471b344295ec"
 FROM ${RUST_IMAGE} AS builder
 
 # Install pinned versions of the build dependencies
