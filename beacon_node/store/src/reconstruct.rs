@@ -89,14 +89,14 @@ where
                     .map_err(HotColdDBError::BlockReplaySlotError)?;
 
                 // Apply block.
-                if let Some(ref block) = block {
+                if let Some(block) = block {
                     let mut ctxt = ConsensusContext::new(block.slot())
                         .set_current_block_root(block_root)
                         .set_proposer_index(block.message().proposer_index());
 
                     per_block_processing(
                         &mut state,
-                        block,
+                        &block,
                         BlockSignatureStrategy::NoVerification,
                         VerifyBlockRoot::True,
                         &mut ctxt,
