@@ -574,12 +574,10 @@ pub fn process_parent_execution_payload<E: EthSpec, Payload: AbstractExecPayload
     let parent_bid = state.latest_execution_payload_bid()?.clone();
     let requests = block.body().parent_execution_requests()?;
 
-    // True if this block built on the parent's full payload and the parent block isn't
-    // the genesis block.
-    let is_parent_block_full = parent_bid.block_hash != ExecutionBlockHash::zero()
-        && bid.parent_block_hash == parent_bid.block_hash;
+    let is_genesis_block = parent_bid.block_hash == ExecutionBlockHash::zero();
+    let is_parent_block_empty = bid.parent_block_hash != parent_bid.block_hash;
 
-    if !is_parent_block_full {
+    if is_genesis_block || is_parent_block_empty {
         // Parent was EMPTY -- no execution requests expected
         block_verify!(
             *requests == ExecutionRequests::default(),
