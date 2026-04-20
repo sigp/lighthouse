@@ -18,20 +18,20 @@ WORKDIR /app
 RUN make build-reproducible
 
 # Move the binary and runtime libs to fixed paths for arch-independent copying below.
-RUN mv /app/target/${RUST_TARGET}/release/lighthouse /lighthouse
-# libssl and libcrypto live under an arch-specific triplet dir; normalise to /libs/.
-RUN mkdir /libs \
-    && find /usr/lib -maxdepth 2 \( -name "libssl.so.1.1" -o -name "libcrypto.so.1.1" \) \
-       -exec cp {} /libs/ \;
+# ldd shows the binary dynamically requires: libz.so.1, libstdc++.so.6, libgcc_s.so.1,
+# and glibc — the latter three are already in distroless/cc; only libz needs to be copied.
+# libssl/libcrypto are statically linked by this build (no dynamic dep on them).
+# libz lives under an arch-specific triplet dir; normalise to /libs/ for a clean COPY below.
+RUN mv /app/target/${RUST_TARGET}/release/lighthouse /lighthouse \
+    && mkdir /libs \
+    && find /lib -maxdepth 3 -name "libz.so.1" -exec cp {} /libs/ \;
 
 # Final image: distroless/cc-debian11 (Bullseye) — matches builder OS for ABI compatibility.
-# The cc variant already includes libc + libgcc; we copy libssl/libcrypto from the builder
-# so the runtime layer is fully pinned with no package manager invocations.
+# The cc variant already includes libc, libgcc, and libstdc++.
 # gcr.io/distroless/cc-debian11:nonroot
 FROM gcr.io/distroless/cc-debian11:nonroot@sha256:f7fa4923556853754e9ff647df410d5711fc4d99a8dafa777ec617cf4a6700f6
 
-COPY --from=builder /libs/libssl.so.1.1    /usr/lib/
-COPY --from=builder /libs/libcrypto.so.1.1 /usr/lib/
+COPY --from=builder /libs/libz.so.1 /usr/lib/
 COPY --from=builder /lighthouse /lighthouse
 
 ENTRYPOINT [ "/lighthouse" ]
