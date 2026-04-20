@@ -789,8 +789,7 @@ where
         }
 
         // Check that block is later than the finalized epoch slot (optimization to reduce calls to
-        // get_ancestor). This is valid even post-Gloas, because we should still never import new
-        // blocks prior to the finalized epoch.
+        // get_ancestor).
         let finalized_slot =
             compute_start_slot_at_epoch::<E>(self.fc_store.finalized_checkpoint().epoch);
         if block.slot() <= finalized_slot {
