@@ -213,11 +213,6 @@ fn store_envelopes_for_chain_segment(
                 .store
                 .put_payload_envelope(&snapshot.beacon_block_root, (**envelope).clone())
                 .expect("should store envelope");
-            harness
-                .chain
-                .store
-                .put_state(&snapshot.beacon_block.state_root(), &snapshot.beacon_state)
-                .expect("should store full state");
         }
     }
 }
@@ -231,6 +226,7 @@ fn update_fork_choice_with_envelopes(
 ) {
     for snapshot in chain_segment {
         if snapshot.execution_envelope.is_some() {
+            // Call may fail if block was invalid (it will have no fork choice node).
             let _ = harness
                 .chain
                 .canonical_head
@@ -1154,19 +1150,14 @@ async fn block_gossip_verification() {
             )
             .await
             .expect("should import valid gossip verified block");
-        // Post-Gloas, store the execution payload envelope and its Full state so that
-        // subsequent blocks can look up the parent's Full state.
+        // Post-Gloas, store the execution payload envelope so that subsequent blocks can look up
+        // the parent envelope.
         if let Some(ref envelope) = snapshot.execution_envelope {
             harness
                 .chain
                 .store
                 .put_payload_envelope(&snapshot.beacon_block_root, (**envelope).clone())
                 .expect("should store envelope");
-            harness
-                .chain
-                .store
-                .put_state(&snapshot.beacon_block.state_root(), &snapshot.beacon_state)
-                .expect("should store full state");
             harness
                 .chain
                 .canonical_head

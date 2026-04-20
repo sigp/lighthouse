@@ -1044,9 +1044,7 @@ where
         assert!(slot >= state.slot());
 
         // For Gloas forks, delegate to make_block_with_envelope and discard the envelope.
-        if state.fork_name_unchecked().gloas_enabled()
-            || self.spec.fork_name_at_slot::<E>(slot).gloas_enabled()
-        {
+        if self.spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
             let (block_contents, _envelope, state) =
                 Box::pin(self.make_block_with_envelope(state, slot)).await;
             return (block_contents, state);
