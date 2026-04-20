@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Lighthouse
+Comment=Ethereum consensus client
+Exec=lighthouse
+Icon=lighthouse
+Type=Application
+Categories=Network;
+Terminal=true

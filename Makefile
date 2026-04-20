@@ -118,10 +118,6 @@ JEMALLOC_OVERRIDE = /usr/lib/$(JEMALLOC_LIB_ARCH)-linux-gnu/libjemalloc.a
 # Default target architecture
 RUST_TARGET ?= x86_64-unknown-linux-gnu
 
-# Default images for different architectures
-RUST_IMAGE_AMD64 ?= rust:1.88-bullseye@sha256:8e3c421122bf4cd3b2a866af41a4dd52d87ad9e315fd2cb5100e87a7187a9816
-RUST_IMAGE_ARM64 ?= rust:1.88-bullseye@sha256:8b22455a7ce2adb1355067638284ee99d21cc516fab63a96c4514beaf370aa94
-
 .PHONY: build-reproducible
 build-reproducible: ## Build the lighthouse binary into `target` directory with reproducible builds
 	SOURCE_DATE_EPOCH=$(SOURCE_DATE) \
@@ -132,11 +128,13 @@ build-reproducible: ## Build the lighthouse binary into `target` directory with 
 	JEMALLOC_OVERRIDE=${JEMALLOC_OVERRIDE} \
 	cargo build --bin lighthouse --features "$(FEATURES_REPRODUCIBLE)" --profile "$(PROFILE)" --locked --target $(RUST_TARGET)
 
+# Rust image digest is the single source of truth in Dockerfile.reproducible.
+# These targets pass no --build-arg RUST_IMAGE so Docker uses the ARG default from that file.
+
 .PHONY: build-reproducible-x86_64
 build-reproducible-x86_64: ## Build reproducible x86_64 Docker image
 	DOCKER_BUILDKIT=1 docker build \
 		--build-arg RUST_TARGET="x86_64-unknown-linux-gnu" \
-		--build-arg RUST_IMAGE=$(RUST_IMAGE_AMD64) \
 		-f Dockerfile.reproducible \
 		-t lighthouse:reproducible-amd64 .
 
@@ -145,7 +143,6 @@ build-reproducible-aarch64: ## Build reproducible aarch64 Docker image
 	DOCKER_BUILDKIT=1 docker build \
 		--platform linux/arm64 \
 		--build-arg RUST_TARGET="aarch64-unknown-linux-gnu" \
-		--build-arg RUST_IMAGE=$(RUST_IMAGE_ARM64) \
 		-f Dockerfile.reproducible \
 		-t lighthouse:reproducible-arm64 .
 

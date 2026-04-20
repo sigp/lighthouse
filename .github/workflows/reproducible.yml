@@ -1,0 +1,288 @@
+name: reproducible
+
+# Produces three artifacts per architecture: Docker image, binary tarball, AppImage.
+# The Docker image is the single build artifact; the binary and AppImage are extracted from it.
+# Only one version tag to maintain: the RUST_IMAGE ARG in Dockerfile.reproducible.
+
+on:
+  push:
+    branches:
+      - unstable
+    tags:
+      - v*
+  workflow_dispatch:
+
+env:
+  DOCKER_REPRODUCIBLE_IMAGE_NAME: ${{ github.repository_owner }}/lighthouse-reproducible
+  DOCKER_PASSWORD: ${{ secrets.DH_KEY }}
+  DOCKER_USERNAME: ${{ secrets.DH_ORG }}
+
+jobs:
+  extract-version:
+    name: extract version
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Extract version
+        id: extract_version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          elif [[ "${{ github.ref }}" == refs/heads/unstable ]]; then
+            VERSION="latest-unstable"
+          else
+            VERSION="test-build"
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+    outputs:
+      VERSION: ${{ steps.extract_version.outputs.VERSION }}
+
+  build:
+    name: build and verify (${{ matrix.arch }})
+    needs: extract-version
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            rust_target: x86_64-unknown-linux-gnu
+            platform: linux/amd64
+            runner: ubuntu-22.04
+            appimage_arch: x86_64
+          - arch: arm64
+            rust_target: aarch64-unknown-linux-gnu
+            platform: linux/arm64
+            runner: ubuntu-22.04-arm
+            appimage_arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker
+
+      # ── Step 1: Build twice and verify bit-for-bit reproducibility ──────────
+      - name: Build image (pass 1)
+        run: |
+          docker build -f Dockerfile.reproducible \
+            --platform ${{ matrix.platform }} \
+            --build-arg RUST_TARGET="${{ matrix.rust_target }}" \
+            -t lighthouse-verify-1 .
+
+      - name: Extract binary (pass 1)
+        run: |
+          docker create --name extract-1 lighthouse-verify-1
+          docker cp extract-1:/lighthouse ./lighthouse-1
+          docker rm extract-1
+
+      - name: Clean Docker state between builds
+        run: |
+          docker buildx prune -f
+          docker system prune -f
+
+      - name: Build image (pass 2)
+        run: |
+          docker build -f Dockerfile.reproducible \
+            --platform ${{ matrix.platform }} \
+            --build-arg RUST_TARGET="${{ matrix.rust_target }}" \
+            -t lighthouse-verify-2 .
+
+      - name: Extract binary (pass 2)
+        run: |
+          docker create --name extract-2 lighthouse-verify-2
+          docker cp extract-2:/lighthouse ./lighthouse-2
+          docker rm extract-2
+
+      - name: Verify reproducibility
+        run: |
+          echo "Pass 1 SHA256: $(sha256sum lighthouse-1)"
+          echo "Pass 2 SHA256: $(sha256sum lighthouse-2)"
+          if cmp lighthouse-1 lighthouse-2; then
+            echo "Reproducible build verified for ${{ matrix.arch }}"
+          else
+            echo "BLOCKING RELEASE: builds are not reproducible!"
+            echo "First 10 differing bytes:"
+            cmp -l lighthouse-1 lighthouse-2 | head -10
+            exit 1
+          fi
+
+      # ── Step 2: Tag the verified image and push ──────────────────────────────
+      - name: Tag verified image
+        run: |
+          VERSION=${{ needs.extract-version.outputs.VERSION }}
+          docker tag lighthouse-verify-2 \
+            ${{ env.DOCKER_REPRODUCIBLE_IMAGE_NAME }}:${VERSION}-${{ matrix.arch }}
+
+      - name: Log in to Docker Hub
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKER_USERNAME }}
+          password: ${{ env.DOCKER_PASSWORD }}
+
+      - name: Push Docker image
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        run: |
+          VERSION=${{ needs.extract-version.outputs.VERSION }}
+          docker push ${{ env.DOCKER_REPRODUCIBLE_IMAGE_NAME }}:${VERSION}-${{ matrix.arch }}
+
+      # ── Step 3: Binary tarball ───────────────────────────────────────────────
+      - name: Create binary tarball
+        env:
+          VERSION: ${{ needs.extract-version.outputs.VERSION }}
+        run: |
+          cp lighthouse-2 lighthouse
+          tar -czf lighthouse-${VERSION}-${{ matrix.rust_target }}.tar.gz lighthouse
+          sha256sum lighthouse-${VERSION}-${{ matrix.rust_target }}.tar.gz \
+            > lighthouse-${VERSION}-${{ matrix.rust_target }}.tar.gz.sha256
+
+      # ── Step 4: AppImage ─────────────────────────────────────────────────────
+      - name: Download appimagetool
+        run: |
+          # Pin appimagetool by release tag for reproducibility
+          curl -fsSL \
+            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${{ matrix.appimage_arch }}.AppImage" \
+            -o appimagetool
+          chmod +x appimagetool
+
+      - name: Assemble AppDir
+        run: |
+          mkdir -p AppDir/usr/bin
+          cp lighthouse-2 AppDir/usr/bin/lighthouse
+          cp packaging/appimage/AppRun AppDir/AppRun
+          chmod +x AppDir/AppRun
+          cp packaging/appimage/lighthouse.desktop AppDir/lighthouse.desktop
+          cp packaging/appimage/lighthouse.svg AppDir/lighthouse.svg
+
+      - name: Build AppImage
+        env:
+          VERSION: ${{ needs.extract-version.outputs.VERSION }}
+          # Deterministic squashfs: fixed modification times, no extra metadata
+          SOURCE_DATE_EPOCH: 0
+        run: |
+          ./appimagetool \
+            --comp xz \
+            AppDir \
+            lighthouse-${VERSION}-${{ matrix.appimage_arch }}.AppImage
+          sha256sum lighthouse-${VERSION}-${{ matrix.appimage_arch }}.AppImage \
+            > lighthouse-${VERSION}-${{ matrix.appimage_arch }}.AppImage.sha256
+
+      # ── Step 5: GPG sign and upload artifacts (tags only) ────────────────────
+      - name: Sign artifacts
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        env:
+          GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          VERSION: ${{ needs.extract-version.outputs.VERSION }}
+        run: |
+          echo "$GPG_SIGNING_KEY" | gpg --batch --import
+          for f in \
+            lighthouse-${VERSION}-${{ matrix.rust_target }}.tar.gz \
+            lighthouse-${VERSION}-${{ matrix.appimage_arch }}.AppImage; do
+            echo "$GPG_PASSPHRASE" | gpg --passphrase-fd 0 \
+              --pinentry-mode loopback --batch -ab "$f"
+          done
+
+      - name: Upload binary tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.rust_target }}.tar.gz
+          path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.rust_target }}.tar.gz
+          compression-level: 0
+
+      - name: Upload binary tarball signature
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.rust_target }}.tar.gz.asc
+          path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.rust_target }}.tar.gz.asc
+          compression-level: 0
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.appimage_arch }}.AppImage
+          path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.appimage_arch }}.AppImage
+          compression-level: 0
+
+      - name: Upload AppImage signature
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.appimage_arch }}.AppImage.asc
+          path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.appimage_arch }}.AppImage.asc
+          compression-level: 0
+
+      - name: Upload verification artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-failure-${{ matrix.arch }}
+          path: |
+            lighthouse-1
+            lighthouse-2
+
+      - name: Clean up
+        if: always()
+        run: |
+          docker rmi lighthouse-verify-1 lighthouse-verify-2 || true
+          VERSION=${{ needs.extract-version.outputs.VERSION }}
+          docker rmi ${{ env.DOCKER_REPRODUCIBLE_IMAGE_NAME }}:${VERSION}-${{ matrix.arch }} || true
+
+  manifest:
+    name: create multi-arch manifest
+    needs: [extract-version, build]
+    runs-on: ubuntu-22.04
+    if: ${{ github.event_name != 'workflow_dispatch' }}
+    steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKER_USERNAME }}
+          password: ${{ env.DOCKER_PASSWORD }}
+
+      - name: Create and push multi-arch manifest
+        run: |
+          IMAGE=${{ env.DOCKER_REPRODUCIBLE_IMAGE_NAME }}
+          VERSION=${{ needs.extract-version.outputs.VERSION }}
+
+          docker manifest create ${IMAGE}:${VERSION} \
+            ${IMAGE}:${VERSION}-amd64 \
+            ${IMAGE}:${VERSION}-arm64
+          docker manifest push ${IMAGE}:${VERSION}
+
+          # Tag latest only for stable release versions (e.g. v1.2.3, not v1.2.3-alpha)
+          if [[ "${GITHUB_REF}" == refs/tags/* ]] && \
+             [[ "${VERSION}" =~ ^v[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+            docker manifest create ${IMAGE}:latest \
+              ${IMAGE}:${VERSION}-amd64 \
+              ${IMAGE}:${VERSION}-arm64
+            docker manifest push ${IMAGE}:latest
+          fi
+
+  publish:
+    name: publish to GitHub release
+    needs: [extract-version, build]
+    runs-on: ubuntu-22.04
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    env:
+      VERSION: ${{ needs.extract-version.outputs.VERSION }}
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Upload to GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${VERSION} \
+            lighthouse-${VERSION}-x86_64-unknown-linux-gnu.tar.gz/lighthouse-${VERSION}-x86_64-unknown-linux-gnu.tar.gz \
+            lighthouse-${VERSION}-x86_64-unknown-linux-gnu.tar.gz.asc/lighthouse-${VERSION}-x86_64-unknown-linux-gnu.tar.gz.asc \
+            lighthouse-${VERSION}-aarch64-unknown-linux-gnu.tar.gz/lighthouse-${VERSION}-aarch64-unknown-linux-gnu.tar.gz \
+            lighthouse-${VERSION}-aarch64-unknown-linux-gnu.tar.gz.asc/lighthouse-${VERSION}-aarch64-unknown-linux-gnu.tar.gz.asc \
+            lighthouse-${VERSION}-x86_64.AppImage/lighthouse-${VERSION}-x86_64.AppImage \
+            lighthouse-${VERSION}-x86_64.AppImage.asc/lighthouse-${VERSION}-x86_64.AppImage.asc \
+            lighthouse-${VERSION}-aarch64.AppImage/lighthouse-${VERSION}-aarch64.AppImage \
+            lighthouse-${VERSION}-aarch64.AppImage.asc/lighthouse-${VERSION}-aarch64.AppImage.asc \
+            --repo ${{ github.repository }}

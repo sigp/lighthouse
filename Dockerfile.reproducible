@@ -1,5 +1,8 @@
-# Define the Rust image as an argument with a default to x86_64 Rust 1.88 image based on Debian Bullseye
-ARG RUST_IMAGE="rust:1.88-bullseye@sha256:8e3c421122bf4cd3b2a866af41a4dd52d87ad9e315fd2cb5100e87a7187a9816"
+# Single version tag to maintain for reproducible builds.
+# This multi-arch index digest resolves to the correct arch-specific image at build time.
+# To update: run `docker manifest inspect rust:X.Y-bullseye --verbose` and replace the digest below.
+# rust:1.88-bullseye
+ARG RUST_IMAGE="rust:1.88-bullseye@sha256:60c95b78b164bc809090509235ab00797a07740fe8733b48593cd42de72b5ee1"
 FROM ${RUST_IMAGE} AS builder
 
 # Install specific version of the build dependencies
