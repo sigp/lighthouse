@@ -48,11 +48,15 @@ jobs:
             platform: linux/amd64
             runner: ubuntu-22.04
             appimage_arch: x86_64
+            # sha256sum of appimagetool-x86_64.AppImage from continuous (2026-04-20)
+            appimagetool_sha256: a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0
           - arch: arm64
             rust_target: aarch64-unknown-linux-gnu
             platform: linux/arm64
             runner: ubuntu-22.04-arm
             appimage_arch: aarch64
+            # sha256sum of appimagetool-aarch64.AppImage from continuous (2026-04-20)
+            appimagetool_sha256: 1b00524ba8c6b678dc15ef88a5c25ec24def36cdfc7e3abb32ddcd068e8007fe
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -140,10 +144,12 @@ jobs:
       # ── Step 4: AppImage ─────────────────────────────────────────────────────
       - name: Download appimagetool
         run: |
-          # Pin appimagetool by release tag for reproducibility
+          # appimagetool has no stable release tags; pin by SHA256 of the continuous binary.
+          # To update: download the new binary, run sha256sum, update appimagetool_sha256 in the matrix above.
           curl -fsSL \
             "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${{ matrix.appimage_arch }}.AppImage" \
             -o appimagetool
+          echo "${{ matrix.appimagetool_sha256 }}  appimagetool" | sha256sum --check
           chmod +x appimagetool
 
       - name: Assemble AppDir
@@ -275,6 +281,8 @@ jobs:
       - name: Upload to GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # The release draft is created by release.yml's draft-release job which runs in parallel.
+        # --clobber allows re-runs to overwrite previously uploaded assets without error.
         run: |
           gh release upload ${VERSION} \
             lighthouse-${VERSION}-x86_64-unknown-linux-gnu.tar.gz/lighthouse-${VERSION}-x86_64-unknown-linux-gnu.tar.gz \
@@ -285,4 +293,5 @@ jobs:
             lighthouse-${VERSION}-x86_64.AppImage.asc/lighthouse-${VERSION}-x86_64.AppImage.asc \
             lighthouse-${VERSION}-aarch64.AppImage/lighthouse-${VERSION}-aarch64.AppImage \
             lighthouse-${VERSION}-aarch64.AppImage.asc/lighthouse-${VERSION}-aarch64.AppImage.asc \
+            --clobber \
             --repo ${{ github.repository }}
