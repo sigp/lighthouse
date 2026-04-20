@@ -365,8 +365,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 builder_index: signed_envelope.message.builder_index,
                 block_hash: signed_envelope.block_hash(),
                 block_root,
-                // The envelope no longer carries a state_root.
-                state_root: Hash256::ZERO,
                 execution_optimistic: payload_verification_status.is_optimistic(),
             }));
         }

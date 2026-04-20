@@ -224,7 +224,6 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
                     builder_index,
                     block_hash: signed_envelope.message.payload.block_hash,
                     block_root: beacon_block_root,
-                    state_root: block.state_root(),
                 },
             ));
         }

@@ -1093,7 +1093,6 @@ pub struct SseExecutionPayload {
     pub builder_index: u64,
     pub block_hash: ExecutionBlockHash,
     pub block_root: Hash256,
-    pub state_root: Hash256,
     pub execution_optimistic: bool,
 }
 
@@ -1104,7 +1103,6 @@ pub struct SseExecutionPayloadGossip {
     pub builder_index: u64,
     pub block_hash: ExecutionBlockHash,
     pub block_root: Hash256,
-    pub state_root: Hash256,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
