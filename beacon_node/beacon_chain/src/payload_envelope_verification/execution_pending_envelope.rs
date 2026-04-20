@@ -93,8 +93,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             },
             import_data: EnvelopeImportData {
                 block_root,
-                state_root: snapshot.state_root,
-                post_state: Box::new(state),
+                _phantom: Default::default(),
             },
             payload_verification_handle,
         })

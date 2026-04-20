@@ -6,7 +6,7 @@ use fork_choice::PayloadVerificationStatus;
 use slot_clock::SlotClock;
 use store::StoreOp;
 use tracing::{debug, error, info, info_span, instrument, warn};
-use types::{BeaconState, BlockImportSource, Hash256, SignedExecutionPayloadEnvelope};
+use types::{BlockImportSource, Hash256, SignedExecutionPayloadEnvelope};
 
 use super::{
     AvailableEnvelope, AvailableExecutedEnvelope, EnvelopeError, EnvelopeImportData,
@@ -198,8 +198,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let EnvelopeImportData {
             block_root,
-            state_root,
-            post_state,
+            _phantom,
         } = import_data;
 
         let block_root = {
@@ -209,8 +208,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     chain.import_execution_payload_envelope(
                         envelope,
                         block_root,
-                        state_root,
-                        *post_state,
                         payload_verification_outcome.payload_verification_status,
                     )
                 },
@@ -233,8 +230,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         signed_envelope: AvailableEnvelope<T::EthSpec>,
         block_root: Hash256,
-        state_root: Hash256,
-        state: BeaconState<T::EthSpec>,
         payload_verification_status: PayloadVerificationStatus,
     ) -> Result<Hash256, EnvelopeError> {
         // Everything in this initial section is on the hot path for processing the envelope.
@@ -288,7 +283,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             block_root,
             signed_envelope.clone(),
         ));
-        ops.push(StoreOp::PutState(state_root, &state));
 
         let db_span = info_span!("persist_payloads_and_blobs").entered();
 
