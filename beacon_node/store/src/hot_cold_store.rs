@@ -164,9 +164,8 @@ pub enum HotColdDBError {
         target_version: SchemaVersion,
         current_version: SchemaVersion,
     },
-    UnableToFreezeFullState {
-        state_root: Hash256,
-    },
+    /// Recoverable error indicating that the database freeze point couldn't be updated
+    /// due to the finalized block not lying on an epoch boundary (should be infrequent).
     FreezeSlotUnaligned(Slot),
     FreezeSlotError {
         current_split_slot: Slot,
@@ -199,7 +198,6 @@ pub enum HotColdDBError {
     BlockReplayBeaconError(BeaconStateError),
     BlockReplaySlotError(SlotProcessingError),
     BlockReplayBlockError(BlockProcessingError),
-    BlockReplayEnvelopeError(String),
     InvalidSlotsPerRestorePoint {
         slots_per_restore_point: u64,
         slots_per_historical_root: u64,
@@ -1066,7 +1064,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn put_payload_envelope(
         &self,
         block_root: &Hash256,
-        payload_envelope: SignedExecutionPayloadEnvelope<E>,
+        payload_envelope: &SignedExecutionPayloadEnvelope<E>,
     ) -> Result<(), Error> {
         self.hot_db.put_bytes(
             SignedExecutionPayloadEnvelope::<E>::db_column(),
@@ -1095,12 +1093,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// will be returned if the provided `state_root` doesn't match the state root of the
     /// frozen state at `slot`. Consequently, if a state from a non-canonical chain is desired, it's
     /// best to set `slot` to `None`, or call `load_hot_state` directly.
-    ///
-    /// **Gloas note**: For Gloas blocks, `block.state_root()` returns the *pending* state root,
-    /// which may differ from the root stored in the cold DB (which could be the full state root,
-    /// whatever is canonical).
-    /// Callers looking up cold Gloas states should use `get_cold_state_root(slot)` to obtain the
-    /// actual key stored in the freezer.
     pub fn get_state(
         &self,
         state_root: &Hash256,
@@ -3609,6 +3601,8 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         .into());
     }
 
+    // finalized_state.slot() must be at an epoch boundary
+    // else we may introduce bugs to the migration/pruning logic
     if finalized_state.slot() % E::slots_per_epoch() != 0 {
         return Err(HotColdDBError::FreezeSlotUnaligned(finalized_state.slot()).into());
     }

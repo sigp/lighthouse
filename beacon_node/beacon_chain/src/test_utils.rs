@@ -2762,7 +2762,7 @@ where
         // Store the envelope.
         self.chain
             .store
-            .put_payload_envelope(&block_root, signed_envelope)
+            .put_payload_envelope(&block_root, &signed_envelope)
             .expect("should store envelope");
 
         // Update fork choice so it knows the payload was received.

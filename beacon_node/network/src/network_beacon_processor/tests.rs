@@ -2158,7 +2158,7 @@ async fn test_payload_envelopes_by_range() {
             let envelope = make_test_payload_envelope(Slot::new(slot), root);
             rig.chain
                 .store
-                .put_payload_envelope(&root, envelope)
+                .put_payload_envelope(&root, &envelope)
                 .unwrap();
             expected_roots.push(root);
         }
@@ -2208,7 +2208,7 @@ async fn test_payload_envelopes_by_root() {
     let envelope = make_test_payload_envelope(Slot::new(1), block_root);
     rig.chain
         .store
-        .put_payload_envelope(&block_root, envelope)
+        .put_payload_envelope(&block_root, &envelope)
         .unwrap();
 
     let roots = RuntimeVariableList::new(vec![block_root], 1).unwrap();
@@ -2298,7 +2298,7 @@ async fn test_payload_envelopes_by_range_no_duplicates_with_skip_slots() {
             let envelope = make_test_payload_envelope(Slot::new(slot), root);
             rig.chain
                 .store
-                .put_payload_envelope(&root, envelope)
+                .put_payload_envelope(&root, &envelope)
                 .unwrap();
         }
     }

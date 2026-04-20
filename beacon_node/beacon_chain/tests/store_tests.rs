@@ -3159,7 +3159,7 @@ async fn weak_subjectivity_sync_test(
     {
         beacon_chain
             .store
-            .put_payload_envelope(&wss_block.canonical_root(), envelope)
+            .put_payload_envelope(&wss_block.canonical_root(), &envelope)
             .unwrap();
     }
 
@@ -3200,7 +3200,7 @@ async fn weak_subjectivity_sync_test(
             .unwrap();
         beacon_chain
             .store
-            .put_payload_envelope(&wss_block_root, envelope)
+            .put_payload_envelope(&wss_block_root, &envelope)
             .unwrap();
         // Also store the state so the parent state can be loaded.
         let state_root = wss_snapshot.beacon_block.state_root();
@@ -3249,7 +3249,7 @@ async fn weak_subjectivity_sync_test(
         if let Some(envelope) = &snapshot.execution_envelope {
             beacon_chain
                 .store
-                .put_payload_envelope(&block_root, envelope.as_ref().clone())
+                .put_payload_envelope(&block_root, envelope)
                 .unwrap();
             let full_state_root = snapshot.beacon_block.state_root();
             beacon_chain
@@ -3415,27 +3415,10 @@ async fn weak_subjectivity_sync_test(
     }
     assert_eq!(beacon_chain.store.get_oldest_block_slot(), 0);
 
-    // Store envelopes for all historic blocks (needed for Gloas state reconstruction).
-    // We read envelopes directly from the original harness's store rather than from
-    // chain_dump, because chain_dump may not include envelopes for all blocks (e.g.,
-    // when extend_chain builds on a Pending head state, is_parent_block_full returns
-    // false for the boundary block).
+    // Store envelopes for all historic blocks (needed for dumping the chain from the new node).
     for snapshot in chain_dump.iter() {
         let block_root = snapshot.beacon_block_root;
-        if beacon_chain
-            .store
-            .get_payload_envelope(&block_root)
-            .unwrap_or(None)
-            .is_some()
-        {
-            continue;
-        }
-        if let Some(envelope) = harness
-            .chain
-            .store
-            .get_payload_envelope(&block_root)
-            .unwrap_or(None)
-        {
+        if let Some(envelope) = &snapshot.execution_envelope {
             beacon_chain
                 .store
                 .put_payload_envelope(&block_root, envelope)

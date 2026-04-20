@@ -1067,7 +1067,7 @@ impl<E: EthSpec> Tester<E> {
 
             // Store the envelope so that child blocks can load the parent's payload.
             store
-                .put_payload_envelope(&block_root, signed_envelope.clone())
+                .put_payload_envelope(&block_root, signed_envelope)
                 .map_err(|e| {
                     Error::InternalError(format!(
                         "Failed to store payload envelope for {block_root:?}: {e:?}",

@@ -211,7 +211,7 @@ fn store_envelopes_for_chain_segment(
             harness
                 .chain
                 .store
-                .put_payload_envelope(&snapshot.beacon_block_root, (**envelope).clone())
+                .put_payload_envelope(&snapshot.beacon_block_root, envelope)
                 .expect("should store envelope");
         }
     }
@@ -1156,7 +1156,7 @@ async fn block_gossip_verification() {
             harness
                 .chain
                 .store
-                .put_payload_envelope(&snapshot.beacon_block_root, (**envelope).clone())
+                .put_payload_envelope(&snapshot.beacon_block_root, envelope)
                 .expect("should store envelope");
             harness
                 .chain
