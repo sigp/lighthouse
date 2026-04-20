@@ -494,14 +494,11 @@ pub mod gloas {
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
-        // After process_parent_execution_payload, latest_block_hash is updated if parent was full.
-        // Return early if the parent block is empty (latest_block_hash != bid.block_hash)
-        // or if the parent block is the genesis block (The genesis block is empty by default).
-        let latest_block_hash = *state.latest_block_hash()?;
-        let latest_bid_block_hash = state.latest_execution_payload_bid()?.block_hash;
-        if latest_block_hash == ExecutionBlockHash::zero()
-            || latest_block_hash != latest_bid_block_hash
-        {
+        // Return early if the parent block is empty.
+        let is_genesis_block = *state.latest_block_hash()? == ExecutionBlockHash::default();
+        let is_parent_block_empty =
+            *state.latest_block_hash()? != state.latest_execution_payload_bid()?.block_hash;
+        if is_genesis_block || is_parent_block_empty {
             return Ok(());
         }
 
