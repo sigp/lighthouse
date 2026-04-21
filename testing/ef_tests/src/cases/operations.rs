@@ -469,7 +469,13 @@ impl<E: EthSpec> Operation<E> for SignedExecutionPayloadEnvelope<E> {
             .is_some_and(|e| e.execution_valid);
         if valid {
             let block_state_root = state.update_tree_hash_cache()?;
-            verify_execution_payload_envelope(state, self, VerifySignatures::True, block_state_root, spec)
+            verify_execution_payload_envelope(
+                state,
+                self,
+                VerifySignatures::True,
+                block_state_root,
+                spec,
+            )
         } else {
             Err(EnvelopeProcessingError::ExecutionInvalid)
         }
