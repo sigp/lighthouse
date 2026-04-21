@@ -852,7 +852,9 @@ mod test {
             .mock_execution_layer()
             .build();
 
-        // go right before deneb slot
+        harness.execution_block_generator().set_min_blob_count(1);
+
+        // go right before fulu slot
         harness.extend_to_slot(fulu_fork_slot - 1).await;
 
         harness
@@ -1029,19 +1031,19 @@ mod test {
             );
         }
 
-        // Get custody column indices for this epoch
-        let custody_column_indices = cache
+        // Get sampling column indices for this epoch
+        let sampling_column_indices = cache
             .custody_context
-            .custody_columns_for_epoch(Some(epoch), &harness.spec);
+            .sampling_columns_for_epoch(epoch, &harness.spec);
 
-        // Filter to only custody columns
-        let custody_columns: Vec<_> = columns
+        // Filter to only sampling columns
+        let sampling_columns: Vec<_> = columns
             .into_iter()
-            .filter(|col| custody_column_indices.contains(&col.index()))
+            .filter(|col| sampling_column_indices.contains(&col.index()))
             .collect();
 
         let mut kzg_verified_columns = Vec::new();
-        for (col_index, gossip_column) in custody_columns.into_iter().enumerate() {
+        for (col_index, gossip_column) in sampling_columns.into_iter().enumerate() {
             kzg_verified_columns.push(KzgVerifiedCustodyDataColumn::from_asserted_custody(
                 gossip_column.into_inner(),
             ));
@@ -1067,19 +1069,19 @@ mod test {
         );
         let root = pending_block.import_data.block_root;
 
-        // Get custody column indices for this epoch
-        let custody_column_indices = cache
+        // Get sampling column indices for this epoch
+        let sampling_column_indices = cache
             .custody_context
-            .custody_columns_for_epoch(Some(epoch), &harness.spec);
+            .sampling_columns_for_epoch(epoch, &harness.spec);
 
-        // Filter to only custody columns
-        let custody_columns: Vec<_> = columns
+        // Filter to only sampling columns
+        let sampling_columns: Vec<_> = columns
             .into_iter()
-            .filter(|col| custody_column_indices.contains(&col.index()))
+            .filter(|col| sampling_column_indices.contains(&col.index()))
             .collect();
 
         let mut kzg_verified_columns = vec![];
-        for gossip_column in custody_columns {
+        for gossip_column in sampling_columns {
             kzg_verified_columns.push(KzgVerifiedCustodyDataColumn::from_asserted_custody(
                 gossip_column.into_inner(),
             ));
