@@ -536,26 +536,6 @@ pub fn compute_timestamp_at_slot<E: EthSpec>(
         .and_then(|since_genesis| state.genesis_time().safe_add(since_genesis))
 }
 
-pub fn can_builder_cover_bid<E: EthSpec>(
-    state: &BeaconState<E>,
-    builder_index: BuilderIndex,
-    builder: &Builder,
-    bid_amount: u64,
-    spec: &ChainSpec,
-) -> Result<bool, BlockProcessingError> {
-    let builder_balance = builder.balance;
-    let pending_withdrawals_amount =
-        state.get_pending_balance_to_withdraw_for_builder(builder_index)?;
-    let min_balance = spec
-        .min_deposit_amount
-        .safe_add(pending_withdrawals_amount)?;
-    if builder_balance < min_balance {
-        Ok(false)
-    } else {
-        Ok(builder_balance.safe_sub(min_balance)? >= bid_amount)
-    }
-}
-
 /// Process the parent block's deferred execution payload effects.
 ///
 /// This implements the spec's `process_parent_execution_payload` function, which validates
@@ -570,12 +550,16 @@ pub fn process_parent_execution_payload<E: EthSpec, Payload: AbstractExecPayload
     block: BeaconBlockRef<'_, E, Payload>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    let bid = block.body().signed_execution_payload_bid()?.message.clone();
+    let bid_parent_block_hash = block
+        .body()
+        .signed_execution_payload_bid()?
+        .message
+        .parent_block_hash;
     let parent_bid = state.latest_execution_payload_bid()?.clone();
     let requests = block.body().parent_execution_requests()?;
 
     let is_genesis_block = parent_bid.block_hash == ExecutionBlockHash::zero();
-    let is_parent_block_empty = bid.parent_block_hash != parent_bid.block_hash;
+    let is_parent_block_empty = bid_parent_block_hash != parent_bid.block_hash;
 
     if is_genesis_block || is_parent_block_empty {
         // Parent was EMPTY -- no execution requests expected

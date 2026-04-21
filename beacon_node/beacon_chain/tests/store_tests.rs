@@ -3191,22 +3191,9 @@ async fn weak_subjectivity_sync_test(
         .get_payload_envelope(&wss_block_root)
         .unwrap()
     {
-        let wss_snapshot = harness
-            .chain
-            .chain_dump()
-            .unwrap()
-            .into_iter()
-            .find(|s| s.beacon_block_root == wss_block_root)
-            .unwrap();
         beacon_chain
             .store
             .put_payload_envelope(&wss_block_root, &envelope)
-            .unwrap();
-        // Also store the state so the parent state can be loaded.
-        let state_root = wss_snapshot.beacon_block.state_root();
-        beacon_chain
-            .store
-            .put_state(&state_root, &wss_snapshot.beacon_state)
             .unwrap();
     }
 
@@ -3245,16 +3232,11 @@ async fn weak_subjectivity_sync_test(
             .await
             .unwrap();
 
-        // Store the envelope and Full state for the block (required for Gloas).
+        // Store the envelope and apply it to fork choice.
         if let Some(envelope) = &snapshot.execution_envelope {
             beacon_chain
                 .store
                 .put_payload_envelope(&block_root, envelope)
-                .unwrap();
-            let full_state_root = snapshot.beacon_block.state_root();
-            beacon_chain
-                .store
-                .put_state(&full_state_root, &snapshot.beacon_state)
                 .unwrap();
             // Update fork choice so head selection accounts for Full payload status.
             beacon_chain
@@ -3896,7 +3878,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     // - one that is invalid because it conflicts with finalization (slot <= finalized_slot)
     // - one that is valid because its slot is not finalized (slot > finalized_slot)
     //
-    // Note: block verification uses finalized_checkpoint.epoch.start_slot() (=
+    // Note: block verification uses finalized_checkpoint.epoch.start_slot() (==
     // finalized_epoch_start_slot) for the finalized slot check.
     let (unadvanced_split_state, unadvanced_split_state_root) =
         harness.get_current_state_and_root();
@@ -5686,7 +5668,7 @@ async fn test_gloas_block_and_envelope_storage_generic(
             stored_states.push((slot, state_root));
         }
 
-        let (block_contents, envelope, mut pending_state) =
+        let (block_contents, envelope, mut post_block_state) =
             harness.make_block_with_envelope(state, slot).await;
         let block_root = block_contents.0.canonical_root();
 
@@ -5696,18 +5678,17 @@ async fn test_gloas_block_and_envelope_storage_generic(
             .await
             .unwrap();
 
-        let pending_state_root = pending_state.update_tree_hash_cache().unwrap();
-        stored_states.push((slot, pending_state_root));
+        let state_root = post_block_state.update_tree_hash_cache().unwrap();
+        stored_states.push((slot, state_root));
 
         // Process the envelope.
         let envelope = envelope.expect("Gloas block should have envelope");
-        let full_state = pending_state.clone();
         harness
-            .process_envelope(block_root, envelope, &full_state, pending_state_root)
+            .process_envelope(block_root, envelope, &post_block_state, state_root)
             .await;
 
         block_roots.push(block_root);
-        state = full_state;
+        state = post_block_state;
     }
 
     // Verify block storage.

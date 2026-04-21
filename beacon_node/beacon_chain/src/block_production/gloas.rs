@@ -36,7 +36,8 @@ use types::{
 
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockProductionError,
-    ProduceBlockVerification, graffiti_calculator::GraffitiSettings, metrics,
+    ProduceBlockVerification, block_production::BlockProductionState,
+    graffiti_calculator::GraffitiSettings, metrics,
 };
 
 pub const BID_VALUE_SELF_BUILD: u64 = 0;
@@ -89,7 +90,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // Load the parent state from disk.
         let chain = self.clone();
-        let (state, state_root_opt, parent_payload_status, parent_envelope) = self
+        let block_production_state = self
             .task_executor
             .spawn_blocking_handle(
                 move || chain.load_state_for_block_production(slot),
@@ -98,6 +99,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(BlockProductionError::ShuttingDown)?
             .await
             .map_err(BlockProductionError::TokioJoin)??;
+        let BlockProductionState {
+            state,
+            state_root: state_root_opt,
+            parent_payload_status,
+            parent_envelope,
+        } = block_production_state;
 
         // Part 2/2 (async, with some blocking components)
         //
@@ -888,11 +895,7 @@ where
     let suggested_fee_recipient = execution_layer
         .get_suggested_fee_recipient(proposer_index)
         .await;
-    let slot_number = if fork.gloas_enabled() {
-        Some(builder_params.slot.as_u64())
-    } else {
-        None
-    };
+    let slot_number = Some(builder_params.slot.as_u64());
 
     let payload_attributes = PayloadAttributes::new(
         timestamp,

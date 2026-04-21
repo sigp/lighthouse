@@ -13,25 +13,24 @@ use crate::{
 
 mod gloas;
 
+/// State loaded from the database for block production.
+pub(crate) struct BlockProductionState<E: types::EthSpec> {
+    pub state: BeaconState<E>,
+    pub state_root: Option<Hash256>,
+    pub parent_payload_status: PayloadStatus,
+    pub parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+}
+
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Load a beacon state from the database for block production. This is a long-running process
     /// that should not be performed in an `async` context.
     ///
     /// The returned `PayloadStatus` is the payload status of the parent block to be built upon.
     #[instrument(skip_all, level = "debug")]
-    #[allow(clippy::type_complexity)]
     pub(crate) fn load_state_for_block_production(
         self: &Arc<Self>,
         slot: Slot,
-    ) -> Result<
-        (
-            BeaconState<T::EthSpec>,
-            Option<Hash256>,
-            PayloadStatus,
-            Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
-        ),
-        BlockProductionError,
-    > {
+    ) -> Result<BlockProductionState<T::EthSpec>, BlockProductionError> {
         let fork_choice_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_FORK_CHOICE_TIMES);
         self.wait_for_fork_choice_before_block_production(slot)?;
         drop(fork_choice_timer);
@@ -51,7 +50,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 head.snapshot.execution_envelope.clone(),
             )
         };
-        let (state, state_root_opt, payload_status, parent_envelope) = if head_slot < slot {
+        let result = if head_slot < slot {
             // Attempt an aggressive re-org if configured and the conditions are right.
             // TODO(gloas): re-enable reorgs
             let gloas_enabled = self
@@ -67,13 +66,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     head_to_reorg = %head_block_root,
                     "Proposing block to re-org current head"
                 );
-                // TODO(gloas): fix payload status for reorg feature
-                (
-                    re_org_state,
-                    Some(re_org_state_root),
-                    PayloadStatus::Pending,
-                    None,
-                )
+                // TODO(gloas): ensure we use a sensible payload status when we enable reorgs
+                // for Gloas
+                BlockProductionState {
+                    state: re_org_state,
+                    state_root: Some(re_org_state_root),
+                    parent_payload_status: PayloadStatus::Pending,
+                    parent_envelope: None,
+                }
             } else {
                 // Fetch the head state advanced through to `slot`, which should be present in the
                 // state cache thanks to the state advance timer.
@@ -83,7 +83,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .get_advanced_hot_state(head_block_root, slot, parent_state_root)
                     .map_err(BlockProductionError::FailedToLoadState)?
                     .ok_or(BlockProductionError::UnableToProduceAtSlot(slot))?;
-                (state, Some(state_root), head_payload_status, head_envelope)
+                BlockProductionState {
+                    state,
+                    state_root: Some(state_root),
+                    parent_payload_status: head_payload_status,
+                    parent_envelope: head_envelope,
+                }
             }
         } else {
             warn!(
@@ -95,14 +100,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
                 .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
 
-            // TODO(gloas): unclear what the default should be here
-            // maybe this whole branch should just go in the bin
-            (state, None, PayloadStatus::Full, None)
+            // TODO(gloas): update this to read payload canonicity from fork choice once ready
+            let parent_payload_status = PayloadStatus::Pending;
+            BlockProductionState {
+                state,
+                state_root: None,
+                parent_payload_status,
+                parent_envelope: None,
+            }
         };
 
         drop(state_load_timer);
 
-        Ok((state, state_root_opt, payload_status, parent_envelope))
+        Ok(result)
     }
 
     /// If configured, wait for the fork choice run at the start of the slot to complete.

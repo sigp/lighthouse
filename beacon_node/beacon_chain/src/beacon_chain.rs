@@ -4559,7 +4559,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // Load the parent state from disk.
         let chain = self.clone();
-        let (state, state_root_opt, _parent_payload_status, _parent_envelope) = self
+        let block_production_state = self
             .task_executor
             .spawn_blocking_handle(
                 move || chain.load_state_for_block_production(slot),
@@ -4568,6 +4568,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(BlockProductionError::ShuttingDown)?
             .await
             .map_err(BlockProductionError::TokioJoin)??;
+        let (state, state_root_opt) = (
+            block_production_state.state,
+            block_production_state.state_root,
+        );
 
         // Part 2/2 (async, with some blocking components)
         //
@@ -6748,15 +6752,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             blocks.push((beacon_block_root, Arc::new(beacon_block)));
         }
 
-        // Collect states, using the next blocks to determine if states are full (have Gloas
-        // payloads).
+        // Collect envelopes, using the next blocks to determine if payloads are canonical
+        // (the parent block was full).
         for (i, (block_root, block)) in blocks.iter().enumerate() {
             let opt_envelope = if block.fork_name_unchecked().gloas_enabled() {
                 let opt_envelope = self.store.get_payload_envelope(block_root)?.map(Arc::new);
 
                 if let Some((_, next_block)) = blocks.get(i + 1) {
                     let block_hash = block.payload_bid_block_hash()?;
-                    if block.slot() > 0 && next_block.is_parent_block_full(block_hash) {
+                    if next_block.is_parent_block_full(block_hash) {
                         let envelope = opt_envelope.ok_or_else(|| {
                             Error::DBInconsistent(format!("Missing envelope {block_root:?}"))
                         })?;
