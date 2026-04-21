@@ -87,12 +87,13 @@ mod tests {
 
     fn make_envelope(slot: Slot) -> ExecutionPayloadEnvelope<E> {
         ExecutionPayloadEnvelope {
-            payload: ExecutionPayloadGloas::default(),
+            payload: ExecutionPayloadGloas {
+                slot_number: slot,
+                ..ExecutionPayloadGloas::default()
+            },
             execution_requests: ExecutionRequests::default(),
             builder_index: 0,
             beacon_block_root: Hash256::ZERO,
-            slot,
-            state_root: Hash256::ZERO,
         }
     }
 

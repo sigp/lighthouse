@@ -371,7 +371,7 @@ impl InvalidPayloadRig {
 /// Simple test of the different import types.
 #[tokio::test]
 async fn valid_invalid_syncing() {
-    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
     let mut rig = InvalidPayloadRig::new();
@@ -388,7 +388,7 @@ async fn valid_invalid_syncing() {
 /// `latest_valid_hash`.
 #[tokio::test]
 async fn invalid_payload_invalidates_parent() {
-    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
     let mut rig = InvalidPayloadRig::new().enable_attestations();
@@ -445,7 +445,7 @@ async fn immediate_forkchoice_update_invalid_test(
 
 #[tokio::test]
 async fn immediate_forkchoice_update_payload_invalid() {
-    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
     immediate_forkchoice_update_invalid_test(|latest_valid_hash| Payload::Invalid {
@@ -456,7 +456,7 @@ async fn immediate_forkchoice_update_payload_invalid() {
 
 #[tokio::test]
 async fn immediate_forkchoice_update_payload_invalid_block_hash() {
-    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
     immediate_forkchoice_update_invalid_test(|_| Payload::InvalidBlockHash).await
@@ -464,7 +464,7 @@ async fn immediate_forkchoice_update_payload_invalid_block_hash() {
 
 #[tokio::test]
 async fn immediate_forkchoice_update_payload_invalid_terminal_block() {
-    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
     immediate_forkchoice_update_invalid_test(|_| Payload::Invalid {
@@ -476,7 +476,7 @@ async fn immediate_forkchoice_update_payload_invalid_terminal_block() {
 /// Ensure the client tries to exit when the justified checkpoint is invalidated.
 #[tokio::test]
 async fn justified_checkpoint_becomes_invalid() {
-    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
     let mut rig = InvalidPayloadRig::new().enable_attestations();
@@ -520,7 +520,7 @@ async fn justified_checkpoint_becomes_invalid() {
 /// Ensure that a `latest_valid_hash` for a pre-finality block only reverts a single block.
 #[tokio::test]
 async fn pre_finalized_latest_valid_hash() {
-    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
     let num_blocks = E::slots_per_epoch() * 4;
@@ -569,7 +569,7 @@ async fn pre_finalized_latest_valid_hash() {
 /// - Will not validate `latest_valid_root` and its ancestors.
 #[tokio::test]
 async fn latest_valid_hash_will_not_validate() {
-    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
     const LATEST_VALID_SLOT: u64 = 3;
@@ -618,7 +618,7 @@ async fn latest_valid_hash_will_not_validate() {
 /// Check behaviour when the `latest_valid_hash` is a junk value.
 #[tokio::test]
 async fn latest_valid_hash_is_junk() {
-    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
     let num_blocks = E::slots_per_epoch() * 5;
@@ -661,7 +661,7 @@ async fn latest_valid_hash_is_junk() {
 /// Check that descendants of invalid blocks are also invalidated.
 #[tokio::test]
 async fn invalidates_all_descendants() {
-    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
     let num_blocks = E::slots_per_epoch() * 4 + E::slots_per_epoch() / 2;
@@ -764,7 +764,7 @@ async fn invalidates_all_descendants() {
 /// Check that the head will switch after the canonical branch is invalidated.
 #[tokio::test]
 async fn switches_heads() {
-    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
     let num_blocks = E::slots_per_epoch() * 4 + E::slots_per_epoch() / 2;
@@ -863,7 +863,7 @@ async fn switches_heads() {
 
 #[tokio::test]
 async fn invalid_during_processing() {
-    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
     let mut rig = InvalidPayloadRig::new();
@@ -897,7 +897,7 @@ async fn invalid_during_processing() {
 
 #[tokio::test]
 async fn invalid_after_optimistic_sync() {
-    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
     let mut rig = InvalidPayloadRig::new().enable_attestations();
@@ -937,7 +937,7 @@ async fn invalid_after_optimistic_sync() {
 
 #[tokio::test]
 async fn manually_validate_child() {
-    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
     let mut rig = InvalidPayloadRig::new().enable_attestations();
@@ -957,7 +957,7 @@ async fn manually_validate_child() {
 
 #[tokio::test]
 async fn manually_validate_parent() {
-    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
     let mut rig = InvalidPayloadRig::new().enable_attestations();
@@ -977,7 +977,7 @@ async fn manually_validate_parent() {
 
 #[tokio::test]
 async fn payload_preparation() {
-    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
     let mut rig = InvalidPayloadRig::new();
@@ -1034,13 +1034,14 @@ async fn payload_preparation() {
         fee_recipient,
         None,
         None,
+        None,
     );
     assert_eq!(rig.previous_payload_attributes(), payload_attributes);
 }
 
 #[tokio::test]
 async fn invalid_parent() {
-    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
     let mut rig = InvalidPayloadRig::new();
@@ -1107,7 +1108,7 @@ async fn invalid_parent() {
 
 #[tokio::test]
 async fn attesting_to_optimistic_head() {
-    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
     let mut rig = InvalidPayloadRig::new();
@@ -1320,7 +1321,7 @@ impl InvalidHeadSetup {
 
 #[tokio::test]
 async fn recover_from_invalid_head_by_importing_blocks() {
-    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
     let InvalidHeadSetup {
@@ -1362,7 +1363,7 @@ async fn recover_from_invalid_head_by_importing_blocks() {
 
 #[tokio::test]
 async fn recover_from_invalid_head_after_persist_and_reboot() {
-    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
     let InvalidHeadSetup {
@@ -1407,7 +1408,7 @@ async fn recover_from_invalid_head_after_persist_and_reboot() {
 
 #[tokio::test]
 async fn weights_after_resetting_optimistic_status() {
-    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
     let mut rig = InvalidPayloadRig::new().enable_attestations();

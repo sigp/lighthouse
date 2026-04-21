@@ -1389,13 +1389,18 @@ async fn attestation_to_finalized_block() {
     let earlier_block_root = earlier_block.canonical_root();
     assert_ne!(earlier_block_root, finalized_checkpoint.root);
 
+    // For Gloas, `block.state_root()` returns the pending state root, but the cold DB
+    // may store the full state root. Use `get_cold_state_root` to get the actual stored key.
+    let cold_state_root = harness
+        .chain
+        .store
+        .get_cold_state_root(earlier_slot)
+        .expect("should not error getting cold state root")
+        .expect("cold state root should be present for finalized slot in archive store");
+
     let mut state = harness
         .chain
-        .get_state(
-            &earlier_block.state_root(),
-            Some(earlier_slot),
-            CACHE_STATE_IN_TESTS,
-        )
+        .get_state(&cold_state_root, Some(earlier_slot), CACHE_STATE_IN_TESTS)
         .expect("should not error getting state")
         .expect("should find state");
 

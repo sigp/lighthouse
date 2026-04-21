@@ -5,7 +5,7 @@ use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yam
 use serde::Deserialize;
 use ssz::Decode;
 use state_processing::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
-use state_processing::envelope_processing::VerifyStateRoot;
+use state_processing::envelope_processing::verify_execution_payload_envelope;
 use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::per_block_processing::process_operations::{
     process_consolidation_requests, process_deposit_requests_post_gloas,
@@ -13,7 +13,7 @@ use state_processing::per_block_processing::process_operations::{
 };
 use state_processing::{
     ConsensusContext,
-    envelope_processing::{EnvelopeProcessingError, process_execution_payload_envelope},
+    envelope_processing::EnvelopeProcessingError,
     per_block_processing::{
         VerifyBlockRoot, VerifySignatures,
         errors::BlockProcessingError,
@@ -23,7 +23,7 @@ use state_processing::{
             process_bls_to_execution_changes, process_deposits, process_exits,
             process_payload_attestation, process_proposer_slashings,
         },
-        process_sync_aggregate, withdrawals,
+        process_parent_execution_payload, process_sync_aggregate, withdrawals,
     },
 };
 use std::fmt::Debug;
@@ -56,6 +56,12 @@ pub struct WithdrawalsPayload<E: EthSpec> {
 /// Newtype for testing execution payload bids.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExecutionPayloadBidBlock<E: EthSpec> {
+    block: BeaconBlock<E>,
+}
+
+/// Newtype for testing parent execution payload processing.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ParentExecutionPayloadBlock<E: EthSpec> {
     block: BeaconBlock<E>,
 }
 
@@ -441,8 +447,10 @@ impl<E: EthSpec> Operation<E> for SignedExecutionPayloadEnvelope<E> {
         "signed_envelope.ssz_snappy".into()
     }
 
-    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name.gloas_enabled()
+    fn is_enabled_for_fork(_fork_name: ForkName) -> bool {
+        // TODO(gloas): re-enable this test when enabled upstream
+        // fork_name.gloas_enabled()
+        false
     }
 
     fn decode(path: &Path, _: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
@@ -460,12 +468,12 @@ impl<E: EthSpec> Operation<E> for SignedExecutionPayloadEnvelope<E> {
             .as_ref()
             .is_some_and(|e| e.execution_valid);
         if valid {
-            process_execution_payload_envelope(
+            let block_state_root = state.update_tree_hash_cache()?;
+            verify_execution_payload_envelope(
                 state,
-                None,
                 self,
                 VerifySignatures::True,
-                VerifyStateRoot::True,
+                block_state_root,
                 spec,
             )
         } else {
@@ -502,6 +510,36 @@ impl<E: EthSpec> Operation<E> for ExecutionPayloadBidBlock<E> {
     ) -> Result<(), BlockProcessingError> {
         process_execution_payload_bid(state, self.block.to_ref(), VerifySignatures::True, spec)?;
         Ok(())
+    }
+}
+
+impl<E: EthSpec> Operation<E> for ParentExecutionPayloadBlock<E> {
+    type Error = BlockProcessingError;
+
+    fn handler_name() -> String {
+        "parent_execution_payload".into()
+    }
+
+    fn filename() -> String {
+        "block.ssz_snappy".into()
+    }
+
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        fork_name.gloas_enabled()
+    }
+
+    fn decode(path: &Path, _fork_name: ForkName, spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file_with(path, |bytes| BeaconBlock::from_ssz_bytes(bytes, spec))
+            .map(|block| ParentExecutionPayloadBlock { block })
+    }
+
+    fn apply_to(
+        &self,
+        state: &mut BeaconState<E>,
+        spec: &ChainSpec,
+        _: &Operations<E, Self>,
+    ) -> Result<(), BlockProcessingError> {
+        process_parent_execution_payload(state, self.block.to_ref(), spec)
     }
 }
 
