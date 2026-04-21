@@ -951,7 +951,7 @@ async fn queue_attestations_from_http() {
 // gossip clock disparity (500ms) of the new epoch.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn proposer_duties_with_gossip_tolerance() {
-    let validator_count = 24;
+    let validator_count = 64;
 
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
     let harness = &tester.harness;
@@ -1058,7 +1058,7 @@ async fn proposer_duties_with_gossip_tolerance() {
 // within gossip clock disparity (500ms) of the new epoch.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn proposer_duties_v2_with_gossip_tolerance() {
-    let validator_count = 24;
+    let validator_count = 64;
 
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
     let harness = &tester.harness;
@@ -1300,7 +1300,7 @@ async fn lighthouse_restart_custody_backfill() {
         return;
     }
 
-    let validator_count = 24;
+    let validator_count = 64;
 
     let tester = InteractiveTester::<E>::new_supernode(Some(spec), validator_count).await;
     let harness = &tester.harness;
@@ -1367,7 +1367,7 @@ async fn lighthouse_custody_info() {
     spec.min_epochs_for_blob_sidecars_requests = 2;
     spec.min_epochs_for_data_column_sidecars_requests = 2;
 
-    let validator_count = 24;
+    let validator_count = 64;
 
     let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
     let harness = &tester.harness;

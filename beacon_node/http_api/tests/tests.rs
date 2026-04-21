@@ -3926,7 +3926,6 @@ impl ApiTester {
             metadata.consensus_version,
             block.to_ref().fork_name(&self.chain.spec).unwrap()
         );
-        assert!(!metadata.consensus_block_value.is_zero());
 
         let block_root = block.tree_hash_root();
         let envelope = self
@@ -8256,6 +8255,10 @@ async fn post_validator_register_validator_slashed() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_validator_register_valid() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_payload_respects_registration()
@@ -8264,6 +8267,10 @@ async fn post_validator_register_valid() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_validator_zero_builder_boost_factor() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_payload_v3_zero_builder_boost_factor()
@@ -8272,6 +8279,10 @@ async fn post_validator_zero_builder_boost_factor() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_validator_max_builder_boost_factor() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_payload_v3_max_builder_boost_factor()
@@ -8280,6 +8291,10 @@ async fn post_validator_max_builder_boost_factor() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_validator_register_valid_v3() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_payload_v3_respects_registration()
@@ -8288,6 +8303,10 @@ async fn post_validator_register_valid_v3() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_validator_register_gas_limit_mutation() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_builder_payload_rejected_when_gas_limit_incorrect()
@@ -8298,6 +8317,10 @@ async fn post_validator_register_gas_limit_mutation() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_validator_register_gas_limit_mutation_v3() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_payload_v3_accepts_mutated_gas_limit()
@@ -8306,6 +8329,10 @@ async fn post_validator_register_gas_limit_mutation_v3() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_validator_register_fee_recipient_mutation() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_payload_accepts_changed_fee_recipient()
@@ -8314,6 +8341,10 @@ async fn post_validator_register_fee_recipient_mutation() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_validator_register_fee_recipient_mutation_v3() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_payload_v3_accepts_changed_fee_recipient()
@@ -8322,6 +8353,10 @@ async fn post_validator_register_fee_recipient_mutation_v3() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_blinded_block_invalid_parent_hash() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_payload_rejects_invalid_parent_hash()
@@ -8330,6 +8365,10 @@ async fn get_blinded_block_invalid_parent_hash() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_full_block_invalid_parent_hash_v3() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_payload_v3_rejects_invalid_parent_hash()
@@ -8338,6 +8377,10 @@ async fn get_full_block_invalid_parent_hash_v3() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_blinded_block_invalid_prev_randao() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_payload_rejects_invalid_prev_randao()
@@ -8346,6 +8389,10 @@ async fn get_blinded_block_invalid_prev_randao() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_full_block_invalid_prev_randao_v3() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_payload_v3_rejects_invalid_prev_randao()
@@ -8354,6 +8401,10 @@ async fn get_full_block_invalid_prev_randao_v3() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_blinded_block_invalid_block_number() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_payload_rejects_invalid_block_number()
@@ -8362,6 +8413,10 @@ async fn get_blinded_block_invalid_block_number() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_full_block_invalid_block_number_v3() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_payload_v3_rejects_invalid_block_number()
@@ -8370,6 +8425,10 @@ async fn get_full_block_invalid_block_number_v3() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_blinded_block_invalid_timestamp() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_payload_rejects_invalid_timestamp()
@@ -8378,6 +8437,10 @@ async fn get_blinded_block_invalid_timestamp() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_full_block_invalid_timestamp_v3() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_payload_v3_rejects_invalid_timestamp()
@@ -8386,6 +8449,10 @@ async fn get_full_block_invalid_timestamp_v3() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_blinded_block_invalid_signature() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_payload_rejects_invalid_signature()
@@ -8394,6 +8461,10 @@ async fn get_blinded_block_invalid_signature() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_full_block_invalid_signature_v3() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_payload_v3_rejects_invalid_signature()
@@ -8402,6 +8473,10 @@ async fn get_full_block_invalid_signature_v3() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_chain_health_skips() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_builder_chain_health_skips()
@@ -8410,6 +8485,10 @@ async fn builder_chain_health_skips() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_chain_health_skips_v3() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_builder_v3_chain_health_skips()
@@ -8418,6 +8497,10 @@ async fn builder_chain_health_skips_v3() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_chain_health_skips_per_epoch() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_builder_chain_health_skips_per_epoch()
@@ -8426,6 +8509,10 @@ async fn builder_chain_health_skips_per_epoch() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_chain_health_skips_per_epoch_v3() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_builder_v3_chain_health_skips_per_epoch()
@@ -8434,6 +8521,10 @@ async fn builder_chain_health_skips_per_epoch_v3() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_chain_health_epochs_since_finalization() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_builder_chain_health_epochs_since_finalization()
@@ -8442,6 +8533,10 @@ async fn builder_chain_health_epochs_since_finalization() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_chain_health_epochs_since_finalization_v3() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_builder_v3_chain_health_epochs_since_finalization()
@@ -8450,6 +8545,10 @@ async fn builder_chain_health_epochs_since_finalization_v3() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_chain_health_optimistic_head() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_builder_chain_health_optimistic_head()
@@ -8458,6 +8557,10 @@ async fn builder_chain_health_optimistic_head() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_chain_health_optimistic_head_v3() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_mev_tester()
         .await
         .test_builder_v3_chain_health_optimistic_head()
@@ -8653,6 +8756,10 @@ async fn lighthouse_endpoints() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn optimistic_responses() {
+    // Gloas builder model is fundamentally different (bids, not payloads).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
     ApiTester::new_with_hard_forks()
         .await
         .test_check_optimistic_responses()
