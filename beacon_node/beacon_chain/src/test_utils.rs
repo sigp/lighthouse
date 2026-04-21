@@ -2701,7 +2701,7 @@ where
         Ok(block_hash)
     }
 
-    /// Verify an execution payload envelope for a Gloas block.
+    /// Verify and process (with fork choice) an execution payload envelope for a Gloas block.
     pub async fn process_envelope(
         &self,
         block_root: Hash256,

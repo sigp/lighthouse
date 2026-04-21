@@ -4148,16 +4148,12 @@ async fn schema_downgrade_to_min_version(store_config: StoreConfig, archive: boo
 
     check_finalization(&harness, num_blocks_produced);
     check_split_slot(&harness, store.clone());
-    // TODO(EIP-7732): chain_dump and iterators trigger BlockReplayer pending/full state root
-    // mismatch for Gloas finalized blocks. Skip until the BlockReplayer bug is fixed.
-    if !is_gloas {
-        check_chain_dump_from_slot(
-            &harness,
-            chain_dump_start_slot,
-            num_blocks_produced + 1 - chain_dump_start_slot.as_u64(),
-        );
-        check_iterators_from_slot(&harness, chain_dump_start_slot);
-    }
+    check_chain_dump_from_slot(
+        &harness,
+        chain_dump_start_slot,
+        num_blocks_produced + 1 - chain_dump_start_slot.as_u64(),
+    );
+    check_iterators_from_slot(&harness, chain_dump_start_slot);
 
     // Check that downgrading beyond the minimum version fails (bound is *tight*).
     let min_version_sub_1 = SchemaVersion(min_version.as_u64().checked_sub(1).unwrap());
