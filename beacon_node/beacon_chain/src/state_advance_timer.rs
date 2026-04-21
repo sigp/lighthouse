@@ -273,11 +273,8 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
     }
 
     let (head_block_root, head_block_state_root) = {
-        let cached_head = beacon_chain.canonical_head.cached_head();
-        (
-            cached_head.snapshot.beacon_block_root,
-            cached_head.snapshot.beacon_state_root(),
-        )
+        let snapshot = beacon_chain.head_snapshot();
+        (snapshot.beacon_block_root, snapshot.beacon_state_root())
     };
 
     let (head_state_root, mut state) = beacon_chain
