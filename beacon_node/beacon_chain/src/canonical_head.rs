@@ -817,7 +817,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let el_update_handle = spawn_execution_layer_updates(
             self.clone(),
             new_forkchoice_update_parameters,
-            new_payload_status.as_state_payload_status(),
+            new_payload_status,
         )?;
 
         // We have completed recomputing the head and it's now valid for another process to do the
@@ -1176,7 +1176,7 @@ fn perform_debug_logging<T: BeaconChainTypes>(
 fn spawn_execution_layer_updates<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     forkchoice_update_params: ForkchoiceUpdateParameters,
-    head_payload_status: StatePayloadStatus,
+    head_payload_status: PayloadStatus,
 ) -> Result<JoinHandle<Option<()>>, Error> {
     let current_slot = chain
         .slot_clock

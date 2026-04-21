@@ -4706,7 +4706,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         proposal_slot: Slot,
     ) -> Result<Withdrawals<T::EthSpec>, Error> {
         let cached_head = self.canonical_head.cached_head();
-        let head_payload_status = cached_head.head_payload_status().as_state_payload_status();
+        // TODO(gloas): wire this up again
+        let _head_payload_status = cached_head.head_payload_status();
         let head_state = &cached_head.snapshot.beacon_state;
 
         let parent_block_root = forkchoice_update_params.head_root;
@@ -5961,8 +5962,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         fcu_params.head_root,
                         &cached_head,
                     )?;
-                    let head_payload_status =
-                        cached_head.head_payload_status().as_state_payload_status();
+                    let head_payload_status = cached_head.head_payload_status();
                     Ok::<_, Error>(Some((
                         fcu_params,
                         pre_payload_attributes,
@@ -6122,7 +6122,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         current_slot: Slot,
         input_params: ForkchoiceUpdateParameters,
-        head_payload_status: StatePayloadStatus,
+        head_payload_status: fork_choice::PayloadStatus,
         override_forkchoice_update: OverrideForkchoiceUpdate,
     ) -> Result<(), Error> {
         let execution_layer = self

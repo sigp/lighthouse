@@ -24,7 +24,7 @@ use tokio::time::sleep;
 use types::execution::BlockProductionVersion;
 use types::{
     Address, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
-    ForkName, Hash256, MainnetEthSpec, Slot, StatePayloadStatus, Uint256,
+    ForkName, Hash256, MainnetEthSpec, Slot, Uint256,
 };
 
 const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(60);
@@ -201,7 +201,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
         self.wait_until_synced().await;
 
         // TODO(gloas): this needs to be for post-Gloas cases
-        let head_payload_status = StatePayloadStatus::Pending;
+        let head_payload_status = fork_choice::PayloadStatus::Pending;
 
         // Create a local signer in case we need to sign transactions locally
         let private_key_signer: PrivateKeySigner =
@@ -311,7 +311,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             .insert_proposer(
                 Slot::new(1), // Insert proposer for the next slot
                 head_root,
-                StatePayloadStatus::Pending,
+                fork_choice::PayloadStatus::Pending,
                 proposer_index,
                 PayloadAttributes::new(
                     timestamp,

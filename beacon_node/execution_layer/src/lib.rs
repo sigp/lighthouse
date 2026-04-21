@@ -1462,7 +1462,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         slot: Slot,
         head_block_root: Hash256,
-        head_payload_status: StatePayloadStatus,
+        head_payload_status: fork_choice::PayloadStatus,
         validator_index: u64,
         payload_attributes: PayloadAttributes,
     ) -> bool {
@@ -1494,7 +1494,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         current_slot: Slot,
         head_block_root: Hash256,
-        head_payload_status: StatePayloadStatus,
+        head_payload_status: fork_choice::PayloadStatus,
     ) -> Option<PayloadAttributes> {
         let proposers_key = ProposerKey {
             slot: current_slot,
@@ -1523,7 +1523,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         finalized_block_hash: ExecutionBlockHash,
         current_slot: Slot,
         head_block_root: Hash256,
-        head_payload_status: StatePayloadStatus,
+        head_payload_status: fork_choice::PayloadStatus,
     ) -> Result<PayloadStatus, Error> {
         let _timer = metrics::start_timer_vec(
             &metrics::EXECUTION_LAYER_REQUEST_TIMES,

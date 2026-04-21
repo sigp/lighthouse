@@ -36,8 +36,7 @@ use types::builder::{
 use types::{
     Address, BeaconState, ChainSpec, Epoch, EthSpec, ExecPayload, ExecutionPayload,
     ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionDecode, Hash256,
-    SignedBlindedBeaconBlock, SignedRoot, SignedValidatorRegistrationData, Slot,
-    StatePayloadStatus, Uint256,
+    SignedBlindedBeaconBlock, SignedRoot, SignedValidatorRegistrationData, Slot, Uint256,
 };
 use warp::reply::{self, Reply};
 use warp::{Filter, Rejection};
@@ -801,9 +800,9 @@ impl<E: EthSpec> MockBuilder<E> {
 
         let head_block_root = head_block_root.unwrap_or(head.canonical_root());
 
-        // TODO(gloas): currently the tests are pre-Gloas and we are not considering
-        // other payload statuses. edit once the epbs features are added here.
-        let head_payload_status = StatePayloadStatus::Pending;
+        // TODO(gloas): Currently the tests are pre-Gloas and we are not considering
+        // other payload statuses. This codepath may not be relevant for Gloas.
+        let head_payload_status = fork_choice::PayloadStatus::Pending;
 
         let head_execution_payload = head
             .message()

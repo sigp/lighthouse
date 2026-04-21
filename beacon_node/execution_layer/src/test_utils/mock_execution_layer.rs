@@ -90,7 +90,8 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         let timestamp = block_number;
         let prev_randao = Hash256::from_low_u64_be(block_number);
         let head_block_root = Hash256::repeat_byte(42);
-        let head_payload_status = StatePayloadStatus::Pending;
+        // TODO(gloas): allow statuses other than Pending?
+        let head_payload_status = fork_choice::PayloadStatus::Pending;
         let forkchoice_update_params = ForkchoiceUpdateParameters {
             head_root: head_block_root,
             head_hash: Some(parent_hash),
@@ -296,7 +297,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
                 ExecutionBlockHash::zero(),
                 slot,
                 head_block_root,
-                StatePayloadStatus::Pending,
+                fork_choice::PayloadStatus::Pending,
             )
             .await
             .unwrap();
