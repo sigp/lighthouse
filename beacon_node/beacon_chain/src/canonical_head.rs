@@ -43,8 +43,8 @@ use crate::{
 };
 use eth2::types::{EventKind, SseChainReorg, SseFinalizedCheckpoint, SseLateHead};
 use fork_choice::{
-    ExecutionStatus, ForkChoiceStore, ForkChoiceView, ForkchoiceUpdateParameters, ProtoBlock,
-    ResetPayloadStatuses,
+    ExecutionStatus, ForkChoiceStore, ForkChoiceView, ForkchoiceUpdateParameters, PayloadStatus,
+    ProtoBlock, ResetPayloadStatuses,
 };
 use itertools::process_results;
 
@@ -315,20 +315,22 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             .ok_or(Error::MissingBeaconBlock(beacon_block_root))?;
         let current_slot = fork_choice.fc_store().get_current_slot();
 
-        // TODO(gloas): pass a better payload status once fork choice is implemented
-        let payload_status = StatePayloadStatus::Pending;
         let (_, beacon_state) = store
-            .get_advanced_hot_state(
-                beacon_block_root,
-                payload_status,
-                current_slot,
-                beacon_block.state_root(),
-            )?
+            .get_advanced_hot_state(beacon_block_root, current_slot, beacon_block.state_root())?
             .ok_or(Error::MissingBeaconState(beacon_block.state_root()))?;
+
+        // Load the execution envelope from the store if the head has a Full payload.
+        let execution_envelope = if head_payload_status == PayloadStatus::Full {
+            store
+                .get_payload_envelope(&beacon_block_root)?
+                .map(Arc::new)
+        } else {
+            None
+        };
 
         let snapshot = BeaconSnapshot {
             beacon_block_root,
-            execution_envelope: None,
+            execution_envelope,
             beacon_block: Arc::new(beacon_block),
             beacon_state,
         };
@@ -683,30 +685,42 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(fork_choice_read_lock);
 
         // If the head has changed, update `self.canonical_head`.
-        let new_cached_head = if new_view.head_block_root != old_view.head_block_root {
+        let new_cached_head = if new_view.head_block_root != old_view.head_block_root
+            || new_payload_status != old_payload_status
+        {
             metrics::inc_counter(&metrics::FORK_CHOICE_CHANGED_HEAD);
 
+            // TODO(gloas): could optimise this to reuse state and rest of snapshot if just the
+            // payload status has changed.
             let mut new_snapshot = {
                 let beacon_block = self
                     .store
                     .get_full_block(&new_view.head_block_root)?
                     .ok_or(Error::MissingBeaconBlock(new_view.head_block_root))?;
 
-                // TODO(gloas): update once we have fork choice
-                let payload_status = StatePayloadStatus::Pending;
+                // Load the execution envelope from the store if the head has a Full payload.
+                let state_root = beacon_block.state_root();
+                let execution_envelope = if new_payload_status == PayloadStatus::Full {
+                    let envelope = self
+                        .store
+                        .get_payload_envelope(&new_view.head_block_root)?
+                        .map(Arc::new)
+                        .ok_or(Error::MissingExecutionPayloadEnvelope(
+                            new_view.head_block_root,
+                        ))?;
+
+                    Some(envelope)
+                } else {
+                    None
+                };
                 let (_, beacon_state) = self
                     .store
-                    .get_advanced_hot_state(
-                        new_view.head_block_root,
-                        payload_status,
-                        current_slot,
-                        beacon_block.state_root(),
-                    )?
-                    .ok_or(Error::MissingBeaconState(beacon_block.state_root()))?;
+                    .get_advanced_hot_state(new_view.head_block_root, current_slot, state_root)?
+                    .ok_or(Error::MissingBeaconState(state_root))?;
 
                 BeaconSnapshot {
                     beacon_block: Arc::new(beacon_block),
-                    execution_envelope: None,
+                    execution_envelope,
                     beacon_block_root: new_view.head_block_root,
                     beacon_state,
                 }
@@ -770,7 +784,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let old_snapshot = &old_cached_head.snapshot;
 
         // If the head changed, perform some updates.
-        if new_snapshot.beacon_block_root != old_snapshot.beacon_block_root
+        if (new_snapshot.beacon_block_root != old_snapshot.beacon_block_root
+            || new_payload_status != old_payload_status)
             && let Err(e) =
                 self.after_new_head(&old_cached_head, &new_cached_head, new_head_proto_block)
         {
@@ -974,26 +989,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // The store migration task and op pool pruning require the *state at the first slot of the
         // finalized epoch*, rather than the state of the latest finalized block. These two values
         // will only differ when the first slot of the finalized epoch is a skip slot.
-        //
-        // Use the `StateRootsIterator` directly rather than `BeaconChain::state_root_at_slot`
-        // to ensure we use the same state that we just set as the head.
         let new_finalized_slot = new_view
             .finalized_checkpoint
             .epoch
             .start_slot(T::EthSpec::slots_per_epoch());
-        let new_finalized_state_root = process_results(
-            StateRootsIterator::new(&self.store, &new_snapshot.beacon_state),
-            |mut iter| {
-                iter.find_map(|(state_root, slot)| {
-                    if slot == new_finalized_slot {
-                        Some(state_root)
-                    } else {
-                        None
-                    }
-                })
-            },
-        )?
-        .ok_or(Error::MissingFinalizedStateRoot(new_finalized_slot))?;
+        let new_finalized_state_root = if new_finalized_slot == finalized_proto_block.slot {
+            // Fast-path for the common case where the finalized state is not at a skipped slot.
+            finalized_proto_block.state_root
+        } else {
+            // Use the `StateRootsIterator` directly rather than `BeaconChain::state_root_at_slot`
+            // to ensure we use the same state that we just set as the head.
+            process_results(
+                StateRootsIterator::new(&self.store, &new_snapshot.beacon_state),
+                |mut iter| {
+                    iter.find_map(|(state_root, slot)| {
+                        if slot == new_finalized_slot {
+                            Some(state_root)
+                        } else {
+                            None
+                        }
+                    })
+                },
+            )?
+            .ok_or(Error::MissingFinalizedStateRoot(new_finalized_slot))?
+        };
 
         let update_cache = true;
         let new_finalized_state = self

@@ -18,11 +18,11 @@
 //!
 //! ```
 
+use std::marker::PhantomData;
 use std::sync::Arc;
 
-use store::Error as DBError;
-
 use state_processing::{BlockProcessingError, envelope_processing::EnvelopeProcessingError};
+use store::Error as DBError;
 use tracing::instrument;
 use types::{
     BeaconState, BeaconStateError, ChainSpec, DataColumnSidecarList, EthSpec, ExecutionBlockHash,
@@ -41,10 +41,11 @@ mod payload_notifier;
 
 pub use execution_pending_envelope::ExecutionPendingEnvelope;
 
+// TODO(gloas): could remove this type completely, or remove the generic
 #[derive(PartialEq)]
 pub struct EnvelopeImportData<E: EthSpec> {
     pub block_root: Hash256,
-    pub post_state: Box<BeaconState<E>>,
+    _phantom: PhantomData<E>,
 }
 
 #[derive(Debug)]
@@ -249,9 +250,6 @@ impl From<EnvelopeProcessingError> for EnvelopeError {
                 committed_bid,
                 envelope,
             },
-            EnvelopeProcessingError::BlockProcessingError(e) => {
-                EnvelopeError::BlockProcessingError(e)
-            }
             e => EnvelopeError::EnvelopeProcessingError(e),
         }
     }

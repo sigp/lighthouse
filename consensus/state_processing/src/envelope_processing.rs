@@ -1,15 +1,10 @@
-use crate::BlockProcessingError;
 use crate::VerifySignatures;
 use crate::per_block_processing::compute_timestamp_at_slot;
-use crate::per_block_processing::process_operations::{
-    process_consolidation_requests, process_deposit_requests_post_gloas,
-    process_withdrawal_requests,
-};
-use safe_arith::{ArithError, SafeArith};
+use safe_arith::ArithError;
 use tree_hash::TreeHash;
 use types::{
-    BeaconState, BeaconStateError, BuilderIndex, BuilderPendingPayment, ChainSpec, EthSpec,
-    ExecutionBlockHash, Hash256, SignedExecutionPayloadEnvelope, Slot,
+    BeaconState, BeaconStateError, BuilderIndex, ChainSpec, EthSpec, ExecutionBlockHash, Hash256,
+    SignedExecutionPayloadEnvelope, Slot,
 };
 
 macro_rules! envelope_verify {
@@ -20,29 +15,11 @@ macro_rules! envelope_verify {
     };
 }
 
-/// The strategy to be used when validating the payloads state root.
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[derive(PartialEq, Clone, Copy)]
-pub enum VerifyStateRoot {
-    /// Validate state root.
-    True,
-    /// Do not validate state root. Use with caution.
-    /// This should only be used when first constructing the payload envelope.
-    False,
-}
-
-impl VerifyStateRoot {
-    pub fn is_true(self) -> bool {
-        self == VerifyStateRoot::True
-    }
-}
-
 #[derive(Debug, Clone)]
 pub enum EnvelopeProcessingError {
     /// Bad Signature
     BadSignature,
     BeaconStateError(BeaconStateError),
-    BlockProcessingError(BlockProcessingError),
     ArithError(ArithError),
     /// Envelope doesn't match latest beacon block header
     LatestBlockHeaderMismatch {
@@ -89,15 +66,11 @@ pub enum EnvelopeProcessingError {
         state: u64,
         envelope: u64,
     },
-    // Invalid state root
-    InvalidStateRoot {
-        state: Hash256,
+    // The execution requests root doesn't match the committed bid
+    ExecutionRequestsRootMismatch {
+        committed_bid: Hash256,
         envelope: Hash256,
     },
-    // BitFieldError
-    BitFieldError(ssz::BitfieldError),
-    // Some kind of error calculating the builder payment index
-    BuilderPaymentIndexOutOfBounds(usize),
     /// The envelope was deemed invalid by the execution engine.
     ExecutionInvalid,
 }
@@ -108,50 +81,44 @@ impl From<BeaconStateError> for EnvelopeProcessingError {
     }
 }
 
-impl From<BlockProcessingError> for EnvelopeProcessingError {
-    fn from(e: BlockProcessingError) -> Self {
-        EnvelopeProcessingError::BlockProcessingError(e)
-    }
-}
-
 impl From<ArithError> for EnvelopeProcessingError {
     fn from(e: ArithError) -> Self {
         EnvelopeProcessingError::ArithError(e)
     }
 }
 
-/// Processes a `SignedExecutionPayloadEnvelope`
+/// Verifies a `SignedExecutionPayloadEnvelope` against the beacon state.
 ///
-/// This function does all the state modifications inside `process_execution_payload()`
-pub fn process_execution_payload_envelope<E: EthSpec>(
-    state: &mut BeaconState<E>,
-    parent_state_root: Option<Hash256>,
+/// This function performs pure verification with no state mutation. The execution requests
+/// from the envelope are deferred to be processed in the next block via
+/// `process_parent_execution_payload`.
+///
+/// `block_state_root` should be the post-block state root (used to fill in the block header
+/// for beacon_block_root verification). If `None`, the latest_block_header must already have
+/// its state_root filled in.
+pub fn verify_execution_payload_envelope<E: EthSpec>(
+    state: &BeaconState<E>,
     signed_envelope: &SignedExecutionPayloadEnvelope<E>,
     verify_signatures: VerifySignatures,
-    verify_state_root: VerifyStateRoot,
+    block_state_root: Hash256,
     spec: &ChainSpec,
 ) -> Result<(), EnvelopeProcessingError> {
-    if verify_signatures.is_true() {
-        // Verify Signed Envelope Signature
-        if !signed_envelope.verify_signature_with_state(state, spec)? {
-            return Err(EnvelopeProcessingError::BadSignature);
-        }
+    if verify_signatures.is_true() && !signed_envelope.verify_signature_with_state(state, spec)? {
+        return Err(EnvelopeProcessingError::BadSignature);
     }
 
     let envelope = &signed_envelope.message;
     let payload = &envelope.payload;
-    let execution_requests = &envelope.execution_requests;
 
-    // Cache latest block header state root
-    if state.latest_block_header().state_root == Hash256::default() {
-        let previous_state_root = parent_state_root
-            .map(Ok)
-            .unwrap_or_else(|| state.canonical_root())?;
-        state.latest_block_header_mut().state_root = previous_state_root;
+    // Verify consistency with the beacon block.
+    // Use a copy of the header with state_root filled in, matching the spec's approach.
+    let mut header = state.latest_block_header().clone();
+    if header.state_root == Hash256::default() {
+        // The caller must provide the post-block state root so we can compute
+        // the block header root without mutating state.
+        header.state_root = block_state_root;
     }
-
-    // Verify consistency with the beacon block
-    let latest_block_header_root = state.latest_block_header().tree_hash_root();
+    let latest_block_header_root = header.tree_hash_root();
     envelope_verify!(
         envelope.beacon_block_root == latest_block_header_root,
         EnvelopeProcessingError::LatestBlockHeaderMismatch {
@@ -160,9 +127,9 @@ pub fn process_execution_payload_envelope<E: EthSpec>(
         }
     );
     envelope_verify!(
-        envelope.slot == state.slot(),
+        envelope.slot() == state.slot(),
         EnvelopeProcessingError::SlotMismatch {
-            envelope_slot: envelope.slot,
+            envelope_slot: envelope.slot(),
             parent_state_slot: state.slot(),
         }
     );
@@ -238,59 +205,17 @@ pub fn process_execution_payload_envelope<E: EthSpec>(
         }
     );
 
+    // Verify execution requests root matches committed bid
+    let execution_requests_root = envelope.execution_requests.tree_hash_root();
+    envelope_verify!(
+        execution_requests_root == committed_bid.execution_requests_root,
+        EnvelopeProcessingError::ExecutionRequestsRootMismatch {
+            committed_bid: committed_bid.execution_requests_root,
+            envelope: execution_requests_root,
+        }
+    );
+
     // TODO(gloas): newPayload happens here in the spec, ensure we wire that up correctly
-
-    process_deposit_requests_post_gloas(state, &execution_requests.deposits, spec)?;
-    process_withdrawal_requests(state, &execution_requests.withdrawals, spec)?;
-    process_consolidation_requests(state, &execution_requests.consolidations, spec)?;
-
-    // Queue the builder payment
-    let payment_index = E::slots_per_epoch()
-        .safe_add(state.slot().as_u64().safe_rem(E::slots_per_epoch())?)?
-        as usize;
-    let payment_mut = state
-        .builder_pending_payments_mut()?
-        .get_mut(payment_index)
-        .ok_or(EnvelopeProcessingError::BuilderPaymentIndexOutOfBounds(
-            payment_index,
-        ))?;
-
-    // We have re-ordered the blanking out of the pending payment to avoid a double-lookup.
-    // This is semantically equivalent to the ordering used by the spec because we have taken a
-    // clone of the payment prior to doing the write.
-    let payment_withdrawal = payment_mut.withdrawal.clone();
-    *payment_mut = BuilderPendingPayment::default();
-
-    let amount = payment_withdrawal.amount;
-    if amount > 0 {
-        state
-            .builder_pending_withdrawals_mut()?
-            .push(payment_withdrawal)
-            .map_err(|e| EnvelopeProcessingError::BeaconStateError(e.into()))?;
-    }
-
-    // Cache the execution payload hash
-    let availability_index = state
-        .slot()
-        .as_usize()
-        .safe_rem(E::slots_per_historical_root())?;
-    state
-        .execution_payload_availability_mut()?
-        .set(availability_index, true)
-        .map_err(EnvelopeProcessingError::BitFieldError)?;
-    *state.latest_block_hash_mut()? = payload.block_hash;
-
-    if verify_state_root.is_true() {
-        // Verify the state root
-        let state_root = state.canonical_root()?;
-        envelope_verify!(
-            envelope.state_root == state_root,
-            EnvelopeProcessingError::InvalidStateRoot {
-                state: state_root,
-                envelope: envelope.state_root,
-            }
-        );
-    }
 
     Ok(())
 }
