@@ -514,11 +514,6 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
         Self::verify_slashable(signed_aggregate, chain)
-            .inspect(|verified_aggregate| {
-                if let Some(slasher) = chain.slasher.as_ref() {
-                    slasher.accept_attestation(verified_aggregate.indexed_attestation.clone());
-                }
-            })
             .map_err(|slash_info| process_slash_info(slash_info, chain))
     }
 
@@ -971,11 +966,6 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
         Self::verify_slashable(attestation, subnet_id, chain)
-            .inspect(|verified_unaggregated| {
-                if let Some(slasher) = chain.slasher.as_ref() {
-                    slasher.accept_attestation(verified_unaggregated.indexed_attestation.clone());
-                }
-            })
             .map_err(|slash_info| process_slash_info(slash_info, chain))
     }
 
