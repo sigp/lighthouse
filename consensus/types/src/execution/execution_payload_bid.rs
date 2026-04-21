@@ -37,6 +37,7 @@ pub struct ExecutionPayloadBid<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub execution_payment: u64,
     pub blob_kzg_commitments: KzgCommitments<E>,
+    pub execution_requests_root: Hash256,
 }
 
 impl<E: EthSpec> SignedRoot for ExecutionPayloadBid<E> {}

@@ -1,10 +1,7 @@
 use std::sync::Arc;
 
 use slot_clock::SlotClock;
-use state_processing::{
-    VerifySignatures,
-    envelope_processing::{VerifyStateRoot, process_execution_payload_envelope},
-};
+use state_processing::{VerifySignatures, envelope_processing::verify_execution_payload_envelope};
 use types::EthSpec;
 
 use crate::{
@@ -77,16 +74,15 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         } else {
             load_snapshot_from_state_root::<T>(block_root, self.block.state_root(), &chain.store)?
         };
-        let mut state = snapshot.pre_state;
+        let state = snapshot.pre_state;
 
-        // All the state modifications are done in envelope_processing
-        process_execution_payload_envelope(
-            &mut state,
-            Some(snapshot.state_root),
+        // Verify the envelope against the state (no state mutation).
+        verify_execution_payload_envelope(
+            &state,
             &signed_envelope,
             // verify signature already done for GossipVerifiedEnvelope
             VerifySignatures::False,
-            VerifyStateRoot::True,
+            snapshot.state_root,
             &chain.spec,
         )?;
 
@@ -97,7 +93,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             },
             import_data: EnvelopeImportData {
                 block_root,
-                post_state: Box::new(state),
+                _phantom: Default::default(),
             },
             payload_verification_handle,
         })

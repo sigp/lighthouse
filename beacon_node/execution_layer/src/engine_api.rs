@@ -1,11 +1,12 @@
 use crate::engines::ForkchoiceState;
 use crate::http::{
     ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3,
-    ENGINE_GET_BLOBS_V1, ENGINE_GET_BLOBS_V2, ENGINE_GET_CLIENT_VERSION_V1,
-    ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1, ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
-    ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2, ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4,
-    ENGINE_GET_PAYLOAD_V5, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3,
-    ENGINE_NEW_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V5,
+    ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_GET_BLOBS_V1, ENGINE_GET_BLOBS_V2,
+    ENGINE_GET_CLIENT_VERSION_V1, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
+    ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
+    ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6,
+    ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4,
+    ENGINE_NEW_PAYLOAD_V5,
 };
 use eth2::types::{
     BlobsBundle, SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2,
@@ -158,7 +159,7 @@ impl ExecutionBlock {
 }
 
 #[superstruct(
-    variants(V1, V2, V3),
+    variants(V1, V2, V3, V4),
     variant_attributes(derive(Clone, Debug, Eq, Hash, PartialEq),),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
@@ -171,10 +172,12 @@ pub struct PayloadAttributes {
     pub prev_randao: Hash256,
     #[superstruct(getter(copy))]
     pub suggested_fee_recipient: Address,
-    #[superstruct(only(V2, V3))]
+    #[superstruct(only(V2, V3, V4))]
     pub withdrawals: Vec<Withdrawal>,
-    #[superstruct(only(V3), partial_getter(copy))]
+    #[superstruct(only(V3, V4), partial_getter(copy))]
     pub parent_beacon_block_root: Hash256,
+    #[superstruct(only(V4), partial_getter(copy))]
+    pub slot_number: u64,
 }
 
 impl PayloadAttributes {
@@ -184,24 +187,35 @@ impl PayloadAttributes {
         suggested_fee_recipient: Address,
         withdrawals: Option<Vec<Withdrawal>>,
         parent_beacon_block_root: Option<Hash256>,
+        slot_number: Option<u64>,
     ) -> Self {
-        match withdrawals {
-            Some(withdrawals) => match parent_beacon_block_root {
-                Some(parent_beacon_block_root) => PayloadAttributes::V3(PayloadAttributesV3 {
+        match (withdrawals, parent_beacon_block_root, slot_number) {
+            (Some(withdrawals), Some(parent_beacon_block_root), Some(slot_number)) => {
+                PayloadAttributes::V4(PayloadAttributesV4 {
                     timestamp,
                     prev_randao,
                     suggested_fee_recipient,
                     withdrawals,
                     parent_beacon_block_root,
-                }),
-                None => PayloadAttributes::V2(PayloadAttributesV2 {
+                    slot_number,
+                })
+            }
+            (Some(withdrawals), Some(parent_beacon_block_root), None) => {
+                PayloadAttributes::V3(PayloadAttributesV3 {
                     timestamp,
                     prev_randao,
                     suggested_fee_recipient,
                     withdrawals,
-                }),
-            },
-            None => PayloadAttributes::V1(PayloadAttributesV1 {
+                    parent_beacon_block_root,
+                })
+            }
+            (Some(withdrawals), None, _) => PayloadAttributes::V2(PayloadAttributesV2 {
+                timestamp,
+                prev_randao,
+                suggested_fee_recipient,
+                withdrawals,
+            }),
+            (None, _, _) => PayloadAttributes::V1(PayloadAttributesV1 {
                 timestamp,
                 prev_randao,
                 suggested_fee_recipient,
@@ -239,6 +253,21 @@ impl From<PayloadAttributes> for SsePayloadAttributes {
                 suggested_fee_recipient,
                 withdrawals,
                 parent_beacon_block_root,
+            }) => Self::V3(SsePayloadAttributesV3 {
+                timestamp,
+                prev_randao,
+                suggested_fee_recipient,
+                withdrawals,
+                parent_beacon_block_root,
+            }),
+            // V4 maps to V3 for SSE (slot_number is not part of the SSE spec)
+            PayloadAttributes::V4(PayloadAttributesV4 {
+                timestamp,
+                prev_randao,
+                suggested_fee_recipient,
+                withdrawals,
+                parent_beacon_block_root,
+                slot_number: _,
             }) => Self::V3(SsePayloadAttributesV3 {
                 timestamp,
                 prev_randao,
@@ -555,6 +584,7 @@ pub struct EngineCapabilities {
     pub forkchoice_updated_v1: bool,
     pub forkchoice_updated_v2: bool,
     pub forkchoice_updated_v3: bool,
+    pub forkchoice_updated_v4: bool,
     pub get_payload_bodies_by_hash_v1: bool,
     pub get_payload_bodies_by_range_v1: bool,
     pub get_payload_v1: bool,
@@ -562,6 +592,7 @@ pub struct EngineCapabilities {
     pub get_payload_v3: bool,
     pub get_payload_v4: bool,
     pub get_payload_v5: bool,
+    pub get_payload_v6: bool,
     pub get_client_version_v1: bool,
     pub get_blobs_v1: bool,
     pub get_blobs_v2: bool,
@@ -594,6 +625,9 @@ impl EngineCapabilities {
         if self.forkchoice_updated_v3 {
             response.push(ENGINE_FORKCHOICE_UPDATED_V3);
         }
+        if self.forkchoice_updated_v4 {
+            response.push(ENGINE_FORKCHOICE_UPDATED_V4);
+        }
         if self.get_payload_bodies_by_hash_v1 {
             response.push(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1);
         }
@@ -614,6 +648,9 @@ impl EngineCapabilities {
         }
         if self.get_payload_v5 {
             response.push(ENGINE_GET_PAYLOAD_V5);
+        }
+        if self.get_payload_v6 {
+            response.push(ENGINE_GET_PAYLOAD_V6);
         }
         if self.get_client_version_v1 {
             response.push(ENGINE_GET_CLIENT_VERSION_V1);
