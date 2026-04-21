@@ -8044,11 +8044,17 @@ async fn get_validator_duties_proposer_v2_with_skip_slots() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_duties_ptc() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     ApiTester::new().await.test_get_validator_duties_ptc().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_duties_ptc_with_skip_slots() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     ApiTester::new()
         .await
         .skip_slots(E::slots_per_epoch() * 2)
