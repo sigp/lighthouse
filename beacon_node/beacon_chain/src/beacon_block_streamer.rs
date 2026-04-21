@@ -733,6 +733,7 @@ mod tests {
         spec.deneb_fork_epoch = Some(Epoch::new(deneb_fork_epoch as u64));
         spec.electra_fork_epoch = Some(Epoch::new(electra_fork_epoch as u64));
         spec.fulu_fork_epoch = Some(Epoch::new(fulu_fork_epoch as u64));
+        spec.gloas_fork_epoch = None;
         let spec = Arc::new(spec);
 
         let harness = get_harness(VALIDATOR_COUNT, spec.clone());

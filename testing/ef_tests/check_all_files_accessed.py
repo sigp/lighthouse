@@ -49,8 +49,6 @@ excluded_paths = [
     "tests/.*/eip7805",
     # Heze fork is not implemented
     "tests/.*/heze/.*",
-    # TODO(gloas): remove these ignores as Gloas consensus is implemented
-    "tests/.*/gloas/fork_choice/.*",
     # Ignore MatrixEntry SSZ tests for now.
     "tests/.*/.*/ssz_static/MatrixEntry/.*",
     # TODO: partial data column not implemented yet
@@ -77,7 +75,9 @@ excluded_paths = [
     # We don't need these manifest files at the moment.
     "tests/.*/manifest.yaml",
     # TODO: gossip condition tests not implemented yet
-    "tests/.*/.*/networking/.*"
+    "tests/.*/.*/networking/.*",
+    # TODO: fast confirmation rule not merged yet
+    "tests/.*/.*/fast_confirmation",
 ]
 
 
