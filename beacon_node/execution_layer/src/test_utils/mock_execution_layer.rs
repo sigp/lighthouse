@@ -97,8 +97,14 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             justified_hash: None,
             finalized_hash: None,
         };
-        let payload_attributes =
-            PayloadAttributes::new(timestamp, prev_randao, Address::repeat_byte(42), None, None);
+        let payload_attributes = PayloadAttributes::new(
+            timestamp,
+            prev_randao,
+            Address::repeat_byte(42),
+            None,
+            None,
+            None,
+        );
 
         // Insert a proposer to ensure the fork choice updated command works.
         let slot = Slot::new(0);
@@ -132,8 +138,14 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             chain_health: ChainHealth::Healthy,
         };
         let suggested_fee_recipient = self.el.get_suggested_fee_recipient(validator_index).await;
-        let payload_attributes =
-            PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None, None);
+        let payload_attributes = PayloadAttributes::new(
+            timestamp,
+            prev_randao,
+            suggested_fee_recipient,
+            None,
+            None,
+            None,
+        );
 
         let payload_parameters = PayloadParameters {
             parent_hash,
@@ -179,8 +191,14 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             chain_health: ChainHealth::Healthy,
         };
         let suggested_fee_recipient = self.el.get_suggested_fee_recipient(validator_index).await;
-        let payload_attributes =
-            PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None, None);
+        let payload_attributes = PayloadAttributes::new(
+            timestamp,
+            prev_randao,
+            suggested_fee_recipient,
+            None,
+            None,
+            None,
+        );
 
         let payload_parameters = PayloadParameters {
             parent_hash,

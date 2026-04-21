@@ -446,7 +446,7 @@ mod tests {
                     DEFAULT_CLIENT_VERSION.code,
                     mock_commit
                         .strip_prefix("0x")
-                        .unwrap_or("&mock_commit")
+                        .unwrap_or(&mock_commit)
                         .get(0..4)
                         .expect("should get first 2 bytes in hex"),
                     "LH",
@@ -459,7 +459,7 @@ mod tests {
                     DEFAULT_CLIENT_VERSION.code,
                     mock_commit
                         .strip_prefix("0x")
-                        .unwrap_or("&mock_commit")
+                        .unwrap_or(&mock_commit)
                         .get(0..2)
                         .expect("should get first 2 bytes in hex"),
                     "LH",

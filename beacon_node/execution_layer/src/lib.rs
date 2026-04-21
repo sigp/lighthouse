@@ -49,7 +49,7 @@ use types::execution::BlockProductionVersion;
 use types::kzg_ext::KzgCommitments;
 use types::{
     AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequests, KzgProofs,
-    SignedBlindedBeaconBlock, StatePayloadStatus,
+    SignedBlindedBeaconBlock,
 };
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
@@ -403,7 +403,7 @@ impl ProposerPreparationDataEntry {
 pub struct ProposerKey {
     slot: Slot,
     head_block_root: Hash256,
-    head_payload_status: StatePayloadStatus,
+    head_payload_status: fork_choice::PayloadStatus,
 }
 
 #[derive(PartialEq, Clone)]

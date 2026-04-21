@@ -67,7 +67,6 @@ where
 
         state.build_caches(&self.spec)?;
 
-        // TODO(gloas): handle payload envelope replay
         process_results(block_root_iter, |iter| -> Result<(), Error> {
             let mut io_batch = vec![];
 
