@@ -2058,12 +2058,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // for the same block. Analysis: https://hackmd.io/@dapplion/gloas_dependant_root
                 let (advanced_state_root, mut state) = self
                     .store
-                    .get_advanced_hot_state(
-                        beacon_block_root,
-                        StatePayloadStatus::Pending,
-                        request_slot,
-                        beacon_state_root,
-                    )?
+                    .get_advanced_hot_state(beacon_block_root, request_slot, beacon_state_root)?
                     .ok_or(Error::MissingBeaconState(beacon_state_root))?;
                 if state.current_epoch() < request_epoch {
                     partial_state_advance(
@@ -4564,7 +4559,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // Load the parent state from disk.
         let chain = self.clone();
-        let (state, state_root_opt) = self
+        let block_production_state = self
             .task_executor
             .spawn_blocking_handle(
                 move || chain.load_state_for_block_production(slot),
@@ -4573,6 +4568,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(BlockProductionError::ShuttingDown)?
             .await
             .map_err(BlockProductionError::TokioJoin)??;
+        let (state, state_root_opt) = (
+            block_production_state.state,
+            block_production_state.state_root,
+        );
 
         // Part 2/2 (async, with some blocking components)
         //
@@ -4722,12 +4721,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .ok_or(Error::MissingBeaconBlock(parent_block_root))?;
                 let (state_root, state) = self
                     .store
-                    .get_advanced_hot_state(
-                        parent_block_root,
-                        StatePayloadStatus::Pending,
-                        proposal_slot,
-                        block.state_root(),
-                    )?
+                    .get_advanced_hot_state(parent_block_root, proposal_slot, block.state_root())?
                     .ok_or(Error::MissingBeaconState(block.state_root()))?;
                 (Cow::Owned(state), state_root)
             };
@@ -6019,6 +6013,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None
             };
 
+            let slot_number = if prepare_slot_fork.gloas_enabled() {
+                Some(prepare_slot.as_u64())
+            } else {
+                None
+            };
+
             let payload_attributes = PayloadAttributes::new(
                 self.slot_clock
                     .start_of(prepare_slot)
@@ -6028,6 +6028,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 execution_layer.get_suggested_fee_recipient(proposer).await,
                 withdrawals.map(Into::into),
                 parent_beacon_block_root,
+                slot_number,
             );
 
             execution_layer
@@ -6663,12 +6664,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // for the same block. Analysis: https://hackmd.io/@dapplion/gloas_dependant_root
                 let (state_root, state) = self
                     .store
-                    .get_advanced_hot_state(
-                        head_block_root,
-                        StatePayloadStatus::Pending,
-                        target_slot,
-                        head_block.state_root,
-                    )?
+                    .get_advanced_hot_state(head_block_root, target_slot, head_block.state_root)?
                     .ok_or(Error::MissingBeaconState(head_block.state_root))?;
                 (state, state_root)
             };
@@ -6756,10 +6752,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             blocks.push((beacon_block_root, Arc::new(beacon_block)));
         }
 
-        // Collect states, using the next blocks to determine if states are full (have Gloas
-        // payloads).
+        // Collect envelopes, using the next blocks to determine if payloads are canonical
+        // (the parent block was full).
         for (i, (block_root, block)) in blocks.iter().enumerate() {
-            let (opt_envelope, state_root) = if block.fork_name_unchecked().gloas_enabled() {
+            let opt_envelope = if block.fork_name_unchecked().gloas_enabled() {
                 let opt_envelope = self.store.get_payload_envelope(block_root)?.map(Arc::new);
 
                 if let Some((_, next_block)) = blocks.get(i + 1) {
@@ -6768,22 +6764,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         let envelope = opt_envelope.ok_or_else(|| {
                             Error::DBInconsistent(format!("Missing envelope {block_root:?}"))
                         })?;
-                        let state_root = envelope.message.state_root;
-                        (Some(envelope), state_root)
+                        Some(envelope)
                     } else {
-                        (None, block.state_root())
+                        None
                     }
                 } else {
-                    // TODO(gloas): should use fork choice/cached head for last block in sequence
-                    opt_envelope
-                        .as_ref()
-                        .map_or((None, block.state_root()), |envelope| {
-                            (Some(envelope.clone()), envelope.message.state_root)
-                        })
+                    // Last block in the sequence: use canonical head to determine
+                    // whether the payload is canonical.
+                    let head = self.canonical_head.cached_head();
+                    assert_eq!(head.head_block_root(), *block_root);
+                    let payload_received =
+                        head.head_payload_status() == fork_choice::PayloadStatus::Full;
+                    if payload_received {
+                        let envelope = opt_envelope.ok_or_else(|| {
+                            Error::DBInconsistent(format!("Missing envelope {block_root:?}"))
+                        })?;
+                        Some(envelope)
+                    } else {
+                        None
+                    }
                 }
             } else {
-                (None, block.state_root())
+                None
             };
+            let state_root = block.state_root();
 
             let mut beacon_state = self
                 .store

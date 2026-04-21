@@ -1043,6 +1043,13 @@ where
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
+        // For Gloas forks, delegate to make_block_with_envelope and discard the envelope.
+        if self.spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
+            let (block_contents, _envelope, state) =
+                Box::pin(self.make_block_with_envelope(state, slot)).await;
+            return (block_contents, state);
+        }
+
         complete_state_advance(&mut state, None, slot, &self.spec)
             .expect("should be able to advance state to slot");
 
@@ -1124,11 +1131,24 @@ where
                 GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
             let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
+            // Load the parent's payload envelope and status from the cached head.
+            // TODO(gloas): we may want to pass these as arguments to support cases where we build
+            // on alternate chains to the head.
+            let (parent_payload_status, parent_envelope) = {
+                let head = self.chain.canonical_head.cached_head();
+                (
+                    head.head_payload_status(),
+                    head.snapshot.execution_envelope.clone(),
+                )
+            };
+
             let (block, pending_state, _consensus_block_value) = self
                 .chain
                 .produce_block_on_state_gloas(
                     state,
                     None,
+                    parent_payload_status,
+                    parent_envelope,
                     slot,
                     randao_reveal,
                     graffiti_settings,
@@ -2681,32 +2701,27 @@ where
         Ok(block_hash)
     }
 
-    /// Process an execution payload envelope for a Gloas block.
+    /// Verify and process (with fork choice) an execution payload envelope for a Gloas block.
     pub async fn process_envelope(
         &self,
         block_root: Hash256,
         signed_envelope: SignedExecutionPayloadEnvelope<E>,
-        pending_state: &mut BeaconState<E>,
-    ) -> Hash256 {
-        let state_root = signed_envelope.message.state_root;
+        state: &BeaconState<E>,
+        block_state_root: Hash256,
+    ) {
         debug!(
-            slot = %signed_envelope.message.slot,
-            ?state_root,
+            slot = %signed_envelope.slot(),
             "Processing execution payload envelope"
         );
-        let block_state_root = pending_state
-            .update_tree_hash_cache()
-            .expect("should compute pending state root");
 
-        state_processing::envelope_processing::process_execution_payload_envelope(
-            pending_state,
-            Some(block_state_root),
+        state_processing::envelope_processing::verify_execution_payload_envelope(
+            state,
             &signed_envelope,
             state_processing::VerifySignatures::True,
-            state_processing::envelope_processing::VerifyStateRoot::True,
+            block_state_root,
             &self.spec,
         )
-        .expect("should process envelope");
+        .expect("should verify envelope");
 
         // Notify the EL of the new payload so forkchoiceUpdated can reference it.
         let block = self
@@ -2747,16 +2762,18 @@ where
         // Store the envelope.
         self.chain
             .store
-            .put_payload_envelope(&block_root, signed_envelope)
+            .put_payload_envelope(&block_root, &signed_envelope)
             .expect("should store envelope");
 
-        // Store the Full state.
+        // Update fork choice so it knows the payload was received.
         self.chain
-            .store
-            .put_state(&state_root, pending_state)
-            .expect("should store full state");
+            .canonical_head
+            .fork_choice_write_lock()
+            .on_valid_payload_envelope_received(block_root)
+            .expect("should update fork choice with envelope");
 
-        state_root
+        // Run fork choice because the envelope could become the head.
+        self.chain.recompute_head_at_current_slot().await;
     }
 
     /// Builds a `RangeSyncBlock` from a `SignedBeaconBlock` and blobs or data columns retrieved from
@@ -2970,7 +2987,8 @@ where
         BlockError,
     > {
         self.set_current_slot(slot);
-        let (block_contents, new_state) = self.make_block(state, slot).await;
+        let (block_contents, opt_envelope, new_state) =
+            self.make_block_with_envelope(state, slot).await;
 
         let block_hash = self
             .process_block(
@@ -2979,6 +2997,12 @@ where
                 block_contents.clone(),
             )
             .await?;
+
+        if let Some(envelope) = opt_envelope {
+            let block_state_root = block_contents.0.state_root();
+            self.process_envelope(block_hash.into(), envelope, &new_state, block_state_root)
+                .await;
+        }
         Ok((block_hash, block_contents, new_state))
     }
 

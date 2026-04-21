@@ -37,7 +37,7 @@ use crate::{
     execution::{
         Eth1Data, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
         ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
-        ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut, StatePayloadStatus,
+        ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
     },
     fork::{Fork, ForkName, ForkVersionDecode, InconsistentFork, map_fork_name},
     light_client::consts::{
@@ -571,9 +571,10 @@ where
     )]
     #[metastruct(exclude_from(tree_lists))]
     pub latest_execution_payload_header: ExecutionPayloadHeaderFulu<E>,
+    #[test_random(default)]
     #[superstruct(only(Gloas))]
     #[metastruct(exclude_from(tree_lists))]
-    pub latest_execution_payload_bid: ExecutionPayloadBid<E>,
+    pub latest_block_hash: ExecutionBlockHash,
     #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     #[metastruct(exclude_from(tree_lists))]
@@ -657,10 +658,9 @@ where
     pub builder_pending_withdrawals:
         List<BuilderPendingWithdrawal, E::BuilderPendingWithdrawalsLimit>,
 
-    #[test_random(default)]
     #[superstruct(only(Gloas))]
     #[metastruct(exclude_from(tree_lists))]
-    pub latest_block_hash: ExecutionBlockHash,
+    pub latest_execution_payload_bid: ExecutionPayloadBid<E>,
 
     #[compare_fields(as_iter)]
     #[test_random(default)]
@@ -1270,24 +1270,6 @@ impl<E: EthSpec> BeaconState<E> {
             )),
             // TODO(EIP-7732): investigate calling functions
             BeaconState::Gloas(_) => Err(BeaconStateError::IncorrectStateVariant),
-        }
-    }
-
-    /// Determine the payload status of this state.
-    ///
-    /// Prior to Gloas this is always `Pending`.
-    ///
-    /// Post-Gloas, the definition of the `StatePayloadStatus` is:
-    ///
-    /// - `Full` if this state is the result of envelope processing.
-    /// - `Pending` if this state is the result of block processing.
-    pub fn payload_status(&self) -> StatePayloadStatus {
-        if !self.fork_name_unchecked().gloas_enabled() {
-            StatePayloadStatus::Pending
-        } else if self.is_parent_block_full() {
-            StatePayloadStatus::Full
-        } else {
-            StatePayloadStatus::Pending
         }
     }
 
@@ -2504,22 +2486,6 @@ impl<E: EthSpec> BeaconState<E> {
             RelativeEpoch::Previous => 0,
             RelativeEpoch::Current => 1,
             RelativeEpoch::Next => 2,
-        }
-    }
-
-    /// Return true if the parent block was full (both beacon block and execution payload were present).
-    pub fn is_parent_block_full(&self) -> bool {
-        match self {
-            BeaconState::Base(_) | BeaconState::Altair(_) => false,
-            // TODO(EIP-7732): check the implications of this when we get to forkchoice modifications
-            BeaconState::Bellatrix(_)
-            | BeaconState::Capella(_)
-            | BeaconState::Deneb(_)
-            | BeaconState::Electra(_)
-            | BeaconState::Fulu(_) => true,
-            BeaconState::Gloas(state) => {
-                state.latest_execution_payload_bid.block_hash == state.latest_block_hash
-            }
         }
     }
 
