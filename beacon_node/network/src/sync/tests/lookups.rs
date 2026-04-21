@@ -37,11 +37,16 @@ use tokio::sync::mpsc;
 use tracing::info;
 use types::{
     BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, EthSpec, ForkContext, ForkName,
-    Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
+    Hash256, MinimalEthSpec as E, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
     test_utils::{SeedableRng, XorShiftRng},
 };
 
 const D: Duration = Duration::new(0, 0);
+
+/// Minimum validator set size usable across every fork this rig runs under. Pre-Gloas
+/// tolerates 1; Gloas genesis needs enough validators to populate `proposer_lookahead`
+/// via balance-weighted selection — 8 is enough for MinimalEthSpec.
+const TEST_RIG_VALIDATOR_COUNT: usize = 8;
 
 /// Configuration for how the test rig should respond to sync requests.
 ///
@@ -221,10 +226,11 @@ impl TestRig {
             Duration::from_secs(12),
         );
 
-        // Initialise a new beacon chain
+        // Initialise a new beacon chain. Gloas genesis needs more than 1 validator so the
+        // `proposer_lookahead` can be populated at the Fulu → Gloas upgrade.
         let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
             .spec(spec.clone())
-            .deterministic_keypairs(1)
+            .deterministic_keypairs(TEST_RIG_VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .testing_slot_clock(clock.clone())
@@ -305,6 +311,7 @@ impl TestRig {
             fork_name,
             network_blocks_by_root: <_>::default(),
             network_blocks_by_slot: <_>::default(),
+            network_envelopes_by_root: <_>::default(),
             penalties: <_>::default(),
             seen_lookups: <_>::default(),
             requests: <_>::default(),
@@ -671,6 +678,20 @@ impl TestRig {
                 self.send_rpc_columns_response(req_id, peer_id, &columns);
             }
 
+            (RequestType::PayloadEnvelopesByRoot(req), AppRequestId::Sync(req_id)) => {
+                // The lookup-sync path always requests a single envelope per request, so
+                // there is exactly one block_root. Serve the cached envelope if the rig
+                // has one — otherwise respond with an empty stream.
+                let block_root = req
+                    .beacon_block_roots
+                    .as_slice()
+                    .first()
+                    .copied()
+                    .unwrap_or_else(|| panic!("empty envelope request: {req:?}"));
+                let envelope = self.network_envelopes_by_root.get(&block_root).cloned();
+                self.send_rpc_envelope_response(req_id, peer_id, envelope);
+            }
+
             (RequestType::BlocksByRange(req), AppRequestId::Sync(req_id)) => {
                 if self.complete_strategy.skip_by_range_routes {
                     return;
@@ -930,6 +951,37 @@ impl TestRig {
         });
     }
 
+    fn send_rpc_envelope_response(
+        &mut self,
+        sync_request_id: SyncRequestId,
+        peer_id: PeerId,
+        envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+    ) {
+        self.log(&format!(
+            "Completing request {sync_request_id:?} to {peer_id} with envelope {:?}",
+            envelope.as_ref().map(|e| e.slot())
+        ));
+
+        self.push_sync_message(SyncMessage::RpcPayloadEnvelope {
+            sync_request_id,
+            peer_id,
+            envelope: envelope.clone(),
+            seen_timestamp: D,
+        });
+        // Stream termination
+        self.push_sync_message(SyncMessage::RpcPayloadEnvelope {
+            sync_request_id,
+            peer_id,
+            envelope: None,
+            seen_timestamp: D,
+        });
+    }
+
+    #[allow(dead_code)]
+    fn is_after_gloas(&self) -> bool {
+        self.fork_name.gloas_enabled()
+    }
+
     // Preparation steps
 
     /// Returns the block root of the tip of the built chain
@@ -939,7 +991,7 @@ impl TestRig {
         // Initialise a new beacon chain
         let external_harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
             .spec(self.harness.spec.clone())
-            .deterministic_keypairs(1)
+            .deterministic_keypairs(TEST_RIG_VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .testing_slot_clock(self.harness.chain.slot_clock.clone())
@@ -974,6 +1026,12 @@ impl TestRig {
             self.network_blocks_by_root
                 .insert(block_root, block.clone());
             self.network_blocks_by_slot.insert(block_slot, block);
+            // Gloas: pull the corresponding execution payload envelope from the external
+            // harness store so the rig can serve it when the lookup requests it.
+            if let Ok(Some(envelope)) = external_harness.chain.get_payload_envelope(&block_root) {
+                self.network_envelopes_by_root
+                    .insert(block_root, Arc::new(envelope));
+            }
             self.log(&format!(
                 "Produced block {} index {i} in external harness",
                 block_slot,
@@ -2454,6 +2512,31 @@ async fn blobs_in_da_checker_skip_download() {
         Vec::<&(RequestType<E>, AppRequestId)>::new(),
         "There should be no blob requests"
     );
+}
+
+/// Test that lookups complete when the block is already fully imported.
+/// Exercises the `NoRequestNeeded` → `Completed` download state path.
+/// Without the fix, `on_completed_request` left the state as `AwaitingDownload`
+/// causing an infinite re-check loop.
+#[tokio::test]
+async fn lookup_completes_when_block_already_imported() {
+    let mut r = TestRig::default();
+    r.build_chain(1).await;
+
+    // Fully import block 1 (this also imports its blobs/columns if any)
+    let block_root = r.block_root_at_slot(1);
+    r.import_block_by_root(block_root).await;
+
+    // Now trigger a lookup for the SAME block via attestation.
+    // block_lookup_request → ExecutionValidated → NoRequestNeeded
+    // Without the Completed state fix, the lookup would hang.
+    r.trigger_with_block_at_slot(1);
+    assert!(
+        r.created_lookups() > 0,
+        "lookup must be created for this test to be valid"
+    );
+    r.simulate(SimulateConfig::happy_path()).await;
+    r.assert_successful_lookup_sync();
 }
 
 macro_rules! fulu_peer_matrix_tests {
