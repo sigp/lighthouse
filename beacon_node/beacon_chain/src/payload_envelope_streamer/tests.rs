@@ -65,13 +65,12 @@ fn build_chain(
                 message: ExecutionPayloadEnvelope {
                     payload: ExecutionPayloadGloas {
                         block_hash,
+                        slot_number: slot,
                         ..Default::default()
                     },
                     execution_requests: Default::default(),
                     builder_index: 0,
                     beacon_block_root: block_root,
-                    slot,
-                    state_root: Hash256::zero(),
                 },
                 signature: Signature::empty(),
             })

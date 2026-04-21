@@ -42,18 +42,18 @@ pub(crate) fn verify_envelope_consistency<E: EthSpec>(
 ) -> Result<(), EnvelopeError> {
     // Check that the envelope's slot isn't from a slot prior
     // to the latest finalized slot.
-    if envelope.slot < latest_finalized_slot {
+    if envelope.slot() < latest_finalized_slot {
         return Err(EnvelopeError::PriorToFinalization {
-            payload_slot: envelope.slot,
+            payload_slot: envelope.slot(),
             latest_finalized_slot,
         });
     }
 
     // Check that the slot of the envelope matches the slot of the block.
-    if envelope.slot != block.slot() {
+    if envelope.slot() != block.slot() {
         return Err(EnvelopeError::SlotMismatch {
             block: block.slot(),
-            envelope: envelope.slot,
+            envelope: envelope.slot(),
         });
     }
 
@@ -144,7 +144,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         // validator pubkey cache for the proposer's pubkey, avoiding a state load from disk.
         // For external builder envelopes, we must load the state to access the builder registry.
         let builder_index = envelope.builder_index;
-        let block_slot = envelope.slot;
+        let block_slot = envelope.slot();
         let envelope_epoch = block_slot.epoch(T::EthSpec::slots_per_epoch());
         // Since the payload's block is already guaranteed to be imported, the associated `proto_block.current_epoch_shuffling_id`
         // already carries the correct `shuffling_decision_block`.
@@ -224,7 +224,6 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
                     builder_index,
                     block_hash: signed_envelope.message.payload.block_hash,
                     block_root: beacon_block_root,
-                    state_root: signed_envelope.message.state_root,
                 },
             ));
         }
@@ -334,13 +333,12 @@ mod tests {
         ExecutionPayloadEnvelope {
             payload: ExecutionPayloadGloas {
                 block_hash,
+                slot_number: slot,
                 ..ExecutionPayloadGloas::default()
             },
             execution_requests: ExecutionRequests::default(),
             builder_index,
             beacon_block_root: Hash256::ZERO,
-            slot,
-            state_root: Hash256::ZERO,
         }
     }
 
@@ -365,6 +363,7 @@ mod tests {
                 voluntary_exits: VariableList::empty(),
                 sync_aggregate: SyncAggregate::empty(),
                 bls_to_execution_changes: VariableList::empty(),
+                parent_execution_requests: ExecutionRequests::default(),
                 signed_execution_payload_bid: SignedExecutionPayloadBid::empty(),
                 payload_attestations: VariableList::empty(),
                 _phantom: PhantomData,

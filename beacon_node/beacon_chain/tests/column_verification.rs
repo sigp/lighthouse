@@ -16,8 +16,8 @@ use types::*;
 
 type E = MainnetEthSpec;
 
-// Should ideally be divisible by 3.
-const VALIDATOR_COUNT: usize = 24;
+// >= 32 validators required for Gloas genesis with MainnetEthSpec (32 slots/epoch).
+const VALIDATOR_COUNT: usize = 32;
 
 /// A cached set of keys.
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
@@ -52,7 +52,8 @@ async fn rpc_columns_with_invalid_header_signature() {
     let spec = Arc::new(test_spec::<E>());
 
     // Only run this test if columns are enabled.
-    if !spec.is_fulu_scheduled() {
+    // TODO(gloas): Gloas blocks don't have blob_kzg_commitments — blobs are in the envelope.
+    if !spec.is_fulu_scheduled() || spec.is_gloas_scheduled() {
         return;
     }
 
