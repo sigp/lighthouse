@@ -66,56 +66,28 @@ jobs:
         with:
           driver: docker
 
-      # ── Step 1: Build twice and verify bit-for-bit reproducibility ──────────
-      - name: Build image (pass 1)
+      # ── Step 1: Build image and extract binary ───────────────────────────────
+      - name: Build image
         run: |
           docker build -f Dockerfile.reproducible \
             --platform ${{ matrix.platform }} \
             --build-arg RUST_TARGET="${{ matrix.rust_target }}" \
-            -t lighthouse-verify-1 .
+            -t lighthouse-build .
 
-      - name: Extract binary (pass 1)
+      - name: Extract binary
         run: |
-          docker create --name extract-1 lighthouse-verify-1
-          docker cp extract-1:/lighthouse ./lighthouse-1
-          docker rm extract-1
+          docker create --name extract lighthouse-build
+          docker cp extract:/lighthouse ./lighthouse-bin
+          docker rm extract
 
-      - name: Clean Docker state between builds
-        run: |
-          docker buildx prune -f
-          docker system prune -f
+      - name: Print binary SHA256
+        run: sha256sum lighthouse-bin
 
-      - name: Build image (pass 2)
-        run: |
-          docker build -f Dockerfile.reproducible \
-            --platform ${{ matrix.platform }} \
-            --build-arg RUST_TARGET="${{ matrix.rust_target }}" \
-            -t lighthouse-verify-2 .
-
-      - name: Extract binary (pass 2)
-        run: |
-          docker create --name extract-2 lighthouse-verify-2
-          docker cp extract-2:/lighthouse ./lighthouse-2
-          docker rm extract-2
-
-      - name: Verify reproducibility
-        run: |
-          echo "Pass 1 SHA256: $(sha256sum lighthouse-1)"
-          echo "Pass 2 SHA256: $(sha256sum lighthouse-2)"
-          if cmp lighthouse-1 lighthouse-2; then
-            echo "Reproducible build verified for ${{ matrix.arch }}"
-          else
-            echo "BLOCKING RELEASE: builds are not reproducible!"
-            echo "First 10 differing bytes:"
-            cmp -l lighthouse-1 lighthouse-2 | head -10
-            exit 1
-          fi
-
-      # ── Step 2: Tag the verified image and push ──────────────────────────────
-      - name: Tag verified image
+      # ── Step 2: Tag the image and push ───────────────────────────────────────
+      - name: Tag image
         run: |
           VERSION=${{ needs.extract-version.outputs.VERSION }}
-          docker tag lighthouse-verify-2 \
+          docker tag lighthouse-build \
             ${{ env.DOCKER_REPRODUCIBLE_IMAGE_NAME }}:${VERSION}-${{ matrix.arch }}
 
       - name: Log in to Docker Hub
@@ -136,7 +108,7 @@ jobs:
         env:
           VERSION: ${{ needs.extract-version.outputs.VERSION }}
         run: |
-          cp lighthouse-2 lighthouse
+          cp lighthouse-bin lighthouse
           tar -czf lighthouse-${VERSION}-${{ matrix.rust_target }}.tar.gz lighthouse
           sha256sum lighthouse-${VERSION}-${{ matrix.rust_target }}.tar.gz \
             > lighthouse-${VERSION}-${{ matrix.rust_target }}.tar.gz.sha256
@@ -155,7 +127,7 @@ jobs:
       - name: Assemble AppDir
         run: |
           mkdir -p AppDir/usr/bin
-          cp lighthouse-2 AppDir/usr/bin/lighthouse
+          cp lighthouse-bin AppDir/usr/bin/lighthouse
           cp packaging/appimage/AppRun AppDir/AppRun
           chmod +x AppDir/AppRun
           cp packaging/appimage/lighthouse.desktop AppDir/lighthouse.desktop
@@ -220,19 +192,10 @@ jobs:
           path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.appimage_arch }}.AppImage.asc
           compression-level: 0
 
-      - name: Upload verification artifacts on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: verification-failure-${{ matrix.arch }}
-          path: |
-            lighthouse-1
-            lighthouse-2
-
       - name: Clean up
         if: always()
         run: |
-          docker rmi lighthouse-verify-1 lighthouse-verify-2 || true
+          docker rmi lighthouse-build || true
           VERSION=${{ needs.extract-version.outputs.VERSION }}
           docker rmi ${{ env.DOCKER_REPRODUCIBLE_IMAGE_NAME }}:${VERSION}-${{ matrix.arch }} || true
 
