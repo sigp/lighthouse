@@ -105,3 +105,6 @@ impl From<BeaconStateError> for Error {
         Error::BeaconStateError(e)
     }
 }
+
+#[cfg(test)]
+mod tests;

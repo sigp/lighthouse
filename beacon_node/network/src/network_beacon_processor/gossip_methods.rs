@@ -3747,10 +3747,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
-            PayloadAttestationError::PastSlot { .. } => {
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-            }
-            PayloadAttestationError::PriorPayloadAttestationMessageKnown { .. } => {
+            PayloadAttestationError::PastSlot { .. }
+            | PayloadAttestationError::PriorPayloadAttestationMessageKnown { .. } => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
             PayloadAttestationError::UnknownHeadBlock { .. } => {
