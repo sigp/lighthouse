@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use slot_clock::SlotClock;
-use state_processing::{VerifySignatures, envelope_processing::verify_execution_payload};
+use state_processing::{VerifySignatures, envelope_processing::verify_execution_payload_envelope};
 use types::EthSpec;
 
 use crate::{
@@ -77,7 +77,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         let state = snapshot.pre_state;
 
         // Verify the envelope against the state (no state mutation).
-        verify_execution_payload(
+        verify_execution_payload_envelope(
             &state,
             &signed_envelope,
             // verify signature already done for GossipVerifiedEnvelope

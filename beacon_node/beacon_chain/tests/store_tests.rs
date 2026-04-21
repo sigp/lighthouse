@@ -2884,21 +2884,11 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
         .unwrap()
         .unwrap();
 
-    // Post-Gloas, use the block's state_root (always Pending) instead of state_root_at_slot
-    // (which returns the Full root from state_roots[] in the head state).
-    let wss_state_root = if harness
-        .spec
-        .fork_name_at_slot::<E>(checkpoint_slot)
-        .gloas_enabled()
-    {
-        wss_block.state_root()
-    } else {
-        harness
-            .chain
-            .state_root_at_slot(checkpoint_slot)
-            .unwrap()
-            .unwrap()
-    };
+    let wss_state_root = harness
+        .chain
+        .state_root_at_slot(checkpoint_slot)
+        .unwrap()
+        .unwrap();
 
     // The test premise requires the anchor block to have a payload (or a payload bid in Gloas).
     assert!(
@@ -2982,24 +2972,13 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
     let chain = beacon_chain.as_ref().unwrap();
     let wss_block_slot = wss_block.slot();
 
-    // Post-Gloas, the head state is always at the block's slot (unadvanced), so check that the
-    // block is mid-epoch (not at an epoch boundary) to verify the unaligned edge case.
-    if wss_block.fork_name_unchecked().gloas_enabled() {
-        assert_ne!(
-            wss_block_slot % E::slots_per_epoch(),
-            0,
-            "Test invalid: Block at epoch boundary (Slot {}). The test did not trigger the unaligned edge case.",
-            wss_block_slot,
-        );
-    } else {
-        assert_ne!(
-            wss_block_slot,
-            chain.head_snapshot().beacon_state.slot(),
-            "Test invalid: Checkpoint was aligned (Slot {} == Slot {}). The test did not trigger the unaligned edge case.",
-            wss_block_slot,
-            chain.head_snapshot().beacon_state.slot()
-        );
-    }
+    assert_ne!(
+        wss_block_slot,
+        chain.head_snapshot().beacon_state.slot(),
+        "Test invalid: Checkpoint was aligned (Slot {} == Slot {}). The test did not trigger the unaligned edge case.",
+        wss_block_slot,
+        chain.head_snapshot().beacon_state.slot()
+    );
 
     // In Gloas, the execution payload envelope is separate from the block and will be synced
     // from the network. We don't check for its existence here.
@@ -3057,22 +3036,11 @@ async fn weak_subjectivity_sync_test(
         .get_full_block(&wss_block_root)
         .unwrap()
         .unwrap();
-    // Post-Gloas, the WSS state must be the Pending (post-block) state. The block's `state_root`
-    // is always the Pending root. `state_root_at_slot` returns the Full root (from `state_roots`
-    // in the head state), so we use the block's root directly for Gloas.
-    let wss_state_root = if harness
-        .spec
-        .fork_name_at_slot::<E>(checkpoint_slot)
-        .gloas_enabled()
-    {
-        wss_block.state_root()
-    } else {
-        harness
-            .chain
-            .state_root_at_slot(checkpoint_slot)
-            .unwrap()
-            .unwrap()
-    };
+    let wss_state_root = harness
+        .chain
+        .state_root_at_slot(checkpoint_slot)
+        .unwrap()
+        .unwrap();
     let wss_blobs_opt = harness
         .chain
         .get_or_reconstruct_blobs(&wss_block_root)
@@ -5779,7 +5747,7 @@ async fn test_gloas_block_replay_with_envelopes() {
         .unwrap();
     assert!(!blocks.is_empty(), "should have blocks for replay");
 
-    // Replay blocks and verify against the expected pending (post-block) state.
+    // Replay blocks and verify against the expected state.
     let mut replayed = BlockReplayer::<MinimalEthSpec>::new(genesis_state, store.get_chain_spec())
         .no_signature_verification()
         .minimal_block_root_verification()

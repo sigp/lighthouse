@@ -96,7 +96,7 @@ impl From<ArithError> for EnvelopeProcessingError {
 /// `block_state_root` should be the post-block state root (used to fill in the block header
 /// for beacon_block_root verification). If `None`, the latest_block_header must already have
 /// its state_root filled in.
-pub fn verify_execution_payload<E: EthSpec>(
+pub fn verify_execution_payload_envelope<E: EthSpec>(
     state: &BeaconState<E>,
     signed_envelope: &SignedExecutionPayloadEnvelope<E>,
     verify_signatures: VerifySignatures,

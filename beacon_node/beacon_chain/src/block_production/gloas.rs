@@ -10,7 +10,7 @@ use fork_choice::PayloadStatus;
 use operation_pool::CompactAttestationRef;
 use ssz::Encode;
 use state_processing::common::get_attesting_indices_from_state;
-use state_processing::envelope_processing::verify_execution_payload;
+use state_processing::envelope_processing::verify_execution_payload_envelope;
 use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::per_block_processing::{
     apply_parent_execution_payload, compute_timestamp_at_slot, get_expected_withdrawals,
@@ -595,7 +595,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
 
             // Verify the envelope against the state. This performs no state mutation.
-            verify_execution_payload(
+            verify_execution_payload_envelope(
                 &state,
                 &signed_envelope,
                 VerifySignatures::False,

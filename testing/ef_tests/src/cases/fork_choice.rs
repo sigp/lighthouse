@@ -25,7 +25,7 @@ use execution_layer::{
 use serde::Deserialize;
 use ssz_derive::Decode;
 use state_processing::VerifySignatures;
-use state_processing::envelope_processing::verify_execution_payload;
+use state_processing::envelope_processing::verify_execution_payload_envelope;
 use state_processing::state_advance::complete_state_advance;
 use std::future::Future;
 use std::sync::Arc;
@@ -1035,7 +1035,7 @@ impl<E: EthSpec> Tester<E> {
                     Error::InternalError(format!("State not found for root {block_state_root:?}"))
                 })?;
 
-            verify_execution_payload(
+            verify_execution_payload_envelope(
                 &state,
                 signed_envelope,
                 VerifySignatures::True,

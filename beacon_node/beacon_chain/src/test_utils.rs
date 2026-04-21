@@ -2714,7 +2714,7 @@ where
             "Processing execution payload envelope"
         );
 
-        state_processing::envelope_processing::verify_execution_payload(
+        state_processing::envelope_processing::verify_execution_payload_envelope(
             state,
             &signed_envelope,
             state_processing::VerifySignatures::True,

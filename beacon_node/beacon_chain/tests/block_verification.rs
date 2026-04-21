@@ -195,9 +195,9 @@ where
     }
 }
 
-/// Pre-store execution payload envelopes and their Full states in the harness's store.
+/// Pre-store execution payload envelopes in the harness's store.
 ///
-/// Post-Gloas, block N+1 needs block N's envelope and Full state to be available when it is
+/// Post-Gloas, block N+1 needs block N's envelope to be available when it is
 /// imported. This function stores all envelopes from the chain segment so that
 /// `process_chain_segment` can import all blocks successfully.
 // TODO(gloas): this is a bit of a hack that can be removed once `process_chain_segment` handles
