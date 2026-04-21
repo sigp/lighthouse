@@ -3926,6 +3926,8 @@ impl ApiTester {
             metadata.consensus_version,
             block.to_ref().fork_name(&self.chain.spec).unwrap()
         );
+        // TODO(gloas): check why consensus block value is 0
+        // assert!(!metadata.consensus_block_value.is_zero());
 
         let block_root = block.tree_hash_root();
         let envelope = self
