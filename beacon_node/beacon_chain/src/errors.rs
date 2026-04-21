@@ -213,7 +213,6 @@ pub enum BeaconChainError {
         execution_status: ExecutionStatus,
     },
     AttestationHeadNotInForkChoice(Hash256),
-    PtcHeadNotInForkChoice(Hash256),
     MissingPersistedForkChoice,
     CommitteePromiseFailed(oneshot_broadcast::Error),
     MaxCommitteePromises(usize),

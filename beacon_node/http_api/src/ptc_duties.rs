@@ -59,7 +59,7 @@ pub fn ptc_duties<T: BeaconChainTypes>(
         let head_can_serve_request = request_epoch == head_epoch || request_epoch == head_epoch + 1;
 
         if head_can_serve_request {
-            compute_ptc_duties_from_cached_head(request_epoch, request_indices, chain)
+            compute_ptc_duties_from_head(request_epoch, request_indices, chain)
         } else {
             // Within tolerance but head is lagging
             compute_ptc_duties_from_state(request_epoch, request_indices, chain)
@@ -75,20 +75,42 @@ pub fn ptc_duties<T: BeaconChainTypes>(
     }
 }
 
-fn compute_ptc_duties_from_cached_head<T: BeaconChainTypes>(
+fn compute_ptc_duties_from_head<T: BeaconChainTypes>(
     request_epoch: Epoch,
     request_indices: &[u64],
     chain: &BeaconChain<T>,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
-    let (duties, dependent_root, execution_status) = chain
-        .validator_ptc_duties(request_indices, request_epoch)
+    let (mut state, execution_optimistic, head_block_root) = {
+        let (cached_head, execution_status) = chain
+            .canonical_head
+            .head_and_execution_status()
+            .map_err(warp_utils::reject::unhandled_error)?;
+        let head = &cached_head.snapshot;
+        (
+            head.beacon_state.clone(),
+            execution_status.is_optimistic_or_invalid(),
+            cached_head.head_block_root(),
+        )
+    };
+
+    let relative_epoch =
+        RelativeEpoch::from_epoch(state.current_epoch(), request_epoch).map_err(|e| {
+            warp_utils::reject::custom_server_error(format!("invalid epoch for state: {:?}", e))
+        })?;
+
+    state
+        .build_committee_cache(relative_epoch, &chain.spec)
+        .map_err(BeaconChainError::from)
         .map_err(warp_utils::reject::unhandled_error)?;
 
-    convert_to_api_response(
-        duties,
-        dependent_root,
-        execution_status.is_optimistic_or_invalid(),
-    )
+    let dependent_root = state
+        .attester_shuffling_decision_root(head_block_root, relative_epoch)
+        .map_err(BeaconChainError::from)
+        .map_err(warp_utils::reject::unhandled_error)?;
+
+    let duties = compute_duties(&state, request_epoch, request_indices, chain)?;
+
+    convert_to_api_response(duties, dependent_root, execution_optimistic)
 }
 
 /// Compute PTC duties by reading a `BeaconState` from disk, building the committee cache
@@ -160,7 +182,17 @@ fn compute_ptc_duties_from_state<T: BeaconChainTypes>(
         .map_err(BeaconChainError::from)
         .map_err(warp_utils::reject::unhandled_error)?;
 
-    // Get pubkeys for all requested validators (invalid indices will be missing from the map)
+    let duties = compute_duties(&state, request_epoch, request_indices, chain)?;
+
+    convert_to_api_response(duties, dependent_root, execution_optimistic)
+}
+
+fn compute_duties<T: BeaconChainTypes>(
+    state: &BeaconState<T::EthSpec>,
+    epoch: Epoch,
+    request_indices: &[u64],
+    chain: &BeaconChain<T>,
+) -> Result<Vec<Option<PtcDuty>>, warp::reject::Rejection> {
     let usize_indices = request_indices
         .iter()
         .map(|i| *i as usize)
@@ -169,19 +201,17 @@ fn compute_ptc_duties_from_state<T: BeaconChainTypes>(
         .validator_pubkey_bytes_many(&usize_indices)
         .map_err(warp_utils::reject::unhandled_error)?;
 
-    // Map validator indices to duties by checking each slot in the epoch for PTC membership.
-    let duties: Vec<Option<PtcDuty>> = request_indices
+    request_indices
         .iter()
         .map(
             |&validator_index| -> Result<Option<PtcDuty>, warp::reject::Rejection> {
-                // Get pubkey; if validator doesn't exist, return None
                 let pubkey = match index_to_pubkey_map.get(&(validator_index as usize)) {
                     Some(pk) => *pk,
                     None => return Ok(None),
                 };
 
                 let slot_opt = state
-                    .get_ptc_assignment(validator_index as usize, request_epoch, &chain.spec)
+                    .get_ptc_assignment(validator_index as usize, epoch, &chain.spec)
                     .map_err(warp_utils::reject::unhandled_error)?;
 
                 Ok(slot_opt.map(|slot| PtcDuty {
@@ -191,9 +221,7 @@ fn compute_ptc_duties_from_state<T: BeaconChainTypes>(
                 }))
             },
         )
-        .collect::<Result<Vec<_>, _>>()?;
-
-    convert_to_api_response(duties, dependent_root, execution_optimistic)
+        .collect()
 }
 
 fn ensure_state_knows_ptc_duties_for_epoch<E: EthSpec>(
@@ -225,7 +253,6 @@ fn ensure_state_knows_ptc_duties_for_epoch<E: EthSpec>(
     Ok(())
 }
 
-/// Convert internal PTC duties to API response format
 fn convert_to_api_response(
     duties: Vec<Option<PtcDuty>>,
     dependent_root: Hash256,

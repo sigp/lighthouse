@@ -771,17 +771,6 @@ pub struct ProposerData {
     pub slot: Slot,
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct PtcDuty {
-    /// The validator's pubkey
-    pub pubkey: PublicKeyBytes,
-    /// The validator's index in the validator registry.
-    #[serde(with = "serde_utils::quoted_u64")]
-    pub validator_index: u64,
-    /// The slot at which this validator should perform PTC duties.
-    pub slot: Slot,
-}
-
 #[derive(Clone, Copy, Serialize, Deserialize, Default, Debug)]
 pub enum GraffitiPolicy {
     #[default]

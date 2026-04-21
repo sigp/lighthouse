@@ -78,8 +78,8 @@ use crate::{
 use bls::{PublicKey, PublicKeyBytes, Signature};
 use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{
-    EventKind, PtcDuty, SseBlobSidecar, SseBlock, SseDataColumnSidecar,
-    SseExtendedPayloadAttributes, SseHead,
+    EventKind, SseBlobSidecar, SseBlock, SseDataColumnSidecar, SseExtendedPayloadAttributes,
+    SseHead,
 };
 use execution_layer::{
     BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer,
@@ -1707,77 +1707,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok((duties, dependent_root))
             },
         )?;
-        Ok((duties, dependent_root, execution_status))
-    }
-
-    /// Get PTC duties for validators at a given epoch.
-    /// MVP implementation that:
-    /// 1. Takes atomic snapshot of canonical head
-    /// 2. Uses committee caches already built for the epoch
-    ///
-    /// Supports current and next epoch only (API enforces this constraint).
-    /// Re-org resistant: All computations use consistent cloned state.
-    ///
-    /// Note: This currently uses the vanilla `get_ptc` which recomputes PTC for each slot.
-    /// TODO(EIP-7732): When ptc cache PR is merged, this should be updated to use the optimized cache.
-    /// https://github.com/shane-moore/lighthouse/pull/10
-    /// TODO(EIP-7732): we should consider building out something similar to the `shuffling_cache` so that way we can avoid recreating ptc caches on each reorg.
-    pub fn validator_ptc_duties(
-        &self,
-        validator_indices: &[u64],
-        epoch: Epoch,
-    ) -> Result<(Vec<Option<PtcDuty>>, Hash256, ExecutionStatus), Error> {
-        // Get head state snapshot atomically
-        let (mut state, head_block_root) = {
-            let head = self.canonical_head.cached_head();
-            let head_state = head.snapshot.beacon_state.clone();
-            let head_block_root = head.head_block_root();
-            (head_state, head_block_root)
-        };
-
-        let execution_status = self
-            .canonical_head
-            .fork_choice_read_lock()
-            .get_block_execution_status(&head_block_root)
-            .ok_or(Error::PtcHeadNotInForkChoice(head_block_root))?;
-
-        // build_committee_cache is idempotent (no-op if already built), so we call it as a safety check
-        let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch)
-            .map_err(Error::IncorrectStateForAttestation)?;
-        state.build_committee_cache(relative_epoch, &self.spec)?;
-
-        // Compute the dependent root (the block that decided the shuffling for this epoch).
-        let dependent_root =
-            state.attester_shuffling_decision_root(head_block_root, relative_epoch)?;
-
-        // Get pubkeys for all requested validators (invalid indices will be missing from the map)
-        let usize_indices = validator_indices
-            .iter()
-            .map(|i| *i as usize)
-            .collect::<Vec<_>>();
-        let index_to_pubkey_map = self.validator_pubkey_bytes_many(&usize_indices)?;
-
-        // Map validator indices to duties by checking each slot in the epoch for PTC membership.
-        let duties: Vec<Option<PtcDuty>> = validator_indices
-            .iter()
-            .map(|&validator_index| -> Result<Option<PtcDuty>, Error> {
-                // Get pubkey; if validator doesn't exist, return None
-                let pubkey = match index_to_pubkey_map.get(&(validator_index as usize)) {
-                    Some(pk) => *pk,
-                    None => return Ok(None),
-                };
-
-                let slot_opt =
-                    state.get_ptc_assignment(validator_index as usize, epoch, &self.spec)?;
-
-                Ok(slot_opt.map(|slot| PtcDuty {
-                    validator_index,
-                    slot,
-                    pubkey,
-                }))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
         Ok((duties, dependent_root, execution_status))
     }
 
