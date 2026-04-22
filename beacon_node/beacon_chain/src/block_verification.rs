@@ -940,12 +940,20 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             });
         }
 
-        // TODO(gloas) The following validation can only be completed once fork choice has been implemented:
-        // The block's parent execution payload (defined by bid.parent_block_hash) has been seen
-        // (via gossip or non-gossip sources) (a client MAY queue blocks for processing
-        // once the parent payload is retrieved). If execution_payload verification of block's execution
-        // payload parent by an execution node is complete, verify the block's execution payload
-        // parent (defined by bid.parent_block_hash) passes all validation.
+        // Check that we've received the parent envelope. If not, issue a single envelope
+        // lookup for the parent and queue this block in the reprocess queue.
+        let parent_is_gloas = chain
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(parent_block.slot)
+            .gloas_enabled();
+
+        if parent_is_gloas
+            && !fork_choice_read_lock.is_payload_received(&block.message().parent_root())
+        {
+            return Err(BlockError::ParentEnvelopeUnknown {
+                parent_root: block.message().parent_root(),
+            });
+        }
 
         drop(fork_choice_read_lock);
 

@@ -19,7 +19,7 @@ use lighthouse_network::{
 };
 use logging::TimeLatch;
 use logging::crit;
-use slot_clock::SlotClock;
+use slot_clock::{SlotClock, timestamp_now};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;

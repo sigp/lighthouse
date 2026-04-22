@@ -130,7 +130,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         })
     };
 
-    let ctx = chain.gossip_verification_context();
+    let ctx = chain.payload_envelope_gossip_verification_context();
     let gossip_verified_envelope = match GossipVerifiedEnvelope::new(signed_envelope, &ctx) {
         Ok(envelope) => envelope,
         Err(e) => {

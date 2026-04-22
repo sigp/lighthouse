@@ -66,7 +66,7 @@ use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::{PeerAction, PeerId};
 use logging::crit;
 use lru_cache::LRUTimeCache;
-use slot_clock::SlotClock;
+use slot_clock::{SlotClock, timestamp_now};
 use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
