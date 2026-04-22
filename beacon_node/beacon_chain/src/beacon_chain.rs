@@ -4706,17 +4706,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         proposal_slot: Slot,
     ) -> Result<Withdrawals<T::EthSpec>, Error> {
         let cached_head = self.canonical_head.cached_head();
-        let head_payload_status = cached_head.head_payload_status();
+        let head_block = &cached_head.snapshot.beacon_block;
+        let head_block_root = cached_head.head_block_root();
         let head_state = &cached_head.snapshot.beacon_state;
 
         let parent_block_root = forkchoice_update_params.head_root;
 
-        let (unadvanced_state, unadvanced_state_root) =
-            if cached_head.head_block_root() == parent_block_root {
-                (Cow::Borrowed(head_state), cached_head.head_state_root())
+        let (unadvanced_state, unadvanced_state_root, parent_block) =
+            if parent_block_root == head_block_root {
+                // TODO(gloas): could optimise out this clone_as_blinded
+                (
+                    Cow::Borrowed(head_state),
+                    cached_head.head_state_root(),
+                    Arc::new(head_block.clone_as_blinded()),
+                )
             } else {
-                // TODO(gloas): this branch needs envelope-awareness for non-head parents
-                // See: https://github.com/sigp/lighthouse/issues/8957
                 let block = self
                     .get_blinded_block(&parent_block_root)?
                     .ok_or(Error::MissingBeaconBlock(parent_block_root))?;
@@ -4724,50 +4728,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .store
                     .get_advanced_hot_state(parent_block_root, proposal_slot, block.state_root())?
                     .ok_or(Error::MissingBeaconState(block.state_root()))?;
-                (Cow::Owned(state), state_root)
+                (Cow::Owned(state), state_root, Arc::new(block))
             };
 
-        // For Gloas, when the head payload is Full, we need to apply the parent's
-        // execution requests to the Pending state to get the correct withdrawals.
-        // The cached head state is always Pending (post-block, pre-envelope), but
-        // withdrawals must be computed from the Full state (post-envelope).
-        // TODO(gloas): this is Claude's wrong attempt, payload application should happen AFTER
-        // advancing the slot
-        let unadvanced_state = if head_payload_status == fork_choice::PayloadStatus::Full
-            && cached_head.head_block_root() == parent_block_root
+        let parent_payload_status = if parent_block.fork_name_unchecked().gloas_enabled()
+            && forkchoice_update_params.head_hash == Some(parent_block.payload_bid_block_hash()?)
         {
-            if let Some(envelope) = cached_head.snapshot.execution_envelope.as_ref() {
-                let parent_bid = unadvanced_state
-                    .latest_execution_payload_bid()
-                    .map_err(Error::BeaconStateError)?
-                    .clone();
-                let mut full_state = unadvanced_state.into_owned();
-                apply_parent_execution_payload(
-                    &mut full_state,
-                    &parent_bid,
-                    &envelope.message.execution_requests,
-                    &self.spec,
-                )
-                .map_err(Error::PrepareProposerFailed)?;
-                Cow::Owned(full_state)
-            } else {
-                unadvanced_state
-            }
+            fork_choice::PayloadStatus::Full
         } else {
-            unadvanced_state
+            fork_choice::PayloadStatus::Empty
         };
 
-        // Parent state epoch is the same as the proposal, we don't need to advance because the
-        // list of expected withdrawals can only change after an epoch advance or a
-        // block application.
-        let proposal_epoch = proposal_slot.epoch(T::EthSpec::slots_per_epoch());
-        if head_state.current_epoch() == proposal_epoch {
-            return get_expected_withdrawals(&unadvanced_state, &self.spec)
-                .map(Into::into)
-                .map_err(Error::PrepareProposerFailed);
-        }
-
         // Advance the state using the partial method.
+        // TODO(gloas): re-optimise this for pre-Gloas (tweak slot to advance to)
         debug!(
             %proposal_slot,
             ?parent_block_root,
@@ -4777,9 +4750,35 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         partial_state_advance(
             &mut advanced_state,
             Some(unadvanced_state_root),
-            proposal_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+            proposal_slot,
             &self.spec,
         )?;
+
+        // For Gloas, when the head payload is Full, we need to apply the parent's
+        // execution requests to the state to get the correct withdrawals.
+        if parent_payload_status == fork_choice::PayloadStatus::Full {
+            let envelope = if parent_block_root == head_block_root {
+                cached_head.snapshot.execution_envelope.clone()
+            } else {
+                self.store
+                    .get_payload_envelope(&parent_block_root)?
+                    .map(Arc::new)
+            }
+            .ok_or(Error::MissingExecutionPayloadEnvelope(parent_block_root))?;
+
+            // TODO(gloas): could remove this in favour of reading it in
+            // apply_parent_execution_payload. Spec simplification.
+            let parent_bid = advanced_state.latest_execution_payload_bid()?.clone();
+
+            apply_parent_execution_payload(
+                &mut advanced_state,
+                &parent_bid,
+                &envelope.message.execution_requests,
+                &self.spec,
+            )
+            .map_err(Error::PrepareProposerFailed)?;
+        }
+
         get_expected_withdrawals(&advanced_state, &self.spec)
             .map(Into::into)
             .map_err(Error::PrepareProposerFailed)
