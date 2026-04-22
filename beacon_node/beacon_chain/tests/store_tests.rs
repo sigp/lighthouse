@@ -5693,7 +5693,7 @@ async fn test_gloas_block_and_envelope_storage_generic(
     check_db_invariants(&harness);
 }
 
-/// Test block replay with and without envelopes.
+/// Test that Gloas block replay works without envelopes.
 #[tokio::test]
 async fn test_gloas_block_replay_with_envelopes() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
@@ -5709,14 +5709,13 @@ async fn test_gloas_block_replay_with_envelopes() {
     let mut state = genesis_state.clone();
 
     let mut last_block_root = Hash256::zero();
-    let mut pending_states = HashMap::new();
-    let mut full_states = HashMap::new();
+    let mut states = HashMap::new();
 
     for i in 1..=num_blocks {
         let slot = Slot::new(i);
         harness.advance_slot();
 
-        let (block_contents, envelope, pending_state) =
+        let (block_contents, envelope, mut block_state) =
             harness.make_block_with_envelope(state, slot).await;
         let block_root = block_contents.0.canonical_root();
 
@@ -5725,18 +5724,16 @@ async fn test_gloas_block_replay_with_envelopes() {
             .await
             .unwrap();
 
-        let pending_state_root = pending_state.clone().update_tree_hash_cache().unwrap();
-        pending_states.insert(slot, (pending_state_root, pending_state.clone()));
+        let state_root = block_state.update_tree_hash_cache().unwrap();
+        states.insert(slot, (state_root, block_state.clone()));
 
         let envelope = envelope.expect("Gloas block should have envelope");
-        let full_state = pending_state;
         harness
-            .process_envelope(block_root, envelope, &full_state, pending_state_root)
+            .process_envelope(block_root, envelope, &block_state, state_root)
             .await;
-        full_states.insert(slot, (pending_state_root, full_state.clone()));
 
         last_block_root = block_root;
-        state = full_state;
+        state = block_state;
     }
 
     let end_slot = Slot::new(num_blocks);
@@ -5756,7 +5753,7 @@ async fn test_gloas_block_replay_with_envelopes() {
         .into_state();
     replayed.apply_pending_mutations().unwrap();
 
-    let (_, mut expected) = pending_states.get(&end_slot).unwrap().clone();
+    let (_, mut expected) = states.get(&end_slot).unwrap().clone();
     expected.apply_pending_mutations().unwrap();
 
     replayed.drop_all_caches().unwrap();
@@ -5782,8 +5779,7 @@ async fn test_gloas_hot_state_hierarchy() {
     // Build enough blocks to span multiple epochs. With MinimalEthSpec (8 slots/epoch),
     // 40 slots covers 5 epochs.
     let num_blocks = E::slots_per_epoch() * 5;
-    // TODO(gloas): enable finalisation by increasing this threshold
-    let some_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
+    let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
 
     let (genesis_state, _genesis_state_root) = harness.get_current_state_and_root();
 
@@ -5796,7 +5792,7 @@ async fn test_gloas_hot_state_hierarchy() {
         let slot = Slot::new(i);
         harness.advance_slot();
 
-        let (block_contents, envelope, mut pending_state) =
+        let (block_contents, envelope, mut block_state) =
             harness.make_block_with_envelope(state.clone(), slot).await;
         let block_root = block_contents.0.canonical_root();
         let signed_block = block_contents.0.clone();
@@ -5809,24 +5805,22 @@ async fn test_gloas_hot_state_hierarchy() {
         // Attest to the current block at its own slot (same-slot attestation).
         // In Gloas, same-slot attestations have index=0 and route to Pending in
         // fork choice, correctly propagating weight through the Full path.
-        // Use pending_state (at slot i) so the target root resolves correctly.
-        let pending_state_root = pending_state.update_tree_hash_cache().unwrap();
+        let state_root = block_state.update_tree_hash_cache().unwrap();
         harness.attest_block(
-            &pending_state,
-            pending_state_root,
+            &block_state,
+            state_root,
             block_root.into(),
             &signed_block,
-            &some_validators,
+            &all_validators,
         );
 
         let envelope = envelope.expect("Gloas block should have envelope");
-        let full_state = pending_state;
         harness
-            .process_envelope(block_root, envelope, &full_state, pending_state_root)
+            .process_envelope(block_root, envelope, &block_state, state_root)
             .await;
 
         last_block_root = block_root;
-        state = full_state;
+        state = block_state;
     }
 
     // Head should be the block at slot 40 with full payload.
