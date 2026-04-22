@@ -1102,7 +1102,7 @@ where
     }
 
     /// Returns a newly created block, signed by the proposer for the given slot,
-    /// along with the execution payload envelope (for Gloas) and the pending state.
+    /// along with the execution payload envelope (for Gloas) and the post-block state.
     ///
     /// For pre-Gloas forks, the envelope is `None` and this behaves like `make_block`.
     pub async fn make_block_with_envelope(
@@ -1142,7 +1142,7 @@ where
                 )
             };
 
-            let (block, pending_state, _consensus_block_value) = self
+            let (block, post_block_state, _consensus_block_value) = self
                 .chain
                 .produce_block_on_state_gloas(
                     state,
@@ -1159,8 +1159,8 @@ where
 
             let signed_block = Arc::new(block.sign(
                 &self.validator_keypairs[proposer_index].sk,
-                &pending_state.fork(),
-                pending_state.genesis_validators_root(),
+                &post_block_state.fork(),
+                post_block_state.genesis_validators_root(),
                 &self.spec,
             ));
 
@@ -1175,8 +1175,8 @@ where
                     let domain = self.spec.get_domain(
                         epoch,
                         Domain::BeaconBuilder,
-                        &pending_state.fork(),
-                        pending_state.genesis_validators_root(),
+                        &post_block_state.fork(),
+                        post_block_state.genesis_validators_root(),
                     );
                     let message = envelope.signing_root(domain);
                     let signature = self.validator_keypairs[proposer_index].sk.sign(message);
@@ -1187,7 +1187,7 @@ where
                 });
 
             let block_contents: SignedBlockContentsTuple<E> = (signed_block, None);
-            (block_contents, signed_envelope, pending_state)
+            (block_contents, signed_envelope, post_block_state)
         } else {
             let (block_contents, state) = self.make_block(state, slot).await;
             (block_contents, None, state)
