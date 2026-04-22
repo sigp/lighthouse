@@ -735,6 +735,9 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     blob_gas_used: 0,
                     excess_blob_gas: 0,
                 }),
+                _ => unreachable!(),
+            },
+            PayloadAttributes::V4(pa) => match self.get_fork_at_timestamp(pa.timestamp) {
                 ForkName::Gloas => ExecutionPayload::Gloas(ExecutionPayloadGloas {
                     parent_hash: head_block_hash,
                     fee_recipient: pa.suggested_fee_recipient,
@@ -753,6 +756,8 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     withdrawals: pa.withdrawals.clone().try_into().unwrap(),
                     blob_gas_used: 0,
                     excess_blob_gas: 0,
+                    block_access_list: VariableList::empty(),
+                    slot_number: pa.slot_number.into(),
                 }),
                 _ => unreachable!(),
             },

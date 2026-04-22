@@ -4,8 +4,6 @@ use crate::{
     service::NetworkMessage,
     sync::SyncMessage,
 };
-use beacon_chain::block_verification_types::AsBlock;
-use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use beacon_chain::store::Error;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
@@ -23,6 +21,11 @@ use beacon_chain::{
     payload_envelope_verification::{
         EnvelopeError, gossip_verified_envelope::GossipVerifiedEnvelope,
     },
+};
+use beacon_chain::{block_verification_types::AsBlock, payload_bid_verification::PayloadBidError};
+use beacon_chain::{
+    data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn},
+    proposer_preferences_verification::ProposerPreferencesError,
 };
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
@@ -286,7 +289,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             })
             .collect::<Vec<_>>();
 
-        for (result, package) in results.into_iter().zip(packages.into_iter()) {
+        for (result, package) in results.into_iter().zip(packages) {
             let result = match result {
                 Ok((indexed_attestation, attestation)) => Ok(VerifiedUnaggregate {
                     indexed_attestation,
@@ -492,7 +495,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .map(|result| result.map(|verified| verified.into_indexed_attestation()))
             .collect::<Vec<_>>();
 
-        for (result, package) in results.into_iter().zip(packages.into_iter()) {
+        for (result, package) in results.into_iter().zip(packages) {
             let result = match result {
                 Ok(indexed_attestation) => Ok(VerifiedAggregate {
                     indexed_attestation,
@@ -3357,63 +3360,112 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 verified_envelope
             }
+            Err(e) => {
+                match e {
+                    EnvelopeError::ExecutionPayloadError(ref epe) if !epe.penalize_peer() => {
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
 
-            Err(EnvelopeError::BlockRootUnknown { block_root }) => {
-                let envelope_slot = envelope.slot();
+                    EnvelopeError::BadSignature
+                    | EnvelopeError::BuilderIndexMismatch { .. }
+                    | EnvelopeError::SlotMismatch { .. }
+                    | EnvelopeError::BlockHashMismatch { .. }
+                    | EnvelopeError::UnknownValidator { .. }
+                    | EnvelopeError::IncorrectBlockProposer { .. }
+                    | EnvelopeError::ExecutionPayloadError(_)
+                    | EnvelopeError::EnvelopeProcessingError(_)
+                    | EnvelopeError::BlockError(_) => {
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Reject,
+                        );
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::LowToleranceError,
+                            "gossip_envelope_low",
+                        );
+                    }
 
-                debug!(
-                    ?block_root,
-                    %envelope_slot,
-                    "Envelope references unknown block, deferring to reprocess queue"
-                );
+                    EnvelopeError::BlockRootUnknown { block_root } => {
+                        let envelope_slot = envelope.slot();
 
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                        debug!(
+                            ?block_root,
+                            %envelope_slot,
+                            "Envelope references unknown block, deferring to reprocess queue"
+                        );
 
-                let inner_self = self.clone();
-                let chain = self.chain.clone();
-                let process_fn = Box::pin(async move {
-                    match chain.verify_envelope_for_gossip(envelope).await {
-                        Ok(verified_envelope) => {
-                            inner_self
-                                .process_gossip_verified_execution_payload_envelope(
-                                    peer_id,
-                                    verified_envelope,
-                                )
-                                .await;
-                        }
-                        Err(e) => {
-                            debug!(
-                                error = ?e,
-                                "Deferred envelope failed verification"
+                        self.propagate_validation_result(
+                            message_id.clone(),
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+
+                        let inner_self = self.clone();
+                        let chain = self.chain.clone();
+                        let process_fn = Box::pin(async move {
+                            match chain.verify_envelope_for_gossip(envelope).await {
+                                Ok(verified_envelope) => {
+                                    inner_self
+                                        .process_gossip_verified_execution_payload_envelope(
+                                            peer_id,
+                                            verified_envelope,
+                                        )
+                                        .await;
+                                }
+                                Err(e) => {
+                                    debug!(
+                                        error = ?e,
+                                        "Deferred envelope failed verification"
+                                    );
+                                }
+                            }
+                        });
+
+                        if self
+                            .beacon_processor_send
+                            .try_send(WorkEvent {
+                                drop_during_sync: false,
+                                work: Work::Reprocess(
+                                    ReprocessQueueMessage::UnknownBlockForEnvelope(
+                                        QueuedGossipEnvelope {
+                                            beacon_block_slot: envelope_slot,
+                                            beacon_block_root: block_root,
+                                            process_fn,
+                                        },
+                                    ),
+                                ),
+                            })
+                            .is_err()
+                        {
+                            error!(
+                                %envelope_slot,
+                                ?block_root,
+                                "Failed to defer envelope import"
                             );
                         }
                     }
-                });
 
-                if self
-                    .beacon_processor_send
-                    .try_send(WorkEvent {
-                        drop_during_sync: false,
-                        work: Work::Reprocess(ReprocessQueueMessage::UnknownBlockForEnvelope(
-                            QueuedGossipEnvelope {
-                                beacon_block_slot: envelope_slot,
-                                beacon_block_root: block_root,
-                                process_fn,
-                            },
-                        )),
-                    })
-                    .is_err()
-                {
-                    error!(
-                        %envelope_slot,
-                        ?block_root,
-                        "Failed to defer envelope import"
-                    );
+                    EnvelopeError::PriorToFinalization { .. }
+                    | EnvelopeError::OptimisticSyncNotSupported { .. }
+                    | EnvelopeError::BeaconChainError(_)
+                    | EnvelopeError::BeaconStateError(_)
+                    | EnvelopeError::BlockProcessingError(_)
+                    | EnvelopeError::InternalError(_) => {
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
                 }
                 return None;
             }
-            // TODO(gloas) penalize peers accordingly
-            Err(_) => return None,
         };
 
         let envelope_slot = verified_envelope.signed_envelope.slot();
@@ -3461,7 +3513,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     async fn process_gossip_verified_execution_payload_envelope(
         self: Arc<Self>,
-        _peer_id: PeerId,
+        peer_id: PeerId,
         verified_envelope: GossipVerifiedEnvelope<T>,
     ) {
         let _processing_start_time = Instant::now();
@@ -3487,32 +3539,139 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             | Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
                 // Nothing to do
             }
-            Err(_) => {
-                // TODO(gloas) implement peer penalties
-            }
+            Err(e) => match e {
+                EnvelopeError::ExecutionPayloadError(epe) if !epe.penalize_peer() => {}
+                EnvelopeError::BadSignature
+                | EnvelopeError::BuilderIndexMismatch { .. }
+                | EnvelopeError::SlotMismatch { .. }
+                | EnvelopeError::BlockHashMismatch { .. }
+                | EnvelopeError::UnknownValidator { .. }
+                | EnvelopeError::IncorrectBlockProposer { .. }
+                | EnvelopeError::ExecutionPayloadError(_) => {
+                    self.gossip_penalize_peer(
+                        peer_id,
+                        PeerAction::LowToleranceError,
+                        "gossip_envelope_processing_low",
+                    );
+                }
+
+                EnvelopeError::EnvelopeProcessingError(_)
+                | EnvelopeError::BlockError(_)
+                | EnvelopeError::BlockRootUnknown { .. } => {
+                    self.gossip_penalize_peer(
+                        peer_id,
+                        PeerAction::LowToleranceError,
+                        "gossip_envelope_processing_error",
+                    );
+                }
+
+                EnvelopeError::PriorToFinalization { .. }
+                | EnvelopeError::OptimisticSyncNotSupported { .. }
+                | EnvelopeError::BeaconChainError(_)
+                | EnvelopeError::BeaconStateError(_)
+                | EnvelopeError::BlockProcessingError(_)
+                | EnvelopeError::InternalError(_) => {}
+            },
         }
     }
 
+    #[instrument(
+        name = "lh_process_execution_payload_bid",
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(parent_block_hash = ?bid.message.parent_block_hash, parent_block_root = ?bid.message.parent_block_root),
+    )]
     pub fn process_gossip_execution_payload_bid(
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        payload_bid: SignedExecutionPayloadBid<T::EthSpec>,
+        bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>,
     ) {
-        // TODO(EIP-7732): Implement proper payload bid gossip processing.
-        // This should integrate with a payload execution bid verification module once it's implemented.
+        let verification_result = self.chain.verify_payload_bid_for_gossip(bid.clone());
 
-        trace!(
-            %peer_id,
-            slot = %payload_bid.message.slot,
-            value = %payload_bid.message.value,
-            "Processing execution payload bid"
-        );
-
-        // For now, ignore all payload bids since verification is not implemented
-        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+        match verification_result {
+            Ok(_) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+            }
+            Err(
+                PayloadBidError::BadSignature
+                | PayloadBidError::InvalidBuilder { .. }
+                | PayloadBidError::InvalidFeeRecipient
+                | PayloadBidError::InvalidGasLimit
+                | PayloadBidError::ExecutionPaymentNonZero { .. }
+                | PayloadBidError::InvalidBlobKzgCommitments { .. },
+            ) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "invalid_gossip_payload_bid",
+                );
+            }
+            Err(
+                PayloadBidError::NoProposerPreferences { .. }
+                | PayloadBidError::BuilderAlreadySeen { .. }
+                | PayloadBidError::BidValueBelowCached { .. }
+                | PayloadBidError::ParentBlockRootUnknown { .. }
+                | PayloadBidError::ParentBlockRootNotCanonical { .. }
+                | PayloadBidError::BuilderCantCoverBid { .. }
+                | PayloadBidError::BeaconStateError(_)
+                | PayloadBidError::InternalError(_)
+                | PayloadBidError::InvalidBidSlot { .. }
+                | PayloadBidError::UnableToReadSlot,
+            ) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+        }
     }
 
+    #[instrument(
+        name = "lh_process_proposer_preferences",
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(validator_index = ?proposer_preferences.message.validator_index, proposal_slot = ?proposer_preferences.message.proposal_slot),
+    )]
+    pub fn process_gossip_proposer_preferences(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        proposer_preferences: Arc<SignedProposerPreferences>,
+    ) {
+        let verification_result = self
+            .chain
+            .verify_proposer_preferences_for_gossip(proposer_preferences);
+
+        match verification_result {
+            Ok(_) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+            }
+            Err(
+                ProposerPreferencesError::AlreadySeen { .. }
+                | ProposerPreferencesError::InvalidProposalEpoch { .. }
+                | ProposerPreferencesError::ProposalSlotAlreadyPassed { .. }
+                | ProposerPreferencesError::BeaconChainError(_)
+                | ProposerPreferencesError::BeaconStateError(_)
+                | ProposerPreferencesError::UnableToReadSlot,
+            ) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            Err(
+                ProposerPreferencesError::InvalidProposalSlot { .. }
+                | ProposerPreferencesError::BadSignature,
+            ) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "invalid_gossip_proposer_preferences",
+                );
+            }
+        }
+    }
+
+    // TODO(gloas) dont forget to add tracing instrumentation
     pub fn process_gossip_payload_attestation(
         self: &Arc<Self>,
         message_id: MessageId,
@@ -3531,25 +3690,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
 
         // For now, ignore all payload attestation messages since verification is not implemented
-        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-    }
-
-    pub fn process_gossip_proposer_preferences(
-        self: &Arc<Self>,
-        message_id: MessageId,
-        peer_id: PeerId,
-        proposer_preferences: SignedProposerPreferences,
-    ) {
-        // TODO(EIP-7732): Implement proper proposer preferences gossip processing.
-
-        trace!(
-            %peer_id,
-            validator_index = proposer_preferences.message.validator_index,
-            slot = %proposer_preferences.message.proposal_slot,
-            "Processing proposer preferences"
-        );
-
-        // For now, ignore all proposer preferences since verification is not implemented
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
     }
 }
