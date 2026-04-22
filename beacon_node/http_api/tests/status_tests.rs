@@ -1,18 +1,21 @@
 //! Tests related to the beacon node's sync status
 use beacon_chain::{
     BlockError,
-    test_utils::{AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy},
+    test_utils::{
+        AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy,
+        fork_name_from_env, test_spec,
+    },
 };
 use execution_layer::{PayloadStatusV1, PayloadStatusV1Status};
 use http_api::test_utils::InteractiveTester;
 use reqwest::StatusCode;
-use types::{EthSpec, ExecPayload, ForkName, MinimalEthSpec, Slot, Uint256};
+use types::{EthSpec, ExecPayload, MinimalEthSpec, Slot, Uint256};
 
 type E = MinimalEthSpec;
 
 /// Create a new test environment that is post-merge with `chain_depth` blocks.
 async fn post_merge_tester(chain_depth: u64, validator_count: u64) -> InteractiveTester<E> {
-    let mut spec = ForkName::latest().make_genesis_spec(E::default_spec());
+    let mut spec = test_spec::<E>();
     spec.terminal_total_difficulty = Uint256::from(1);
 
     let tester = InteractiveTester::<E>::new(Some(spec), validator_count as usize).await;
@@ -83,8 +86,14 @@ async fn el_offline() {
 }
 
 /// Check `syncing` endpoint when the EL errors on newPaylod but is not fully offline.
+// Gloas blocks don't carry execution payloads — the payload arrives via an envelope,
+// so newPayload is never called during block import. Skip for Gloas.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn el_error_on_new_payload() {
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
     let num_blocks = E::slots_per_epoch() / 2;
     let num_validators = E::slots_per_epoch();
     let tester = post_merge_tester(num_blocks, num_validators).await;
@@ -97,6 +106,7 @@ async fn el_error_on_new_payload() {
         .make_block(pre_state, Slot::new(num_blocks + 1))
         .await;
     let (block, blobs) = block_contents;
+
     let block_hash = block
         .message()
         .body()
