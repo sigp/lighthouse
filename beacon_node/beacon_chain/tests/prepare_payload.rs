@@ -7,6 +7,7 @@ use beacon_chain::test_utils::{
 use beacon_chain::{ChainConfig, custody_context::NodeCustodyType};
 use bls::Keypair;
 use eth2::types::ProposerPreparationData;
+use fork_choice::PayloadStatus;
 use logging::create_test_tracing_subscriber;
 use ssz_types::VariableList;
 use state_processing::per_block_processing::{
@@ -95,6 +96,15 @@ fn get_harness_generic(
 
 #[tokio::test]
 async fn prepare_payload_on_full_parent() {
+    prepare_payload_generic(PayloadStatus::Full).await;
+}
+
+#[tokio::test]
+async fn prepare_payload_on_empty_parent() {
+    prepare_payload_generic(PayloadStatus::Empty).await;
+}
+
+async fn prepare_payload_generic(parent_payload_status: PayloadStatus) {
     // Post-Gloas test.
     let spec = test_spec::<E>();
     if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
@@ -102,6 +112,7 @@ async fn prepare_payload_on_full_parent() {
     }
 
     let num_blocks_produced = E::slots_per_epoch() * 3;
+    let parent_slot = Slot::new(num_blocks_produced) + 1;
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
@@ -136,30 +147,43 @@ async fn prepare_payload_on_full_parent() {
         .set_next_execution_requests(execution_requests);
 
     // Produce and import one more block. Its envelope will contain the consolidation request.
-    harness
-        .extend_chain(
-            1,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
+    // TODO(gloas): all this ugly plumbing could be avoided with some more "implicit" context
+    // methods
+    let state = harness.get_current_state();
+    let (block_contents, opt_envelope, parent_block_state) =
+        harness.make_block_with_envelope(state, parent_slot).await;
+    let envelope = opt_envelope.unwrap();
+    let block_root = harness
+        .process_block(
+            parent_slot,
+            block_contents.0.canonical_root(),
+            block_contents.clone(),
         )
-        .await;
+        .await
+        .unwrap();
+
+    if parent_payload_status == PayloadStatus::Full {
+        harness
+            .process_envelope(
+                block_root.into(),
+                envelope.clone(),
+                &parent_block_state,
+                block_contents.0.state_root(),
+            )
+            .await;
+    }
 
     // Verify that the withdrawals computed from the block's state differ from the withdrawals
     // computed from the block's state with its payload applied by
     // `apply_parent_execution_payload`.
     let cached_head = harness.chain.canonical_head.cached_head();
     let pending_state = &cached_head.snapshot.beacon_state;
-    let envelope = cached_head
-        .snapshot
-        .execution_envelope
-        .as_ref()
-        .expect("head should have execution envelope (Full status)");
     let parent_bid = pending_state
         .latest_execution_payload_bid()
         .expect("should get latest bid");
 
-    // Withdrawals from the Pending state (without execution requests applied).
-    let withdrawals_pending: Withdrawals<E> = get_expected_withdrawals(pending_state, &spec)
+    // Withdrawals from the empty state (without execution requests applied).
+    let withdrawals_empty: Withdrawals<E> = get_expected_withdrawals(pending_state, &spec)
         .expect("should get pending withdrawals")
         .into();
 
@@ -177,7 +201,7 @@ async fn prepare_payload_on_full_parent() {
         .into();
 
     assert_ne!(
-        withdrawals_pending, withdrawals_full,
+        withdrawals_empty, withdrawals_full,
         "Applying execution requests should change the expected withdrawals"
     );
 
@@ -216,18 +240,21 @@ async fn prepare_payload_on_full_parent() {
     // Read the payload attributes from the EL cache and verify the withdrawals.
     let el = harness.chain.execution_layer.as_ref().unwrap();
     let head_root = harness.head_block_root();
-    let head_payload_status = fork_choice::PayloadStatus::Full;
     let attributes = el
-        .payload_attributes(prepare_slot, head_root, head_payload_status)
+        .payload_attributes(prepare_slot, head_root, parent_payload_status)
         .await
         .expect("should have cached payload attributes for prepare_slot");
 
     let actual_withdrawals = attributes.withdrawals().unwrap();
-    let expected_withdrawals: Vec<Withdrawal> = withdrawals_full.to_vec();
+    let expected_withdrawals: Vec<Withdrawal> = if parent_payload_status == PayloadStatus::Full {
+        withdrawals_full.to_vec()
+    } else {
+        withdrawals_empty.to_vec()
+    };
 
     assert_eq!(
         actual_withdrawals, &expected_withdrawals,
-        "prepare_beacon_proposer should use withdrawals computed from the Full state \
-         (with execution requests applied)"
+        "prepare_beacon_proposer should use withdrawals computed from the \
+         {parent_payload_status:?} state"
     );
 }
