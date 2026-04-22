@@ -29,7 +29,6 @@ use types::data::{
 use types::{
     BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSubnetId,
     EthSpec, Hash256, PartialDataColumnSidecarRef, SignedBeaconBlockHeader, Slot,
-    StatePayloadStatus,
 };
 
 /// An error occurred while validating a gossip data column.
@@ -1274,12 +1273,7 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
             // for the same block. Analysis: https://hackmd.io/@dapplion/gloas_dependant_root
             chain
                 .store
-                .get_advanced_hot_state(
-                    block_parent_root,
-                    StatePayloadStatus::Pending,
-                    column_slot,
-                    parent_block.state_root,
-                )
+                .get_advanced_hot_state(block_parent_root, column_slot, parent_block.state_root)
                 .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?
                 .ok_or_else(|| {
                     GossipDataColumnError::BeaconChainError(Box::new(

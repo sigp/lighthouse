@@ -44,18 +44,13 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconSnapshot<E, Payload> {
         }
     }
 
-    /// Returns the state root from `self.beacon_block` or `self.execution_envelope` as
-    /// appropriate.
+    /// Returns the state root from `self.beacon_block`.
     ///
     /// ## Caution
     ///
     /// It is not strictly enforced that `root(self.beacon_state) == self.beacon_state_root()`.
     pub fn beacon_state_root(&self) -> Hash256 {
-        if let Some(ref envelope) = self.execution_envelope {
-            envelope.message.state_root
-        } else {
-            self.beacon_block.message().state_root()
-        }
+        self.beacon_block.message().state_root()
     }
 
     /// Update all fields of the checkpoint.
