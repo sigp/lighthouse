@@ -50,14 +50,29 @@ pub struct EnvelopeImportData<E: EthSpec> {
 
 #[derive(Debug)]
 pub struct AvailableEnvelope<E: EthSpec> {
-    pub execution_block_hash: ExecutionBlockHash,
-    pub envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
-    pub columns: DataColumnSidecarList<E>,
-    pub columns_available_timestamp: Option<std::time::Duration>,
+    execution_block_hash: ExecutionBlockHash,
+    envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+    columns: DataColumnSidecarList<E>,
+    columns_available_timestamp: Option<std::time::Duration>,
     pub spec: Arc<ChainSpec>,
 }
 
 impl<E: EthSpec> AvailableEnvelope<E> {
+    pub fn new(
+        execution_block_hash: ExecutionBlockHash,
+        envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+        columns: DataColumnSidecarList<E>,
+        spec: Arc<ChainSpec>,
+    ) -> Self {
+        Self {
+            execution_block_hash,
+            envelope,
+            columns,
+            columns_available_timestamp: None,
+            spec,
+        }
+    }
+
     pub fn message(&self) -> &ExecutionPayloadEnvelope<E> {
         &self.envelope.message
     }
