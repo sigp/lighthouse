@@ -45,8 +45,7 @@ impl TimeLatch {
 /// By default no logs will be printed, logs will be printed by using --nocapture. Example:
 /// ```bash
 /// cargo test --release  -p beacon_chain -- --nocapture
-/// ```bash
-/// (typically when --nocapture is used with cargo test).
+/// ```
 pub fn create_test_tracing_subscriber() {
     let _ = tracing_subscriber::fmt()
         .with_test_writer()
