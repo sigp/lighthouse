@@ -277,7 +277,8 @@ pub async fn handle_rpc<E: EthSpec>(
         | ENGINE_GET_PAYLOAD_V2
         | ENGINE_GET_PAYLOAD_V3
         | ENGINE_GET_PAYLOAD_V4
-        | ENGINE_GET_PAYLOAD_V5 => {
+        | ENGINE_GET_PAYLOAD_V5
+        | ENGINE_GET_PAYLOAD_V6 => {
             let request: JsonPayloadIdRequest =
                 get_param(params, 0).map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
             let id = request.into();
@@ -363,7 +364,8 @@ pub async fn handle_rpc<E: EthSpec>(
                 && (method == ENGINE_GET_PAYLOAD_V1
                     || method == ENGINE_GET_PAYLOAD_V2
                     || method == ENGINE_GET_PAYLOAD_V3
-                    || method == ENGINE_GET_PAYLOAD_V4)
+                    || method == ENGINE_GET_PAYLOAD_V4
+                    || method == ENGINE_GET_PAYLOAD_V5)
             {
                 return Err((
                     format!("{} called after Gloas fork!", method),
@@ -455,13 +457,18 @@ pub async fn handle_rpc<E: EthSpec>(
                             })
                             .unwrap()
                         }
+                        _ => unreachable!(),
+                    })
+                }
+                ENGINE_GET_PAYLOAD_V6 => {
+                    Ok(match JsonExecutionPayload::try_from(response).unwrap() {
                         JsonExecutionPayload::Gloas(execution_payload) => {
                             serde_json::to_value(JsonGetPayloadResponseGloas {
                                 execution_payload,
                                 block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
                                 blobs_bundle: maybe_blobs
                                     .ok_or((
-                                        "No blobs returned despite V5 Payload".to_string(),
+                                        "No blobs returned despite V6 Payload".to_string(),
                                         GENERIC_ERROR_CODE,
                                     ))?
                                     .into(),
@@ -507,7 +514,8 @@ pub async fn handle_rpc<E: EthSpec>(
         }
         ENGINE_FORKCHOICE_UPDATED_V1
         | ENGINE_FORKCHOICE_UPDATED_V2
-        | ENGINE_FORKCHOICE_UPDATED_V3 => {
+        | ENGINE_FORKCHOICE_UPDATED_V3
+        | ENGINE_FORKCHOICE_UPDATED_V4 => {
             let forkchoice_state: JsonForkchoiceStateV1 =
                 get_param(params, 0).map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
             let payload_attributes = match method {
@@ -552,6 +560,11 @@ pub async fn handle_rpc<E: EthSpec>(
                 ENGINE_FORKCHOICE_UPDATED_V3 => {
                     get_param::<Option<JsonPayloadAttributesV3>>(params, 1)
                         .map(|opt| opt.map(JsonPayloadAttributes::V3))
+                        .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
+                }
+                ENGINE_FORKCHOICE_UPDATED_V4 => {
+                    get_param::<Option<JsonPayloadAttributesV4>>(params, 1)
+                        .map(|opt| opt.map(JsonPayloadAttributes::V4))
                         .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
                 }
                 _ => unreachable!(),
@@ -607,7 +620,7 @@ pub async fn handle_rpc<E: EthSpec>(
                             ));
                         }
                     }
-                    ForkName::Deneb | ForkName::Electra | ForkName::Fulu | ForkName::Gloas => {
+                    ForkName::Deneb | ForkName::Electra | ForkName::Fulu => {
                         if method == ENGINE_FORKCHOICE_UPDATED_V1 {
                             return Err((
                                 format!("{} called after Deneb fork!", method),
@@ -617,6 +630,14 @@ pub async fn handle_rpc<E: EthSpec>(
                         if method == ENGINE_FORKCHOICE_UPDATED_V2 {
                             return Err((
                                 format!("{} called after Deneb fork!", method),
+                                FORK_REQUEST_MISMATCH_ERROR_CODE,
+                            ));
+                        }
+                    }
+                    ForkName::Gloas => {
+                        if method != ENGINE_FORKCHOICE_UPDATED_V4 {
+                            return Err((
+                                format!("{} called after Gloas fork! Use V4.", method),
                                 FORK_REQUEST_MISMATCH_ERROR_CODE,
                             ));
                         }

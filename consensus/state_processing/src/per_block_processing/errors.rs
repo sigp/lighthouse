@@ -108,6 +108,13 @@ pub enum BlockProcessingError {
     },
     /// Builder payment index out of bounds (Gloas)
     BuilderPaymentIndexOutOfBounds(usize),
+    /// The parent execution requests root doesn't match the committed bid
+    ExecutionRequestsRootMismatch {
+        expected: Hash256,
+        found: Hash256,
+    },
+    /// Parent was not full but non-empty execution requests were provided
+    NonEmptyParentExecutionRequests,
 }
 
 impl From<BeaconStateError> for BlockProcessingError {

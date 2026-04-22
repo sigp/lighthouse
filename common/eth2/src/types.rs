@@ -125,15 +125,7 @@ impl fmt::Display for BlockId {
 pub enum StateId {
     Head,
     Genesis,
-    /// Pre-gloas the finalized state is the checkpoint block state
-    /// advanced to the epoch boundary.
-    /// Post-gloas this state is always the checkpoint post-block state and is not advanced
-    /// to the epoch boundary.
     Finalized,
-    /// Pre-gloas the justified state is the checkpoint block state
-    /// advanced to the epoch boundary.
-    /// Post-gloas this state is always the checkpoint post-block state and is not advanced
-    /// to the epoch boundary.
     Justified,
     Slot(Slot),
     Root(Hash256),
@@ -778,6 +770,14 @@ pub enum GraffitiPolicy {
     AppendClientVersions,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PtcDuty {
+    pub pubkey: PublicKeyBytes,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub validator_index: u64,
+    pub slot: Slot,
+}
+
 #[derive(Clone, Deserialize)]
 pub struct ValidatorBlocksQuery {
     pub randao_reveal: SignatureBytes,
@@ -1085,7 +1085,6 @@ pub struct SseExecutionPayload {
     pub builder_index: u64,
     pub block_hash: ExecutionBlockHash,
     pub block_root: Hash256,
-    pub state_root: Hash256,
     pub execution_optimistic: bool,
 }
 
@@ -1096,7 +1095,6 @@ pub struct SseExecutionPayloadGossip {
     pub builder_index: u64,
     pub block_hash: ExecutionBlockHash,
     pub block_root: Hash256,
-    pub state_root: Hash256,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]

@@ -7,8 +7,8 @@ use execution_layer::{
     EngineCapabilities,
     http::{
         ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3, ENGINE_GET_PAYLOAD_V2,
-        ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_NEW_PAYLOAD_V2,
-        ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4,
+        ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6,
+        ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V5,
     },
 };
 use lighthouse_network::{NetworkGlobals, types::SyncState};
@@ -555,11 +555,11 @@ fn methods_required_for_fork(
             }
         }
         ForkName::Gloas => {
-            if !capabilities.get_payload_v5 {
-                missing_methods.push(ENGINE_GET_PAYLOAD_V5);
+            if !capabilities.get_payload_v6 {
+                missing_methods.push(ENGINE_GET_PAYLOAD_V6);
             }
-            if !capabilities.new_payload_v4 {
-                missing_methods.push(ENGINE_NEW_PAYLOAD_V4);
+            if !capabilities.new_payload_v5 {
+                missing_methods.push(ENGINE_NEW_PAYLOAD_V5);
             }
         }
     }

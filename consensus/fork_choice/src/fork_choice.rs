@@ -560,9 +560,22 @@ where
         )?;
 
         // Cache some values for the next forkchoiceUpdate call to the execution layer.
-        let head_hash = self
-            .get_block(&head_root)
-            .and_then(|b| b.execution_status.block_hash());
+        // For Gloas blocks, `execution_status` is Irrelevant (no embedded payload).
+        // If the payload envelope was received (Full), use the bid's block_hash as the
+        // execution chain head. Otherwise fall back to the parent hash (Pending) or None.
+        // TODO(gloas): this is a bit messy, and we probably need a similar treatment for
+        // justified/finalized
+        // Can fix as part of: https://github.com/sigp/lighthouse/issues/8957
+        let head_hash = self.get_block(&head_root).and_then(|b| {
+            b.execution_status
+                .block_hash()
+                .or(match head_payload_status {
+                    PayloadStatus::Full => b.execution_payload_block_hash,
+                    PayloadStatus::Pending | PayloadStatus::Empty => {
+                        b.execution_payload_parent_hash
+                    }
+                })
+        });
         let justified_root = self.justified_checkpoint().root;
         let finalized_root = self.finalized_checkpoint().root;
         let justified_hash = self
@@ -804,7 +817,7 @@ where
             }));
         }
 
-        let attestation_threshold = spec.get_unaggregated_attestation_due();
+        let attestation_threshold = spec.get_attestation_due::<E>(block.slot());
 
         // Add proposer score boost if the block is timely.
         // TODO(gloas): the spec's `update_proposer_boost_root` additionally checks that
@@ -1491,6 +1504,14 @@ where
         } else {
             None
         }
+    }
+
+    /// Returns whether the proposer should extend the execution payload chain of the given block.
+    pub fn should_extend_payload(&self, block_root: &Hash256) -> Result<bool, Error<T::Error>> {
+        let proposer_boost_root = self.fc_store.proposer_boost_root();
+        self.proto_array
+            .should_extend_payload::<E>(block_root, proposer_boost_root)
+            .map_err(Error::ProtoArrayStringError)
     }
 
     /// Returns an `ExecutionStatus` if the block is known **and** a descendant of the finalized root.

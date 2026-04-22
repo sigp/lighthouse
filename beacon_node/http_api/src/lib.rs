@@ -2536,6 +2536,14 @@ pub fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
     );
 
+    // GET validator/payload_attestation_data/{slot}
+    let get_validator_payload_attestation_data = get_validator_payload_attestation_data(
+        eth_v1.clone(),
+        chain_filter.clone(),
+        not_while_syncing_filter.clone(),
+        task_spawner_filter.clone(),
+    );
+
     // GET validator/aggregate_attestation?attestation_data_root,slot
     let get_validator_aggregate_attestation = get_validator_aggregate_attestation(
         any_version.clone(),
@@ -3347,6 +3355,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_validator_blinded_blocks)
                 .uor(get_validator_execution_payload_envelope)
                 .uor(get_validator_attestation_data)
+                .uor(get_validator_payload_attestation_data)
                 .uor(get_validator_aggregate_attestation)
                 .uor(get_validator_sync_committee_contribution)
                 .uor(get_lighthouse_health)

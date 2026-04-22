@@ -6,13 +6,15 @@ use bls::Signature;
 use execution_layer::{
     BlockProposalContentsGloas, BuilderParams, PayloadAttributes, PayloadParameters,
 };
+use fork_choice::PayloadStatus;
 use operation_pool::CompactAttestationRef;
 use ssz::Encode;
 use state_processing::common::get_attesting_indices_from_state;
-use state_processing::envelope_processing::{VerifyStateRoot, process_execution_payload_envelope};
+use state_processing::envelope_processing::verify_execution_payload_envelope;
 use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::per_block_processing::{
-    compute_timestamp_at_slot, get_expected_withdrawals, verify_attestation_for_block_inclusion,
+    apply_parent_execution_payload, compute_timestamp_at_slot, get_expected_withdrawals,
+    verify_attestation_for_block_inclusion,
 };
 use state_processing::{
     BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot, VerifySignatures,
@@ -34,7 +36,8 @@ use types::{
 
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockProductionError,
-    ProduceBlockVerification, graffiti_calculator::GraffitiSettings, metrics,
+    ProduceBlockVerification, block_production::BlockProductionState,
+    graffiti_calculator::GraffitiSettings, metrics,
 };
 
 pub const BID_VALUE_SELF_BUILD: u64 = 0;
@@ -87,7 +90,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // Load the parent state from disk.
         let chain = self.clone();
-        let (state, state_root_opt) = self
+        let block_production_state = self
             .task_executor
             .spawn_blocking_handle(
                 move || chain.load_state_for_block_production(slot),
@@ -96,6 +99,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(BlockProductionError::ShuttingDown)?
             .await
             .map_err(BlockProductionError::TokioJoin)??;
+        let BlockProductionState {
+            state,
+            state_root: state_root_opt,
+            parent_payload_status,
+            parent_envelope,
+        } = block_production_state;
 
         // Part 2/2 (async, with some blocking components)
         //
@@ -103,6 +112,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.produce_block_on_state_gloas(
             state,
             state_root_opt,
+            parent_payload_status,
+            parent_envelope,
             slot,
             randao_reveal,
             graffiti_settings,
@@ -113,10 +124,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     // TODO(gloas) need to implement builder boost factor logic
     #[instrument(level = "debug", skip_all)]
+    #[allow(clippy::too_many_arguments)]
     pub async fn produce_block_on_state_gloas(
         self: &Arc<Self>,
         state: BeaconState<T::EthSpec>,
         state_root_opt: Option<Hash256>,
+        parent_payload_status: PayloadStatus,
+        parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
         produce_at_slot: Slot,
         randao_reveal: Signature,
         graffiti_settings: GraffitiSettings,
@@ -148,6 +162,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await
             .map_err(BlockProductionError::TokioJoin)??;
 
+        // Extract the parent's execution requests from the envelope (if parent was full).
+        let parent_execution_requests = if parent_payload_status == PayloadStatus::Full {
+            parent_envelope
+                .as_ref()
+                .map(|env| env.message.execution_requests.clone())
+                .ok_or(BlockProductionError::MissingParentExecutionPayload)?
+        } else {
+            ExecutionRequests::default()
+        };
+
         // Part 2/3 (async)
         //
         // Produce the execution payload bid.
@@ -157,6 +181,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .clone()
             .produce_execution_payload_bid(
                 state,
+                parent_payload_status,
+                parent_envelope,
                 produce_at_slot,
                 BID_VALUE_SELF_BUILD,
                 BUILDER_INDEX_SELF_BUILD,
@@ -173,6 +199,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     chain.complete_partial_beacon_block_gloas(
                         partial_beacon_block,
                         execution_payload_bid,
+                        parent_execution_requests,
                         payload_data,
                         state,
                         verification,
@@ -417,9 +444,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Complete a block by computing its state root, and
     ///
-    /// Return `(block, pending_state, block_value)` where:
+    /// Return `(block, post_block_state, block_value)` where:
     ///
-    /// - `pending_state` is the state post block application (prior to payload application)
+    /// - `post_block_state` is the state post block application
     /// - `block_value` is the consensus-layer rewards for `block`
     #[allow(clippy::type_complexity)]
     #[instrument(skip_all, level = "debug")]
@@ -427,6 +454,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         partial_beacon_block: PartialBeaconBlock<T::EthSpec>,
         signed_execution_payload_bid: SignedExecutionPayloadBid<T::EthSpec>,
+        parent_execution_requests: ExecutionRequests<T::EthSpec>,
         payload_data: Option<ExecutionPayloadData<T::EthSpec>>,
         mut state: BeaconState<T::EthSpec>,
         verification: ProduceBlockVerification,
@@ -488,6 +516,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     bls_to_execution_changes: bls_to_execution_changes
                         .try_into()
                         .map_err(BlockProductionError::SszTypesError)?,
+                    parent_execution_requests,
                     signed_execution_payload_bid,
                     payload_attestations: payload_attestations
                         .try_into()
@@ -542,9 +571,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         drop(state_root_timer);
 
-        // Clone the Pending state (post-block, pre-envelope) for callers that need it.
-        let pending_state = state.clone();
-
         let (mut block, _) = signed_beacon_block.deconstruct();
         *block.state_root_mut() = state_root;
 
@@ -558,28 +584,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 execution_requests: payload_data.execution_requests,
                 builder_index: payload_data.builder_index,
                 beacon_block_root,
-                slot: payload_data.slot,
-                state_root: Hash256::ZERO,
             };
 
-            let mut signed_envelope = SignedExecutionPayloadEnvelope {
+            let signed_envelope = SignedExecutionPayloadEnvelope {
                 message: execution_payload_envelope,
                 signature: Signature::empty(),
             };
 
-            // We skip state root verification here because the relevant state root
-            // cant be calculated until after the new block has been constructed.
-            process_execution_payload_envelope(
-                &mut state,
-                None,
+            // Verify the envelope against the state. This performs no state mutation.
+            verify_execution_payload_envelope(
+                &state,
                 &signed_envelope,
                 VerifySignatures::False,
-                VerifyStateRoot::False,
+                state_root,
                 &self.spec,
             )
             .map_err(BlockProductionError::EnvelopeProcessingError)?;
-
-            signed_envelope.message.state_root = state.update_tree_hash_cache()?;
 
             // Cache the envelope for later retrieval by the validator for signing and publishing.
             let envelope_slot = payload_data.slot;
@@ -605,7 +625,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "Produced beacon block"
         );
 
-        Ok((block, pending_state, consensus_block_value))
+        Ok((block, state, consensus_block_value))
     }
 
     // TODO(gloas) introduce `ProposerPreferences` so we can build out trustless
@@ -622,7 +642,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[instrument(level = "debug", skip_all)]
     pub async fn produce_execution_payload_bid(
         self: Arc<Self>,
-        mut state: BeaconState<T::EthSpec>,
+        state: BeaconState<T::EthSpec>,
+        parent_payload_status: PayloadStatus,
+        parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
         produce_at_slot: Slot,
         bid_value: u64,
         builder_index: BuilderIndex,
@@ -665,6 +687,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(|e| BlockProductionError::BeaconChain(Box::new(e)))?,
         };
 
+        let parent_bid = state.latest_execution_payload_bid()?;
+
+        // TODO(gloas): need should_extend_payload check here as well
+        let parent_block_hash = if parent_payload_status == PayloadStatus::Full {
+            // Build on parent bid's payload.
+            parent_bid.block_hash
+        } else {
+            // Skip parent bid's payload. For genesis this is the EL genesis hash.
+            parent_bid.parent_block_hash
+        };
+
         // TODO(gloas) this should be BlockProductionVersion::V4
         // V3 is okay for now as long as we're not connected to a builder
         // TODO(gloas) add builder boost factor
@@ -672,6 +705,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.clone(),
             &state,
             parent_root,
+            parent_block_hash,
+            parent_envelope,
             proposer_index,
             builder_params,
         )?;
@@ -689,13 +724,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             blobs_and_proofs: _,
         } = block_proposal_contents;
 
-        let state_root = state.update_tree_hash_cache()?;
-
         // TODO(gloas) since we are defaulting to local building, execution payment is 0
         // execution payment should only be set to > 0 for trusted building.
         let bid = ExecutionPayloadBid::<T::EthSpec> {
-            parent_block_hash: state.latest_block_hash()?.to_owned(),
-            parent_block_root: state.get_latest_block_root(state_root),
+            parent_block_hash,
+            parent_block_root: parent_root,
             block_hash: payload.block_hash,
             prev_randao: payload.prev_randao,
             fee_recipient: Address::ZERO,
@@ -705,6 +738,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             value: bid_value,
             execution_payment: EXECUTION_PAYMENT_TRUSTLESS_BUILD,
             blob_kzg_commitments,
+            execution_requests_root: execution_requests.tree_hash_root(),
         };
 
         // Store payload data for envelope construction after block is created
@@ -740,6 +774,8 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     state: &BeaconState<T::EthSpec>,
     parent_beacon_block_root: Hash256,
+    parent_block_hash: ExecutionBlockHash,
+    parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
     proposer_index: u64,
     builder_params: BuilderParams,
 ) -> Result<PreparePayloadHandle<T::EthSpec>, BlockProductionError> {
@@ -751,11 +787,28 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
         compute_timestamp_at_slot(state, state.slot(), spec).map_err(BeaconStateError::from)?;
     let random = *state.get_randao_mix(current_epoch)?;
 
-    let latest_execution_block_hash = *state.latest_block_hash()?;
-    let latest_gas_limit = state.latest_execution_payload_bid()?.gas_limit;
+    // TODO(gloas): this gas limit calc is not necessarily right
+    let parent_bid = state.latest_execution_payload_bid()?;
+    let latest_gas_limit = parent_bid.gas_limit;
 
-    let withdrawals = if state.is_parent_block_full() {
-        Withdrawals::<T::EthSpec>::from(get_expected_withdrawals(state, spec)?).into()
+    let is_parent_block_full = parent_block_hash == parent_bid.block_hash;
+
+    let withdrawals = if is_parent_block_full {
+        if let Some(envelope) = parent_envelope {
+            let mut withdrawals_state = state.clone();
+            apply_parent_execution_payload(
+                &mut withdrawals_state,
+                parent_bid,
+                &envelope.message.execution_requests,
+                spec,
+            )?;
+            Withdrawals::<T::EthSpec>::from(get_expected_withdrawals(&withdrawals_state, spec)?)
+                .into()
+        } else {
+            // No envelope available (e.g. genesis). The parent had no execution requests,
+            // so compute withdrawals directly from the current state.
+            Withdrawals::<T::EthSpec>::from(get_expected_withdrawals(state, spec)?).into()
+        }
     } else {
         // If the previous payload was missed, carry forward the withdrawals from the state.
         state.payload_expected_withdrawals()?.to_vec()
@@ -773,7 +826,7 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
                     timestamp,
                     random,
                     proposer_index,
-                    latest_execution_block_hash,
+                    parent_block_hash,
                     latest_gas_limit,
                     builder_params,
                     withdrawals,
@@ -839,12 +892,15 @@ where
     let suggested_fee_recipient = execution_layer
         .get_suggested_fee_recipient(proposer_index)
         .await;
+    let slot_number = Some(builder_params.slot.as_u64());
+
     let payload_attributes = PayloadAttributes::new(
         timestamp,
         random,
         suggested_fee_recipient,
         Some(withdrawals),
         Some(parent_beacon_block_root),
+        slot_number,
     );
 
     let target_gas_limit = execution_layer.get_proposer_gas_limit(proposer_index).await;
