@@ -50,6 +50,8 @@ impl TimeLatch {
 pub fn create_test_tracing_subscriber() {
     let _ = tracing_subscriber::fmt()
         .with_test_writer()
-        .with_env_filter(EnvFilter::try_new("debug").unwrap())
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug")),
+        )
         .try_init();
 }

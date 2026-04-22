@@ -109,6 +109,32 @@ For VSCode users, this is already configured in the repository's `.vscode/settin
 }
 ```
 
+### Logging in tests
+
+By default, when running tests, the logs will not be printed if the tests passed. For example, to run the tests for the `beacon_chain` package:
+
+```bash
+cargo test --release  -p beacon_chain
+```
+
+To always show the logs, run the tests with `-- --nocapture`.
+
+```bash
+cargo test --release  -p beacon_chain -- --nocapture
+```
+
+By default, the log shown is `DEBUG` level. This can be overridden using the environment variable `RUST_LOG`. For example, to only show logs with `INFO` level and above:
+
+```bash
+RUST_LOG=info cargo test --release  -p beacon_chain -- --nocapture
+```
+
+To only show logs from the `beacon_chain` crate and with `INFO` level and above:
+
+```bash
+RUST_LOG=beacon_chain=info cargo test --release  -p beacon_chain -- --nocapture
+```
+
 ### Consensus Spec Tests
 
 The
