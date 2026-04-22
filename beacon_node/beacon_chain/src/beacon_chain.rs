@@ -111,8 +111,8 @@ use state_processing::{
     epoch_cache::initialize_epoch_cache,
     per_block_processing,
     per_block_processing::{
-        VerifySignatures, errors::AttestationValidationError, get_expected_withdrawals,
-        verify_attestation_for_block_inclusion,
+        VerifySignatures, apply_parent_execution_payload, errors::AttestationValidationError,
+        get_expected_withdrawals, verify_attestation_for_block_inclusion,
     },
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
@@ -4706,8 +4706,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         proposal_slot: Slot,
     ) -> Result<Withdrawals<T::EthSpec>, Error> {
         let cached_head = self.canonical_head.cached_head();
-        // TODO(gloas): wire this up again
-        let _head_payload_status = cached_head.head_payload_status();
+        let head_payload_status = cached_head.head_payload_status();
         let head_state = &cached_head.snapshot.beacon_state;
 
         let parent_block_root = forkchoice_update_params.head_root;
@@ -4716,7 +4715,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if cached_head.head_block_root() == parent_block_root {
                 (Cow::Borrowed(head_state), cached_head.head_state_root())
             } else {
-                // TODO(gloas): this function needs updating to be envelope-aware
+                // TODO(gloas): this branch needs envelope-awareness for non-head parents
                 // See: https://github.com/sigp/lighthouse/issues/8957
                 let block = self
                     .get_blinded_block(&parent_block_root)?
@@ -4727,6 +4726,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .ok_or(Error::MissingBeaconState(block.state_root()))?;
                 (Cow::Owned(state), state_root)
             };
+
+        // For Gloas, when the head payload is Full, we need to apply the parent's
+        // execution requests to the Pending state to get the correct withdrawals.
+        // The cached head state is always Pending (post-block, pre-envelope), but
+        // withdrawals must be computed from the Full state (post-envelope).
+        // TODO(gloas): this is Claude's wrong attempt, payload application should happen AFTER
+        // advancing the slot
+        let unadvanced_state = if head_payload_status == fork_choice::PayloadStatus::Full
+            && cached_head.head_block_root() == parent_block_root
+        {
+            if let Some(envelope) = cached_head.snapshot.execution_envelope.as_ref() {
+                let parent_bid = unadvanced_state
+                    .latest_execution_payload_bid()
+                    .map_err(Error::BeaconStateError)?
+                    .clone();
+                let mut full_state = unadvanced_state.into_owned();
+                apply_parent_execution_payload(
+                    &mut full_state,
+                    &parent_bid,
+                    &envelope.message.execution_requests,
+                    &self.spec,
+                )
+                .map_err(Error::PrepareProposerFailed)?;
+                Cow::Owned(full_state)
+            } else {
+                unadvanced_state
+            }
+        } else {
+            unadvanced_state
+        };
 
         // Parent state epoch is the same as the proposal, we don't need to advance because the
         // list of expected withdrawals can only change after an epoch advance or a
