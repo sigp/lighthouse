@@ -444,9 +444,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Complete a block by computing its state root, and
     ///
-    /// Return `(block, pending_state, block_value)` where:
+    /// Return `(block, post_block_state, block_value)` where:
     ///
-    /// - `pending_state` is the state post block application (prior to payload application)
+    /// - `post_block_state` is the state post block application
     /// - `block_value` is the consensus-layer rewards for `block`
     #[allow(clippy::type_complexity)]
     #[instrument(skip_all, level = "debug")]
@@ -571,9 +571,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         drop(state_root_timer);
 
-        // Clone the Pending state (post-block, pre-envelope) for callers that need it.
-        let pending_state = state.clone();
-
         let (mut block, _) = signed_beacon_block.deconstruct();
         *block.state_root_mut() = state_root;
 
@@ -628,7 +625,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "Produced beacon block"
         );
 
-        Ok((block, pending_state, consensus_block_value))
+        Ok((block, state, consensus_block_value))
     }
 
     // TODO(gloas) introduce `ProposerPreferences` so we can build out trustless
@@ -693,13 +690,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let parent_bid = state.latest_execution_payload_bid()?;
 
         // TODO(gloas): need should_extend_payload check here as well
-        let parent_block_hash = if parent_payload_status == PayloadStatus::Full {
-            // Build on parent bid's payload.
-            parent_bid.block_hash
-        } else {
-            // Skip parent bid's payload. For genesis this is the EL genesis hash.
-            parent_bid.parent_block_hash
-        };
+        let parent_block_slot = state.latest_block_header().slot;
+        let parent_is_pre_gloas = !self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(parent_block_slot)
+            .gloas_enabled();
+        let parent_block_hash =
+            if parent_payload_status == PayloadStatus::Full || parent_is_pre_gloas {
+                // Build on parent bid's payload.
+                parent_bid.block_hash
+            } else {
+                // Skip parent bid's payload. For genesis this is the EL genesis hash.
+                parent_bid.parent_block_hash
+            };
 
         // TODO(gloas) this should be BlockProductionVersion::V4
         // V3 is okay for now as long as we're not connected to a builder
