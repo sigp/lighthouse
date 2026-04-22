@@ -22,9 +22,6 @@ use types::*;
 pub const LOW_VALIDATOR_COUNT: usize = 32;
 pub const HIGH_VALIDATOR_COUNT: usize = 64;
 
-// When set to true, cache any states fetched from the db.
-pub const CACHE_STATE_IN_TESTS: bool = true;
-
 /// A cached set of keys.
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(HIGH_VALIDATOR_COUNT));
@@ -107,16 +104,7 @@ async fn prepare_payload_on_full_parent() {
     let num_blocks_produced = E::slots_per_epoch() * 3;
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
-    let chain_config = ChainConfig {
-        archive: true,
-        ..ChainConfig::default()
-    };
-    let harness = get_harness_generic(
-        store.clone(),
-        LOW_VALIDATOR_COUNT,
-        chain_config,
-        NodeCustodyType::Fullnode,
-    );
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
 
     harness
         .extend_chain(
@@ -130,51 +118,11 @@ async fn prepare_payload_on_full_parent() {
     harness.advance_slot();
 
     // Produce a block with a payload that affects withdrawals for the next slot.
-    // This requires injecting at least one valid and actionable consolidation request
-    // (switch-to-compounding) into the execution requests. A switch-to-compounding request
-    // changes a validator's withdrawal credentials from 0x01 (eth1) to 0x02 (compounding),
-    // which reduces their balance to min_activation_balance and queues the excess as a
-    // pending deposit. This removes the validator from the partial withdrawal sweep.
-    //
-    // We target an odd-indexed validator since odd validators are created with eth1 withdrawal
-    // credentials in the interop genesis builder.
-    let target_validator_index = 1_usize;
-    let head_state = &harness
-        .chain
-        .canonical_head
-        .cached_head()
-        .snapshot
-        .beacon_state;
-    let validator = head_state
-        .get_validator(target_validator_index)
-        .expect("validator should exist");
-
-    // Sanity check: the validator has eth1 withdrawal credentials (0x01 prefix).
-    assert!(
-        validator.has_eth1_withdrawal_credential(&spec),
-        "validator {target_validator_index} should have eth1 withdrawal credentials"
-    );
-    // Sanity check: the validator is partially withdrawable (has excess balance from
-    // attestation rewards after 1 epoch).
-    let balance = head_state
-        .get_balance(target_validator_index)
-        .expect("should get balance");
-    assert!(
-        balance > spec.min_activation_balance,
-        "validator should have excess balance from attestation rewards: balance={balance}, \
-         min_activation_balance={}",
-        spec.min_activation_balance
-    );
-
-    let source_address = validator
-        .get_execution_withdrawal_address(&spec)
-        .expect("validator should have execution withdrawal address");
-
-    let consolidation_request = ConsolidationRequest {
-        source_address,
-        source_pubkey: validator.pubkey,
-        target_pubkey: validator.pubkey,
-    };
+    // A switch-to-compounding consolidation changes withdrawal credentials from 0x01 to 0x02,
+    // which queues the validator's excess balance as a pending deposit and removes it from the
+    // partial withdrawal sweep. We target an odd-indexed validator since odd validators are
+    // created with eth1 withdrawal credentials in the interop genesis builder.
+    let consolidation_request = harness.make_switch_to_compounding_request(1);
 
     let execution_requests = ExecutionRequests::<E> {
         deposits: VariableList::empty(),
