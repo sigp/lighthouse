@@ -21,10 +21,10 @@ pub const BYTES_PER_PROOF: usize = 48;
 use crate::trusted_setup::load_trusted_setup;
 use rayon::prelude::*;
 pub use rust_eth_kzg::{
-    Cell, CellIndex as CellID, CellRef, TrustedSetup as PeerDASTrustedSetup,
     constants::{BYTES_PER_CELL, CELLS_PER_EXT_BLOB},
+    Cell, CellIndex as CellID, CellRef, TrustedSetup as PeerDASTrustedSetup,
 };
-use tracing::{Span, instrument};
+use tracing::{instrument, Span};
 
 // Note: Both `NUMBER_OF_COLUMNS` and `CELLS_PER_EXT_BLOB` are preset values - however this
 // is a constant in the KZG library - be aware that overriding `NUMBER_OF_COLUMNS` will break KZG
