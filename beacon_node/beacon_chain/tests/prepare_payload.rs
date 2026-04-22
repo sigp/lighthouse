@@ -127,8 +127,7 @@ async fn prepare_payload_on_full_parent() {
     let execution_requests = ExecutionRequests::<E> {
         deposits: VariableList::empty(),
         withdrawals: VariableList::empty(),
-        consolidations: VariableList::new(vec![consolidation_request])
-            .expect("should create consolidation requests list"),
+        consolidations: VariableList::new(vec![consolidation_request]).unwrap(),
     };
 
     // Inject the execution requests into the mock EL so the next payload includes them.

@@ -1488,8 +1488,8 @@ impl<E: EthSpec> ExecutionLayer<E> {
     }
 
     /// If there has been a proposer registered via `Self::insert_proposer` with a matching `slot`
-    /// `head_block_root`, then return the appropriate `PayloadAttributes` for inclusion in
-    /// `forkchoiceUpdated` calls.
+    /// `head_block_root`, and `head_payload_status` then return the appropriate `PayloadAttributes`
+    /// for inclusion in `forkchoiceUpdated` calls.
     pub async fn payload_attributes(
         &self,
         current_slot: Slot,
