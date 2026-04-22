@@ -9,9 +9,7 @@ use crate::{
     PayloadVerificationOutcome,
     block_verification::PayloadVerificationHandle,
     payload_envelope_verification::{
-        EnvelopeError, EnvelopeImportData, MaybeAvailableEnvelope,
-        gossip_verified_envelope::GossipVerifiedEnvelope, load_snapshot_from_state_root,
-        payload_notifier::PayloadNotifier,
+        AvailableEnvelope, EnvelopeError, EnvelopeImportData, MaybeAvailableEnvelope, gossip_verified_envelope::GossipVerifiedEnvelope, load_snapshot_from_state_root, payload_notifier::PayloadNotifier
     },
 };
 
@@ -86,11 +84,17 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             &chain.spec,
         )?;
 
+        // TODO(gloas) Since we dont have a DA cache we are always constructing an available envelope.
+        // once the da cache is implemented we should set this envelope to pending and let the da cache
+        // handle the availability logic.
         Ok(ExecutionPendingEnvelope {
-            signed_envelope: MaybeAvailableEnvelope::AvailabilityPending {
-                block_hash: payload.block_hash,
+            signed_envelope: MaybeAvailableEnvelope::Available(AvailableEnvelope {
+                execution_block_hash: payload.block_hash,
                 envelope: signed_envelope,
-            },
+                columns: vec![].into(),
+                columns_available_timestamp: None,
+                spec: chain.spec.clone(),
+            }),
             import_data: EnvelopeImportData {
                 block_root,
                 _phantom: Default::default(),
