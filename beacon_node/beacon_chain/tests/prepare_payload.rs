@@ -213,31 +213,20 @@ async fn prepare_payload_on_full_parent() {
         .await
         .expect("prepare_beacon_proposer should succeed");
 
-    // Extract the payload attributes that were sent to the EL via forkchoiceUpdated.
-    let mock_el = harness
-        .mock_execution_layer
-        .as_ref()
-        .expect("should have mock execution layer");
-    let previous_request = mock_el
-        .server
-        .take_previous_request()
-        .expect("should have a previous forkchoiceUpdated request");
-    let params = previous_request
-        .get("params")
-        .expect("should have params field");
-    let payload_attributes_json = params.get(1).expect("should have payload attributes param");
+    // Read the payload attributes from the EL cache and verify the withdrawals.
+    let el = harness.chain.execution_layer.as_ref().unwrap();
+    let head_root = harness.head_block_root();
+    let head_payload_status = fork_choice::PayloadStatus::Full;
+    let attributes = el
+        .payload_attributes(prepare_slot, head_root, head_payload_status)
+        .await
+        .expect("should have cached payload attributes for prepare_slot");
 
-    // The payload attributes should be V4 for Gloas.
-    let attributes: execution_layer::json_structures::JsonPayloadAttributesV4 =
-        serde_json::from_value(payload_attributes_json.clone())
-            .expect("should deserialize V4 payload attributes");
-
-    let actual_withdrawals: Vec<Withdrawal> =
-        attributes.withdrawals.into_iter().map(Into::into).collect();
+    let actual_withdrawals = attributes.withdrawals().unwrap();
     let expected_withdrawals: Vec<Withdrawal> = withdrawals_full.to_vec();
 
     assert_eq!(
-        actual_withdrawals, expected_withdrawals,
+        actual_withdrawals, &expected_withdrawals,
         "prepare_beacon_proposer should use withdrawals computed from the Full state \
          (with execution requests applied)"
     );
