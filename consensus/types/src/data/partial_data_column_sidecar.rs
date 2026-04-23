@@ -60,9 +60,18 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
     }
 
     pub fn get(&self, idx: usize) -> Option<(&Cell<E>, &KzgProof)> {
+        if !self.cells_present_bitmap.get(idx).unwrap_or(false) {
+            return None;
+        }
+        let storage_idx = self
+            .cells_present_bitmap
+            .iter()
+            .take(idx)
+            .filter(|b| *b)
+            .count();
         self.column
-            .get(idx)
-            .and_then(|cell| self.kzg_proofs.get(idx).map(|proof| (cell, proof)))
+            .get(storage_idx)
+            .and_then(|cell| self.kzg_proofs.get(storage_idx).map(|proof| (cell, proof)))
     }
 
     /// Creates a reference to this sidecar containing only the blob indices for which the passed
@@ -381,5 +390,40 @@ mod tests {
             sidecar,
         };
         assert!(partial.try_clone_full(&header).is_none());
+    }
+
+    // -- get tests --
+
+    #[test]
+    fn get_sparse_bitmap_maps_to_correct_storage_position() {
+        // bitmap: [false, true, false, true] → column: [cell_1, cell_3]
+        let sidecar = make_sidecar_with_marker(4, &[1, 3], 0);
+        let (cell, _) = sidecar.get(1).expect("cell at blob index 1 should exist");
+        assert_eq!(cell[0], 1);
+        let (cell, _) = sidecar.get(3).expect("cell at blob index 3 should exist");
+        assert_eq!(cell[0], 3);
+    }
+
+    #[test]
+    fn get_absent_blob_index_returns_none() {
+        let sidecar = make_sidecar(4, &[1, 3]);
+        assert!(sidecar.get(0).is_none());
+        assert!(sidecar.get(2).is_none());
+    }
+
+    #[test]
+    fn get_out_of_range_returns_none() {
+        let sidecar = make_sidecar(4, &[0, 2]);
+        assert!(sidecar.get(4).is_none());
+        assert!(sidecar.get(100).is_none());
+    }
+
+    #[test]
+    fn get_dense_bitmap_matches_direct_index() {
+        let sidecar = make_sidecar_with_marker(4, &[0, 1, 2, 3], 10);
+        for i in 0..4 {
+            let (cell, _) = sidecar.get(i).expect("all cells should be present");
+            assert_eq!(cell[0], 10 + i as u8);
+        }
     }
 }
