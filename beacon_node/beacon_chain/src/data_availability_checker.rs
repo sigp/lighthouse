@@ -5,6 +5,7 @@ use crate::block_verification_types::{AvailabilityPendingExecutedBlock, Availabl
 use crate::data_availability_checker::overflow_lru_cache::{
     DataAvailabilityCheckerInner, ReconstructColumnsDecision,
 };
+use crate::partial_data_column_assembler::{AssemblyColumn, PartialDataColumnAssembler};
 use crate::{BeaconChain, BeaconChainTypes, BlockProcessStatus, CustodyContext, metrics};
 use educe::Educe;
 use kzg::Kzg;
@@ -17,10 +18,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tracing::{debug, error, instrument};
-use types::data::{BlobIdentifier, FixedBlobSidecarList};
+use types::data::{BlobIdentifier, FixedBlobSidecarList, PartialDataColumn};
 use types::{
     BlobSidecar, BlobSidecarList, BlockImportSource, ChainSpec, DataColumnSidecar,
-    DataColumnSidecarList, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
+    DataColumnSidecarList, Epoch, EthSpec, Hash256, PartialDataColumnSidecarError,
+    PartialDataColumnSidecarRef, SignedBeaconBlock, Slot, new_non_zero_usize,
 };
 
 mod error;
@@ -36,7 +38,6 @@ use crate::metrics::{
 };
 use crate::observed_data_sidecars::ObservationStrategy;
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
-use types::new_non_zero_usize;
 
 /// The LRU Cache stores `PendingComponents`, which store block and its associated blob data:
 ///
@@ -78,6 +79,7 @@ const OVERFLOW_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
 pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
     complete_blob_backfill: bool,
     availability_cache: Arc<DataAvailabilityCheckerInner<T>>,
+    partial_assembler: Option<Arc<PartialDataColumnAssembler<T::EthSpec>>>,
     slot_clock: T::SlotClock,
     kzg: Arc<Kzg>,
     custody_context: Arc<CustodyContext<T::EthSpec>>,
@@ -120,14 +122,23 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         kzg: Arc<Kzg>,
         custody_context: Arc<CustodyContext<T::EthSpec>>,
         spec: Arc<ChainSpec>,
+        enable_partial_columns: bool,
     ) -> Result<Self, AvailabilityCheckError> {
         let inner = DataAvailabilityCheckerInner::new(
             OVERFLOW_LRU_CAPACITY_NON_ZERO,
             custody_context.clone(),
             spec.clone(),
         )?;
+        let partial_assembler = if enable_partial_columns {
+            Some(Arc::new(PartialDataColumnAssembler::new(
+                OVERFLOW_LRU_CAPACITY_NON_ZERO,
+            )))
+        } else {
+            None
+        };
         Ok(Self {
             complete_blob_backfill,
+            partial_assembler,
             availability_cache: Arc::new(inner),
             slot_clock,
             kzg,
@@ -138,6 +149,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
     pub fn custody_context(&self) -> &Arc<CustodyContext<T::EthSpec>> {
         &self.custody_context
+    }
+
+    pub fn partial_assembler(&self) -> Option<&Arc<PartialDataColumnAssembler<T::EthSpec>>> {
+        self.partial_assembler.as_ref()
     }
 
     /// Checks if the block root is currently in the availability cache awaiting import because
@@ -172,19 +187,104 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             })
     }
 
-    /// Check if the exact data column is in the availability cache.
-    pub fn is_data_column_cached(
-        &self,
-        block_root: &Hash256,
-        data_column: &DataColumnSidecar<T::EthSpec>,
-    ) -> bool {
-        self.availability_cache
-            .peek_pending_components(block_root, |components| {
-                components.is_some_and(|components| {
-                    let cached_column_opt = components.get_cached_data_column(*data_column.index());
-                    cached_column_opt.is_some_and(|cached| *cached == *data_column)
+    /// Filter out all cells that are already cached for the given `block_root`.
+    /// Returns None if all cells are already cached.
+    /// Returns an error if any cells or proofs mismatch the cached cells.
+    pub fn missing_cells_for_column_sidecar<'a>(
+        &'_ self,
+        data_column: &'a DataColumnSidecar<T::EthSpec>,
+    ) -> Result<Option<PartialDataColumnSidecarRef<'a, T::EthSpec>>, MissingCellsError> {
+        let block_root = data_column.block_root();
+        let column_index = *data_column.index();
+
+        // Check DA checker cache first - if we have a full column cached, nothing is missing.
+        // We return Some(true) from the peek if it exists and matches, Some(false) if it exists but
+        // does not match, and None if it doesn't exist.
+        if let Some(matches) =
+            self.availability_cache
+                .peek_pending_components(&block_root, |components| {
+                    components
+                        .and_then(|c| c.get_cached_data_column(column_index))
+                        .map(|cached| *cached == *data_column)
                 })
+        {
+            return if matches {
+                Ok(None)
+            } else {
+                Err(MissingCellsError::MismatchesCachedColumn)
+            };
+        }
+
+        // Check assembler for partial columns
+        if let Some(assembler) = &self.partial_assembler {
+            match assembler.get_partial(&block_root, column_index) {
+                Some(AssemblyColumn::Incomplete(cached_partial)) => {
+                    return data_column.try_filter_to_partial_ref(|idx, cell, proof| {
+                        match cached_partial.as_data_column().sidecar.get(idx) {
+                            None => Ok(true),
+                            Some((cached_cell, cached_proof)) => {
+                                if cell == cached_cell && proof == cached_proof {
+                                    Ok(false)
+                                } else {
+                                    Err(MissingCellsError::MismatchesCachedColumn)
+                                }
+                            }
+                        }
+                    });
+                }
+                // This can happen if the column has been marked as completed already but has not
+                // reached the availability cache yet.
+                Some(AssemblyColumn::Complete(_)) => {
+                    return Ok(None);
+                }
+                None => {
+                    // No cached data, all cells are "missing" (new data we want)
+                }
+            }
+        }
+        // No cached data, all cells are "missing" (new data we want)
+        data_column.try_filter_to_partial_ref(|_, _, _| Ok(true))
+    }
+
+    /// Filter out all cells that are already cached for the given `block_root`.
+    /// Returns input for kzg verification, or None if all cells are already cached.
+    pub fn missing_cells_for_partial_column_sidecar<'a>(
+        &'_ self,
+        partial_data_column: &'a PartialDataColumn<T::EthSpec>,
+    ) -> Result<Option<PartialDataColumnSidecarRef<'a, T::EthSpec>>, MissingCellsError> {
+        let column_index = partial_data_column.index;
+        let block_root = partial_data_column.block_root;
+
+        // Check DA checker cache first - if we have a full column cached, nothing is missing.
+        if self
+            .availability_cache
+            .peek_pending_components(&block_root, |components| {
+                components.is_some_and(|c| c.get_cached_data_column(column_index).is_some())
             })
+        {
+            return Ok(None);
+        }
+
+        // Check assembler for partial columns
+        if let Some(assembler) = &self.partial_assembler {
+            match assembler.get_partial(&block_root, column_index) {
+                Some(AssemblyColumn::Incomplete(cached_partial)) => {
+                    return Ok(partial_data_column.sidecar.filter(|idx| {
+                        cached_partial.as_data_column().sidecar.get(idx).is_none()
+                    })?);
+                }
+                // This can happen if the column has been marked as completed already but has not
+                // reached the availability cache yet.
+                Some(AssemblyColumn::Complete(_)) => {
+                    return Ok(None);
+                }
+                None => {
+                    // No cached data, all cells are "missing" (new data we want)
+                }
+            }
+        }
+        // No cached data, all cells are "missing" (new data we want)
+        Ok(partial_data_column.sidecar.filter(|_| true)?)
     }
 
     /// Get a blob from the availability cache.
@@ -295,7 +395,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// have a block cached, return the `Availability` variant triggering block import.
     /// Otherwise cache the data column sidecar.
     ///
-    /// This should only accept gossip verified data columns, so we should not have to worry about dupes.
+    /// This should only accept gossip verified full data columns (not partials).
+    /// Partials are assembled in PartialDataColumnAssembler.
     #[instrument(skip_all, level = "trace")]
     pub fn put_gossip_verified_data_columns<
         O: ObservationStrategy,
@@ -316,10 +417,18 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .map(|c| KzgVerifiedCustodyDataColumn::from_asserted_custody(c.into_inner()))
             .collect::<Vec<_>>();
 
+        if let Some(assembler) = &self.partial_assembler {
+            for column in &custody_columns {
+                assembler.mark_as_complete(block_root, column);
+            }
+        }
+
         self.availability_cache
             .put_kzg_verified_data_columns(block_root, custody_columns)
     }
 
+    /// Put KZG-verified full custody data columns.
+    /// Only accepts full columns. Partials are assembled in PartialDataColumnAssembler.
     #[instrument(skip_all, level = "trace")]
     pub fn put_kzg_verified_custody_data_columns<
         I: IntoIterator<Item = KzgVerifiedCustodyDataColumn<T::EthSpec>>,
@@ -338,6 +447,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        let block = executed_block.as_block();
+        if let Some(assembler) = &self.partial_assembler
+            && let Ok(header) = block.try_into()
+        {
+            assembler.init(executed_block.import_data.block_root, Arc::new(header));
+        }
         self.availability_cache.put_executed_block(executed_block)
     }
 
@@ -349,6 +464,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         source: BlockImportSource,
     ) -> Result<(), Error> {
+        if let Some(assembler) = &self.partial_assembler
+            && let Ok(header) = block.as_ref().try_into()
+        {
+            assembler.init(block_root, Arc::new(header));
+        }
         self.availability_cache
             .put_pre_execution_block(block_root, block, source)
     }
@@ -568,8 +688,12 @@ pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
     // this cache only needs to be maintained if deneb is configured
     if chain.spec.deneb_fork_epoch.is_some() {
         let overflow_cache = chain.data_availability_checker.availability_cache.clone();
+        let partial_assembler = chain.data_availability_checker.partial_assembler.clone();
         executor.spawn(
-            async move { availability_cache_maintenance_service(chain, overflow_cache).await },
+            async move {
+                availability_cache_maintenance_service(chain, overflow_cache, partial_assembler)
+                    .await
+            },
             "availability_cache_service",
         );
     } else {
@@ -580,6 +704,7 @@ pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
 async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     overflow_cache: Arc<DataAvailabilityCheckerInner<T>>,
+    partial_assembler: Option<Arc<PartialDataColumnAssembler<T::EthSpec>>>,
 ) {
     let epoch_duration = chain.slot_clock.slot_duration() * T::EthSpec::slots_per_epoch() as u32;
     loop {
@@ -630,6 +755,9 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
 
                 if let Err(e) = overflow_cache.do_maintenance(cutoff_epoch) {
                     error!(error = ?e,"Failed to maintain availability cache");
+                }
+                if let Some(assembler) = &partial_assembler {
+                    assembler.do_maintenance(cutoff_epoch);
                 }
             }
             None => {
@@ -884,6 +1012,21 @@ impl<E: EthSpec> MaybeAvailableBlock<E> {
             Self::Available(block) => block.block_cloned(),
             Self::AvailabilityPending { block, .. } => block.clone(),
         }
+    }
+}
+
+pub enum MissingCellsError {
+    /// The provided column is not matching with the existing cached column.
+    /// This is to be treated as a KZG verification failure.
+    MismatchesCachedColumn,
+    /// An error occurred while operating on the column. It is possibly malformed.
+    /// This is not expected to happen for columns passing basic validation.
+    UnexpectedError(PartialDataColumnSidecarError),
+}
+
+impl From<PartialDataColumnSidecarError> for MissingCellsError {
+    fn from(e: PartialDataColumnSidecarError) -> Self {
+        Self::UnexpectedError(e)
     }
 }
 
@@ -1254,6 +1397,7 @@ mod test {
             kzg,
             custody_context,
             spec,
+            true,
         )
         .expect("should initialise data availability checker")
     }

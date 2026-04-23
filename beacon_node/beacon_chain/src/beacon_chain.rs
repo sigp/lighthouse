@@ -22,7 +22,12 @@ use crate::data_availability_checker::{
     Availability, AvailabilityCheckError, AvailableBlock, AvailableBlockData,
     DataAvailabilityChecker, DataColumnReconstructionResult,
 };
-use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
+use crate::data_column_verification::{
+    GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
+    GossipVerifiedPartialDataColumnHeader, KzgVerifiedCustodyPartialDataColumn,
+    KzgVerifiedPartialDataColumn, PartialColumnVerificationResult,
+    validate_partial_data_column_sidecar_for_gossip,
+};
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::envelope_times_cache::EnvelopeTimesCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
@@ -54,6 +59,7 @@ use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_data_sidecars::ObservedDataSidecars;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::observed_slashable::ObservedSlashable;
+use crate::partial_data_column_assembler::PartialMergeResult;
 use crate::payload_bid_verification::payload_bid_cache::GossipVerifiedPayloadBidCache;
 #[cfg(not(test))]
 use crate::payload_envelope_streamer::{EnvelopeRequestSource, launch_payload_envelope_stream};
@@ -551,6 +557,9 @@ impl FinalizationAndCanonicity {
         self.slot_is_finalized && self.canonical
     }
 }
+
+type ProcessedPartialColumnStatus<E> =
+    Option<(AvailabilityProcessingStatus, PartialMergeResult<E>)>;
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Checks if a block is finalized.
@@ -2297,6 +2306,59 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    pub fn verify_partial_data_column_header_for_gossip(
+        &self,
+        block_root: Hash256,
+        data_column_header: PartialDataColumnHeader<T::EthSpec>,
+    ) -> Result<GossipVerifiedPartialDataColumnHeader<T::EthSpec>, GossipPartialDataColumnError>
+    {
+        metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_REQUESTS);
+        let _timer = metrics::start_timer(
+            &metrics::PARTIAL_DATA_COLUMN_SIDECAR_HEADER_GOSSIP_VERIFICATION_TIMES,
+        );
+        let Some(assembler) = self.data_availability_checker.partial_assembler() else {
+            return Err(GossipPartialDataColumnError::PartialColumnsDisabled);
+        };
+        if let Some(cached_header) = assembler.get_header(&block_root) {
+            return if *cached_header == data_column_header {
+                metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_DUPES);
+                Ok(GossipVerifiedPartialDataColumnHeader::new_from_cached(
+                    cached_header,
+                ))
+            } else {
+                Err(GossipPartialDataColumnError::HeaderMismatches)
+            };
+        }
+
+        GossipVerifiedPartialDataColumnHeader::new(block_root, data_column_header, self).inspect(
+            |_| {
+                metrics::inc_counter(
+                    &metrics::PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_SUCCESSES,
+                );
+            },
+        )
+    }
+
+    #[instrument(skip_all, level = "trace")]
+    pub fn verify_partial_data_column_sidecar_for_gossip(
+        self: &Arc<Self>,
+        data_column_sidecar: Box<PartialDataColumn<T::EthSpec>>,
+        seen_timestamp: Duration,
+    ) -> PartialColumnVerificationResult<T::EthSpec> {
+        metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
+        let _timer =
+            metrics::start_timer(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
+        let ret = validate_partial_data_column_sidecar_for_gossip(
+            data_column_sidecar,
+            self,
+            seen_timestamp,
+        );
+        if matches!(ret, PartialColumnVerificationResult::Ok { .. }) {
+            metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES);
+        }
+        ret
+    }
+
     #[instrument(skip_all, level = "trace")]
     pub fn verify_blob_sidecar_for_gossip(
         self: &Arc<Self>,
@@ -3128,6 +3190,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Cache the data columns in the processing cache, process it, then evict it from the cache if it was
     /// imported or errors.
+    /// Only accepts full columns. Partials are handled via PartialDataColumnAssembler.
     #[instrument(skip_all, level = "debug")]
     pub async fn process_gossip_data_columns(
         self: &Arc<Self>,
@@ -3167,6 +3230,93 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             publish_fn,
         )
         .await
+    }
+
+    /// Process a gossip-verified partial data column by attempting to merge it in the assembler.
+    /// Returns the merge result which indicates if a column was completed.
+    #[instrument(skip_all, level = "debug")]
+    pub async fn process_gossip_partial_data_column(
+        self: &Arc<Self>,
+        verified_partial: KzgVerifiedPartialDataColumn<T::EthSpec>,
+        verified_header: GossipVerifiedPartialDataColumnHeader<T::EthSpec>,
+        slot: Slot,
+    ) -> Result<ProcessedPartialColumnStatus<T::EthSpec>, BlockError> {
+        let block_root = verified_partial.block_root();
+        let partial = verified_partial.as_data_column();
+        let index_str = partial.index.to_string();
+        metrics::inc_counter_vec_by(
+            &metrics::BEACON_PARTIAL_MESSAGE_CELLS_RECEIVED_TOTAL,
+            &[index_str.as_str()],
+            partial.sidecar.column.len() as u64,
+        );
+
+        // Check if we have custody of this column
+        let sampling_columns =
+            self.sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()));
+        let verified_partial = if sampling_columns.contains(&partial.index) {
+            KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(verified_partial)
+        } else {
+            return Ok(None);
+        };
+
+        // If this block has already been imported to forkchoice it must have been available
+        if self
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&block_root)
+        {
+            return Err(BlockError::DuplicateFullyImported(block_root));
+        }
+
+        let Some(assembler) = self.data_availability_checker.partial_assembler() else {
+            // Partial messages are apparently not activated
+            return Ok(None);
+        };
+
+        // Merge the partial into the assembler
+        let merge_result = assembler
+            .merge_partials(
+                block_root,
+                vec![verified_partial],
+                verified_header.into_header(),
+            )
+            .ok_or_else(|| BlockError::InternalError("No assembly found for block".to_string()))?;
+
+        metrics::inc_counter_vec_by(
+            &metrics::BEACON_PARTIAL_MESSAGE_USEFUL_CELLS_TOTAL,
+            &[index_str.as_str()],
+            merge_result.added_cells as u64,
+        );
+
+        let availability = if !merge_result.full_columns.is_empty() {
+            metrics::inc_counter_vec_by(
+                &metrics::BEACON_PARTIAL_MESSAGE_COLUMN_COMPLETIONS_TOTAL,
+                &[index_str.as_str()],
+                merge_result.full_columns.len() as u64,
+            );
+
+            self.emit_sse_data_column_sidecar_events(
+                &block_root,
+                merge_result
+                    .full_columns
+                    .iter()
+                    .map(|column| column.as_data_column()),
+            );
+
+            let availability = self
+                .data_availability_checker
+                .put_kzg_verified_custody_data_columns(
+                    block_root,
+                    merge_result.full_columns.clone(),
+                )?;
+
+            self.process_availability(slot, availability, || Ok(()))
+                .await?
+        } else {
+            AvailabilityProcessingStatus::MissingComponents(slot, block_root)
+        };
+
+        Ok(Some((availability, merge_result)))
     }
 
     /// Cache the blobs in the processing cache, process it, then evict it from the cache if it was
@@ -3624,6 +3774,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Checks if the provided data column can make any cached blocks available, and imports immediately
     /// if so, otherwise caches the data column in the data availability checker.
+    /// Check gossip data columns for availability and import. Only accepts full columns.
+    /// Partials are handled separately via PartialDataColumnAssembler.
     async fn check_gossip_data_columns_availability_and_import(
         self: &Arc<Self>,
         slot: Slot,
@@ -3774,13 +3926,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // from RPC.
         for header in custody_columns
             .into_iter()
-            .map(|c| c.signed_block_header.clone())
+            .map(|c| &c.signed_block_header)
             .unique()
         {
             // Return an error if *any* header signature is invalid, we do not want to import this
             // list of blobs into the DA checker. However, we will process any valid headers prior
             // to the first invalid header in the slashable cache & slasher.
-            verify_header_signature::<T, BlockError>(self, &header)?;
+            verify_header_signature::<T, BlockError>(self, header)?;
 
             slashable_cache
                 .observe_slashable(
@@ -3790,7 +3942,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 )
                 .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
             if let Some(slasher) = self.slasher.as_ref() {
-                slasher.accept_block_header(header);
+                slasher.accept_block_header(header.clone());
             }
         }
         Ok(())
