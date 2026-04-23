@@ -10,8 +10,9 @@ use eth2::types::ProposerPreparationData;
 use fork_choice::PayloadStatus;
 use logging::create_test_tracing_subscriber;
 use ssz_types::VariableList;
-use state_processing::per_block_processing::{
-    apply_parent_execution_payload, withdrawals::get_expected_withdrawals,
+use state_processing::{
+    per_block_processing::{apply_parent_execution_payload, withdrawals::get_expected_withdrawals},
+    state_advance::complete_state_advance,
 };
 use std::sync::{Arc, LazyLock};
 use store::database::interface::BeaconNodeBackend;
@@ -95,24 +96,69 @@ fn get_harness_generic(
 }
 
 #[tokio::test]
-async fn prepare_payload_on_full_parent() {
-    prepare_payload_generic(PayloadStatus::Full).await;
+async fn prepare_payload_on_full_parent_next_slot() {
+    prepare_payload_generic(
+        PayloadStatus::Full,
+        Slot::new(3 * E::slots_per_epoch() + 1),
+        Slot::new(3 * E::slots_per_epoch() + 2),
+    )
+    .await;
 }
 
 #[tokio::test]
-async fn prepare_payload_on_empty_parent() {
-    prepare_payload_generic(PayloadStatus::Empty).await;
+async fn prepare_payload_on_full_parent_one_epoch_skip() {
+    prepare_payload_generic(
+        PayloadStatus::Full,
+        Slot::new(3 * E::slots_per_epoch() + 1),
+        Slot::new(4 * E::slots_per_epoch()),
+    )
+    .await;
 }
 
-async fn prepare_payload_generic(parent_payload_status: PayloadStatus) {
+#[tokio::test]
+async fn prepare_payload_on_full_parent_uneven_one_epoch_skip() {
+    prepare_payload_generic(
+        PayloadStatus::Full,
+        Slot::new(3 * E::slots_per_epoch() + 1),
+        Slot::new(5 * E::slots_per_epoch() - 1),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn prepare_payload_on_empty_parent_next_slot() {
+    prepare_payload_generic(
+        PayloadStatus::Empty,
+        Slot::new(3 * E::slots_per_epoch() + 1),
+        Slot::new(3 * E::slots_per_epoch() + 2),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn prepare_payload_on_empty_parent_one_epoch_skip() {
+    prepare_payload_generic(
+        PayloadStatus::Empty,
+        Slot::new(3 * E::slots_per_epoch() + 1),
+        Slot::new(4 * E::slots_per_epoch()),
+    )
+    .await;
+}
+
+async fn prepare_payload_generic(
+    parent_payload_status: PayloadStatus,
+    parent_block_slot: Slot,
+    prepare_slot: Slot,
+) {
+    assert!(parent_block_slot > 0);
+
     // Post-Gloas test.
     let spec = test_spec::<E>();
     if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
         return;
     }
 
-    let num_blocks_produced = E::slots_per_epoch() * 3;
-    let parent_slot = Slot::new(num_blocks_produced) + 1;
+    let num_blocks_produced = parent_block_slot.as_u64() - 1;
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
@@ -150,18 +196,20 @@ async fn prepare_payload_generic(parent_payload_status: PayloadStatus) {
     // TODO(gloas): all this ugly plumbing could be avoided with some more "implicit" context
     // methods
     let state = harness.get_current_state();
-    let (block_contents, opt_envelope, parent_block_state) =
-        harness.make_block_with_envelope(state, parent_slot).await;
+    let (block_contents, opt_envelope, parent_block_state) = harness
+        .make_block_with_envelope(state, parent_block_slot)
+        .await;
     let envelope = opt_envelope.unwrap();
     let block_root = harness
         .process_block(
-            parent_slot,
+            parent_block_slot,
             block_contents.0.canonical_root(),
             block_contents.clone(),
         )
         .await
         .unwrap();
 
+    // TODO(gloas): try a case where head is empty even though envelope is processed
     if parent_payload_status == PayloadStatus::Full {
         harness
             .process_envelope(
@@ -177,40 +225,75 @@ async fn prepare_payload_generic(parent_payload_status: PayloadStatus) {
     // computed from the block's state with its payload applied by
     // `apply_parent_execution_payload`.
     let cached_head = harness.chain.canonical_head.cached_head();
-    let pending_state = &cached_head.snapshot.beacon_state;
-    let parent_bid = pending_state
+    let unadvanced_empty_state = &cached_head.snapshot.beacon_state;
+    let parent_bid = unadvanced_empty_state
         .latest_execution_payload_bid()
-        .expect("should get latest bid");
+        .unwrap();
 
-    // Withdrawals from the empty state (without execution requests applied).
-    let withdrawals_empty: Withdrawals<E> = get_expected_withdrawals(pending_state, &spec)
-        .expect("should get pending withdrawals")
-        .into();
+    let mut advanced_empty_state = unadvanced_empty_state.clone();
+    complete_state_advance(&mut advanced_empty_state, None, prepare_slot, &spec).unwrap();
 
-    // Withdrawals from the Full state (with execution requests applied).
-    let mut full_state = pending_state.clone();
+    let mut unadvanced_full_state = unadvanced_empty_state.clone();
     apply_parent_execution_payload(
-        &mut full_state,
+        &mut unadvanced_full_state,
         parent_bid,
         &envelope.message.execution_requests,
         &spec,
     )
-    .expect("should apply parent execution payload");
-    let withdrawals_full: Withdrawals<E> = get_expected_withdrawals(&full_state, &spec)
-        .expect("should get full withdrawals")
-        .into();
+    .unwrap();
+
+    let mut advanced_full_state = advanced_empty_state.clone();
+    apply_parent_execution_payload(
+        &mut advanced_full_state,
+        parent_bid,
+        &envelope.message.execution_requests,
+        &spec,
+    )
+    .unwrap();
+
+    let withdrawals_unadvanced_empty: Withdrawals<E> =
+        get_expected_withdrawals(&unadvanced_empty_state, &spec)
+            .unwrap()
+            .into();
+    let withdrawals_advanced_empty: Withdrawals<E> =
+        get_expected_withdrawals(&advanced_empty_state, &spec)
+            .unwrap()
+            .into();
+    let withdrawals_unadvanced_full: Withdrawals<E> =
+        get_expected_withdrawals(&unadvanced_full_state, &spec)
+            .unwrap()
+            .into();
+    let withdrawals_advanced_full: Withdrawals<E> =
+        get_expected_withdrawals(&advanced_full_state, &spec)
+            .unwrap()
+            .into();
 
     assert_ne!(
-        withdrawals_empty, withdrawals_full,
+        withdrawals_advanced_empty, withdrawals_advanced_full,
         "Applying execution requests should change the expected withdrawals"
     );
+
+    let expect_state_advance_to_change_withdrawals =
+        prepare_slot.epoch(E::slots_per_epoch()) > parent_block_slot.epoch(E::slots_per_epoch());
+    if expect_state_advance_to_change_withdrawals {
+        if parent_payload_status == fork_choice::PayloadStatus::Full {
+            assert_ne!(
+                withdrawals_unadvanced_full, withdrawals_advanced_full,
+                "Advancing the state should change the withdrawals"
+            );
+        } else {
+            assert_ne!(
+                withdrawals_unadvanced_empty, withdrawals_advanced_empty,
+                "Advancing the state should change the withdrawals"
+            );
+        }
+    }
 
     // Call `prepare_beacon_proposer` for the next slot and ensure that it primes the execution
     // layer payload attributes cache with the correct withdrawals (the ones taking into account
     // the applied execution_requests).
-    let current_slot = harness.chain.slot().expect("should get slot");
-    let prepare_slot = current_slot + 1;
-    let proposer_index = pending_state
+    let current_slot = prepare_slot - 1;
+    let proposer_index = advanced_empty_state
         .get_beacon_proposer_index(prepare_slot, &spec)
         .expect("should get proposer index");
 
@@ -247,9 +330,9 @@ async fn prepare_payload_generic(parent_payload_status: PayloadStatus) {
 
     let actual_withdrawals = attributes.withdrawals().unwrap();
     let expected_withdrawals: Vec<Withdrawal> = if parent_payload_status == PayloadStatus::Full {
-        withdrawals_full.to_vec()
+        withdrawals_advanced_full.to_vec()
     } else {
-        withdrawals_empty.to_vec()
+        withdrawals_advanced_empty.to_vec()
     };
 
     assert_eq!(
