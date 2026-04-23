@@ -341,3 +341,95 @@ async fn prepare_payload_generic(
          {parent_payload_status:?} state"
     );
 }
+
+#[tokio::test]
+async fn prepare_payload_on_genesis_next_slot() {
+    prepare_payload_on_genesis_generic(Slot::new(1)).await;
+}
+
+async fn prepare_payload_on_genesis_generic(prepare_slot: Slot) {
+    // Post-Gloas test.
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+
+    // Genesis is always considered Empty.
+    let parent_payload_status = PayloadStatus::Empty;
+
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    // Verify that the withdrawals computed from the block's state differ from the withdrawals
+    // computed from the block's state with its payload applied by
+    // `apply_parent_execution_payload`.
+    let cached_head = harness.chain.canonical_head.cached_head();
+    let unadvanced_state = &cached_head.snapshot.beacon_state;
+
+    let mut advanced_state = unadvanced_state.clone();
+    complete_state_advance(&mut advanced_state, None, prepare_slot, &spec).unwrap();
+
+    let withdrawals_unadvanced: Withdrawals<E> = get_expected_withdrawals(&unadvanced_state, &spec)
+        .unwrap()
+        .into();
+    let withdrawals_advanced: Withdrawals<E> = get_expected_withdrawals(&advanced_state, &spec)
+        .unwrap()
+        .into();
+
+    let expect_state_advance_to_change_withdrawals = prepare_slot.epoch(E::slots_per_epoch()) > 0;
+    if expect_state_advance_to_change_withdrawals {
+        assert_ne!(
+            withdrawals_unadvanced, withdrawals_advanced,
+            "Advancing the state should change the withdrawals"
+        );
+    }
+
+    // Call `prepare_beacon_proposer` for the next slot and ensure that it primes the execution
+    // layer payload attributes cache with the correct withdrawals (the ones taking into account
+    // the applied execution_requests).
+    let current_slot = prepare_slot - 1;
+    let proposer_index = advanced_state
+        .get_beacon_proposer_index(prepare_slot, &spec)
+        .unwrap();
+
+    // Register the proposer so prepare_beacon_proposer doesn't skip it.
+    let el = harness.chain.execution_layer.as_ref().unwrap();
+    el.update_proposer_preparation(
+        prepare_slot.epoch(E::slots_per_epoch()),
+        [(
+            &ProposerPreparationData {
+                validator_index: proposer_index as u64,
+                fee_recipient: Address::repeat_byte(42),
+            },
+            &None,
+        )],
+    )
+    .await;
+
+    // Advance the slot clock to just before the prepare slot so the lookahead check passes.
+    harness.advance_to_slot_lookahead(prepare_slot, harness.chain.config.prepare_payload_lookahead);
+
+    harness
+        .chain
+        .prepare_beacon_proposer(current_slot)
+        .await
+        .unwrap();
+
+    // Read the payload attributes from the EL cache and verify the withdrawals.
+    let el = harness.chain.execution_layer.as_ref().unwrap();
+    let head_root = harness.head_block_root();
+    let attributes = el
+        .payload_attributes(prepare_slot, head_root, parent_payload_status)
+        .await
+        .unwrap();
+
+    let actual_withdrawals = attributes.withdrawals().unwrap();
+    let expected_withdrawals: Vec<Withdrawal> = withdrawals_advanced.to_vec();
+
+    assert_eq!(
+        actual_withdrawals, &expected_withdrawals,
+        "prepare_beacon_proposer should use withdrawals computed from the \
+         {parent_payload_status:?} genesis state"
+    );
+}
