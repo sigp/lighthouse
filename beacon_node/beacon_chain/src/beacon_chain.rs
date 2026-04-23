@@ -4712,13 +4712,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let parent_block_root = forkchoice_update_params.head_root;
 
-        let (unadvanced_state, unadvanced_state_root, parent_block) =
+        let (unadvanced_state, unadvanced_state_root, parent_bid_block_hash) =
             if parent_block_root == head_block_root {
-                // TODO(gloas): could optimise out this clone_as_blinded
                 (
                     Cow::Borrowed(head_state),
                     cached_head.head_state_root(),
-                    Arc::new(head_block.clone_as_blinded()),
+                    head_block.payload_bid_block_hash().ok(),
                 )
             } else {
                 let block = self
@@ -4728,12 +4727,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .store
                     .get_advanced_hot_state(parent_block_root, proposal_slot, block.state_root())?
                     .ok_or(Error::MissingBeaconState(block.state_root()))?;
-                (Cow::Owned(state), state_root, Arc::new(block))
+                (
+                    Cow::Owned(state),
+                    state_root,
+                    block.payload_bid_block_hash().ok(),
+                )
             };
 
-        let parent_payload_status = if parent_block.fork_name_unchecked().gloas_enabled()
-            && parent_block.payload_bid_block_hash()? != ExecutionBlockHash::default()
-            && forkchoice_update_params.head_hash == Some(parent_block.payload_bid_block_hash()?)
+        let parent_payload_status = if let Some(block_hash) = parent_bid_block_hash
+            && block_hash != ExecutionBlockHash::default()
+            && forkchoice_update_params.head_hash == Some(block_hash)
         {
             fork_choice::PayloadStatus::Full
         } else {
@@ -4741,7 +4744,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         // Advance the state using the partial method.
-        // TODO(gloas): re-optimise this for pre-Gloas (tweak slot to advance to)
+        // TODO(gloas): we might want to optimise this further by using:
+        // - `get_advanced_hot_state` instead of the cached head
+        // - restoring the pre-Gloas optimisation to avoid advancing further than the epoch
+        //   boundary
         debug!(
             %proposal_slot,
             ?parent_block_root,
@@ -4767,8 +4773,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             .ok_or(Error::MissingExecutionPayloadEnvelope(parent_block_root))?;
 
-            // TODO(gloas): could remove this in favour of reading it in
-            // apply_parent_execution_payload. Spec simplification.
             let parent_bid = advanced_state.latest_execution_payload_bid()?.clone();
 
             apply_parent_execution_payload(
