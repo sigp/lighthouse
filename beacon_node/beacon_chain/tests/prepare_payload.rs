@@ -31,18 +31,21 @@ static KEYPAIRS: LazyLock<Vec<Keypair>> =
 type E = MinimalEthSpec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 
-fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>> {
+fn get_store(
+    db_path: &TempDir,
+    spec: Arc<ChainSpec>,
+) -> Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>> {
     let store_config = StoreConfig {
         prune_payloads: false,
         ..StoreConfig::default()
     };
-    get_store_generic(db_path, store_config, test_spec::<E>())
+    get_store_generic(db_path, store_config, spec)
 }
 
 fn get_store_generic(
     db_path: &TempDir,
     config: StoreConfig,
-    spec: ChainSpec,
+    spec: Arc<ChainSpec>,
 ) -> Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>> {
     create_test_tracing_subscriber();
     let hot_path = db_path.path().join("chain_db");
@@ -153,14 +156,14 @@ async fn prepare_payload_generic(
     assert!(parent_block_slot > 0);
 
     // Post-Gloas test.
-    let spec = test_spec::<E>();
+    let spec = Arc::new(test_spec::<E>());
     if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
         return;
     }
 
     let num_blocks_produced = parent_block_slot.as_u64() - 1;
     let db_path = tempdir().unwrap();
-    let store = get_store(&db_path);
+    let store = get_store(&db_path, spec.clone());
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
 
     harness
@@ -347,9 +350,14 @@ async fn prepare_payload_on_genesis_next_slot() {
     prepare_payload_on_genesis_generic(Slot::new(1)).await;
 }
 
+#[tokio::test]
+async fn prepare_payload_on_genesis_skip_two_epochs() {
+    prepare_payload_on_genesis_generic(Slot::new(2 * E::slots_per_epoch())).await;
+}
+
 async fn prepare_payload_on_genesis_generic(prepare_slot: Slot) {
     // Post-Gloas test.
-    let spec = test_spec::<E>();
+    let spec = Arc::new(test_spec::<E>());
     if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
         return;
     }
@@ -358,8 +366,140 @@ async fn prepare_payload_on_genesis_generic(prepare_slot: Slot) {
     let parent_payload_status = PayloadStatus::Empty;
 
     let db_path = tempdir().unwrap();
-    let store = get_store(&db_path);
+    let store = get_store(&db_path, spec.clone());
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    // At genesis withdrawals are empty (because nothing has happened yet), so we don't assert
+    // anything about the advanced vs unadvanced state. This test just exists to test that
+    // calculating payload attributes at genesis works and doesn't error.
+    let cached_head = harness.chain.canonical_head.cached_head();
+    let unadvanced_state = &cached_head.snapshot.beacon_state;
+
+    let mut advanced_state = unadvanced_state.clone();
+    complete_state_advance(&mut advanced_state, None, prepare_slot, &spec).unwrap();
+
+    let withdrawals_advanced: Withdrawals<E> = get_expected_withdrawals(&advanced_state, &spec)
+        .unwrap()
+        .into();
+
+    // Call `prepare_beacon_proposer` for the next slot and ensure that it primes the execution
+    // layer payload attributes cache with the correct withdrawals (the ones taking into account
+    // the state advance).
+    let current_slot = prepare_slot - 1;
+    let proposer_index = advanced_state
+        .get_beacon_proposer_index(prepare_slot, &spec)
+        .unwrap();
+
+    // Register the proposer so prepare_beacon_proposer doesn't skip it.
+    let el = harness.chain.execution_layer.as_ref().unwrap();
+    el.update_proposer_preparation(
+        prepare_slot.epoch(E::slots_per_epoch()),
+        [(
+            &ProposerPreparationData {
+                validator_index: proposer_index as u64,
+                fee_recipient: Address::repeat_byte(42),
+            },
+            &None,
+        )],
+    )
+    .await;
+
+    // Advance the slot clock to just before the prepare slot so the lookahead check passes.
+    harness.advance_to_slot_lookahead(prepare_slot, harness.chain.config.prepare_payload_lookahead);
+
+    harness
+        .chain
+        .prepare_beacon_proposer(current_slot)
+        .await
+        .unwrap();
+
+    // Read the payload attributes from the EL cache and verify the withdrawals.
+    let el = harness.chain.execution_layer.as_ref().unwrap();
+    let head_root = harness.head_block_root();
+    let attributes = el
+        .payload_attributes(prepare_slot, head_root, parent_payload_status)
+        .await
+        .unwrap();
+
+    let actual_withdrawals = attributes.withdrawals().unwrap();
+    let expected_withdrawals: Vec<Withdrawal> = withdrawals_advanced.to_vec();
+
+    assert_eq!(
+        actual_withdrawals, &expected_withdrawals,
+        "prepare_beacon_proposer should use withdrawals computed from the \
+         {parent_payload_status:?} advanced genesis state"
+    );
+    assert!(actual_withdrawals.is_empty());
+}
+
+#[tokio::test]
+async fn prepare_payload_on_fork_boundary_no_skip() {
+    prepare_payload_on_fork_boundary(
+        Slot::new(2 * E::slots_per_epoch()) - 1,
+        Slot::new(2 * E::slots_per_epoch()),
+        Epoch::new(2),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn prepare_payload_on_fork_boundary_skip_one_prior() {
+    prepare_payload_on_fork_boundary(
+        Slot::new(2 * E::slots_per_epoch()) - 2,
+        Slot::new(2 * E::slots_per_epoch()),
+        Epoch::new(2),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn prepare_payload_on_fork_boundary_skip_one_after() {
+    prepare_payload_on_fork_boundary(
+        Slot::new(2 * E::slots_per_epoch()) - 1,
+        Slot::new(2 * E::slots_per_epoch()) + 1,
+        Epoch::new(2),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn prepare_payload_on_fork_boundary_skip_whole_epoch() {
+    prepare_payload_on_fork_boundary(
+        Slot::new(E::slots_per_epoch()),
+        Slot::new(2 * E::slots_per_epoch()),
+        Epoch::new(2),
+    )
+    .await;
+}
+
+async fn prepare_payload_on_fork_boundary(
+    parent_block_slot: Slot,
+    prepare_slot: Slot,
+    gloas_fork_epoch: Epoch,
+) {
+    // Post-Gloas test.
+    let mut spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+    spec.gloas_fork_epoch = Some(gloas_fork_epoch);
+    let spec = Arc::new(spec);
+
+    // Pre-Gloas blocks are always considered Empty.
+    let parent_payload_status = PayloadStatus::Empty;
+
+    let num_blocks_produced = parent_block_slot.as_u64();
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path, spec.clone());
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            num_blocks_produced as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
     // Verify that the withdrawals computed from the block's state differ from the withdrawals
     // computed from the block's state with its payload applied by
@@ -430,6 +570,6 @@ async fn prepare_payload_on_genesis_generic(prepare_slot: Slot) {
     assert_eq!(
         actual_withdrawals, &expected_withdrawals,
         "prepare_beacon_proposer should use withdrawals computed from the \
-         {parent_payload_status:?} genesis state"
+         advanced state"
     );
 }
