@@ -522,13 +522,14 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
 
     for data_col in data_column_sidecars {
         if chain.config.enable_partial_columns
-            && let DataColumnSidecar::Fulu(fulu_data_col) = data_col.as_ref() {
-                let mut partial = fulu_data_col.to_partial();
-                if let Some(header) = partial.sidecar.header.take() {
-                    partial_header = Some(header);
-                }
-                partial_columns.push(Arc::new(partial));
+            && let DataColumnSidecar::Fulu(fulu_data_col) = data_col.as_ref()
+        {
+            let mut partial = fulu_data_col.to_partial();
+            if let Some(header) = partial.sidecar.header.take() {
+                partial_header = Some(header);
             }
+            partial_columns.push(Arc::new(partial));
+        }
 
         let subnet = DataColumnSubnetId::from_column_index(*data_col.index(), &chain.spec);
         full_messages.push(PubsubMessage::DataColumnSidecar(Box::new((
