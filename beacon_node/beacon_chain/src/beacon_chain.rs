@@ -4732,6 +4732,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
 
         let parent_payload_status = if parent_block.fork_name_unchecked().gloas_enabled()
+            && parent_block.payload_bid_block_hash()? != ExecutionBlockHash::default()
             && forkchoice_update_params.head_hash == Some(parent_block.payload_bid_block_hash()?)
         {
             fork_choice::PayloadStatus::Full
