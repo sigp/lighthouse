@@ -1262,6 +1262,90 @@ impl ProtoArray {
         }
     }
 
+    /// Returns the canonical payload status of a block, matching the decision
+    /// `get_head` would make between `(root, FULL)` and `(root, EMPTY)`.
+    pub(crate) fn get_canonical_payload_status<E: EthSpec>(
+        &self,
+        root: Hash256,
+        current_slot: Slot,
+        proposer_boost_root: Hash256,
+        justified_balances: &JustifiedBalances,
+        spec: &ChainSpec,
+    ) -> Result<PayloadStatus, Error> {
+        let proto_node_index = *self.indices.get(&root).ok_or(Error::NodeUnknown(root))?;
+        let proto_node = self
+            .nodes
+            .get(proto_node_index)
+            .ok_or(Error::InvalidNodeIndex(proto_node_index))?;
+
+        if !proto_node
+            .payload_received()
+            .map_err(|_| Error::InvalidNodeVariant { block_root: root })?
+        {
+            return Ok(PayloadStatus::Empty);
+        }
+
+        let full_fc = IndexedForkChoiceNode {
+            root,
+            proto_node_index,
+            payload_status: PayloadStatus::Full,
+        };
+        let empty_fc = IndexedForkChoiceNode {
+            root,
+            proto_node_index,
+            payload_status: PayloadStatus::Empty,
+        };
+
+        // Matches the hoisting optimization in `find_head`: `get_weight`'s spec-level
+        // `should_apply_proposer_boost` check is precomputed once.
+        let apply_proposer_boost =
+            self.should_apply_proposer_boost::<E>(proposer_boost_root, justified_balances, spec)?;
+
+        let full_weight = self.get_weight::<E>(
+            &full_fc,
+            proto_node,
+            apply_proposer_boost,
+            proposer_boost_root,
+            current_slot,
+            justified_balances,
+            spec,
+        )?;
+
+        let empty_weight = self.get_weight::<E>(
+            &empty_fc,
+            proto_node,
+            apply_proposer_boost,
+            proposer_boost_root,
+            current_slot,
+            justified_balances,
+            spec,
+        )?;
+
+        match full_weight.cmp(&empty_weight) {
+            std::cmp::Ordering::Greater => Ok(PayloadStatus::Full),
+            std::cmp::Ordering::Less => Ok(PayloadStatus::Empty),
+            std::cmp::Ordering::Equal => {
+                let full_tb = self.get_payload_status_tiebreaker::<E>(
+                    &full_fc,
+                    proto_node,
+                    current_slot,
+                    proposer_boost_root,
+                )?;
+                let empty_tb = self.get_payload_status_tiebreaker::<E>(
+                    &empty_fc,
+                    proto_node,
+                    current_slot,
+                    proposer_boost_root,
+                )?;
+                if full_tb >= empty_tb {
+                    Ok(PayloadStatus::Full)
+                } else {
+                    Ok(PayloadStatus::Empty)
+                }
+            }
+        }
+    }
+
     /// Spec: `get_weight`.
     #[allow(clippy::too_many_arguments)]
     fn get_weight<E: EthSpec>(
@@ -1417,7 +1501,7 @@ impl ProtoArray {
         }
     }
 
-    fn get_payload_status_tiebreaker<E: EthSpec>(
+    pub(crate) fn get_payload_status_tiebreaker<E: EthSpec>(
         &self,
         fc_node: &IndexedForkChoiceNode,
         proto_node: &ProtoNode,
