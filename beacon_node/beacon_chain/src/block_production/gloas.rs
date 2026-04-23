@@ -690,13 +690,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let parent_bid = state.latest_execution_payload_bid()?;
 
         // TODO(gloas): need should_extend_payload check here as well
-        let parent_block_hash = if parent_payload_status == PayloadStatus::Full {
-            // Build on parent bid's payload.
-            parent_bid.block_hash
-        } else {
-            // Skip parent bid's payload. For genesis this is the EL genesis hash.
-            parent_bid.parent_block_hash
-        };
+        let parent_block_slot = state.latest_block_header().slot;
+        let parent_is_pre_gloas = !self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(parent_block_slot)
+            .gloas_enabled();
+        let parent_block_hash =
+            if parent_payload_status == PayloadStatus::Full || parent_is_pre_gloas {
+                // Build on parent bid's payload.
+                parent_bid.block_hash
+            } else {
+                // Skip parent bid's payload. For genesis this is the EL genesis hash.
+                parent_bid.parent_block_hash
+            };
 
         // TODO(gloas) this should be BlockProductionVersion::V4
         // V3 is okay for now as long as we're not connected to a builder
