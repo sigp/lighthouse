@@ -58,7 +58,7 @@ fn get_store_generic(
         &blobs_path,
         |_, _, _| Ok(()),
         config,
-        spec.into(),
+        spec,
     )
     .expect("disk store should initialize")
 }
@@ -255,7 +255,7 @@ async fn prepare_payload_generic(
     .unwrap();
 
     let withdrawals_unadvanced_empty: Withdrawals<E> =
-        get_expected_withdrawals(&unadvanced_empty_state, &spec)
+        get_expected_withdrawals(unadvanced_empty_state, &spec)
             .unwrap()
             .into();
     let withdrawals_advanced_empty: Withdrawals<E> =
@@ -510,7 +510,7 @@ async fn prepare_payload_on_fork_boundary(
     let mut advanced_state = unadvanced_state.clone();
     complete_state_advance(&mut advanced_state, None, prepare_slot, &spec).unwrap();
 
-    let withdrawals_unadvanced: Withdrawals<E> = get_expected_withdrawals(&unadvanced_state, &spec)
+    let withdrawals_unadvanced: Withdrawals<E> = get_expected_withdrawals(unadvanced_state, &spec)
         .unwrap()
         .into();
     let withdrawals_advanced: Withdrawals<E> = get_expected_withdrawals(&advanced_state, &spec)
