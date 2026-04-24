@@ -55,18 +55,15 @@ use directory::DEFAULT_ROOT_DIR;
 use eth2::lighthouse::sync_state::SyncState;
 use eth2::types::{
     self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceExtraData,
-    ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest, ValidatorId,
+    ForkChoiceNode, JsonClientVersionV1, LightClientUpdatesQuery, PublishBlockRequest, ValidatorId,
+    VersionDataV2,
 };
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
-use execution_layer::ClientVersionV1;
-use execution_layer::json_structures::JsonClientVersionV1;
-use execution_layer::json_structures::VersionDataV2;
-use execution_layer::version_with_commit;
 use health_metrics::observe::Observe;
 use lighthouse_network::Enr;
 use lighthouse_network::NetworkGlobals;
 use lighthouse_network::PeerId;
-use lighthouse_version::version_with_platform;
+use lighthouse_version::{version_with_commit, version_with_platform};
 use logging::{SSELoggingComponents, crit};
 use network::{NetworkMessage, NetworkSenders};
 use network_utils::enr_ext::EnrExt;
@@ -2234,16 +2231,11 @@ pub fn serve<T: BeaconChainTypes>(
         .then(|chain: Arc<BeaconChain<T>>| async move {
             let execution_client = if let Some(execution_layer) = &chain.execution_layer {
                 match execution_layer.get_engine_version(None).await {
-                    Ok(versions) => versions.into_iter().next().map(|version| ClientVersionV1 {
-                        code: version.code,
-                        name: version.name,
-                        version: version.version,
-                        commit: version.commit,
-                    }),
+                    Ok(versions) => versions.into_iter().next(),
                     Err(e) => {
                         warn!(
                             error = ?e,
-                            "Unable to fetch execution client version for /v2/node/version"
+                            "Unable to fetch execution client info for /v2/node/version"
                         );
                         None
                     }
@@ -2260,7 +2252,12 @@ pub fn serve<T: BeaconChainTypes>(
                     version: beacon_node.version,
                     commit: beacon_node.commit,
                 },
-                execution_client: execution_client.map(|ec| ec.into()),
+                execution_client: execution_client.map(|ec| JsonClientVersionV1 {
+                    code: ec.code.to_string(),
+                    name: ec.name,
+                    version: ec.version,
+                    commit: ec.commit.to_string(),
+                }),
             }))
             .into_response()
         });
