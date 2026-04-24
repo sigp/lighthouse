@@ -56,7 +56,6 @@ use eth2::lighthouse::sync_state::SyncState;
 use eth2::types::{
     self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceExtraData,
     ForkChoiceNode, JsonClientVersionV1, LightClientUpdatesQuery, PublishBlockRequest, ValidatorId,
-    VersionDataV2,
 };
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use health_metrics::observe::Observe;
@@ -2245,20 +2244,22 @@ pub fn serve<T: BeaconChainTypes>(
             };
 
             let beacon_node = version_with_commit();
-            warp::reply::json(&api_types::GenericResponse::from(VersionDataV2 {
-                beacon_node: JsonClientVersionV1 {
-                    code: beacon_node.code,
-                    name: beacon_node.name,
-                    version: beacon_node.version,
-                    commit: beacon_node.commit,
+            warp::reply::json(&api_types::GenericResponse::from(
+                api_types::VersionDataV2 {
+                    beacon_node: JsonClientVersionV1 {
+                        code: beacon_node.code,
+                        name: beacon_node.name,
+                        version: beacon_node.version,
+                        commit: beacon_node.commit,
+                    },
+                    execution_client: execution_client.map(|ec| JsonClientVersionV1 {
+                        code: ec.code.to_string(),
+                        name: ec.name,
+                        version: ec.version,
+                        commit: ec.commit.to_string(),
+                    }),
                 },
-                execution_client: execution_client.map(|ec| JsonClientVersionV1 {
-                    code: ec.code.to_string(),
-                    name: ec.name,
-                    version: ec.version,
-                    commit: ec.commit.to_string(),
-                }),
-            }))
+            ))
             .into_response()
         });
 

@@ -594,7 +594,7 @@ pub struct VersionData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VersionDataV2 {
     pub beacon_node: JsonClientVersionV1,
-    // The execution_client field will not be shown if it is offline
+    // The execution_client field will not be shown if it is offline, to conform to the spec
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execution_client: Option<JsonClientVersionV1>,
 }
