@@ -864,6 +864,9 @@ pub struct BlobAndProof<E: EthSpec> {
     pub proofs: KzgProofs<E>,
 }
 
+/// A BlobAndProofV3 is just a BlobAndProofV2 that may also be `null` if unknown by the EL.
+pub type BlobAndProofV3<E> = Option<BlobAndProofV2<E>>;
+
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonForkchoiceStateV1 {

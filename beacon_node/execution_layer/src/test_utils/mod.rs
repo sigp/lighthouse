@@ -59,6 +59,7 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     get_client_version_v1: true,
     get_blobs_v1: true,
     get_blobs_v2: true,
+    get_blobs_v3: true,
 };
 
 pub static DEFAULT_CLIENT_VERSION: LazyLock<JsonClientVersionV1> =
