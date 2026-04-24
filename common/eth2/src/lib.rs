@@ -1985,6 +1985,18 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
+    /// `GET v2/node/version`
+    pub async fn get_node_version_v2(&self) -> Result<GenericResponse<VersionDataV2>, Error> {
+        let mut path = self.eth_path(V2)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("node")
+            .push("version");
+
+        self.get(path).await
+    }
+
     /// `GET node/identity`
     #[cfg(feature = "network")]
     pub async fn get_node_identity(&self) -> Result<GenericResponse<IdentityData>, Error> {

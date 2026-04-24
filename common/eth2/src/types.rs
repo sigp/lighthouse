@@ -591,7 +591,7 @@ pub struct VersionData {
     pub version: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VersionDataV2 {
     pub beacon_node: JsonClientVersionV1,
     // The execution_client field will not be shown if it is offline, to conform to the spec
@@ -599,7 +599,7 @@ pub struct VersionDataV2 {
     pub execution_client: Option<JsonClientVersionV1>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct JsonClientVersionV1 {
     pub code: String,
     #[serde(default)]
