@@ -2878,13 +2878,13 @@ impl ApiTester {
             .unwrap();
 
         let expected = VersionDataV2 {
-            beacon_node: JsonClientVersionV1 {
+            beacon_node: JsonClientVersion {
                 code: beacon_node.code,
                 name: beacon_node.name,
                 version: beacon_node.version,
                 commit: beacon_node.commit,
             },
-            execution_client: Some(JsonClientVersionV1 {
+            execution_client: Some(JsonClientVersion {
                 code: execution_client.code.to_string(),
                 name: execution_client.name,
                 version: execution_client.version,
