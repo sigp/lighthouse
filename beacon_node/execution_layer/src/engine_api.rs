@@ -13,7 +13,7 @@ use eth2::types::{
     SsePayloadAttributesV3,
 };
 use http::deposit_methods::RpcError;
-pub use json_structures::{JsonClientVersionV1, JsonWithdrawal, TransitionConfigurationV1};
+pub use json_structures::{JsonWithdrawal, TransitionConfigurationV1};
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};

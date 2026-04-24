@@ -1,4 +1,4 @@
-use eth2::types::JsonClientVersionV1;
+use eth2::types::JsonClientVersion;
 use std::env::consts;
 
 /// Returns the current version of this build of Lighthouse.
@@ -26,7 +26,7 @@ pub fn version_with_platform() -> String {
 }
 
 /// Returns Lighthouse client version information
-pub fn version_with_commit() -> JsonClientVersionV1 {
+pub fn version_with_commit() -> JsonClientVersion {
     let version = VERSION
         .replace("Lighthouse/", "")
         .split('-')
@@ -34,7 +34,7 @@ pub fn version_with_commit() -> JsonClientVersionV1 {
         .unwrap_or_default()
         .to_string();
 
-    JsonClientVersionV1 {
+    JsonClientVersion {
         code: "LH".to_string(),
         name: client_name().to_string(),
         version,
