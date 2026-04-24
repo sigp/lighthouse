@@ -13,7 +13,7 @@ use eth2::types::{
     SsePayloadAttributesV3,
 };
 use http::deposit_methods::RpcError;
-pub use json_structures::{JsonWithdrawal, TransitionConfigurationV1};
+pub use json_structures::{JsonClientVersionV1, JsonWithdrawal, TransitionConfigurationV1};
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
@@ -666,7 +666,7 @@ impl EngineCapabilities {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ClientCode {
     Besu,
     EtherumJS,
@@ -735,7 +735,7 @@ impl TryFrom<String> for ClientCode {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CommitPrefix(pub String);
 
 impl TryFrom<String> for CommitPrefix {
@@ -767,7 +767,7 @@ impl std::fmt::Display for CommitPrefix {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClientVersionV1 {
     pub code: ClientCode,
     pub name: String,

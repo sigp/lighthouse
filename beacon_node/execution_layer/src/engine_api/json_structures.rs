@@ -1126,6 +1126,14 @@ impl TryFrom<JsonClientVersionV1> for ClientVersionV1 {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VersionDataV2 {
+    pub beacon_node: JsonClientVersionV1,
+    // The execution_client field will not be shown if it is offline
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_client: Option<JsonClientVersionV1>,
+}
+
 #[cfg(test)]
 mod tests {
     use bls::{PublicKeyBytes, SignatureBytes};

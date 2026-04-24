@@ -21,6 +21,7 @@ use eth2::types::{BlobsBundle, FullPayloadContents};
 use eth2::types::{ForkVersionedResponse, builder::SignedBuilderBid};
 use fixed_bytes::UintExtended;
 use fork_choice::ForkchoiceUpdateParameters;
+use lighthouse_version::VERSION;
 use logging::crit;
 pub use payload_status::PayloadStatus;
 use payload_status::process_payload_status;
@@ -72,6 +73,23 @@ pub const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
 
 /// Name for the default file used for the jwt secret.
 pub const DEFAULT_JWT_FILE: &str = "jwt.hex";
+
+/// Returns Lighthouse client version information
+pub fn version_with_commit() -> JsonClientVersionV1 {
+    let version = VERSION
+        .replace("Lighthouse/", "")
+        .split('-')
+        .next()
+        .unwrap_or_default()
+        .to_string();
+
+    JsonClientVersionV1 {
+        code: ClientCode::Lighthouse.to_string(),
+        name: lighthouse_version::client_name().to_string(),
+        version,
+        commit: lighthouse_version::COMMIT_PREFIX.to_string(),
+    }
+}
 
 /// A fee recipient address for use during block production. Only used as a very last resort if
 /// there is no address provided by the user.
