@@ -8,6 +8,7 @@ use crate::per_block_processing::builder::{
     convert_validator_index_to_builder_index, is_builder_index,
 };
 use crate::per_block_processing::errors::{BlockProcessingError, ExitInvalid, IntoWithIndex};
+use crate::per_block_processing::signature_sets::{exit_signature_set, get_pubkey_from_state};
 use crate::per_block_processing::verify_payload_attestation::verify_payload_attestation;
 use bls::{PublicKeyBytes, SignatureBytes};
 use ssz_types::FixedVector;
@@ -547,7 +548,8 @@ fn process_builder_voluntary_exit<E: EthSpec>(
     let builder_index =
         convert_validator_index_to_builder_index(signed_exit.message.validator_index);
 
-    let builder = state
+    // Verify builder is known
+    state
         .builders()?
         .get(builder_index as usize)
         .cloned()
@@ -570,22 +572,17 @@ fn process_builder_voluntary_exit<E: EthSpec>(
         ));
     }
 
-    // Verify signature (using EIP-7044 domain: capella_fork_version for Deneb+)
     if verify_signatures.is_true() {
-        let pubkey = builder.pubkey;
-        let domain = spec.compute_domain(
-            Domain::VoluntaryExit,
-            spec.capella_fork_version,
-            state.genesis_validators_root(),
+        verify!(
+            exit_signature_set(
+                state,
+                |i| get_pubkey_from_state(state, i),
+                signed_exit,
+                spec
+            )?
+            .verify(),
+            ExitInvalid::BadSignature
         );
-        let message = signed_exit.message.signing_root(domain);
-        // TODO(gloas): use builder pubkey cache once available
-        let bls_pubkey = pubkey
-            .decompress()
-            .map_err(|_| BlockOperationError::invalid(ExitInvalid::BadSignature))?;
-        if !signed_exit.signature.verify(&bls_pubkey, message) {
-            return Err(BlockOperationError::invalid(ExitInvalid::BadSignature));
-        }
     }
 
     // Initiate builder exit
