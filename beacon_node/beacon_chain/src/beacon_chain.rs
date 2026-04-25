@@ -2355,19 +2355,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ret
     }
 
-    #[instrument(skip_all, level = "trace")]
-    pub fn verify_blob_sidecar_for_gossip(
-        self: &Arc<Self>,
-        blob_sidecar: Arc<BlobSidecar<T::EthSpec>>,
-        subnet_id: u64,
-    ) -> Result<GossipVerifiedBlob<T>, GossipBlobError> {
-        metrics::inc_counter(&metrics::BLOBS_SIDECAR_PROCESSING_REQUESTS);
-        let _timer = metrics::start_timer(&metrics::BLOBS_SIDECAR_GOSSIP_VERIFICATION_TIMES);
-        GossipVerifiedBlob::new(blob_sidecar, subnet_id, self).inspect(|_| {
-            metrics::inc_counter(&metrics::BLOBS_SIDECAR_PROCESSING_SUCCESSES);
-        })
-    }
-
     /// Accepts some 'LightClientOptimisticUpdate' from the network and attempts to verify it
     pub fn verify_optimistic_update_for_gossip(
         self: &Arc<Self>,
