@@ -23,9 +23,9 @@ use crate::data_availability_checker::{
 };
 use crate::data_column_verification::{
     GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
-    GossipVerifiedPartialDataColumnHeader, KzgVerifiedCustodyPartialDataColumn,
-    KzgVerifiedPartialDataColumn, PartialColumnVerificationResult,
-    validate_partial_data_column_sidecar_for_gossip,
+    GossipVerifiedPartialDataColumnHeader, KzgVerifiedCustodyDataColumn,
+    KzgVerifiedCustodyPartialDataColumn, KzgVerifiedPartialDataColumn,
+    PartialColumnVerificationResult, validate_partial_data_column_sidecar_for_gossip,
 };
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::envelope_times_cache::EnvelopeTimesCache;

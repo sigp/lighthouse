@@ -12,7 +12,7 @@ mod fetch_blobs_beacon_adapter;
 #[cfg(test)]
 mod tests;
 
-use crate::blob_verification::{GossipBlobError, KzgVerifiedBlob};
+use crate::blob_verification::KzgVerifiedBlob;
 use crate::data_column_verification::{
     KzgVerifiedCustodyDataColumn, KzgVerifiedCustodyPartialDataColumn, KzgVerifiedPartialDataColumn,
 };
