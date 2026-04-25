@@ -354,30 +354,3 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
         .await
         .map_err(FetchEngineBlobError::TokioJoin)?
 }
-
-fn build_blob_sidecars<E: EthSpec>(
-    header: &PartialDataColumnHeader<E>,
-    response: Vec<Option<BlobAndProofV1<E>>>,
-) -> Result<Vec<KzgVerifiedBlob<E>>, FetchEngineBlobError> {
-    let mut sidecars = vec![];
-    for (index, blob_and_proof) in response
-        .into_iter()
-        .enumerate()
-        .filter_map(|(index, opt_blob)| Some((index, opt_blob?)))
-    {
-        let blob_sidecar = BlobSidecar::new_with_existing_proof(
-            index,
-            blob_and_proof.blob,
-            header.clone(),
-            blob_and_proof.proof,
-        )
-        .map_err(FetchEngineBlobError::BlobSidecarError)?;
-
-        sidecars.push(KzgVerifiedBlob::from_execution_verified(
-            Arc::new(blob_sidecar),
-            timestamp_now(),
-        ));
-    }
-
-    Ok(sidecars)
-}
