@@ -197,6 +197,15 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             item.committee_lengths
                 .get_committee_length::<E>(request_slot, request_index, spec)?;
 
+        let is_same_slot_attestation = request_slot == item.block.slot();
+        let payload_present = if spec.fork_name_at_slot::<E>(request_slot).gloas_enabled()
+            && !is_same_slot_attestation
+        {
+            item.proto_block.payload_status == PayloadStatus::Full
+        } else {
+            false
+        };
+
         let attestation = Attestation::empty_for_signing(
             request_index,
             committee_len,
@@ -204,7 +213,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             item.beacon_block_root,
             item.source,
             item.target,
-            false,
+            payload_present,
             spec,
         )
         .map_err(Error::AttestationError)?;
