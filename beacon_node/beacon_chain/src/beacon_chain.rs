@@ -22,7 +22,12 @@ use crate::data_availability_checker::{
     Availability, AvailabilityCheckError, AvailableBlock, AvailableBlockData,
     DataAvailabilityChecker, DataColumnReconstructionResult,
 };
-use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
+use crate::data_column_verification::{
+    GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
+    GossipVerifiedPartialDataColumnHeader, KzgVerifiedCustodyPartialDataColumn,
+    KzgVerifiedPartialDataColumn, PartialColumnVerificationResult,
+    validate_partial_data_column_sidecar_for_gossip,
+};
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::envelope_times_cache::EnvelopeTimesCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
@@ -54,6 +59,8 @@ use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_data_sidecars::ObservedDataSidecars;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::observed_slashable::ObservedSlashable;
+use crate::partial_data_column_assembler::PartialMergeResult;
+use crate::payload_bid_verification::payload_bid_cache::GossipVerifiedPayloadBidCache;
 #[cfg(not(test))]
 use crate::payload_envelope_streamer::{EnvelopeRequestSource, launch_payload_envelope_stream};
 use crate::pending_payload_envelopes::PendingPayloadEnvelopes;
@@ -61,6 +68,7 @@ use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::persisted_custody::persist_custody_context;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::pre_finalization_cache::PreFinalizationBlockCache;
+use crate::proposer_preferences_verification::proposer_preference_cache::GossipVerifiedProposerPreferenceCache;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::sync_committee_verification::{
     Error as SyncCommitteeError, VerifiedSyncCommitteeMessage, VerifiedSyncContribution,
@@ -466,6 +474,10 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub envelope_times_cache: Arc<RwLock<EnvelopeTimesCache>>,
     /// A cache used to track pre-finalization block roots for quick rejection.
     pub pre_finalization_block_cache: PreFinalizationBlockCache,
+    /// A cache used to store gossip verified payload bids.
+    pub gossip_verified_payload_bid_cache: GossipVerifiedPayloadBidCache<T>,
+    /// A cache used to store gossip verified proposer preferences.
+    pub gossip_verified_proposer_preferences_cache: GossipVerifiedProposerPreferenceCache,
     /// A cache used to produce light_client server messages
     pub light_client_server_cache: LightClientServerCache<T>,
     /// Sender to signal the light_client server to produce new updates
@@ -545,6 +557,9 @@ impl FinalizationAndCanonicity {
         self.slot_is_finalized && self.canonical
     }
 }
+
+type ProcessedPartialColumnStatus<E> =
+    Option<(AvailabilityProcessingStatus, PartialMergeResult<E>)>;
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Checks if a block is finalized.
@@ -2054,12 +2069,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // for the same block. Analysis: https://hackmd.io/@dapplion/gloas_dependant_root
                 let (advanced_state_root, mut state) = self
                     .store
-                    .get_advanced_hot_state(
-                        beacon_block_root,
-                        StatePayloadStatus::Pending,
-                        request_slot,
-                        beacon_state_root,
-                    )?
+                    .get_advanced_hot_state(beacon_block_root, request_slot, beacon_state_root)?
                     .ok_or(Error::MissingBeaconState(beacon_state_root))?;
                 if state.current_epoch() < request_epoch {
                     partial_state_advance(
@@ -2112,6 +2122,50 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             payload_present,
             &self.spec,
         )?)
+    }
+
+    /// Produce a `PayloadAttestationData` for a PTC validator to sign.
+    ///
+    /// This is used by PTC (Payload Timeliness Committee) validators to attest to the
+    /// presence/absence of an execution payload and blobs for a given slot.
+    pub fn produce_payload_attestation_data(
+        &self,
+        request_slot: Slot,
+    ) -> Result<PayloadAttestationData, Error> {
+        let _timer = metrics::start_timer(&metrics::PAYLOAD_ATTESTATION_PRODUCTION_SECONDS);
+
+        // Payload attestations are only valid for the current slot
+        let current_slot = self.slot()?;
+        if request_slot != current_slot {
+            return Err(Error::InvalidSlot(request_slot));
+        }
+
+        // Check if we've seen a block for this slot from the canonical head
+        let head = self.head_snapshot();
+        if head.beacon_block.slot() != request_slot {
+            return Err(Error::NoBlockForSlot(request_slot));
+        }
+
+        let beacon_block_root = head.beacon_block_root;
+
+        // TODO(gloas) do we want to use a dedicated envelope cache instead?
+        // Maybe the new gloas DA cache? (Or should the gloas DA cache use
+        // the envelopes_times_cache internally?)
+        let payload_present = self
+            .envelope_times_cache
+            .read()
+            .cache
+            .contains_key(&beacon_block_root);
+
+        // TODO(EIP-7732): Check blob data availability. For now, default to true.
+        let blob_data_available = true;
+
+        Ok(PayloadAttestationData {
+            beacon_block_root,
+            slot: head.beacon_block.slot(),
+            payload_present,
+            blob_data_available,
+        })
     }
 
     /// Performs the same validation as `Self::verify_unaggregated_attestation_for_gossip`, but for
@@ -2273,6 +2327,59 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         GossipVerifiedDataColumn::new(data_column_sidecar, subnet_id, self).inspect(|_| {
             metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES);
         })
+    }
+
+    pub fn verify_partial_data_column_header_for_gossip(
+        &self,
+        block_root: Hash256,
+        data_column_header: PartialDataColumnHeader<T::EthSpec>,
+    ) -> Result<GossipVerifiedPartialDataColumnHeader<T::EthSpec>, GossipPartialDataColumnError>
+    {
+        metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_REQUESTS);
+        let _timer = metrics::start_timer(
+            &metrics::PARTIAL_DATA_COLUMN_SIDECAR_HEADER_GOSSIP_VERIFICATION_TIMES,
+        );
+        let Some(assembler) = self.data_availability_checker.partial_assembler() else {
+            return Err(GossipPartialDataColumnError::PartialColumnsDisabled);
+        };
+        if let Some(cached_header) = assembler.get_header(&block_root) {
+            return if *cached_header == data_column_header {
+                metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_DUPES);
+                Ok(GossipVerifiedPartialDataColumnHeader::new_from_cached(
+                    cached_header,
+                ))
+            } else {
+                Err(GossipPartialDataColumnError::HeaderMismatches)
+            };
+        }
+
+        GossipVerifiedPartialDataColumnHeader::new(block_root, data_column_header, self).inspect(
+            |_| {
+                metrics::inc_counter(
+                    &metrics::PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_SUCCESSES,
+                );
+            },
+        )
+    }
+
+    #[instrument(skip_all, level = "trace")]
+    pub fn verify_partial_data_column_sidecar_for_gossip(
+        self: &Arc<Self>,
+        data_column_sidecar: Box<PartialDataColumn<T::EthSpec>>,
+        seen_timestamp: Duration,
+    ) -> PartialColumnVerificationResult<T::EthSpec> {
+        metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
+        let _timer =
+            metrics::start_timer(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
+        let ret = validate_partial_data_column_sidecar_for_gossip(
+            data_column_sidecar,
+            self,
+            seen_timestamp,
+        );
+        if matches!(ret, PartialColumnVerificationResult::Ok { .. }) {
+            metrics::inc_counter(&metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES);
+        }
+        ret
     }
 
     #[instrument(skip_all, level = "trace")]
@@ -3106,6 +3213,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Cache the data columns in the processing cache, process it, then evict it from the cache if it was
     /// imported or errors.
+    /// Only accepts full columns. Partials are handled via PartialDataColumnAssembler.
     #[instrument(skip_all, level = "debug")]
     pub async fn process_gossip_data_columns(
         self: &Arc<Self>,
@@ -3145,6 +3253,93 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             publish_fn,
         )
         .await
+    }
+
+    /// Process a gossip-verified partial data column by attempting to merge it in the assembler.
+    /// Returns the merge result which indicates if a column was completed.
+    #[instrument(skip_all, level = "debug")]
+    pub async fn process_gossip_partial_data_column(
+        self: &Arc<Self>,
+        verified_partial: KzgVerifiedPartialDataColumn<T::EthSpec>,
+        verified_header: GossipVerifiedPartialDataColumnHeader<T::EthSpec>,
+        slot: Slot,
+    ) -> Result<ProcessedPartialColumnStatus<T::EthSpec>, BlockError> {
+        let block_root = verified_partial.block_root();
+        let partial = verified_partial.as_data_column();
+        let index_str = partial.index.to_string();
+        metrics::inc_counter_vec_by(
+            &metrics::BEACON_PARTIAL_MESSAGE_CELLS_RECEIVED_TOTAL,
+            &[index_str.as_str()],
+            partial.sidecar.column.len() as u64,
+        );
+
+        // Check if we have custody of this column
+        let sampling_columns =
+            self.sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()));
+        let verified_partial = if sampling_columns.contains(&partial.index) {
+            KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(verified_partial)
+        } else {
+            return Ok(None);
+        };
+
+        // If this block has already been imported to forkchoice it must have been available
+        if self
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&block_root)
+        {
+            return Err(BlockError::DuplicateFullyImported(block_root));
+        }
+
+        let Some(assembler) = self.data_availability_checker.partial_assembler() else {
+            // Partial messages are apparently not activated
+            return Ok(None);
+        };
+
+        // Merge the partial into the assembler
+        let merge_result = assembler
+            .merge_partials(
+                block_root,
+                vec![verified_partial],
+                verified_header.into_header(),
+            )
+            .ok_or_else(|| BlockError::InternalError("No assembly found for block".to_string()))?;
+
+        metrics::inc_counter_vec_by(
+            &metrics::BEACON_PARTIAL_MESSAGE_USEFUL_CELLS_TOTAL,
+            &[index_str.as_str()],
+            merge_result.added_cells as u64,
+        );
+
+        let availability = if !merge_result.full_columns.is_empty() {
+            metrics::inc_counter_vec_by(
+                &metrics::BEACON_PARTIAL_MESSAGE_COLUMN_COMPLETIONS_TOTAL,
+                &[index_str.as_str()],
+                merge_result.full_columns.len() as u64,
+            );
+
+            self.emit_sse_data_column_sidecar_events(
+                &block_root,
+                merge_result
+                    .full_columns
+                    .iter()
+                    .map(|column| column.as_data_column()),
+            );
+
+            let availability = self
+                .data_availability_checker
+                .put_kzg_verified_custody_data_columns(
+                    block_root,
+                    merge_result.full_columns.clone(),
+                )?;
+
+            self.process_availability(slot, availability, || Ok(()))
+                .await?
+        } else {
+            AvailabilityProcessingStatus::MissingComponents(slot, block_root)
+        };
+
+        Ok(Some((availability, merge_result)))
     }
 
     /// Cache the blobs in the processing cache, process it, then evict it from the cache if it was
@@ -3602,6 +3797,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Checks if the provided data column can make any cached blocks available, and imports immediately
     /// if so, otherwise caches the data column in the data availability checker.
+    /// Check gossip data columns for availability and import. Only accepts full columns.
+    /// Partials are handled separately via PartialDataColumnAssembler.
     async fn check_gossip_data_columns_availability_and_import(
         self: &Arc<Self>,
         slot: Slot,
@@ -3752,13 +3949,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // from RPC.
         for header in custody_columns
             .into_iter()
-            .map(|c| c.signed_block_header.clone())
+            .map(|c| &c.signed_block_header)
             .unique()
         {
             // Return an error if *any* header signature is invalid, we do not want to import this
             // list of blobs into the DA checker. However, we will process any valid headers prior
             // to the first invalid header in the slashable cache & slasher.
-            verify_header_signature::<T, BlockError>(self, &header)?;
+            verify_header_signature::<T, BlockError>(self, header)?;
 
             slashable_cache
                 .observe_slashable(
@@ -3768,7 +3965,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 )
                 .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
             if let Some(slasher) = self.slasher.as_ref() {
-                slasher.accept_block_header(header);
+                slasher.accept_block_header(header.clone());
             }
         }
         Ok(())
@@ -4537,7 +4734,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // Load the parent state from disk.
         let chain = self.clone();
-        let (state, state_root_opt) = self
+        let block_production_state = self
             .task_executor
             .spawn_blocking_handle(
                 move || chain.load_state_for_block_production(slot),
@@ -4546,6 +4743,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(BlockProductionError::ShuttingDown)?
             .await
             .map_err(BlockProductionError::TokioJoin)??;
+        let (state, state_root_opt) = (
+            block_production_state.state,
+            block_production_state.state_root,
+        );
 
         // Part 2/2 (async, with some blocking components)
         //
@@ -4695,12 +4896,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .ok_or(Error::MissingBeaconBlock(parent_block_root))?;
                 let (state_root, state) = self
                     .store
-                    .get_advanced_hot_state(
-                        parent_block_root,
-                        StatePayloadStatus::Pending,
-                        proposal_slot,
-                        block.state_root(),
-                    )?
+                    .get_advanced_hot_state(parent_block_root, proposal_slot, block.state_root())?
                     .ok_or(Error::MissingBeaconState(block.state_root()))?;
                 (Cow::Owned(state), state_root)
             };
@@ -5992,6 +6188,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None
             };
 
+            let slot_number = if prepare_slot_fork.gloas_enabled() {
+                Some(prepare_slot.as_u64())
+            } else {
+                None
+            };
+
             let payload_attributes = PayloadAttributes::new(
                 self.slot_clock
                     .start_of(prepare_slot)
@@ -6001,6 +6203,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 execution_layer.get_suggested_fee_recipient(proposer).await,
                 withdrawals.map(Into::into),
                 parent_beacon_block_root,
+                slot_number,
             );
 
             execution_layer
@@ -6426,6 +6629,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.naive_aggregation_pool.write().prune(slot);
             self.block_times_cache.write().prune(slot);
             self.envelope_times_cache.write().prune(slot);
+            self.gossip_verified_payload_bid_cache.prune(slot);
+            self.gossip_verified_proposer_preferences_cache.prune(slot);
 
             // Don't run heavy-weight tasks during sync.
             if self.best_slot() + MAX_PER_SLOT_FORK_CHOICE_DISTANCE < slot {
@@ -6634,12 +6839,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // for the same block. Analysis: https://hackmd.io/@dapplion/gloas_dependant_root
                 let (state_root, state) = self
                     .store
-                    .get_advanced_hot_state(
-                        head_block_root,
-                        StatePayloadStatus::Pending,
-                        target_slot,
-                        head_block.state_root,
-                    )?
+                    .get_advanced_hot_state(head_block_root, target_slot, head_block.state_root)?
                     .ok_or(Error::MissingBeaconState(head_block.state_root))?;
                 (state, state_root)
             };
@@ -6727,10 +6927,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             blocks.push((beacon_block_root, Arc::new(beacon_block)));
         }
 
-        // Collect states, using the next blocks to determine if states are full (have Gloas
-        // payloads).
+        // Collect envelopes, using the next blocks to determine if payloads are canonical
+        // (the parent block was full).
         for (i, (block_root, block)) in blocks.iter().enumerate() {
-            let (opt_envelope, state_root) = if block.fork_name_unchecked().gloas_enabled() {
+            let opt_envelope = if block.fork_name_unchecked().gloas_enabled() {
                 let opt_envelope = self.store.get_payload_envelope(block_root)?.map(Arc::new);
 
                 if let Some((_, next_block)) = blocks.get(i + 1) {
@@ -6739,22 +6939,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         let envelope = opt_envelope.ok_or_else(|| {
                             Error::DBInconsistent(format!("Missing envelope {block_root:?}"))
                         })?;
-                        let state_root = envelope.message.state_root;
-                        (Some(envelope), state_root)
+                        Some(envelope)
                     } else {
-                        (None, block.state_root())
+                        None
                     }
                 } else {
-                    // TODO(gloas): should use fork choice/cached head for last block in sequence
-                    opt_envelope
-                        .as_ref()
-                        .map_or((None, block.state_root()), |envelope| {
-                            (Some(envelope.clone()), envelope.message.state_root)
-                        })
+                    // Last block in the sequence: use canonical head to determine
+                    // whether the payload is canonical.
+                    let head = self.canonical_head.cached_head();
+                    assert_eq!(head.head_block_root(), *block_root);
+                    let payload_received =
+                        head.head_payload_status() == fork_choice::PayloadStatus::Full;
+                    if payload_received {
+                        let envelope = opt_envelope.ok_or_else(|| {
+                            Error::DBInconsistent(format!("Missing envelope {block_root:?}"))
+                        })?;
+                        Some(envelope)
+                    } else {
+                        None
+                    }
                 }
             } else {
-                (None, block.state_root())
+                None
             };
+            let state_root = block.state_root();
 
             let mut beacon_state = self
                 .store

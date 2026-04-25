@@ -91,7 +91,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
 ) -> Result<Response<Body>, Rejection> {
-    let slot = envelope.message.slot;
+    let slot = envelope.slot();
     let beacon_block_root = envelope.message.beacon_block_root;
 
     // TODO(gloas): Replace this check once we have gossip validation.
@@ -161,9 +161,7 @@ pub(crate) fn get_beacon_execution_payload_envelope<T: BeaconChainTypes>(
                             ))
                         })?;
 
-                    let fork_name = chain
-                        .spec
-                        .fork_name_at_slot::<T::EthSpec>(envelope.message.slot);
+                    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(envelope.slot());
 
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()

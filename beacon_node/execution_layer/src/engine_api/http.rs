@@ -43,11 +43,13 @@ pub const ENGINE_GET_PAYLOAD_V2: &str = "engine_getPayloadV2";
 pub const ENGINE_GET_PAYLOAD_V3: &str = "engine_getPayloadV3";
 pub const ENGINE_GET_PAYLOAD_V4: &str = "engine_getPayloadV4";
 pub const ENGINE_GET_PAYLOAD_V5: &str = "engine_getPayloadV5";
+pub const ENGINE_GET_PAYLOAD_V6: &str = "engine_getPayloadV6";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
 pub const ENGINE_FORKCHOICE_UPDATED_V2: &str = "engine_forkchoiceUpdatedV2";
 pub const ENGINE_FORKCHOICE_UPDATED_V3: &str = "engine_forkchoiceUpdatedV3";
+pub const ENGINE_FORKCHOICE_UPDATED_V4: &str = "engine_forkchoiceUpdatedV4";
 pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1: &str = "engine_getPayloadBodiesByHashV1";
@@ -62,6 +64,7 @@ pub const ENGINE_GET_CLIENT_VERSION_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub const ENGINE_GET_BLOBS_V1: &str = "engine_getBlobsV1";
 pub const ENGINE_GET_BLOBS_V2: &str = "engine_getBlobsV2";
+pub const ENGINE_GET_BLOBS_V3: &str = "engine_getBlobsV3";
 pub const ENGINE_GET_BLOBS_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// This error is returned during a `chainId` call by Geth.
@@ -81,9 +84,11 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_GET_PAYLOAD_V3,
     ENGINE_GET_PAYLOAD_V4,
     ENGINE_GET_PAYLOAD_V5,
+    ENGINE_GET_PAYLOAD_V6,
     ENGINE_FORKCHOICE_UPDATED_V1,
     ENGINE_FORKCHOICE_UPDATED_V2,
     ENGINE_FORKCHOICE_UPDATED_V3,
+    ENGINE_FORKCHOICE_UPDATED_V4,
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
     ENGINE_GET_CLIENT_VERSION_V1,
@@ -739,6 +744,20 @@ impl HttpJsonRpc {
         .await
     }
 
+    pub async fn get_blobs_v3<E: EthSpec>(
+        &self,
+        versioned_hashes: Vec<Hash256>,
+    ) -> Result<Option<Vec<BlobAndProofV3<E>>>, Error> {
+        let params = json!([versioned_hashes]);
+
+        self.rpc_request(
+            ENGINE_GET_BLOBS_V3,
+            params,
+            ENGINE_GET_BLOBS_TIMEOUT * self.execution_timeout_multiplier,
+        )
+        .await
+    }
+
     pub async fn get_block_by_number(
         &self,
         query: BlockByNumberQuery<'_>,
@@ -1050,10 +1069,25 @@ impl HttpJsonRpc {
                     .try_into()
                     .map_err(Error::BadResponse)
             }
+            _ => Err(Error::UnsupportedForkVariant(format!(
+                "called get_payload_v5 with {}",
+                fork_name
+            ))),
+        }
+    }
+
+    pub async fn get_payload_v6<E: EthSpec>(
+        &self,
+        fork_name: ForkName,
+        payload_id: PayloadId,
+    ) -> Result<GetPayloadResponse<E>, Error> {
+        let params = json!([JsonPayloadIdRequest::from(payload_id)]);
+
+        match fork_name {
             ForkName::Gloas => {
                 let response: JsonGetPayloadResponseGloas<E> = self
                     .rpc_request(
-                        ENGINE_GET_PAYLOAD_V5,
+                        ENGINE_GET_PAYLOAD_V6,
                         params,
                         ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
                     )
@@ -1063,7 +1097,7 @@ impl HttpJsonRpc {
                     .map_err(Error::BadResponse)
             }
             _ => Err(Error::UnsupportedForkVariant(format!(
-                "called get_payload_v5 with {}",
+                "called get_payload_v6 with {}",
                 fork_name
             ))),
         }
@@ -1124,6 +1158,27 @@ impl HttpJsonRpc {
         let response: JsonForkchoiceUpdatedV1Response = self
             .rpc_request(
                 ENGINE_FORKCHOICE_UPDATED_V3,
+                params,
+                ENGINE_FORKCHOICE_UPDATED_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
+    pub async fn forkchoice_updated_v4(
+        &self,
+        forkchoice_state: ForkchoiceState,
+        payload_attributes: Option<PayloadAttributes>,
+    ) -> Result<ForkchoiceUpdatedResponse, Error> {
+        let params = json!([
+            JsonForkchoiceStateV1::from(forkchoice_state),
+            payload_attributes.map(JsonPayloadAttributes::from)
+        ]);
+
+        let response: JsonForkchoiceUpdatedV1Response = self
+            .rpc_request(
+                ENGINE_FORKCHOICE_UPDATED_V4,
                 params,
                 ENGINE_FORKCHOICE_UPDATED_TIMEOUT * self.execution_timeout_multiplier,
             )
@@ -1204,6 +1259,7 @@ impl HttpJsonRpc {
             forkchoice_updated_v1: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V1),
             forkchoice_updated_v2: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V2),
             forkchoice_updated_v3: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V3),
+            forkchoice_updated_v4: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V4),
             get_payload_bodies_by_hash_v1: capabilities
                 .contains(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1),
             get_payload_bodies_by_range_v1: capabilities
@@ -1213,9 +1269,11 @@ impl HttpJsonRpc {
             get_payload_v3: capabilities.contains(ENGINE_GET_PAYLOAD_V3),
             get_payload_v4: capabilities.contains(ENGINE_GET_PAYLOAD_V4),
             get_payload_v5: capabilities.contains(ENGINE_GET_PAYLOAD_V5),
+            get_payload_v6: capabilities.contains(ENGINE_GET_PAYLOAD_V6),
             get_client_version_v1: capabilities.contains(ENGINE_GET_CLIENT_VERSION_V1),
             get_blobs_v1: capabilities.contains(ENGINE_GET_BLOBS_V1),
             get_blobs_v2: capabilities.contains(ENGINE_GET_BLOBS_V2),
+            get_blobs_v3: capabilities.contains(ENGINE_GET_BLOBS_V3),
         })
     }
 
@@ -1405,10 +1463,10 @@ impl HttpJsonRpc {
                 }
             }
             ForkName::Gloas => {
-                if engine_capabilities.get_payload_v5 {
-                    self.get_payload_v5(fork_name, payload_id).await
+                if engine_capabilities.get_payload_v6 {
+                    self.get_payload_v6(fork_name, payload_id).await
                 } else {
-                    Err(Error::RequiredMethodUnsupported("engine_getPayloadv5"))
+                    Err(Error::RequiredMethodUnsupported("engine_getPayloadV6"))
                 }
             }
             ForkName::Base | ForkName::Altair => Err(Error::UnsupportedForkVariant(format!(
@@ -1446,6 +1504,16 @@ impl HttpJsonRpc {
                     } else {
                         Err(Error::RequiredMethodUnsupported(
                             "engine_forkchoiceUpdatedV3",
+                        ))
+                    }
+                }
+                PayloadAttributes::V4(_) => {
+                    if engine_capabilities.forkchoice_updated_v4 {
+                        self.forkchoice_updated_v4(forkchoice_state, maybe_payload_attributes)
+                            .await
+                    } else {
+                        Err(Error::RequiredMethodUnsupported(
+                            "engine_forkchoiceUpdatedV4",
                         ))
                     }
                 }

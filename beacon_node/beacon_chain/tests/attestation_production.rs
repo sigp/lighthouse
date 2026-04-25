@@ -10,7 +10,7 @@ use std::sync::{Arc, LazyLock};
 use tree_hash::TreeHash;
 use types::{Attestation, EthSpec, MainnetEthSpec, RelativeEpoch, Slot};
 
-pub const VALIDATOR_COUNT: usize = 16;
+pub const VALIDATOR_COUNT: usize = 32;
 
 /// A cached set of keys.
 static KEYPAIRS: LazyLock<Vec<Keypair>> =

@@ -83,6 +83,14 @@ pub static FAILED_PUBLISHES_PER_MAIN_TOPIC: LazyLock<Result<IntGaugeVec>> = Lazy
         &["topic_hash"],
     )
 });
+pub static FAILED_PARTIAL_PUBLISHES_PER_MAIN_TOPIC: LazyLock<Result<IntGaugeVec>> =
+    LazyLock::new(|| {
+        try_create_int_gauge_vec(
+            "gossipsub_failed_partial_publishes_per_main_topic",
+            "Failed gossip partial message publishes",
+            &["topic_hash"],
+        )
+    });
 pub static TOTAL_RPC_ERRORS_PER_CLIENT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "libp2p_rpc_errors_per_client",
