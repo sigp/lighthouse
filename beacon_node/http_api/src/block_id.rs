@@ -1,5 +1,5 @@
 use crate::version::inconsistent_fork_rejection;
-use crate::{ExecutionOptimistic, state_id::checkpoint_block_and_execution_optimistic};
+use crate::{ExecutionOptimistic, state_id::checkpoint_slot_and_execution_optimistic};
 use beacon_chain::kzg_utils::reconstruct_blobs;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2::beacon_response::{ExecutionOptimisticFinalizedMetadata, UnversionedResponse};
@@ -60,15 +60,15 @@ impl BlockId {
             CoreBlockId::Finalized => {
                 let finalized_checkpoint =
                     chain.canonical_head.cached_head().finalized_checkpoint();
-                let (_block, execution_optimistic) =
-                    checkpoint_block_and_execution_optimistic(chain, finalized_checkpoint)?;
+                let (_slot, execution_optimistic) =
+                    checkpoint_slot_and_execution_optimistic(chain, finalized_checkpoint)?;
                 Ok((finalized_checkpoint.root, execution_optimistic, true))
             }
             CoreBlockId::Justified => {
                 let justified_checkpoint =
                     chain.canonical_head.cached_head().justified_checkpoint();
-                let (_block, execution_optimistic) =
-                    checkpoint_block_and_execution_optimistic(chain, justified_checkpoint)?;
+                let (_slot, execution_optimistic) =
+                    checkpoint_slot_and_execution_optimistic(chain, justified_checkpoint)?;
                 Ok((justified_checkpoint.root, execution_optimistic, false))
             }
             CoreBlockId::Slot(slot) => {

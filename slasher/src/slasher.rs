@@ -74,6 +74,11 @@ impl<E: EthSpec> Slasher<E> {
         &self.config
     }
 
+    /// Return the number of attestations in the queue.
+    pub fn attestation_queue_len(&self) -> usize {
+        self.attestation_queue.len()
+    }
+
     /// Accept an attestation from the network and queue it for processing.
     pub fn accept_attestation(&self, attestation: IndexedAttestation<E>) {
         self.attestation_queue.queue(attestation);
