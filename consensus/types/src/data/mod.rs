@@ -2,6 +2,7 @@ mod blob_sidecar;
 mod data_column_custody_group;
 mod data_column_sidecar;
 mod data_column_subnet_id;
+mod partial_data_column_sidecar;
 
 pub use blob_sidecar::{
     BlobIdentifier, BlobSidecar, BlobSidecarError, BlobSidecarList, BlobsList, FixedBlobSidecarList,
@@ -17,6 +18,10 @@ pub use data_column_sidecar::{
     DataColumnsByRootIdentifier,
 };
 pub use data_column_subnet_id::{DataColumnSubnetId, all_data_column_sidecar_subnets_from_spec};
+pub use partial_data_column_sidecar::{
+    CellBitmap, PartialDataColumn, PartialDataColumnHeader, PartialDataColumnPartsMetadata,
+    PartialDataColumnSidecar, PartialDataColumnSidecarError, PartialDataColumnSidecarRef,
+};
 
 use crate::core::EthSpec;
 use ssz_types::FixedVector;

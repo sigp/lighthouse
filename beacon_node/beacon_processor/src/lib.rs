@@ -392,6 +392,7 @@ pub enum Work<E: EthSpec> {
     GossipBlock(AsyncFn),
     GossipBlobSidecar(AsyncFn),
     GossipDataColumnSidecar(AsyncFn),
+    GossipPartialDataColumnSidecar(AsyncFn),
     DelayedImportBlock {
         beacon_block_slot: Slot,
         beacon_block_root: Hash256,
@@ -473,6 +474,7 @@ pub enum WorkType {
     GossipBlock,
     GossipBlobSidecar,
     GossipDataColumnSidecar,
+    GossipPartialDataColumnSidecar,
     DelayedImportBlock,
     DelayedImportEnvelope,
     GossipVoluntaryExit,
@@ -528,6 +530,7 @@ impl<E: EthSpec> Work<E> {
             Work::GossipBlock(_) => WorkType::GossipBlock,
             Work::GossipBlobSidecar(_) => WorkType::GossipBlobSidecar,
             Work::GossipDataColumnSidecar(_) => WorkType::GossipDataColumnSidecar,
+            Work::GossipPartialDataColumnSidecar(_) => WorkType::GossipPartialDataColumnSidecar,
             Work::DelayedImportBlock { .. } => WorkType::DelayedImportBlock,
             Work::DelayedImportEnvelope { .. } => WorkType::DelayedImportEnvelope,
             Work::GossipVoluntaryExit(_) => WorkType::GossipVoluntaryExit,
@@ -841,6 +844,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Some(item)
                         } else if let Some(item) = work_queues.gossip_data_column_queue.pop() {
                             Some(item)
+                        } else if let Some(item) =
+                            work_queues.gossip_partial_data_column_queue.pop()
+                        {
+                            Some(item)
                         } else if let Some(item) = work_queues.column_reconstruction_queue.pop() {
                             Some(item)
                         // Check the priority 0 API requests after blocks and blobs, but before attestations.
@@ -1151,6 +1158,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::GossipDataColumnSidecar { .. } => {
                                 work_queues.gossip_data_column_queue.push(work, work_id)
                             }
+                            Work::GossipPartialDataColumnSidecar { .. } => work_queues
+                                .gossip_partial_data_column_queue
+                                .push(work, work_id),
                             Work::DelayedImportBlock { .. } => {
                                 work_queues.delayed_block_queue.push(work, work_id)
                             }
@@ -1290,6 +1300,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::GossipBlobSidecar => work_queues.gossip_blob_queue.len(),
                         WorkType::GossipDataColumnSidecar => {
                             work_queues.gossip_data_column_queue.len()
+                        }
+                        WorkType::GossipPartialDataColumnSidecar => {
+                            work_queues.gossip_partial_data_column_queue.len()
                         }
                         WorkType::DelayedImportBlock => work_queues.delayed_block_queue.len(),
                         WorkType::DelayedImportEnvelope => work_queues.delayed_envelope_queue.len(),
@@ -1516,6 +1529,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             Work::GossipBlock(work)
             | Work::GossipBlobSidecar(work)
             | Work::GossipDataColumnSidecar(work)
+            | Work::GossipPartialDataColumnSidecar(work)
             | Work::GossipExecutionPayload(work) => task_spawner.spawn_async(async move {
                 work.await;
             }),

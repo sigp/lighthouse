@@ -383,11 +383,24 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         Ok((head, execution_status))
     }
 
-    // TODO(gloas) just a stub for now, implement this once we have fork choice.
-    /// Returns true if the payload for this block is canonical according to fork choice
-    /// Returns an error if the block root doesn't exist in fork choice.
-    pub fn block_has_canonical_payload(&self, _root: &Hash256) -> Result<bool, Error> {
-        Ok(true)
+    /// Returns `true` if the payload for this block is canonical (Full) according to fork choice.
+    pub fn block_has_canonical_payload(
+        &self,
+        root: &Hash256,
+        spec: &ChainSpec,
+    ) -> Result<bool, Error> {
+        let cached_head = self.cached_head();
+        let head_root = cached_head.head_block_root();
+        let head_payload_status = cached_head.head_payload_status();
+
+        if *root == head_root {
+            return Ok(head_payload_status == PayloadStatus::Full);
+        }
+
+        self.fork_choice_read_lock()
+            .get_canonical_payload_status(root, spec)
+            .map(|status| status == PayloadStatus::Full)
+            .map_err(Error::ForkChoiceError)
     }
 
     /// Returns a clone of `self.cached_head`.
@@ -814,8 +827,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // The execution layer updates might attempt to take a write-lock on fork choice, so it's
         // important to ensure the fork-choice lock isn't being held.
-        let el_update_handle =
-            spawn_execution_layer_updates(self.clone(), new_forkchoice_update_parameters)?;
+        let el_update_handle = spawn_execution_layer_updates(
+            self.clone(),
+            new_forkchoice_update_parameters,
+            new_payload_status,
+        )?;
 
         // We have completed recomputing the head and it's now valid for another process to do the
         // same.
@@ -1173,6 +1189,7 @@ fn perform_debug_logging<T: BeaconChainTypes>(
 fn spawn_execution_layer_updates<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     forkchoice_update_params: ForkchoiceUpdateParameters,
+    head_payload_status: PayloadStatus,
 ) -> Result<JoinHandle<Option<()>>, Error> {
     let current_slot = chain
         .slot_clock
@@ -1195,6 +1212,7 @@ fn spawn_execution_layer_updates<T: BeaconChainTypes>(
                     .update_execution_engine_forkchoice(
                         current_slot,
                         forkchoice_update_params,
+                        head_payload_status,
                         OverrideForkchoiceUpdate::Yes,
                     )
                     .await
