@@ -236,27 +236,35 @@ async fn produces_attestations() {
                 .build_range_sync_block_from_store_blobs(Some(block_root), Arc::new(block.clone()));
             let available_block = range_sync_block.into_available_block();
 
-            let early_attestation = {
-                let proto_block = chain
-                    .canonical_head
-                    .fork_choice_read_lock()
-                    .get_block(&block_root)
-                    .unwrap();
-                chain
-                    .early_attester_cache
-                    .add_head_block(block_root, &available_block, proto_block, &state)
-                    .unwrap();
-                chain
-                    .early_attester_cache
-                    .try_attest(slot, index, &chain.spec)
-                    .unwrap()
-                    .unwrap()
-            };
+            // For Gloas non-same-slot attestations, the early attester cache returns None.
+            let is_same_slot_attestation = slot == block_slot;
+            let is_gloas = harness
+                .spec
+                .fork_name_at_slot::<MainnetEthSpec>(slot)
+                .gloas_enabled();
+            if !is_gloas || is_same_slot_attestation {
+                let early_attestation = {
+                    let proto_block = chain
+                        .canonical_head
+                        .fork_choice_read_lock()
+                        .get_block(&block_root)
+                        .unwrap();
+                    chain
+                        .early_attester_cache
+                        .add_head_block(block_root, &available_block, proto_block, &state)
+                        .unwrap();
+                    chain
+                        .early_attester_cache
+                        .try_attest(slot, index, &chain.spec)
+                        .unwrap()
+                        .unwrap()
+                };
 
-            assert_eq!(
-                attestation, early_attestation,
-                "early attester cache inconsistent"
-            );
+                assert_eq!(
+                    attestation, early_attestation,
+                    "early attester cache inconsistent"
+                );
+            }
         }
     }
 }
