@@ -92,20 +92,8 @@ mod test {
             generate_rand_block_and_blobs::<MainnetEthSpec>(ForkName::Deneb, 1, &mut rng());
         let blob = blob_sidecars.pop().unwrap();
 
-        // Compute the commitments inclusion proof and use it for building blob sidecar.
-        let (signed_block_header, kzg_commitments_inclusion_proof) = block
-            .signed_block_header_and_kzg_commitments_proof()
-            .unwrap();
-
-        let blob_sidecar = BlobSidecar::new_with_existing_proof(
-            blob.index as usize,
-            blob.blob.clone(),
-            &block,
-            signed_block_header,
-            &kzg_commitments_inclusion_proof,
-            blob.kzg_proof,
-        )
-        .unwrap();
+        let blob_sidecar =
+            BlobSidecar::new_with_existing_proof(index as usize, blob, &block, kzg_proof).unwrap();
 
         assert!(blob_sidecar.verify_blob_sidecar_inclusion_proof());
     }
