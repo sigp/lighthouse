@@ -1735,6 +1735,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.send_sync_message(SyncMessage::UnknownParentBlock(peer_id, block, block_root));
                 return None;
             }
+            Err(BlockError::ParentEnvelopeUnknown { parent_root }) => {
+                debug!(
+                    ?block_root,
+                    ?parent_root,
+                    "Parent envelope not yet available for gossip block"
+                );
+                self.send_sync_message(SyncMessage::UnknownParentEnvelope(
+                    peer_id, block, block_root,
+                ));
+                return None;
+            }
             Err(e @ BlockError::BeaconChainError(_)) => {
                 debug!(
                     error = ?e,
@@ -1824,7 +1835,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 return None;
             }
             // BlobNotRequired is unreachable. Only constructed in `process_gossip_blob`
-            Err(e @ BlockError::InternalError(_)) | Err(e @ BlockError::BlobNotRequired(_)) => {
+            Err(e @ BlockError::InternalError(_))
+            | Err(e @ BlockError::BlobNotRequired(_))
+            | Err(e @ BlockError::PayloadEnvelopeError { .. }) => {
                 error!(error = %e, "Internal block gossip validation error");
                 return None;
             }
@@ -2020,6 +2033,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     %peer_id,
                     "Block with unknown parent attempted to be processed"
                 );
+            }
+            Err(BlockError::ParentEnvelopeUnknown { parent_root }) => {
+                debug!(
+                    %block_root,
+                    ?parent_root,
+                    "Parent envelope not yet available, need envelope lookup"
+                );
+                // Unlike ParentUnknown, this can legitimately happen during processing
+                // because the parent envelope may not have arrived yet. The lookup
+                // system will handle retrying via Action::ParentEnvelopeUnknown.
             }
             Err(e @ BlockError::ExecutionPayloadError(epe)) if !epe.penalize_peer() => {
                 debug!(
