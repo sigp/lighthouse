@@ -165,6 +165,9 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
     /// - There is a cache `item` present.
     /// - If `request_slot` is in the same epoch as `item.epoch`.
     /// - If `request_index` does not exceed `item.committee_count`.
+    ///
+    /// Post gloas an additional condition must be met:
+    /// - If `request_slot` is the same slot as `item.block.slot` (i.e. a same slot attestation)
     #[instrument(skip_all, fields(%request_slot, %request_index), level = "debug")]
     pub fn try_attest(
         &self,
@@ -198,13 +201,10 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
                 .get_committee_length::<E>(request_slot, request_index, spec)?;
 
         let is_same_slot_attestation = request_slot == item.block.slot();
-        let payload_present = if spec.fork_name_at_slot::<E>(request_slot).gloas_enabled()
-            && !is_same_slot_attestation
-        {
-            item.proto_block.payload_status == PayloadStatus::Full
-        } else {
-            false
-        };
+        if spec.fork_name_at_slot::<E>(request_slot).gloas_enabled() && !is_same_slot_attestation {
+            return Ok(None);
+        }
+        let payload_present = false;
 
         let attestation = Attestation::empty_for_signing(
             request_index,
