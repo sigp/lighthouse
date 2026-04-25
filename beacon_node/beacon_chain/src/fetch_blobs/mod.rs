@@ -251,7 +251,7 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
 
     // Publish complete columns
     if !full_columns.is_empty() {
-        publish_fn(EngineGetBlobsOutput::CustodyColumns(full_columns.clone()));
+        publish_fn(full_columns.clone());
     }
     // We publish all partials at the calling site, regardless of result, as previous publishs
     // have been blocked, waiting for the results of this call
@@ -262,7 +262,7 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
             .process_engine_blobs(
                 slot,
                 block_root,
-                EngineGetBlobsOutput::CustodyColumns(full_columns),
+                full_columns,
             )
             .await?
     } else {
