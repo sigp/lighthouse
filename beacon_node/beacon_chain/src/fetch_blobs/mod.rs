@@ -259,11 +259,7 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
     // Process complete columns through DA checker
     let availability_processing_status = if !full_columns.is_empty() {
         chain_adapter
-            .process_engine_blobs(
-                slot,
-                block_root,
-                full_columns,
-            )
+            .process_engine_blobs(slot, block_root, full_columns)
             .await?
     } else {
         // No complete columns yet, still missing components
