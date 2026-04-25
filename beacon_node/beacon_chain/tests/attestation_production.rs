@@ -2,13 +2,15 @@
 
 use beacon_chain::attestation_simulator::produce_unaggregated_attestation;
 use beacon_chain::custody_context::NodeCustodyType;
-use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
+use beacon_chain::test_utils::{
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, fork_name_from_env, test_spec,
+};
 use beacon_chain::validator_monitor::UNAGGREGATED_ATTESTATION_LAG_SLOTS;
 use beacon_chain::{StateSkipConfig, WhenSlotSkipped, metrics};
 use bls::{AggregateSignature, Keypair};
 use std::sync::{Arc, LazyLock};
 use tree_hash::TreeHash;
-use types::{Attestation, ChainSpec, EthSpec, ForkName, MainnetEthSpec, RelativeEpoch, Slot};
+use types::{Attestation, EthSpec, ForkName, MainnetEthSpec, RelativeEpoch, Slot};
 
 pub const VALIDATOR_COUNT: usize = 32;
 
@@ -322,10 +324,12 @@ async fn early_attester_cache_old_request() {
 /// Attesting at slot N+1 should target the block at slot N with payload_present = true.
 #[tokio::test]
 async fn gloas_attestation_index_payload_present() {
-    let spec = Arc::new(ForkName::Gloas.make_genesis_spec(ChainSpec::mainnet()));
+    if fork_name_from_env().is_some_and(|f| !f.gloas_enabled()) {
+        return;
+    }
 
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
-        .spec(spec)
+        .default_spec()
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
@@ -372,10 +376,12 @@ async fn gloas_attestation_index_payload_present() {
 /// beacon block (no envelope), advance to slot 4 (skipped), and attest.
 #[tokio::test]
 async fn gloas_attestation_index_payload_absent() {
-    let spec = Arc::new(ForkName::Gloas.make_genesis_spec(ChainSpec::mainnet()));
+    if fork_name_from_env().is_some_and(|f| !f.gloas_enabled()) {
+        return;
+    }
 
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
-        .spec(spec)
+        .default_spec()
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()

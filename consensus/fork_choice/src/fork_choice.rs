@@ -1498,11 +1498,6 @@ where
             && self.is_finalized_checkpoint_or_descendant(*block_root)
     }
 
-    /// Returns `true` if the block's execution payload envelope has been received.
-    pub fn is_payload_received(&self, block_root: &Hash256) -> bool {
-        self.proto_array.is_payload_received(block_root)
-    }
-
     /// Returns a `ProtoBlock` if the block is known **and** a descendant of the finalized root.
     pub fn get_block(&self, block_root: &Hash256) -> Option<ProtoBlock> {
         if self.is_finalized_checkpoint_or_descendant(*block_root) {
