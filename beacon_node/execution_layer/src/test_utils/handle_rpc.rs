@@ -295,6 +295,10 @@ pub async fn handle_rpc<E: EthSpec>(
                 })?;
 
             let maybe_blobs = ctx.execution_block_generator.write().get_blobs_bundle(&id);
+            let maybe_execution_requests = ctx
+                .execution_block_generator
+                .read()
+                .get_execution_requests(&id);
 
             // validate method called correctly according to shanghai fork time
             if ctx
@@ -432,8 +436,10 @@ pub async fn handle_rpc<E: EthSpec>(
                                     ))?
                                     .into(),
                                 should_override_builder: false,
-                                // TODO(electra): add EL requests in mock el
-                                execution_requests: Default::default(),
+                                execution_requests: maybe_execution_requests
+                                    .clone()
+                                    .unwrap_or_default()
+                                    .into(),
                             })
                             .unwrap()
                         }
@@ -453,7 +459,10 @@ pub async fn handle_rpc<E: EthSpec>(
                                     ))?
                                     .into(),
                                 should_override_builder: false,
-                                execution_requests: Default::default(),
+                                execution_requests: maybe_execution_requests
+                                    .clone()
+                                    .unwrap_or_default()
+                                    .into(),
                             })
                             .unwrap()
                         }
@@ -473,7 +482,9 @@ pub async fn handle_rpc<E: EthSpec>(
                                     ))?
                                     .into(),
                                 should_override_builder: false,
-                                execution_requests: Default::default(),
+                                execution_requests: maybe_execution_requests
+                                    .unwrap_or_default()
+                                    .into(),
                             })
                             .unwrap()
                         }
