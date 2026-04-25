@@ -2092,10 +2092,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 )
             };
 
-        // TODO(gloas): add integration test: verify that
-        // `produce_unaggregated_attestation` sets index=1 when payload received for a prior
-        // slot, index=0 for same-slot, and index=0 when payload not received.
-        //
         // For gloas the attestation data index indicates payload presence:
         // `payload_present=false` for same-slot attestations or when payload not received.
         // `payload_present=true` when attesting to a prior slot whose payload has been received.
@@ -2106,8 +2102,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             && !is_attesting_to_head_slot
         {
             self.canonical_head
-                .fork_choice_read_lock()
-                .is_payload_received(&beacon_block_root)
+                .block_has_canonical_payload(&beacon_block_root, &self.spec)?
         } else {
             false
         };
