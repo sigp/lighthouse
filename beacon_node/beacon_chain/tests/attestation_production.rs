@@ -208,7 +208,15 @@ async fn produces_attestations() {
                 &AggregateSignature::infinity(),
                 "bad signature"
             );
-            assert_eq!(data.index, index, "bad index");
+            if harness
+                .spec
+                .fork_name_at_slot::<MainnetEthSpec>(data.slot)
+                .gloas_enabled()
+            {
+                assert!(data.index <= 1, "invalid index");
+            } else {
+                assert_eq!(data.index, index, "bad index");
+            }
             assert_eq!(data.slot, slot, "bad slot");
             assert_eq!(data.beacon_block_root, block_root, "bad block root");
             assert_eq!(
