@@ -276,6 +276,3 @@ debug = true
 [patch.crates-io]
 quick-protobuf = { git = "https://github.com/sigp/quick-protobuf.git", rev = "87c4ccb9bb2af494de375f5f6c62850badd26304" }
 
-[patch."https://github.com/libp2p/rust-libp2p.git"]
-libp2p = { git = "https://github.com/sigp/rust-libp2p.git", rev = "defcaf1a78cf5b70a723b3fee0e0be051c1dbd88" }
-libp2p-mplex = { git = "https://github.com/sigp/rust-libp2p.git", rev = "defcaf1a78cf5b70a723b3fee0e0be051c1dbd88" }

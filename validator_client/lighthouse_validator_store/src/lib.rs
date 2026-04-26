@@ -1030,7 +1030,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
 
             // Collect successfully signed attestations and log errors.
             let mut signed_attestations = Vec::with_capacity(attestations.len());
-            for (result, att) in results.into_iter().zip(attestations.into_iter()) {
+            for (result, att) in results.into_iter().zip(attestations) {
                 match result {
                     Ok(()) => {
                         signed_attestations.push((
@@ -1432,7 +1432,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
     ) -> Result<SignedExecutionPayloadEnvelope<E>, Error> {
         let signing_context = self.signing_context(
             Domain::BeaconBuilder,
-            envelope.slot.epoch(E::slots_per_epoch()),
+            envelope.slot().epoch(E::slots_per_epoch()),
         );
 
         // Execution payload envelope signing is not slashable, bypass doppelganger protection.

@@ -2,7 +2,16 @@ use crate::{AttesterRecord, Config, IndexedAttesterRecord};
 use parking_lot::Mutex;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Weak};
+use tracing::warn;
 use types::{EthSpec, Hash256, IndexedAttestation};
+
+/// Hard cap on validator indices accepted by the slasher.
+///
+/// Any attestation referencing a validator index above this limit is silently dropped during
+/// grouping. This is a defence-in-depth measure to prevent pathological memory allocation if an
+/// attestation with a bogus index somehow reaches the slasher. The value (2^23 = 8,388,608)
+/// provides generous headroom above the current mainnet validator set (~2M).
+const MAX_VALIDATOR_INDEX: u64 = 8_388_608;
 
 /// Staging area for attestations received from the network.
 ///
@@ -72,6 +81,14 @@ impl<E: EthSpec> AttestationBatch<E> {
         let mut grouped_attestations = GroupedAttestations { subqueues: vec![] };
 
         for ((validator_index, _), indexed_record) in self.attesters {
+            if validator_index >= MAX_VALIDATOR_INDEX {
+                warn!(
+                    validator_index,
+                    "Dropping slasher attestation with out-of-range validator index"
+                );
+                break;
+            }
+
             let subqueue_id = config.validator_chunk_index(validator_index);
 
             if subqueue_id >= grouped_attestations.subqueues.len() {

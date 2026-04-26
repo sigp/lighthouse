@@ -170,7 +170,10 @@ async fn blob_sidecar_event_on_process_rpc_blobs() {
 
 #[tokio::test]
 async fn data_column_sidecar_event_on_process_rpc_columns() {
-    if fork_name_from_env().is_none_or(|f| !f.fulu_enabled()) {
+    // Gloas blocks don't have blob_kzg_commitments (blobs are in the execution payload envelope).
+    if fork_name_from_env().is_none_or(|f| !f.fulu_enabled())
+        || fork_name_from_env().is_some_and(|f| f.gloas_enabled())
+    {
         return;
     };
 

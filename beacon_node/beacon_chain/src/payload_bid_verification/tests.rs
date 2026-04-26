@@ -10,9 +10,10 @@ use kzg::KzgCommitment;
 use slot_clock::{SlotClock, TestingSlotClock};
 use ssz::Encode;
 use ssz_types::VariableList;
+use state_processing::genesis::genesis_block;
 use store::{HotColdDB, StoreConfig};
 use types::{
-    Address, BeaconBlock, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ExecutionBlockHash,
+    Address, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ExecutionBlockHash,
     ExecutionPayloadBid, Hash256, MinimalEthSpec, ProposerPreferences, SignedBeaconBlock,
     SignedExecutionPayloadBid, SignedProposerPreferences, SignedRoot, Slot,
 };
@@ -112,11 +113,11 @@ impl TestContext {
             )
             .expect("should register inactive builder");
 
-        let mut genesis_block = BeaconBlock::empty(&spec);
-        *genesis_block.state_root_mut() = state
+        let mut block = genesis_block(&state, &spec).expect("should build genesis block");
+        *block.state_root_mut() = state
             .update_tree_hash_cache()
             .expect("should hash genesis state");
-        let signed_block = SignedBeaconBlock::from_block(genesis_block, Signature::empty());
+        let signed_block = SignedBeaconBlock::from_block(block, Signature::empty());
         let block_root = signed_block.canonical_root();
 
         let snapshot = BeaconSnapshot::new(
