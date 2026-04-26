@@ -117,8 +117,8 @@ use state_processing::{
     epoch_cache::initialize_epoch_cache,
     per_block_processing,
     per_block_processing::{
-        VerifySignatures, errors::AttestationValidationError, get_expected_withdrawals,
-        verify_attestation_for_block_inclusion,
+        VerifySignatures, apply_parent_execution_payload, errors::AttestationValidationError,
+        get_expected_withdrawals, verify_attestation_for_block_inclusion,
     },
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
@@ -4858,16 +4858,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         proposal_slot: Slot,
     ) -> Result<Withdrawals<T::EthSpec>, Error> {
         let cached_head = self.canonical_head.cached_head();
+        let head_block = &cached_head.snapshot.beacon_block;
+        let head_block_root = cached_head.head_block_root();
         let head_state = &cached_head.snapshot.beacon_state;
 
         let parent_block_root = forkchoice_update_params.head_root;
 
-        let (unadvanced_state, unadvanced_state_root) =
-            if cached_head.head_block_root() == parent_block_root {
-                (Cow::Borrowed(head_state), cached_head.head_state_root())
+        let (unadvanced_state, unadvanced_state_root, parent_bid_block_hash) =
+            if parent_block_root == head_block_root {
+                (
+                    Cow::Borrowed(head_state),
+                    cached_head.head_state_root(),
+                    head_block.payload_bid_block_hash().ok(),
+                )
             } else {
-                // TODO(gloas): this function needs updating to be envelope-aware
-                // See: https://github.com/sigp/lighthouse/issues/8957
                 let block = self
                     .get_blinded_block(&parent_block_root)?
                     .ok_or(Error::MissingBeaconBlock(parent_block_root))?;
@@ -4875,20 +4879,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .store
                     .get_advanced_hot_state(parent_block_root, proposal_slot, block.state_root())?
                     .ok_or(Error::MissingBeaconState(block.state_root()))?;
-                (Cow::Owned(state), state_root)
+                (
+                    Cow::Owned(state),
+                    state_root,
+                    block.payload_bid_block_hash().ok(),
+                )
             };
 
-        // Parent state epoch is the same as the proposal, we don't need to advance because the
-        // list of expected withdrawals can only change after an epoch advance or a
-        // block application.
-        let proposal_epoch = proposal_slot.epoch(T::EthSpec::slots_per_epoch());
-        if head_state.current_epoch() == proposal_epoch {
-            return get_expected_withdrawals(&unadvanced_state, &self.spec)
-                .map(Into::into)
-                .map_err(Error::PrepareProposerFailed);
-        }
+        let parent_payload_status = if let Some(block_hash) = parent_bid_block_hash
+            && block_hash != ExecutionBlockHash::default()
+            && forkchoice_update_params.head_hash == Some(block_hash)
+        {
+            fork_choice::PayloadStatus::Full
+        } else {
+            fork_choice::PayloadStatus::Empty
+        };
 
         // Advance the state using the partial method.
+        // TODO(gloas): we might want to optimise this further by using:
+        // - `get_advanced_hot_state` instead of the cached head
+        // - restoring the pre-Gloas optimisation to avoid advancing further than the epoch
+        //   boundary
         debug!(
             %proposal_slot,
             ?parent_block_root,
@@ -4898,9 +4909,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         partial_state_advance(
             &mut advanced_state,
             Some(unadvanced_state_root),
-            proposal_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+            proposal_slot,
             &self.spec,
         )?;
+
+        // For Gloas, when the head payload is Full, we need to apply the parent's
+        // execution requests to the state to get the correct withdrawals.
+        if parent_payload_status == fork_choice::PayloadStatus::Full {
+            let envelope = if parent_block_root == head_block_root {
+                cached_head.snapshot.execution_envelope.clone()
+            } else {
+                self.store
+                    .get_payload_envelope(&parent_block_root)?
+                    .map(Arc::new)
+            }
+            .ok_or(Error::MissingExecutionPayloadEnvelope(parent_block_root))?;
+
+            let parent_bid = advanced_state.latest_execution_payload_bid()?.clone();
+
+            apply_parent_execution_payload(
+                &mut advanced_state,
+                &parent_bid,
+                &envelope.message.execution_requests,
+                &self.spec,
+            )
+            .map_err(Error::PrepareProposerFailed)?;
+        }
+
         get_expected_withdrawals(&advanced_state, &self.spec)
             .map(Into::into)
             .map_err(Error::PrepareProposerFailed)
@@ -6112,13 +6147,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         fcu_params.head_root,
                         &cached_head,
                     )?;
-                    Ok::<_, Error>(Some((fcu_params, pre_payload_attributes)))
+                    let head_payload_status = cached_head.head_payload_status();
+                    Ok::<_, Error>(Some((
+                        fcu_params,
+                        pre_payload_attributes,
+                        head_payload_status,
+                    )))
                 },
                 "prepare_beacon_proposer_head_read",
             )
             .await??;
 
-        let Some((forkchoice_update_params, Some(pre_payload_attributes))) = maybe_prep_data else {
+        let Some((forkchoice_update_params, Some(pre_payload_attributes), head_payload_status)) =
+            maybe_prep_data
+        else {
             // Appropriate log messages have already been logged above and in
             // `get_pre_payload_attributes`.
             return Ok(None);
@@ -6140,7 +6182,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // considerable time to compute if a state load is required.
         let head_root = forkchoice_update_params.head_root;
         let payload_attributes = if let Some(payload_attributes) = execution_layer
-            .payload_attributes(prepare_slot, head_root)
+            .payload_attributes(prepare_slot, head_root, head_payload_status)
             .await
         {
             payload_attributes
@@ -6187,6 +6229,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .insert_proposer(
                     prepare_slot,
                     head_root,
+                    head_payload_status,
                     proposer,
                     payload_attributes.clone(),
                 )
@@ -6198,6 +6241,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 %prepare_slot,
                 validator = proposer,
                 parent_root = ?head_root,
+                payload_status = ?head_payload_status,
                 "Prepared beacon proposer"
             );
             payload_attributes
@@ -6250,6 +6294,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.update_execution_engine_forkchoice(
                 current_slot,
                 forkchoice_update_params,
+                head_payload_status,
                 OverrideForkchoiceUpdate::AlreadyApplied,
             )
             .await?;
@@ -6262,6 +6307,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         current_slot: Slot,
         input_params: ForkchoiceUpdateParameters,
+        head_payload_status: fork_choice::PayloadStatus,
         override_forkchoice_update: OverrideForkchoiceUpdate,
     ) -> Result<(), Error> {
         let execution_layer = self
@@ -6322,6 +6368,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 finalized_hash,
                 current_slot,
                 head_block_root,
+                head_payload_status,
             )
             .await
             .map_err(Error::ExecutionForkChoiceUpdateFailed);
