@@ -19,6 +19,7 @@ mod metrics;
 mod peer;
 mod produce_block;
 mod proposer_duties;
+mod ptc_duties;
 mod publish_attestations;
 mod publish_blocks;
 mod standard_block_rewards;
@@ -2560,6 +2561,14 @@ pub fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
     );
 
+    // POST validator/duties/ptc/{epoch}
+    let post_validator_duties_ptc = post_validator_duties_ptc(
+        eth_v1.clone(),
+        chain_filter.clone(),
+        not_while_syncing_filter.clone(),
+        task_spawner_filter.clone(),
+    );
+
     // POST validator/duties/sync/{epoch}
     let post_validator_duties_sync = post_validator_duties_sync(
         eth_v1.clone(),
@@ -3410,6 +3419,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_beacon_rewards_attestations)
                     .uor(post_beacon_rewards_sync_committee)
                     .uor(post_validator_duties_attester)
+                    .uor(post_validator_duties_ptc)
                     .uor(post_validator_duties_sync)
                     .uor(post_validator_aggregate_and_proofs)
                     .uor(post_validator_contribution_and_proofs)

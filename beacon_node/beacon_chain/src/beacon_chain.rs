@@ -84,8 +84,8 @@ use crate::{
 use bls::{PublicKey, PublicKeyBytes, Signature};
 use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{
-    EventKind, SseBlobSidecar, SseBlock, SseDataColumnSidecar, SseExtendedPayloadAttributes,
-    SseHead,
+    EventKind, PtcDuty, SseBlobSidecar, SseBlock, SseDataColumnSidecar,
+    SseExtendedPayloadAttributes, SseHead,
 };
 use execution_layer::{
     BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer,
@@ -1717,6 +1717,46 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             },
         )?;
         Ok((duties, dependent_root, execution_status))
+    }
+
+    /// Get PTC duties for validators at a given epoch.
+    ///
+    /// TODO(gloas): per-validator `get_ptc_assignment` makes this O(N * slots_per_epoch * PTCSize).
+    /// A future ptc cache (or a single-pass `ptc_window` walk) can drop this to
+    /// O(slots_per_epoch * PTCSize + N).
+    pub fn compute_ptc_duties(
+        &self,
+        state: &BeaconState<T::EthSpec>,
+        epoch: Epoch,
+        validator_indices: &[u64],
+        dependent_block_root: Hash256,
+    ) -> Result<(Vec<Option<PtcDuty>>, Hash256), Error> {
+        // The ptc_window only covers previous, current, and next epochs.
+        let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch)
+            .map_err(Error::IncorrectStateForAttestation)?;
+
+        let dependent_root =
+            state.attester_shuffling_decision_root(dependent_block_root, relative_epoch)?;
+
+        let pubkey_cache = self.validator_pubkey_cache.read();
+
+        let duties = validator_indices
+            .iter()
+            .map(|&validator_index| -> Result<Option<PtcDuty>, Error> {
+                let Some(&pubkey) = pubkey_cache.get_pubkey_bytes(validator_index as usize) else {
+                    return Ok(None);
+                };
+                let slot_opt =
+                    state.get_ptc_assignment(validator_index as usize, epoch, &self.spec)?;
+                Ok(slot_opt.map(|slot| PtcDuty {
+                    validator_index,
+                    slot,
+                    pubkey,
+                }))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok((duties, dependent_root))
     }
 
     pub fn get_aggregated_attestation(
