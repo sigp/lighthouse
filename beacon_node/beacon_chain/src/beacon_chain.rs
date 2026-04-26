@@ -1993,9 +1993,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 });
             }
 
-            let is_attesting_to_head_slot = request_slot >= head_state.slot();
-
-            if is_attesting_to_head_slot {
+            if request_slot >= head_state.slot() {
                 // When attesting to the head slot or later, always use the head of the chain.
                 beacon_block_root = head.beacon_block_root;
                 beacon_state_root = head.beacon_state_root();
