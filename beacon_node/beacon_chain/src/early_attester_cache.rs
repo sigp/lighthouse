@@ -167,7 +167,10 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
     /// - If `request_index` does not exceed `item.committee_count`.
     ///
     /// Post gloas an additional condition must be met:
-    /// - If `request_slot` is the same slot as `item.block.slot` (i.e. a same slot attestation)
+    /// - `request_slot` is the same slot as `item.block.slot` (i.e. a same slot attestation).
+    ///
+    /// Non-same-slot Gloas attestations need `data.index` set from the canonical payload
+    /// status, which the cache doesn't track. Returning `None` falls through to fork choice.
     #[instrument(skip_all, fields(%request_slot, %request_index), level = "debug")]
     pub fn try_attest(
         &self,
