@@ -1451,6 +1451,7 @@ where
                 epoch,
                 root: target_root,
             },
+            false,
             &self.spec,
         )?;
 
@@ -1560,6 +1561,7 @@ where
                 epoch,
                 root: target_root,
             },
+            false,
             &self.spec,
         )?)
     }

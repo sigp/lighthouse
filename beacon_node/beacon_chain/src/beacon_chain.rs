@@ -1956,6 +1956,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let beacon_block_root;
         let beacon_state_root;
         let target;
+        let is_same_slot_attestation;
         let current_epoch_attesting_info: Option<(Checkpoint, usize)>;
         let head_timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_HEAD_SCRAPE_SECONDS);
         let head_span = debug_span!("attestation_production_head_scrape").entered();
@@ -1996,11 +1997,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // When attesting to the head slot or later, always use the head of the chain.
                 beacon_block_root = head.beacon_block_root;
                 beacon_state_root = head.beacon_state_root();
+                is_same_slot_attestation = request_slot == head.beacon_block.slot();
             } else {
                 // Permit attesting to slots *prior* to the current head. This is desirable when
                 // the VC and BN are out-of-sync due to time issues or overloading.
                 beacon_block_root = *head_state.get_block_root(request_slot)?;
                 beacon_state_root = *head_state.get_state_root(request_slot)?;
+
+                // Fetch the previous block root. If the previous block root equals
+                // the block root being attested to, the `request_slot` is a skipped slot
+                // and this is not a same slot attestation.
+                let prior_slot_root = head_state
+                    .get_block_root(request_slot.saturating_sub(1u64))
+                    .ok();
+                is_same_slot_attestation = prior_slot_root != Some(&beacon_block_root);
             };
 
             let target_slot = request_epoch.start_slot(T::EthSpec::slots_per_epoch());
@@ -2090,6 +2100,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 )
             };
 
+        // For gloas the attestation data index indicates payload presence:
+        // `payload_present=false` for same-slot attestations or when payload not received.
+        // `payload_present=true` when attesting to a prior slot whose payload has been received.
+        let payload_present = if self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(request_slot)
+            .gloas_enabled()
+            && !is_same_slot_attestation
+        {
+            self.canonical_head
+                .block_has_canonical_payload(&beacon_block_root, &self.spec)?
+        } else {
+            false
+        };
+
         Ok(Attestation::<T::EthSpec>::empty_for_signing(
             request_index,
             committee_len,
@@ -2097,6 +2122,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             beacon_block_root,
             justified_checkpoint,
             target,
+            payload_present,
             &self.spec,
         )?)
     }
