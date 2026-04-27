@@ -139,7 +139,8 @@ pub enum SyncMessage<E: EthSpec> {
     UnknownParentBlob(PeerId, Arc<BlobSidecar<E>>),
 
     /// A data column with an unknown parent has been received.
-    UnknownParentDataColumn(PeerId, Arc<DataColumnSidecar<E>>),
+    /// For Fulu columns, this signifies a missing parent, for Gloas, a missing block with the bid.
+    UnknownDataColumnParentOrBlock(PeerId, Arc<DataColumnSidecar<E>>),
 
     /// A partial data column with an unknown parent has been received.
     UnknownParentPartialDataColumn {
@@ -426,7 +427,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     //
                     // TODO: This fork-choice check is potentially duplicated, review code
                     if !self.chain.block_is_known_to_fork_choice(&remote.head_root) {
-                        self.handle_unknown_block_root(peer_id, remote.head_root);
+                        self.handle_unknown_block_root(peer_id, remote.head_root, None);
                     }
                 }
             }
@@ -881,7 +882,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }),
                 );
             }
-            SyncMessage::UnknownParentDataColumn(peer_id, data_column) => {
+            SyncMessage::UnknownDataColumnParentOrBlock(peer_id, data_column) => {
                 let data_column_slot = data_column.slot();
                 let block_root = data_column.block_root();
                 match data_column.as_ref() {
@@ -905,9 +906,22 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             }),
                         );
                     }
-                    // TODO(gloas) support gloas data column variant
                     DataColumnSidecar::Gloas(_) => {
-                        error!("Gloas variant not yet supported")
+                        debug!(%block_root, "Received unknown block data column message");
+                        self.handle_unknown_block_root(
+                            peer_id,
+                            block_root,
+                            Some(BlockComponent::DataColumn(DownloadResult {
+                                value: block_root,
+                                block_root,
+                                seen_timestamp: self
+                                    .chain
+                                    .slot_clock
+                                    .now_duration()
+                                    .unwrap_or_default(),
+                                peer_group: PeerGroup::from_single(peer_id),
+                            })),
+                        );
                     }
                 }
             }
@@ -935,7 +949,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 if !self.notified_unknown_roots.contains(&(peer_id, block_root)) {
                     self.notified_unknown_roots.insert((peer_id, block_root));
                     debug!(?block_root, ?peer_id, "Received unknown block hash message");
-                    self.handle_unknown_block_root(peer_id, block_root);
+                    self.handle_unknown_block_root(peer_id, block_root, None);
                 }
             }
             SyncMessage::Disconnect(peer_id) => {
@@ -1036,11 +1050,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    fn handle_unknown_block_root(&mut self, peer_id: PeerId, block_root: Hash256) {
+    fn handle_unknown_block_root(&mut self, peer_id: PeerId, block_root: Hash256, block_component: Option<BlockComponent<T::EthSpec>>,
+    ) {
         match self.should_search_for_block(None, &peer_id) {
             Ok(_) => {
                 if self.block_lookups.search_unknown_block(
                     block_root,
+                    block_component,
                     &[peer_id],
                     &mut self.network,
                 ) {

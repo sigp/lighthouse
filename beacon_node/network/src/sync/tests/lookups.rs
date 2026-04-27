@@ -1474,7 +1474,7 @@ impl TestRig {
         peer_id: PeerId,
         column: Arc<DataColumnSidecar<E>>,
     ) {
-        self.send_sync_message(SyncMessage::UnknownParentDataColumn(peer_id, column));
+        self.send_sync_message(SyncMessage::UnknownDataColumnParentOrBlock(peer_id, column));
     }
 
     fn trigger_unknown_block_from_attestation(&mut self, block_root: Hash256, peer_id: PeerId) {
