@@ -800,6 +800,10 @@ impl<E: EthSpec> MockBuilder<E> {
 
         let head_block_root = head_block_root.unwrap_or(head.canonical_root());
 
+        // TODO(gloas): Currently the tests are pre-Gloas and we are not considering
+        // other payload statuses. This codepath may not be relevant for Gloas.
+        let head_payload_status = fork_choice::PayloadStatus::Pending;
+
         let head_execution_payload = head
             .message()
             .body()
@@ -934,7 +938,13 @@ impl<E: EthSpec> MockBuilder<E> {
         );
 
         self.el
-            .insert_proposer(slot, head_block_root, val_index, payload_attributes.clone())
+            .insert_proposer(
+                slot,
+                head_block_root,
+                head_payload_status,
+                val_index,
+                payload_attributes.clone(),
+            )
             .await;
 
         let forkchoice_update_params = ForkchoiceUpdateParameters {
@@ -952,6 +962,7 @@ impl<E: EthSpec> MockBuilder<E> {
                 finalized_execution_hash,
                 slot - 1,
                 head_block_root,
+                head_payload_status,
             )
             .await
             .map_err(|e| format!("fcu call failed : {:?}", e))?;

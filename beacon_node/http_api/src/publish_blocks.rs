@@ -16,6 +16,7 @@ use eth2::types::{
 use execution_layer::{ProvenancedPayload, SubmitBlindedBlockResponse};
 use futures::TryFutureExt;
 use lighthouse_network::PubsubMessage;
+use logging::crit;
 use network::NetworkMessage;
 use rand::prelude::SliceRandom;
 use reqwest::StatusCode;
@@ -29,8 +30,9 @@ use tracing::{Span, debug, debug_span, error, field, info, instrument, warn};
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BlobSidecar, BlobsList, BlockImportSource,
-    DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
-    FullPayloadBellatrix, Hash256, KzgProofs, SignedBeaconBlock, SignedBlindedBeaconBlock,
+    DataColumnSidecar, DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash, ForkName,
+    FullPayload, FullPayloadBellatrix, Hash256, KzgProofs, SignedBeaconBlock,
+    SignedBlindedBeaconBlock,
 };
 use warp::{Rejection, Reply, reply::Response};
 
@@ -514,15 +516,53 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
             .collect::<Vec<_>>();
         debug!(indices = ?dropped_indices, "Dropping data columns from publishing");
     }
-    let pubsub_messages = data_column_sidecars
-        .into_iter()
-        .map(|data_col| {
-            let subnet = DataColumnSubnetId::from_column_index(*data_col.index(), &chain.spec);
-            PubsubMessage::DataColumnSidecar(Box::new((subnet, data_col)))
-        })
-        .collect::<Vec<_>>();
-    crate::utils::publish_pubsub_messages(sender_clone, pubsub_messages)
-        .map_err(|_| BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish)))
+    let mut full_messages = Vec::new();
+    let mut partial_columns = Vec::new();
+    let mut partial_header = None;
+
+    for data_col in data_column_sidecars {
+        if chain.config.enable_partial_columns
+            && let DataColumnSidecar::Fulu(fulu_data_col) = data_col.as_ref()
+        {
+            let mut partial = fulu_data_col.to_partial();
+            if let Some(header) = partial.sidecar.header.take() {
+                partial_header = Some(header);
+            }
+            partial_columns.push(Arc::new(partial));
+        }
+
+        let subnet = DataColumnSubnetId::from_column_index(*data_col.index(), &chain.spec);
+        full_messages.push(PubsubMessage::DataColumnSidecar(Box::new((
+            subnet, data_col,
+        ))));
+    }
+
+    // Publish full messages
+    if !full_messages.is_empty() {
+        crate::utils::publish_pubsub_messages(sender_clone, full_messages).map_err(|_| {
+            BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish))
+        })?;
+    }
+
+    // Publish partial messages
+    if !partial_columns.is_empty() {
+        if let Some(header) = partial_header {
+            crate::utils::publish_network_message(
+                sender_clone,
+                NetworkMessage::PublishPartialColumns {
+                    columns: partial_columns,
+                    header: Arc::new(header),
+                },
+            )
+            .map_err(|_| {
+                BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish))
+            })?;
+        } else {
+            crit!("Unable to extract header from full columns")
+        }
+    }
+
+    Ok(())
 }
 
 async fn post_block_import_logging_and_response<T: BeaconChainTypes>(

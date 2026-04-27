@@ -37,6 +37,8 @@ impl<T: BeaconChainTypes> EnvelopeStreamerBeaconAdapter<T> {
         &self,
         root: &Hash256,
     ) -> Result<bool, BeaconChainError> {
-        self.chain.canonical_head.block_has_canonical_payload(root)
+        self.chain
+            .canonical_head
+            .block_has_canonical_payload(root, &self.chain.spec)
     }
 }

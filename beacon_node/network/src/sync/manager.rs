@@ -141,6 +141,14 @@ pub enum SyncMessage<E: EthSpec> {
     /// A data column with an unknown parent has been received.
     UnknownParentDataColumn(PeerId, Arc<DataColumnSidecar<E>>),
 
+    /// A partial data column with an unknown parent has been received.
+    UnknownParentPartialDataColumn {
+        peer_id: PeerId,
+        block_root: Hash256,
+        parent_root: Hash256,
+        slot: Slot,
+    },
+
     /// A peer has sent an attestation that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
     UnknownBlockHashFromAttestation(PeerId, Hash256),
@@ -866,7 +874,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     parent_root,
                     blob_slot,
                     BlockComponent::Blob(DownloadResult {
-                        value: blob,
+                        value: parent_root,
                         block_root,
                         seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
                         peer_group: PeerGroup::from_single(peer_id),
@@ -886,7 +894,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             parent_root,
                             data_column_slot,
                             BlockComponent::DataColumn(DownloadResult {
-                                value: data_column,
+                                value: parent_root,
                                 block_root,
                                 seen_timestamp: self
                                     .chain
@@ -902,6 +910,26 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         error!("Gloas variant not yet supported")
                     }
                 }
+            }
+            SyncMessage::UnknownParentPartialDataColumn {
+                peer_id,
+                block_root,
+                parent_root,
+                slot,
+            } => {
+                debug!(%block_root, %parent_root, "Received unknown parent partial column message");
+                self.handle_unknown_parent(
+                    peer_id,
+                    block_root,
+                    parent_root,
+                    slot,
+                    BlockComponent::PartialDataColumn(DownloadResult {
+                        value: parent_root,
+                        block_root,
+                        seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
+                        peer_group: PeerGroup::from_single(peer_id),
+                    }),
+                );
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_root) => {
                 if !self.notified_unknown_roots.contains(&(peer_id, block_root)) {
