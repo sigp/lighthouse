@@ -4098,7 +4098,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     #[instrument(
         level = "trace",
-        skip(self, message_id, peer_id, payload_attestation_message),
+        skip_all,
         fields(
             peer_id = %peer_id,
             slot = %payload_attestation_message.data.slot,

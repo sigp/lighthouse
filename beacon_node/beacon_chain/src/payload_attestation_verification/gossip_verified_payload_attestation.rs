@@ -141,19 +141,21 @@ impl<T: BeaconChainTypes> VerifiedPayloadAttestationMessage<T> {
             signature: AggregateSignature::from(&payload_attestation_message.signature),
         };
 
-        // [REJECT] The signature is valid with respect to the `validator_index`.
-        let pubkey_cache = ctx.validator_pubkey_cache.read();
-        let signature_set = indexed_payload_attestation_signature_set(
-            state,
-            |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
-            &indexed_payload_attestation.signature,
-            &indexed_payload_attestation,
-            ctx.spec,
-        )
-        .map_err(|_| Error::UnknownValidatorIndex(validator_index))?;
+        {
+            // [REJECT] The signature is valid with respect to the `validator_index`.
+            let pubkey_cache = ctx.validator_pubkey_cache.read();
+            let signature_set = indexed_payload_attestation_signature_set(
+                state,
+                |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+                &indexed_payload_attestation.signature,
+                &indexed_payload_attestation,
+                ctx.spec,
+            )
+            .map_err(|_| Error::UnknownValidatorIndex(validator_index))?;
 
-        if !signature_set.verify() {
-            return Err(Error::InvalidSignature);
+            if !signature_set.verify() {
+                return Err(Error::InvalidSignature);
+            }
         }
 
         // Record that we have received a valid payload attestation message from this
