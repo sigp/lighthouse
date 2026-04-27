@@ -50,9 +50,11 @@ pub struct EnvelopeImportData<E: EthSpec> {
 
 #[derive(Debug)]
 pub struct AvailableEnvelope<E: EthSpec> {
+    #[expect(dead_code)]
     execution_block_hash: ExecutionBlockHash,
     envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
     columns: DataColumnSidecarList<E>,
+    #[expect(dead_code)]
     columns_available_timestamp: Option<std::time::Duration>,
     pub spec: Arc<ChainSpec>,
 }

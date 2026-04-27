@@ -7,7 +7,9 @@ use crate::version::{
     execution_optimistic_finalized_beacon_response,
 };
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::payload_envelope_verification::gossip_verified_envelope::GossipVerifiedEnvelope;
+use beacon_chain::payload_envelope_verification::EnvelopeError;
+use beacon_chain::{BeaconChain, BeaconChainTypes, NotifyExecutionLayer};
 use bytes::Bytes;
 use eth2::types as api_types;
 use eth2::{CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
@@ -19,7 +21,7 @@ use std::future::Future;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, info, warn};
-use types::{EthSpec, SignedExecutionPayloadEnvelope};
+use types::{BlockImportSource, EthSpec, SignedExecutionPayloadEnvelope};
 use warp::{
     Filter, Rejection, Reply,
     hyper::{Body, Response},
@@ -109,15 +111,20 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
 
     let blobs_and_proofs = chain.pending_payload_envelopes.write().take_blobs(slot);
 
-    // Publish the envelope to the network.
-    crate::utils::publish_pubsub_message(
-        network_tx,
-        PubsubMessage::ExecutionPayload(Box::new(envelope)),
-    )
-    .map_err(|_| {
-        warn!(%slot, "Failed to publish execution payload envelope to network");
-        warp_utils::reject::custom_server_error(
-            "Unable to publish execution payload envelope to network".into(),
+    // The publish_fn is called inside process_execution_payload_envelope after consensus
+    // verification but before the EL call.
+    let envelope_for_publish = signed_envelope.clone();
+    let sender = network_tx.clone();
+    let publish_fn = move || {
+        info!(
+            %slot,
+            %beacon_block_root,
+            builder_index,
+            "Publishing signed execution payload envelope to network"
+        );
+        crate::utils::publish_pubsub_message(
+            &sender,
+            PubsubMessage::ExecutionPayload(Box::new((*envelope_for_publish).clone())),
         )
         .map_err(|_| {
             warn!(%slot, "Failed to publish execution payload envelope to network");

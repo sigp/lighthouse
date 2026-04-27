@@ -93,7 +93,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             signed_envelope: MaybeAvailableEnvelope::Available(AvailableEnvelope::new(
                 payload.block_hash,
                 signed_envelope,
-                vec![].into(),
+                vec![],
                 chain.spec.clone(),
             )),
             import_data: EnvelopeImportData {
