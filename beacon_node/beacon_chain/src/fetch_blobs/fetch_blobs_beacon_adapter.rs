@@ -39,6 +39,7 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
     pub(crate) fn partial_assembler(&self) -> Option<Arc<PartialDataColumnAssembler<T::EthSpec>>> {
         self.chain
             .data_availability_checker
+            .pending_block_cache()
             .partial_assembler()
             .cloned()
     }

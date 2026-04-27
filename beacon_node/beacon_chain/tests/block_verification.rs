@@ -165,7 +165,7 @@ where
             RangeSyncBlock::new(
                 block,
                 block_data,
-                chain.data_availability_checker.v1(),
+                chain.data_availability_checker.pending_block_cache(),
                 chain.spec.clone(),
             )
             .unwrap()
@@ -180,7 +180,7 @@ where
             RangeSyncBlock::new(
                 block,
                 block_data,
-                chain.data_availability_checker.v1(),
+                chain.data_availability_checker.pending_block_cache(),
                 chain.spec.clone(),
             )
             .unwrap()
@@ -188,7 +188,7 @@ where
         None => RangeSyncBlock::new(
             block,
             AvailableBlockData::NoData,
-            chain.data_availability_checker.v1(),
+            chain.data_availability_checker.pending_block_cache(),
             chain.spec.clone(),
         )
         .unwrap(),
@@ -462,7 +462,10 @@ async fn chain_segment_non_linear_parent_roots() {
     blocks[3] = RangeSyncBlock::new(
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
         blocks[3].block_data().clone(),
-        harness.chain.data_availability_checker.v1(),
+        harness
+            .chain
+            .data_availability_checker
+            .pending_block_cache(),
         harness.spec.clone(),
     )
     .unwrap();
@@ -502,7 +505,10 @@ async fn chain_segment_non_linear_slots() {
     blocks[3] = RangeSyncBlock::new(
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
         blocks[3].block_data().clone(),
-        harness.chain.data_availability_checker.v1(),
+        harness
+            .chain
+            .data_availability_checker
+            .pending_block_cache(),
         harness.spec.clone(),
     )
     .unwrap();
@@ -532,7 +538,10 @@ async fn chain_segment_non_linear_slots() {
     blocks[3] = RangeSyncBlock::new(
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
         blocks[3].block_data().clone(),
-        harness.chain.data_availability_checker.v1(),
+        harness
+            .chain
+            .data_availability_checker
+            .pending_block_cache(),
         harness.chain.spec.clone(),
     )
     .unwrap();
@@ -1714,7 +1723,10 @@ async fn add_base_block_to_altair_chain() {
     let base_range_sync_block = RangeSyncBlock::new(
         Arc::new(base_block.clone()),
         AvailableBlockData::NoData,
-        harness.chain.data_availability_checker.v1(),
+        harness
+            .chain
+            .data_availability_checker
+            .pending_block_cache(),
         harness.spec.clone(),
     )
     .unwrap();
@@ -1958,7 +1970,10 @@ async fn import_duplicate_block_unrealized_justification() {
     let range_sync_block = RangeSyncBlock::new(
         block.clone(),
         AvailableBlockData::NoData,
-        harness.chain.data_availability_checker.v1(),
+        harness
+            .chain
+            .data_availability_checker
+            .pending_block_cache(),
         harness.spec.clone(),
     )
     .unwrap();
@@ -2092,7 +2107,10 @@ async fn range_sync_block_construction_fails_with_wrong_blob_count() {
             let result = RangeSyncBlock::new(
                 Arc::new(block),
                 block_data,
-                harness.chain.data_availability_checker.v1(),
+                harness
+                    .chain
+                    .data_availability_checker
+                    .pending_block_cache(),
                 harness.chain.spec.clone(),
             );
 
@@ -2170,7 +2188,10 @@ async fn range_sync_block_rejects_missing_custody_columns() {
                 let result = RangeSyncBlock::new(
                     Arc::new(block),
                     block_data,
-                    harness.chain.data_availability_checker.v1(),
+                    harness
+                        .chain
+                        .data_availability_checker
+                        .pending_block_cache(),
                     harness.chain.spec.clone(),
                 );
 
@@ -2261,7 +2282,10 @@ async fn rpc_block_allows_construction_past_da_boundary() {
             let result = RangeSyncBlock::new(
                 Arc::new(block),
                 AvailableBlockData::NoData,
-                harness.chain.data_availability_checker.v1(),
+                harness
+                    .chain
+                    .data_availability_checker
+                    .pending_block_cache(),
                 harness.chain.spec.clone(),
             );
 

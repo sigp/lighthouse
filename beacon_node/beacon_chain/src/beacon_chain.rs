@@ -23,7 +23,6 @@ use crate::data_availability_checker::{
     DataColumnReconstructionResult as DataColumnReconstructionResultV1,
 };
 
-use crate::data_availability_checker_v2::DataColumnReconstructionResult as DataColumnReconstructionResultV2;
 use crate::data_availability_router::{
     AvailabilityOutcome, DataAvailabilityRouter, ReconstructionOutcome,
 };
@@ -68,6 +67,7 @@ use crate::partial_data_column_assembler::PartialMergeResult;
 use crate::payload_bid_verification::payload_bid_cache::GossipVerifiedPayloadBidCache;
 #[cfg(not(test))]
 use crate::payload_envelope_streamer::{EnvelopeRequestSource, launch_payload_envelope_stream};
+use crate::pending_payload_cache::DataColumnReconstructionResult as DataColumnReconstructionResultV2;
 use crate::pending_payload_envelopes::PendingPayloadEnvelopes;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::persisted_custody::persist_custody_context;
@@ -2388,7 +2388,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let _timer = metrics::start_timer(
             &metrics::PARTIAL_DATA_COLUMN_SIDECAR_HEADER_GOSSIP_VERIFICATION_TIMES,
         );
-        let Some(assembler) = self.data_availability_checker.partial_assembler() else {
+        let Some(assembler) = self
+            .data_availability_checker
+            .pending_block_cache()
+            .partial_assembler()
+        else {
             return Err(GossipPartialDataColumnError::PartialColumnsDisabled);
         };
         if let Some(cached_header) = assembler.get_header(&block_root) {
@@ -3341,7 +3345,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
-        let Some(assembler) = self.data_availability_checker.partial_assembler() else {
+        let Some(assembler) = self
+            .data_availability_checker
+            .pending_block_cache()
+            .partial_assembler()
+        else {
             // Partial messages are apparently not activated
             return Ok(None);
         };
@@ -3369,6 +3377,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
 
             self.emit_sse_data_column_sidecar_events(
+                slot,
                 &block_root,
                 merge_result
                     .full_columns
@@ -3380,6 +3389,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .data_availability_checker
                 .put_kzg_verified_custody_data_columns(
                     block_root,
+                    slot,
                     merge_result.full_columns.clone(),
                 )?;
 

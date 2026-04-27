@@ -37,7 +37,7 @@
 //!          │           ▼                                                                                                                             
 //!          | -> AvailableExecutedEnvelope  (all columns present, payload executed against the EL, ready to import)
 
-use crate::data_availability_checker::AvailabilityCheckError;
+use crate::data_availability_checker::{AvailabilityCheckError, MissingCellsError};
 use crate::payload_envelope_verification::{
     AvailabilityPendingExecutedEnvelope, AvailableExecutedEnvelope,
 };
@@ -54,9 +54,11 @@ use task_executor::TaskExecutor;
 use tracing::{Span, debug, error, instrument, trace};
 use types::{
     BlockImportSource, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch,
-    EthSpec, Hash256, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope, Slot,
+    EthSpec, Hash256, PartialDataColumnSidecarRef, SignedExecutionPayloadBid,
+    SignedExecutionPayloadEnvelope, Slot,
 };
 
+mod pending_column;
 mod pending_components;
 
 use crate::data_column_verification::{
@@ -130,7 +132,7 @@ pub enum DataColumnReconstructionResult<E: EthSpec> {
 /// Usually data becomes available on its slot within a second of receiving its first component
 /// over gossip. However, data may never become available if a malicious proposer does not
 /// publish its data, or there are network issues. Components are only removed via LRU eviction.
-pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
+pub struct PendingPayloadCache<T: BeaconChainTypes> {
     /// Contains all the data we keep in memory, protected by an RwLock
     availability_cache: RwLock<LruCache<Hash256, PendingComponents<T::EthSpec>>>,
     kzg: Arc<Kzg>,
@@ -138,7 +140,7 @@ pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
     spec: Arc<ChainSpec>,
 }
 
-impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
+impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     pub fn new(
         kzg: Arc<Kzg>,
         custody_context: Arc<CustodyContext<T::EthSpec>>,
@@ -166,7 +168,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             components.map(|c| {
                 c.verified_data_columns
                     .iter()
-                    .map(|col| col.clone_arc())
+                    .filter_map(|(col_idx, col)| {
+                        col.try_to_sidecar(*col_idx, c.slot, block_root, c.num_blobs_expected)
+                    })
                     .collect()
             })
         })
@@ -182,36 +186,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
     /// Checks if a specific data column is cached for the given block root.
     #[instrument(skip_all, level = "trace")]
-    pub fn is_data_column_cached(
-        &self,
-        block_root: &Hash256,
-        data_column: &DataColumnSidecar<T::EthSpec>,
-    ) -> bool {
-        self.peek_pending_components(block_root, |components| {
-            components.is_some_and(|components| {
-                let cached_column_opt = components.get_cached_data_column(*data_column.index());
-                cached_column_opt.is_some_and(|cached| *cached == *data_column)
-            })
-        })
-    }
-
-    /// Returns the envelope processing status for the given `block_root`.
-    pub fn get_envelope_processing_status(
-        &self,
-        block_root: &Hash256,
-    ) -> Option<PayloadEnvelopeProcessingStatus<T::EthSpec>> {
-        self.peek_pending_components(block_root, |components| {
-            components.and_then(|c| {
-                c.envelope.as_ref().map(|envelope| match envelope {
-                    pending_components::CachedPayloadEnvelope::PreExecution(e, source) => {
-                        PayloadEnvelopeProcessingStatus::NotValidated(e.clone(), *source)
-                    }
-                    pending_components::CachedPayloadEnvelope::Executed(e) => {
-                        PayloadEnvelopeProcessingStatus::ExecutionValidated(e.envelope.clone())
-                    }
-                })
-            })
-        })
+    pub fn missing_cells_for_column_sidecar<'a>(
+        &'_ self,
+        data_column: &'a DataColumnSidecar<T::EthSpec>,
+    ) -> Result<Option<PartialDataColumnSidecarRef<'a, T::EthSpec>>, MissingCellsError> {
     }
 
     /// Insert an executed payload envelope into the cache and performs an availability check
@@ -628,7 +606,10 @@ pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
 ) {
     if chain.spec.gloas_fork_epoch.is_some() {
-        let da_checker = chain.data_availability_checker.v2().clone();
+        let da_checker = chain
+            .data_availability_checker
+            .pending_payload_cache()
+            .clone();
         executor.spawn(
             async move { availability_cache_maintenance_service(chain, da_checker).await },
             "availability_cache_service",
@@ -640,7 +621,7 @@ pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
 
 async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
-    da_checker: Arc<DataAvailabilityChecker<T>>,
+    da_checker: Arc<PendingPayloadCache<T>>,
 ) {
     let epoch_duration = chain.slot_clock.slot_duration() * T::EthSpec::slots_per_epoch() as u32;
     loop {
@@ -725,8 +706,8 @@ mod data_availability_checker_tests {
     use store::{HotColdDB, StoreConfig, database::interface::BeaconNodeBackend};
     use tempfile::{TempDir, tempdir};
     use types::{
-        BeaconState, ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, ForkName,
-        FullPayload, MinimalEthSpec, SignedBeaconBlock, Slot,
+        ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, ForkName, FullPayload,
+        MinimalEthSpec, SignedBeaconBlock, Slot,
     };
 
     type E = MinimalEthSpec;
@@ -783,7 +764,7 @@ mod data_availability_checker_tests {
 
     async fn setup_harness_and_cache<T>() -> (
         BeaconChainHarness<DiskHarnessType<E>>,
-        Arc<DataAvailabilityChecker<T>>,
+        Arc<PendingPayloadCache<T>>,
         TempDir,
     )
     where
@@ -804,12 +785,8 @@ mod data_availability_checker_tests {
         ));
 
         let cache = Arc::new(
-            DataAvailabilityChecker::<T>::new(
-                harness.chain.kzg.clone(),
-                custody_context,
-                spec.clone(),
-            )
-            .expect("should create cache"),
+            PendingPayloadCache::<T>::new(harness.chain.kzg.clone(), custody_context, spec.clone())
+                .expect("should create cache"),
         );
         (harness, cache, chain_db_path)
     }

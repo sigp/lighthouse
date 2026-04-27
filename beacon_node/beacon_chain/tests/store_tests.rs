@@ -3300,7 +3300,7 @@ async fn weak_subjectivity_sync_test(
             AvailableBlock::new(
                 Arc::new(corrupt_block),
                 data,
-                beacon_chain.data_availability_checker.v1(),
+                beacon_chain.data_availability_checker.pending_block_cache(),
                 Arc::new(spec),
             )
             .expect("available block")

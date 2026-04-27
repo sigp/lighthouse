@@ -12,7 +12,7 @@ use super::{
     AvailableEnvelope, AvailableExecutedEnvelope, EnvelopeError, EnvelopeImportData,
     ExecutedEnvelope, gossip_verified_envelope::GossipVerifiedEnvelope,
 };
-use crate::data_availability_checker_v2::Availability as PayloadAvailability;
+use crate::pending_payload_cache::Availability as PayloadAvailability;
 use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes,
     NotifyExecutionLayer,
@@ -58,7 +58,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         self.data_availability_checker
-            .v2()
+            .pending_payload_cache()
             .put_pre_executed_payload_envelope(
                 unverified_envelope.envelope_cloned(),
                 envelope_source,
@@ -98,7 +98,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // chain to get stuck temporarily if the envelope is canonical. Therefore we remove
                     // it from the cache if execution fails.
                     self.data_availability_checker
-                        .v2()
+                        .pending_payload_cache()
                         .remove_pre_executed_payload_envelope(&block_root);
                 })?;
 
@@ -202,7 +202,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let slot = envelope.envelope.slot();
         let availability = AvailabilityOutcome::Payload(
             self.data_availability_checker
-                .v2()
+                .pending_payload_cache()
                 .put_executed_payload_envelope(envelope)?,
         );
         self.process_payload_envelope_availability(slot, availability, || Ok(()))

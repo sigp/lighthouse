@@ -2826,7 +2826,7 @@ where
             return RangeSyncBlock::new(
                 block,
                 AvailableBlockData::NoData,
-                self.chain.data_availability_checker.v1(),
+                self.chain.data_availability_checker.pending_block_cache(),
                 self.chain.spec.clone(),
             )
             .unwrap();
@@ -2845,7 +2845,7 @@ where
             RangeSyncBlock::new(
                 block,
                 block_data,
-                self.chain.data_availability_checker.v1(),
+                self.chain.data_availability_checker.pending_block_cache(),
                 self.chain.spec.clone(),
             )
             .unwrap()
@@ -2860,7 +2860,7 @@ where
             RangeSyncBlock::new(
                 block,
                 block_data,
-                self.chain.data_availability_checker.v1(),
+                self.chain.data_availability_checker.pending_block_cache(),
                 self.chain.spec.clone(),
             )
             .unwrap()
@@ -2889,14 +2889,14 @@ where
                 RangeSyncBlock::new(
                     block,
                     block_data,
-                    self.chain.data_availability_checker.v1(),
+                    self.chain.data_availability_checker.pending_block_cache(),
                     self.chain.spec.clone(),
                 )?
             } else {
                 RangeSyncBlock::new(
                     block,
                     AvailableBlockData::NoData,
-                    self.chain.data_availability_checker.v1(),
+                    self.chain.data_availability_checker.pending_block_cache(),
                     self.chain.spec.clone(),
                 )?
             }
@@ -2916,7 +2916,7 @@ where
             RangeSyncBlock::new(
                 block,
                 block_data,
-                self.chain.data_availability_checker.v1(),
+                self.chain.data_availability_checker.pending_block_cache(),
                 self.chain.spec.clone(),
             )?
         })

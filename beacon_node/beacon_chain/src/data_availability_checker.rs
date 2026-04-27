@@ -689,12 +689,12 @@ pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
     if chain.spec.deneb_fork_epoch.is_some() {
         let overflow_cache = chain
             .data_availability_checker
-            .v1()
+            .pending_block_cache()
             .availability_cache
             .clone();
         let partial_assembler = chain
             .data_availability_checker
-            .v1()
+            .pending_block_cache()
             .partial_assembler
             .clone();
         executor.spawn(
