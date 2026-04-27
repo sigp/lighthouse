@@ -487,6 +487,8 @@ impl<E: EthSpec> Tester<E> {
             .keypairs(vec![])
             .chain_config(ChainConfig {
                 archive: true,
+                re_org_head_threshold: spec.reorg_head_weight_threshold.map(ReOrgThreshold),
+                re_org_parent_threshold: spec.reorg_parent_weight_threshold.map(ReOrgThreshold),
                 ..ChainConfig::default()
             })
             .genesis_state_ephemeral_store(case.anchor_state.clone())
