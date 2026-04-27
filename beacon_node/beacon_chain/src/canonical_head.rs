@@ -797,8 +797,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let old_snapshot = &old_cached_head.snapshot;
 
         // If the head changed, perform some updates.
-        if (new_snapshot.beacon_block_root != old_snapshot.beacon_block_root
-            || new_payload_status != old_payload_status)
+        if new_snapshot.beacon_block_root != old_snapshot.beacon_block_root
             && let Err(e) =
                 self.after_new_head(&old_cached_head, &new_cached_head, new_head_proto_block)
         {
