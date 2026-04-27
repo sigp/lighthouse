@@ -121,9 +121,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
 
     async fn produce_and_publish(&self, slot: types::Slot) {
         let duties = self.duties_service.get_ptc_duties_for_slot(slot);
-        if duties.is_empty() {
-            return;
-        }
 
         let attestation_data = match self
             .beacon_nodes
