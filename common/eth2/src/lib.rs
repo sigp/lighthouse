@@ -46,7 +46,7 @@ use ssz::{Decode, Encode};
 use std::fmt;
 use std::future::Future;
 use std::time::Duration;
-use types::PayloadAttestationData;
+use types::{PayloadAttestationData, PayloadAttestationMessage};
 
 pub const V1: EndpointVersion = EndpointVersion(1);
 pub const V2: EndpointVersion = EndpointVersion(2);
@@ -1785,6 +1785,24 @@ impl BeaconNodeHttpClient {
             .push("sync_committees");
 
         self.post(path, &signatures).await?;
+
+        Ok(())
+    }
+
+    /// `POST beacon/pool/payload_attestations`
+    pub async fn post_beacon_pool_payload_attestations(
+        &self,
+        messages: &[PayloadAttestationMessage],
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("pool")
+            .push("payload_attestations");
+
+        self.post(path, &messages).await?;
 
         Ok(())
     }

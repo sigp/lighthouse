@@ -1487,6 +1487,10 @@ pub fn serve<T: BeaconChainTypes>(
     let post_beacon_pool_sync_committees =
         post_beacon_pool_sync_committees(&network_tx_filter, &beacon_pool_path);
 
+    // POST beacon/pool/payload_attestations
+    let post_beacon_pool_payload_attestations =
+        post_beacon_pool_payload_attestations(&network_tx_filter, &beacon_pool_path);
+
     // GET beacon/pool/bls_to_execution_changes
     let get_beacon_pool_bls_to_execution_changes =
         get_beacon_pool_bls_to_execution_changes(&beacon_pool_path);
@@ -3411,6 +3415,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_beacon_pool_proposer_slashings)
                     .uor(post_beacon_pool_voluntary_exits)
                     .uor(post_beacon_pool_sync_committees)
+                    .uor(post_beacon_pool_payload_attestations)
                     .uor(post_beacon_pool_bls_to_execution_changes)
                     .uor(post_beacon_execution_payload_envelope)
                     .uor(post_beacon_state_validators)
