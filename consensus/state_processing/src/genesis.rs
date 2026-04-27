@@ -184,15 +184,12 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
     Ok(state)
 }
 
-/// Create an unsigned genesis `BeaconBlock` matching the genesis state.
+/// Create an unsigned genesis `BeaconBlock`.
 ///
 /// Per spec, the genesis block body is empty (all default fields).
 /// `state.latest_block_header.body_root` is set from `BeaconBlock::empty()`,
 /// so this function must return the same empty block to keep roots consistent.
-pub fn genesis_block<E: EthSpec>(
-    _genesis_state: &BeaconState<E>,
-    spec: &ChainSpec,
-) -> Result<BeaconBlock<E>, BeaconStateError> {
+pub fn genesis_block<E: EthSpec>(spec: &ChainSpec) -> Result<BeaconBlock<E>, BeaconStateError> {
     Ok(BeaconBlock::empty(spec))
 }
 
