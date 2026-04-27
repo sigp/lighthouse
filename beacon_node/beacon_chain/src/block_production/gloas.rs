@@ -34,6 +34,7 @@ use types::{
     SignedVoluntaryExit, Slot, SyncAggregate, Withdrawal, Withdrawals,
 };
 
+use crate::pending_payload_envelopes::PendingEnvelopeData;
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockProductionError,
     ProduceBlockVerification, block_production::BlockProductionState,
@@ -73,6 +74,7 @@ pub struct ExecutionPayloadData<E: types::EthSpec> {
     pub execution_requests: ExecutionRequests<E>,
     pub builder_index: BuilderIndex,
     pub slot: Slot,
+    pub blobs_and_proofs: (types::BlobsList<E>, types::KzgProofs<E>),
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
@@ -605,9 +607,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let envelope_slot = payload_data.slot;
             // TODO(gloas) might be safer to cache by root instead of by slot.
             // We should revisit this once this code path + beacon api spec matures
-            self.pending_payload_envelopes
-                .write()
-                .insert(envelope_slot, signed_envelope.message);
+            let blobs_and_proofs = payload_data.blobs_and_proofs;
+            self.pending_payload_envelopes.write().insert(
+                envelope_slot,
+                PendingEnvelopeData {
+                    envelope: signed_envelope.message,
+                    blobs_and_proofs: Some(blobs_and_proofs),
+                },
+            );
 
             debug!(
                 %beacon_block_root,
@@ -727,7 +734,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             payload_value: _,
             execution_requests,
             blob_kzg_commitments,
-            blobs_and_proofs: _,
+            blobs_and_proofs,
         } = block_proposal_contents;
 
         // TODO(gloas) since we are defaulting to local building, execution payment is 0
@@ -753,6 +760,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             execution_requests,
             builder_index,
             slot: produce_at_slot,
+            blobs_and_proofs,
         };
 
         // TODO(gloas) this is only local building

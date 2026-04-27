@@ -1,25 +1,25 @@
 use crate::block_id::BlockId;
+use crate::publish_blocks::publish_column_sidecars;
 use crate::task_spawner::{Priority, TaskSpawner};
 use crate::utils::{ChainFilter, EthV1Filter, NetworkTxFilter, ResponseFilter, TaskSpawnerFilter};
 use crate::version::{
     ResponseIncludesVersion, add_consensus_version_header, add_ssz_content_type_header,
     execution_optimistic_finalized_beacon_response,
 };
-use beacon_chain::payload_envelope_verification::gossip_verified_envelope::GossipVerifiedEnvelope;
-use beacon_chain::{
-    BeaconChain, BeaconChainTypes, NotifyExecutionLayer,
-    payload_envelope_verification::EnvelopeError,
-};
+use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bytes::Bytes;
 use eth2::types as api_types;
 use eth2::{CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
+use futures::TryFutureExt;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use ssz::{Decode, Encode};
+use std::future::Future;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
-use tracing::{info, warn};
-use types::{BlockImportSource, SignedExecutionPayloadEnvelope};
+use tracing::{debug, error, info, warn};
+use types::{EthSpec, SignedExecutionPayloadEnvelope};
 use warp::{
     Filter, Rejection, Reply,
     hyper::{Body, Response},
@@ -107,20 +107,17 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
 
     let signed_envelope = Arc::new(envelope);
 
-    // The publish_fn is called inside process_execution_payload_envelope after consensus
-    // verification but before the EL call.
-    let envelope_for_publish = signed_envelope.clone();
-    let sender = network_tx.clone();
-    let publish_fn = move || {
-        info!(
-            %slot,
-            %beacon_block_root,
-            builder_index,
-            "Publishing signed execution payload envelope to network"
-        );
-        crate::utils::publish_pubsub_message(
-            &sender,
-            PubsubMessage::ExecutionPayload(Box::new((*envelope_for_publish).clone())),
+    let blobs_and_proofs = chain.pending_payload_envelopes.write().take_blobs(slot);
+
+    // Publish the envelope to the network.
+    crate::utils::publish_pubsub_message(
+        network_tx,
+        PubsubMessage::ExecutionPayload(Box::new(envelope)),
+    )
+    .map_err(|_| {
+        warn!(%slot, "Failed to publish execution payload envelope to network");
+        warp_utils::reject::custom_server_error(
+            "Unable to publish execution payload envelope to network".into(),
         )
         .map_err(|_| {
             warn!(%slot, "Failed to publish execution payload envelope to network");
@@ -158,7 +155,116 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
             ))
         })?;
 
+    // Build and publish data column sidecars from the blobs.
+    if let Some((blobs, _kzg_proofs)) = blobs_and_proofs
+        && !blobs.is_empty()
+    {
+        let gossip_verified_columns =
+            spawn_build_gloas_data_columns_task(chain.clone(), beacon_block_root, slot, blobs)?
+                .await?;
+
+        if !gossip_verified_columns.is_empty() {
+            publish_column_sidecars(network_tx, &gossip_verified_columns, &chain).map_err(
+                |_| {
+                    warp_utils::reject::custom_server_error(
+                        "unable to publish data column sidecars".into(),
+                    )
+                },
+            )?;
+
+            let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+            let sampling_column_indices = chain.sampling_columns_for_epoch(epoch);
+            let sampling_columns = gossip_verified_columns
+                .into_iter()
+                .filter(|col| sampling_column_indices.contains(&col.index()))
+                .collect::<Vec<_>>();
+
+            if !sampling_columns.is_empty()
+                && let Err(e) =
+                    Box::pin(chain.process_gossip_data_columns(sampling_columns, || Ok(()))).await
+            {
+                error!(
+                    %slot,
+                    error = ?e,
+                    "Failed to process sampling data columns during envelope publication"
+                );
+            }
+        }
+    }
+
     Ok(warp::reply().into_response())
+}
+
+fn spawn_build_gloas_data_columns_task<T: BeaconChainTypes>(
+    chain: Arc<BeaconChain<T>>,
+    beacon_block_root: types::Hash256,
+    slot: types::Slot,
+    blobs: types::BlobsList<T::EthSpec>,
+) -> Result<impl Future<Output = Result<Vec<GossipVerifiedDataColumn<T>>, Rejection>>, Rejection> {
+    chain
+        .clone()
+        .task_executor
+        .spawn_blocking_handle(
+            move || build_gloas_data_columns(&chain, beacon_block_root, slot, &blobs),
+            "build_gloas_data_columns",
+        )
+        .ok_or_else(|| warp_utils::reject::custom_server_error("runtime shutdown".to_string()))
+        .map(|r| {
+            r.map_err(|_| warp_utils::reject::custom_server_error("join error".to_string()))
+                .and_then(|output| async move { output })
+        })
+}
+
+fn build_gloas_data_columns<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    beacon_block_root: types::Hash256,
+    slot: types::Slot,
+    blobs: &types::BlobsList<T::EthSpec>,
+) -> Result<Vec<GossipVerifiedDataColumn<T>>, Rejection> {
+    let blob_refs: Vec<_> = blobs.iter().collect();
+    let data_column_sidecars = beacon_chain::kzg_utils::blobs_to_data_column_sidecars_gloas(
+        &blob_refs,
+        beacon_block_root,
+        slot,
+        &chain.kzg,
+        &chain.spec,
+    )
+    .map_err(|e| {
+        error!(
+            error = ?e,
+            %slot,
+            "Failed to build data column sidecars for envelope"
+        );
+        warp_utils::reject::custom_server_error(format!("{e:?}"))
+    })?;
+
+    let gossip_verified_columns = data_column_sidecars
+        .into_iter()
+        .filter_map(|col| {
+            let index = *col.index();
+            match GossipVerifiedDataColumn::new_for_block_publishing(col, chain) {
+                Ok(verified) => Some(verified),
+                Err(GossipDataColumnError::PriorKnownUnpublished) => None,
+                Err(e) => {
+                    warn!(
+                        %slot,
+                        column_index = index,
+                        error = ?e,
+                        "Locally-built data column failed gossip verification"
+                    );
+                    None
+                }
+            }
+        })
+        .collect::<Vec<_>>();
+
+    debug!(
+        %slot,
+        column_count = gossip_verified_columns.len(),
+        "Built data columns for envelope publication"
+    );
+
+    Ok(gossip_verified_columns)
 }
 
 // TODO(gloas): add tests for this endpoint once we support importing payloads into the db

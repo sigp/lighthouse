@@ -115,6 +115,116 @@ async fn rpc_columns_with_invalid_header_signature() {
     ));
 }
 
+/// Test that Gloas block production caches blobs alongside the envelope, and that
+/// data columns can be built from those cached blobs.
+#[tokio::test]
+async fn gloas_envelope_blobs_produce_valid_columns() {
+    // TODO(gloas): Need a Gloas-format test_data_column_sidecars.ssz fixture before this test
+    // can run. The current fixture is Fulu-format and can't be decoded as DataColumnSidecarGloas.
+    // See beacon_node/beacon_chain/src/test_utils/fixtures/test_data_column_sidecars.ssz
+    let spec = Arc::new(test_spec::<E>());
+    if !spec.is_gloas_scheduled() {
+        return;
+    }
+    return;
+
+    #[allow(unreachable_code)]
+    let harness = get_harness(VALIDATOR_COUNT, spec.clone(), NodeCustodyType::Supernode);
+    harness.execution_block_generator().set_min_blob_count(1);
+
+    // Build some chain depth.
+    let num_blocks = E::slots_per_epoch() as usize;
+    harness
+        .extend_chain(
+            num_blocks,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    harness.advance_slot();
+    let slot = harness.get_current_slot();
+
+    // Produce a Gloas block via the harness. This caches envelope + blobs.
+    let state = harness.get_current_state();
+    let (block_contents, opt_envelope, post_state) =
+        harness.make_block_with_envelope(state, slot).await;
+    let signed_block = &block_contents.0;
+
+    assert!(
+        opt_envelope.is_some(),
+        "Gloas block production should produce an envelope"
+    );
+
+    // Verify the block has blob commitments in the bid.
+    let bid = signed_block
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .expect("Gloas block should have a payload bid");
+    assert!(
+        !bid.message.blob_kzg_commitments.is_empty(),
+        "Block should have blob KZG commitments"
+    );
+
+    // Generate data columns from the block (using test fixtures, same as the harness does).
+    let data_column_sidecars =
+        generate_data_column_sidecars_from_block(signed_block, &harness.chain.spec);
+    assert_eq!(
+        data_column_sidecars.len(),
+        E::number_of_columns(),
+        "Should produce the correct number of data columns"
+    );
+
+    // Verify all columns are Gloas-format.
+    for col in &data_column_sidecars {
+        assert!(
+            col.as_gloas().is_ok(),
+            "Data column sidecar should be Gloas variant"
+        );
+        let gloas_col = col.as_gloas().expect("should be Gloas sidecar");
+        assert_eq!(gloas_col.beacon_block_root, signed_block.canonical_root());
+        assert_eq!(gloas_col.slot, slot);
+    }
+
+    // Process the block (without blobs so it's pending availability).
+    let block_root = signed_block.canonical_root();
+    let availability = harness
+        .chain
+        .process_block(
+            block_root,
+            LookupBlock::new(signed_block.clone()),
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
+            || Ok(()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        availability,
+        AvailabilityProcessingStatus::MissingComponents(slot, block_root),
+        "Block should be pending availability without columns"
+    );
+
+    // Process the envelope.
+    let envelope = opt_envelope.unwrap();
+    harness
+        .process_envelope(block_root, envelope, &post_state, signed_block.state_root())
+        .await;
+
+    // Supply columns via RPC to make the block available.
+    let status = harness
+        .chain
+        .process_rpc_custody_columns(data_column_sidecars)
+        .await
+        .unwrap();
+    assert_eq!(
+        status,
+        AvailabilityProcessingStatus::Imported(block_root),
+        "Block should be imported after supplying data columns"
+    );
+}
+
 // Regression test for verify_header_signature bug: it uses head_fork() which is wrong for fork blocks
 #[tokio::test]
 async fn verify_header_signature_fork_block_bug() {

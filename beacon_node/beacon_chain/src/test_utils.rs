@@ -3789,21 +3789,21 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
     block: &SignedBeaconBlock<E>,
     spec: &ChainSpec,
 ) -> DataColumnSidecarList<E> {
-    let kzg_commitments = block.message().body().blob_kzg_commitments().unwrap();
-    if kzg_commitments.is_empty() {
-        return vec![];
-    }
-
-    let kzg_commitments_inclusion_proof = block
-        .message()
-        .body()
-        .kzg_commitments_merkle_proof()
-        .unwrap();
-    let signed_block_header = block.signed_block_header();
-
     // Load the precomputed column sidecar to avoid computing them for every block in the tests.
     // Then repeat the cells and proofs for every blob
     if block.fork_name_unchecked().gloas_enabled() {
+        let kzg_commitments = &block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .expect("Gloas block should have a payload bid")
+            .message
+            .blob_kzg_commitments;
+        if kzg_commitments.is_empty() {
+            return vec![];
+        }
+        let num_blobs = kzg_commitments.len();
+        let signed_block_header = block.signed_block_header();
         let template_data_columns =
             RuntimeVariableList::<DataColumnSidecarGloas<E>>::from_ssz_bytes(
                 TEST_DATA_COLUMN_SIDECARS_SSZ,
@@ -3826,7 +3826,7 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
             .collect::<(Vec<_>, Vec<_>)>();
 
         let blob_cells_and_proofs_vec =
-            vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); kzg_commitments.len()];
+            vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); num_blobs];
 
         build_data_column_sidecars_gloas(
             signed_block_header.message.tree_hash_root(),
@@ -3836,6 +3836,18 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
         )
         .unwrap()
     } else {
+        let kzg_commitments = block.message().body().blob_kzg_commitments().unwrap();
+        if kzg_commitments.is_empty() {
+            return vec![];
+        }
+
+        let kzg_commitments_inclusion_proof = block
+            .message()
+            .body()
+            .kzg_commitments_merkle_proof()
+            .unwrap();
+        let signed_block_header = block.signed_block_header();
+
         // load the precomputed column sidecar to avoid computing them for every block in the tests.
         let template_data_columns =
             RuntimeVariableList::<DataColumnSidecarFulu<E>>::from_ssz_bytes(
