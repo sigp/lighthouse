@@ -21,6 +21,9 @@ use beacon_chain::{
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
     light_client_optimistic_update_verification::Error as LightClientOptimisticUpdateError,
     observed_operations::ObservationOutcome,
+    payload_attestation_verification::{
+        Error as PayloadAttestationError, VerifiedPayloadAttestationMessage,
+    },
     sync_committee_verification::{self, Error as SyncCommitteeError},
     validator_monitor::{get_block_delay_ms, get_slot_delay_ms},
 };
@@ -135,6 +138,11 @@ impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregate<T> {
 struct RejectedAggregate<E: EthSpec> {
     signed_aggregate: Box<SignedAggregateAndProof<E>>,
     error: AttnError,
+}
+
+struct RejectedPayloadAttestation {
+    payload_attestation_message: Box<PayloadAttestationMessage>,
+    error: PayloadAttestationError,
 }
 
 /// Data for an aggregated or unaggregated attestation that failed verification.
@@ -4088,25 +4096,143 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
-    // TODO(gloas) dont forget to add tracing instrumentation
+    #[instrument(
+        level = "trace",
+        skip_all,
+        fields(
+            peer_id = %peer_id,
+            slot = %payload_attestation_message.data.slot,
+            validator_index = payload_attestation_message.validator_index,
+        )
+    )]
     pub fn process_gossip_payload_attestation(
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        payload_attestation_message: PayloadAttestationMessage,
+        payload_attestation_message: Box<PayloadAttestationMessage>,
     ) {
-        // TODO(EIP-7732): Implement proper payload attestation message gossip processing.
-        // This should integrate with a payload_attestation_verification.rs module once it's implemented.
+        let result = match self
+            .chain
+            .verify_payload_attestation_message_for_gossip(*payload_attestation_message.clone())
+        {
+            Ok(verified) => Ok(verified),
+            Err(error) => Err(RejectedPayloadAttestation {
+                payload_attestation_message: payload_attestation_message.clone(),
+                error,
+            }),
+        };
 
-        trace!(
-            %peer_id,
-            validator_index = payload_attestation_message.validator_index,
-            slot = %payload_attestation_message.data.slot,
-            beacon_block_root = %payload_attestation_message.data.beacon_block_root,
-            "Processing payload attestation message"
-        );
+        self.process_gossip_payload_attestation_result(result, message_id, peer_id);
+    }
 
-        // For now, ignore all payload attestation messages since verification is not implemented
-        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+    fn process_gossip_payload_attestation_result(
+        self: &Arc<Self>,
+        result: Result<VerifiedPayloadAttestationMessage<T>, RejectedPayloadAttestation>,
+        message_id: MessageId,
+        peer_id: PeerId,
+    ) {
+        match result {
+            Ok(verified) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+
+                if let Err(e) = self.chain.apply_payload_attestation_to_fork_choice(
+                    verified.indexed_payload_attestation(),
+                    verified.ptc(),
+                ) {
+                    match e {
+                        BeaconChainError::ForkChoiceError(
+                            ForkChoiceError::InvalidPayloadAttestation(e),
+                        ) => {
+                            debug!(
+                                reason = ?e,
+                                %peer_id,
+                                "Payload attestation invalid for fork choice"
+                            )
+                        }
+                        e => error!(
+                            reason = ?e,
+                            %peer_id,
+                            "Error applying payload attestation to fork choice"
+                        ),
+                    }
+                }
+            }
+            Err(RejectedPayloadAttestation {
+                payload_attestation_message,
+                error,
+            }) => {
+                self.handle_payload_attestation_verification_failure(
+                    peer_id,
+                    message_id,
+                    error,
+                    payload_attestation_message.data.slot,
+                );
+            }
+        }
+    }
+
+    fn handle_payload_attestation_verification_failure(
+        &self,
+        peer_id: PeerId,
+        message_id: MessageId,
+        error: PayloadAttestationError,
+        message_slot: Slot,
+    ) {
+        match &error {
+            PayloadAttestationError::FutureSlot { .. } => {
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "payload_attn_future_slot",
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            PayloadAttestationError::PastSlot { .. }
+            | PayloadAttestationError::PriorPayloadAttestationMessageKnown { .. } => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            PayloadAttestationError::UnknownHeadBlock { .. } => {
+                debug!(
+                    %peer_id,
+                    %message_slot,
+                    "Payload attestation references unknown block"
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            PayloadAttestationError::NotInPTC { .. } => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "payload_attn_not_in_ptc",
+                );
+            }
+            PayloadAttestationError::UnknownValidatorIndex(_) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "payload_attn_unknown_validator",
+                );
+            }
+            PayloadAttestationError::InvalidSignature => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "payload_attn_invalid_sig",
+                );
+            }
+            PayloadAttestationError::BeaconChainError(_)
+            | PayloadAttestationError::BeaconStateError(_) => {
+                debug!(
+                    %peer_id,
+                    %message_slot,
+                    ?error,
+                    "Internal error verifying payload attestation"
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+        }
     }
 }
