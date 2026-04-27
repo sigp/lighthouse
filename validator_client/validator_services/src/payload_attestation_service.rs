@@ -7,8 +7,7 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use tracing::{debug, error, info};
-<<<<<<< HEAD
-use types::ChainSpec;
+use types::{ChainSpec, EthSpec};
 use validator_store::ValidatorStore;
 
 pub struct PayloadAttestationServiceBuilder<S: ValidatorStore, T: SlotClock + 'static> {
@@ -96,11 +95,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
     }
 }
 
-=======
-use types::{ChainSpec, EthSpec};
-use validator_store::ValidatorStore;
-
->>>>>>> 028b5a42a9715c31f416d45db70add39d9934b12
 pub struct Inner<S, T> {
     duties_service: Arc<DutiesService<S, T>>,
     validator_store: Arc<S>,
@@ -131,29 +125,6 @@ impl<S, T> Deref for PayloadAttestationService<S, T> {
 }
 
 impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationService<S, T> {
-<<<<<<< HEAD
-=======
-    pub fn new(
-        duties_service: Arc<DutiesService<S, T>>,
-        validator_store: Arc<S>,
-        slot_clock: T,
-        beacon_nodes: Arc<BeaconNodeFallback<T>>,
-        executor: TaskExecutor,
-        chain_spec: Arc<ChainSpec>,
-    ) -> Self {
-        Self {
-            inner: Arc::new(Inner {
-                duties_service,
-                validator_store,
-                slot_clock,
-                beacon_nodes,
-                executor,
-                chain_spec,
-            }),
-        }
-    }
-
->>>>>>> 028b5a42a9715c31f416d45db70add39d9934b12
     pub fn start_update_service(self) -> Result<(), String> {
         let slot_duration = self.chain_spec.get_slot_duration();
         let payload_attestation_due = self.chain_spec.get_payload_attestation_due();
@@ -173,11 +144,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
                     continue;
                 };
 
-<<<<<<< HEAD
                 sleep(duration_to_next_slot + payload_attestation_due).await;
 
-=======
->>>>>>> 028b5a42a9715c31f416d45db70add39d9934b12
                 let Some(current_slot) = self.slot_clock.now() else {
                     error!("Failed to read slot clock after trigger");
                     continue;
@@ -188,7 +156,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
                     .fork_name_at_slot::<S::E>(current_slot)
                     .gloas_enabled()
                 {
-<<<<<<< HEAD
                     continue;
                 }
 
@@ -202,19 +169,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
                     duty_count = duties.len(),
                     "Producing payload attestations"
                 );
-=======
-                    let duration_to_next_epoch = self
-                        .slot_clock
-                        .duration_to_next_epoch(S::E::slots_per_epoch())
-                        .unwrap_or_else(|| {
-                            self.chain_spec.get_slot_duration() * S::E::slots_per_epoch() as u32
-                        });
-                    sleep(duration_to_next_epoch).await;
-                    continue;
-                }
-
-                sleep(duration_to_next_slot + payload_attestation_due).await;
->>>>>>> 028b5a42a9715c31f416d45db70add39d9934b12
 
                 let service = self.clone();
                 self.executor.spawn(
@@ -232,23 +186,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
 
     async fn produce_and_publish(&self, slot: types::Slot) {
         let duties = self.duties_service.get_ptc_duties_for_slot(slot);
-<<<<<<< HEAD
-=======
-
->>>>>>> 028b5a42a9715c31f416d45db70add39d9934b12
         if duties.is_empty() {
             return;
         }
 
-<<<<<<< HEAD
-=======
-        debug!(
-            %slot,
-            duty_count = duties.len(),
-            "Producing payload attestations"
-        );
-
->>>>>>> 028b5a42a9715c31f416d45db70add39d9934b12
         let attestation_data = match self
             .beacon_nodes
             .first_success(|beacon_node| async move {
@@ -305,21 +246,13 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
         }
 
         let count = messages.len();
-<<<<<<< HEAD
-=======
-        let fork_name = self.chain_spec.fork_name_at_slot::<S::E>(slot);
->>>>>>> 028b5a42a9715c31f416d45db70add39d9934b12
         let result = self
             .beacon_nodes
             .first_success(|beacon_node| {
                 let messages = messages.clone();
                 async move {
                     beacon_node
-<<<<<<< HEAD
                         .post_beacon_pool_payload_attestations_ssz(&messages)
-=======
-                        .post_beacon_pool_payload_attestations_ssz(&messages, fork_name)
->>>>>>> 028b5a42a9715c31f416d45db70add39d9934b12
                         .await
                         .map_err(|e| format!("Failed to publish payload attestations (SSZ): {e:?}"))
                 }
@@ -335,11 +268,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
                         let messages = messages.clone();
                         async move {
                             beacon_node
-<<<<<<< HEAD
                                 .post_beacon_pool_payload_attestations(&messages)
-=======
-                                .post_beacon_pool_payload_attestations(&messages, fork_name)
->>>>>>> 028b5a42a9715c31f416d45db70add39d9934b12
                                 .await
                                 .map_err(|e| {
                                     format!("Failed to publish payload attestations (JSON): {e:?}")
