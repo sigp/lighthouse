@@ -131,8 +131,8 @@ impl Default for ChainConfig {
             weak_subjectivity_checkpoint: None,
             archive: false,
             max_network_size: 10 * 1_048_576, // 10M
-            re_org_head_threshold: None,
-            re_org_parent_threshold: None,
+            re_org_head_threshold: Some(ReOrgThreshold(20)),
+            re_org_parent_threshold: Some(ReOrgThreshold(160)),
             re_org_max_epochs_since_finalization: Epoch::new(2),
             re_org_cutoff_millis: None,
             re_org_disallowed_offsets: DisallowedReOrgOffsets::default(),
