@@ -4436,7 +4436,11 @@ impl ApiTester {
     }
 
     pub async fn test_get_validator_payload_attestation_data(self) -> Self {
-        let slot = self.chain.slot().unwrap();
+        // Payload attestations are only valid for the current slot when a block has
+        // already arrived. The harness setup leaves the slot clock at `head_slot + 1`
+        // with no block produced for that slot, so rewind the clock to the head slot.
+        let slot = self.chain.head_snapshot().beacon_block.slot();
+        self.chain.slot_clock.set_slot(slot.as_u64());
         let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
 
         let response = self
@@ -8110,7 +8114,7 @@ async fn get_validator_payload_attestation_data() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
-    ApiTester::new()
+    ApiTester::new_with_hard_forks()
         .await
         .test_get_validator_payload_attestation_data()
         .await;

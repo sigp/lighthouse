@@ -200,8 +200,15 @@ async fn node_health_el_online_and_synced() {
 }
 
 /// Check `node health` endpoint when the EL is online but not synced.
+// Gloas blocks don't carry execution payloads — the payload arrives via an envelope,
+// so newPayload is never called during block import and the head is not marked
+// optimistic when `all_payloads_syncing(true)`. Skip for Gloas.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn node_health_el_online_and_not_synced() {
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
     let num_blocks = E::slots_per_epoch() / 2;
     let num_validators = E::slots_per_epoch();
     let tester = post_merge_tester(num_blocks, num_validators).await;
