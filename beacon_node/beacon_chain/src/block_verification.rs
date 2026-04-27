@@ -942,12 +942,14 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
 
         // Check that we've received the parent envelope. If not, issue a single envelope
         // lookup for the parent and queue this block in the reprocess queue.
+        // Skip this check for the genesis block — it's a synthetic anchor with no envelope.
         let parent_is_gloas = chain
             .spec
             .fork_name_at_slot::<T::EthSpec>(parent_block.slot)
             .gloas_enabled();
 
         if parent_is_gloas
+            && parent_block.slot != chain.spec.genesis_slot
             && !fork_choice_read_lock.is_payload_received(&block.message().parent_root())
         {
             return Err(BlockError::ParentEnvelopeUnknown {
