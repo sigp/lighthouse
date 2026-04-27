@@ -3566,7 +3566,9 @@ impl ApiTester {
         let dependent_root = self
             .chain
             .block_root_at_slot(
-                current_epoch.start_slot(E::slots_per_epoch()) - 1,
+                self.chain
+                    .spec
+                    .proposer_shuffling_decision_slot::<E>(current_epoch),
                 WhenSlotSkipped::Prev,
             )
             .unwrap()
@@ -7971,7 +7973,7 @@ async fn get_validator_duties_early() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
-    ApiTester::new()
+    ApiTester::new_with_hard_forks()
         .await
         .test_get_validator_duties_early()
         .await;
