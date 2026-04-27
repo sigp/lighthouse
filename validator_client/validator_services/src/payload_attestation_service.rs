@@ -7,7 +7,7 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use tracing::{debug, error, info};
-use types::ChainSpec;
+use types::{ChainSpec, EthSpec};
 use validator_store::ValidatorStore;
 
 pub struct PayloadAttestationServiceBuilder<S: ValidatorStore, T: SlotClock + 'static> {
