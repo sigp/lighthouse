@@ -5,6 +5,7 @@ use crate::version::{
     ResponseIncludesVersion, add_consensus_version_header, add_ssz_content_type_header,
     execution_optimistic_finalized_beacon_response,
 };
+use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bytes::Bytes;
 use eth2::types as api_types;
@@ -14,8 +15,8 @@ use network::NetworkMessage;
 use ssz::{Decode, Encode};
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
-use tracing::{info, warn};
-use types::SignedExecutionPayloadEnvelope;
+use tracing::{debug, error, info, warn};
+use types::{EthSpec, SignedExecutionPayloadEnvelope};
 use warp::{
     Filter, Rejection, Reply,
     hyper::{Body, Response},
@@ -109,7 +110,9 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         "Publishing signed execution payload envelope to network"
     );
 
-    // Publish to the network
+    let blobs_and_proofs = chain.pending_payload_envelopes.write().take_blobs(slot);
+
+    // Publish the envelope to the network.
     crate::utils::publish_pubsub_message(
         network_tx,
         PubsubMessage::ExecutionPayload(Box::new(envelope)),
@@ -121,7 +124,87 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         )
     })?;
 
+    // Build and publish data column sidecars from the blobs.
+    if let Some((blobs, kzg_proofs)) = blobs_and_proofs {
+        if !blobs.is_empty() {
+            let gossip_verified_columns =
+                build_gloas_data_columns(&chain, beacon_block_root, slot, &blobs, kzg_proofs)?;
+
+            if !gossip_verified_columns.is_empty() {
+                crate::publish_blocks::publish_column_sidecars(
+                    network_tx,
+                    &gossip_verified_columns,
+                    &chain,
+                )
+                .map_err(|_| {
+                    warp_utils::reject::custom_server_error(
+                        "unable to publish data column sidecars".into(),
+                    )
+                })?;
+
+                let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+                let sampling_column_indices = chain.sampling_columns_for_epoch(epoch);
+                let sampling_columns = gossip_verified_columns
+                    .into_iter()
+                    .filter(|col| sampling_column_indices.contains(&col.index()))
+                    .collect::<Vec<_>>();
+
+                if !sampling_columns.is_empty() {
+                    if let Err(e) =
+                        Box::pin(chain.process_gossip_data_columns(sampling_columns, || Ok(())))
+                            .await
+                    {
+                        error!(
+                            %slot,
+                            error = ?e,
+                            "Failed to process sampling data columns during envelope publication"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     Ok(warp::reply().into_response())
+}
+
+fn build_gloas_data_columns<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    beacon_block_root: types::Hash256,
+    slot: types::Slot,
+    blobs: &types::BlobsList<T::EthSpec>,
+    kzg_proofs: types::KzgProofs<T::EthSpec>,
+) -> Result<Vec<GossipVerifiedDataColumn<T>>, Rejection> {
+    let blob_refs: Vec<_> = blobs.iter().collect();
+    let data_column_sidecars = beacon_chain::kzg_utils::blobs_to_data_column_sidecars_gloas(
+        &blob_refs,
+        kzg_proofs.to_vec(),
+        beacon_block_root,
+        slot,
+        &chain.kzg,
+        &chain.spec,
+    )
+    .map_err(|e| {
+        error!(
+            error = ?e,
+            %slot,
+            "Failed to build data column sidecars for envelope"
+        );
+        warp_utils::reject::custom_server_error(format!("{e:?}"))
+    })?;
+
+    let gossip_verified_columns = data_column_sidecars
+        .into_iter()
+        .filter_map(|col| GossipVerifiedDataColumn::new_for_block_publishing(col, chain).ok())
+        .collect::<Vec<_>>();
+
+    debug!(
+        %slot,
+        column_count = gossip_verified_columns.len(),
+        "Built data columns for envelope publication"
+    );
+
+    Ok(gossip_verified_columns)
 }
 
 // TODO(gloas): add tests for this endpoint once we support importing payloads into the db
