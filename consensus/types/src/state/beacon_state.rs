@@ -24,7 +24,7 @@ use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
 
 use crate::{
-    Address, ExecutionBlockHash, ExecutionPayloadBid, Withdrawal,
+    Address, ExecutionBlockHash, ExecutionPayloadBid, ProposerPreferences, Withdrawal,
     attestation::{
         AttestationData, AttestationDuty, BeaconCommittee, Checkpoint, CommitteeIndex, PTC,
         ParticipationFlags, PendingAttestation,
@@ -37,7 +37,7 @@ use crate::{
     execution::{
         Eth1Data, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
         ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
-        ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut, StatePayloadStatus,
+        ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
     },
     fork::{Fork, ForkName, ForkVersionDecode, InconsistentFork, map_fork_name},
     light_client::consts::{
@@ -571,9 +571,10 @@ where
     )]
     #[metastruct(exclude_from(tree_lists))]
     pub latest_execution_payload_header: ExecutionPayloadHeaderFulu<E>,
+    #[test_random(default)]
     #[superstruct(only(Gloas))]
     #[metastruct(exclude_from(tree_lists))]
-    pub latest_execution_payload_bid: ExecutionPayloadBid<E>,
+    pub latest_block_hash: ExecutionBlockHash,
     #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     #[metastruct(exclude_from(tree_lists))]
@@ -657,10 +658,9 @@ where
     pub builder_pending_withdrawals:
         List<BuilderPendingWithdrawal, E::BuilderPendingWithdrawalsLimit>,
 
-    #[test_random(default)]
     #[superstruct(only(Gloas))]
     #[metastruct(exclude_from(tree_lists))]
-    pub latest_block_hash: ExecutionBlockHash,
+    pub latest_execution_payload_bid: ExecutionPayloadBid<E>,
 
     #[compare_fields(as_iter)]
     #[test_random(default)]
@@ -1273,24 +1273,6 @@ impl<E: EthSpec> BeaconState<E> {
         }
     }
 
-    /// Determine the payload status of this state.
-    ///
-    /// Prior to Gloas this is always `Pending`.
-    ///
-    /// Post-Gloas, the definition of the `StatePayloadStatus` is:
-    ///
-    /// - `Full` if this state is the result of envelope processing.
-    /// - `Pending` if this state is the result of block processing.
-    pub fn payload_status(&self) -> StatePayloadStatus {
-        if !self.fork_name_unchecked().gloas_enabled() {
-            StatePayloadStatus::Pending
-        } else if self.is_parent_block_full() {
-            StatePayloadStatus::Full
-        } else {
-            StatePayloadStatus::Pending
-        }
-    }
-
     /// Return `true` if the validator who produced `slot_signature` is eligible to aggregate.
     ///
     /// Spec v0.12.1
@@ -1347,6 +1329,43 @@ impl<E: EthSpec> BeaconState<E> {
 
             self.compute_proposer_index(&indices, &seed, spec)
         }
+    }
+
+    /// Check if the validator is the proposer for the given slot in the current or next epoch.
+    pub fn is_valid_proposal_slot(
+        &self,
+        preferences: &ProposerPreferences,
+    ) -> Result<bool, BeaconStateError> {
+        let current_epoch = self.current_epoch();
+        let proposal_epoch = preferences.proposal_slot.epoch(E::slots_per_epoch());
+
+        if proposal_epoch < current_epoch {
+            return Ok(false);
+        }
+
+        let next_epoch = current_epoch.saturating_add(1u64);
+        if proposal_epoch > next_epoch {
+            return Ok(false);
+        }
+
+        let epoch_offset = proposal_epoch.as_u64().safe_sub(current_epoch.as_u64())?;
+
+        let slot_in_epoch = preferences
+            .proposal_slot
+            .as_u64()
+            .safe_rem(E::slots_per_epoch())?;
+
+        let index = epoch_offset
+            .safe_mul(E::slots_per_epoch())
+            .and_then(|v| v.safe_add(slot_in_epoch))?;
+
+        let proposer_lookahead = self.proposer_lookahead()?;
+
+        let proposer = proposer_lookahead
+            .get(index as usize)
+            .ok_or(BeaconStateError::ProposerLookaheadOutOfBounds { i: index as usize })?;
+
+        Ok(*proposer == preferences.validator_index)
     }
 
     /// Returns the beacon proposer index for each `slot` in `epoch`.
@@ -2470,22 +2489,6 @@ impl<E: EthSpec> BeaconState<E> {
         }
     }
 
-    /// Return true if the parent block was full (both beacon block and execution payload were present).
-    pub fn is_parent_block_full(&self) -> bool {
-        match self {
-            BeaconState::Base(_) | BeaconState::Altair(_) => false,
-            // TODO(EIP-7732): check the implications of this when we get to forkchoice modifications
-            BeaconState::Bellatrix(_)
-            | BeaconState::Capella(_)
-            | BeaconState::Deneb(_)
-            | BeaconState::Electra(_)
-            | BeaconState::Fulu(_) => true,
-            BeaconState::Gloas(state) => {
-                state.latest_execution_payload_bid.block_hash == state.latest_block_hash
-            }
-        }
-    }
-
     /// Get the committee cache for some `slot`.
     ///
     /// Return an error if the cache for the slot's epoch is not initialized.
@@ -3195,6 +3198,27 @@ impl<E: EthSpec> BeaconState<E> {
         Ok(hash(&preimage))
     }
 
+    /// Find the first slot in the given epoch where the validator is assigned to the PTC.
+    ///
+    /// Returns `Ok(Some(slot))` if the validator is in the PTC for any slot in the epoch,
+    /// `Ok(None)` if the validator is not in the PTC for this epoch.
+    ///
+    /// This iterates through all slots in the epoch, so it's O(slots_per_epoch) per validator.
+    pub fn get_ptc_assignment(
+        &self,
+        validator_index: usize,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<Option<Slot>, BeaconStateError> {
+        for slot in epoch.slot_iter(E::slots_per_epoch()) {
+            let ptc = self.get_ptc(slot, spec)?;
+            if ptc.0.contains(&validator_index) {
+                return Ok(Some(slot));
+            }
+        }
+        Ok(None)
+    }
+
     /// Return size indices sampled by effective balance, using indices as candidates.
     ///
     /// If shuffle_indices is True, candidate indices are themselves sampled from indices
@@ -3258,6 +3282,38 @@ impl<E: EthSpec> BeaconState<E> {
 
         Ok(effective_balance.safe_mul(MAX_RANDOM_VALUE)?
             >= max_effective_balance.safe_mul(random_value)?)
+    }
+
+    pub fn can_builder_cover_bid(
+        &self,
+        builder_index: BuilderIndex,
+        bid_amount: u64,
+        spec: &ChainSpec,
+    ) -> Result<bool, BeaconStateError> {
+        let builder = self.get_builder(builder_index)?;
+
+        let builder_balance = builder.balance;
+        let pending_withdrawals_amount =
+            self.get_pending_balance_to_withdraw_for_builder(builder_index)?;
+
+        let min_balance = spec
+            .min_deposit_amount
+            .safe_add(pending_withdrawals_amount)?;
+        if builder_balance < min_balance {
+            return Ok(false);
+        }
+        Ok(builder_balance.safe_sub(min_balance)? >= bid_amount)
+    }
+
+    pub fn is_active_builder(
+        &self,
+        builder_index: BuilderIndex,
+        spec: &ChainSpec,
+    ) -> Result<bool, BeaconStateError> {
+        let builder = self.get_builder(builder_index)?;
+
+        Ok(builder.deposit_epoch < self.finalized_checkpoint().epoch
+            && builder.withdrawable_epoch == spec.far_future_epoch)
     }
 }
 

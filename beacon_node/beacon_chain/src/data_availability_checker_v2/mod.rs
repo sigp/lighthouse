@@ -705,6 +705,7 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
 #[cfg(test)]
 mod data_availability_checker_tests {
     use super::*;
+    use std::marker::PhantomData;
 
     use crate::block_verification::PayloadVerificationOutcome;
     use crate::data_column_verification::{KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn};
@@ -986,8 +987,6 @@ mod data_availability_checker_tests {
                 execution_requests: ExecutionRequests::default(),
                 builder_index: 0,
                 beacon_block_root: block_root,
-                slot: Slot::new(0),
-                state_root: Hash256::ZERO,
             },
             signature: bls::Signature::infinity().expect("should create infinity sig"),
         })
@@ -998,7 +997,7 @@ mod data_availability_checker_tests {
             envelope: make_test_signed_envelope(block_root),
             import_data: EnvelopeImportData {
                 block_root,
-                post_state: Box::new(BeaconState::new(0, Default::default(), &gloas_spec::<E>())),
+                _phantom: PhantomData,
             },
             payload_verification_outcome: PayloadVerificationOutcome {
                 payload_verification_status: PayloadVerificationStatus::Verified,

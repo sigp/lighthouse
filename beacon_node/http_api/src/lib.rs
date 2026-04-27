@@ -19,6 +19,7 @@ mod metrics;
 mod peer;
 mod produce_block;
 mod proposer_duties;
+mod ptc_duties;
 mod publish_attestations;
 mod publish_blocks;
 mod standard_block_rewards;
@@ -2536,6 +2537,14 @@ pub fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
     );
 
+    // GET validator/payload_attestation_data/{slot}
+    let get_validator_payload_attestation_data = get_validator_payload_attestation_data(
+        eth_v1.clone(),
+        chain_filter.clone(),
+        not_while_syncing_filter.clone(),
+        task_spawner_filter.clone(),
+    );
+
     // GET validator/aggregate_attestation?attestation_data_root,slot
     let get_validator_aggregate_attestation = get_validator_aggregate_attestation(
         any_version.clone(),
@@ -2546,6 +2555,14 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/duties/attester/{epoch}
     let post_validator_duties_attester = post_validator_duties_attester(
+        eth_v1.clone(),
+        chain_filter.clone(),
+        not_while_syncing_filter.clone(),
+        task_spawner_filter.clone(),
+    );
+
+    // POST validator/duties/ptc/{epoch}
+    let post_validator_duties_ptc = post_validator_duties_ptc(
         eth_v1.clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
@@ -3347,6 +3364,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_validator_blinded_blocks)
                 .uor(get_validator_execution_payload_envelope)
                 .uor(get_validator_attestation_data)
+                .uor(get_validator_payload_attestation_data)
                 .uor(get_validator_aggregate_attestation)
                 .uor(get_validator_sync_committee_contribution)
                 .uor(get_lighthouse_health)
@@ -3401,6 +3419,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_beacon_rewards_attestations)
                     .uor(post_beacon_rewards_sync_committee)
                     .uor(post_validator_duties_attester)
+                    .uor(post_validator_duties_ptc)
                     .uor(post_validator_duties_sync)
                     .uor(post_validator_aggregate_and_proofs)
                     .uor(post_validator_contribution_and_proofs)

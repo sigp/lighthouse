@@ -211,7 +211,7 @@ impl ProtoNode {
             return false;
         }
 
-        node.payload_timeliness_votes.num_set_bits() > E::ptc_size() / 2
+        node.payload_timeliness_votes.num_set_bits() > E::payload_timely_threshold()
     }
 
     pub fn is_payload_data_available<E: EthSpec>(&self) -> bool {
@@ -224,8 +224,8 @@ impl ProtoNode {
             return false;
         }
 
-        // TODO(gloas): add function on EthSpec for DATA_AVAILABILITY_TIMELY_THRESHOLD
-        node.payload_data_availability_votes.num_set_bits() > E::ptc_size() / 2
+        node.payload_data_availability_votes.num_set_bits()
+            > E::data_availability_timely_threshold()
     }
 }
 
@@ -568,8 +568,10 @@ impl ProtoArray {
                         ProtoNode::V29(v29) => {
                             // Both parent and child are Gloas blocks. The parent is full if the
                             // block hash in the parent node matches the parent block hash in the
-                            // child bid.
-                            if execution_payload_parent_hash == v29.execution_payload_block_hash {
+                            // child bid and the parent block isn't the genesis block.
+                            if v29.execution_payload_block_hash != ExecutionBlockHash::zero()
+                                && execution_payload_parent_hash == v29.execution_payload_block_hash
+                            {
                                 PayloadStatus::Full
                             } else {
                                 PayloadStatus::Empty
@@ -582,18 +584,16 @@ impl ProtoArray {
                         }
                     }
                 } else {
-                    // TODO(gloas): re-assess this assumption
-                    // Parent is missing (genesis or pruned due to finalization). Default to Full
-                    // since this path should only be hit at Gloas genesis.
-                    PayloadStatus::Full
+                    // Parent is missing (genesis or pruned due to finalization). This code path
+                    // should only be hit at Gloas genesis. Default to empty, the genesis block
+                    // has no payload enevelope.
+                    PayloadStatus::Empty
                 };
 
-            // Per spec `get_forkchoice_store`: the anchor (genesis) block has
-            // its payload state initialized (`payload_states = {anchor_root: ...}`).
-            // Without `payload_received = true` on genesis, the FULL virtual
-            // child doesn't exist in the spec's `get_node_children`, making all
-            // Full concrete children of genesis unreachable in `get_head`.
-            let is_genesis = parent_index.is_none();
+            // The spec does something slightly strange where it initialises the payload timeliness
+            // votes and payload data availability votes for the anchor block to all true, but never
+            // adds the anchor to `store.payloads`, so it is never considered full.
+            let is_anchor = parent_index.is_none();
 
             ProtoNode::V29(ProtoNodeV29 {
                 slot: block.slot,
@@ -614,26 +614,25 @@ impl ProtoArray {
                 execution_payload_block_hash,
                 execution_payload_parent_hash,
                 // Per spec `get_forkchoice_store`: the anchor block's PTC votes are
-                // initialized to all-True, ensuring `is_payload_timely` and
-                // `is_payload_data_available` return true for the anchor.
-                payload_timeliness_votes: if is_genesis {
+                // initialized to all-True.
+                payload_timeliness_votes: if is_anchor {
                     all_true_bitvector()
                 } else {
                     BitVector::default()
                 },
-                payload_data_availability_votes: if is_genesis {
+                payload_data_availability_votes: if is_anchor {
                     all_true_bitvector()
                 } else {
                     BitVector::default()
                 },
-                payload_received: is_genesis,
+                payload_received: false,
                 proposer_index,
                 // Spec: `record_block_timeliness` + `get_forkchoice_store`.
                 // Anchor gets [True, True]. Others computed from time_into_slot.
-                block_timeliness_attestation_threshold: is_genesis
+                block_timeliness_attestation_threshold: is_anchor
                     || (is_current_slot
                         && time_into_slot < spec.get_attestation_due::<E>(current_slot)),
-                block_timeliness_ptc_threshold: is_genesis
+                block_timeliness_ptc_threshold: is_anchor
                     || (is_current_slot && time_into_slot < spec.get_payload_attestation_due()),
                 equivocating_attestation_score: 0,
             })
@@ -864,7 +863,6 @@ impl ProtoArray {
     /// Invalidate zero or more blocks, as specified by the `InvalidationOperation`.
     ///
     /// See the documentation of `InvalidationOperation` for usage.
-    // TODO(gloas): this needs some tests for the mixed Gloas/pre-Gloas case.
     pub fn propagate_execution_payload_invalidation<E: EthSpec>(
         &mut self,
         op: &InvalidationOperation,
@@ -1264,6 +1262,90 @@ impl ProtoArray {
         }
     }
 
+    /// Returns the canonical payload status of a block, matching the decision
+    /// `get_head` would make between `(root, FULL)` and `(root, EMPTY)`.
+    pub(crate) fn get_canonical_payload_status<E: EthSpec>(
+        &self,
+        root: Hash256,
+        current_slot: Slot,
+        proposer_boost_root: Hash256,
+        justified_balances: &JustifiedBalances,
+        spec: &ChainSpec,
+    ) -> Result<PayloadStatus, Error> {
+        let proto_node_index = *self.indices.get(&root).ok_or(Error::NodeUnknown(root))?;
+        let proto_node = self
+            .nodes
+            .get(proto_node_index)
+            .ok_or(Error::InvalidNodeIndex(proto_node_index))?;
+
+        if !proto_node
+            .payload_received()
+            .map_err(|_| Error::InvalidNodeVariant { block_root: root })?
+        {
+            return Ok(PayloadStatus::Empty);
+        }
+
+        let full_fc = IndexedForkChoiceNode {
+            root,
+            proto_node_index,
+            payload_status: PayloadStatus::Full,
+        };
+        let empty_fc = IndexedForkChoiceNode {
+            root,
+            proto_node_index,
+            payload_status: PayloadStatus::Empty,
+        };
+
+        // Matches the hoisting optimization in `find_head`: `get_weight`'s spec-level
+        // `should_apply_proposer_boost` check is precomputed once.
+        let apply_proposer_boost =
+            self.should_apply_proposer_boost::<E>(proposer_boost_root, justified_balances, spec)?;
+
+        let full_weight = self.get_weight::<E>(
+            &full_fc,
+            proto_node,
+            apply_proposer_boost,
+            proposer_boost_root,
+            current_slot,
+            justified_balances,
+            spec,
+        )?;
+
+        let empty_weight = self.get_weight::<E>(
+            &empty_fc,
+            proto_node,
+            apply_proposer_boost,
+            proposer_boost_root,
+            current_slot,
+            justified_balances,
+            spec,
+        )?;
+
+        match full_weight.cmp(&empty_weight) {
+            std::cmp::Ordering::Greater => Ok(PayloadStatus::Full),
+            std::cmp::Ordering::Less => Ok(PayloadStatus::Empty),
+            std::cmp::Ordering::Equal => {
+                let full_tb = self.get_payload_status_tiebreaker::<E>(
+                    &full_fc,
+                    proto_node,
+                    current_slot,
+                    proposer_boost_root,
+                )?;
+                let empty_tb = self.get_payload_status_tiebreaker::<E>(
+                    &empty_fc,
+                    proto_node,
+                    current_slot,
+                    proposer_boost_root,
+                )?;
+                if full_tb >= empty_tb {
+                    Ok(PayloadStatus::Full)
+                } else {
+                    Ok(PayloadStatus::Empty)
+                }
+            }
+        }
+    }
+
     /// Spec: `get_weight`.
     #[allow(clippy::too_many_arguments)]
     fn get_weight<E: EthSpec>(
@@ -1419,7 +1501,7 @@ impl ProtoArray {
         }
     }
 
-    fn get_payload_status_tiebreaker<E: EthSpec>(
+    pub(crate) fn get_payload_status_tiebreaker<E: EthSpec>(
         &self,
         fc_node: &IndexedForkChoiceNode,
         proto_node: &ProtoNode,
@@ -1439,7 +1521,7 @@ impl ProtoArray {
         }
     }
 
-    fn should_extend_payload<E: EthSpec>(
+    pub fn should_extend_payload<E: EthSpec>(
         &self,
         fc_node: &IndexedForkChoiceNode,
         proto_node: &ProtoNode,

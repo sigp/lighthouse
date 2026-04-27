@@ -42,7 +42,7 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelope<E> {
     }
 
     pub fn slot(&self) -> Slot {
-        self.message.slot
+        self.message.slot()
     }
 
     pub fn epoch(&self) -> Epoch {

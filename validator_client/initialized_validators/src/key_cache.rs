@@ -1,7 +1,7 @@
 use account_utils::write_file_via_temporary;
 use bls::{Keypair, PublicKey};
 use eth2_keystore::json_keystore::{
-    Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, EmptyString, KdfModule,
+    Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, EmptyString, Kdf, KdfModule,
     Sha256Checksum,
 };
 use eth2_keystore::{
@@ -65,10 +65,14 @@ impl KeyCache {
     }
 
     pub fn init_crypto() -> Crypto {
+        Self::build_crypto(default_kdf)
+    }
+
+    fn build_crypto(kdf_fn: fn(Vec<u8>) -> Kdf) -> Crypto {
         let salt = rand::rng().random::<[u8; SALT_SIZE]>();
         let iv = rand::rng().random::<[u8; IV_SIZE]>().to_vec().into();
 
-        let kdf = default_kdf(salt.to_vec());
+        let kdf = kdf_fn(salt.to_vec());
         let cipher = Cipher::Aes128Ctr(Aes128Ctr { iv });
 
         Crypto {
@@ -116,7 +120,11 @@ impl KeyCache {
     }
 
     fn encrypt(&mut self) -> Result<(), Error> {
-        self.crypto = Self::init_crypto();
+        self.encrypt_with(default_kdf)
+    }
+
+    fn encrypt_with(&mut self, kdf_fn: fn(Vec<u8>) -> Kdf) -> Result<(), Error> {
+        self.crypto = Self::build_crypto(kdf_fn);
         let secret_map: SerializedKeyMap = self
             .pairs
             .iter()
@@ -268,7 +276,19 @@ pub enum Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eth2_keystore::json_keystore::HexBytes;
+    use eth2_keystore::json_keystore::{HexBytes, Scrypt};
+
+    /// Scrypt with minimal cost (n=1024) for fast test execution.
+    /// Production uses n=262144 which takes ~45s per derivation.
+    fn insecure_kdf(salt: Vec<u8>) -> Kdf {
+        Kdf::Scrypt(Scrypt {
+            dklen: 32,
+            n: 1024,
+            p: 1,
+            r: 8,
+            salt: salt.into(),
+        })
+    }
 
     #[tokio::test]
     async fn test_serialization() {
@@ -302,7 +322,7 @@ mod tests {
             key_cache.add(keypair.clone(), uuid, password.clone());
         }
 
-        key_cache.encrypt().unwrap();
+        key_cache.encrypt_with(insecure_kdf).unwrap();
         key_cache.state = State::DecryptedAndSaved;
 
         assert_eq!(&key_cache.uuids, &uuids);

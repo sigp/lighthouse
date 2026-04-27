@@ -6,7 +6,10 @@ use ssz_types::{FixedVector, VariableList};
 use std::sync::Arc;
 use tracing::instrument;
 use tree_hash::TreeHash;
-use types::data::{Cell, DataColumn, DataColumnSidecarError};
+use types::data::{
+    Cell, CellBitmap, ColumnIndex, DataColumn, DataColumnSidecarError, PartialDataColumn,
+    PartialDataColumnHeader, PartialDataColumnSidecarRef,
+};
 use types::kzg_ext::KzgCommitments;
 use types::{
     Blob, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu,
@@ -45,14 +48,13 @@ pub fn validate_blob<E: EthSpec>(
     kzg.verify_blob_kzg_proof(kzg_blob, kzg_commitment, kzg_proof)
 }
 
-/// Validate a batch of `DataColumnSidecar`.
-pub fn validate_data_columns<'a, E: EthSpec, I>(
+/// Validate a batch of full `DataColumnSidecar`s.
+///
+/// Full columns have all cells present, so we iterate over all cells directly.
+pub fn validate_full_data_columns<'a, E: EthSpec>(
     kzg: &Kzg,
-    data_column_iter: I,
-) -> Result<(), (Option<u64>, KzgError)>
-where
-    I: Iterator<Item = &'a Arc<DataColumnSidecar<E>>> + Clone,
-{
+    data_column_iter: impl Iterator<Item = &'a Arc<DataColumnSidecar<E>>>,
+) -> Result<(), (Option<u64>, KzgError)> {
     let mut cells = Vec::new();
     let mut proofs = Vec::new();
     let mut column_indices = Vec::new();
@@ -90,6 +92,59 @@ where
 
         for &commitment in kzg_commitments.iter() {
             commitments.push(commitment.0);
+        }
+
+        let expected_len = column_indices.len();
+
+        // We make this check at each iteration so that the error is attributable to a specific column
+        if cells.len() != expected_len
+            || proofs.len() != expected_len
+            || commitments.len() != expected_len
+        {
+            return Err((
+                Some(col_index),
+                KzgError::InconsistentArrayLength("Invalid data column".to_string()),
+            ));
+        }
+    }
+
+    kzg.verify_cell_proof_batch(&cells, &proofs, column_indices, &commitments)
+}
+
+/// Validate a batch of partial `VerifiablePartialDataColumn`s.
+///
+/// Partial columns may have missing cells, indicated by a bitmap. We only verify present cells.
+pub fn validate_partial_data_columns<'a, E: EthSpec>(
+    kzg: &Kzg,
+    data_column_iter: impl Iterator<Item = (ColumnIndex, PartialDataColumnSidecarRef<'a, E>)>,
+    kzg_commitments: &[KzgCommitment],
+) -> Result<(), (Option<u64>, KzgError)> {
+    let mut cells = Vec::new();
+    let mut proofs = Vec::new();
+    let mut column_indices = Vec::new();
+    let mut commitments = Vec::new();
+
+    for (col_index, sidecar) in data_column_iter {
+        if sidecar.column.is_empty() {
+            return Err((Some(col_index), KzgError::KzgVerificationFailed));
+        }
+
+        // Partial columns have a bitmap indicating present cells
+        // We iterate over the bitmap and only process present cells
+        let mut present_iterator = sidecar.column.iter().zip(sidecar.kzg_proofs.iter());
+        for (present, commitment) in sidecar.cells_present_bitmap.iter().zip(kzg_commitments) {
+            if present {
+                let (cell, proof) = present_iterator.next().ok_or((
+                    Some(col_index),
+                    KzgError::InconsistentArrayLength(
+                        "Partial column has fewer cells than bitmap indicates".to_string(),
+                    ),
+                ))?;
+                cells.push(ssz_cell_to_crypto_cell::<E>(cell).map_err(|e| (Some(col_index), e))?);
+                column_indices.push(col_index);
+                proofs.push(proof.0);
+                commitments.push(commitment.0);
+            }
         }
 
         let expected_len = column_indices.len();
@@ -241,6 +296,46 @@ pub fn blobs_to_data_column_sidecars<E: EthSpec>(
     }
 }
 
+/// Build data column sidecars from a signed beacon block and its blobs.
+#[instrument(skip_all, level = "debug", fields(blob_count = blobs_and_proofs.len()))]
+pub fn blobs_to_partial_data_columns<E: EthSpec>(
+    blobs_and_proofs: Vec<Option<(&Blob<E>, &[KzgProof])>>,
+    header: &PartialDataColumnHeader<E>,
+    kzg: &Kzg,
+    spec: &ChainSpec,
+) -> Result<Vec<PartialDataColumn<E>>, DataColumnSidecarError> {
+    if blobs_and_proofs.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let blob_cells_and_proofs_vec = blobs_and_proofs
+        .into_par_iter()
+        .map(|maybe_blob_and_proofs| {
+            let Some((blob, proofs)) = maybe_blob_and_proofs else {
+                return Ok(None);
+            };
+
+            let blob = blob.as_ref().try_into().map_err(|e| {
+                KzgError::InconsistentArrayLength(format!(
+                    "blob should have a guaranteed size due to FixedVector: {e:?}"
+                ))
+            })?;
+
+            kzg.compute_cells(blob).and_then(|cells| {
+                let proofs = proofs.try_into().map_err(|e| {
+                    KzgError::InconsistentArrayLength(format!(
+                        "proof chunks should have exactly `number_of_columns` proofs: {e:?}"
+                    ))
+                })?;
+                Ok(Some((cells, proofs)))
+            })
+        })
+        .collect::<Result<Vec<_>, KzgError>>()?;
+
+    build_partial_data_columns(header, blob_cells_and_proofs_vec, spec)
+        .map_err(DataColumnSidecarError::BuildSidecarFailed)
+}
+
 pub fn compute_cells<E: EthSpec>(blobs: &[&Blob<E>], kzg: &Kzg) -> Result<Vec<KzgCell>, KzgError> {
     let cells_vec = blobs
         .into_par_iter()
@@ -330,7 +425,6 @@ pub(crate) fn build_data_column_sidecars_fulu<E: EthSpec>(
 
     sidecars
 }
-
 pub(crate) fn build_data_column_sidecars_gloas<E: EthSpec>(
     beacon_block_root: Hash256,
     slot: Slot,
@@ -391,6 +485,87 @@ pub(crate) fn build_data_column_sidecars_gloas<E: EthSpec>(
                 })))
             },
         )
+        .collect();
+
+    sidecars
+}
+
+pub(crate) fn build_partial_data_columns<E: EthSpec>(
+    header: &PartialDataColumnHeader<E>,
+    blob_cells_and_proofs_vec: Vec<Option<CellsAndKzgProofs>>,
+    spec: &ChainSpec,
+) -> Result<Vec<PartialDataColumn<E>>, String> {
+    let number_of_columns = E::number_of_columns();
+    let max_blobs_per_block =
+        spec.max_blobs_per_block(header.slot().epoch(E::slots_per_epoch())) as usize;
+    let mut bitmap =
+        CellBitmap::<E>::with_capacity(blob_cells_and_proofs_vec.len()).map_err(|_| {
+            format!(
+                "Exceeded max committment count: {} (got {})",
+                E::max_blob_commitments_per_block(),
+                blob_cells_and_proofs_vec.len()
+            )
+        })?;
+    let mut columns = vec![Vec::with_capacity(max_blobs_per_block); number_of_columns];
+    let mut column_kzg_proofs = vec![Vec::with_capacity(max_blobs_per_block); number_of_columns];
+
+    for (idx, maybe_cells_and_proofs) in blob_cells_and_proofs_vec.into_iter().enumerate() {
+        let Some((blob_cells, blob_cell_proofs)) = maybe_cells_and_proofs else {
+            continue;
+        };
+
+        bitmap
+            .set(idx, true)
+            .expect("bitmap constructed from iterator length above");
+
+        // we iterate over each column, and we construct the column from "top to bottom",
+        // pushing on the cell and the corresponding proof at each column index. we do this for
+        // each blob (i.e. the outer loop).
+        for col in 0..number_of_columns {
+            let cell = blob_cells
+                .get(col)
+                .ok_or(format!("Missing blob cell at index {col}"))?;
+            let cell: Vec<u8> = cell.to_vec();
+            let cell =
+                Cell::<E>::try_from(cell).map_err(|e| format!("BytesPerCell exceeded: {e:?}"))?;
+
+            let proof = blob_cell_proofs
+                .get(col)
+                .ok_or(format!("Missing blob cell KZG proof at index {col}"))?;
+
+            let column = columns
+                .get_mut(col)
+                .ok_or(format!("Missing data column at index {col}"))?;
+            let column_proofs = column_kzg_proofs
+                .get_mut(col)
+                .ok_or(format!("Missing data column proofs at index {col}"))?;
+
+            column.push(cell);
+            column_proofs.push(*proof);
+        }
+    }
+
+    let block_root = header.signed_block_header.message.canonical_root();
+
+    let sidecars: Result<Vec<PartialDataColumn<E>>, String> = columns
+        .into_iter()
+        .zip(column_kzg_proofs)
+        .enumerate()
+        .map(|(index, (col, proofs))| {
+            let column = PartialDataColumn {
+                block_root,
+                index: index as u64,
+                sidecar: types::data::PartialDataColumnSidecar {
+                    cells_present_bitmap: bitmap.clone(),
+                    column: VariableList::try_from(col)
+                        .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
+                    kzg_proofs: VariableList::try_from(proofs)
+                        .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
+                    header: None.into(),
+                },
+            };
+            Ok(column)
+        })
         .collect();
 
     sidecars
@@ -473,21 +648,9 @@ pub fn reconstruct_blobs<E: EthSpec>(
             let blob = Blob::<E>::new(blob_bytes).map_err(|e| format!("{e:?}"))?;
             let kzg_proof = KzgProof::empty();
 
-            BlobSidecar::<E>::new_with_existing_proof(
-                row_index,
-                blob,
-                signed_block,
-                first_data_column
-                    .signed_block_header()
-                    .map_err(|e| format!("{e:?}"))?
-                    .clone(),
-                first_data_column
-                    .kzg_commitments_inclusion_proof()
-                    .map_err(|e| format!("{e:?}"))?,
-                kzg_proof,
-            )
-            .map(Arc::new)
-            .map_err(|e| format!("{e:?}"))
+            BlobSidecar::<E>::new_with_existing_proof(row_index, blob, signed_block, kzg_proof)
+                .map(Arc::new)
+                .map_err(|e| format!("{e:?}"))
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -566,7 +729,7 @@ pub fn reconstruct_data_columns<E: EthSpec>(
 mod test {
     use crate::kzg_utils::{
         blobs_to_data_column_sidecars, reconstruct_blobs, reconstruct_data_columns,
-        validate_data_columns,
+        validate_full_data_columns,
     };
     use bls::Signature;
     use eth2::types::BlobsBundle;
@@ -605,7 +768,7 @@ mod test {
             blobs_to_data_column_sidecars(&blob_refs, proofs.to_vec(), &signed_block, kzg, spec)
                 .unwrap();
 
-        let result = validate_data_columns::<E, _>(kzg, column_sidecars.iter());
+        let result = validate_full_data_columns(kzg, column_sidecars.iter());
         assert!(result.is_ok());
     }
 

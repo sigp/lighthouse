@@ -70,7 +70,7 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
 
     let graffiti_settings = GraffitiSettings::new(query.graffiti, query.graffiti_policy);
 
-    let (block, _pending_state, consensus_block_value) = chain
+    let (block, _block_state, consensus_block_value) = chain
         .produce_block_with_verification_gloas(
             randao_reveal,
             slot,
