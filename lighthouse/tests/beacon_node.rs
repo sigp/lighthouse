@@ -1,7 +1,7 @@
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use beacon_node::beacon_chain::chain_config::{
-    DEFAULT_RE_ORG_CUTOFF_DENOMINATOR, DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
-    DEFAULT_SYNC_TOLERANCE_EPOCHS, DisallowedReOrgOffsets, ReOrgThreshold,
+    DEFAULT_RE_ORG_CUTOFF_DENOMINATOR, DEFAULT_SYNC_TOLERANCE_EPOCHS, DisallowedReOrgOffsets,
+    ReOrgThreshold,
 };
 use beacon_node::beacon_chain::custody_context::NodeCustodyType;
 use beacon_node::{
@@ -2348,10 +2348,11 @@ fn enable_proposer_re_orgs_default() {
                 .reorg_head_weight_threshold
                 .map(ReOrgThreshold);
             assert_eq!(config.chain.re_org_head_threshold, expected);
-            assert_eq!(
-                config.chain.re_org_max_epochs_since_finalization,
-                DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
-            );
+            let expected = types::ChainSpec::mainnet()
+                .reorg_max_epochs_since_finalization
+                .map(Epoch::new)
+                .unwrap();
+            assert_eq!(config.chain.re_org_max_epochs_since_finalization, expected,);
             assert_eq!(
                 config.chain.re_org_cutoff(Duration::from_secs(12)),
                 Duration::from_secs(12) / DEFAULT_RE_ORG_CUTOFF_DENOMINATOR
@@ -2367,19 +2368,6 @@ fn disable_proposer_re_orgs() {
         .with_config(|config| {
             assert_eq!(config.chain.re_org_head_threshold, None);
             assert_eq!(config.chain.re_org_parent_threshold, None)
-        });
-}
-
-#[test]
-fn proposer_re_org_max_epochs_since_finalization() {
-    CommandLineTest::new()
-        .flag("proposer-reorg-epochs-since-finalization", Some("8"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.re_org_max_epochs_since_finalization.as_u64(),
-                8
-            )
         });
 }
 

@@ -1316,16 +1316,6 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("proposer-reorg-epochs-since-finalization")
-                .long("proposer-reorg-epochs-since-finalization")
-                .action(ArgAction::Set)
-                .value_name("EPOCHS")
-                .help("Maximum number of epochs since finalization at which proposer reorgs are \
-                       allowed. Default: 2")
-                .conflicts_with("disable-proposer-reorgs")
-                .display_order(0)
-        )
-        .arg(
             Arg::new("proposer-reorg-cutoff")
                 .long("proposer-reorg-cutoff")
                 .value_name("MILLISECONDS")

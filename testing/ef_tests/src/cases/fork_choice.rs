@@ -4,9 +4,7 @@ use ::fork_choice::{PayloadVerificationStatus, ProposerHeadError};
 use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
 use beacon_chain::blob_verification::GossipBlobError;
 use beacon_chain::block_verification_types::LookupBlock;
-use beacon_chain::chain_config::{
-    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DisallowedReOrgOffsets, ReOrgThreshold,
-};
+use beacon_chain::chain_config::{DisallowedReOrgOffsets, ReOrgThreshold};
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::{
@@ -32,9 +30,9 @@ use std::time::Duration;
 use types::{
     Attestation, AttestationRef, AttesterSlashing, AttesterSlashingRef, BeaconBlock, BeaconState,
     BlobSidecar, BlobsList, BlockImportSource, Checkpoint, DataColumnSidecar,
-    DataColumnSidecarList, DataColumnSubnetId, ExecutionBlockHash, Hash256, IndexedAttestation,
-    KzgProof, ProposerPreparationData, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
-    Uint256,
+    DataColumnSidecarList, DataColumnSubnetId, Epoch, ExecutionBlockHash, Hash256,
+    IndexedAttestation, KzgProof, ProposerPreparationData, SignedBeaconBlock,
+    SignedExecutionPayloadEnvelope, Slot, Uint256,
 };
 
 // When set to true, cache any states fetched from the db.
@@ -987,7 +985,10 @@ impl<E: EthSpec> Tester<E> {
                 .map(ReOrgThreshold)
                 .unwrap(),
             &DisallowedReOrgOffsets::default(),
-            DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
+            self.spec
+                .reorg_max_epochs_since_finalization
+                .map(Epoch::new)
+                .unwrap(),
         );
         let proposer_head = match proposer_head_result {
             Ok(head) => head.parent_node.root(),

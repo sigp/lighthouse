@@ -5,7 +5,6 @@ use std::str::FromStr;
 use std::{collections::HashSet, sync::LazyLock, time::Duration};
 use types::{Checkpoint, Epoch, Hash256};
 
-pub const DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION: Epoch = Epoch::new(2);
 /// Default to 1/12th of the slot, which is 1 second on mainnet.
 pub const DEFAULT_RE_ORG_CUTOFF_DENOMINATOR: u32 = 12;
 pub const DEFAULT_FORK_CHOICE_BEFORE_PROPOSAL_TIMEOUT: u64 = 250;
@@ -134,7 +133,7 @@ impl Default for ChainConfig {
             max_network_size: 10 * 1_048_576, // 10M
             re_org_head_threshold: None,
             re_org_parent_threshold: None,
-            re_org_max_epochs_since_finalization: DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
+            re_org_max_epochs_since_finalization: Epoch::new(2),
             re_org_cutoff_millis: None,
             re_org_disallowed_offsets: DisallowedReOrgOffsets::default(),
             fork_choice_before_proposal_timeout_ms: DEFAULT_FORK_CHOICE_BEFORE_PROPOSAL_TIMEOUT,
