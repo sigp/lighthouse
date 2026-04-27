@@ -46,7 +46,7 @@ use ssz::{Decode, Encode};
 use std::fmt;
 use std::future::Future;
 use std::time::Duration;
-use types::PayloadAttestationData;
+use types::{PayloadAttestationData, PayloadAttestationMessage};
 
 pub const V1: EndpointVersion = EndpointVersion(1);
 pub const V2: EndpointVersion = EndpointVersion(2);
@@ -1785,6 +1785,48 @@ impl BeaconNodeHttpClient {
             .push("sync_committees");
 
         self.post(path, &signatures).await?;
+
+        Ok(())
+    }
+
+    /// `POST beacon/pool/payload_attestations` (JSON)
+    pub async fn post_beacon_pool_payload_attestations(
+        &self,
+        messages: &[PayloadAttestationMessage],
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("pool")
+            .push("payload_attestations");
+
+        self.post_generic_with_consensus_version(path, &messages, None, fork_name)
+            .await?;
+
+        Ok(())
+    }
+
+    /// `POST beacon/pool/payload_attestations` (SSZ)
+    pub async fn post_beacon_pool_payload_attestations_ssz(
+        &self,
+        messages: &[PayloadAttestationMessage],
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("pool")
+            .push("payload_attestations");
+
+        let ssz_body: Vec<u8> = messages.iter().flat_map(|m| m.as_ssz_bytes()).collect();
+
+        self.post_generic_with_consensus_version_and_ssz_body(path, ssz_body, None, fork_name)
+            .await?;
 
         Ok(())
     }
