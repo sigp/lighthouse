@@ -1,7 +1,6 @@
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use beacon_node::beacon_chain::chain_config::{
     DEFAULT_RE_ORG_CUTOFF_DENOMINATOR, DEFAULT_SYNC_TOLERANCE_EPOCHS, DisallowedReOrgOffsets,
-    ReOrgThreshold,
 };
 use beacon_node::beacon_chain::custody_context::NodeCustodyType;
 use beacon_node::{
