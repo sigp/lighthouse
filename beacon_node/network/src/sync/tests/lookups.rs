@@ -37,7 +37,7 @@ use tokio::sync::mpsc;
 use tracing::info;
 use types::{
     BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, EthSpec, ForkContext, ForkName,
-    Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
+    Hash256, MinimalEthSpec as E, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
     test_utils::{SeedableRng, XorShiftRng},
 };
 
@@ -209,6 +209,9 @@ pub(crate) struct TestRigConfig {
     fulu_test_type: FuluTestType,
     /// Override the node custody type derived from `fulu_test_type`
     node_custody_type_override: Option<NodeCustodyType>,
+    /// Override the number of validators in the harness genesis state. Defaults to 1.
+    /// Some forks (e.g. Gloas) cannot initialise a state with a single validator.
+    validator_count_override: Option<usize>,
 }
 
 impl TestRig {
@@ -222,9 +225,9 @@ impl TestRig {
         );
 
         // Initialise a new beacon chain
-        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
+        let mut builder = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
             .spec(spec.clone())
-            .deterministic_keypairs(1)
+            .deterministic_keypairs(test_rig_config.validator_count_override.unwrap_or(1))
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .testing_slot_clock(clock.clone())
@@ -232,8 +235,17 @@ impl TestRig {
                 test_rig_config
                     .node_custody_type_override
                     .unwrap_or_else(|| test_rig_config.fulu_test_type.we_node_custody_type()),
-            )
-            .build();
+            );
+        // Post-Electra forks need validators with effective balance close to
+        // `max_effective_balance_electra` for balance-weighted committee
+        // selection (sync committee, PTC) to converge during genesis.
+        if spec.electra_fork_epoch == Some(types::Epoch::new(0)) {
+            let max_eb = spec.max_effective_balance_electra;
+            builder = builder.with_genesis_state_builder(move |b| {
+                b.set_initial_balance_fn(Box::new(move |_| max_eb))
+            });
+        }
+        let harness = builder.build();
 
         let chain = harness.chain.clone();
         let fork_context = Arc::new(ForkContext::new::<E>(
@@ -305,6 +317,7 @@ impl TestRig {
             fork_name,
             network_blocks_by_root: <_>::default(),
             network_blocks_by_slot: <_>::default(),
+            network_envelopes_by_root: <_>::default(),
             penalties: <_>::default(),
             seen_lookups: <_>::default(),
             requests: <_>::default(),
@@ -319,6 +332,7 @@ impl TestRig {
         Self::new(TestRigConfig {
             fulu_test_type: FuluTestType::WeFullnodeThemSupernode,
             node_custody_type_override: None,
+            validator_count_override: None,
         })
     }
 
@@ -327,6 +341,7 @@ impl TestRig {
         Self::new(TestRigConfig {
             fulu_test_type: FuluTestType::WeFullnodeThemSupernode,
             node_custody_type_override: Some(node_custody_type),
+            validator_count_override: None,
         })
     }
 
@@ -429,9 +444,9 @@ impl TestRig {
                             process_fn.await
                         }
                     }
-                    Work::RpcBlobs { process_fn } | Work::RpcCustodyColumn(process_fn) => {
-                        process_fn.await
-                    }
+                    Work::RpcBlobs { process_fn }
+                    | Work::RpcCustodyColumn(process_fn)
+                    | Work::RpcPayloadEnvelope { process_fn } => process_fn.await,
                     Work::ChainSegment {
                         process_fn,
                         process_id: (chain_id, batch_epoch),
@@ -671,6 +686,27 @@ impl TestRig {
                 self.send_rpc_columns_response(req_id, peer_id, &columns);
             }
 
+            (RequestType::PayloadEnvelopesByRoot(req), AppRequestId::Sync(req_id)) => {
+                if self.complete_strategy.return_no_data_n_times > 0 {
+                    self.complete_strategy.return_no_data_n_times -= 1;
+                    return self.send_rpc_envelopes_response(req_id, peer_id, &[]);
+                }
+
+                let envelopes = req
+                    .beacon_block_roots
+                    .iter()
+                    .map(|block_root| {
+                        self.network_envelopes_by_root
+                            .get(block_root)
+                            .unwrap_or_else(|| {
+                                panic!("Test consumer requested unknown envelope: {block_root:?}")
+                            })
+                            .clone()
+                    })
+                    .collect::<Vec<_>>();
+                self.send_rpc_envelopes_response(req_id, peer_id, &envelopes);
+            }
+
             (RequestType::BlocksByRange(req), AppRequestId::Sync(req_id)) => {
                 if self.complete_strategy.skip_by_range_routes {
                     return;
@@ -894,6 +930,36 @@ impl TestRig {
         });
     }
 
+    fn send_rpc_envelopes_response(
+        &mut self,
+        sync_request_id: SyncRequestId,
+        peer_id: PeerId,
+        envelopes: &[Arc<SignedExecutionPayloadEnvelope<E>>],
+    ) {
+        let block_roots = envelopes
+            .iter()
+            .map(|e| e.beacon_block_root())
+            .collect::<Vec<_>>();
+        self.log(&format!(
+            "Completing request {sync_request_id:?} to {peer_id} with envelopes for {block_roots:?}"
+        ));
+
+        for envelope in envelopes {
+            self.push_sync_message(SyncMessage::RpcPayloadEnvelope {
+                sync_request_id,
+                peer_id,
+                envelope: Some(envelope.clone()),
+                seen_timestamp: D,
+            });
+        }
+        self.push_sync_message(SyncMessage::RpcPayloadEnvelope {
+            sync_request_id,
+            peer_id,
+            envelope: None,
+            seen_timestamp: D,
+        });
+    }
+
     fn send_rpc_columns_response(
         &mut self,
         sync_request_id: SyncRequestId,
@@ -936,16 +1002,25 @@ impl TestRig {
     pub(super) async fn build_chain(&mut self, block_count: usize) -> Hash256 {
         let mut blocks = vec![];
 
-        // Initialise a new beacon chain
-        let external_harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
+        // Initialise a new beacon chain. Match the local harness's validator count and
+        // balance hooks so post-Electra forks (where genesis-time committee selection is
+        // balance-weighted) can initialise.
+        let validator_count = self.harness.validator_keypairs.len();
+        let mut builder = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
             .spec(self.harness.spec.clone())
-            .deterministic_keypairs(1)
+            .deterministic_keypairs(validator_count)
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .testing_slot_clock(self.harness.chain.slot_clock.clone())
             // Make the external harness a supernode so all columns are available
-            .node_custody_type(NodeCustodyType::Supernode)
-            .build();
+            .node_custody_type(NodeCustodyType::Supernode);
+        if self.harness.spec.electra_fork_epoch == Some(types::Epoch::new(0)) {
+            let max_eb = self.harness.spec.max_effective_balance_electra;
+            builder = builder.with_genesis_state_builder(move |b| {
+                b.set_initial_balance_fn(Box::new(move |_| max_eb))
+            });
+        }
+        let external_harness = builder.build();
         // Ensure all blocks have data. Otherwise, the triggers for unknown blob parent and unknown
         // data column parent fail.
         external_harness
@@ -974,6 +1049,14 @@ impl TestRig {
             self.network_blocks_by_root
                 .insert(block_root, block.clone());
             self.network_blocks_by_slot.insert(block_slot, block);
+            // Post-Gloas, also capture the execution payload envelope so peers can serve it.
+            if self.is_after_gloas()
+                && let Ok(Some(envelope)) =
+                    external_harness.chain.store.get_payload_envelope(&block_root)
+            {
+                self.network_envelopes_by_root
+                    .insert(block_root, Arc::new(envelope));
+            }
             self.log(&format!(
                 "Produced block {} index {i} in external harness",
                 block_slot,
@@ -1444,6 +1527,7 @@ impl TestRig {
             Self::new(TestRigConfig {
                 fulu_test_type,
                 node_custody_type_override: None,
+                validator_count_override: None,
             })
         })
     }
@@ -1458,6 +1542,22 @@ impl TestRig {
 
     pub fn is_after_fulu(&self) -> bool {
         self.fork_name.fulu_enabled()
+    }
+
+    pub fn is_after_gloas(&self) -> bool {
+        self.fork_name.gloas_enabled()
+    }
+
+    fn new_after_gloas() -> Option<Self> {
+        // Gloas requires more than 1 validator to initialise the genesis state
+        // (committee/sampling computations fail with `InvalidIndicesCount`).
+        genesis_fork().gloas_enabled().then(|| {
+            Self::new(TestRigConfig {
+                fulu_test_type: FuluTestType::WeFullnodeThemSupernode,
+                node_custody_type_override: None,
+                validator_count_override: Some(1024),
+            })
+        })
     }
 
     fn trigger_unknown_parent_block(&mut self, peer_id: PeerId, block: Arc<SignedBeaconBlock<E>>) {
@@ -1480,6 +1580,18 @@ impl TestRig {
     fn trigger_unknown_block_from_attestation(&mut self, block_root: Hash256, peer_id: PeerId) {
         self.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
             peer_id, block_root,
+        ));
+    }
+
+    /// Trigger an envelope-unknown lookup for the last block in the chain. Caller is
+    /// expected to have already imported the parent block (via `import_blocks_up_to_slot`)
+    /// without registering its envelope.
+    fn trigger_with_last_unknown_parent_envelope(&mut self) {
+        let peer_id = self.new_connected_supernode_peer();
+        let last_block = self.get_last_block().block_cloned();
+        let block_root = last_block.canonical_root();
+        self.send_sync_message(SyncMessage::UnknownParentEnvelope(
+            peer_id, last_block, block_root,
         ));
     }
 
@@ -2638,4 +2750,91 @@ async fn crypto_on_fail_with_bad_column_kzg_proof() {
         r.assert_failed_lookup_sync();
         r.assert_penalties_of_type("lookup_custody_column_processing_failure");
     }
+}
+
+// ---------------------------------------------------------------------------
+// Gloas: parent envelope unknown lookup
+// ---------------------------------------------------------------------------
+//
+// These tests exercise the lookup-sync state machine introduced in PR #9039:
+// when a gossip block's parent execution payload envelope is missing,
+// `SyncManager` is expected to create two single-block lookups — an envelope-only
+// lookup for the parent block_root and a "child" lookup that holds the gossip
+// block and waits on `AwaitingParent::Envelope(parent_root)`. The envelope-only
+// lookup issues a `PayloadEnvelopesByRoot` RPC; on completion it unblocks the
+// child via `continue_envelope_child_lookups`.
+//
+// The tests below cover lookup creation, RPC routing, and drop-cascade
+// behaviour. The end-to-end happy path is gated on
+// `process_execution_payload_envelope` supporting `AvailabilityPending` (today
+// it returns `InternalError("Pending payload envelope not yet implemented")`),
+// which is tracked separately. See `process_rpc_envelope` in `sync_methods.rs`.
+
+/// Builds a 2-block gloas chain in the external harness and locally imports block 1
+/// (parent) WITHOUT registering its envelope, leaving `is_payload_received(parent_root)`
+/// false — the precondition for `BlockError::ParentEnvelopeUnknown`.
+async fn setup_unknown_parent_envelope_scenario() -> Option<TestRig> {
+    let mut r = TestRig::new_after_gloas()?;
+    r.build_chain(2).await;
+    r.import_blocks_up_to_slot(1).await;
+    Some(r)
+}
+
+fn payload_envelope_request_count(rig: &TestRig) -> usize {
+    rig.requests
+        .iter()
+        .filter(|(request, _)| matches!(request, RequestType::PayloadEnvelopesByRoot(_)))
+        .count()
+}
+
+/// Triggering `UnknownParentEnvelope` creates exactly two lookups: an envelope-only
+/// lookup for the parent and a child lookup for the gossip block awaiting that envelope.
+#[tokio::test]
+async fn unknown_parent_envelope_creates_envelope_and_child_lookups() {
+    let Some(mut r) = setup_unknown_parent_envelope_scenario().await else {
+        return;
+    };
+    r.trigger_with_last_unknown_parent_envelope();
+    r.assert_single_lookups_count(2);
+}
+
+/// Repeated `UnknownParentEnvelope` triggers for the same parent must not spawn extra
+/// lookups (peers are merged into the existing envelope lookup).
+#[tokio::test]
+async fn unknown_parent_envelope_idempotent_triggers() {
+    let Some(mut r) = setup_unknown_parent_envelope_scenario().await else {
+        return;
+    };
+    r.trigger_with_last_unknown_parent_envelope();
+    r.trigger_with_last_unknown_parent_envelope();
+    r.assert_single_lookups_count(2);
+}
+
+/// The envelope-only lookup must dispatch a `PayloadEnvelopesByRoot` RPC for the
+/// parent block_root.
+#[tokio::test]
+async fn unknown_parent_envelope_issues_payload_envelopes_by_root_rpc() {
+    let Some(mut r) = setup_unknown_parent_envelope_scenario().await else {
+        return;
+    };
+    r.trigger_with_last_unknown_parent_envelope();
+    r.simulate(SimulateConfig::new()).await;
+    assert_eq!(
+        payload_envelope_request_count(&r),
+        1,
+        "expected exactly one PayloadEnvelopesByRoot request"
+    );
+}
+
+/// If the envelope RPC errors out, the envelope-only lookup is dropped and the
+/// drop cascades to the awaiting child lookup.
+#[tokio::test]
+async fn unknown_parent_envelope_drops_cascade_on_rpc_error() {
+    let Some(mut r) = setup_unknown_parent_envelope_scenario().await else {
+        return;
+    };
+    r.trigger_with_last_unknown_parent_envelope();
+    r.simulate(SimulateConfig::new().return_rpc_error(RPCError::IoError("test".into())))
+        .await;
+    r.assert_failed_lookup_sync();
 }
