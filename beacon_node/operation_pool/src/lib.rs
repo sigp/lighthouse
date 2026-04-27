@@ -217,16 +217,20 @@ impl<E: EthSpec> OperationPool<E> {
         Ok(())
     }
 
-    /// Build aggregated `PayloadAttestation`s from stored messages for block production.
+    /// Build `PayloadAttestation`s from stored messages for block production.
     ///
     /// `parent_block_root` is the root of the parent block (the block PTC members attested to).
-    /// Returns up to `MAX_PAYLOAD_ATTESTATIONS` attestations for the previous slot.
+    /// Returns one `PayloadAttestation` per distinct `PayloadAttestationData`. With two boolean
+    /// fields this yields at most 4, which equals `MAX_PAYLOAD_ATTESTATIONS`.
     pub fn get_payload_attestations(
         &self,
         state: &BeaconState<E>,
         parent_block_root: Hash256,
         spec: &ChainSpec,
     ) -> Result<Vec<PayloadAttestation<E>>, OpPoolError> {
+        if state.slot() == 0 {
+            return Ok(vec![]);
+        }
         let target_slot = state.slot().saturating_sub(1u64);
 
         let ptc = state
@@ -249,13 +253,12 @@ impl<E: EthSpec> OperationPool<E> {
                     .0
                     .iter()
                     .position(|&idx| idx == msg.validator_index as usize)
+                    && !aggregation_bits.get(pos).unwrap_or(false)
                 {
-                    if !aggregation_bits.get(pos).unwrap_or(false) {
-                        aggregation_bits
-                            .set(pos, true)
-                            .map_err(|_| OpPoolError::PayloadAttestationBitError)?;
-                        aggregate_sig.add_assign(&msg.signature);
-                    }
+                    aggregation_bits
+                        .set(pos, true)
+                        .map_err(|_| OpPoolError::PayloadAttestationBitError)?;
+                    aggregate_sig.add_assign(&msg.signature);
                 }
             }
 
