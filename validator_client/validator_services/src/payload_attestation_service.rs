@@ -101,10 +101,15 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
 
                 sleep(duration_to_next_slot + payload_attestation_due).await;
 
+                let Some(attestation_slot) = self.slot_clock.now() else {
+                    error!("Failed to read slot clock after sleep");
+                    continue;
+                };
+
                 let service = self.clone();
                 self.executor.spawn(
                     async move {
-                        service.produce_and_publish(current_slot).await;
+                        service.produce_and_publish(attestation_slot).await;
                     },
                     "payload_attestation_producer",
                 );
