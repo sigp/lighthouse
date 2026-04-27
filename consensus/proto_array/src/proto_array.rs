@@ -1090,7 +1090,7 @@ impl ProtoArray {
     ///
     /// Returns the set of node indices on viable branches — those with at least
     /// one leaf descendant with correct justified/finalized checkpoints.
-    fn get_filtered_block_tree<E: EthSpec>(
+    pub(crate) fn get_filtered_block_tree<E: EthSpec>(
         &self,
         start_index: usize,
         current_slot: Slot,
