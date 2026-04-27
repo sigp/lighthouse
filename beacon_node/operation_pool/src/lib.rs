@@ -2244,9 +2244,9 @@ mod release_tests {
     #[tokio::test]
     async fn payload_attestation_packs_bits_from_ptc_positions() {
         let spec = test_spec::<MinimalEthSpec>();
-        if !spec.gloas_fork_epoch.is_some_and(|e| e == Epoch::new(0)) {
+        if spec.gloas_fork_epoch.is_none() {
             return;
-        }
+        };
 
         let num_validators = 64;
         let harness = get_harness::<MinimalEthSpec>(num_validators, Some(spec.clone()));
@@ -2301,9 +2301,9 @@ mod release_tests {
     #[tokio::test]
     async fn payload_attestation_filters_wrong_root() {
         let spec = test_spec::<MinimalEthSpec>();
-        if !spec.gloas_fork_epoch.is_some_and(|e| e == Epoch::new(0)) {
+        if spec.gloas_fork_epoch.is_none() {
             return;
-        }
+        };
 
         let num_validators = 64;
         let harness = get_harness::<MinimalEthSpec>(num_validators, Some(spec.clone()));
@@ -2348,9 +2348,9 @@ mod release_tests {
     #[tokio::test]
     async fn payload_attestation_non_ptc_validator_skipped() {
         let spec = test_spec::<MinimalEthSpec>();
-        if !spec.gloas_fork_epoch.is_some_and(|e| e == Epoch::new(0)) {
+        if spec.gloas_fork_epoch.is_none() {
             return;
-        }
+        };
 
         let num_validators = 64;
         let harness = get_harness::<MinimalEthSpec>(num_validators, Some(spec.clone()));
