@@ -184,7 +184,8 @@ pub struct ReOrgTest {
     parent_distance: u64,
     /// Number of slots between head block and block proposal slot.
     head_distance: u64,
-    re_org_threshold: u64,
+    re_org_head_threshold: u64,
+    re_org_parent_threshold: u64,
     max_epochs_since_finalization: u64,
     percent_parent_votes: usize,
     percent_empty_votes: usize,
@@ -204,7 +205,8 @@ impl Default for ReOrgTest {
             head_slot: Slot::new(E::slots_per_epoch() - 2),
             parent_distance: 1,
             head_distance: 1,
-            re_org_threshold: 20,
+            re_org_head_threshold: 20,
+            re_org_parent_threshold: 160,
             max_epochs_since_finalization: 2,
             percent_parent_votes: 100,
             percent_empty_votes: 100,
@@ -390,7 +392,8 @@ pub async fn proposer_boost_re_org_test(
         head_slot,
         parent_distance,
         head_distance,
-        re_org_threshold,
+        re_org_head_threshold,
+        re_org_parent_threshold,
         max_epochs_since_finalization,
         percent_parent_votes,
         percent_empty_votes,
@@ -433,6 +436,7 @@ pub async fn proposer_boost_re_org_test(
         Some(Box::new(move |builder| {
             builder
                 .proposer_re_org_head_threshold(Some(ReOrgThreshold(re_org_threshold)))
+                .proposer_re_org_parent_threshold(Some(ReOrgThreshold(re_org_parent_threshold)))
                 .proposer_re_org_max_epochs_since_finalization(Epoch::new(
                     max_epochs_since_finalization,
                 ))

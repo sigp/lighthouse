@@ -181,6 +181,12 @@ where
         self
     }
 
+    /// Sets the proposer parent re-org threshold
+    pub fn proposer_re_org_parent_threshold(mut self, threshold: Option<ReOrgThreshold>) -> Self {
+        self.chain_config.re_org_parent_threshold = threshold;
+        self
+    }
+
     /// Sets the proposer re-org max epochs since finalization.
     pub fn proposer_re_org_max_epochs_since_finalization(
         mut self,
