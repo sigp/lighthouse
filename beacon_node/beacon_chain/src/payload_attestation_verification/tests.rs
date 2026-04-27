@@ -7,10 +7,7 @@ use genesis::{generate_deterministic_keypairs, interop_genesis_state};
 use parking_lot::RwLock;
 use proto_array::PayloadStatus;
 use slot_clock::{SlotClock, TestingSlotClock};
-<<<<<<< HEAD
-=======
 use state_processing::AllCaches;
->>>>>>> 028b5a42a9715c31f416d45db70add39d9934b12
 use state_processing::genesis::genesis_block;
 use store::{HotColdDB, StoreConfig};
 use types::{
@@ -29,11 +26,7 @@ use crate::{
             GossipVerificationContext, VerifiedPayloadAttestationMessage,
         },
     },
-<<<<<<< HEAD
-    test_utils::{EphemeralHarnessType, fork_name_from_env, test_spec},
-=======
     test_utils::{BeaconChainHarness, EphemeralHarnessType, fork_name_from_env, test_spec},
->>>>>>> 028b5a42a9715c31f416d45db70add39d9934b12
     validator_pubkey_cache::ValidatorPubkeyCache,
 };
 
@@ -334,8 +327,6 @@ fn duplicate_after_valid() {
         Err(PayloadAttestationError::PriorPayloadAttestationMessageKnown { .. })
     ));
 }
-<<<<<<< HEAD
-=======
 
 /// Exercises the `partial_state_advance` fallback in gossip verification when
 /// the head state is too stale to compute PTC membership (e.g., during a
@@ -429,4 +420,3 @@ async fn stale_head_with_partial_advance() {
         result.unwrap_err()
     );
 }
->>>>>>> 028b5a42a9715c31f416d45db70add39d9934b12
