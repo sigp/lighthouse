@@ -230,19 +230,40 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
         }
 
         let count = messages.len();
-        match self
+        let result = self
             .beacon_nodes
             .first_success(|beacon_node| {
                 let messages = messages.clone();
                 async move {
                     beacon_node
-                        .post_beacon_pool_payload_attestations(&messages)
+                        .post_beacon_pool_payload_attestations_ssz(&messages)
                         .await
-                        .map_err(|e| format!("Failed to publish payload attestations: {e:?}"))
+                        .map_err(|e| format!("Failed to publish payload attestations (SSZ): {e:?}"))
                 }
             })
-            .await
-        {
+            .await;
+
+        let result = match result {
+            Ok(()) => Ok(()),
+            Err(_) => {
+                debug!(%slot, "SSZ publish failed, falling back to JSON");
+                self.beacon_nodes
+                    .first_success(|beacon_node| {
+                        let messages = messages.clone();
+                        async move {
+                            beacon_node
+                                .post_beacon_pool_payload_attestations(&messages)
+                                .await
+                                .map_err(|e| {
+                                    format!("Failed to publish payload attestations (JSON): {e:?}")
+                                })
+                        }
+                    })
+                    .await
+            }
+        };
+
+        match result {
             Ok(()) => {
                 info!(
                     %slot,

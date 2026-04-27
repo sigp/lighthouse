@@ -1455,6 +1455,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         })
     }
 
+    /// Sign an `ExecutionPayloadEnvelope` for Gloas (local building).
+    /// The proposer acts as the builder and signs with the BeaconBuilder domain.
     async fn sign_execution_payload_envelope(
         &self,
         validator_pubkey: PublicKeyBytes,
