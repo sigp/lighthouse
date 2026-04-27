@@ -643,7 +643,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
         self.payload_attestation_service
             .clone()
-            .start_update_service(&self.context.eth2_config.spec)
+            .start_update_service()
             .map_err(|e| format!("Unable to start payload attestation service: {}", e))?;
 
         self.preparation_service
