@@ -228,9 +228,6 @@ impl<E: EthSpec> OperationPool<E> {
         parent_block_root: Hash256,
         spec: &ChainSpec,
     ) -> Result<Vec<PayloadAttestation<E>>, OpPoolError> {
-        if state.slot() == 0 {
-            return Ok(vec![]);
-        }
         let target_slot = state.slot().saturating_sub(1u64);
 
         let ptc = state
