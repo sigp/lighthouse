@@ -260,10 +260,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.op_pool.get_slashings_and_exits(&state, &self.spec);
 
         // Filter out voluntary exits that conflict with parent execution requests.
-        // Parent withdrawal/consolidation requests are processed before voluntary
-        // exits during block processing (`process_parent_execution_payload` runs
-        // before `process_operations`) and can initiate validator exits, causing the
-        // voluntary exit assertion failures.
         let mut exited_pubkeys = HashSet::with_capacity(
             parent_execution_requests.withdrawals.len()
                 + parent_execution_requests.consolidations.len(),
