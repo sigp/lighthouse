@@ -79,8 +79,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
                     continue;
                 };
 
-                sleep(duration_to_next_slot + payload_attestation_due).await;
-
                 let Some(current_slot) = self.slot_clock.now() else {
                     error!("Failed to read slot clock after trigger");
                     continue;
@@ -91,25 +89,17 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
                     .fork_name_at_slot::<S::E>(current_slot)
                     .gloas_enabled()
                 {
-                    if let Some(duration_to_next_epoch) = self
+                    let duration_to_next_epoch = self
                         .slot_clock
                         .duration_to_next_epoch(S::E::slots_per_epoch())
-                    {
-                        sleep(duration_to_next_epoch).await;
-                    }
+                        .unwrap_or_else(|| {
+                            self.chain_spec.get_slot_duration() * S::E::slots_per_epoch() as u32
+                        });
+                    sleep(duration_to_next_epoch).await;
                     continue;
                 }
 
-                let duties = self.duties_service.get_ptc_duties_for_slot(current_slot);
-                if duties.is_empty() {
-                    continue;
-                }
-
-                debug!(
-                    %current_slot,
-                    duty_count = duties.len(),
-                    "Producing payload attestations"
-                );
+                sleep(duration_to_next_slot + payload_attestation_due).await;
 
                 let service = self.clone();
                 self.executor.spawn(
@@ -127,6 +117,16 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
 
     async fn produce_and_publish(&self, slot: types::Slot) {
         let duties = self.duties_service.get_ptc_duties_for_slot(slot);
+
+        if duties.is_empty() {
+            return;
+        }
+
+        debug!(
+            %slot,
+            duty_count = duties.len(),
+            "Producing payload attestations"
+        );
 
         let attestation_data = match self
             .beacon_nodes
@@ -184,13 +184,14 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
         }
 
         let count = messages.len();
+        let fork_name = self.chain_spec.fork_name_at_slot(slot);
         let result = self
             .beacon_nodes
             .first_success(|beacon_node| {
                 let messages = messages.clone();
                 async move {
                     beacon_node
-                        .post_beacon_pool_payload_attestations_ssz(&messages)
+                        .post_beacon_pool_payload_attestations_ssz(&messages, fork_name)
                         .await
                         .map_err(|e| format!("Failed to publish payload attestations (SSZ): {e:?}"))
                 }
@@ -206,7 +207,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
                         let messages = messages.clone();
                         async move {
                             beacon_node
-                                .post_beacon_pool_payload_attestations(&messages)
+                                .post_beacon_pool_payload_attestations(&messages, fork_name)
                                 .await
                                 .map_err(|e| {
                                     format!("Failed to publish payload attestations (JSON): {e:?}")

@@ -1793,6 +1793,7 @@ impl BeaconNodeHttpClient {
     pub async fn post_beacon_pool_payload_attestations(
         &self,
         messages: &[PayloadAttestationMessage],
+        fork_name: ForkName,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -1802,7 +1803,7 @@ impl BeaconNodeHttpClient {
             .push("pool")
             .push("payload_attestations");
 
-        self.post_generic_with_consensus_version(path, &messages, None, ForkName::Gloas)
+        self.post_generic_with_consensus_version(path, &messages, None, fork_name)
             .await?;
 
         Ok(())
@@ -1812,6 +1813,7 @@ impl BeaconNodeHttpClient {
     pub async fn post_beacon_pool_payload_attestations_ssz(
         &self,
         messages: &[PayloadAttestationMessage],
+        fork_name: ForkName,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -1823,13 +1825,8 @@ impl BeaconNodeHttpClient {
 
         let ssz_body: Vec<u8> = messages.iter().flat_map(|m| m.as_ssz_bytes()).collect();
 
-        self.post_generic_with_consensus_version_and_ssz_body(
-            path,
-            ssz_body,
-            None,
-            ForkName::Gloas,
-        )
-        .await?;
+        self.post_generic_with_consensus_version_and_ssz_body(path, ssz_body, None, fork_name)
+            .await?;
 
         Ok(())
     }
