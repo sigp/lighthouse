@@ -7,6 +7,7 @@ use genesis::{generate_deterministic_keypairs, interop_genesis_state};
 use parking_lot::RwLock;
 use proto_array::PayloadStatus;
 use slot_clock::{SlotClock, TestingSlotClock};
+use state_processing::AllCaches;
 use state_processing::genesis::genesis_block;
 use store::{HotColdDB, StoreConfig};
 use types::{
@@ -25,7 +26,7 @@ use crate::{
             GossipVerificationContext, VerifiedPayloadAttestationMessage,
         },
     },
-    test_utils::{EphemeralHarnessType, fork_name_from_env, test_spec},
+    test_utils::{BeaconChainHarness, EphemeralHarnessType, fork_name_from_env, test_spec},
     validator_pubkey_cache::ValidatorPubkeyCache,
 };
 
@@ -325,4 +326,97 @@ fn duplicate_after_valid() {
         result2,
         Err(PayloadAttestationError::PriorPayloadAttestationMessageKnown { .. })
     ));
+}
+
+/// Exercises the `partial_state_advance` fallback in gossip verification when
+/// the head state is too stale to compute PTC membership (e.g., during a
+/// network liveness failure with many missed slots).
+#[tokio::test]
+async fn stale_head_with_partial_advance() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let slots_per_epoch = E::slots_per_epoch();
+    // Head at epoch 1, message at epoch 5 — 4 epochs of missed slots.
+    // This exceeds min_seed_lookahead (1), triggering the fallback path:
+    // get_advanced_hot_state loads the stored state, then partial_state_advance
+    // advances it through epoch boundaries to populate ptc_window.
+    let head_slot = Slot::new(slots_per_epoch);
+    let missed_epochs = 4;
+    let target_slot = Slot::new(slots_per_epoch * (1 + missed_epochs));
+    let target_epoch = target_slot.epoch(slots_per_epoch);
+
+    // GIVEN a chain with blocks through epoch 1 (so the store has states).
+    let harness = BeaconChainHarness::builder(E::default())
+        .default_spec()
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+    harness.extend_to_slot(head_slot).await;
+
+    let head = harness.chain.canonical_head.cached_head();
+    let head_epoch = head.snapshot.beacon_state.current_epoch();
+    assert!(
+        target_epoch > head_epoch + harness.spec.min_seed_lookahead,
+        "precondition: message epoch must exceed head + min_seed_lookahead to trigger fallback"
+    );
+
+    // GIVEN a slot clock advanced to epoch 5 without producing blocks
+    // (simulating missed slots during a liveness failure).
+    harness.chain.slot_clock.set_slot(target_slot.as_u64());
+
+    // Advance a reference state to compute the PTC at the target slot.
+    let mut reference_state = head.snapshot.beacon_state.clone();
+    state_processing::state_advance::partial_state_advance(
+        &mut reference_state,
+        Some(head.snapshot.beacon_state_root()),
+        target_slot,
+        &harness.spec,
+    )
+    .expect("should advance reference state");
+    reference_state
+        .build_all_caches(&harness.spec)
+        .expect("should build caches");
+
+    let ptc = reference_state
+        .get_ptc(target_slot, &harness.spec)
+        .expect("should get PTC from reference state");
+    let validator_index = *ptc.0.first().expect("PTC should have at least one member") as u64;
+
+    // WHEN a properly-signed payload attestation from a PTC member is verified.
+    let domain = harness.spec.get_domain(
+        target_epoch,
+        Domain::PTCAttester,
+        &reference_state.fork(),
+        reference_state.genesis_validators_root(),
+    );
+    let data = PayloadAttestationData {
+        beacon_block_root: head.head_block_root(),
+        slot: target_slot,
+        payload_present: true,
+        blob_data_available: true,
+    };
+    let message = data.signing_root(domain);
+    let signature = harness.validator_keypairs[validator_index as usize]
+        .sk
+        .sign(message);
+    let msg = PayloadAttestationMessage {
+        validator_index,
+        data,
+        signature,
+    };
+
+    // THEN verification succeeds despite the head being 4 epochs stale.
+    let result = harness
+        .chain
+        .verify_payload_attestation_message_for_gossip(msg);
+    assert!(
+        result.is_ok(),
+        "expected Ok (head epoch {}, message epoch {}), got: {:?}",
+        head_epoch,
+        target_epoch,
+        result.unwrap_err()
+    );
 }
