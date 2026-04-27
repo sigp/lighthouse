@@ -14,8 +14,6 @@ attestations and transactions that can be included.
 There are three flags which control the re-orging behaviour:
 
 * `--disable-proposer-reorgs`: turn re-orging off (it's on by default).
-* `--proposer-reorg-threshold N`: attempt to orphan blocks with less than N% of the committee vote. If this parameter isn't set then N defaults to 20% when the feature is enabled.
-* `--proposer-reorg-epochs-since-finalization N`: only attempt to re-org late blocks when the number of epochs since finalization is less than or equal to N. The default is 2 epochs,
   meaning re-orgs will only be attempted when the chain is finalizing optimally.
 * `--proposer-reorg-cutoff T`: only attempt to re-org late blocks when the proposal is being made
   before T milliseconds into the slot. Delays between the validator client and the beacon node can
