@@ -1,5 +1,8 @@
 use crate::task_spawner::{Priority, TaskSpawner};
-use crate::utils::{NetworkTxFilter, OptionalConsensusVersionHeaderFilter, ResponseFilter};
+use crate::utils::{
+    ChainFilter, EthV1Filter, NetworkTxFilter, OptionalConsensusVersionHeaderFilter,
+    ResponseFilter, TaskSpawnerFilter,
+};
 use crate::version::{
     ResponseIncludesVersion, V1, V2, add_consensus_version_header, beacon_response,
     unsupported_version_rejection,
@@ -7,11 +10,13 @@ use crate::version::{
 use crate::{sync_committees, utils};
 use beacon_chain::observed_operations::ObservationOutcome;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use bytes::Bytes;
 use eth2::types::{AttestationPoolQuery, EndpointVersion, Failure, GenericResponse};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use operation_pool::ReceivedPreCapella;
 use slot_clock::SlotClock;
+use ssz::{Decode, Encode};
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
@@ -522,9 +527,10 @@ pub fn post_beacon_pool_attestations_v2<T: BeaconChainTypes>(
         .boxed()
 }
 
-/// POST beacon/pool/payload_attestations
+/// POST beacon/pool/payload_attestations (JSON)
 pub fn post_beacon_pool_payload_attestations<T: BeaconChainTypes>(
     network_tx_filter: &NetworkTxFilter<T>,
+    optional_consensus_version_header_filter: OptionalConsensusVersionHeaderFilter,
     beacon_pool_path: &BeaconPoolPathFilter<T>,
 ) -> ResponseFilter {
     beacon_pool_path
@@ -532,23 +538,80 @@ pub fn post_beacon_pool_payload_attestations<T: BeaconChainTypes>(
         .and(warp::path("payload_attestations"))
         .and(warp::path::end())
         .and(warp_utils::json::json())
+        .and(optional_consensus_version_header_filter)
         .and(network_tx_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              _chain: Arc<BeaconChain<T>>,
              messages: Vec<PayloadAttestationMessage>,
+             _fork_name: Option<ForkName>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
-                    // TODO(gloas): add proper verification once payload_attestation_verification is implemented
-                    for message in messages {
-                        utils::publish_pubsub_message(
-                            &network_tx,
-                            PubsubMessage::PayloadAttestation(Box::new(message)),
-                        )?;
-                    }
-                    Ok(())
+                    publish_payload_attestation_messages(&network_tx, messages)
                 })
             },
         )
         .boxed()
+}
+
+/// POST beacon/pool/payload_attestations (SSZ)
+pub fn post_beacon_pool_payload_attestations_ssz<T: BeaconChainTypes>(
+    eth_v1: EthV1Filter,
+    task_spawner_filter: TaskSpawnerFilter<T>,
+    chain_filter: ChainFilter<T>,
+    network_tx_filter: NetworkTxFilter<T>,
+) -> ResponseFilter {
+    eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("pool"))
+        .and(warp::path("payload_attestations"))
+        .and(warp::path::end())
+        .and(warp::body::bytes())
+        .and(task_spawner_filter)
+        .and(chain_filter)
+        .and(network_tx_filter)
+        .then(
+            |body_bytes: Bytes,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             _chain: Arc<BeaconChain<T>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                task_spawner.blocking_json_task(Priority::P0, move || {
+                    let item_len = <PayloadAttestationMessage as Encode>::ssz_fixed_len();
+                    if body_bytes.len() % item_len != 0 {
+                        return Err(warp_utils::reject::custom_bad_request(format!(
+                            "SSZ body length {} is not a multiple of PayloadAttestationMessage size {}",
+                            body_bytes.len(),
+                            item_len,
+                        )));
+                    }
+                    let messages: Vec<PayloadAttestationMessage> = body_bytes
+                        .chunks(item_len)
+                        .map(|chunk| {
+                            PayloadAttestationMessage::from_ssz_bytes(chunk).map_err(|e| {
+                                warp_utils::reject::custom_bad_request(format!(
+                                    "invalid SSZ: {e:?}"
+                                ))
+                            })
+                        })
+                        .collect::<Result<_, _>>()?;
+
+                    publish_payload_attestation_messages(&network_tx, messages)
+                })
+            },
+        )
+        .boxed()
+}
+
+fn publish_payload_attestation_messages<E: types::EthSpec>(
+    network_tx: &UnboundedSender<NetworkMessage<E>>,
+    messages: Vec<PayloadAttestationMessage>,
+) -> Result<(), warp::Rejection> {
+    // TODO(gloas): add proper gossip verification and store in ptc op pool.
+    for message in messages {
+        utils::publish_pubsub_message(
+            network_tx,
+            PubsubMessage::PayloadAttestation(Box::new(message)),
+        )?;
+    }
+    Ok(())
 }

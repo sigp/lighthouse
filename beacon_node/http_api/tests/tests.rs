@@ -2793,6 +2793,62 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_post_beacon_pool_payload_attestations_valid(mut self) -> Self {
+        let slot = self.chain.slot().unwrap();
+        let head_root = self.chain.head_beacon_block_root();
+
+        let message = PayloadAttestationMessage {
+            validator_index: 0,
+            data: PayloadAttestationData {
+                beacon_block_root: head_root,
+                slot,
+                payload_present: true,
+                blob_data_available: true,
+            },
+            signature: Signature::empty(),
+        };
+
+        self.client
+            .post_beacon_pool_payload_attestations(&[message])
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid payload attestation should be sent to network"
+        );
+
+        self
+    }
+
+    pub async fn test_post_beacon_pool_payload_attestations_valid_ssz(mut self) -> Self {
+        let slot = self.chain.slot().unwrap();
+        let head_root = self.chain.head_beacon_block_root();
+
+        let message = PayloadAttestationMessage {
+            validator_index: 0,
+            data: PayloadAttestationData {
+                beacon_block_root: head_root,
+                slot,
+                payload_present: true,
+                blob_data_available: true,
+            },
+            signature: Signature::empty(),
+        };
+
+        self.client
+            .post_beacon_pool_payload_attestations_ssz(&[message])
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid payload attestation (SSZ) should be sent to network"
+        );
+
+        self
+    }
+
     pub async fn test_get_config_fork_schedule(self) -> Self {
         let result = self.client.get_config_fork_schedule().await.unwrap().data;
 
@@ -8243,6 +8299,19 @@ async fn get_validator_payload_attestation_data_pre_gloas() {
     ApiTester::new()
         .await
         .test_get_validator_payload_attestation_data_pre_gloas()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_beacon_pool_payload_attestations_valid() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    ApiTester::new()
+        .await
+        .test_post_beacon_pool_payload_attestations_valid()
+        .await
+        .test_post_beacon_pool_payload_attestations_valid_ssz()
         .await;
 }
 
