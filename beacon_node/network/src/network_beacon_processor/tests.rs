@@ -9,6 +9,7 @@ use crate::{
     sync::{SyncMessage, manager::BlockProcessType},
 };
 use beacon_chain::block_verification_types::LookupBlock;
+use beacon_chain::chain_config::ChainConfig;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::data_column_verification::validate_data_column_sidecar_for_gossip_fulu;
 use beacon_chain::kzg_utils::blobs_to_data_column_sidecars;
@@ -134,7 +135,10 @@ impl TestRig {
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .node_custody_type(NodeCustodyType::Fullnode)
-            .chain_config(<_>::default())
+            .chain_config(ChainConfig {
+                disable_get_blobs: true,
+                ..ChainConfig::default()
+            })
             .build();
 
         harness.advance_slot();
@@ -169,7 +173,10 @@ impl TestRig {
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .node_custody_type(node_custody_type)
-            .chain_config(<_>::default())
+            .chain_config(ChainConfig {
+                disable_get_blobs: true,
+                ..ChainConfig::default()
+            })
             .build();
 
         harness.advance_slot();
@@ -649,6 +656,60 @@ impl TestRig {
     ///
     /// Given the described logic, `expected` must not contain `WORKER_FREED` or `NOTHING_TO_DO`
     /// events.
+    /// Like [`Self::assert_event_journal_contains_ordered`], but tolerant of extra trailing
+    /// repetitions of the final expected event. Useful for events the reprocess queue can
+    /// dispatch redundantly under timing pressure (e.g. reconstruction).
+    pub async fn assert_event_journal_contains_at_least_ordered(&mut self, expected: &[WorkType]) {
+        let expected_strs = expected
+            .iter()
+            .map(|ev| ev.into())
+            .collect::<Vec<&'static str>>();
+
+        let mut events = Vec::with_capacity(expected_strs.len());
+        let mut worker_freed_remaining = expected_strs.len();
+
+        let drain_future = async {
+            loop {
+                match self.work_journal_rx.recv().await {
+                    Some(event) if event == WORKER_FREED => {
+                        worker_freed_remaining = worker_freed_remaining.saturating_sub(1);
+                        if worker_freed_remaining == 0 {
+                            break;
+                        }
+                    }
+                    Some(event) if event == NOTHING_TO_DO => {}
+                    Some(event) => events.push(event),
+                    None => break,
+                }
+            }
+        };
+
+        tokio::select! {
+            _ = tokio::time::sleep(STANDARD_TIMEOUT) => panic!(
+                "Timeout ({:?}) expired waiting for events. Expected at least {:?} but got {:?} waiting for {} `WORKER_FREED` events.",
+                STANDARD_TIMEOUT, expected_strs, events, worker_freed_remaining,
+            ),
+            _ = drain_future => {},
+        }
+
+        // Events must start with the exact expected sequence; trailing events must all be
+        // repetitions of the final expected event.
+        assert!(
+            events.len() >= expected_strs.len(),
+            "expected at least {} events, got {}: {:?}",
+            expected_strs.len(),
+            events.len(),
+            events,
+        );
+        let (head, tail) = events.split_at(expected_strs.len());
+        assert_eq!(head, expected_strs.as_slice());
+        let trailing = expected_strs.last().copied().unwrap_or("");
+        for event in tail {
+            assert_eq!(*event, trailing, "unexpected trailing event {event:?}");
+        }
+        assert_eq!(worker_freed_remaining, 0);
+    }
+
     pub async fn assert_event_journal_contains_ordered(&mut self, expected: &[WorkType]) {
         let expected = expected
             .iter()
@@ -1001,13 +1062,16 @@ async fn data_column_reconstruction_at_deadline() {
         rig.enqueue_gossip_data_columns(i);
     }
 
-    // Expect all gossip events + reconstruction
+    // Expect all gossip events followed by at least one reconstruction. Under a slow
+    // signature backend (real crypto) the reprocess queue can dispatch multiple
+    // reconstruction work items before the import completes; subsequent ones are no-ops
+    // via the `reconstruction_started` flag, so we just require >= 1.
     let mut expected_events: Vec<WorkType> = (0..min_columns_for_reconstruction)
         .map(|_| WorkType::GossipDataColumnSidecar)
         .collect();
     expected_events.push(WorkType::ColumnReconstruction);
 
-    rig.assert_event_journal_contains_ordered(&expected_events)
+    rig.assert_event_journal_contains_at_least_ordered(&expected_events)
         .await;
 }
 
