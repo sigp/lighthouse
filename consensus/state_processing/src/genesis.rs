@@ -5,7 +5,7 @@ use crate::common::DepositDataTree;
 use crate::upgrade::electra::upgrade_state_to_electra;
 use crate::upgrade::{
     upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb, upgrade_to_fulu,
-    upgrade_to_gloas,
+    upgrade_to_gloas, upgrade_to_heze,
 };
 use fixed_bytes::FixedBytesExtended;
 use safe_arith::{ArithError, SafeArith};
@@ -184,6 +184,17 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         state.latest_block_header_mut().body_root = block.body_root();
     }
 
+    // Upgrade to heze if configured from genesis.
+    if spec
+        .heze_fork_epoch
+        .is_some_and(|fork_epoch| fork_epoch == E::genesis_epoch())
+    {
+        upgrade_to_heze(&mut state, spec)?;
+
+        // Remove intermediate Gloas fork from `state.fork`.
+        state.fork_mut().previous_version = spec.heze_fork_version;
+    }
+
     // Now that we have our validators, initialize the caches (including the committees)
     state.build_caches(spec)?;
 
@@ -195,7 +206,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
 
 /// Create an unsigned genesis `BeaconBlock` whose body matches the genesis state.
 ///
-/// For Gloas, the block's `signed_execution_payload_bid` is populated from the state's
+/// For Gloas and later, the block's `signed_execution_payload_bid` is populated from the state's
 /// `latest_execution_payload_bid` so that the body root is consistent with
 /// `state.latest_block_header.body_root`.
 ///
@@ -207,6 +218,11 @@ pub fn genesis_block<E: EthSpec>(
 ) -> Result<BeaconBlock<E>, BeaconStateError> {
     let mut block = BeaconBlock::empty(spec);
     if let Ok(block) = block.as_gloas_mut() {
+        let state_bid = genesis_state.latest_execution_payload_bid()?;
+        let bid = &mut block.body.signed_execution_payload_bid.message;
+        bid.block_hash = state_bid.block_hash;
+        bid.execution_requests_root = state_bid.execution_requests_root;
+    } else if let Ok(block) = block.as_heze_mut() {
         let state_bid = genesis_state.latest_execution_payload_bid()?;
         let bid = &mut block.body.signed_execution_payload_bid.message;
         bid.block_hash = state_bid.block_hash;

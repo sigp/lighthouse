@@ -14,7 +14,7 @@ pub use data_column_custody_group::{
 };
 pub use data_column_sidecar::{
     Cell, ColumnIndex, DataColumn, DataColumnSidecar, DataColumnSidecarError,
-    DataColumnSidecarFulu, DataColumnSidecarGloas, DataColumnSidecarList,
+    DataColumnSidecarFulu, DataColumnSidecarGloas, DataColumnSidecarHeze, DataColumnSidecarList,
     DataColumnsByRootIdentifier,
 };
 pub use data_column_subnet_id::{DataColumnSubnetId, all_data_column_sidecar_subnets_from_spec};

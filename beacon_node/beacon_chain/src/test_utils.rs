@@ -3,7 +3,10 @@ use crate::block_verification_types::{AsBlock, AvailableBlockData, LookupBlock, 
 use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::graffiti_calculator::GraffitiSettings;
-use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sidecars_gloas};
+use crate::kzg_utils::{
+    build_data_column_sidecars_fulu, build_data_column_sidecars_gloas,
+    build_data_column_sidecars_heze,
+};
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::{BeaconBlockResponseWrapper, CustodyContext, get_block_root};
@@ -697,6 +700,10 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
         HARNESS_GENESIS_TIME
             + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()
     });
+    let heze_time = spec.heze_fork_epoch.map(|epoch| {
+        HARNESS_GENESIS_TIME
+            + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()
+    });
 
     let kzg = get_kzg(&spec);
 
@@ -707,6 +714,7 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
         prague_time,
         osaka_time,
         amsterdam_time,
+        heze_time,
         Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
         spec,
         Some(kzg),
@@ -3803,7 +3811,39 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
 
     // Load the precomputed column sidecar to avoid computing them for every block in the tests.
     // Then repeat the cells and proofs for every blob
-    if block.fork_name_unchecked().gloas_enabled() {
+    if block.fork_name_unchecked().heze_enabled() {
+        let template_data_columns =
+            RuntimeVariableList::<DataColumnSidecarHeze<E>>::from_ssz_bytes(
+                TEST_DATA_COLUMN_SIDECARS_SSZ,
+                E::number_of_columns(),
+            )
+            .unwrap();
+
+        let (cells, proofs) = template_data_columns
+            .into_iter()
+            .map(|sidecar| {
+                let DataColumnSidecarHeze {
+                    column, kzg_proofs, ..
+                } = sidecar;
+                // There's only one cell per column for a single blob
+                let cell_bytes: Vec<u8> = column.into_iter().next().unwrap().into();
+                let kzg_cell = cell_bytes.try_into().unwrap();
+                let kzg_proof = kzg_proofs.into_iter().next().unwrap();
+                (kzg_cell, kzg_proof)
+            })
+            .collect::<(Vec<_>, Vec<_>)>();
+
+        let blob_cells_and_proofs_vec =
+            vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); kzg_commitments.len()];
+
+        build_data_column_sidecars_heze(
+            signed_block_header.message.tree_hash_root(),
+            signed_block_header.message.slot,
+            blob_cells_and_proofs_vec,
+            spec,
+        )
+        .unwrap()
+    } else if block.fork_name_unchecked().gloas_enabled() {
         let template_data_columns =
             RuntimeVariableList::<DataColumnSidecarGloas<E>>::from_ssz_bytes(
                 TEST_DATA_COLUMN_SIDECARS_SSZ,

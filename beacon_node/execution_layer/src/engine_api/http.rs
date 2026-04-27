@@ -933,6 +933,35 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
+    pub async fn new_payload_v5_heze<E: EthSpec>(
+        &self,
+        new_payload_request_heze: NewPayloadRequestHeze<'_, E>,
+    ) -> Result<PayloadStatusV1, Error> {
+        let params = json!([
+            JsonExecutionPayload::Heze(
+                new_payload_request_heze
+                    .execution_payload
+                    .clone()
+                    .try_into()?
+            ),
+            new_payload_request_heze.versioned_hashes,
+            new_payload_request_heze.parent_beacon_block_root,
+            new_payload_request_heze
+                .execution_requests
+                .get_execution_requests_list(),
+        ]);
+
+        let response: JsonPayloadStatusV1 = self
+            .rpc_request(
+                ENGINE_NEW_PAYLOAD_V5,
+                params,
+                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
     pub async fn get_payload_v1<E: EthSpec>(
         &self,
         payload_id: PayloadId,
@@ -1093,6 +1122,18 @@ impl HttpJsonRpc {
                     )
                     .await?;
                 JsonGetPayloadResponse::Gloas(response)
+                    .try_into()
+                    .map_err(Error::BadResponse)
+            }
+            ForkName::Heze => {
+                let response: JsonGetPayloadResponseHeze<E> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V6,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+                JsonGetPayloadResponse::Heze(response)
                     .try_into()
                     .map_err(Error::BadResponse)
             }
@@ -1420,6 +1461,13 @@ impl HttpJsonRpc {
                     Err(Error::RequiredMethodUnsupported("engine_newPayloadV5"))
                 }
             }
+            NewPayloadRequest::Heze(new_payload_request_heze) => {
+                if engine_capabilities.new_payload_v5 {
+                    self.new_payload_v5_heze(new_payload_request_heze).await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV5"))
+                }
+            }
         }
     }
 
@@ -1463,6 +1511,13 @@ impl HttpJsonRpc {
                 }
             }
             ForkName::Gloas => {
+                if engine_capabilities.get_payload_v6 {
+                    self.get_payload_v6(fork_name, payload_id).await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_getPayloadV6"))
+                }
+            }
+            ForkName::Heze => {
                 if engine_capabilities.get_payload_v6 {
                     self.get_payload_v6(fork_name, payload_id).await
                 } else {

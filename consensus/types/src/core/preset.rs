@@ -356,6 +356,16 @@ impl GloasPreset {
     }
 }
 
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub struct HezePreset {}
+
+impl HezePreset {
+    pub fn from_chain_spec<E: EthSpec>(_spec: &ChainSpec) -> Self {
+        Self {}
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

@@ -8,7 +8,10 @@ use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
-use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sidecars_gloas};
+use crate::kzg_utils::{
+    build_data_column_sidecars_fulu, build_data_column_sidecars_gloas,
+    build_data_column_sidecars_heze,
+};
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::observed_data_sidecars::ObservedDataSidecars;
@@ -1235,7 +1238,15 @@ fn build_data_columns_from_blobs<E: EthSpec>(
             .cloned()
             .map_err(|e| format!("Unexpected pre Deneb block: {e:?}"))?;
 
-        if block.fork_name_unchecked().gloas_enabled() {
+        if block.fork_name_unchecked().heze_enabled() {
+            build_data_column_sidecars_heze(
+                block.message().tree_hash_root(),
+                block.slot(),
+                blob_cells_and_proofs_vec,
+                spec,
+            )
+            .map_err(|e| format!("Failed to compute weak subjectivity data_columns: {e:?}"))?
+        } else if block.fork_name_unchecked().gloas_enabled() {
             build_data_column_sidecars_gloas(
                 block.message().tree_hash_root(),
                 block.slot(),

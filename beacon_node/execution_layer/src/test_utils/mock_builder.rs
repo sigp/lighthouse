@@ -475,6 +475,10 @@ impl<E: EthSpec> MockBuilder<E> {
                 // TODO(EIP7732) Check if this is how we want to do error handling for gloas
                 return Err("invalid fork".to_string());
             }
+            SignedBlindedBeaconBlock::Heze(_) => {
+                // TODO(EIP7732) Check if this is how we want to do error handling for heze
+                return Err("invalid fork".to_string());
+            }
         };
         let block_hash = block
             .message()
@@ -591,6 +595,10 @@ impl<E: EthSpec> MockBuilder<E> {
                 match fork {
                     ForkName::Gloas => {
                         // TODO(EIP7732) Check if this is how we want to do error handling for gloas
+                        return Err("invalid fork".to_string());
+                    }
+                    ForkName::Heze => {
+                        // TODO(EIP7732) Check if this is how we want to do error handling for heze
                         return Err("invalid fork".to_string());
                     }
                     ForkName::Fulu => BuilderBid::Fulu(BuilderBidFulu {
@@ -912,7 +920,7 @@ impl<E: EthSpec> MockBuilder<E> {
                 Some(head_block_root),
                 None,
             ),
-            ForkName::Gloas => PayloadAttributes::new(
+            ForkName::Gloas | ForkName::Heze => PayloadAttributes::new(
                 timestamp,
                 *prev_randao,
                 fee_recipient,

@@ -136,7 +136,7 @@ impl<E: EthSpec> ExecutionPayloadHeader<E> {
                 ExecutionPayloadHeaderElectra::from_ssz_bytes(bytes).map(Self::Electra)
             }
             ForkName::Fulu => ExecutionPayloadHeaderFulu::from_ssz_bytes(bytes).map(Self::Fulu),
-            ForkName::Gloas => Err(ssz::DecodeError::BytesInvalid(format!(
+            ForkName::Gloas | ForkName::Heze => Err(ssz::DecodeError::BytesInvalid(format!(
                 "unsupported fork for ExecutionPayloadHeader: {fork_name}",
             ))),
         }
@@ -145,7 +145,10 @@ impl<E: EthSpec> ExecutionPayloadHeader<E> {
     #[allow(clippy::arithmetic_side_effects)]
     pub fn ssz_max_var_len_for_fork(fork_name: ForkName) -> usize {
         // TODO(newfork): Add a new case here if there are new variable fields
-        if fork_name.gloas_enabled() {
+        if fork_name.heze_enabled() {
+            // TODO(Heze): check this
+            0
+        } else if fork_name.gloas_enabled() {
             // TODO(EIP7732): check this
             0
         } else if fork_name.bellatrix_enabled() {
@@ -533,7 +536,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for ExecutionPayloadHead
                 Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
 
-            ForkName::Base | ForkName::Altair | ForkName::Gloas => {
+            ForkName::Base | ForkName::Altair | ForkName::Gloas | ForkName::Heze => {
                 return Err(serde::de::Error::custom(format!(
                     "ExecutionPayloadHeader failed to deserialize: unsupported fork '{}'",
                     context

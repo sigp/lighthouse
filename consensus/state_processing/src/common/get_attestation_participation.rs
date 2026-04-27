@@ -17,7 +17,7 @@ use types::{
 /// This function will return an error if the source of the attestation doesn't match the
 /// state's relevant justified checkpoint.
 ///
-/// This function has been abstracted to work for all forks from Altair to Gloas.
+/// This function has been abstracted to work for all forks from Altair to Heze.
 pub fn get_attestation_participation_flag_indices<E: EthSpec>(
     state: &BeaconState<E>,
     data: &AttestationData,
