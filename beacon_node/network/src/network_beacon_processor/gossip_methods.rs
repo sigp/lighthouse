@@ -4156,6 +4156,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         ),
                     }
                 }
+
+                if let Err(e) = self.chain.add_payload_attestation_to_pool(&verified) {
+                    warn!(
+                        reason = ?e,
+                        %peer_id,
+                        "Failed to add payload attestation to pool"
+                    );
+                }
             }
             Err(RejectedPayloadAttestation {
                 payload_attestation_message,

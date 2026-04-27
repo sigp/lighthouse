@@ -434,8 +434,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 deposits,
                 voluntary_exits,
                 sync_aggregate,
-                // TODO(gloas) need to implement payload attestations
-                payload_attestations: vec![],
+                payload_attestations: self
+                    .op_pool
+                    .get_payload_attestations(&state, parent_root, &self.spec)
+                    .map_err(BlockProductionError::OpPoolError)?,
                 bls_to_execution_changes,
             },
             state,
