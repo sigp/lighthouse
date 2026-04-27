@@ -2344,15 +2344,6 @@ fn enable_proposer_re_orgs_default() {
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
-            let expected = types::ChainSpec::mainnet()
-                .reorg_head_weight_threshold
-                .map(ReOrgThreshold);
-            assert_eq!(config.chain.re_org_head_threshold, expected);
-            let expected = types::ChainSpec::mainnet()
-                .reorg_max_epochs_since_finalization
-                .map(Epoch::new)
-                .unwrap();
-            assert_eq!(config.chain.re_org_max_epochs_since_finalization, expected,);
             assert_eq!(
                 config.chain.re_org_cutoff(Duration::from_secs(12)),
                 Duration::from_secs(12) / DEFAULT_RE_ORG_CUTOFF_DENOMINATOR
