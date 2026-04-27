@@ -7,7 +7,7 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use tracing::{debug, error, info};
-use types::ChainSpec;
+use types::{ChainSpec, EthSpec};
 use validator_store::ValidatorStore;
 
 pub struct Inner<S, T> {
@@ -91,6 +91,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
                     .fork_name_at_slot::<S::E>(current_slot)
                     .gloas_enabled()
                 {
+                    if let Some(duration_to_next_epoch) = self
+                        .slot_clock
+                        .duration_to_next_epoch(S::E::slots_per_epoch())
+                    {
+                        sleep(duration_to_next_epoch).await;
+                    }
                     continue;
                 }
 
