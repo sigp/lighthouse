@@ -543,20 +543,12 @@ pub fn post_beacon_pool_payload_attestations<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
-<<<<<<< HEAD
-             _chain: Arc<BeaconChain<T>>,
-=======
              chain: Arc<BeaconChain<T>>,
->>>>>>> 028b5a42a9715c31f416d45db70add39d9934b12
              messages: Vec<PayloadAttestationMessage>,
              _fork_name: Option<ForkName>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
-<<<<<<< HEAD
-                    publish_payload_attestation_messages(&network_tx, messages)
-=======
                     publish_payload_attestation_messages(&chain, &network_tx, messages)
->>>>>>> 028b5a42a9715c31f416d45db70add39d9934b12
                 })
             },
         )
@@ -582,11 +574,7 @@ pub fn post_beacon_pool_payload_attestations_ssz<T: BeaconChainTypes>(
         .then(
             |body_bytes: Bytes,
              task_spawner: TaskSpawner<T::EthSpec>,
-<<<<<<< HEAD
-             _chain: Arc<BeaconChain<T>>,
-=======
              chain: Arc<BeaconChain<T>>,
->>>>>>> 028b5a42a9715c31f416d45db70add39d9934b12
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     let item_len = <PayloadAttestationMessage as Encode>::ssz_fixed_len();
@@ -608,31 +596,13 @@ pub fn post_beacon_pool_payload_attestations_ssz<T: BeaconChainTypes>(
                         })
                         .collect::<Result<_, _>>()?;
 
-<<<<<<< HEAD
-                    publish_payload_attestation_messages(&network_tx, messages)
-=======
                     publish_payload_attestation_messages(&chain, &network_tx, messages)
->>>>>>> 028b5a42a9715c31f416d45db70add39d9934b12
                 })
             },
         )
         .boxed()
 }
 
-<<<<<<< HEAD
-fn publish_payload_attestation_messages<E: types::EthSpec>(
-    network_tx: &UnboundedSender<NetworkMessage<E>>,
-    messages: Vec<PayloadAttestationMessage>,
-) -> Result<(), warp::Rejection> {
-    // TODO(gloas): add proper gossip verification and store in ptc op pool.
-    for message in messages {
-        utils::publish_pubsub_message(
-            network_tx,
-            PubsubMessage::PayloadAttestation(Box::new(message)),
-        )?;
-    }
-    Ok(())
-=======
 fn publish_payload_attestation_messages<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -690,5 +660,4 @@ fn publish_payload_attestation_messages<T: BeaconChainTypes>(
             failures,
         ))
     }
->>>>>>> 028b5a42a9715c31f416d45db70add39d9934b12
 }

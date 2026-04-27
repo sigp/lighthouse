@@ -2793,25 +2793,6 @@ impl ApiTester {
         self
     }
 
-<<<<<<< HEAD
-    pub async fn test_post_beacon_pool_payload_attestations_valid(mut self) -> Self {
-        let slot = self.chain.slot().unwrap();
-        let head_root = self.chain.head_beacon_block_root();
-
-        let message = PayloadAttestationMessage {
-            validator_index: 0,
-            data: PayloadAttestationData {
-                beacon_block_root: head_root,
-                slot,
-                payload_present: true,
-                blob_data_available: true,
-            },
-            signature: Signature::empty(),
-        };
-
-        self.client
-            .post_beacon_pool_payload_attestations(&[message])
-=======
     fn make_valid_payload_attestation_message(
         &self,
         ptc_offset: usize,
@@ -2867,7 +2848,6 @@ impl ApiTester {
 
         self.client
             .post_beacon_pool_payload_attestations(&[message], fork_name)
->>>>>>> 028b5a42a9715c31f416d45db70add39d9934b12
             .await
             .unwrap();
 
@@ -2880,30 +2860,11 @@ impl ApiTester {
     }
 
     pub async fn test_post_beacon_pool_payload_attestations_valid_ssz(mut self) -> Self {
-<<<<<<< HEAD
-        let slot = self.chain.slot().unwrap();
-        let head_root = self.chain.head_beacon_block_root();
-
-        let message = PayloadAttestationMessage {
-            validator_index: 0,
-            data: PayloadAttestationData {
-                beacon_block_root: head_root,
-                slot,
-                payload_present: true,
-                blob_data_available: true,
-            },
-            signature: Signature::empty(),
-        };
-
-        self.client
-            .post_beacon_pool_payload_attestations_ssz(&[message])
-=======
         let message = self.make_valid_payload_attestation_message(1);
         let fork_name = self.chain.spec.fork_name_at_slot::<E>(message.data.slot);
 
         self.client
             .post_beacon_pool_payload_attestations_ssz(&[message], fork_name)
->>>>>>> 028b5a42a9715c31f416d45db70add39d9934b12
             .await
             .unwrap();
 
