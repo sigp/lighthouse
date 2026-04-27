@@ -125,42 +125,40 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     })?;
 
     // Build and publish data column sidecars from the blobs.
-    if let Some((blobs, kzg_proofs)) = blobs_and_proofs {
-        if !blobs.is_empty() {
-            let gossip_verified_columns =
-                build_gloas_data_columns(&chain, beacon_block_root, slot, &blobs, kzg_proofs)?;
+    if let Some((blobs, kzg_proofs)) = blobs_and_proofs
+        && !blobs.is_empty()
+    {
+        let gossip_verified_columns =
+            build_gloas_data_columns(&chain, beacon_block_root, slot, &blobs, kzg_proofs)?;
 
-            if !gossip_verified_columns.is_empty() {
-                crate::publish_blocks::publish_column_sidecars(
-                    network_tx,
-                    &gossip_verified_columns,
-                    &chain,
+        if !gossip_verified_columns.is_empty() {
+            crate::publish_blocks::publish_column_sidecars(
+                network_tx,
+                &gossip_verified_columns,
+                &chain,
+            )
+            .map_err(|_| {
+                warp_utils::reject::custom_server_error(
+                    "unable to publish data column sidecars".into(),
                 )
-                .map_err(|_| {
-                    warp_utils::reject::custom_server_error(
-                        "unable to publish data column sidecars".into(),
-                    )
-                })?;
+            })?;
 
-                let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
-                let sampling_column_indices = chain.sampling_columns_for_epoch(epoch);
-                let sampling_columns = gossip_verified_columns
-                    .into_iter()
-                    .filter(|col| sampling_column_indices.contains(&col.index()))
-                    .collect::<Vec<_>>();
+            let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+            let sampling_column_indices = chain.sampling_columns_for_epoch(epoch);
+            let sampling_columns = gossip_verified_columns
+                .into_iter()
+                .filter(|col| sampling_column_indices.contains(&col.index()))
+                .collect::<Vec<_>>();
 
-                if !sampling_columns.is_empty() {
-                    if let Err(e) =
-                        Box::pin(chain.process_gossip_data_columns(sampling_columns, || Ok(())))
-                            .await
-                    {
-                        error!(
-                            %slot,
-                            error = ?e,
-                            "Failed to process sampling data columns during envelope publication"
-                        );
-                    }
-                }
+            if !sampling_columns.is_empty()
+                && let Err(e) =
+                    Box::pin(chain.process_gossip_data_columns(sampling_columns, || Ok(()))).await
+            {
+                error!(
+                    %slot,
+                    error = ?e,
+                    "Failed to process sampling data columns during envelope publication"
+                );
             }
         }
     }
