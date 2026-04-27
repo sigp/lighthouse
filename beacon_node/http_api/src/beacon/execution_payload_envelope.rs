@@ -11,9 +11,11 @@ use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bytes::Bytes;
 use eth2::types as api_types;
 use eth2::{CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
+use futures::TryFutureExt;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use ssz::{Decode, Encode};
+use std::future::Future;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, info, warn};
@@ -130,7 +132,8 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         && !blobs.is_empty()
     {
         let gossip_verified_columns =
-            build_gloas_data_columns(&chain, beacon_block_root, slot, &blobs)?;
+            spawn_build_gloas_data_columns_task(chain.clone(), beacon_block_root, slot, blobs)?
+                .await?;
 
         if !gossip_verified_columns.is_empty() {
             publish_column_sidecars(network_tx, &gossip_verified_columns, &chain).map_err(
@@ -162,6 +165,26 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     }
 
     Ok(warp::reply().into_response())
+}
+
+fn spawn_build_gloas_data_columns_task<T: BeaconChainTypes>(
+    chain: Arc<BeaconChain<T>>,
+    beacon_block_root: types::Hash256,
+    slot: types::Slot,
+    blobs: types::BlobsList<T::EthSpec>,
+) -> Result<impl Future<Output = Result<Vec<GossipVerifiedDataColumn<T>>, Rejection>>, Rejection> {
+    chain
+        .clone()
+        .task_executor
+        .spawn_blocking_handle(
+            move || build_gloas_data_columns(&chain, beacon_block_root, slot, &blobs),
+            "build_gloas_data_columns",
+        )
+        .ok_or_else(|| warp_utils::reject::custom_server_error("runtime shutdown".to_string()))
+        .map(|r| {
+            r.map_err(|_| warp_utils::reject::custom_server_error("join error".to_string()))
+                .and_then(|output| async move { output })
+        })
 }
 
 fn build_gloas_data_columns<T: BeaconChainTypes>(
