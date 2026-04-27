@@ -14,7 +14,7 @@
 //! - `ObservedSyncAggregators`: allows filtering sync committee contributions from the same aggregators in
 //!   the same slot and in the same subcommittee.
 
-use crate::types::consts::{altair::TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE, gloas::PTC_SIZE};
+use crate::types::consts::altair::TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE;
 use bitvec::vec::BitVec;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
@@ -43,7 +43,7 @@ pub type ObservedAggregators<E> = AutoPruningEpochContainer<EpochHashSet, E>;
 pub type ObservedSyncAggregators<E> =
     AutoPruningSlotContainer<SlotSubcommitteeIndex, (), SyncAggregatorSlotHashSet, E>;
 pub type ObservedPayloadAttesters<E> =
-    AutoPruningSlotContainer<Slot, (), PayloadAttesterSlotHashSet, E>;
+    AutoPruningSlotContainer<Slot, (), PayloadAttesterSlotHashSet<E>, E>;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -259,20 +259,22 @@ impl Item<()> for SyncAggregatorSlotHashSet {
 
 /// Stores a `HashSet` of validator indices that have sent a payload attestation gossip
 /// message during a slot.
-pub struct PayloadAttesterSlotHashSet {
+pub struct PayloadAttesterSlotHashSet<E> {
     set: HashSet<usize>,
+    phantom: PhantomData<E>,
 }
 
-impl Item<()> for PayloadAttesterSlotHashSet {
+impl<E: EthSpec> Item<()> for PayloadAttesterSlotHashSet<E> {
     fn with_capacity(capacity: usize) -> Self {
         Self {
             set: HashSet::with_capacity(capacity),
+            phantom: PhantomData,
         }
     }
 
     /// Defaults to `PTC_SIZE`, the maximum number of payload attesters per slot.
     fn default_capacity() -> usize {
-        PTC_SIZE as usize
+        E::ptc_size()
     }
 
     fn len(&self) -> usize {

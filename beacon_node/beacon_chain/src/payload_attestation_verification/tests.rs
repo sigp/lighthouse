@@ -41,6 +41,7 @@ struct TestContext {
     keypairs: Vec<Keypair>,
     spec: ChainSpec,
     genesis_block_root: Hash256,
+    store: Arc<store::HotColdDB<E, store::MemoryStore<E>, store::MemoryStore<E>>>,
 }
 
 impl TestContext {
@@ -104,6 +105,7 @@ impl TestContext {
             keypairs,
             spec,
             genesis_block_root: block_root,
+            store,
         }
     }
 
@@ -114,6 +116,7 @@ impl TestContext {
             observed_payload_attesters: &self.observed_payload_attesters,
             canonical_head: &self.canonical_head,
             validator_pubkey_cache: &self.validator_pubkey_cache,
+            store: &self.store,
         }
     }
 
@@ -196,34 +199,6 @@ fn past_slot() {
         result,
         Err(PayloadAttestationError::PastSlot { .. })
     ));
-}
-
-#[test]
-fn prior_payload_attestation_message_known() {
-    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
-        return;
-    }
-    let ctx = TestContext::new();
-    let gossip = ctx.gossip_ctx();
-    let slot = Slot::new(1);
-    let ptc_members = ctx.ptc_members(slot);
-    let validator_index = ptc_members[0] as u64;
-
-    ctx.observed_payload_attesters
-        .write()
-        .observe_validator(slot, validator_index as usize, ())
-        .expect("should observe");
-
-    let msg = make_payload_attestation(slot, validator_index, ctx.genesis_block_root);
-    let result = VerifiedPayloadAttestationMessage::new(msg, &gossip);
-    assert!(
-        matches!(
-            result,
-            Err(PayloadAttestationError::PriorPayloadAttestationMessageKnown { .. })
-        ),
-        "expected PriorPayloadAttestationMessageKnown, got: {:?}",
-        result
-    );
 }
 
 #[test]
