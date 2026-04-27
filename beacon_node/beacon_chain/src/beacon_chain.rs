@@ -53,7 +53,8 @@ use crate::observed_aggregates::{
     Error as AttestationObservationError, ObservedAggregateAttestations, ObservedSyncContributions,
 };
 use crate::observed_attesters::{
-    ObservedAggregators, ObservedAttesters, ObservedSyncAggregators, ObservedSyncContributors,
+    ObservedAggregators, ObservedAttesters, ObservedPayloadAttesters, ObservedSyncAggregators,
+    ObservedSyncContributors,
 };
 use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_data_sidecars::ObservedDataSidecars;
@@ -418,6 +419,9 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Maintains a record of which validators have been seen to create `SignedContributionAndProofs`
     /// in recent epochs.
     pub(crate) observed_sync_aggregators: RwLock<ObservedSyncAggregators<T::EthSpec>>,
+    /// Maintains a record of which validators have sent payload attestation messages
+    /// in recent slots.
+    pub(crate) observed_payload_attesters: RwLock<ObservedPayloadAttesters<T::EthSpec>>,
     /// Maintains a record of which validators have proposed blocks for each slot.
     pub observed_block_producers: RwLock<ObservedBlockProducers<T::EthSpec>>,
     /// Maintains a record of blob sidecars seen over the gossip network.
@@ -2306,6 +2310,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
         })
+    }
+
+    pub fn apply_payload_attestation_to_fork_choice(
+        &self,
+        indexed_payload_attestation: &IndexedPayloadAttestation<T::EthSpec>,
+        ptc: &PTC<T::EthSpec>,
+    ) -> Result<(), Error> {
+        self.canonical_head
+            .fork_choice_write_lock()
+            .on_payload_attestation(
+                self.slot()?,
+                indexed_payload_attestation,
+                AttestationFromBlock::False,
+                &ptc.0,
+            )
+            .map_err(Into::into)
     }
 
     /// Accepts some `SyncCommitteeMessage` from the network and attempts to verify it, returning `Ok(_)` if
