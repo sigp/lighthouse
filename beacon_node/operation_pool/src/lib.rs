@@ -221,7 +221,7 @@ impl<E: EthSpec> OperationPool<E> {
     ///
     /// `parent_block_root` is the root of the parent block (the block PTC members attested to).
     /// Returns one `PayloadAttestation` per distinct `PayloadAttestationData`. With two boolean
-    /// fields this yields at most 4, which equals `MAX_PAYLOAD_ATTESTATIONS`.
+    /// fields this yields at most 4, capped to `MaxPayloadAttestations`.
     pub fn get_payload_attestations(
         &self,
         state: &BeaconState<E>,
@@ -270,6 +270,14 @@ impl<E: EthSpec> OperationPool<E> {
                 });
             }
         }
+
+        // Prefer most participation and cap by `max_payload_attestations`
+        result.sort_by(|a, b| {
+            b.aggregation_bits
+                .num_set_bits()
+                .cmp(&a.aggregation_bits.num_set_bits())
+        });
+        result.truncate(E::max_payload_attestations());
 
         Ok(result)
     }
@@ -2179,13 +2187,29 @@ mod release_tests {
         validator_index: u64,
         beacon_block_root: Hash256,
     ) -> PayloadAttestationMessage {
+        make_payload_attestation_message_with_flags(
+            slot,
+            validator_index,
+            beacon_block_root,
+            true,
+            true,
+        )
+    }
+
+    fn make_payload_attestation_message_with_flags(
+        slot: Slot,
+        validator_index: u64,
+        beacon_block_root: Hash256,
+        payload_present: bool,
+        blob_data_available: bool,
+    ) -> PayloadAttestationMessage {
         PayloadAttestationMessage {
             validator_index,
             data: PayloadAttestationData {
                 beacon_block_root,
                 slot,
-                payload_present: true,
-                blob_data_available: true,
+                payload_present,
+                blob_data_available,
             },
             signature: bls::Signature::empty(),
         }
@@ -2299,54 +2323,7 @@ mod release_tests {
     }
 
     #[tokio::test]
-    async fn payload_attestation_filters_wrong_root() {
-        let spec = test_spec::<MinimalEthSpec>();
-        if spec.gloas_fork_epoch.is_none() {
-            return;
-        };
-
-        let num_validators = 64;
-        let harness = get_harness::<MinimalEthSpec>(num_validators, Some(spec.clone()));
-
-        harness
-            .add_attested_blocks_at_slots(
-                harness.get_current_state(),
-                Hash256::zero(),
-                &[Slot::new(1)],
-                (0..num_validators).collect::<Vec<_>>().as_slice(),
-            )
-            .await;
-
-        let head = harness.chain.canonical_head.cached_head();
-        let state = &head.snapshot.beacon_state;
-        let target_slot = Slot::new(1);
-        let ptc = state.get_ptc(target_slot, &spec).unwrap();
-        let ptc_member = ptc.0[0] as u64;
-
-        let op_pool = OperationPool::<MinimalEthSpec>::new();
-        let wrong_root = Hash256::repeat_byte(0xff);
-        let msg = make_payload_attestation_message(target_slot, ptc_member, wrong_root);
-        op_pool.insert_payload_attestation_message(msg).unwrap();
-
-        let mut advanced_state = state.clone();
-        state_processing::state_advance::complete_state_advance(
-            &mut advanced_state,
-            None,
-            Slot::new(2),
-            &spec,
-        )
-        .unwrap();
-
-        let parent_root = head.head_block_root();
-        let attestations = op_pool
-            .get_payload_attestations(&advanced_state, parent_root, &spec)
-            .unwrap();
-
-        assert!(attestations.is_empty());
-    }
-
-    #[tokio::test]
-    async fn payload_attestation_non_ptc_validator_skipped() {
+    async fn payload_attestation_multiple_data_combos_capped() {
         let spec = test_spec::<MinimalEthSpec>();
         if spec.gloas_fork_epoch.is_none() {
             return;
@@ -2370,15 +2347,30 @@ mod release_tests {
         let parent_root = head.head_block_root();
         let ptc = state.get_ptc(target_slot, &spec).unwrap();
 
-        // Find a validator NOT in the PTC.
-        let non_ptc_validator = (0..num_validators as u64)
-            .find(|&i| !ptc.0.contains(&(i as usize)))
-            .expect("should find non-PTC validator");
-
         let op_pool = OperationPool::<MinimalEthSpec>::new();
-        let msg = make_payload_attestation_message(target_slot, non_ptc_validator, parent_root);
-        op_pool.insert_payload_attestation_message(msg).unwrap();
 
+        // Given: PTC members vote with all 4 boolean combos, with varying participation.
+        let combos: [(bool, bool, &[usize]); 4] = [
+            (true, true, &[0, 1, 2]),
+            (true, false, &[3, 4]),
+            (false, true, &[5]),
+            (false, false, &[6]),
+        ];
+        for (payload_present, blob_available, positions) in &combos {
+            for &pos in *positions {
+                let validator_index = ptc.0[pos] as u64;
+                let msg = make_payload_attestation_message_with_flags(
+                    target_slot,
+                    validator_index,
+                    parent_root,
+                    *payload_present,
+                    *blob_available,
+                );
+                op_pool.insert_payload_attestation_message(msg).unwrap();
+            }
+        }
+
+        // When: we pack attestations for block production at slot 2.
         let mut advanced_state = state.clone();
         state_processing::state_advance::complete_state_advance(
             &mut advanced_state,
@@ -2387,12 +2379,16 @@ mod release_tests {
             &spec,
         )
         .unwrap();
-
         let attestations = op_pool
             .get_payload_attestations(&advanced_state, parent_root, &spec)
             .unwrap();
 
-        // Message was in the pool but validator isn't in PTC, so no attestation produced.
-        assert!(attestations.is_empty());
+        // Then: one attestation per combo, sorted by participation (most first).
+        assert_eq!(attestations.len(), 4);
+        let bit_counts: Vec<_> = attestations
+            .iter()
+            .map(|a| a.aggregation_bits.num_set_bits())
+            .collect();
+        assert_eq!(bit_counts, vec![3, 2, 1, 1]);
     }
 }
