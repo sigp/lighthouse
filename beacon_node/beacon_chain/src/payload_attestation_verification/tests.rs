@@ -4,12 +4,13 @@ use std::time::Duration;
 use bls::{Keypair, Signature};
 use fork_choice::ForkChoice;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state};
+use state_processing::genesis::genesis_block;
 use parking_lot::RwLock;
 use proto_array::PayloadStatus;
 use slot_clock::{SlotClock, TestingSlotClock};
 use store::{HotColdDB, StoreConfig};
 use types::{
-    BeaconBlock, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, Hash256, MinimalEthSpec,
+    ChainSpec, Checkpoint, Domain, Epoch, EthSpec, Hash256, MinimalEthSpec,
     PayloadAttestationData, PayloadAttestationMessage, SignedBeaconBlock, SignedRoot, Slot,
 };
 
@@ -63,11 +64,11 @@ impl TestContext {
             root: Hash256::ZERO,
         };
 
-        let mut genesis_block = BeaconBlock::empty(&spec);
-        *genesis_block.state_root_mut() = state
+        let mut block = genesis_block(&state, &spec).expect("should build genesis block");
+        *block.state_root_mut() = state
             .update_tree_hash_cache()
             .expect("should hash genesis state");
-        let signed_block = SignedBeaconBlock::from_block(genesis_block, Signature::empty());
+        let signed_block = SignedBeaconBlock::from_block(block, Signature::empty());
         let block_root = signed_block.canonical_root();
 
         let snapshot = BeaconSnapshot::new(
