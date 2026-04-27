@@ -296,9 +296,7 @@ pub fn blobs_to_data_column_sidecars<E: EthSpec>(
     }
 }
 
-/// Build Gloas data column sidecars from blobs and cell proofs without requiring a full
-/// `SignedBeaconBlock`. Used when publishing the execution payload envelope, where the
-/// blobs are available but not attached to the beacon block.
+/// Build Gloas data column sidecars from blobs and cell proofs
 pub fn blobs_to_data_column_sidecars_gloas<E: EthSpec>(
     blobs: &[&Blob<E>],
     cell_proofs: Vec<KzgProof>,

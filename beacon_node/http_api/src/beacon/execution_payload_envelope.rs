@@ -1,4 +1,5 @@
 use crate::block_id::BlockId;
+use crate::publish_blocks::publish_column_sidecars;
 use crate::task_spawner::{Priority, TaskSpawner};
 use crate::utils::{ChainFilter, EthV1Filter, NetworkTxFilter, ResponseFilter, TaskSpawnerFilter};
 use crate::version::{
@@ -132,16 +133,13 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
             build_gloas_data_columns(&chain, beacon_block_root, slot, &blobs, kzg_proofs)?;
 
         if !gossip_verified_columns.is_empty() {
-            crate::publish_blocks::publish_column_sidecars(
-                network_tx,
-                &gossip_verified_columns,
-                &chain,
-            )
-            .map_err(|_| {
-                warp_utils::reject::custom_server_error(
-                    "unable to publish data column sidecars".into(),
-                )
-            })?;
+            publish_column_sidecars(network_tx, &gossip_verified_columns, &chain).map_err(
+                |_| {
+                    warp_utils::reject::custom_server_error(
+                        "unable to publish data column sidecars".into(),
+                    )
+                },
+            )?;
 
             let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
             let sampling_column_indices = chain.sampling_columns_for_epoch(epoch);
