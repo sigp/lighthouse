@@ -31,6 +31,8 @@ pub enum SyncRequestId {
     BlobsByRange(BlobsByRangeRequestId),
     /// Data columns by range request
     DataColumnsByRange(DataColumnsByRangeRequestId),
+    /// Request searching for an execution payload envelope given a block root.
+    SinglePayloadEnvelope { id: SingleLookupReqId },
 }
 
 /// Request ID for data_columns_by_root requests. Block lookups do not issue this request directly.

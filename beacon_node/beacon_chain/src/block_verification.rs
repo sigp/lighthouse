@@ -60,6 +60,7 @@ use crate::execution_payload::{
 };
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_block_producers::SeenBlock;
+use crate::payload_envelope_verification::EnvelopeError;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
@@ -320,6 +321,18 @@ pub enum BlockError {
         bid_parent_root: Hash256,
         block_parent_root: Hash256,
     },
+    /// The block is known but its parent execution payload envelope has not been received yet.
+    ///
+    /// ## Peer scoring
+    ///
+    /// It's unclear if this block is valid, but it cannot be fully verified without the parent's
+    /// execution payload envelope.
+    ParentEnvelopeUnknown { parent_root: Hash256 },
+
+    PayloadEnvelopeError {
+        e: Box<EnvelopeError>,
+        penalize_peer: bool,
+    },
 }
 
 /// Which specific signature(s) are invalid in a SignedBeaconBlock
@@ -483,6 +496,36 @@ impl From<DBError> for BlockError {
 impl From<ArithError> for BlockError {
     fn from(e: ArithError) -> Self {
         BlockError::BeaconChainError(BeaconChainError::ArithError(e).into())
+    }
+}
+
+impl From<EnvelopeError> for BlockError {
+    fn from(e: EnvelopeError) -> Self {
+        let penalize_peer = match &e {
+            // REJECT per spec: peer sent invalid envelope data
+            EnvelopeError::BadSignature
+            | EnvelopeError::BuilderIndexMismatch { .. }
+            | EnvelopeError::BlockHashMismatch { .. }
+            | EnvelopeError::SlotMismatch { .. }
+            | EnvelopeError::IncorrectBlockProposer { .. } => true,
+            // IGNORE per spec: not the peer's fault
+            EnvelopeError::BlockRootUnknown { .. }
+            | EnvelopeError::PriorToFinalization { .. }
+            | EnvelopeError::UnknownValidator { .. } => false,
+            // Internal errors: not the peer's fault
+            EnvelopeError::BeaconChainError(_)
+            | EnvelopeError::BeaconStateError(_)
+            | EnvelopeError::BlockProcessingError(_)
+            | EnvelopeError::EnvelopeProcessingError(_)
+            | EnvelopeError::ExecutionPayloadError(_)
+            | EnvelopeError::BlockError(_)
+            | EnvelopeError::InternalError(_)
+            | EnvelopeError::OptimisticSyncNotSupported { .. } => false,
+        };
+        BlockError::PayloadEnvelopeError {
+            e: Box::new(e),
+            penalize_peer,
+        }
     }
 }
 
@@ -897,12 +940,20 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             });
         }
 
-        // TODO(gloas) The following validation can only be completed once fork choice has been implemented:
-        // The block's parent execution payload (defined by bid.parent_block_hash) has been seen
-        // (via gossip or non-gossip sources) (a client MAY queue blocks for processing
-        // once the parent payload is retrieved). If execution_payload verification of block's execution
-        // payload parent by an execution node is complete, verify the block's execution payload
-        // parent (defined by bid.parent_block_hash) passes all validation.
+        // Check that we've received the parent envelope. If not, issue a single envelope
+        // lookup for the parent and queue this block in the reprocess queue.
+        let parent_is_gloas = chain
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(parent_block.slot)
+            .gloas_enabled();
+
+        if parent_is_gloas
+            && !fork_choice_read_lock.is_payload_received(&block.message().parent_root())
+        {
+            return Err(BlockError::ParentEnvelopeUnknown {
+                parent_root: block.message().parent_root(),
+            });
+        }
 
         drop(fork_choice_read_lock);
 
@@ -1951,7 +2002,6 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
         // Retrieve any state that is advanced through to at most `block.slot()`: this is
         // particularly important if `block` descends from the finalized/split block, but at a slot
         // prior to the finalized slot (which is invalid and inaccessible in our DB schema).
-        //
         let (parent_state_root, state) = chain
             .store
             .get_advanced_hot_state(root, block.slot(), parent_block.state_root())?
