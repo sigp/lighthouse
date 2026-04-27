@@ -45,7 +45,11 @@ use validator_services::{
     block_service::{BlockService, BlockServiceBuilder},
     duties_service::{self, DutiesService, DutiesServiceBuilder},
     latency_service,
+<<<<<<< HEAD
     payload_attestation_service::{PayloadAttestationService, PayloadAttestationServiceBuilder},
+=======
+    payload_attestation_service::PayloadAttestationService,
+>>>>>>> 028b5a42a9715c31f416d45db70add39d9934b12
     preparation_service::{PreparationService, PreparationServiceBuilder},
     sync_committee_service::SyncCommitteeService,
 };
@@ -554,6 +558,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             context.executor.clone(),
         );
 
+<<<<<<< HEAD
         let payload_attestation_service = PayloadAttestationServiceBuilder::new()
             .duties_service(duties_service.clone())
             .validator_store(validator_store.clone())
@@ -562,6 +567,16 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .executor(context.executor.clone())
             .chain_spec(context.eth2_config.spec.clone())
             .build()?;
+=======
+        let payload_attestation_service = PayloadAttestationService::new(
+            duties_service.clone(),
+            validator_store.clone(),
+            slot_clock.clone(),
+            beacon_nodes.clone(),
+            context.executor.clone(),
+            context.eth2_config.spec.clone(),
+        );
+>>>>>>> 028b5a42a9715c31f416d45db70add39d9934b12
 
         Ok(Self {
             context,
@@ -641,10 +656,19 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start sync committee service: {}", e))?;
 
+<<<<<<< HEAD
         self.payload_attestation_service
             .clone()
             .start_update_service()
             .map_err(|e| format!("Unable to start payload attestation service: {}", e))?;
+=======
+        if self.context.eth2_config.spec.is_gloas_scheduled() {
+            self.payload_attestation_service
+                .clone()
+                .start_update_service()
+                .map_err(|e| format!("Unable to start payload attestation service: {}", e))?;
+        }
+>>>>>>> 028b5a42a9715c31f416d45db70add39d9934b12
 
         self.preparation_service
             .clone()
