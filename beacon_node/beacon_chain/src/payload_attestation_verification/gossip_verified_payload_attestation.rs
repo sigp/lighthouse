@@ -7,14 +7,12 @@ use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, metrics};
 use bls::AggregateSignature;
 use educe::Educe;
 use parking_lot::RwLock;
+use safe_arith::SafeArith;
 use slot_clock::SlotClock;
 use state_processing::per_block_processing::signature_sets::indexed_payload_attestation_signature_set;
 use state_processing::state_advance::partial_state_advance;
-use safe_arith::SafeArith;
 use std::borrow::Cow;
-use types::{
-    ChainSpec, EthSpec, IndexedPayloadAttestation, PTC, PayloadAttestationMessage, Slot,
-};
+use types::{ChainSpec, EthSpec, IndexedPayloadAttestation, PTC, PayloadAttestationMessage, Slot};
 
 pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub slot_clock: &'a T::SlotClock,
