@@ -1,7 +1,6 @@
 use account_utils::{STDIN_INPUTS_FLAG, read_input_from_user};
 use beacon_chain::chain_config::{
-    DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
-    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_PARENT_THRESHOLD,
+    DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
     DisallowedReOrgOffsets, INVALID_HOLESKY_BLOCK_ROOT, ReOrgThreshold,
 };
 use beacon_chain::custody_context::NodeCustodyType;
@@ -745,22 +744,16 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.re_org_head_threshold = None;
         client_config.chain.re_org_parent_threshold = None;
     } else {
-        client_config.chain.re_org_head_threshold = Some(
-            clap_utils::parse_optional(cli_args, "proposer-reorg-threshold")?
-                .map(ReOrgThreshold)
-                .unwrap_or(DEFAULT_RE_ORG_HEAD_THRESHOLD),
-        );
+        client_config.chain.re_org_head_threshold =
+            spec.reorg_head_weight_threshold.map(ReOrgThreshold);
         client_config.chain.re_org_max_epochs_since_finalization =
             clap_utils::parse_optional(cli_args, "proposer-reorg-epochs-since-finalization")?
                 .unwrap_or(DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION);
         client_config.chain.re_org_cutoff_millis =
             clap_utils::parse_optional(cli_args, "proposer-reorg-cutoff")?;
 
-        client_config.chain.re_org_parent_threshold = Some(
-            clap_utils::parse_optional(cli_args, "proposer-reorg-parent-threshold")?
-                .map(ReOrgThreshold)
-                .unwrap_or(DEFAULT_RE_ORG_PARENT_THRESHOLD),
-        );
+        client_config.chain.re_org_parent_threshold =
+            spec.reorg_parent_weight_threshold.map(ReOrgThreshold);
 
         if let Some(disallowed_offsets_str) =
             clap_utils::parse_optional::<String>(cli_args, "proposer-reorg-disallowed-offsets")?

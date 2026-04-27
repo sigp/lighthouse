@@ -5,8 +5,7 @@ use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
 use beacon_chain::blob_verification::GossipBlobError;
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::chain_config::{
-    DEFAULT_RE_ORG_HEAD_THRESHOLD, DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
-    DEFAULT_RE_ORG_PARENT_THRESHOLD, DisallowedReOrgOffsets,
+    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DisallowedReOrgOffsets, ReOrgThreshold,
 };
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::slot_clock::SlotClock;
@@ -979,8 +978,14 @@ impl<E: EthSpec> Tester<E> {
         let proposer_head_result = fc.get_proposer_head(
             slot,
             canonical_head,
-            DEFAULT_RE_ORG_HEAD_THRESHOLD,
-            DEFAULT_RE_ORG_PARENT_THRESHOLD,
+            self.spec
+                .reorg_head_weight_threshold
+                .map(ReOrgThreshold)
+                .unwrap(),
+            self.spec
+                .reorg_parent_weight_threshold
+                .map(ReOrgThreshold)
+                .unwrap(),
             &DisallowedReOrgOffsets::default(),
             DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
         );
