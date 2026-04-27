@@ -1018,6 +1018,7 @@ where
             observed_aggregators: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
             observed_sync_aggregators: <_>::default(),
+            observed_payload_attesters: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
             observed_block_producers: <_>::default(),
             observed_column_sidecars: RwLock::new(ObservedDataSidecars::new(self.spec.clone())),
