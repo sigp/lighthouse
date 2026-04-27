@@ -296,10 +296,9 @@ pub fn blobs_to_data_column_sidecars<E: EthSpec>(
     }
 }
 
-/// Build Gloas data column sidecars from blobs and cell proofs
+/// Build Gloas data column sidecars from blobs, computing cells and proofs locally.
 pub fn blobs_to_data_column_sidecars_gloas<E: EthSpec>(
     blobs: &[&Blob<E>],
-    cell_proofs: Vec<KzgProof>,
     beacon_block_root: Hash256,
     slot: Slot,
     kzg: &Kzg,
@@ -309,35 +308,16 @@ pub fn blobs_to_data_column_sidecars_gloas<E: EthSpec>(
         return Ok(vec![]);
     }
 
-    if cell_proofs.len() != blobs.len() * E::number_of_columns() {
-        return Err(DataColumnSidecarError::InvalidCellProofLength {
-            expected: blobs.len() * E::number_of_columns(),
-            actual: cell_proofs.len(),
-        });
-    }
-
-    let proof_chunks = cell_proofs
-        .chunks_exact(E::number_of_columns())
-        .collect::<Vec<_>>();
-
-    let zipped: Vec<_> = blobs.iter().zip(proof_chunks).collect();
-    let blob_cells_and_proofs_vec = zipped
+    let blob_cells_and_proofs_vec = blobs
         .into_par_iter()
-        .map(|(blob, proofs)| {
+        .map(|blob| {
             let blob = blob.as_ref().try_into().map_err(|e| {
                 KzgError::InconsistentArrayLength(format!(
                     "blob should have a guaranteed size due to FixedVector: {e:?}"
                 ))
             })?;
 
-            kzg.compute_cells(blob).and_then(|cells| {
-                let proofs = proofs.try_into().map_err(|e| {
-                    KzgError::InconsistentArrayLength(format!(
-                        "proof chunks should have exactly `number_of_columns` proofs: {e:?}"
-                    ))
-                })?;
-                Ok((cells, proofs))
-            })
+            kzg.compute_cells_and_proofs(blob)
         })
         .collect::<Result<Vec<_>, KzgError>>()?;
 
@@ -841,14 +821,13 @@ mod test {
     #[track_caller]
     fn test_build_data_columns_gloas(kzg: &Kzg, spec: &ChainSpec) {
         let num_of_blobs = 2;
-        let (blobs, proofs) = create_test_gloas_blobs::<E>(num_of_blobs);
+        let (blobs, _proofs) = create_test_gloas_blobs::<E>(num_of_blobs);
         let beacon_block_root = Hash256::random();
         let slot = Slot::new(0);
 
         let blob_refs: Vec<_> = blobs.iter().collect();
         let column_sidecars = blobs_to_data_column_sidecars_gloas::<E>(
             &blob_refs,
-            proofs.to_vec(),
             beacon_block_root,
             slot,
             kzg,
@@ -873,7 +852,6 @@ mod test {
         let blob_refs: Vec<&types::Blob<E>> = vec![];
         let column_sidecars = blobs_to_data_column_sidecars_gloas::<E>(
             &blob_refs,
-            vec![],
             Hash256::random(),
             Slot::new(0),
             kzg,

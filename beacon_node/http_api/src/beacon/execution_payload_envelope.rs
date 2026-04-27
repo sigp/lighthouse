@@ -6,7 +6,7 @@ use crate::version::{
     ResponseIncludesVersion, add_consensus_version_header, add_ssz_content_type_header,
     execution_optimistic_finalized_beacon_response,
 };
-use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
+use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bytes::Bytes;
 use eth2::types as api_types;
@@ -126,11 +126,11 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     })?;
 
     // Build and publish data column sidecars from the blobs.
-    if let Some((blobs, kzg_proofs)) = blobs_and_proofs
+    if let Some((blobs, _kzg_proofs)) = blobs_and_proofs
         && !blobs.is_empty()
     {
         let gossip_verified_columns =
-            build_gloas_data_columns(&chain, beacon_block_root, slot, &blobs, kzg_proofs)?;
+            build_gloas_data_columns(&chain, beacon_block_root, slot, &blobs)?;
 
         if !gossip_verified_columns.is_empty() {
             publish_column_sidecars(network_tx, &gossip_verified_columns, &chain).map_err(
@@ -169,12 +169,10 @@ fn build_gloas_data_columns<T: BeaconChainTypes>(
     beacon_block_root: types::Hash256,
     slot: types::Slot,
     blobs: &types::BlobsList<T::EthSpec>,
-    kzg_proofs: types::KzgProofs<T::EthSpec>,
 ) -> Result<Vec<GossipVerifiedDataColumn<T>>, Rejection> {
     let blob_refs: Vec<_> = blobs.iter().collect();
     let data_column_sidecars = beacon_chain::kzg_utils::blobs_to_data_column_sidecars_gloas(
         &blob_refs,
-        kzg_proofs.to_vec(),
         beacon_block_root,
         slot,
         &chain.kzg,
@@ -191,7 +189,22 @@ fn build_gloas_data_columns<T: BeaconChainTypes>(
 
     let gossip_verified_columns = data_column_sidecars
         .into_iter()
-        .filter_map(|col| GossipVerifiedDataColumn::new_for_block_publishing(col, chain).ok())
+        .filter_map(|col| {
+            let index = *col.index();
+            match GossipVerifiedDataColumn::new_for_block_publishing(col, chain) {
+                Ok(verified) => Some(verified),
+                Err(GossipDataColumnError::PriorKnownUnpublished) => None,
+                Err(e) => {
+                    warn!(
+                        %slot,
+                        column_index = index,
+                        error = ?e,
+                        "Locally-built data column failed gossip verification"
+                    );
+                    None
+                }
+            }
+        })
         .collect::<Vec<_>>();
 
     debug!(

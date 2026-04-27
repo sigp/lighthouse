@@ -34,6 +34,7 @@ use types::{
     SignedVoluntaryExit, Slot, SyncAggregate, Withdrawal, Withdrawals,
 };
 
+use crate::pending_payload_envelopes::PendingEnvelopeData;
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockProductionError,
     ProduceBlockVerification, block_production::BlockProductionState,
@@ -609,7 +610,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let blobs_and_proofs = payload_data.blobs_and_proofs;
             self.pending_payload_envelopes.write().insert(
                 envelope_slot,
-                crate::pending_payload_envelopes::PendingEnvelopeData {
+                PendingEnvelopeData {
                     envelope: signed_envelope.message,
                     blobs_and_proofs: Some(blobs_and_proofs),
                 },
