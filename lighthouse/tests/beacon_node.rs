@@ -2346,7 +2346,6 @@ fn enable_proposer_re_orgs_default() {
         .with_config(|config| {
             let expected = types::ChainSpec::mainnet()
                 .reorg_head_weight_threshold
-                .unwrap()
                 .map(ReOrgThreshold);
             assert_eq!(config.chain.re_org_head_threshold, expected);
             assert_eq!(
