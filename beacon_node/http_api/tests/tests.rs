@@ -2793,20 +2793,57 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_post_beacon_pool_payload_attestations_valid(mut self) -> Self {
-        let slot = self.chain.slot().unwrap();
-        let head_root = self.chain.head_beacon_block_root();
+    fn make_valid_payload_attestation_message(
+        &self,
+        ptc_offset: usize,
+    ) -> PayloadAttestationMessage {
+        let head = self.chain.head_snapshot();
+        let head_slot = head.beacon_block.slot();
+        let head_root = head.beacon_block_root;
+        let fork = head.beacon_state.fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
 
-        let message = PayloadAttestationMessage {
-            validator_index: 0,
-            data: PayloadAttestationData {
-                beacon_block_root: head_root,
-                slot,
-                payload_present: true,
-                blob_data_available: true,
-            },
-            signature: Signature::empty(),
+        let ptc = head
+            .beacon_state
+            .get_ptc(head_slot, &self.chain.spec)
+            .expect("should get PTC");
+
+        // Find distinct validator indices in the PTC (may contain duplicates due to
+        // weighted sampling with a small validator set).
+        let mut seen = std::collections::HashSet::new();
+        let distinct_indices: Vec<usize> = ptc
+            .0
+            .iter()
+            .copied()
+            .filter(|idx| seen.insert(*idx))
+            .collect();
+        let validator_index = distinct_indices[ptc_offset % distinct_indices.len()];
+
+        let data = PayloadAttestationData {
+            beacon_block_root: head_root,
+            slot: head_slot,
+            payload_present: true,
+            blob_data_available: true,
         };
+
+        let epoch = head_slot.epoch(E::slots_per_epoch());
+        let domain =
+            self.chain
+                .spec
+                .get_domain(epoch, Domain::PTCAttester, &fork, genesis_validators_root);
+        let signing_root = data.signing_root(domain);
+        let sk = &self.validator_keypairs()[validator_index].sk;
+        let signature = sk.sign(signing_root);
+
+        PayloadAttestationMessage {
+            validator_index: validator_index as u64,
+            data,
+            signature,
+        }
+    }
+
+    pub async fn test_post_beacon_pool_payload_attestations_valid(mut self) -> Self {
+        let message = self.make_valid_payload_attestation_message(0);
 
         self.client
             .post_beacon_pool_payload_attestations(&[message])
@@ -2822,19 +2859,7 @@ impl ApiTester {
     }
 
     pub async fn test_post_beacon_pool_payload_attestations_valid_ssz(mut self) -> Self {
-        let slot = self.chain.slot().unwrap();
-        let head_root = self.chain.head_beacon_block_root();
-
-        let message = PayloadAttestationMessage {
-            validator_index: 0,
-            data: PayloadAttestationData {
-                beacon_block_root: head_root,
-                slot,
-                payload_present: true,
-                blob_data_available: true,
-            },
-            signature: Signature::empty(),
-        };
+        let message = self.make_valid_payload_attestation_message(1);
 
         self.client
             .post_beacon_pool_payload_attestations_ssz(&[message])

@@ -184,7 +184,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
         }
 
         let count = messages.len();
-        let fork_name = self.chain_spec.fork_name_at_slot(slot);
+        let fork_name = self.chain_spec.fork_name_at_slot::<S::E>(slot);
         let result = self
             .beacon_nodes
             .first_success(|beacon_node| {

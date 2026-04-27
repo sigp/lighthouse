@@ -9,6 +9,7 @@ use crate::version::{
 };
 use crate::{sync_committees, utils};
 use beacon_chain::observed_operations::ObservationOutcome;
+use beacon_chain::payload_attestation_verification::Error as PayloadAttestationError;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bytes::Bytes;
 use eth2::types::{AttestationPoolQuery, EndpointVersion, Failure, GenericResponse};
@@ -20,7 +21,7 @@ use ssz::{Decode, Encode};
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 use types::{
     Attestation, AttestationData, AttesterSlashing, ForkName, PayloadAttestationMessage,
     ProposerSlashing, SignedBlsToExecutionChange, SignedVoluntaryExit, SingleAttestation,
@@ -542,12 +543,12 @@ pub fn post_beacon_pool_payload_attestations<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
-             _chain: Arc<BeaconChain<T>>,
+             chain: Arc<BeaconChain<T>>,
              messages: Vec<PayloadAttestationMessage>,
              _fork_name: Option<ForkName>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
-                    publish_payload_attestation_messages(&network_tx, messages)
+                    publish_payload_attestation_messages(&chain, &network_tx, messages)
                 })
             },
         )
@@ -573,7 +574,7 @@ pub fn post_beacon_pool_payload_attestations_ssz<T: BeaconChainTypes>(
         .then(
             |body_bytes: Bytes,
              task_spawner: TaskSpawner<T::EthSpec>,
-             _chain: Arc<BeaconChain<T>>,
+             chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     let item_len = <PayloadAttestationMessage as Encode>::ssz_fixed_len();
@@ -595,23 +596,68 @@ pub fn post_beacon_pool_payload_attestations_ssz<T: BeaconChainTypes>(
                         })
                         .collect::<Result<_, _>>()?;
 
-                    publish_payload_attestation_messages(&network_tx, messages)
+                    publish_payload_attestation_messages(&chain, &network_tx, messages)
                 })
             },
         )
         .boxed()
 }
 
-fn publish_payload_attestation_messages<E: types::EthSpec>(
-    network_tx: &UnboundedSender<NetworkMessage<E>>,
+fn publish_payload_attestation_messages<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     messages: Vec<PayloadAttestationMessage>,
 ) -> Result<(), warp::Rejection> {
-    // TODO(gloas): add proper gossip verification and store in ptc op pool.
-    for message in messages {
-        utils::publish_pubsub_message(
-            network_tx,
-            PubsubMessage::PayloadAttestation(Box::new(message)),
-        )?;
+    let mut failures = vec![];
+    let mut num_already_known = 0;
+
+    for (index, message) in messages.into_iter().enumerate() {
+        match chain.verify_payload_attestation_message_for_gossip(message.clone()) {
+            Ok(verified) => {
+                utils::publish_pubsub_message(
+                    network_tx,
+                    PubsubMessage::PayloadAttestation(Box::new(message)),
+                )?;
+
+                if let Err(e) = chain.apply_payload_attestation_to_fork_choice(
+                    verified.indexed_payload_attestation(),
+                    verified.ptc(),
+                ) {
+                    warn!(
+                        error = ?e,
+                        request_index = index,
+                        "Payload attestation invalid for fork choice"
+                    );
+                }
+            }
+            Err(PayloadAttestationError::PriorPayloadAttestationMessageKnown { .. }) => {
+                num_already_known += 1;
+            }
+            // TODO(gloas): requeue for reprocessing like attestations do.
+            Err(e) => {
+                error!(
+                    error = ?e,
+                    request_index = index,
+                    "Failure verifying payload attestation for gossip"
+                );
+                failures.push(Failure::new(index, format!("{e:?}")));
+            }
+        }
     }
-    Ok(())
+
+    if num_already_known > 0 {
+        debug!(
+            count = num_already_known,
+            "Some payload attestations already known"
+        );
+    }
+
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(warp_utils::reject::indexed_bad_request(
+            "error processing payload attestations".to_string(),
+            failures,
+        ))
+    }
 }
