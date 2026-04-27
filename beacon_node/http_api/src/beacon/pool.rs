@@ -577,7 +577,7 @@ pub fn post_beacon_pool_payload_attestations_ssz<T: BeaconChainTypes>(
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     let item_len = <PayloadAttestationMessage as Encode>::ssz_fixed_len();
-                    if body_bytes.len() % item_len != 0 {
+                    if !body_bytes.len().is_multiple_of(item_len) {
                         return Err(warp_utils::reject::custom_bad_request(format!(
                             "SSZ body length {} is not a multiple of PayloadAttestationMessage size {}",
                             body_bytes.len(),

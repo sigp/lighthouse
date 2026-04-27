@@ -7,7 +7,11 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use tracing::{debug, error, info};
+<<<<<<< HEAD
 use types::ChainSpec;
+=======
+use types::{ChainSpec, EthSpec};
+>>>>>>> gloas-ptc-validator-duty
 use validator_store::ValidatorStore;
 
 pub struct PayloadAttestationServiceBuilder<S: ValidatorStore, T: SlotClock + 'static> {
@@ -17,6 +21,14 @@ pub struct PayloadAttestationServiceBuilder<S: ValidatorStore, T: SlotClock + 's
     beacon_nodes: Option<Arc<BeaconNodeFallback<T>>>,
     executor: Option<TaskExecutor>,
     chain_spec: Option<Arc<ChainSpec>>,
+}
+
+impl<S: ValidatorStore + 'static, T: SlotClock + 'static> Default
+    for PayloadAttestationServiceBuilder<S, T>
+{
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServiceBuilder<S, T> {
@@ -117,9 +129,9 @@ impl<S, T> Deref for PayloadAttestationService<S, T> {
 }
 
 impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationService<S, T> {
-    pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
-        let slot_duration = spec.get_slot_duration();
-        let payload_attestation_due = spec.get_payload_attestation_due();
+    pub fn start_update_service(self) -> Result<(), String> {
+        let slot_duration = self.chain_spec.get_slot_duration();
+        let payload_attestation_due = self.chain_spec.get_payload_attestation_due();
 
         info!(
             payload_attestation_due_ms = payload_attestation_due.as_millis(),
@@ -142,6 +154,14 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
                     error!("Failed to read slot clock after trigger");
                     continue;
                 };
+
+                if !self
+                    .chain_spec
+                    .fork_name_at_slot::<S::E>(current_slot)
+                    .gloas_enabled()
+                {
+                    continue;
+                }
 
                 let duties = self.duties_service.get_ptc_duties_for_slot(current_slot);
                 if duties.is_empty() {
