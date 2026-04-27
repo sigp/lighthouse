@@ -742,6 +742,73 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
     }
 }
 
+pub struct ForkChoiceComplianceHandler<E> {
+    handler_name: String,
+    only_fork: Option<ForkName>,
+    _phantom: PhantomData<E>,
+}
+
+impl<E: EthSpec> ForkChoiceComplianceHandler<E> {
+    pub fn new(handler_name: &str) -> Self {
+        Self {
+            handler_name: handler_name.into(),
+            only_fork: None,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn only_fork(mut self, fork: ForkName) -> Self {
+        self.only_fork = Some(fork);
+        self
+    }
+}
+
+impl<E: EthSpec + TypeName> Handler for ForkChoiceComplianceHandler<E> {
+    type Case = cases::ForkChoiceTest<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "fork_choice_compliance"
+    }
+
+    fn handler_name(&self) -> String {
+        self.handler_name.clone()
+    }
+
+    fn use_rayon() -> bool {
+        false
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        // Compliance tests are only generated for fulu and gloas (post-Electra).
+        if !fork_name.fulu_enabled() {
+            return false;
+        }
+        // Gloas anchor states currently fail to initialise the test harness with
+        // "Head block not found in store" after the recent payload-envelope DB
+        // changes (see https://github.com/sigp/lighthouse/pull/8886). Skip gloas
+        // here until that path is fixed; fulu compliance still runs.
+        if fork_name.gloas_enabled() {
+            return false;
+        }
+        if let Some(only) = self.only_fork
+            && only != fork_name
+        {
+            return false;
+        }
+        // Compliance generators emit bogus BLS signatures (`bls_setting: 2`); SSZ-decoding
+        // them with real BLS yields BLST_BAD_ENCODING. They must run with `fake_crypto`.
+        cfg!(feature = "fake_crypto")
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        vec![]
+    }
+}
+
 #[derive(Educe)]
 #[educe(Default)]
 pub struct OptimisticSyncHandler<E>(PhantomData<E>);

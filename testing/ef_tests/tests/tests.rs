@@ -1056,6 +1056,108 @@ fn fork_choice_get_parent_payload_status() {
     ForkChoiceHandler::<MainnetEthSpec>::new("get_parent_payload_status").run();
 }
 
+// Compliance tests surface real consensus deltas (proposer-boost timing, viable-tree
+// weights) that we want to be able to run on demand without blocking CI. They are gated
+// behind `#[ignore]` and run via `scripts/compliance-fc-report.sh` (which passes
+// `--include-ignored` to cargo test). To run them directly:
+//   cargo test --release --features "ef_tests,fake_crypto" -p ef_tests --test tests \
+//     fork_choice_compliance_ -- --include-ignored
+#[test]
+#[ignore]
+fn fork_choice_compliance_attester_slashing_test_fulu() {
+    ForkChoiceComplianceHandler::<MinimalEthSpec>::new("attester_slashing_test")
+        .only_fork(ForkName::Fulu)
+        .run();
+}
+
+#[test]
+#[ignore]
+fn fork_choice_compliance_attester_slashing_test_gloas() {
+    ForkChoiceComplianceHandler::<MinimalEthSpec>::new("attester_slashing_test")
+        .only_fork(ForkName::Gloas)
+        .run();
+}
+
+#[test]
+#[ignore]
+fn fork_choice_compliance_block_cover_test_fulu() {
+    ForkChoiceComplianceHandler::<MinimalEthSpec>::new("block_cover_test")
+        .only_fork(ForkName::Fulu)
+        .run();
+}
+
+#[test]
+#[ignore]
+fn fork_choice_compliance_block_cover_test_gloas() {
+    ForkChoiceComplianceHandler::<MinimalEthSpec>::new("block_cover_test")
+        .only_fork(ForkName::Gloas)
+        .run();
+}
+
+#[test]
+#[ignore]
+fn fork_choice_compliance_block_tree_test_fulu() {
+    ForkChoiceComplianceHandler::<MinimalEthSpec>::new("block_tree_test")
+        .only_fork(ForkName::Fulu)
+        .run();
+}
+
+#[test]
+#[ignore]
+fn fork_choice_compliance_block_tree_test_gloas() {
+    ForkChoiceComplianceHandler::<MinimalEthSpec>::new("block_tree_test")
+        .only_fork(ForkName::Gloas)
+        .run();
+}
+
+#[test]
+#[ignore]
+fn fork_choice_compliance_block_weight_test_fulu() {
+    ForkChoiceComplianceHandler::<MinimalEthSpec>::new("block_weight_test")
+        .only_fork(ForkName::Fulu)
+        .run();
+}
+
+#[test]
+#[ignore]
+fn fork_choice_compliance_block_weight_test_gloas() {
+    ForkChoiceComplianceHandler::<MinimalEthSpec>::new("block_weight_test")
+        .only_fork(ForkName::Gloas)
+        .run();
+}
+
+#[test]
+#[ignore]
+fn fork_choice_compliance_invalid_message_test_fulu() {
+    ForkChoiceComplianceHandler::<MinimalEthSpec>::new("invalid_message_test")
+        .only_fork(ForkName::Fulu)
+        .run();
+}
+
+#[test]
+#[ignore]
+fn fork_choice_compliance_invalid_message_test_gloas() {
+    ForkChoiceComplianceHandler::<MinimalEthSpec>::new("invalid_message_test")
+        .only_fork(ForkName::Gloas)
+        .run();
+}
+
+#[test]
+#[ignore]
+fn fork_choice_compliance_shuffling_test_fulu() {
+    ForkChoiceComplianceHandler::<MinimalEthSpec>::new("shuffling_test")
+        .only_fork(ForkName::Fulu)
+        .run();
+}
+
+#[test]
+#[ignore]
+fn fork_choice_compliance_shuffling_test_gloas() {
+    ForkChoiceComplianceHandler::<MinimalEthSpec>::new("shuffling_test")
+        .only_fork(ForkName::Gloas)
+        .run();
+}
+
 #[test]
 fn optimistic_sync() {
     OptimisticSyncHandler::<MinimalEthSpec>::default().run();

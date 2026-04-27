@@ -1080,6 +1080,51 @@ impl ProtoArrayForkChoice {
             .map(|node| node.weight())
     }
 
+    /// Returns the leaves of the filtered block tree (rooted at `justified_root`) along with
+    /// their weights — i.e. roots that are viable for head and have no descendant that is also
+    /// viable for head. Mirrors the spec's `viable_for_head_roots_and_weights` check.
+    pub fn filtered_block_tree_leaves_and_weights<E: EthSpec>(
+        &self,
+        justified_root: &Hash256,
+        current_slot: Slot,
+        justified_checkpoint: Checkpoint,
+        finalized_checkpoint: Checkpoint,
+    ) -> Result<Vec<(Hash256, u64)>, String> {
+        let start_index = self
+            .proto_array
+            .indices
+            .get(justified_root)
+            .copied()
+            .ok_or_else(|| {
+                format!(
+                    "filtered_block_tree_leaves_and_weights: justified node \
+                     {justified_root:?} unknown"
+                )
+            })?;
+        let viable = self.proto_array.get_filtered_block_tree::<E>(
+            start_index,
+            current_slot,
+            justified_checkpoint,
+            finalized_checkpoint,
+        );
+        let mut leaves = Vec::with_capacity(viable.len());
+        for &i in &viable {
+            let has_viable_child = viable
+                .iter()
+                .any(|&j| self.proto_array.nodes.get(j).and_then(|n| n.parent()) == Some(i));
+            if has_viable_child {
+                continue;
+            }
+            let node = self
+                .proto_array
+                .nodes
+                .get(i)
+                .ok_or_else(|| format!("invalid viable node index {i}"))?;
+            leaves.push((node.root(), node.weight()));
+        }
+        Ok(leaves)
+    }
+
     /// Returns the payload status of the head node based on accumulated weights and tiebreaker.
     ///
     /// See `ProtoArray` documentation.

@@ -1,6 +1,8 @@
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
-use ::fork_choice::{PayloadVerificationStatus, ProposerHeadError};
+use ::fork_choice::{
+    AttestationFromBlock, ForkChoiceStore, PayloadVerificationStatus, ProposerHeadError,
+};
 use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
 use beacon_chain::blob_verification::GossipBlobError;
 use beacon_chain::block_verification_types::LookupBlock;
@@ -19,6 +21,7 @@ use beacon_chain::{
     custody_context::NodeCustodyType,
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
 };
+use bls::AggregateSignature;
 use execution_layer::{
     PayloadStatusV1, PayloadStatusV1Status, json_structures::JsonPayloadStatusV1Status,
 };
@@ -34,8 +37,8 @@ use types::{
     Attestation, AttestationRef, AttesterSlashing, AttesterSlashingRef, BeaconBlock, BeaconState,
     BlobSidecar, BlobsList, BlockImportSource, Checkpoint, DataColumnSidecar,
     DataColumnSidecarList, DataColumnSubnetId, ExecutionBlockHash, Hash256, IndexedAttestation,
-    KzgProof, ProposerPreparationData, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
-    Uint256,
+    IndexedPayloadAttestation, KzgProof, PayloadAttestationMessage, ProposerPreparationData,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot, Uint256,
 };
 
 // When set to true, cache any states fetched from the db.
@@ -78,6 +81,14 @@ pub struct Checks {
     get_proposer_head: Option<Hash256>,
     should_override_forkchoice_update: Option<ShouldOverrideFcu>,
     head_payload_status: Option<u8>,
+    viable_for_head_roots_and_weights: Option<Vec<RootAndWeight>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RootAndWeight {
+    pub root: Hash256,
+    pub weight: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -108,6 +119,7 @@ pub enum Step<
     TAttesterSlashing,
     TPowBlock,
     TExecutionPayload = String,
+    TPayloadAttestation = String,
 > {
     Tick {
         tick: u64,
@@ -123,9 +135,13 @@ pub enum Step<
     },
     Attestation {
         attestation: TAttestation,
+        #[serde(default)]
+        valid: Option<bool>,
     },
     AttesterSlashing {
         attester_slashing: TAttesterSlashing,
+        #[serde(default)]
+        valid: Option<bool>,
     },
     PowBlock {
         pow_block: TPowBlock,
@@ -146,13 +162,17 @@ pub enum Step<
         execution_payload: TExecutionPayload,
         valid: bool,
     },
+    PayloadAttestation {
+        payload_attestation: TPayloadAttestation,
+        #[serde(default)]
+        valid: Option<bool>,
+    },
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct Meta {
-    #[serde(rename(deserialize = "description"))]
-    _description: String,
+    #[serde(rename(deserialize = "description"), default)]
+    _description: Option<String>,
 }
 
 #[derive(Debug)]
@@ -170,6 +190,7 @@ pub struct ForkChoiceTest<E: EthSpec> {
             AttesterSlashing<E>,
             PowBlock,
             SignedExecutionPayloadEnvelope<E>,
+            PayloadAttestationMessage,
         >,
     >,
 }
@@ -184,8 +205,10 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
             .expect("path must be valid OsStr")
             .to_string();
         let spec = &testing_spec::<E>(fork_name);
-        let steps: Vec<Step<String, String, Vec<String>, String, String, String>> =
-            yaml_decode_file(&path.join("steps.yaml"))?;
+        #[allow(clippy::type_complexity)]
+        let steps: Vec<
+            Step<String, String, Vec<String>, String, String, String, String, String>,
+        > = yaml_decode_file(&path.join("steps.yaml"))?;
         // Resolve the object names in `steps.yaml` into actual decoded block/attestation objects.
         let steps = steps
             .into_iter()
@@ -217,31 +240,38 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                         valid,
                     })
                 }
-                Step::Attestation { attestation } => {
+                Step::Attestation { attestation, valid } => {
                     if fork_name.electra_enabled() {
                         ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation))).map(
                             |attestation| Step::Attestation {
                                 attestation: Attestation::Electra(attestation),
+                                valid,
                             },
                         )
                     } else {
                         ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation))).map(
                             |attestation| Step::Attestation {
                                 attestation: Attestation::Base(attestation),
+                                valid,
                             },
                         )
                     }
                 }
-                Step::AttesterSlashing { attester_slashing } => {
+                Step::AttesterSlashing {
+                    attester_slashing,
+                    valid,
+                } => {
                     if fork_name.electra_enabled() {
                         ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
                             .map(|attester_slashing| Step::AttesterSlashing {
                                 attester_slashing: AttesterSlashing::Electra(attester_slashing),
+                                valid,
                             })
                     } else {
                         ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
                             .map(|attester_slashing| Step::AttesterSlashing {
                                 attester_slashing: AttesterSlashing::Base(attester_slashing),
+                                valid,
                             })
                     }
                 }
@@ -301,6 +331,15 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                         valid,
                     })
                 }
+                Step::PayloadAttestation {
+                    payload_attestation,
+                    valid,
+                } => ssz_decode_file(&path.join(format!("{payload_attestation}.ssz_snappy"))).map(
+                    |payload_attestation| Step::PayloadAttestation {
+                        payload_attestation,
+                        valid,
+                    },
+                ),
             })
             .collect::<Result<_, _>>()?;
         let anchor_state = ssz_decode_state(&path.join("anchor_state.ssz_snappy"), spec)?;
@@ -363,10 +402,27 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     proofs.clone(),
                     *valid,
                 )?,
-                Step::Attestation { attestation } => tester.process_attestation(attestation)?,
-                Step::AttesterSlashing { attester_slashing } => {
-                    tester.process_attester_slashing(attester_slashing.to_ref())
+                Step::Attestation { attestation, valid } => {
+                    let result = tester.process_attestation(attestation);
+                    // Compliance tests use `valid: false` to indicate the attestation is
+                    // intentionally malformed and should be rejected. In that case, an error
+                    // here is the expected outcome.
+                    match valid {
+                        Some(false) => {
+                            if result.is_ok() {
+                                return Err(Error::DidntFail(
+                                    "attestation marked valid=false should have been rejected"
+                                        .into(),
+                                ));
+                            }
+                        }
+                        _ => result?,
+                    }
                 }
+                Step::AttesterSlashing {
+                    attester_slashing,
+                    valid: _,
+                } => tester.process_attester_slashing(attester_slashing.to_ref()),
                 Step::PowBlock { pow_block } => tester.process_pow_block(pow_block),
                 Step::OnPayloadInfo {
                     block_hash,
@@ -390,6 +446,7 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         get_proposer_head,
                         should_override_forkchoice_update: should_override_fcu,
                         head_payload_status,
+                        viable_for_head_roots_and_weights,
                     } = checks.as_ref();
 
                     if let Some(expected_head) = head {
@@ -440,6 +497,10 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     if let Some(expected_status) = head_payload_status {
                         tester.check_head_payload_status(*expected_status)?;
                     }
+
+                    if let Some(expected) = viable_for_head_roots_and_weights {
+                        tester.check_viable_for_head_roots_and_weights(expected)?;
+                    }
                 }
 
                 Step::MaybeValidBlockAndColumns {
@@ -454,6 +515,24 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     valid,
                 } => {
                     tester.process_execution_payload(execution_payload, *valid)?;
+                }
+                Step::PayloadAttestation {
+                    payload_attestation,
+                    valid,
+                } => {
+                    let result = tester.process_payload_attestation(payload_attestation);
+                    match valid {
+                        Some(false) => {
+                            if result.is_ok() {
+                                return Err(Error::DidntFail(
+                                    "payload attestation marked valid=false should have been \
+                                     rejected"
+                                        .into(),
+                                ));
+                            }
+                        }
+                        _ => result?,
+                    }
                 }
             }
         }
@@ -610,14 +689,16 @@ impl<E: EthSpec> Tester<E> {
                 || Ok(()),
             ))?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
-        let success = data_column_success && result.as_ref().is_ok_and(|inner| inner.is_ok());
+        let is_duplicate = matches!(
+            &result,
+            Err(beacon_chain::BlockError::DuplicateFullyImported(_))
+        );
+        let success = data_column_success
+            && (result.as_ref().is_ok_and(|inner| inner.is_ok()) || is_duplicate);
         if success != valid {
             return Err(Error::DidntFail(format!(
                 "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
-                block_root,
-                result.is_ok(),
-                valid,
-                result
+                block_root, success, valid, result
             )));
         }
 
@@ -709,14 +790,19 @@ impl<E: EthSpec> Tester<E> {
                 || Ok(()),
             ))?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
-        let success = blob_success && result.as_ref().is_ok_and(|inner| inner.is_ok());
+        // Spec `on_block` is idempotent: re-importing an already-known block is a no-op
+        // success. Lighthouse surfaces this as `BlockError::DuplicateFullyImported`; the
+        // compliance suite re-feeds blocks repeatedly, so treat duplicates as success.
+        let is_duplicate = matches!(
+            &result,
+            Err(beacon_chain::BlockError::DuplicateFullyImported(_))
+        );
+        let success =
+            blob_success && (result.as_ref().is_ok_and(|inner| inner.is_ok()) || is_duplicate);
         if success != valid {
             return Err(Error::DidntFail(format!(
                 "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
-                block_root,
-                result.is_ok(),
-                valid,
-                result
+                block_root, success, valid, result
             )));
         }
 
@@ -821,6 +907,35 @@ impl<E: EthSpec> Tester<E> {
             .chain
             .apply_attestation_to_fork_choice(&verified_attestation)
             .map_err(|e| Error::InternalError(format!("attestation import failed with {:?}", e)))
+    }
+
+    pub fn process_payload_attestation(
+        &self,
+        message: &PayloadAttestationMessage,
+    ) -> Result<(), Error> {
+        let head = self.harness.chain.canonical_head.cached_head();
+        let head_state = &head.snapshot.beacon_state;
+        let slot = message.data.slot;
+        let ptc = head_state
+            .get_ptc(slot, &self.spec)
+            .map_err(|e| Error::InternalError(format!("get_ptc failed with {:?}", e)))?;
+
+        let indexed = IndexedPayloadAttestation {
+            attesting_indices: vec![message.validator_index].try_into().map_err(|_| {
+                Error::InternalError("payload attestation indexing failed: too many indices".into())
+            })?,
+            data: message.data.clone(),
+            signature: AggregateSignature::from(&message.signature),
+        };
+
+        self.harness
+            .chain
+            .canonical_head
+            .fork_choice_write_lock()
+            .on_payload_attestation(slot, &indexed, AttestationFromBlock::False, &ptc.0)
+            .map_err(|e| {
+                Error::InternalError(format!("payload attestation import failed with {:?}", e))
+            })
     }
 
     pub fn process_attester_slashing(&self, attester_slashing: AttesterSlashingRef<E>) {
@@ -1100,6 +1215,45 @@ impl<E: EthSpec> Tester<E> {
         // PayloadStatus repr: Empty=0, Full=1, Pending=2 (matches spec constants).
         let actual = head.head_payload_status() as u8;
         check_equal("head_payload_status", actual, expected_status)
+    }
+
+    pub fn check_viable_for_head_roots_and_weights(
+        &self,
+        expected: &[RootAndWeight],
+    ) -> Result<(), Error> {
+        // Apply pending vote deltas so weights reflect the latest store state.
+        let _ = self.find_head()?;
+
+        let fork_choice = self.harness.chain.canonical_head.fork_choice_read_lock();
+        let justified = fork_choice.justified_checkpoint();
+        let finalized = fork_choice.finalized_checkpoint();
+        let current_slot = fork_choice.fc_store().get_current_slot();
+        let actual = fork_choice
+            .proto_array()
+            .filtered_block_tree_leaves_and_weights::<E>(
+                &justified.root,
+                current_slot,
+                justified,
+                finalized,
+            )
+            .map_err(|e| {
+                Error::InternalError(format!(
+                    "filtered_block_tree_leaves_and_weights failed: {e}"
+                ))
+            })?;
+        drop(fork_choice);
+
+        let mut actual_sorted = actual;
+        actual_sorted.sort();
+        let mut expected_sorted: Vec<(Hash256, u64)> =
+            expected.iter().map(|x| (x.root, x.weight)).collect();
+        expected_sorted.sort();
+
+        check_equal(
+            "viable_for_head_roots_and_weights",
+            actual_sorted,
+            expected_sorted,
+        )
     }
 
     pub fn check_should_override_fcu(
