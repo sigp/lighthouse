@@ -17,8 +17,9 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, info, warn};
 use types::{
-    Attestation, AttestationData, AttesterSlashing, ForkName, ProposerSlashing,
-    SignedBlsToExecutionChange, SignedVoluntaryExit, SingleAttestation, SyncCommitteeMessage,
+    Attestation, AttestationData, AttesterSlashing, ForkName, PayloadAttestationMessage,
+    ProposerSlashing, SignedBlsToExecutionChange, SignedVoluntaryExit, SingleAttestation,
+    SyncCommitteeMessage,
 };
 use warp::filters::BoxedFilter;
 use warp::{Filter, Reply};
@@ -516,6 +517,37 @@ pub fn post_beacon_pool_attestations_v2<T: BeaconChainTypes>(
                 .await
                 .map(|()| warp::reply::json(&()));
                 convert_rejection(result).await
+            },
+        )
+        .boxed()
+}
+
+/// POST beacon/pool/payload_attestations
+pub fn post_beacon_pool_payload_attestations<T: BeaconChainTypes>(
+    network_tx_filter: &NetworkTxFilter<T>,
+    beacon_pool_path: &BeaconPoolPathFilter<T>,
+) -> ResponseFilter {
+    beacon_pool_path
+        .clone()
+        .and(warp::path("payload_attestations"))
+        .and(warp::path::end())
+        .and(warp_utils::json::json())
+        .and(network_tx_filter.clone())
+        .then(
+            |task_spawner: TaskSpawner<T::EthSpec>,
+             _chain: Arc<BeaconChain<T>>,
+             messages: Vec<PayloadAttestationMessage>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                task_spawner.blocking_json_task(Priority::P0, move || {
+                    // TODO(gloas): add proper verification once payload_attestation_verification is implemented
+                    for message in messages {
+                        utils::publish_pubsub_message(
+                            &network_tx,
+                            PubsubMessage::PayloadAttestation(Box::new(message)),
+                        )?;
+                    }
+                    Ok(())
+                })
             },
         )
         .boxed()
