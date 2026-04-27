@@ -2844,9 +2844,10 @@ impl ApiTester {
 
     pub async fn test_post_beacon_pool_payload_attestations_valid(mut self) -> Self {
         let message = self.make_valid_payload_attestation_message(0);
+        let fork_name = self.chain.spec.fork_name_at_slot::<E>(message.data.slot);
 
         self.client
-            .post_beacon_pool_payload_attestations(&[message])
+            .post_beacon_pool_payload_attestations(&[message], fork_name)
             .await
             .unwrap();
 
@@ -2860,9 +2861,10 @@ impl ApiTester {
 
     pub async fn test_post_beacon_pool_payload_attestations_valid_ssz(mut self) -> Self {
         let message = self.make_valid_payload_attestation_message(1);
+        let fork_name = self.chain.spec.fork_name_at_slot::<E>(message.data.slot);
 
         self.client
-            .post_beacon_pool_payload_attestations_ssz(&[message])
+            .post_beacon_pool_payload_attestations_ssz(&[message], fork_name)
             .await
             .unwrap();
 
