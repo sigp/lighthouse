@@ -1351,7 +1351,7 @@ where
         let ptc_indices: Vec<usize> = attestation
             .attesting_indices
             .iter()
-            .filter_map(|vi| ptc.iter().position(|&p| p == *vi as usize))
+            .filter_map(|validator_index| ptc.iter().position(|&p| p == *validator_index as usize))
             .collect();
 
         // Check that all the attesters are in the PTC
