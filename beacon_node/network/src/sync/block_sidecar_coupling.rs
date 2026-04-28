@@ -612,12 +612,18 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 
         if payload_iter.next().is_some() {
             let remaining = payload_iter.count() + 1;
-            debug!(remaining, "Received payload envelopes that don't pair with blocks");
+            debug!(
+                remaining,
+                "Received payload envelopes that don't pair with blocks"
+            );
         }
 
         if !data_columns_by_block.is_empty() {
             let remaining_roots = data_columns_by_block.keys().collect::<Vec<_>>();
-            debug!(?remaining_roots, "Not all columns consumed for Gloas blocks");
+            debug!(
+                ?remaining_roots,
+                "Not all columns consumed for Gloas blocks"
+            );
         }
 
         Ok(range_sync_blocks)
