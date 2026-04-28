@@ -9,9 +9,10 @@ use execution_layer::{
 use fork_choice::PayloadStatus;
 use operation_pool::CompactAttestationRef;
 use ssz::Encode;
-use state_processing::common::get_attesting_indices_from_state;
+use state_processing::common::{get_attesting_indices_from_state, get_indexed_payload_attestation};
 use state_processing::envelope_processing::verify_execution_payload_envelope;
 use state_processing::epoch_cache::initialize_epoch_cache;
+use state_processing::per_block_processing::is_valid_indexed_payload_attestation;
 use state_processing::per_block_processing::{
     apply_parent_execution_payload, compute_timestamp_at_slot, get_expected_withdrawals,
     verify_attestation_for_block_inclusion,
@@ -319,6 +320,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(BlockProductionError::OpPoolError)?
         };
 
+        let mut payload_attestations = self
+            .op_pool
+            .get_payload_attestations(&state, parent_root, &self.spec)
+            .map_err(BlockProductionError::OpPoolError)?;
+
         // If paranoid mode is enabled re-check the signatures of every included message.
         // This will be a lot slower but guards against bugs in block production and can be
         // quickly rolled out without a release.
@@ -341,6 +347,35 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     );
                 })
                 .is_ok()
+            });
+
+            payload_attestations.retain(|att| {
+                match get_indexed_payload_attestation(&state, att, &self.spec) {
+                    Ok(indexed) => is_valid_indexed_payload_attestation(
+                        &state,
+                        &indexed,
+                        VerifySignatures::True,
+                        &self.spec,
+                    )
+                    .map_err(|e| {
+                        warn!(
+                            err = ?e,
+                            block_slot = %state.slot(),
+                            ?att,
+                            "Attempted to include a payload attestation with invalid signature"
+                        );
+                    })
+                    .is_ok(),
+                    Err(e) => {
+                        warn!(
+                            err = ?e,
+                            block_slot = %state.slot(),
+                            ?att,
+                            "Failed to index payload attestation for verification"
+                        );
+                        false
+                    }
+                }
             });
 
             proposer_slashings.retain(|slashing| {
@@ -386,8 +421,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     })
                     .is_ok()
             });
-
-            // TODO(gloas) verify payload attestation signature here as well
         }
 
         let attester_slashings = attester_slashings
@@ -434,8 +467,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 deposits,
                 voluntary_exits,
                 sync_aggregate,
-                // TODO(gloas) need to implement payload attestations
-                payload_attestations: vec![],
+                payload_attestations,
                 bls_to_execution_changes,
             },
             state,

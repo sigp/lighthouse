@@ -477,7 +477,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             processor.process_gossip_payload_attestation(
                 message_id,
                 peer_id,
-                *payload_attestation_message,
+                payload_attestation_message,
             )
         };
 

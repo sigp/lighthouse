@@ -3198,6 +3198,27 @@ impl<E: EthSpec> BeaconState<E> {
         Ok(hash(&preimage))
     }
 
+    /// Find the first slot in the given epoch where the validator is assigned to the PTC.
+    ///
+    /// Returns `Ok(Some(slot))` if the validator is in the PTC for any slot in the epoch,
+    /// `Ok(None)` if the validator is not in the PTC for this epoch.
+    ///
+    /// This iterates through all slots in the epoch, so it's O(slots_per_epoch) per validator.
+    pub fn get_ptc_assignment(
+        &self,
+        validator_index: usize,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<Option<Slot>, BeaconStateError> {
+        for slot in epoch.slot_iter(E::slots_per_epoch()) {
+            let ptc = self.get_ptc(slot, spec)?;
+            if ptc.0.contains(&validator_index) {
+                return Ok(Some(slot));
+            }
+        }
+        Ok(None)
+    }
+
     /// Return size indices sampled by effective balance, using indices as candidates.
     ///
     /// If shuffle_indices is True, candidate indices are themselves sampled from indices

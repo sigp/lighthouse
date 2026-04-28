@@ -7,7 +7,7 @@ use crate::utils::{
     ResponseFilter, TaskSpawnerFilter, ValidatorSubscriptionTxFilter, publish_network_message,
 };
 use crate::version::{V1, V2, V3, unsupported_version_rejection};
-use crate::{StateId, attester_duties, proposer_duties, sync_committees};
+use crate::{StateId, attester_duties, proposer_duties, ptc_duties, sync_committees};
 use beacon_chain::attestation_verification::VerifiedAttestation;
 use beacon_chain::{AttestationError, BeaconChain, BeaconChainError, BeaconChainTypes};
 use bls::PublicKeyBytes;
@@ -162,6 +162,42 @@ pub fn post_validator_duties_attester<T: BeaconChainTypes>(
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     not_synced_filter?;
                     attester_duties::attester_duties(epoch, &indices.0, &chain)
+                })
+            },
+        )
+        .boxed()
+}
+
+// POST validator/duties/ptc/{epoch}
+pub fn post_validator_duties_ptc<T: BeaconChainTypes>(
+    eth_v1: EthV1Filter,
+    chain_filter: ChainFilter<T>,
+    not_while_syncing_filter: NotWhileSyncingFilter,
+    task_spawner_filter: TaskSpawnerFilter<T>,
+) -> ResponseFilter {
+    eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path("duties"))
+        .and(warp::path("ptc"))
+        .and(warp::path::param::<Epoch>().or_else(|_| async {
+            Err(warp_utils::reject::custom_bad_request(
+                "Invalid epoch".to_string(),
+            ))
+        }))
+        .and(warp::path::end())
+        .and(not_while_syncing_filter.clone())
+        .and(warp_utils::json::json())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .then(
+            |epoch: Epoch,
+             not_synced_filter: Result<(), Rejection>,
+             indices: ValidatorIndexData,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_json_task(Priority::P0, move || {
+                    not_synced_filter?;
+                    ptc_duties::ptc_duties(epoch, &indices.0, &chain)
                 })
             },
         )
