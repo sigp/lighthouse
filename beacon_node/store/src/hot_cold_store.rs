@@ -1382,7 +1382,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
         }
 
-        let hot_db_ops: Vec<StoreOp<E>> = batch.into_iter().filter(|op| !is_blob_store_op(op)).collect();
+        let hot_db_ops: Vec<StoreOp<E>> = batch
+            .into_iter()
+            .filter(|op| !is_blob_store_op(op))
+            .collect();
         self.hot_db
             .do_atomically(self.convert_to_kv_batch(hot_db_ops)?)
     }
