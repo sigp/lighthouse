@@ -288,16 +288,8 @@ async fn populate_chain_data(harness: &BeaconChainHarness<EphemeralHarnessType<E
 }
 
 // Extract the full ObjectSchema for each endpoint, the ObjectSchema contains all info that we need for the checks
-async fn extract_all_endpoints() -> ObjectSchemaByEndpoint {
-    // Obtain the complete Beacon APIs yaml file using the latest release version (not the dev version)
-    let yaml = reqwest::get(
-        "https://github.com/ethereum/beacon-APIs/releases/latest/download/beacon-node-oapi.yaml",
-    )
-    .await
-    .unwrap()
-    .text()
-    .await
-    .unwrap();
+fn extract_all_endpoints() -> ObjectSchemaByEndpoint {
+    let yaml = std::fs::read_to_string("./tests/beacon-node-oapi.yaml").unwrap();
 
     // Use the function from oas3 crate to parse the main yaml file
     let spec = oas3::from_yaml(yaml).unwrap();
@@ -791,7 +783,7 @@ async fn http_api_spec_test() -> Result<(), String> {
         blinded_block,
     } = populate_chain_data(&harness).await;
 
-    let object_schema_by_endpoint = extract_all_endpoints().await;
+    let object_schema_by_endpoint = extract_all_endpoints();
 
     // Test for GET endpoints response
     for (endpoint, get_response_object_schema) in &object_schema_by_endpoint.get_response {
