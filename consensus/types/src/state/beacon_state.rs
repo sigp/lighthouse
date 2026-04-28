@@ -3141,7 +3141,18 @@ impl<E: EthSpec> BeaconState<E> {
         let total_active_balance = self.get_total_active_balance()?;
         let fork_name = self.fork_name_unchecked();
 
-        if fork_name.electra_enabled() {
+        if fork_name.gloas_enabled() {
+            let exit_churn = self.get_exit_churn_limit_gloas(spec)?;
+            let activation_churn = self.get_activation_churn_limit_gloas(spec)?;
+            let consolidation_churn = self.get_consolidation_churn_limit(spec)?;
+            compute_weak_subjectivity_period_gloas(
+                total_active_balance,
+                exit_churn,
+                activation_churn,
+                consolidation_churn,
+                spec,
+            )
+        } else if fork_name.electra_enabled() {
             let balance_churn_limit = self.get_balance_churn_limit(spec)?;
             compute_weak_subjectivity_period_electra(
                 total_active_balance,
@@ -3632,6 +3643,31 @@ pub fn compute_weak_subjectivity_period_electra(
     let epochs_for_validator_set_churn = SAFETY_DECAY
         .safe_mul(total_active_balance)?
         .safe_div(balance_churn_limit.safe_mul(200)?)?;
+    let ws_period = spec
+        .min_validator_withdrawability_delay
+        .safe_add(epochs_for_validator_set_churn)?;
+
+    Ok(ws_period)
+}
+
+/// EIP-8061 weak subjectivity formula with asymmetric churn.
+pub fn compute_weak_subjectivity_period_gloas(
+    total_active_balance: u64,
+    exit_churn: u64,
+    activation_churn: u64,
+    consolidation_churn: u64,
+    spec: &ChainSpec,
+) -> Result<Epoch, BeaconStateError> {
+    let delta = (2u64)
+        .safe_mul(exit_churn)?
+        .safe_div(3)?
+        .safe_add(activation_churn.safe_div(3)?)?
+        .safe_add(consolidation_churn)?;
+
+    let epochs_for_validator_set_churn = SAFETY_DECAY
+        .safe_mul(total_active_balance)?
+        .safe_div(delta.safe_mul(2)?.safe_mul(100)?)?;
+
     let ws_period = spec
         .min_validator_withdrawability_delay
         .safe_add(epochs_for_validator_set_churn)?;
