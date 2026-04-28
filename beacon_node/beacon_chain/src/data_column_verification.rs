@@ -358,14 +358,10 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
     ) -> Result<Self, GossipDataColumnError> {
         let commitments_len = match column_sidecar.as_ref() {
             DataColumnSidecar::Fulu(dc) => dc.kzg_commitments.len(),
-            DataColumnSidecar::Gloas(_) => {
-                let bid = block
-                    .message()
-                    .body()
-                    .signed_execution_payload_bid()
-                    .map_err(|_| GossipDataColumnError::InvalidVariant)?;
-                bid.message.blob_kzg_commitments.len()
-            }
+            DataColumnSidecar::Gloas(_) => block
+                .message()
+                .blob_kzg_commitments_len()
+                .ok_or(GossipDataColumnError::InvalidVariant)?,
         };
         verify_data_column_sidecar(&column_sidecar, commitments_len, &chain.spec)?;
 
