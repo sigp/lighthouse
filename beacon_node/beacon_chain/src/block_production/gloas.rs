@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use bls::Signature;
+use bls::{PublicKeyBytes, Signature};
 use execution_layer::{
     BlockProposalContentsGloas, BuilderParams, PayloadAttributes, PayloadParameters,
 };
@@ -27,7 +27,7 @@ use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::{
     Address, Attestation, AttestationElectra, AttesterSlashing, AttesterSlashingElectra,
     BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, BeaconState, BeaconStateError,
-    BuilderIndex, Deposit, Eth1Data, EthSpec, ExecutionBlockHash, ExecutionPayloadBid,
+    BuilderIndex, ChainSpec, Deposit, Eth1Data, EthSpec, ExecutionBlockHash, ExecutionPayloadBid,
     ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, FullPayload, Graffiti,
     Hash256, PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
     SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
@@ -259,30 +259,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let (mut proposer_slashings, mut attester_slashings, mut voluntary_exits) =
             self.op_pool.get_slashings_and_exits(&state, &self.spec);
 
-        // Filter out voluntary exits that conflict with parent execution requests.
-        let mut exited_pubkeys = HashSet::with_capacity(
-            parent_execution_requests.withdrawals.len()
-                + parent_execution_requests.consolidations.len(),
+        filter_voluntary_exits_for_parent_execution_requests(
+            &mut voluntary_exits,
+            parent_execution_requests,
+            |idx| state.validators().get(idx as usize).map(|v| v.pubkey),
+            &self.spec,
         );
-        for req in &parent_execution_requests.withdrawals {
-            if req.amount == self.spec.full_exit_request_amount {
-                exited_pubkeys.insert(req.validator_pubkey);
-            }
-        }
-        for req in &parent_execution_requests.consolidations {
-            if req.source_pubkey != req.target_pubkey {
-                exited_pubkeys.insert(req.source_pubkey);
-            }
-        }
-        if !exited_pubkeys.is_empty() {
-            voluntary_exits.retain(|exit| {
-                state
-                    .validators()
-                    .get(exit.message.validator_index as usize)
-                    .map(|v| !exited_pubkeys.contains(&v.pubkey))
-                    .unwrap_or(false)
-            });
-        }
 
         drop(slashings_and_exits_span);
 
@@ -953,4 +935,179 @@ where
         .map_err(BlockProductionError::GetPayloadFailed)?;
 
     Ok(block_contents)
+}
+
+/// Drop voluntary exits whose target validators will be exited by the parent envelope's
+/// execution requests.
+///
+/// In Gloas the parent execution payload is processed before voluntary exits during block
+/// processing. EL-triggered withdrawal-full-exit requests (EIP-7002) and cross-pubkey
+/// consolidation requests (EIP-7251) call `initiate_validator_exit`, setting the target's
+/// `exit_epoch`. A voluntary exit for the same validator would then fail with `AlreadyExited`.
+fn filter_voluntary_exits_for_parent_execution_requests<E: EthSpec>(
+    voluntary_exits: &mut Vec<SignedVoluntaryExit>,
+    parent_execution_requests: &ExecutionRequests<E>,
+    pubkey_at_index: impl Fn(u64) -> Option<PublicKeyBytes>,
+    spec: &ChainSpec,
+) {
+    let mut exited_pubkeys = HashSet::with_capacity(
+        parent_execution_requests.withdrawals.len()
+            + parent_execution_requests.consolidations.len(),
+    );
+    for req in &parent_execution_requests.withdrawals {
+        if req.amount == spec.full_exit_request_amount {
+            exited_pubkeys.insert(req.validator_pubkey);
+        }
+    }
+    for req in &parent_execution_requests.consolidations {
+        if req.source_pubkey != req.target_pubkey {
+            exited_pubkeys.insert(req.source_pubkey);
+        }
+    }
+    if !exited_pubkeys.is_empty() {
+        voluntary_exits.retain(|exit| {
+            pubkey_at_index(exit.message.validator_index)
+                .map(|pk| !exited_pubkeys.contains(&pk))
+                .unwrap_or(false)
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ssz_types::VariableList;
+    use types::{ConsolidationRequest, Epoch, MainnetEthSpec, VoluntaryExit, WithdrawalRequest};
+
+    type TestSpec = MainnetEthSpec;
+
+    fn pubkey(byte: u8) -> PublicKeyBytes {
+        PublicKeyBytes::deserialize(&[byte; 48]).expect("valid pubkey byte length")
+    }
+
+    fn exit(validator_index: u64) -> SignedVoluntaryExit {
+        SignedVoluntaryExit {
+            message: VoluntaryExit {
+                epoch: Epoch::new(0),
+                validator_index,
+            },
+            signature: Signature::empty(),
+        }
+    }
+
+    fn requests(
+        withdrawals: Vec<WithdrawalRequest>,
+        consolidations: Vec<ConsolidationRequest>,
+    ) -> ExecutionRequests<TestSpec> {
+        ExecutionRequests {
+            deposits: VariableList::empty(),
+            withdrawals: VariableList::new(withdrawals).unwrap(),
+            consolidations: VariableList::new(consolidations).unwrap(),
+        }
+    }
+
+    fn run_filter(
+        exits: &mut Vec<SignedVoluntaryExit>,
+        requests: &ExecutionRequests<TestSpec>,
+        validator_pubkeys: &[PublicKeyBytes],
+        spec: &ChainSpec,
+    ) {
+        filter_voluntary_exits_for_parent_execution_requests(
+            exits,
+            requests,
+            |idx| validator_pubkeys.get(idx as usize).copied(),
+            spec,
+        );
+    }
+
+    #[test]
+    fn full_exit_withdrawal_request_filters_matching_voluntary_exit() {
+        let spec = ChainSpec::mainnet();
+        let validators = vec![pubkey(1), pubkey(2)];
+        let mut exits = vec![exit(0), exit(1)];
+        let reqs = requests(
+            vec![WithdrawalRequest {
+                source_address: Address::repeat_byte(0xaa),
+                validator_pubkey: validators[0],
+                amount: spec.full_exit_request_amount,
+            }],
+            vec![],
+        );
+
+        run_filter(&mut exits, &reqs, &validators, &spec);
+
+        assert_eq!(exits.len(), 1);
+        assert_eq!(exits[0].message.validator_index, 1);
+    }
+
+    #[test]
+    fn partial_withdrawal_request_does_not_filter_voluntary_exit() {
+        let spec = ChainSpec::mainnet();
+        let validators = vec![pubkey(1)];
+        let mut exits = vec![exit(0)];
+        let reqs = requests(
+            vec![WithdrawalRequest {
+                source_address: Address::repeat_byte(0xaa),
+                validator_pubkey: validators[0],
+                amount: spec.full_exit_request_amount + 1,
+            }],
+            vec![],
+        );
+
+        run_filter(&mut exits, &reqs, &validators, &spec);
+
+        assert_eq!(exits.len(), 1);
+    }
+
+    #[test]
+    fn cross_pubkey_consolidation_filters_voluntary_exit_for_source_only() {
+        let spec = ChainSpec::mainnet();
+        let validators = vec![pubkey(1), pubkey(2), pubkey(3)];
+        let mut exits = vec![exit(0), exit(1), exit(2)];
+        let reqs = requests(
+            vec![],
+            vec![ConsolidationRequest {
+                source_address: Address::repeat_byte(0xaa),
+                source_pubkey: validators[1],
+                target_pubkey: validators[2],
+            }],
+        );
+
+        run_filter(&mut exits, &reqs, &validators, &spec);
+
+        // The source (validator 1) is exited; the target (validator 2) is not.
+        let remaining: Vec<u64> = exits.iter().map(|e| e.message.validator_index).collect();
+        assert_eq!(remaining, vec![0, 2]);
+    }
+
+    #[test]
+    fn self_consolidation_does_not_filter_voluntary_exit() {
+        let spec = ChainSpec::mainnet();
+        let validators = vec![pubkey(1)];
+        let mut exits = vec![exit(0)];
+        let reqs = requests(
+            vec![],
+            vec![ConsolidationRequest {
+                source_address: Address::repeat_byte(0xaa),
+                source_pubkey: validators[0],
+                target_pubkey: validators[0],
+            }],
+        );
+
+        run_filter(&mut exits, &reqs, &validators, &spec);
+
+        assert_eq!(exits.len(), 1);
+    }
+
+    #[test]
+    fn empty_parent_requests_preserve_voluntary_exits() {
+        let spec = ChainSpec::mainnet();
+        let validators = vec![pubkey(1), pubkey(2)];
+        let mut exits = vec![exit(0), exit(1)];
+        let reqs = requests(vec![], vec![]);
+
+        run_filter(&mut exits, &reqs, &validators, &spec);
+
+        assert_eq!(exits.len(), 2);
+    }
 }
