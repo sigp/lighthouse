@@ -9,10 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
 use types::Slot;
-use types::{
-    ChainSpec, ColumnIndex, DataColumnSidecar, Epoch, EthSpec, Hash256,
-    SignedExecutionPayloadEnvelope,
-};
+use types::{ChainSpec, ColumnIndex, Epoch, EthSpec, Hash256};
 
 /// This represents the components of a payload pending data availability.
 ///

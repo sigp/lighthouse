@@ -57,13 +57,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        self.data_availability_checker
-            .pending_payload_cache()
-            .put_pre_executed_payload_envelope(
-                unverified_envelope.envelope_cloned(),
-                envelope_source,
-            )?;
-
         let _full_timer = metrics::start_timer(&metrics::ENVELOPE_PROCESSING_TIMES);
 
         metrics::inc_counter(&metrics::ENVELOPE_PROCESSING_REQUESTS);
@@ -95,11 +88,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // If the envelope fails execution for whatever reason (e.g. engine offline),
                     // and we keep it in the cache, then the node will NOT perform lookup and
                     // reprocess this envelope until the envelope is evicted from DA checker, causing the
-                    // chain to get stuck temporarily if the envelope is canonical. Therefore we remove
-                    // it from the cache if execution fails.
-                    self.data_availability_checker
-                        .pending_payload_cache()
-                        .remove_pre_executed_payload_envelope(&block_root);
                 })?;
 
             // Record the time it took to wait for execution layer verification.

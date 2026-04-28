@@ -3,6 +3,7 @@ use ssz_types::VariableList;
 use std::sync::Arc;
 use types::{Cell, ColumnIndex, DataColumnSidecar, DataColumnSidecarGloas, EthSpec, Hash256, Slot};
 
+#[derive(Clone)]
 pub struct PendingColumn<E: EthSpec> {
     cells: Vec<Option<(Cell<E>, KzgProof)>>,
 }
