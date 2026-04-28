@@ -174,14 +174,30 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         })
     }
 
-    /// Checks if a specific data column is cached for the given block root.
+    /// Filter out cells that are already cached for the given column sidecar.
+    /// Returns the cells that still need KZG verification, or `None` if all cells are cached.
     #[instrument(skip_all, level = "trace")]
     pub fn missing_cells_for_column_sidecar<'a>(
         &'_ self,
         data_column: &'a DataColumnSidecar<T::EthSpec>,
     ) -> Result<Option<PartialDataColumnSidecarRef<'a, T::EthSpec>>, MissingCellsError> {
-        // TODO(gloas): implement cell-level missing check
-        Ok(None)
+        let block_root = data_column.block_root();
+        let column_index = *data_column.index();
+
+        self.peek_pending_components(&block_root, |components| {
+            let Some(cached) = components.and_then(|c| c.verified_data_columns.get(&column_index))
+            else {
+                return data_column.try_filter_to_partial_ref(|_, _, _| Ok(true));
+            };
+
+            data_column.try_filter_to_partial_ref(|cell_idx, cell, proof| {
+                match cached.cell_matches(cell_idx, cell, proof) {
+                    None => Ok(true),
+                    Some(true) => Ok(false),
+                    Some(false) => Err(MissingCellsError::MismatchesCachedColumn),
+                }
+            })
+        })
     }
 
     /// Insert an executed payload envelope into the cache and performs an availability check

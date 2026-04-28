@@ -19,11 +19,22 @@ impl<E: EthSpec> PendingColumn<E> {
         if let Some(existing_cell) = self.cells.get_mut(index)
             && existing_cell.is_none()
         {
-            *existing_cell = Some((cell.clone(), proof));
+            *existing_cell = Some((cell.clone(), *proof));
         }
     }
 
     // TODO(gloas): insert_from_partial
+
+    pub fn has_cell(&self, index: usize) -> bool {
+        self.cells.get(index).is_some_and(|c| c.is_some())
+    }
+
+    pub fn cell_matches(&self, index: usize, cell: &Cell<E>, proof: &KzgProof) -> Option<bool> {
+        self.cells
+            .get(index)?
+            .as_ref()
+            .map(|(c, p)| c == cell && p == proof)
+    }
 
     pub fn is_complete(&self, blob_count: usize) -> bool {
         self.cells.len() == blob_count && self.cells.iter().all(|cell| cell.is_some())
@@ -49,7 +60,7 @@ impl<E: EthSpec> PendingColumn<E> {
             };
             // TODO(gloas): we likely want to go and arc all cells
             column.push(cell.clone());
-            kzg_proofs.push(proof);
+            kzg_proofs.push(*proof);
         }
 
         Some(Arc::new(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
