@@ -3848,8 +3848,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         let process_fn = Box::pin(async move {
                             match chain.verify_envelope_for_gossip(envelope).await {
                                 Ok(verified_envelope) => {
-                                    let envelope_slot =
-                                        verified_envelope.signed_envelope.slot();
+                                    let envelope_slot = verified_envelope.signed_envelope.slot();
                                     inner_self.propagate_envelope_if_timely(
                                         envelope_slot,
                                         message_id,
