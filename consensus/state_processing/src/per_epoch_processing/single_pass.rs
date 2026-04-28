@@ -1094,7 +1094,7 @@ impl PendingDepositsContext {
     ) -> Result<Self, Error> {
         let available_for_processing = state
             .deposit_balance_to_consume()?
-            .safe_add(state.get_activation_exit_churn_limit(spec)?)?;
+            .safe_add(state.get_activation_churn_limit_gloas(spec)?)?;
         let current_epoch = state.current_epoch();
         let next_epoch = state.next_epoch()?;
         let mut processed_amount = 0;
