@@ -3150,7 +3150,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
 
             // Import the blocks into the chain.
-            for signature_verified_block in signature_verified_blocks {
+            for (signature_verified_block, _envelope) in signature_verified_blocks {
                 let block_slot = signature_verified_block.slot();
                 match self
                     .process_block(
