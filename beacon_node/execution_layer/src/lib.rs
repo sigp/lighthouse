@@ -125,6 +125,16 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
                 blobs_and_proofs: None,
                 requests: Some(builder_bid.execution_requests),
             },
+            // Gloas reuses the Fulu wire shape; surface as a Fulu header here.
+            // The Gloas producer is responsible for wrapping this as a
+            // self-build bid (`builder_index = u64::MAX`, infinity sig).
+            BuilderBid::Gloas(builder_bid) => BlockProposalContents::PayloadAndBlobs {
+                payload: ExecutionPayloadHeader::Fulu(builder_bid.header).into(),
+                block_value: builder_bid.value,
+                kzg_commitments: builder_bid.blob_kzg_commitments,
+                blobs_and_proofs: None,
+                requests: Some(builder_bid.execution_requests),
+            },
         };
         Ok(ProvenancedPayload::Builder(
             BlockProposalContentsType::Blinded(block_proposal_contents),

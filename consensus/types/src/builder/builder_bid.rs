@@ -21,7 +21,7 @@ use crate::{
 };
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Fulu),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
     variant_attributes(
         derive(
             PartialEq,
@@ -35,9 +35,7 @@ use crate::{
             TestRandom
         ),
         serde(bound = "E: EthSpec", deny_unknown_fields)
-    ),
-    map_ref_into(ExecutionPayloadHeaderRef),
-    map_ref_mut_into(ExecutionPayloadHeaderRefMut)
+    )
 )]
 #[derive(PartialEq, Debug, Encode, Serialize, Deserialize, TreeHash, Clone)]
 #[serde(bound = "E: EthSpec", deny_unknown_fields, untagged)]
@@ -54,9 +52,14 @@ pub struct BuilderBid<E: EthSpec> {
     pub header: ExecutionPayloadHeaderElectra<E>,
     #[superstruct(only(Fulu), partial_getter(rename = "header_fulu"))]
     pub header: ExecutionPayloadHeaderFulu<E>,
-    #[superstruct(only(Deneb, Electra, Fulu))]
+    // Gloas reuses the Fulu header shape on the wire so existing relays don't
+    // need a protocol change. Lighthouse maps this to a Gloas self-build bid
+    // (`builder_index = u64::MAX`, infinity sig) at the producer.
+    #[superstruct(only(Gloas), partial_getter(rename = "header_gloas"))]
+    pub header: ExecutionPayloadHeaderFulu<E>,
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
     pub blob_kzg_commitments: KzgCommitments<E>,
-    #[superstruct(only(Electra, Fulu))]
+    #[superstruct(only(Electra, Fulu, Gloas))]
     pub execution_requests: ExecutionRequests<E>,
     #[serde(with = "serde_utils::quoted_u256")]
     pub value: Uint256,
@@ -71,17 +74,34 @@ impl<E: EthSpec> BuilderBid<E> {
 
 impl<'a, E: EthSpec> BuilderBidRef<'a, E> {
     pub fn header(&self) -> ExecutionPayloadHeaderRef<'a, E> {
-        map_builder_bid_ref_into_execution_payload_header_ref!(&'a _, self, |bid, cons| cons(
-            &bid.header
-        ))
+        match self {
+            BuilderBidRef::Bellatrix(bid) => ExecutionPayloadHeaderRef::Bellatrix(&bid.header),
+            BuilderBidRef::Capella(bid) => ExecutionPayloadHeaderRef::Capella(&bid.header),
+            BuilderBidRef::Deneb(bid) => ExecutionPayloadHeaderRef::Deneb(&bid.header),
+            BuilderBidRef::Electra(bid) => ExecutionPayloadHeaderRef::Electra(&bid.header),
+            BuilderBidRef::Fulu(bid) => ExecutionPayloadHeaderRef::Fulu(&bid.header),
+            // Gloas wire format reuses the Fulu shape — return it as a Fulu ref.
+            BuilderBidRef::Gloas(bid) => ExecutionPayloadHeaderRef::Fulu(&bid.header),
+        }
     }
 }
 
 impl<'a, E: EthSpec> BuilderBidRefMut<'a, E> {
     pub fn header_mut(self) -> ExecutionPayloadHeaderRefMut<'a, E> {
-        map_builder_bid_ref_mut_into_execution_payload_header_ref_mut!(&'a _, self, |bid, cons| {
-            cons(&mut bid.header)
-        })
+        match self {
+            BuilderBidRefMut::Bellatrix(bid) => {
+                ExecutionPayloadHeaderRefMut::Bellatrix(&mut bid.header)
+            }
+            BuilderBidRefMut::Capella(bid) => {
+                ExecutionPayloadHeaderRefMut::Capella(&mut bid.header)
+            }
+            BuilderBidRefMut::Deneb(bid) => ExecutionPayloadHeaderRefMut::Deneb(&mut bid.header),
+            BuilderBidRefMut::Electra(bid) => {
+                ExecutionPayloadHeaderRefMut::Electra(&mut bid.header)
+            }
+            BuilderBidRefMut::Fulu(bid) => ExecutionPayloadHeaderRefMut::Fulu(&mut bid.header),
+            BuilderBidRefMut::Gloas(bid) => ExecutionPayloadHeaderRefMut::Fulu(&mut bid.header),
+        }
     }
 }
 
@@ -89,7 +109,7 @@ impl<E: EthSpec> ForkVersionDecode for BuilderBid<E> {
     /// SSZ decode with explicit fork variant.
     fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         let builder_bid = match fork_name {
-            ForkName::Altair | ForkName::Base | ForkName::Gloas => {
+            ForkName::Altair | ForkName::Base => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "unsupported fork for ExecutionPayloadHeader: {fork_name}",
                 )));
@@ -101,6 +121,9 @@ impl<E: EthSpec> ForkVersionDecode for BuilderBid<E> {
             ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb::from_ssz_bytes(bytes)?),
             ForkName::Electra => BuilderBid::Electra(BuilderBidElectra::from_ssz_bytes(bytes)?),
             ForkName::Fulu => BuilderBid::Fulu(BuilderBidFulu::from_ssz_bytes(bytes)?),
+            // Gloas wire format reuses the Fulu shape; lighthouse maps the
+            // decoded bid onto a Gloas self-build wrapper at the producer.
+            ForkName::Gloas => BuilderBid::Gloas(BuilderBidGloas::from_ssz_bytes(bytes)?),
         };
         Ok(builder_bid)
     }
