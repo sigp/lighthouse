@@ -7,8 +7,8 @@ use crate::version::{
     execution_optimistic_finalized_beacon_response,
 };
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
-use beacon_chain::payload_envelope_verification::gossip_verified_envelope::GossipVerifiedEnvelope;
 use beacon_chain::payload_envelope_verification::EnvelopeError;
+use beacon_chain::payload_envelope_verification::gossip_verified_envelope::GossipVerifiedEnvelope;
 use beacon_chain::{BeaconChain, BeaconChainTypes, NotifyExecutionLayer};
 use bytes::Bytes;
 use eth2::types as api_types;
@@ -21,7 +21,7 @@ use std::future::Future;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, info, warn};
-use types::{BlockImportSource, EthSpec, SignedExecutionPayloadEnvelope};
+use types::{BlockImportSource, EthSpec, SignedBeaconBlock, SignedExecutionPayloadEnvelope};
 use warp::{
     Filter, Rejection, Reply,
     hyper::{Body, Response},
@@ -144,6 +144,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
             )));
         }
     };
+    let block = gossip_verified_envelope.block.clone();
 
     // Import the envelope locally (runs state transition and notifies the EL).
     chain
@@ -166,9 +167,14 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     if let Some((blobs, _kzg_proofs)) = blobs_and_proofs
         && !blobs.is_empty()
     {
-        let gossip_verified_columns =
-            spawn_build_gloas_data_columns_task(chain.clone(), beacon_block_root, slot, blobs)?
-                .await?;
+        let gossip_verified_columns = spawn_build_gloas_data_columns_task(
+            chain.clone(),
+            beacon_block_root,
+            block,
+            slot,
+            blobs,
+        )?
+        .await?;
 
         if !gossip_verified_columns.is_empty() {
             publish_column_sidecars(network_tx, &gossip_verified_columns, &chain).map_err(
@@ -205,6 +211,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
 fn spawn_build_gloas_data_columns_task<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     beacon_block_root: types::Hash256,
+    block: Arc<SignedBeaconBlock<T::EthSpec>>,
     slot: types::Slot,
     blobs: types::BlobsList<T::EthSpec>,
 ) -> Result<impl Future<Output = Result<Vec<GossipVerifiedDataColumn<T>>, Rejection>>, Rejection> {
@@ -212,7 +219,7 @@ fn spawn_build_gloas_data_columns_task<T: BeaconChainTypes>(
         .clone()
         .task_executor
         .spawn_blocking_handle(
-            move || build_gloas_data_columns(&chain, beacon_block_root, slot, &blobs),
+            move || build_gloas_data_columns(&chain, beacon_block_root, block, slot, &blobs),
             "build_gloas_data_columns",
         )
         .ok_or_else(|| warp_utils::reject::custom_server_error("runtime shutdown".to_string()))
@@ -225,6 +232,7 @@ fn spawn_build_gloas_data_columns_task<T: BeaconChainTypes>(
 fn build_gloas_data_columns<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     beacon_block_root: types::Hash256,
+    block: Arc<SignedBeaconBlock<T::EthSpec>>,
     slot: types::Slot,
     blobs: &types::BlobsList<T::EthSpec>,
 ) -> Result<Vec<GossipVerifiedDataColumn<T>>, Rejection> {
@@ -249,7 +257,7 @@ fn build_gloas_data_columns<T: BeaconChainTypes>(
         .into_iter()
         .filter_map(|col| {
             let index = *col.index();
-            match GossipVerifiedDataColumn::new_for_block_publishing(col, chain) {
+            match GossipVerifiedDataColumn::new_for_block_publishing(col, &block, chain) {
                 Ok(verified) => Some(verified),
                 Err(GossipDataColumnError::PriorKnownUnpublished) => None,
                 Err(e) => {
