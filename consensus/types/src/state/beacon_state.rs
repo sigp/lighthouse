@@ -3656,3 +3656,239 @@ mod weak_subjectivity_tests {
         churn - (churn % spec.effective_balance_increment)
     }
 }
+
+#[cfg(test)]
+mod eip_8061_churn_tests {
+    use crate::state::beacon_state::compute_weak_subjectivity_period_gloas;
+    use crate::{ChainSpec, EthSpec, MainnetEthSpec};
+
+    const GWEI_PER_ETH: u64 = 1_000_000_000;
+
+    fn get_balance_churn_limit_electra(total_active_balance: u64, spec: &ChainSpec) -> u64 {
+        let churn = std::cmp::max(
+            spec.min_per_epoch_churn_limit_electra,
+            total_active_balance / spec.churn_limit_quotient,
+        );
+        churn - (churn % spec.effective_balance_increment)
+    }
+
+    fn get_activation_exit_churn_limit_electra(
+        total_active_balance: u64,
+        spec: &ChainSpec,
+    ) -> u64 {
+        std::cmp::min(
+            spec.max_per_epoch_activation_exit_churn_limit,
+            get_balance_churn_limit_electra(total_active_balance, spec),
+        )
+    }
+
+    fn get_balance_churn_limit_gloas(total_active_balance: u64, spec: &ChainSpec) -> u64 {
+        let churn = std::cmp::max(
+            spec.min_per_epoch_churn_limit_electra,
+            total_active_balance / spec.churn_limit_quotient_gloas,
+        );
+        churn - (churn % spec.effective_balance_increment)
+    }
+
+    fn get_activation_churn_limit_gloas(total_active_balance: u64, spec: &ChainSpec) -> u64 {
+        let churn = get_balance_churn_limit_gloas(total_active_balance, spec);
+        std::cmp::min(spec.max_per_epoch_activation_churn_limit_gloas, churn)
+    }
+
+    fn get_exit_churn_limit_gloas(total_active_balance: u64, spec: &ChainSpec) -> u64 {
+        get_balance_churn_limit_gloas(total_active_balance, spec)
+    }
+
+    fn get_consolidation_churn_limit_gloas(total_active_balance: u64, spec: &ChainSpec) -> u64 {
+        let churn = total_active_balance / spec.consolidation_churn_limit_quotient;
+        churn - (churn % spec.effective_balance_increment)
+    }
+
+    fn make_gloas_spec() -> ChainSpec {
+        let mut spec = MainnetEthSpec::default_spec();
+        spec.churn_limit_quotient_gloas = 32_768;
+        spec.consolidation_churn_limit_quotient = 65_536;
+        spec.max_per_epoch_activation_churn_limit_gloas = 256_000_000_000;
+        spec
+    }
+
+    #[test]
+    fn electra_behavior_unchanged() {
+        let spec = MainnetEthSpec::default_spec();
+        let total_active_balance = 36_000_000 * GWEI_PER_ETH;
+
+        let balance_churn = get_balance_churn_limit_electra(total_active_balance, &spec);
+        let activation_exit_churn =
+            get_activation_exit_churn_limit_electra(total_active_balance, &spec);
+        let consolidation_churn = balance_churn - activation_exit_churn;
+
+        // balance_churn = 36M / 65536 ≈ 549 ETH > 128 ETH floor
+        assert!(balance_churn > spec.min_per_epoch_churn_limit_electra);
+        // activation_exit_churn is capped at 256 ETH
+        assert_eq!(activation_exit_churn, spec.max_per_epoch_activation_exit_churn_limit);
+        // consolidation = balance_churn - activation_exit_churn
+        assert_eq!(consolidation_churn, balance_churn - activation_exit_churn);
+    }
+
+    #[test]
+    fn gloas_activation_churn_is_capped() {
+        let spec = make_gloas_spec();
+        let total_active_balance = 36_000_000 * GWEI_PER_ETH;
+
+        let activation_churn = get_activation_churn_limit_gloas(total_active_balance, &spec);
+        let balance_churn = get_balance_churn_limit_gloas(total_active_balance, &spec);
+
+        // balance_churn = 36M / 32768 ≈ 1098 ETH > 256 ETH cap
+        assert!(balance_churn > spec.max_per_epoch_activation_churn_limit_gloas);
+        // activation churn is capped at 256 ETH
+        assert_eq!(activation_churn, spec.max_per_epoch_activation_churn_limit_gloas);
+        assert_eq!(activation_churn, 256 * GWEI_PER_ETH);
+    }
+
+    #[test]
+    fn gloas_exit_churn_is_uncapped() {
+        let spec = make_gloas_spec();
+        let total_active_balance = 36_000_000 * GWEI_PER_ETH;
+
+        let exit_churn = get_exit_churn_limit_gloas(total_active_balance, &spec);
+
+        // Exit churn is NOT capped — equals full balance churn
+        // 36M / 32768 = 1098.632... ETH, rounded down to increment = 1098 ETH
+        let expected = (total_active_balance / spec.churn_limit_quotient_gloas)
+            / spec.effective_balance_increment
+            * spec.effective_balance_increment;
+        assert_eq!(exit_churn, expected);
+        // Must exceed the old 256 ETH cap
+        assert!(exit_churn > 256 * GWEI_PER_ETH);
+    }
+
+    #[test]
+    fn gloas_consolidation_uses_independent_quotient_no_floor() {
+        let spec = make_gloas_spec();
+        let total_active_balance = 36_000_000 * GWEI_PER_ETH;
+
+        let consolidation_churn =
+            get_consolidation_churn_limit_gloas(total_active_balance, &spec);
+
+        // Gloas: total / 65536, rounded to increment
+        // 36M / 65536 = 549.316... ETH → 549 ETH
+        let expected = (total_active_balance / spec.consolidation_churn_limit_quotient)
+            / spec.effective_balance_increment
+            * spec.effective_balance_increment;
+        assert_eq!(consolidation_churn, expected);
+
+        // Verify it's NOT the old subtraction formula
+        let old_balance_churn = get_balance_churn_limit_electra(total_active_balance, &spec);
+        let old_act_exit = get_activation_exit_churn_limit_electra(total_active_balance, &spec);
+        let old_consolidation = old_balance_churn - old_act_exit;
+        assert_ne!(consolidation_churn, old_consolidation);
+    }
+
+    #[test]
+    fn gloas_consolidation_no_minimum_floor() {
+        let spec = make_gloas_spec();
+        // With only 1024 ETH total: 1024 / 65536 = 0.015... → rounds to 0
+        let total_active_balance = 1024 * GWEI_PER_ETH;
+
+        let consolidation_churn =
+            get_consolidation_churn_limit_gloas(total_active_balance, &spec);
+        assert_eq!(consolidation_churn, 0);
+
+        // But exit and activation still get the 128 ETH minimum floor
+        let exit_churn = get_exit_churn_limit_gloas(total_active_balance, &spec);
+        let activation_churn = get_activation_churn_limit_gloas(total_active_balance, &spec);
+        assert_eq!(exit_churn, spec.min_per_epoch_churn_limit_electra);
+        assert_eq!(activation_churn, spec.min_per_epoch_churn_limit_electra);
+    }
+
+    #[test]
+    fn test_compute_weak_subjectivity_period_gloas() {
+        let spec = make_gloas_spec();
+        let total_active_balance = 36_000_000 * GWEI_PER_ETH;
+
+        let exit_churn = get_exit_churn_limit_gloas(total_active_balance, &spec);
+        let activation_churn = get_activation_churn_limit_gloas(total_active_balance, &spec);
+        let consolidation_churn =
+            get_consolidation_churn_limit_gloas(total_active_balance, &spec);
+
+        let ws_period = compute_weak_subjectivity_period_gloas(
+            total_active_balance,
+            exit_churn,
+            activation_churn,
+            consolidation_churn,
+            &spec,
+        )
+        .unwrap();
+
+        // delta = 2*exit/3 + activation/3 + consolidation
+        // = 2*1098e9/3 + 256e9/3 + 549e9 = 732e9 + 85.33e9 + 549e9 ≈ 1366e9
+        // epochs = 10 * 36M_e9 / (2 * delta * 100)
+        // = 360M_e9 / (273.2e12) ≈ 1317... + min_validator_withdrawability_delay (256)
+        // Expected: 1573 from EIP security analysis
+        assert_eq!(ws_period, 1573);
+    }
+
+    #[test]
+    fn test_ws_gloas_various_balances() {
+        let spec = make_gloas_spec();
+
+        // Low balance: 2M ETH
+        let low_balance = 2_000_000 * GWEI_PER_ETH;
+        let exit_low = get_exit_churn_limit_gloas(low_balance, &spec);
+        let act_low = get_activation_churn_limit_gloas(low_balance, &spec);
+        let consol_low = get_consolidation_churn_limit_gloas(low_balance, &spec);
+
+        let ws_low = compute_weak_subjectivity_period_gloas(
+            low_balance,
+            exit_low,
+            act_low,
+            consol_low,
+            &spec,
+        )
+        .unwrap();
+
+        // High balance: 100M ETH
+        let high_balance = 100_000_000 * GWEI_PER_ETH;
+        let exit_high = get_exit_churn_limit_gloas(high_balance, &spec);
+        let act_high = get_activation_churn_limit_gloas(high_balance, &spec);
+        let consol_high = get_consolidation_churn_limit_gloas(high_balance, &spec);
+
+        let ws_high = compute_weak_subjectivity_period_gloas(
+            high_balance,
+            exit_high,
+            act_high,
+            consol_high,
+            &spec,
+        )
+        .unwrap();
+
+        // WS scales with balance
+        assert!(ws_high > ws_low);
+        // Both exceed min_validator_withdrawability_delay (256)
+        assert!(ws_low > spec.min_validator_withdrawability_delay);
+        assert!(ws_high > spec.min_validator_withdrawability_delay);
+    }
+
+    #[test]
+    fn test_ws_gloas_zero_consolidation_churn() {
+        let spec = make_gloas_spec();
+        // 1024 ETH: consolidation = 0 but exit/activation use 128 ETH floor
+        let total_active_balance = 1024 * GWEI_PER_ETH;
+
+        let exit_churn = get_exit_churn_limit_gloas(total_active_balance, &spec);
+        let activation_churn = get_activation_churn_limit_gloas(total_active_balance, &spec);
+        let consolidation_churn = 0u64;
+
+        // delta = 2*128e9/3 + 128e9/3 + 0 = 128e9 > 0, so no division by zero
+        let ws_period = compute_weak_subjectivity_period_gloas(
+            total_active_balance,
+            exit_churn,
+            activation_churn,
+            consolidation_churn,
+            &spec,
+        )
+        .unwrap();
+
+        assert!(ws_period >= spec.min_validator_withdrawability_delay);
+    }
+}

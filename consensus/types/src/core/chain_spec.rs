@@ -253,6 +253,13 @@ pub struct ChainSpec {
     pub min_builder_withdrawability_delay: Epoch,
 
     /*
+     * Gloas churn params (EIP-8061)
+     */
+    pub churn_limit_quotient_gloas: u64,
+    pub consolidation_churn_limit_quotient: u64,
+    pub max_per_epoch_activation_churn_limit_gloas: u64,
+
+    /*
      * Networking
      */
     pub boot_nodes: Vec<String>,
@@ -1270,6 +1277,11 @@ impl ChainSpec {
             min_builder_withdrawability_delay: Epoch::new(64),
             max_request_payloads: 128,
 
+            // EIP-8061 churn params
+            churn_limit_quotient_gloas: 32_768,
+            consolidation_churn_limit_quotient: 65_536,
+            max_per_epoch_activation_churn_limit_gloas: 256_000_000_000,
+
             /*
              * Network specific
              */
@@ -1677,6 +1689,11 @@ impl ChainSpec {
             min_builder_withdrawability_delay: Epoch::new(64),
             max_request_payloads: 128,
 
+            // EIP-8061 churn params — mainnet defaults; Gloas is not scheduled on Gnosis
+            churn_limit_quotient_gloas: 32_768,
+            consolidation_churn_limit_quotient: 65_536,
+            max_per_epoch_activation_churn_limit_gloas: 256_000_000_000,
+
             /*
              * Network specific
              */
@@ -2065,6 +2082,15 @@ pub struct Config {
     #[serde(default = "default_max_per_epoch_activation_exit_churn_limit")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_per_epoch_activation_exit_churn_limit: u64,
+    #[serde(default = "default_churn_limit_quotient_gloas")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    churn_limit_quotient_gloas: u64,
+    #[serde(default = "default_consolidation_churn_limit_quotient")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    consolidation_churn_limit_quotient: u64,
+    #[serde(default = "default_max_per_epoch_activation_churn_limit_gloas")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_per_epoch_activation_churn_limit_gloas: u64,
     #[serde(default = "default_max_blobs_per_block_electra")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_blobs_per_block_electra: u64,
@@ -2287,6 +2313,18 @@ const fn default_min_per_epoch_churn_limit_electra() -> u64 {
 }
 
 const fn default_max_per_epoch_activation_exit_churn_limit() -> u64 {
+    256_000_000_000
+}
+
+const fn default_churn_limit_quotient_gloas() -> u64 {
+    32_768
+}
+
+const fn default_consolidation_churn_limit_quotient() -> u64 {
+    65_536
+}
+
+const fn default_max_per_epoch_activation_churn_limit_gloas() -> u64 {
     256_000_000_000
 }
 
@@ -2590,6 +2628,10 @@ impl Config {
             min_per_epoch_churn_limit_electra: spec.min_per_epoch_churn_limit_electra,
             max_per_epoch_activation_exit_churn_limit: spec
                 .max_per_epoch_activation_exit_churn_limit,
+            churn_limit_quotient_gloas: spec.churn_limit_quotient_gloas,
+            consolidation_churn_limit_quotient: spec.consolidation_churn_limit_quotient,
+            max_per_epoch_activation_churn_limit_gloas: spec
+                .max_per_epoch_activation_churn_limit_gloas,
             max_blobs_per_block_electra: spec.max_blobs_per_block_electra,
             blob_sidecar_subnet_count_electra: spec.blob_sidecar_subnet_count_electra,
             max_request_blob_sidecars_electra: spec.max_request_blob_sidecars_electra,
@@ -2691,6 +2733,9 @@ impl Config {
 
             min_per_epoch_churn_limit_electra,
             max_per_epoch_activation_exit_churn_limit,
+            churn_limit_quotient_gloas,
+            consolidation_churn_limit_quotient,
+            max_per_epoch_activation_churn_limit_gloas,
             max_blobs_per_block_electra,
             blob_sidecar_subnet_count_electra,
             max_request_blob_sidecars_electra,
@@ -2794,6 +2839,9 @@ impl Config {
 
             min_per_epoch_churn_limit_electra,
             max_per_epoch_activation_exit_churn_limit,
+            churn_limit_quotient_gloas,
+            consolidation_churn_limit_quotient,
+            max_per_epoch_activation_churn_limit_gloas,
             max_blobs_per_block_electra,
             max_request_blob_sidecars_electra,
             blob_sidecar_subnet_count_electra,
@@ -3015,6 +3063,40 @@ mod yaml_tests {
             .expect("error while opening the file");
         let from: Config = yaml_serde::from_reader(reader).expect("error while deserializing");
         assert_eq!(from, yamlconfig);
+    }
+
+    #[test]
+    fn eip_8061_config_round_trip() {
+        let tmp_file = NamedTempFile::new().expect("failed to create temp file");
+        let mut spec = ChainSpec::mainnet();
+        spec.churn_limit_quotient_gloas = 32_768;
+        spec.consolidation_churn_limit_quotient = 65_536;
+        spec.max_per_epoch_activation_churn_limit_gloas = 256_000_000_000;
+
+        let config = Config::from_chain_spec::<MainnetEthSpec>(&spec);
+        let writer = File::options()
+            .read(false)
+            .write(true)
+            .open(tmp_file.as_ref())
+            .expect("error opening file");
+        yaml_serde::to_writer(writer, &config).expect("failed to write or serialize");
+
+        let reader = File::options()
+            .read(true)
+            .write(false)
+            .open(tmp_file.as_ref())
+            .expect("error while opening the file");
+        let from: Config = yaml_serde::from_reader(reader).expect("error while deserializing");
+        let restored_spec = from
+            .apply_to_chain_spec::<MainnetEthSpec>(&spec)
+            .expect("apply_to_chain_spec failed");
+
+        assert_eq!(restored_spec.churn_limit_quotient_gloas, 32_768);
+        assert_eq!(restored_spec.consolidation_churn_limit_quotient, 65_536);
+        assert_eq!(
+            restored_spec.max_per_epoch_activation_churn_limit_gloas,
+            256_000_000_000
+        );
     }
 
     #[test]
