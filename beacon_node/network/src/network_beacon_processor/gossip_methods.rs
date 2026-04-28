@@ -727,7 +727,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             %parent_root,
                             "Unknown parent hash for column"
                         );
-                        self.send_sync_message(SyncMessage::UnknownParentDataColumn(
+                        self.send_sync_message(SyncMessage::UnknownDataColumnParentOrBlock(
                             peer_id,
                             column_sidecar,
                         ));
@@ -738,6 +738,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             error = ?err,
                             "Internal error when verifying column sidecar"
                         )
+                    }
+                    GossipDataColumnError::BlockUnknown {
+                        beacon_block_root, ..
+                    } => {
+                        debug!(
+                            action = "queuing for block",
+                            %block_root,
+                            %beacon_block_root,
+                            "Block not yet known for Gloas data column sidecar"
+                        );
+                        self.send_sync_message(SyncMessage::UnknownDataColumnParentOrBlock(
+                            peer_id,
+                            column_sidecar,
+                        ));
                     }
                     GossipDataColumnError::ProposalSignatureInvalid
                     | GossipDataColumnError::UnknownValidator(_)
@@ -752,7 +766,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | GossipDataColumnError::MaxBlobsPerBlockExceeded { .. }
                     | GossipDataColumnError::InconsistentCommitmentsLength { .. }
                     | GossipDataColumnError::InconsistentProofsLength { .. }
-                    | GossipDataColumnError::NotFinalizedDescendant { .. } => {
+                    | GossipDataColumnError::NotFinalizedDescendant { .. }
+                    | GossipDataColumnError::SlotMismatch { .. } => {
                         debug!(
                             error = ?err,
                             %slot,
@@ -933,6 +948,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         slot,
                     });
                 }
+                GossipDataColumnError::BlockUnknown { .. } => {
+                    debug!(
+                        %block_root,
+                        %index,
+                        "Block not yet known for Gloas partial data column"
+                    );
+                    // TODO(gloas): send sync message
+                }
                 GossipDataColumnError::PubkeyCacheTimeout
                 | GossipDataColumnError::BeaconChainError(_) => {
                     crit!(
@@ -953,7 +976,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | GossipDataColumnError::MaxBlobsPerBlockExceeded { .. }
                 | GossipDataColumnError::InconsistentCommitmentsLength { .. }
                 | GossipDataColumnError::InconsistentProofsLength { .. }
-                | GossipDataColumnError::NotFinalizedDescendant { .. } => {
+                | GossipDataColumnError::NotFinalizedDescendant { .. }
+                | GossipDataColumnError::SlotMismatch { .. } => {
                     debug!(
                         error = ?err,
                         %block_root,
