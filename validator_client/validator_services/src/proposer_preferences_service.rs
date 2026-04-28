@@ -6,8 +6,8 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
-use types::{ChainSpec, EthSpec, ProposerPreferences};
-use validator_store::{DoppelgangerStatus, ValidatorStore};
+use types::{ChainSpec, Epoch, EthSpec, ProposerPreferences};
+use validator_store::ValidatorStore;
 
 pub struct Inner<S, T> {
     duties_service: Arc<DutiesService<S, T>>,
@@ -86,20 +86,14 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
                     continue;
                 }
 
-                let service = self.clone();
-                self.executor.spawn(
-                    async move {
-                        service.publish_proposer_preferences(current_slot).await;
-                    },
-                    "proposer_preferences_publisher",
-                );
+                let current_epoch = current_slot.epoch(S::E::slots_per_epoch());
+                self.publish_proposer_preferences(current_epoch).await;
 
-                if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
-                    sleep(duration_to_next_slot).await;
-                } else {
-                    error!("Failed to read slot clock");
-                    sleep(slot_duration).await;
-                }
+                let duration_to_next_epoch = self
+                    .slot_clock
+                    .duration_to_next_epoch(S::E::slots_per_epoch())
+                    .unwrap_or_else(|| slot_duration * S::E::slots_per_epoch() as u32);
+                sleep(duration_to_next_epoch).await;
             }
         };
 
@@ -107,13 +101,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
         Ok(())
     }
 
-    async fn publish_proposer_preferences(&self, current_slot: types::Slot) {
-        let current_epoch = current_slot.epoch(S::E::slots_per_epoch());
-
-        // Only sign for doppelganger-safe validators.
-        let signing_pubkeys: std::collections::HashSet<_> = self
-            .validator_store
-            .voting_pubkeys(DoppelgangerStatus::only_safe);
+    async fn publish_proposer_preferences(&self, current_epoch: Epoch) {
 
         // Collect all data needed while holding the lock, then drop it before any awaits.
         let preferences_to_sign: Vec<_> = {
@@ -124,12 +112,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
 
             let mut result = vec![];
             for duty in duties {
-                if !signing_pubkeys.contains(&duty.pubkey) {
-                    continue;
-                }
-                if duty.slot <= current_slot {
-                    continue;
-                }
                 let Some(proposal_data) = self.validator_store.proposal_data(&duty.pubkey) else {
                     warn!(
                         validator = ?duty.pubkey,
@@ -165,7 +147,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
         }
 
         debug!(
-            %current_slot,
+            %current_epoch,
             count = preferences_to_sign.len(),
             "Signing proposer preferences"
         );
@@ -209,7 +191,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
         match result {
             Ok(()) => {
                 info!(
-                    %current_slot,
+                    %current_epoch,
                     %count,
                     "Successfully published proposer preferences"
                 );
@@ -217,7 +199,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
             Err(e) => {
                 error!(
                     error = %e,
-                    %current_slot,
+                    %current_epoch,
                     "Failed to publish proposer preferences"
                 );
             }
