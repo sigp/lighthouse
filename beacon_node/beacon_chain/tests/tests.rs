@@ -1304,19 +1304,24 @@ async fn consolidation_churn_independent_in_gloas() {
     assert!(consolidation_churn > spec.min_activation_balance);
 }
 
-/// EIP-8061: Verify Gloas weak subjectivity period uses the new formula.
+/// EIP-8061: Verify Gloas weak subjectivity period differs from Electra.
 ///
-/// With adjusted quotients we can verify the WS period differs between Electra and Gloas,
-/// proving the fork branch is taken and the asymmetric formula is applied.
+/// With 48 validators × 32 ETH = 1536 ETH, we need small quotients (100/200) and
+/// a tiny min floor (1 Gwei) so the epoch computation is non-zero and the
+/// asymmetric Gloas formula produces a detectably different result.
 #[tokio::test]
 async fn weak_subjectivity_gloas_with_state() {
     type E = MainnetEthSpec;
 
-    // Gloas WS
+    // Gloas: quotient=100 → exit=15 ETH, cap=4 ETH → activation=4 ETH,
+    // consolidation_quotient=200 → consolidation=7 ETH
+    // delta = 2*15/3 + 4/3 + 7 = 10+1+7 = 18 ETH
+    // epochs = 10*1536e9 / (2*18e9*100) = 4
     let mut spec_gloas = ForkName::Gloas.make_genesis_spec(E::default_spec());
-    spec_gloas.churn_limit_quotient_gloas = 4;
-    spec_gloas.max_per_epoch_activation_churn_limit_gloas = 64_000_000_000;
-    spec_gloas.consolidation_churn_limit_quotient = 8;
+    spec_gloas.min_per_epoch_churn_limit_electra = 1;
+    spec_gloas.churn_limit_quotient_gloas = 100;
+    spec_gloas.max_per_epoch_activation_churn_limit_gloas = 4_000_000_000;
+    spec_gloas.consolidation_churn_limit_quotient = 200;
 
     let harness_gloas = get_harness_with_spec(VALIDATOR_COUNT, &spec_gloas);
     let state_gloas = harness_gloas.get_current_state();
@@ -1324,9 +1329,11 @@ async fn weak_subjectivity_gloas_with_state() {
         .compute_weak_subjectivity_period(&spec_gloas)
         .unwrap();
 
-    // Electra WS (same validators, different formula)
+    // Electra: same quotient=100 → balance_churn=15 ETH
+    // epochs = 10*1536e9 / (15e9*200) = 5
     let mut spec_electra = ForkName::Electra.make_genesis_spec(E::default_spec());
-    spec_electra.churn_limit_quotient = 4; // same divisor for comparison
+    spec_electra.min_per_epoch_churn_limit_electra = 1;
+    spec_electra.churn_limit_quotient = 100;
 
     let harness_electra = get_harness_with_spec(VALIDATOR_COUNT, &spec_electra);
     let state_electra = harness_electra.get_current_state();
@@ -1334,27 +1341,23 @@ async fn weak_subjectivity_gloas_with_state() {
         .compute_weak_subjectivity_period(&spec_electra)
         .unwrap();
 
-    // Both must exceed min_validator_withdrawability_delay
-    assert!(ws_gloas >= spec_gloas.min_validator_withdrawability_delay);
-    assert!(ws_electra >= spec_electra.min_validator_withdrawability_delay);
+    // Both exceed min_validator_withdrawability_delay
+    assert!(ws_gloas > spec_gloas.min_validator_withdrawability_delay);
+    assert!(ws_electra > spec_electra.min_validator_withdrawability_delay);
 
-    // Gloas and Electra should produce different WS periods because:
-    // - Gloas uses asymmetric formula (2*E/3 + A/3 + C)
-    // - Electra uses single balance_churn_limit
-    assert_ne!(ws_gloas, ws_electra);
+    // Gloas WS is shorter (higher total churn capacity → less time to corrupt)
+    assert!(ws_gloas < ws_electra);
 }
 
 /// EIP-8061: Verify churn state is correctly rebased at the Fulu→Gloas fork transition.
 ///
-/// When transitioning from Fulu to Gloas, partially-consumed churn must be preserved
-/// against the new (higher) limits. This test verifies:
-/// - exit_balance_to_consume is rebased (not blindly copied or reset)
-/// - consolidation_balance_to_consume is rebased
+/// Per consensus-specs fork.md, exit_balance_to_consume and consolidation_balance_to_consume
+/// are copied unchanged from the pre-state. The new Gloas churn limits take effect naturally
+/// on the next epoch when compute_exit_epoch_and_update_churn fires its "new epoch" branch.
 #[tokio::test]
-async fn gloas_fork_transition_rebase_churn() {
+async fn gloas_fork_transition_copies_churn() {
     type E = MainnetEthSpec;
 
-    // Create a spec where Fulu starts at genesis and Gloas at epoch 2
     let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
     spec.gloas_fork_epoch = Some(Epoch::new(2));
     spec.churn_limit_quotient_gloas = 4;
@@ -1363,54 +1366,35 @@ async fn gloas_fork_transition_rebase_churn() {
 
     let harness = get_harness_with_spec(VALIDATOR_COUNT, &spec);
 
-    // Advance to just before the Gloas fork (end of epoch 1)
-    let slots_before_fork = E::slots_per_epoch() * 2 - 1;
-    harness
-        .extend_chain(
-            slots_before_fork as usize,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        )
-        .await;
+    let fork_slot = spec
+        .gloas_fork_epoch
+        .unwrap()
+        .start_slot(E::slots_per_epoch());
 
-    // Capture Fulu state churn values before transition
+    // Advance to the last Fulu slot
+    harness.extend_to_slot(fork_slot - 1).await;
     let fulu_state = harness.get_current_state();
+    assert_eq!(fulu_state.slot(), fork_slot - 1);
     assert_eq!(fulu_state.fork_name_unchecked(), ForkName::Fulu);
 
     let fulu_exit_to_consume = fulu_state.exit_balance_to_consume().unwrap();
-    let fulu_exit_limit = fulu_state.get_activation_exit_churn_limit(&spec).unwrap();
+    let fulu_consol_to_consume = fulu_state.consolidation_balance_to_consume().unwrap();
 
-    // Advance through the fork boundary (into epoch 2 = Gloas)
-    harness
-        .extend_chain(
-            E::slots_per_epoch() as usize,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        )
-        .await;
-
+    // Cross the fork boundary into Gloas
+    harness.extend_to_slot(fork_slot).await;
     let gloas_state = harness.get_current_state();
+    assert_eq!(gloas_state.slot(), fork_slot);
     assert_eq!(gloas_state.fork_name_unchecked(), ForkName::Gloas);
 
     let gloas_exit_to_consume = gloas_state.exit_balance_to_consume().unwrap();
+    let gloas_consol_to_consume = gloas_state.consolidation_balance_to_consume().unwrap();
+
+    // Per spec: values are copied directly, no rebase
+    assert_eq!(gloas_exit_to_consume, fulu_exit_to_consume);
+    assert_eq!(gloas_consol_to_consume, fulu_consol_to_consume);
+
+    // Verify the new churn limits ARE higher (EIP-8061)
     let gloas_exit_limit = gloas_state.get_exit_churn_limit_gloas(&spec).unwrap();
-
-    // The new exit limit should be higher than the old one (EIP-8061 increases it)
-    // Fulu: min(max_per_epoch_activation_exit_churn_limit, balance_churn)
-    // Gloas: uncapped balance_churn using churn_limit_quotient_gloas
+    let fulu_exit_limit = fulu_state.get_activation_exit_churn_limit(&spec).unwrap();
     assert!(gloas_exit_limit > fulu_exit_limit);
-
-    // Verify rebase logic: the consumed amount should be preserved.
-    // old_consumed = old_limit - old_to_consume
-    // new_to_consume = new_limit - old_consumed (saturating)
-    let old_consumed = fulu_exit_limit.saturating_sub(fulu_exit_to_consume);
-    let expected_new_to_consume = gloas_exit_limit.saturating_sub(old_consumed);
-    assert_eq!(gloas_exit_to_consume, expected_new_to_consume);
-
-    // The Gloas exit_balance_to_consume should NOT be the raw Fulu value
-    // (unless by coincidence the rebase produces the same number)
-    // and should NOT be the full new limit (that would ignore consumed churn)
-    if old_consumed > 0 {
-        assert_ne!(gloas_exit_to_consume, gloas_exit_limit);
-    }
 }

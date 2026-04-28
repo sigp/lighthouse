@@ -32,17 +32,6 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<BeaconState<E>, Error> {
     let epoch = pre_state.current_epoch();
-
-    // EIP-8061: Capture old Fulu churn state before moving fields out of pre_state.
-    pre_state.build_total_active_balance_cache(spec)?;
-    let old_exit_balance_to_consume = pre_state.exit_balance_to_consume()?;
-    let old_consol_balance_to_consume = pre_state.consolidation_balance_to_consume()?;
-    let old_exit_limit = pre_state.get_activation_exit_churn_limit(spec)?;
-    let old_consol_limit = {
-        let balance_churn = pre_state.get_balance_churn_limit(spec)?;
-        balance_churn.saturating_sub(old_exit_limit)
-    };
-
     let pre = pre_state.as_fulu_mut()?;
     // Where possible, use something like `mem::take` to move fields from behind the &mut
     // reference. For other fields that don't have a good default value, use `clone`.
@@ -101,9 +90,9 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         // Electra
         deposit_requests_start_index: pre.deposit_requests_start_index,
         deposit_balance_to_consume: pre.deposit_balance_to_consume,
-        exit_balance_to_consume: 0,
+        exit_balance_to_consume: pre.exit_balance_to_consume,
         earliest_exit_epoch: pre.earliest_exit_epoch,
-        consolidation_balance_to_consume: 0,
+        consolidation_balance_to_consume: pre.consolidation_balance_to_consume,
         earliest_consolidation_epoch: pre.earliest_consolidation_epoch,
         pending_deposits: pre.pending_deposits.clone(),
         pending_partial_withdrawals: pre.pending_partial_withdrawals.clone(),
@@ -135,19 +124,6 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
     // [New in Gloas:EIP7732]
     onboard_builders_from_pending_deposits(&mut post, spec)?;
     initialize_ptc_window(&mut post, spec)?;
-
-    // EIP-8061: Rebase churn remnants from Fulu limits to Gloas limits.
-    post.build_total_active_balance_cache(spec)?;
-    {
-        let old_exit_consumed = old_exit_limit.saturating_sub(old_exit_balance_to_consume);
-        let new_exit_limit = post.get_exit_churn_limit_gloas(spec)?;
-        *post.exit_balance_to_consume_mut()? = new_exit_limit.saturating_sub(old_exit_consumed);
-
-        let old_consol_consumed = old_consol_limit.saturating_sub(old_consol_balance_to_consume);
-        let new_consol_limit = post.get_consolidation_churn_limit(spec)?;
-        *post.consolidation_balance_to_consume_mut()? =
-            new_consol_limit.saturating_sub(old_consol_consumed);
-    }
 
     Ok(post)
 }
