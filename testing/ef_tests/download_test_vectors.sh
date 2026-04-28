@@ -17,7 +17,7 @@ if [[ "$version" == "nightly" || "$version" =~ ^nightly-[0-9]+$ ]]; then
 		fi
 	done
 
-	repo="ethereum/consensus-specs"
+	repo="${CONSENSUS_SPECS_REPO:-ethereum/consensus-specs}"
 	api="https://api.github.com"
 	auth_header="Authorization: token ${GITHUB_TOKEN}"
 

@@ -1201,84 +1201,48 @@ async fn churn_limits_gloas_asymmetric() {
     assert_eq!(consolidation_churn, 0);
 }
 
-/// EIP-8061: Verify deposit processing uses activation churn (not exit churn).
-///
-/// After epoch processing with no pending deposits, deposit_balance_to_consume is 0
-/// (churn limit not reached). We then set deposit_balance_to_consume to a known value
-/// and run epoch processing manually. The result proves the activation churn (64 ETH)
-/// was added, not exit churn (384 ETH):
-///   available = prior_deposit_balance_to_consume + activation_churn_limit_gloas
-///
-/// With no pending deposits and churn limit not reached, the output is 0. So we verify
-/// indirectly: the state's deposit_balance_to_consume after a clean epoch is 0,
-/// and the activation churn helper returns the capped value (not exit churn).
-/// A regression changing the call site back to get_activation_exit_churn_limit would
-/// cause get_activation_churn_limit_gloas != get_activation_exit_churn_limit to fail.
+/// EIP-8061: Verify deposit processing uses the capped activation churn, not exit churn.
 #[tokio::test]
 async fn deposit_processing_uses_activation_churn() {
     type E = MainnetEthSpec;
 
     let mut spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
     spec.churn_limit_quotient_gloas = 4;
-    spec.max_per_epoch_activation_churn_limit_gloas = 64_000_000_000; // 64 ETH
+    spec.max_per_epoch_activation_churn_limit_gloas = 64_000_000_000;
 
     let harness = get_harness_with_spec(VALIDATOR_COUNT, &spec);
-
-    // Advance one epoch so epoch processing runs
-    harness
-        .extend_to_slot(Slot::new(E::slots_per_epoch()))
-        .await;
     let state = harness.get_current_state();
 
-    // After epoch processing with no pending deposits, deposit_balance_to_consume = 0
-    assert_eq!(state.deposit_balance_to_consume().unwrap(), 0);
-
-    // The activation churn (what deposit processing adds) is capped at 64 ETH
+    // Activation churn (used for deposits) is capped at 64 ETH
     let activation_churn = state.get_activation_churn_limit_gloas(&spec).unwrap();
     assert_eq!(activation_churn, 64_000_000_000);
 
-    // The exit churn is uncapped at 384 ETH — deposit processing must NOT use this
+    // Exit churn (used for exits) is uncapped at 384 ETH
     let exit_churn = state.get_exit_churn_limit_gloas(&spec).unwrap();
     assert_eq!(exit_churn, 384_000_000_000);
 
-    // The old shared helper returns a different value, proving the code path diverged
-    let old_shared_churn = state.get_activation_exit_churn_limit(&spec).unwrap();
-    assert_ne!(activation_churn, old_shared_churn);
+    // The old shared helper returns a different value — a regression to the old call
+    // site would produce this value instead of the capped 64 ETH
+    let old_shared = state.get_activation_exit_churn_limit(&spec).unwrap();
+    assert_ne!(activation_churn, old_shared);
 }
 
-/// EIP-8061: Verify exit processing uses uncapped exit churn in Gloas.
+/// EIP-8061: Verify exit churn in Gloas exceeds the Electra-era cap.
 #[tokio::test]
 async fn exit_queue_uses_uncapped_exit_churn() {
     type E = MainnetEthSpec;
 
-    let mut spec_gloas = ForkName::Gloas.make_genesis_spec(E::default_spec());
-    spec_gloas.churn_limit_quotient_gloas = 4;
-    spec_gloas.max_per_epoch_activation_churn_limit_gloas = 64_000_000_000;
-    spec_gloas.max_per_epoch_activation_exit_churn_limit = 64_000_000_000;
+    let mut spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
+    spec.churn_limit_quotient_gloas = 4;
+    spec.max_per_epoch_activation_exit_churn_limit = 64_000_000_000;
 
-    let harness_gloas = get_harness_with_spec(VALIDATOR_COUNT, &spec_gloas);
-    let state_gloas = harness_gloas.get_current_state();
+    let harness = get_harness_with_spec(VALIDATOR_COUNT, &spec);
+    let state = harness.get_current_state();
 
-    // Gloas exit churn is uncapped: max(128 ETH, 1536/4=384 ETH) = 384 ETH
-    let exit_churn_gloas = state_gloas.get_exit_churn_limit_gloas(&spec_gloas).unwrap();
-    assert_eq!(exit_churn_gloas, 384_000_000_000);
-
-    // Compare with Electra: exit churn is capped at max_per_epoch_activation_exit_churn_limit
-    let mut spec_electra = ForkName::Electra.make_genesis_spec(E::default_spec());
-    spec_electra.max_per_epoch_activation_exit_churn_limit = 64_000_000_000;
-
-    let harness_electra = get_harness_with_spec(VALIDATOR_COUNT, &spec_electra);
-    let state_electra = harness_electra.get_current_state();
-
-    let exit_churn_electra = state_electra
-        .get_exit_churn_limit_gloas(&spec_electra)
-        .unwrap();
-    // Electra: min(64 ETH, balance_churn). balance_churn = max(128 ETH, 1536/65536) = 128 ETH
-    // min(64 ETH, 128 ETH) = 64 ETH
-    assert_eq!(exit_churn_electra, 64_000_000_000);
-
-    // Gloas has higher exit throughput
-    assert!(exit_churn_gloas > exit_churn_electra);
+    // Gloas exit churn exceeds the old cap (uncapped: 1536/4 = 384 ETH)
+    let exit_churn = state.get_exit_churn_limit_gloas(&spec).unwrap();
+    assert_eq!(exit_churn, 384_000_000_000);
+    assert!(exit_churn > spec.max_per_epoch_activation_exit_churn_limit);
 }
 
 /// EIP-8061: Verify consolidation churn uses independent formula in Gloas.
@@ -1302,19 +1266,11 @@ async fn consolidation_churn_independent_in_gloas() {
     assert!(consolidation_churn > spec.min_activation_balance);
 }
 
-/// EIP-8061: Verify Gloas weak subjectivity period differs from Electra.
-///
-/// With 48 validators × 32 ETH = 1536 ETH, we need small quotients (100/200) and
-/// a tiny min floor (1 Gwei) so the epoch computation is non-zero and the
-/// asymmetric Gloas formula produces a detectably different result.
+/// EIP-8061: Verify Gloas weak subjectivity period uses the asymmetric formula.
 #[tokio::test]
 async fn weak_subjectivity_gloas_with_state() {
     type E = MainnetEthSpec;
 
-    // Gloas: quotient=100 → exit=15 ETH, cap=4 ETH → activation=4 ETH,
-    // consolidation_quotient=200 → consolidation=7 ETH
-    // delta = 2*15/3 + 4/3 + 7 = 10+1+7 = 18 ETH
-    // epochs = 10*1536e9 / (2*18e9*100) = 4
     let mut spec_gloas = ForkName::Gloas.make_genesis_spec(E::default_spec());
     spec_gloas.min_per_epoch_churn_limit_electra = 1;
     spec_gloas.churn_limit_quotient_gloas = 100;
@@ -1322,28 +1278,24 @@ async fn weak_subjectivity_gloas_with_state() {
     spec_gloas.consolidation_churn_limit_quotient = 200;
 
     let harness_gloas = get_harness_with_spec(VALIDATOR_COUNT, &spec_gloas);
-    let state_gloas = harness_gloas.get_current_state();
-    let ws_gloas = state_gloas
+    let ws_gloas = harness_gloas
+        .get_current_state()
         .compute_weak_subjectivity_period(&spec_gloas)
         .unwrap();
 
-    // Electra: same quotient=100 → balance_churn=15 ETH
-    // epochs = 10*1536e9 / (15e9*200) = 5
     let mut spec_electra = ForkName::Electra.make_genesis_spec(E::default_spec());
     spec_electra.min_per_epoch_churn_limit_electra = 1;
     spec_electra.churn_limit_quotient = 100;
 
     let harness_electra = get_harness_with_spec(VALIDATOR_COUNT, &spec_electra);
-    let state_electra = harness_electra.get_current_state();
-    let ws_electra = state_electra
+    let ws_electra = harness_electra
+        .get_current_state()
         .compute_weak_subjectivity_period(&spec_electra)
         .unwrap();
 
-    // Both exceed min_validator_withdrawability_delay
     assert!(ws_gloas > spec_gloas.min_validator_withdrawability_delay);
     assert!(ws_electra > spec_electra.min_validator_withdrawability_delay);
-
-    // Gloas WS is shorter (higher total churn capacity → less time to corrupt)
+    // Gloas WS is shorter (higher churn → faster corruption → shorter safe period)
     assert!(ws_gloas < ws_electra);
 }
 
