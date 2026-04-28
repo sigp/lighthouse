@@ -112,9 +112,24 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         "Publishing signed execution payload envelope to network"
     );
 
-    let blobs_and_proofs = chain.pending_payload_envelopes.write().take_blobs(slot);
+    let cached_blobs = chain.pending_payload_envelopes.write().take_blobs(slot);
 
-    // Publish the envelope to the network.
+    // Start the column-build task (CPU-bound KZG cell-and-proof computation) before
+    // publishing the envelope so it runs in parallel with envelope gossip, minimizing
+    // the time peers see envelope-without-columns. If envelope publication fails below,
+    // dropping this future cancels the spawned `JoinHandle`.
+    let column_build_future = match cached_blobs {
+        Some(blobs) if !blobs.is_empty() => Some(spawn_build_gloas_data_columns_task(
+            chain.clone(),
+            beacon_block_root,
+            slot,
+            blobs,
+        )?),
+        _ => None,
+    };
+
+    // Publish the envelope to the network. Nothing has been gossiped yet, so propagating
+    // an error here is safe.
     crate::utils::publish_pubsub_message(
         network_tx,
         PubsubMessage::ExecutionPayload(Box::new(envelope)),
@@ -126,22 +141,31 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         )
     })?;
 
-    // Build and publish data column sidecars from the blobs.
-    if let Some(blobs) = blobs_and_proofs
-        && !blobs.is_empty()
-    {
-        let gossip_verified_columns =
-            spawn_build_gloas_data_columns_task(chain.clone(), beacon_block_root, slot, blobs)?
-                .await?;
+    // The envelope is already published, so column-build/publish failures must not
+    // return Err — `take_blobs` consumed the cache entry, so a retry would not republish
+    // columns either. Log the failure and return Ok so the HTTP caller is not misled.
+    if let Some(column_build_future) = column_build_future {
+        let gossip_verified_columns = match column_build_future.await {
+            Ok(columns) => columns,
+            Err(e) => {
+                error!(
+                    %slot,
+                    error = ?e,
+                    "Failed to build data columns after envelope publication"
+                );
+                return Ok(warp::reply().into_response());
+            }
+        };
 
         if !gossip_verified_columns.is_empty() {
-            publish_column_sidecars(network_tx, &gossip_verified_columns, &chain).map_err(
-                |_| {
-                    warp_utils::reject::custom_server_error(
-                        "unable to publish data column sidecars".into(),
-                    )
-                },
-            )?;
+            if let Err(e) = publish_column_sidecars(network_tx, &gossip_verified_columns, &chain) {
+                error!(
+                    %slot,
+                    error = ?e,
+                    "Failed to publish data column sidecars after envelope publication"
+                );
+                return Ok(warp::reply().into_response());
+            }
 
             let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
             let sampling_column_indices = chain.sampling_columns_for_epoch(epoch);
