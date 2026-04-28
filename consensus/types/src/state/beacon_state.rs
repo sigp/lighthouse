@@ -2781,10 +2781,48 @@ impl<E: EthSpec> BeaconState<E> {
         ))
     }
 
+    fn get_balance_churn_limit_gloas(&self, spec: &ChainSpec) -> Result<u64, BeaconStateError> {
+        let total_active_balance = self.get_total_active_balance()?;
+        let churn = std::cmp::max(
+            spec.min_per_epoch_churn_limit_electra,
+            total_active_balance.safe_div(spec.churn_limit_quotient_gloas)?,
+        );
+        Ok(churn.safe_sub(churn.safe_rem(spec.effective_balance_increment)?)?)
+    }
+
+    pub fn get_activation_churn_limit_gloas(
+        &self,
+        spec: &ChainSpec,
+    ) -> Result<u64, BeaconStateError> {
+        if self.fork_name_unchecked().gloas_enabled() {
+            let churn = self.get_balance_churn_limit_gloas(spec)?;
+            Ok(std::cmp::min(spec.max_per_epoch_activation_churn_limit_gloas, churn))
+        } else {
+            self.get_activation_exit_churn_limit(spec)
+        }
+    }
+
+    pub fn get_exit_churn_limit_gloas(
+        &self,
+        spec: &ChainSpec,
+    ) -> Result<u64, BeaconStateError> {
+        if self.fork_name_unchecked().gloas_enabled() {
+            self.get_balance_churn_limit_gloas(spec)
+        } else {
+            self.get_activation_exit_churn_limit(spec)
+        }
+    }
+
     pub fn get_consolidation_churn_limit(&self, spec: &ChainSpec) -> Result<u64, BeaconStateError> {
-        self.get_balance_churn_limit(spec)?
-            .safe_sub(self.get_activation_exit_churn_limit(spec)?)
-            .map_err(Into::into)
+        if self.fork_name_unchecked().gloas_enabled() {
+            let total_active_balance = self.get_total_active_balance()?;
+            let churn = total_active_balance.safe_div(spec.consolidation_churn_limit_quotient)?;
+            Ok(churn.safe_sub(churn.safe_rem(spec.effective_balance_increment)?)?)
+        } else {
+            self.get_balance_churn_limit(spec)?
+                .safe_sub(self.get_activation_exit_churn_limit(spec)?)
+                .map_err(Into::into)
+        }
     }
 
     pub fn get_pending_balance_to_withdraw(
