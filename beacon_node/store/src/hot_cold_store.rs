@@ -1328,22 +1328,49 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn do_atomically(&self, batch: Vec<StoreOp<E>>) -> Result<(), Error> {
         // FIXME(sproul): handle KVStoreOps for blob-metadata
         let (blobs_ops, hot_db_ops): (Vec<StoreOp<E>>, Vec<StoreOp<E>>) =
-            batch.into_iter().partition(|store_op| match store_op {
-                StoreOp::PutBlobs(..)
-                | StoreOp::PutDataColumns(..)
-                | StoreOp::DeleteBlobs(..)
-                | StoreOp::DeleteDataColumns(..) => true,
-                StoreOp::PutBlock(..) | StoreOp::DeleteBlock(..) => false,
-                _ => false,
-            });
+            batch.into_iter().partition(is_blob_store_op);
 
+        // Execute operations on the blob DB first. In the case of a sudden shutdown or a failed
+        // write to the hot DB, we allow data to be stored in the blob database that is not
+        // referenced by any block in the hot database. This maintains the invariant:
+        //
+        // - block in hot DB --> corresponding blobs/columns in blob DB
+        self.blobs_db
+            .do_atomically(self.convert_to_kv_batch(blobs_ops)?)?;
+
+        self.hot_do_atomically(hot_db_ops)
+    }
+
+    /// Write a batch of blob/data-column ops to the blob database only.
+    ///
+    /// Non-blob ops in `batch` are silently filtered out so misuse cannot
+    /// accidentally write block/state data to the blob DB.
+    ///
+    /// Intended to be called concurrently with the rest of block import so
+    /// the (slow) blob DB write does not gate fork-choice work. Callers must
+    /// ensure this completes before any corresponding hot-DB write, to
+    /// preserve the invariant:
+    ///
+    /// - block in hot DB --> corresponding blobs/columns in blob DB
+    pub fn blobs_do_atomically(&self, batch: Vec<StoreOp<E>>) -> Result<(), Error> {
+        let blobs_ops: Vec<StoreOp<E>> = batch.into_iter().filter(is_blob_store_op).collect();
+        self.blobs_db
+            .do_atomically(self.convert_to_kv_batch(blobs_ops)?)
+    }
+
+    /// Write a batch of hot-database ops.
+    ///
+    /// Any blob/data-column ops in `batch` are silently dropped — this method
+    /// does not touch the blob DB. Intended to be paired with a preceding
+    /// `blobs_do_atomically` call that has already written the blob portion.
+    pub fn hot_do_atomically(&self, batch: Vec<StoreOp<E>>) -> Result<(), Error> {
         // Start by deleting related states from the state cache. It's possible that a concurrent
         // thread could reinsert one of these states before we delete it from disk, which could lead
         // to other threads observing the state after it should have been deleted. This is OK
         // however, as we maintain the one-directed invariant:
         //
         // - block on disk & newer than split --> state on disk
-        for op in &hot_db_ops {
+        for op in &batch {
             match op {
                 StoreOp::DeleteBlock(block_root) => {
                     self.state_cache.lock().delete_block_states(block_root);
@@ -1355,19 +1382,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
         }
 
-        // Execute operations on the blob DB first. In the case of a sudden shutdown or a failed
-        // write to the hot DB, we allow data to be stored in the blob database that is not
-        // referenced by any block in the hot database. This maintains the invariant:
-        //
-        // - block in hot DB --> corresponding blobs/columns in blob DB
-        self.blobs_db
-            .do_atomically(self.convert_to_kv_batch(blobs_ops)?)?;
-
-        // Write to the hot database.
+        let hot_db_ops: Vec<StoreOp<E>> = batch.into_iter().filter(|op| !is_blob_store_op(op)).collect();
         self.hot_db
-            .do_atomically(self.convert_to_kv_batch(hot_db_ops)?)?;
-
-        Ok(())
+            .do_atomically(self.convert_to_kv_batch(hot_db_ops)?)
     }
 
     /// Store a post-finalization state efficiently in the hot database.
@@ -3516,6 +3533,17 @@ impl StoreItem for Split {
 /// Type hint.
 fn no_state_root_iter() -> Option<std::iter::Empty<Result<(Hash256, Slot), Error>>> {
     None
+}
+
+/// Returns `true` for ops that target the blob database rather than the hot database.
+fn is_blob_store_op<E: EthSpec>(op: &StoreOp<E>) -> bool {
+    matches!(
+        op,
+        StoreOp::PutBlobs(..)
+            | StoreOp::PutDataColumns(..)
+            | StoreOp::DeleteBlobs(..)
+            | StoreOp::DeleteDataColumns(..)
+    )
 }
 
 #[derive(Debug)]

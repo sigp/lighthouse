@@ -4162,6 +4162,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         };
 
+        // Kick off the blob/data-column write on a background blocking task before we touch fork
+        // choice. The blob DB is a separate physical database from the hot DB, so this I/O can
+        // run in parallel with the rest of block import. We wait on the result just before the
+        // hot DB write, preserving the invariant:
+        //
+        // - block in hot DB --> corresponding blobs/columns in blob DB
+        //
+        // The blob data inside `AvailableBlockData` is cheap to clone (it's a list of `Arc`s).
+        let blobs_write_rx = self
+            .get_blobs_or_columns_store_op(block_root, signed_block.slot(), signed_block.data().clone())
+            .map(|blob_op| {
+                let store = self.store.clone();
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                self.task_executor.spawn_blocking(
+                    move || {
+                        let _ = tx.send(store.blobs_do_atomically(vec![blob_op]));
+                    },
+                    "blob_db_write",
+                );
+                rx
+            });
+
         // Read the cached head prior to taking the fork choice lock to avoid potential deadlocks.
         let old_head_slot = self.canonical_head.cached_head().head_slot();
 
@@ -4331,13 +4353,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If the write fails, revert fork choice to the version from disk, else we can
         // end up with blocks in fork choice that are missing from disk.
         // See https://github.com/sigp/lighthouse/issues/2028
-        let (_, signed_block, block_data) = signed_block.deconstruct();
-
-        if let Some(blobs_or_columns_store_op) =
-            self.get_blobs_or_columns_store_op(block_root, signed_block.slot(), block_data)
-        {
-            ops.push(blobs_or_columns_store_op);
-        }
+        let (_, signed_block, _block_data) = signed_block.deconstruct();
 
         let block = signed_block.message();
         let db_write_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_WRITE);
@@ -4346,7 +4362,32 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let db_span = info_span!("persist_blocks_and_blobs").entered();
 
-        if let Err(e) = self.store.do_atomically(ops) {
+        // Wait for the background blob write (kicked off before fork choice) to finish before
+        // writing the block to the hot DB. This preserves the crash-safety invariant that every
+        // block in the hot DB has its blobs/columns in the blob DB.
+        if let Some(rx) = blobs_write_rx {
+            let blob_result = rx
+                .blocking_recv()
+                .map_err(|_| {
+                    Error::DBError(DBError::DBError {
+                        message: "blob write task dropped before completion".into(),
+                    })
+                })
+                .and_then(|r| r.map_err(Error::DBError));
+            if let Err(e) = blob_result {
+                error!(
+                    msg = "Restoring fork choice from disk",
+                    error = ?e,
+                    "Blob database write failed!"
+                );
+                return Err(self
+                    .handle_import_block_db_write_error(fork_choice)
+                    .err()
+                    .unwrap_or(e.into()));
+            }
+        }
+
+        if let Err(e) = self.store.hot_do_atomically(ops) {
             error!(
                 msg = "Restoring fork choice from disk",
                 error = ?e,
@@ -7524,7 +7565,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         block_slot: Slot,
         block_data: AvailableBlockData<T::EthSpec>,
-    ) -> Option<StoreOp<'_, T::EthSpec>> {
+    ) -> Option<StoreOp<'static, T::EthSpec>> {
         match block_data {
             AvailableBlockData::NoData => None,
             AvailableBlockData::Blobs(blobs) => {

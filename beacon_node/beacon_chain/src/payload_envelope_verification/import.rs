@@ -232,6 +232,31 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         payload_verification_status: PayloadVerificationStatus,
     ) -> Result<Hash256, EnvelopeError> {
+        // Deconstruct the envelope up-front so we can kick off the data-column write on a
+        // background blocking task before taking the fork choice lock. The blob DB is a separate
+        // physical database from the hot DB and its write must complete before the hot DB write
+        // to preserve the invariant that envelopes on disk always have their columns.
+        let (signed_envelope, columns) = signed_envelope.deconstruct();
+        let envelope_slot = signed_envelope.slot();
+
+        let blobs_write_rx = self
+            .get_blobs_or_columns_store_op(
+                block_root,
+                envelope_slot,
+                AvailableBlockData::DataColumns(columns),
+            )
+            .map(|blob_op| {
+                let store = self.store.clone();
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                self.task_executor.spawn_blocking(
+                    move || {
+                        let _ = tx.send(store.blobs_do_atomically(vec![blob_op]));
+                    },
+                    "blob_db_write",
+                );
+                rx
+            });
+
         // Everything in this initial section is on the hot path for processing the envelope.
         // Take an upgradable read lock on fork choice so we can check if this block has already
         // been imported. We don't want to repeat work importing a block that is already imported.
@@ -265,28 +290,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If the write fails, revert fork choice to the version from disk, else we can
         // end up with envelopes in fork choice that are missing from disk.
         // See https://github.com/sigp/lighthouse/issues/2028
-        let (signed_envelope, columns) = signed_envelope.deconstruct();
-
-        let mut ops = vec![];
-
-        if let Some(blobs_or_columns_store_op) = self.get_blobs_or_columns_store_op(
-            block_root,
-            signed_envelope.slot(),
-            AvailableBlockData::DataColumns(columns),
-        ) {
-            ops.push(blobs_or_columns_store_op);
-        }
-
         let db_write_timer = metrics::start_timer(&metrics::ENVELOPE_PROCESSING_DB_WRITE);
 
-        ops.push(StoreOp::PutPayloadEnvelope(
+        let ops = vec![StoreOp::PutPayloadEnvelope(
             block_root,
             signed_envelope.clone(),
-        ));
+        )];
 
         let db_span = info_span!("persist_payloads_and_blobs").entered();
 
-        if let Err(e) = self.store.do_atomically(ops) {
+        // Wait for the background column write before writing the envelope to the hot DB.
+        if let Some(rx) = blobs_write_rx {
+            let blob_result = rx.blocking_recv().map_err(|_| {
+                EnvelopeError::InternalError("blob write task dropped before completion".into())
+            })?;
+            blob_result?;
+        }
+
+        if let Err(e) = self.store.hot_do_atomically(ops) {
             error!(
                 msg = "Restoring fork choice from disk",
                 error = ?e,
