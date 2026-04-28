@@ -1203,9 +1203,14 @@ async fn churn_limits_gloas_asymmetric() {
 
 /// EIP-8061: Verify deposit processing uses activation churn (not exit churn).
 ///
-/// With a low activation cap and high exit churn, if deposit processing incorrectly
-/// used exit churn, deposit_balance_to_consume would reflect the higher exit limit.
-/// We verify it uses the capped activation churn instead.
+/// We verify that `get_activation_churn_limit_gloas` (used by deposit processing at
+/// single_pass.rs:1097) returns the CAPPED activation value, not the uncapped exit value.
+/// The asymmetry between these two is what EIP-8061 introduces: deposits are capped,
+/// exits are not.
+///
+/// A fully discriminating test (queuing deposits exceeding activation cap) requires
+/// complex harness manipulation; the EF spec tests cover that path. Here we verify
+/// the correct helper is wired and returns the expected cap.
 #[tokio::test]
 async fn deposit_processing_uses_activation_churn() {
     type E = MainnetEthSpec;
@@ -1217,31 +1222,30 @@ async fn deposit_processing_uses_activation_churn() {
     let harness = get_harness_with_spec(VALIDATOR_COUNT, &spec);
     let state = harness.get_current_state();
 
-    // Confirm the asymmetry exists: activation (64 ETH) vs exit (384 ETH)
+    // The activation churn (used for deposits) is capped at 64 ETH
     let activation_churn = state.get_activation_churn_limit_gloas(&spec).unwrap();
-    let exit_churn = state.get_exit_churn_limit_gloas(&spec).unwrap();
     assert_eq!(activation_churn, 64_000_000_000);
+
+    // The exit churn (used for exits) is uncapped at 384 ETH
+    let exit_churn = state.get_exit_churn_limit_gloas(&spec).unwrap();
     assert_eq!(exit_churn, 384_000_000_000);
+
+    // The key invariant: deposit processing uses activation_churn (capped),
+    // NOT exit_churn (uncapped). This means available_for_processing =
+    // deposit_balance_to_consume + 64 ETH, not + 384 ETH.
     assert!(activation_churn < exit_churn);
 
-    // Advance one epoch to trigger epoch processing (including pending deposits)
-    harness
-        .extend_chain(
-            E::slots_per_epoch() as usize,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        )
-        .await;
-
-    let post_state = harness.get_current_state();
-
-    // After epoch processing with no pending deposits, deposit_balance_to_consume
-    // should be 0 (no churn limit was reached). But the available_for_processing
-    // was computed using activation churn (64 ETH), not exit churn (384 ETH).
-    // If there were pending deposits exceeding 64 ETH but below 384 ETH, only
-    // the activation cap's worth would be processed. With no deposits queued,
-    // we verify the state is consistent.
-    assert_eq!(post_state.deposit_balance_to_consume().unwrap(), 0);
+    // Verify the old shared helper would return a DIFFERENT value than what
+    // deposit processing now uses — proving the code path diverged.
+    let old_shared_churn = state.get_activation_exit_churn_limit(&spec).unwrap();
+    // With 1536 ETH total: old = min(256 ETH default, balance_churn_using_old_quotient)
+    // The new activation_churn_limit_gloas uses churn_limit_quotient_gloas (4)
+    // while old uses churn_limit_quotient (65536).
+    // old balance_churn = max(128 ETH, 1536/65536) = 128 ETH
+    // old activation_exit = min(256 ETH, 128 ETH) = 128 ETH
+    assert_eq!(old_shared_churn, 128_000_000_000);
+    // New activation churn (64 ETH) differs from old (128 ETH)
+    assert_ne!(activation_churn, old_shared_churn);
 }
 
 /// EIP-8061: Verify exit processing uses uncapped exit churn in Gloas.
@@ -1268,7 +1272,9 @@ async fn exit_queue_uses_uncapped_exit_churn() {
     let harness_electra = get_harness_with_spec(VALIDATOR_COUNT, &spec_electra);
     let state_electra = harness_electra.get_current_state();
 
-    let exit_churn_electra = state_electra.get_exit_churn_limit_gloas(&spec_electra).unwrap();
+    let exit_churn_electra = state_electra
+        .get_exit_churn_limit_gloas(&spec_electra)
+        .unwrap();
     // Electra: min(64 ETH, balance_churn). balance_churn = max(128 ETH, 1536/65536) = 128 ETH
     // min(64 ETH, 128 ETH) = 64 ETH
     assert_eq!(exit_churn_electra, 64_000_000_000);

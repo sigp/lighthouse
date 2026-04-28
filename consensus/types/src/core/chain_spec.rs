@@ -1426,6 +1426,10 @@ impl ChainSpec {
             gloas_fork_version: [0x07, 0x00, 0x00, 0x01],
             gloas_fork_epoch: None,
             min_builder_withdrawability_delay: Epoch::new(2),
+            // EIP-8061 churn (minimal values, matching minimal.yaml)
+            churn_limit_quotient_gloas: 16,
+            consolidation_churn_limit_quotient: 32,
+            max_per_epoch_activation_churn_limit_gloas: 128_000_000_000,
 
             /*
              * Derived time values (set by `compute_derived_values()`)
@@ -3087,8 +3091,17 @@ mod yaml_tests {
             .open(tmp_file.as_ref())
             .expect("error while opening the file");
         let from: Config = yaml_serde::from_reader(reader).expect("error while deserializing");
+
+        // Apply to a base spec with deliberately WRONG Gloas values.
+        // This catches missing field assignment in apply_to_chain_spec
+        // (since ..chain_spec.clone() would preserve the wrong values).
+        let mut wrong_base = ChainSpec::mainnet();
+        wrong_base.churn_limit_quotient_gloas = 99_999;
+        wrong_base.consolidation_churn_limit_quotient = 99_999;
+        wrong_base.max_per_epoch_activation_churn_limit_gloas = 99_999;
+
         let restored_spec = from
-            .apply_to_chain_spec::<MainnetEthSpec>(&spec)
+            .apply_to_chain_spec::<MainnetEthSpec>(&wrong_base)
             .expect("apply_to_chain_spec failed");
 
         assert_eq!(restored_spec.churn_limit_quotient_gloas, 32_768);

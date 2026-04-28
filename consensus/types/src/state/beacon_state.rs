@@ -2796,16 +2796,16 @@ impl<E: EthSpec> BeaconState<E> {
     ) -> Result<u64, BeaconStateError> {
         if self.fork_name_unchecked().gloas_enabled() {
             let churn = self.get_balance_churn_limit_gloas(spec)?;
-            Ok(std::cmp::min(spec.max_per_epoch_activation_churn_limit_gloas, churn))
+            Ok(std::cmp::min(
+                spec.max_per_epoch_activation_churn_limit_gloas,
+                churn,
+            ))
         } else {
             self.get_activation_exit_churn_limit(spec)
         }
     }
 
-    pub fn get_exit_churn_limit_gloas(
-        &self,
-        spec: &ChainSpec,
-    ) -> Result<u64, BeaconStateError> {
+    pub fn get_exit_churn_limit_gloas(&self, spec: &ChainSpec) -> Result<u64, BeaconStateError> {
         if self.fork_name_unchecked().gloas_enabled() {
             self.get_balance_churn_limit_gloas(spec)
         } else {
@@ -3746,10 +3746,7 @@ mod eip_8061_churn_tests {
         churn - (churn % spec.effective_balance_increment)
     }
 
-    fn get_activation_exit_churn_limit_electra(
-        total_active_balance: u64,
-        spec: &ChainSpec,
-    ) -> u64 {
+    fn get_activation_exit_churn_limit_electra(total_active_balance: u64, spec: &ChainSpec) -> u64 {
         std::cmp::min(
             spec.max_per_epoch_activation_exit_churn_limit,
             get_balance_churn_limit_electra(total_active_balance, spec),
@@ -3799,7 +3796,10 @@ mod eip_8061_churn_tests {
         // balance_churn = 36M / 65536 ≈ 549 ETH > 128 ETH floor
         assert!(balance_churn > spec.min_per_epoch_churn_limit_electra);
         // activation_exit_churn is capped at 256 ETH
-        assert_eq!(activation_exit_churn, spec.max_per_epoch_activation_exit_churn_limit);
+        assert_eq!(
+            activation_exit_churn,
+            spec.max_per_epoch_activation_exit_churn_limit
+        );
         // consolidation = balance_churn - activation_exit_churn
         assert_eq!(consolidation_churn, balance_churn - activation_exit_churn);
     }
@@ -3815,7 +3815,10 @@ mod eip_8061_churn_tests {
         // balance_churn = 36M / 32768 ≈ 1098 ETH > 256 ETH cap
         assert!(balance_churn > spec.max_per_epoch_activation_churn_limit_gloas);
         // activation churn is capped at 256 ETH
-        assert_eq!(activation_churn, spec.max_per_epoch_activation_churn_limit_gloas);
+        assert_eq!(
+            activation_churn,
+            spec.max_per_epoch_activation_churn_limit_gloas
+        );
         assert_eq!(activation_churn, 256 * GWEI_PER_ETH);
     }
 
@@ -3841,8 +3844,7 @@ mod eip_8061_churn_tests {
         let spec = make_gloas_spec();
         let total_active_balance = 36_000_000 * GWEI_PER_ETH;
 
-        let consolidation_churn =
-            get_consolidation_churn_limit_gloas(total_active_balance, &spec);
+        let consolidation_churn = get_consolidation_churn_limit_gloas(total_active_balance, &spec);
 
         // Gloas: total / 65536, rounded to increment
         // 36M / 65536 = 549.316... ETH → 549 ETH
@@ -3864,8 +3866,7 @@ mod eip_8061_churn_tests {
         // With only 1024 ETH total: 1024 / 65536 = 0.015... → rounds to 0
         let total_active_balance = 1024 * GWEI_PER_ETH;
 
-        let consolidation_churn =
-            get_consolidation_churn_limit_gloas(total_active_balance, &spec);
+        let consolidation_churn = get_consolidation_churn_limit_gloas(total_active_balance, &spec);
         assert_eq!(consolidation_churn, 0);
 
         // But exit and activation still get the 128 ETH minimum floor
@@ -3882,8 +3883,7 @@ mod eip_8061_churn_tests {
 
         let exit_churn = get_exit_churn_limit_gloas(total_active_balance, &spec);
         let activation_churn = get_activation_churn_limit_gloas(total_active_balance, &spec);
-        let consolidation_churn =
-            get_consolidation_churn_limit_gloas(total_active_balance, &spec);
+        let consolidation_churn = get_consolidation_churn_limit_gloas(total_active_balance, &spec);
 
         let ws_period = compute_weak_subjectivity_period_gloas(
             total_active_balance,
