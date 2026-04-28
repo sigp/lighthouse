@@ -44,6 +44,7 @@ impl<E: EthSpec> PendingPayloadEnvelopes<E> {
 
     /// Insert a pending envelope into the cache.
     pub fn insert(&mut self, slot: Slot, data: PendingEnvelopeData<E>) {
+        // TODO(gloas): we may want to check for duplicates here, which shouldn't be allowed
         self.envelopes.insert(slot, data);
     }
 
