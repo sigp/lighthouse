@@ -1510,6 +1510,10 @@ pub fn serve<T: BeaconChainTypes>(
     let post_beacon_pool_bls_to_execution_changes =
         post_beacon_pool_bls_to_execution_changes(&network_tx_filter, &beacon_pool_path);
 
+    // POST beacon/pool/proposer_preferences
+    let post_beacon_pool_proposer_preferences =
+        post_beacon_pool_proposer_preferences(&network_tx_filter, &beacon_pool_path);
+
     // POST beacon/execution_payload_envelope
     let post_beacon_execution_payload_envelope = post_beacon_execution_payload_envelope(
         eth_v1.clone(),
@@ -3429,6 +3433,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_beacon_pool_sync_committees)
                     .uor(post_beacon_pool_payload_attestations)
                     .uor(post_beacon_pool_bls_to_execution_changes)
+                    .uor(post_beacon_pool_proposer_preferences)
                     .uor(post_beacon_execution_payload_envelope)
                     .uor(post_beacon_state_validators)
                     .uor(post_beacon_state_validator_balances)

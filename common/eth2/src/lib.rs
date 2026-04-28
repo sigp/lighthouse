@@ -46,7 +46,7 @@ use ssz::{Decode, Encode};
 use std::fmt;
 use std::future::Future;
 use std::time::Duration;
-use types::{PayloadAttestationData, PayloadAttestationMessage};
+use types::{PayloadAttestationData, PayloadAttestationMessage, SignedProposerPreferences};
 
 pub const V1: EndpointVersion = EndpointVersion(1);
 pub const V2: EndpointVersion = EndpointVersion(2);
@@ -1845,6 +1845,24 @@ impl BeaconNodeHttpClient {
             .push("bls_to_execution_changes");
 
         self.post(path, &address_changes).await?;
+
+        Ok(())
+    }
+
+    /// `POST beacon/pool/proposer_preferences`
+    pub async fn post_beacon_pool_proposer_preferences(
+        &self,
+        signed_preferences: &[SignedProposerPreferences],
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("pool")
+            .push("proposer_preferences");
+
+        self.post(path, &signed_preferences).await?;
 
         Ok(())
     }

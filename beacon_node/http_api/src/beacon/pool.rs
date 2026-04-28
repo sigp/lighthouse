@@ -10,6 +10,7 @@ use crate::version::{
 use crate::{sync_committees, utils};
 use beacon_chain::observed_operations::ObservationOutcome;
 use beacon_chain::payload_attestation_verification::Error as PayloadAttestationError;
+use beacon_chain::proposer_preferences_verification::ProposerPreferencesError;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bytes::Bytes;
 use eth2::types::{AttestationPoolQuery, EndpointVersion, Failure, GenericResponse};
@@ -24,8 +25,8 @@ use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, info, warn};
 use types::{
     Attestation, AttestationData, AttesterSlashing, ForkName, PayloadAttestationMessage,
-    ProposerSlashing, SignedBlsToExecutionChange, SignedVoluntaryExit, SingleAttestation,
-    SyncCommitteeMessage,
+    ProposerSlashing, SignedBlsToExecutionChange, SignedProposerPreferences, SignedVoluntaryExit,
+    SingleAttestation, SyncCommitteeMessage,
 };
 use warp::filters::BoxedFilter;
 use warp::{Filter, Reply};
@@ -657,6 +658,77 @@ fn publish_payload_attestation_messages<T: BeaconChainTypes>(
     } else {
         Err(warp_utils::reject::indexed_bad_request(
             "error processing payload attestations".to_string(),
+            failures,
+        ))
+    }
+}
+
+/// POST beacon/pool/proposer_preferences
+pub fn post_beacon_pool_proposer_preferences<T: BeaconChainTypes>(
+    network_tx_filter: &NetworkTxFilter<T>,
+    beacon_pool_path: &BeaconPoolPathFilter<T>,
+) -> ResponseFilter {
+    beacon_pool_path
+        .clone()
+        .and(warp::path("proposer_preferences"))
+        .and(warp::path::end())
+        .and(warp_utils::json::json())
+        .and(network_tx_filter.clone())
+        .then(
+            |task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             preferences: Vec<SignedProposerPreferences>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                task_spawner.blocking_json_task(Priority::P0, move || {
+                    publish_proposer_preferences(&chain, &network_tx, preferences)
+                })
+            },
+        )
+        .boxed()
+}
+
+fn publish_proposer_preferences<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+    preferences_list: Vec<SignedProposerPreferences>,
+) -> Result<(), warp::Rejection> {
+    let mut failures = vec![];
+    let mut num_already_known = 0;
+
+    for (index, preferences) in preferences_list.into_iter().enumerate() {
+        match chain.verify_proposer_preferences_for_gossip(Arc::new(preferences.clone())) {
+            Ok(_verified) => {
+                utils::publish_pubsub_message(
+                    network_tx,
+                    PubsubMessage::ProposerPreferences(Box::new(preferences)),
+                )?;
+            }
+            Err(ProposerPreferencesError::AlreadySeen { .. }) => {
+                num_already_known += 1;
+            }
+            Err(e) => {
+                error!(
+                    error = ?e,
+                    request_index = index,
+                    "Failure verifying proposer preferences for gossip"
+                );
+                failures.push(Failure::new(index, format!("{e:?}")));
+            }
+        }
+    }
+
+    if num_already_known > 0 {
+        debug!(
+            count = num_already_known,
+            "Some proposer preferences already known"
+        );
+    }
+
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(warp_utils::reject::indexed_bad_request(
+            "error processing proposer preferences".to_string(),
             failures,
         ))
     }
