@@ -652,25 +652,21 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
     );
 
     // Take the blobs from the cache — this is what publish_execution_payload_envelope does.
-    let blobs_and_proofs = harness
+    let blobs = harness
         .chain
         .pending_payload_envelopes
         .write()
         .take_blobs(slot);
 
     assert!(
-        blobs_and_proofs.is_some(),
-        "Blobs and proofs should be cached alongside the envelope"
+        blobs.is_some(),
+        "Blobs should be cached alongside the envelope"
     );
 
-    let (blobs, kzg_proofs) = blobs_and_proofs.unwrap();
+    let blobs = blobs.unwrap();
     assert!(
         !blobs.is_empty(),
         "Blobs should be non-empty when min_blob_count >= 1"
-    );
-    assert!(
-        !kzg_proofs.is_empty(),
-        "KZG proofs should be non-empty when blobs are present"
     );
 
     // Verify take_blobs is consume-once.

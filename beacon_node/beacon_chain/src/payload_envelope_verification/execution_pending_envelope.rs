@@ -94,6 +94,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
                 payload.block_hash,
                 signed_envelope,
                 vec![],
+                None,
                 chain.spec.clone(),
             )),
             import_data: EnvelopeImportData {

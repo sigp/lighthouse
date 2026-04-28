@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use eth2::types::{EventKind, SseExecutionPayload};
+use eth2::types::{EventKind, SseExecutionPayload, SseExecutionPayloadAvailable};
 use fork_choice::PayloadVerificationStatus;
 use slot_clock::SlotClock;
 use store::StoreOp;
@@ -182,6 +182,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             signed_envelope,
             import_data,
             payload_verification_outcome,
+            self.spec.clone(),
         ))
     }
 
@@ -361,6 +362,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 block_root,
                 execution_optimistic: payload_verification_status.is_optimistic(),
             }));
+        }
+
+        // TODO(gloas): once the DA checker handles envelopes, this event should also be
+        // emitted from the DA resolution path (similar to `process_availability` for blocks).
+        if let Some(event_handler) = self.event_handler.as_ref()
+            && event_handler.has_execution_payload_available_subscribers()
+        {
+            event_handler.register(EventKind::ExecutionPayloadAvailable(
+                SseExecutionPayloadAvailable {
+                    slot: envelope_slot,
+                    block_root,
+                },
+            ));
         }
     }
 }
