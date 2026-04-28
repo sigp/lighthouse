@@ -102,7 +102,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
     }
 
     async fn publish_proposer_preferences(&self, current_epoch: Epoch) {
-
         // Collect all data needed while holding the lock, then drop it before any awaits.
         let preferences_to_sign: Vec<_> = {
             let proposers = self.duties_service.proposers.read();
