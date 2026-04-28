@@ -1007,6 +1007,26 @@ fn get_balance_churn_limit(state_ctxt: &StateContext, spec: &ChainSpec) -> Resul
     Ok(churn.safe_sub(churn.safe_rem(spec.effective_balance_increment)?)?)
 }
 
+fn get_balance_churn_limit_gloas(state_ctxt: &StateContext, spec: &ChainSpec) -> Result<u64, Error> {
+    let total_active_balance = state_ctxt.total_active_balance;
+    let churn = std::cmp::max(
+        spec.min_per_epoch_churn_limit_electra,
+        total_active_balance.safe_div(spec.churn_limit_quotient_gloas)?,
+    );
+    Ok(churn.safe_sub(churn.safe_rem(spec.effective_balance_increment)?)?)
+}
+
+fn get_exit_churn_limit_gloas(
+    state_ctxt: &StateContext,
+    spec: &ChainSpec,
+) -> Result<u64, Error> {
+    if state_ctxt.fork_name.gloas_enabled() {
+        get_balance_churn_limit_gloas(state_ctxt, spec)
+    } else {
+        get_activation_exit_churn_limit(state_ctxt, spec)
+    }
+}
+
 impl SlashingsContext {
     fn new<E: EthSpec>(
         state: &BeaconState<E>,
