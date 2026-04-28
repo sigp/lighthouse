@@ -2052,7 +2052,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for PublishBlockRequest<
         let value =
             serde_json::Value::deserialize(deserializer).map_err(serde::de::Error::custom)?;
 
-        if context.gloas_enabled() {
+        let res = if context.gloas_enabled() {
             Arc::<SignedBeaconBlock<E>>::context_deserialize(&value, context)
                 .map(PublishBlockRequest::Block)
         } else {
@@ -2062,10 +2062,9 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for PublishBlockRequest<
                     Arc::<SignedBeaconBlock<E>>::context_deserialize(&value, context)
                         .map(PublishBlockRequest::Block)
                 })
-                .map_err(|_| {
-                    serde::de::Error::custom("could not match any variant of PublishBlockRequest")
-                })
-        }
+        };
+
+        res.map_err(|_| serde::de::Error::custom("failed to deserialize into PublishBlockRequest"))
     }
 }
 
