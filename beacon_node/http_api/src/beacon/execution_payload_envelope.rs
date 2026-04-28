@@ -88,7 +88,9 @@ pub(crate) fn post_beacon_execution_payload_envelope<T: BeaconChainTypes>(
         )
         .boxed()
 }
-/// Publishes a signed execution payload envelope to the network.
+/// Publishes a signed execution payload envelope to the network. Implements
+/// `POST /eth/v1/beacon/execution_payload_envelope` per the in-flight beacon-APIs PR
+/// <https://github.com/ethereum/beacon-APIs/pull/580>.
 pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     envelope: SignedExecutionPayloadEnvelope<T::EthSpec>,
     chain: Arc<BeaconChain<T>>,
@@ -99,6 +101,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
 
     // TODO(gloas): Replace this check once we have gossip validation.
     if !chain.spec.is_gloas_scheduled() {
+        // Spec 400: pre-broadcast validation failed; envelope MUST NOT be broadcast.
         return Err(warp_utils::reject::custom_bad_request(
             "Execution payload envelopes are not supported before the Gloas fork".into(),
         ));
@@ -112,14 +115,19 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         "Publishing signed execution payload envelope to network"
     );
 
+    // Stateful mode: blobs come from the local `pending_payload_envelopes` cache
+    // populated during block production. Spec also defines a stateless request body
+    // (`SignedExecutionPayloadEnvelopeContents`) carrying blobs + KZG proofs inline,
+    // which is not yet supported here.
     let cached_blobs = chain.pending_payload_envelopes.write().take_blobs(slot);
 
-    // Start the column-build task (CPU-bound KZG cell-and-proof computation) before
-    // publishing the envelope so it runs in parallel with envelope gossip, minimizing
-    // the time peers see envelope-without-columns. If envelope publication fails below,
-    // dropping this future cancels the spawned `JoinHandle`.
+    // Spawn the column-build task (CPU-bound KZG cell-and-proof computation) before
+    // publishing the envelope so it runs in parallel with envelope gossip, narrowing
+    // the window in which peers see envelope-without-columns. If envelope publication
+    // fails below, dropping this future cancels the spawned `JoinHandle`.
     let column_build_future = match cached_blobs {
         Some(blobs) if !blobs.is_empty() => Some(spawn_build_gloas_data_columns_task(
+            // Spec: spawn-time failure (runtime shutdown) is pre-broadcast → propagate Err.
             chain.clone(),
             beacon_block_root,
             slot,
@@ -128,22 +136,28 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         _ => None,
     };
 
-    // Publish the envelope to the network. Nothing has been gossiped yet, so propagating
-    // an error here is safe.
     crate::utils::publish_pubsub_message(
         network_tx,
         PubsubMessage::ExecutionPayload(Box::new(envelope)),
     )
     .map_err(|_| {
+        // Broadcast itself failed → nothing has hit the wire, so propagate Err.
+        // Spec endorses broadcast-before-integration: "may broadcast [the envelope]
+        // before [integrating it into the state], so as to aid timely delivery".
         warn!(%slot, "Failed to publish execution payload envelope to network");
         warp_utils::reject::custom_server_error(
             "Unable to publish execution payload envelope to network".into(),
         )
     })?;
 
-    // The envelope is already published, so column-build/publish failures must not
-    // return Err — `take_blobs` consumed the cache entry, so a retry would not republish
-    // columns either. Log the failure and return Ok so the HTTP caller is not misled.
+    // From here on the envelope is on the wire. `take_blobs` already consumed the cache
+    // entry, so a retry would not republish columns; returning Err would mislead the
+    // caller. Log failures and fall through to `Ok`.
+    //
+    // Spec response codes (envelope-level): 200 = broadcast + integrated into BN DB,
+    // 202 = broadcast but integration failed. This handler does not yet integrate the
+    // envelope into state, so we return 200 throughout. When integration is added,
+    // integration-time failures should switch to 202.
     if let Some(column_build_future) = column_build_future {
         let gossip_verified_columns = match column_build_future.await {
             Ok(columns) => columns,
@@ -153,6 +167,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
                     error = ?e,
                     "Failed to build data columns after envelope publication"
                 );
+                // Envelope already broadcast — returning Ok per spec broadcast-first semantics.
                 return Ok(warp::reply().into_response());
             }
         };
@@ -164,6 +179,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
                     error = ?e,
                     "Failed to publish data column sidecars after envelope publication"
                 );
+                // Envelope already broadcast — returning Ok per spec broadcast-first semantics.
                 return Ok(warp::reply().into_response());
             }
 
@@ -187,6 +203,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         }
     }
 
+    // Spec 200: envelope broadcast (and would be integrated, once integration lands).
     Ok(warp::reply().into_response())
 }
 
