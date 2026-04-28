@@ -2917,7 +2917,7 @@ impl<E: EthSpec> BeaconState<E> {
             self.compute_activation_exit_epoch(self.current_epoch(), spec)?,
         );
 
-        let per_epoch_churn = self.get_activation_exit_churn_limit(spec)?;
+        let per_epoch_churn = self.get_exit_churn_limit_gloas(spec)?;
         // New epoch for exits
         let mut exit_balance_to_consume = if self.earliest_exit_epoch()? < earliest_exit_epoch {
             per_epoch_churn

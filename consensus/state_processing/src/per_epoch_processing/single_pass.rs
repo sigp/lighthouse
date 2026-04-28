@@ -962,7 +962,7 @@ fn compute_exit_epoch_and_update_churn(
         spec.compute_activation_exit_epoch(state_ctxt.current_epoch)?,
     );
 
-    let per_epoch_churn = get_activation_exit_churn_limit(state_ctxt, spec)?;
+    let per_epoch_churn = get_exit_churn_limit_gloas(state_ctxt, spec)?;
     // New epoch for exits
     let mut exit_balance_to_consume = if *earliest_exit_epoch_state < earliest_exit_epoch {
         per_epoch_churn
