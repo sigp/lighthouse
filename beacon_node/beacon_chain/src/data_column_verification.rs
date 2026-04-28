@@ -640,17 +640,11 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
 
     pub fn reconstruct_columns(
         kzg: &Kzg,
-        partial_set_of_columns: &[Self],
+        partial_set_of_columns: Vec<Arc<DataColumnSidecar<E>>>,
         spec: &ChainSpec,
     ) -> Result<Vec<KzgVerifiedCustodyDataColumn<E>>, KzgError> {
-        let all_data_columns = reconstruct_data_columns(
-            kzg,
-            partial_set_of_columns
-                .iter()
-                .map(|d| d.clone_arc())
-                .collect::<Vec<_>>(),
-            spec,
-        )?;
+        let all_data_columns =
+            reconstruct_data_columns(kzg, partial_set_of_columns.to_vec(), spec)?;
 
         let seen_timestamp = timestamp_now();
 

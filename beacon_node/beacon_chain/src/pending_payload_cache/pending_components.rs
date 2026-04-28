@@ -8,8 +8,8 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
-use types::Slot;
 use types::{ChainSpec, ColumnIndex, Epoch, EthSpec, Hash256};
+use types::{DataColumnSidecar, Slot};
 
 /// This represents the components of a payload pending data availability.
 ///
@@ -90,8 +90,8 @@ impl<E: EthSpec> PendingComponents<E> {
 
     pub fn num_completed_columns(&self) -> usize {
         self.verified_data_columns
-            .iter()
-            .filter_map(|(_, col)| col.is_complete(self.num_blobs_expected).then_some(()))
+            .values()
+            .filter_map(|col| col.is_complete(self.num_blobs_expected).then_some(()))
             .count()
     }
 

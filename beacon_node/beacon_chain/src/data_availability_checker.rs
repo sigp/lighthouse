@@ -607,7 +607,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         let all_data_columns = KzgVerifiedCustodyDataColumn::reconstruct_columns(
             &self.kzg,
-            &verified_data_columns,
+            verified_data_columns
+                .into_iter()
+                .map(|c| c.into_inner())
+                .collect(),
             &self.spec,
         )
         .map_err(|e| {

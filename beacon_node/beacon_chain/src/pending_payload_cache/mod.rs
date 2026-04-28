@@ -317,7 +317,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
 
         let all_data_columns = KzgVerifiedCustodyDataColumn::reconstruct_columns(
             &self.kzg,
-            &verified_data_columns,
+            verified_data_columns,
             &self.spec,
         )
         .map_err(|e| {
@@ -495,7 +495,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         }
 
         pending_components.reconstruction_started = true;
-        ReconstructColumnsDecision::Yes(pending_components.get_cached_data_columns(block_root))
+        ReconstructColumnsDecision::Yes(pending_components.get_cached_data_columns(*block_root))
     }
 
     /// This could mean some invalid data columns made it through to the `DataAvailabilityChecker`.

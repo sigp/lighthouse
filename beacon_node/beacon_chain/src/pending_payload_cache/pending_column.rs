@@ -19,7 +19,7 @@ impl<E: EthSpec> PendingColumn<E> {
         if let Some(existing_cell) = self.cells.get_mut(index)
             && existing_cell.is_none()
         {
-            *existing_cell = Some((cell.clone(), proof.clone()));
+            *existing_cell = Some((cell.clone(), proof));
         }
     }
 
@@ -49,7 +49,7 @@ impl<E: EthSpec> PendingColumn<E> {
             };
             // TODO(gloas): we likely want to go and arc all cells
             column.push(cell.clone());
-            kzg_proofs.push(proof.clone());
+            kzg_proofs.push(proof);
         }
 
         Some(Arc::new(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
