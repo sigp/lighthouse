@@ -11,7 +11,6 @@ use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bytes::Bytes;
 use eth2::types as api_types;
 use eth2::{CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
-use futures::TryFutureExt;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use ssz::{Decode, Encode};
@@ -173,18 +172,20 @@ fn spawn_build_gloas_data_columns_task<T: BeaconChainTypes>(
     slot: types::Slot,
     blobs: types::BlobsList<T::EthSpec>,
 ) -> Result<impl Future<Output = Result<Vec<GossipVerifiedDataColumn<T>>, Rejection>>, Rejection> {
-    chain
-        .clone()
+    let chain_for_build = chain.clone();
+    let handle = chain
         .task_executor
         .spawn_blocking_handle(
-            move || build_gloas_data_columns(&chain, beacon_block_root, slot, &blobs),
+            move || build_gloas_data_columns(&chain_for_build, beacon_block_root, slot, &blobs),
             "build_gloas_data_columns",
         )
-        .ok_or_else(|| warp_utils::reject::custom_server_error("runtime shutdown".to_string()))
-        .map(|r| {
-            r.map_err(|_| warp_utils::reject::custom_server_error("join error".to_string()))
-                .and_then(|output| async move { output })
-        })
+        .ok_or_else(|| warp_utils::reject::custom_server_error("runtime shutdown".to_string()))?;
+
+    Ok(async move {
+        handle
+            .await
+            .map_err(|_| warp_utils::reject::custom_server_error("join error".to_string()))?
+    })
 }
 
 fn build_gloas_data_columns<T: BeaconChainTypes>(
