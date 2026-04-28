@@ -113,7 +113,7 @@ impl TestContext {
             )
             .expect("should register inactive builder");
 
-        let mut block = genesis_block(&state, &spec).expect("should build genesis block");
+        let mut block = genesis_block(&spec).expect("should build genesis block");
         *block.state_root_mut() = state
             .update_tree_hash_cache()
             .expect("should hash genesis state");

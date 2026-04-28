@@ -1177,8 +1177,8 @@ fn make_genesis_block<E: EthSpec>(
     genesis_state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<SignedBeaconBlock<E>, String> {
-    let mut block = genesis_block(genesis_state, spec)
-        .map_err(|e| format!("Error building genesis block: {:?}", e))?;
+    let mut block =
+        genesis_block(spec).map_err(|e| format!("Error building genesis block: {:?}", e))?;
 
     *block.state_root_mut() = genesis_state
         .update_tree_hash_cache()
