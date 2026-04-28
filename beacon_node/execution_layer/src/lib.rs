@@ -53,8 +53,8 @@ use types::{
 };
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
-    ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadFulu,
-    ExecutionPayloadHeaderFulu, FullPayload, ProposerPreparationData, Slot,
+    ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadFulu, FullPayload,
+    ProposerPreparationData, SignedExecutionPayloadBid, Slot,
 };
 
 mod block_hash;
@@ -119,16 +119,6 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
                 requests: Some(builder_bid.execution_requests),
             },
             BuilderBid::Fulu(builder_bid) => BlockProposalContents::PayloadAndBlobs {
-                payload: ExecutionPayloadHeader::Fulu(builder_bid.header).into(),
-                block_value: builder_bid.value,
-                kzg_commitments: builder_bid.blob_kzg_commitments,
-                blobs_and_proofs: None,
-                requests: Some(builder_bid.execution_requests),
-            },
-            // Gloas reuses the Fulu wire shape; surface as a Fulu header here.
-            // The Gloas producer is responsible for wrapping this as a
-            // self-build bid (`builder_index = u64::MAX`, infinity sig).
-            BuilderBid::Gloas(builder_bid) => BlockProposalContents::PayloadAndBlobs {
                 payload: ExecutionPayloadHeader::Fulu(builder_bid.header).into(),
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
@@ -219,21 +209,19 @@ pub struct BlockProposalContentsGloas<E: EthSpec> {
 }
 
 /// Output of a Gloas self-build payload fetch, after racing local EL against any
-/// configured mev-boost relay using the existing pre-Gloas selection rules.
+/// configured mev-boost relay using `builder_boost_factor`.
+///
 /// Both variants are wrapped as a self-build bid (`builder_index = u64::MAX`,
-/// infinity sig) at the producer.
+/// infinity sig, `value = 0`) at the producer; the only difference is whether
+/// the proposer already holds the full payload (`Local`) or commits to the
+/// relay's bid hash and unblinds the payload via mev-boost later (`Builder`).
 pub enum GloasPayloadSource<E: EthSpec> {
     /// Full payload from local EL.
     Local(BlockProposalContentsGloas<E>),
-    /// Blinded relay header (Fulu wire shape — Gloas bid fields derive from
-    /// it). Full payload + blobs unblind via the existing mev-boost endpoint
+    /// Relay bid (Gloas-native `SignedExecutionPayloadBid`). The proposer
+    /// must unblind the full payload via the existing mev-boost endpoint
     /// before envelope publication.
-    Builder {
-        header: ExecutionPayloadHeaderFulu<E>,
-        blob_kzg_commitments: KzgCommitments<E>,
-        execution_requests: ExecutionRequests<E>,
-        value_wei: Uint256,
-    },
+    Builder(SignedExecutionPayloadBid<E>),
 }
 
 impl<E: EthSpec> From<GetPayloadResponseGloas<E>> for BlockProposalContentsGloas<E> {
@@ -933,63 +921,72 @@ impl<E: EthSpec> ExecutionLayer<E> {
     /// will be contacted.
     /// Gloas self-build payload fetch with mev-boost race.
     ///
-    /// When a builder is configured, reuses the pre-Gloas `get_payload` race
-    /// (with `builder_boost_factor` selection rules) and adapts the result to
-    /// a Gloas-shaped source. The relay's `BuilderBid::Gloas` wire format
-    /// reuses Fulu (`ExecutionPayloadHeaderFulu`); the producer extracts the
-    /// bid fields and wraps as a Gloas self-build bid.
+    /// When a builder is configured, fetches a Gloas-native
+    /// `SignedExecutionPayloadBid` from the relay in parallel with a local-EL
+    /// `engine_getPayload` call, then races the two using `builder_boost_factor`
+    /// (same `(value / 100) * factor` rule as pre-Gloas). The local EL's
+    /// `shouldOverrideBuilder` flag also forces local.
+    ///
+    /// Whichever wins is wrapped as a Gloas self-build bid at the producer.
+    /// Bid value is in gwei (u64), local payload value is in wei (Uint256);
+    /// compared in wei.
     #[instrument(level = "debug", skip_all)]
     pub async fn get_payload_gloas_with_builder(
         &self,
         payload_parameters: PayloadParameters<'_>,
         builder_params: BuilderParams,
         builder_boost_factor: Option<u64>,
-        spec: &ChainSpec,
+        _spec: &ChainSpec,
     ) -> Result<GloasPayloadSource<E>, Error> {
-        if self.builder().is_none() {
+        let Some(builder) = self.builder() else {
+            return self
+                .get_payload_gloas(payload_parameters)
+                .await
+                .map(GloasPayloadSource::Local);
+        };
+
+        if builder_params.chain_health != ChainHealth::Healthy {
             return self
                 .get_payload_gloas(payload_parameters)
                 .await
                 .map(GloasPayloadSource::Local);
         }
-        match self
-            .get_payload(
-                payload_parameters,
-                builder_params,
-                spec,
-                builder_boost_factor,
-                BlockProductionVersion::V3,
-            )
-            .await?
-        {
-            BlockProposalContentsType::Full(_) => self
-                .get_payload_gloas(payload_parameters)
-                .await
-                .map(GloasPayloadSource::Local),
-            BlockProposalContentsType::Blinded(BlockProposalContents::PayloadAndBlobs {
-                payload,
-                block_value,
-                kzg_commitments,
-                requests,
-                ..
-            }) => {
-                let ExecutionPayloadHeader::Fulu(header) = payload.to_execution_payload_header()
-                else {
-                    return Err(Error::Unexpected(
-                        "Gloas relay returned non-Fulu-shaped header".into(),
-                    ));
-                };
-                Ok(GloasPayloadSource::Builder {
-                    header,
-                    blob_kzg_commitments: kzg_commitments,
-                    execution_requests: requests
-                        .ok_or_else(|| Error::Unexpected("Gloas relay missing requests".into()))?,
-                    value_wei: block_value,
-                })
+
+        let slot = builder_params.slot;
+        let pubkey = &builder_params.pubkey;
+        let parent_hash = payload_parameters.parent_hash;
+
+        let (relay_result, local_result) = tokio::join!(
+            builder.get_builder_payload_bid_gloas::<E>(slot, parent_hash, pubkey),
+            self.get_payload_gloas(payload_parameters),
+        );
+
+        let local = local_result?;
+
+        let Ok(Some(relay)) = relay_result else {
+            // Relay error or no bid ⇒ use local.
+            return Ok(GloasPayloadSource::Local(local));
+        };
+
+        // EL hint: ignore the relay this slot.
+        if local.should_override_builder {
+            return Ok(GloasPayloadSource::Local(local));
+        }
+
+        let signed_bid = relay.data;
+        let bid_value_wei =
+            Uint256::from(signed_bid.message.value).saturating_mul(Uint256::from(1_000_000_000u64));
+        let boosted_bid_wei = match builder_boost_factor {
+            Some(factor) => {
+                (bid_value_wei / Uint256::from(100)).saturating_mul(Uint256::from(factor))
             }
-            BlockProposalContentsType::Blinded(BlockProposalContents::Payload { .. }) => Err(
-                Error::Unexpected("blinded Gloas payload missing blob commitments".into()),
-            ),
+            None => bid_value_wei,
+        };
+
+        if local.payload_value >= boosted_bid_wei {
+            Ok(GloasPayloadSource::Local(local))
+        } else {
+            Ok(GloasPayloadSource::Builder(signed_bid))
         }
     }
 

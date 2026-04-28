@@ -832,19 +832,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     should_override_builder,
                 )
             }
-            GloasPayloadSource::Builder {
-                header,
-                blob_kzg_commitments,
-                execution_requests,
-                value_wei,
-            } => (
-                (header.block_hash, header.prev_randao, header.gas_limit),
-                blob_kzg_commitments,
-                execution_requests.tree_hash_root(),
-                value_wei,
-                None,
-                false,
-            ),
+            GloasPayloadSource::Builder(signed_bid) => {
+                let m = &signed_bid.message;
+                // Convert the relay-bid value (gwei, u64) to wei for downstream
+                // comparison against the cached p2p bid.
+                let value_wei = types::Uint256::from(m.value)
+                    .saturating_mul(types::Uint256::from(1_000_000_000u64));
+                (
+                    (m.block_hash, m.prev_randao, m.gas_limit),
+                    m.blob_kzg_commitments.clone(),
+                    m.execution_requests_root,
+                    value_wei,
+                    None,
+                    false,
+                )
+            }
         };
         let (block_hash, prev_randao, gas_limit) = bid_fields;
 

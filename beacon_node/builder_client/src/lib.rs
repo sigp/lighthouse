@@ -5,7 +5,7 @@ use eth2::types::beacon_response::EmptyMetadata;
 use eth2::types::builder::SignedBuilderBid;
 use eth2::types::{
     ContentType, EthSpec, ExecutionBlockHash, ForkName, ForkVersionDecode, ForkVersionedResponse,
-    SignedValidatorRegistrationData, Slot,
+    SignedExecutionPayloadBid, SignedValidatorRegistrationData, Slot,
 };
 use eth2::types::{FullPayloadContents, SignedBlindedBeaconBlock};
 use eth2::{
@@ -503,6 +503,55 @@ impl BuilderHttpClient {
             );
         } else {
             // Indicate preference for ssz response in the accept header
+            headers.insert(
+                ACCEPT,
+                HeaderValue::from_str(PREFERENCE_ACCEPT_VALUE)
+                    .map_err(|e| Error::InvalidHeaders(format!("{}", e)))?,
+            );
+        }
+
+        let resp = self
+            .get_with_header(path, self.timeouts.get_header, headers)
+            .await;
+
+        if matches!(resp, Err(Error::StatusCode(StatusCode::NO_CONTENT))) {
+            Ok(None)
+        } else {
+            resp.map(Some)
+        }
+    }
+
+    /// `GET /eth/v1/builder/payload_bid/{slot}/{parent_hash}/{pubkey}`
+    ///
+    /// Gloas-specific endpoint. The relay returns a `SignedExecutionPayloadBid`
+    /// directly (the Gloas-native commitment type) instead of a `BuilderBid`
+    /// envelope around an `ExecutionPayloadHeader`.
+    pub async fn get_builder_payload_bid_gloas<E: EthSpec>(
+        &self,
+        slot: Slot,
+        parent_hash: ExecutionBlockHash,
+        pubkey: &PublicKeyBytes,
+    ) -> Result<Option<ForkVersionedResponse<SignedExecutionPayloadBid<E>>>, Error> {
+        let mut path = self.server.expose_full().clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("eth")
+            .push("v1")
+            .push("builder")
+            .push("payload_bid")
+            .push(slot.to_string().as_str())
+            .push(format!("{parent_hash:?}").as_str())
+            .push(pubkey.as_hex_string().as_str());
+
+        let mut headers = HeaderMap::new();
+        if self.disable_ssz {
+            headers.insert(
+                ACCEPT,
+                HeaderValue::from_str(JSON_CONTENT_TYPE_HEADER)
+                    .map_err(|e| Error::InvalidHeaders(format!("{}", e)))?,
+            );
+        } else {
             headers.insert(
                 ACCEPT,
                 HeaderValue::from_str(PREFERENCE_ACCEPT_VALUE)
