@@ -3983,8 +3983,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // register_process_result_metrics(&result, metrics::BlockSource::Gossip, "envelope");
 
         match &result {
-            Ok(AvailabilityProcessingStatus::Imported(_))
-            | Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
+            Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
+                // Notify sync so any pending child lookup awaiting this parent envelope unblocks.
+                self.send_sync_message(SyncMessage::GossipEnvelopeImported {
+                    block_root: *block_root,
+                });
+            }
+            Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
                 // Nothing to do
             }
             Err(e) => match e {

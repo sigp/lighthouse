@@ -154,6 +154,10 @@ pub enum SyncMessage<E: EthSpec> {
     /// A block's parent is known but its execution payload envelope has not been received yet.
     UnknownParentEnvelope(PeerId, Arc<SignedBeaconBlock<E>>, Hash256),
 
+    /// An execution payload envelope has been imported via the local gossip path.
+    /// Sync uses this to unblock any child lookups that were awaiting this parent envelope.
+    GossipEnvelopeImported { block_root: Hash256 },
+
     /// A partial data column with an unknown parent has been received.
     UnknownParentPartialDataColumn {
         peer_id: PeerId,
@@ -961,6 +965,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }),
                 );
             }
+            SyncMessage::GossipEnvelopeImported { block_root } => {
+                debug!(
+                    %block_root,
+                    "Gossip-imported envelope; unblocking awaiting child lookups"
+                );
+                self.block_lookups
+                    .continue_envelope_child_lookups(block_root, &mut self.network);
+            }
             SyncMessage::UnknownParentPartialDataColumn {
                 peer_id,
                 block_root,
@@ -1096,6 +1108,21 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         slot: Slot,
         block_component: BlockComponent<T::EthSpec>,
     ) {
+        // Defensive: if the parent's payload envelope was already received between when
+        // gossip-verification raised `ParentEnvelopeUnknown` and now, no lookup is needed.
+        if self
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .is_payload_received(&parent_root)
+        {
+            debug!(
+                %block_root,
+                %parent_root,
+                "Parent envelope already received, skipping envelope lookup"
+            );
+            return;
+        }
         match self.should_search_for_block(Some(slot), &peer_id) {
             Ok(_) => {
                 if self.block_lookups.search_child_and_parent_envelope(

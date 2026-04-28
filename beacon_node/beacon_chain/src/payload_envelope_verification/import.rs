@@ -14,7 +14,8 @@ use super::{
 };
 use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes,
-    NotifyExecutionLayer, block_verification_types::AvailableBlockData, metrics,
+    NotifyExecutionLayer, block_verification::PayloadVerificationOutcome,
+    block_verification_types::AvailableBlockData, metrics,
     payload_envelope_verification::ExecutionPendingEnvelope, validator_monitor::get_slot_delay_ms,
 };
 
@@ -99,9 +100,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     self.import_available_execution_payload_envelope(Box::new(envelope))
                         .await
                 }
-                ExecutedEnvelope::AvailabilityPending() => Err(EnvelopeError::InternalError(
-                    "Pending payload envelope not yet implemented".to_owned(),
-                )),
+                ExecutedEnvelope::AvailabilityPending {
+                    signed_envelope,
+                    import_data,
+                    payload_verification_outcome,
+                } => {
+                    self.import_pending_execution_payload_envelope(
+                        signed_envelope,
+                        import_data,
+                        payload_verification_outcome,
+                    )
+                    .await
+                }
             }
         };
 
@@ -185,6 +195,39 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ))
     }
 
+    /// Import an envelope whose data column availability has not yet been satisfied.
+    ///
+    /// Marks the block's payload as received in fork choice and persists the envelope to the
+    /// store, but does not write data column ops. Columns are expected to arrive separately
+    /// (gossip, engineGetBlobs, or reconstruction).
+    #[instrument(skip_all)]
+    pub async fn import_pending_execution_payload_envelope(
+        self: &Arc<Self>,
+        signed_envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        import_data: EnvelopeImportData<T::EthSpec>,
+        payload_verification_outcome: PayloadVerificationOutcome,
+    ) -> Result<AvailabilityProcessingStatus, EnvelopeError> {
+        let EnvelopeImportData {
+            block_root,
+            _phantom,
+        } = import_data;
+        let block_root = {
+            let chain = self.clone();
+            self.spawn_blocking_handle(
+                move || {
+                    chain.import_execution_payload_envelope_pending_columns(
+                        signed_envelope,
+                        block_root,
+                        payload_verification_outcome.payload_verification_status,
+                    )
+                },
+                "payload_verification_handle",
+            )
+            .await??
+        };
+        Ok(AvailabilityProcessingStatus::Imported(block_root))
+    }
+
     #[instrument(skip_all)]
     pub async fn import_available_execution_payload_envelope(
         self: &Arc<Self>,
@@ -217,6 +260,50 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         Ok(AvailabilityProcessingStatus::Imported(block_root))
+    }
+
+    /// Same as `import_execution_payload_envelope` but for envelopes whose data columns
+    /// have not yet been received. Marks the payload as received in fork choice and
+    /// persists the envelope; columns are persisted separately as they arrive.
+    #[instrument(skip_all)]
+    fn import_execution_payload_envelope_pending_columns(
+        &self,
+        signed_envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        block_root: Hash256,
+        payload_verification_status: PayloadVerificationStatus,
+    ) -> Result<Hash256, EnvelopeError> {
+        let fork_choice_reader = self.canonical_head.fork_choice_upgradable_read_lock();
+        if !fork_choice_reader.contains_block(&block_root) {
+            return Err(EnvelopeError::BlockRootUnknown { block_root });
+        }
+
+        let mut fork_choice = parking_lot::RwLockUpgradableReadGuard::upgrade(fork_choice_reader);
+        fork_choice
+            .on_valid_payload_envelope_received(block_root)
+            .map_err(|e| EnvelopeError::InternalError(format!("{e:?}")))?;
+
+        let db_write_timer = metrics::start_timer(&metrics::ENVELOPE_PROCESSING_DB_WRITE);
+        let ops = vec![StoreOp::PutPayloadEnvelope(
+            block_root,
+            signed_envelope.clone(),
+        )];
+        let db_span = info_span!("persist_envelope_pending_columns").entered();
+        if let Err(e) = self.store.do_atomically_with_block_and_blobs_cache(ops) {
+            error!(error = ?e, "Database write failed for pending-columns envelope");
+            return Err(e.into());
+        }
+        drop(db_span);
+        drop(fork_choice);
+
+        let envelope_time_imported = self.slot_clock.now_duration().unwrap_or(Duration::MAX);
+        metrics::stop_timer(db_write_timer);
+        self.import_envelope_update_metrics_and_events(
+            signed_envelope,
+            block_root,
+            payload_verification_status,
+            envelope_time_imported,
+        );
+        Ok(block_root)
     }
 
     /// Accepts a fully-verified and available envelope and imports it into the chain without performing any

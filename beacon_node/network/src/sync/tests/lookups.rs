@@ -1304,6 +1304,32 @@ impl TestRig {
         self.harness.chain.recompute_head_at_current_slot().await;
     }
 
+    /// Persist a Gloas execution payload envelope into the local chain and mark the
+    /// block as "payload received" in fork choice. Mimics the side-effects of the
+    /// gossip-import path, including the `GossipEnvelopeImported` sync notification.
+    /// The caller is responsible for ensuring the corresponding beacon block is
+    /// already imported.
+    async fn import_envelope_for_block_root(&mut self, block_root: Hash256) {
+        let envelope = self
+            .network_envelopes_by_root
+            .get(&block_root)
+            .unwrap_or_else(|| panic!("no envelope cached for {block_root:?}"))
+            .as_ref()
+            .clone();
+        self.harness
+            .chain
+            .store
+            .put_payload_envelope(&block_root, &envelope)
+            .expect("should store envelope");
+        self.harness
+            .chain
+            .canonical_head
+            .fork_choice_write_lock()
+            .on_valid_payload_envelope_received(block_root)
+            .expect("should update fork choice with envelope");
+        self.push_sync_message(SyncMessage::GossipEnvelopeImported { block_root });
+    }
+
     /// Import a block directly into the chain without going through lookup sync
     async fn import_block_by_root(&mut self, block_root: Hash256) {
         let range_sync_block = self
@@ -2869,8 +2895,8 @@ async fn envelope_lookup_issues_by_root_rpc() {
     );
 }
 
-/// If the envelope RPC errors out, the envelope-only lookup is dropped and the
-/// drop cascades to the awaiting child lookup.
+/// One transient RPC error on the envelope request → lookup retries with the same peer
+/// and completes successfully. Mirrors the `bad_peer_rpc_failure` shape used for blocks.
 #[tokio::test]
 async fn bad_peer_envelope_rpc_failure() {
     let Some(mut r) = setup_unknown_parent_envelope_scenario().await else {
@@ -2879,11 +2905,13 @@ async fn bad_peer_envelope_rpc_failure() {
     r.trigger_with_last_unknown_parent_envelope();
     r.simulate(SimulateConfig::new().return_rpc_error(RPCError::IoError("test".into())))
         .await;
-    r.assert_failed_lookup_sync();
+    r.assert_successful_lookup_sync();
+    r.assert_head_slot(2);
 }
 
-/// Peer responds with an envelope for a different block_root than was requested.
-/// The request-items layer must reject as `UnrequestedBlockRoot`; both lookups drop.
+/// Peer responds once with an envelope for a different block_root than requested.
+/// The request-items layer raises `UnrequestedBlockRoot`, the peer is penalised, and
+/// the lookup retries successfully on the next request.
 #[tokio::test]
 async fn bad_peer_wrong_envelope_response() {
     let Some(mut r) = setup_unknown_parent_envelope_scenario().await else {
@@ -2892,8 +2920,52 @@ async fn bad_peer_wrong_envelope_response() {
     r.trigger_with_last_unknown_parent_envelope();
     r.simulate(SimulateConfig::new().return_wrong_envelope_once())
         .await;
-    r.assert_failed_lookup_sync();
     r.assert_penalties_of_type("UnrequestedBlockRoot");
+    r.assert_successful_lookup_sync();
+    r.assert_head_slot(2);
+}
+
+/// Trigger `UnknownParentEnvelope` when the parent's payload envelope is already
+/// in fork choice. Sync should treat the trigger as a no-op and create no lookups.
+#[tokio::test]
+async fn envelope_already_received_skips_lookup() {
+    let Some(mut r) = setup_unknown_parent_envelope_scenario().await else {
+        return;
+    };
+    let parent_root = r.get_last_block().block_cloned().parent_root();
+    r.import_envelope_for_block_root(parent_root).await;
+    r.trigger_with_last_unknown_parent_envelope();
+    r.assert_single_lookups_count(0);
+}
+
+/// End-to-end: an envelope-only RPC lookup completes, the cached child block is
+/// processed, and the head advances to the gossip block.
+#[tokio::test]
+async fn happy_path_unknown_parent_envelope() {
+    let Some(mut r) = setup_unknown_parent_envelope_scenario().await else {
+        return;
+    };
+    r.trigger_with_last_unknown_parent_envelope();
+    r.simulate(SimulateConfig::happy_path()).await;
+    r.assert_successful_lookup_sync();
+    r.assert_head_slot(2);
+    r.assert_no_penalties();
+}
+
+/// While an envelope-only RPC lookup is pending, the same envelope is imported
+/// via the gossip path. The child lookup should still unblock and import.
+#[tokio::test]
+async fn happy_path_unknown_parent_envelope_via_gossip() {
+    let Some(mut r) = setup_unknown_parent_envelope_scenario().await else {
+        return;
+    };
+    let parent_root = r.get_last_block().block_cloned().parent_root();
+    r.trigger_with_last_unknown_parent_envelope();
+    // Import the envelope via the local gossip path before any RPC response arrives.
+    r.import_envelope_for_block_root(parent_root).await;
+    r.simulate(SimulateConfig::happy_path()).await;
+    r.assert_successful_lookup_sync();
+    r.assert_head_slot(2);
 }
 
 /// Peer returns the requested envelope but with a corrupted signature. Gossip

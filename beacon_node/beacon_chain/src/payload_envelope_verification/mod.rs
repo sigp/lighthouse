@@ -103,11 +103,16 @@ pub struct EnvelopeProcessingSnapshot<E: EthSpec> {
 /// 1. `Available`: This envelope has been executed and also contains all data to consider it
 ///    fully available.
 /// 2. `AvailabilityPending`: This envelope hasn't received all required blobs to consider it
-///    fully available.
+///    fully available. The envelope is still imported (fork-choice marks the block's payload
+///    as received and the envelope is persisted); column persistence is handled separately
+///    via gossip / engineGetBlobs as columns arrive.
 pub enum ExecutedEnvelope<E: EthSpec> {
     Available(AvailableExecutedEnvelope<E>),
-    // TODO(gloas) implement availability pending
-    AvailabilityPending(),
+    AvailabilityPending {
+        signed_envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+        import_data: EnvelopeImportData<E>,
+        payload_verification_outcome: PayloadVerificationOutcome,
+    },
 }
 
 impl<E: EthSpec> ExecutedEnvelope<E> {
@@ -124,11 +129,14 @@ impl<E: EthSpec> ExecutedEnvelope<E> {
                     payload_verification_outcome,
                 ))
             }
-            // TODO(gloas) implement availability pending
             MaybeAvailableEnvelope::AvailabilityPending {
                 block_hash: _,
-                envelope: _,
-            } => Self::AvailabilityPending(),
+                envelope: signed_envelope,
+            } => Self::AvailabilityPending {
+                signed_envelope,
+                import_data,
+                payload_verification_outcome,
+            },
         }
     }
 }
