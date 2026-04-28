@@ -6,6 +6,7 @@ use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, metrics};
 use bls::AggregateSignature;
 use educe::Educe;
+use eth2::types::{EventKind, ForkVersionedResponse};
 use parking_lot::RwLock;
 use safe_arith::SafeArith;
 use slot_clock::SlotClock;
@@ -216,9 +217,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let _timer = metrics::start_timer(&metrics::PAYLOAD_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
 
         let ctx = self.payload_attestation_gossip_context();
-        VerifiedPayloadAttestationMessage::new(payload_attestation_message, &ctx).inspect(|_| {
-            metrics::inc_counter(&metrics::PAYLOAD_ATTESTATION_PROCESSING_SUCCESSES);
-        })
+        VerifiedPayloadAttestationMessage::new(payload_attestation_message, &ctx).inspect(
+            |verified| {
+                metrics::inc_counter(&metrics::PAYLOAD_ATTESTATION_PROCESSING_SUCCESSES);
+
+                if let Some(event_handler) = self.event_handler.as_ref()
+                    && event_handler.has_payload_attestation_message_subscribers()
+                {
+                    let msg = verified.payload_attestation_message();
+                    event_handler.register(EventKind::PayloadAttestationMessage(Box::new(
+                        ForkVersionedResponse {
+                            version: self.spec.fork_name_at_slot::<T::EthSpec>(msg.data.slot),
+                            metadata: Default::default(),
+                            data: msg.clone(),
+                        },
+                    )));
+                }
+            },
+        )
     }
 }
 
