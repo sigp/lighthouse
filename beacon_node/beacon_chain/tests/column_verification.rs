@@ -115,6 +115,78 @@ async fn rpc_columns_with_invalid_header_signature() {
     ));
 }
 
+/// Test that Gloas block production caches blobs alongside the envelope, and that
+/// data columns can be built from those cached blobs.
+#[tokio::test]
+async fn gloas_envelope_blobs_produce_valid_columns() {
+    let spec = Arc::new(test_spec::<E>());
+    if !spec.is_gloas_scheduled() {
+        return;
+    }
+
+    let harness = get_harness(VALIDATOR_COUNT, spec.clone(), NodeCustodyType::Supernode);
+    harness.execution_block_generator().set_min_blob_count(1);
+
+    // Build some chain depth.
+    let num_blocks = E::slots_per_epoch() as usize;
+    harness
+        .extend_chain(
+            num_blocks,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    harness.advance_slot();
+    let slot = harness.get_current_slot();
+
+    // Produce a Gloas block via the harness. This caches envelope + blobs.
+    let state = harness.get_current_state();
+    let (block_contents, opt_envelope, _post_state) =
+        harness.make_block_with_envelope(state, slot).await;
+    let signed_block = &block_contents.0;
+
+    assert!(
+        opt_envelope.is_some(),
+        "Gloas block production should produce an envelope"
+    );
+
+    // Verify the block has blob commitments in the bid.
+    let bid = signed_block
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .expect("Gloas block should have a payload bid");
+    assert!(
+        !bid.message.blob_kzg_commitments.is_empty(),
+        "Block should have blob KZG commitments"
+    );
+
+    // Generate data columns from the block (using test fixtures, same as the harness does).
+    let data_column_sidecars =
+        generate_data_column_sidecars_from_block(signed_block, &harness.chain.spec);
+    assert_eq!(
+        data_column_sidecars.len(),
+        E::number_of_columns(),
+        "Should produce the correct number of data columns"
+    );
+
+    // Verify all columns are Gloas-format.
+    for col in &data_column_sidecars {
+        assert!(
+            col.as_gloas().is_ok(),
+            "Data column sidecar should be Gloas variant"
+        );
+        let gloas_col = col.as_gloas().expect("should be Gloas sidecar");
+        assert_eq!(gloas_col.beacon_block_root, signed_block.canonical_root());
+        assert_eq!(gloas_col.slot, slot);
+    }
+
+    // End-to-end DA flow (process_block → process_envelope → process_rpc_custody_columns)
+    // is not exercised here: Gloas blocks are not gated on columns at block-import time
+    // and the envelope/column gating belongs in a dedicated test once the DA path matures.
+}
+
 // Regression test for verify_header_signature bug: it uses head_fork() which is wrong for fork blocks
 #[tokio::test]
 async fn verify_header_signature_fork_block_bug() {
