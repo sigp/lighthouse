@@ -4171,13 +4171,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // The blob data inside `AvailableBlockData` is cheap to clone (it's a list of `Arc`s).
         let blobs_write_rx = self
-            .get_blobs_or_columns_store_op(block_root, signed_block.slot(), signed_block.data().clone())
+            .get_blobs_or_columns_store_op(
+                block_root,
+                signed_block.slot(),
+                signed_block.data().clone(),
+            )
             .map(|blob_op| {
                 let store = self.store.clone();
                 let (tx, rx) = tokio::sync::oneshot::channel();
                 self.task_executor.spawn_blocking(
                     move || {
-                        let _ = tx.send(store.blobs_do_atomically(vec![blob_op]));
+                        let result = {
+                            let _timer =
+                                metrics::start_timer(&metrics::BEACON_BLOB_DATABASE_WRITE_TIME);
+                            store.blobs_do_atomically(vec![blob_op])
+                        };
+                        let _ = tx.send(result);
                     },
                     "blob_db_write",
                 );
@@ -4366,6 +4375,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // writing the block to the hot DB. This preserves the crash-safety invariant that every
         // block in the hot DB has its blobs/columns in the blob DB.
         if let Some(rx) = blobs_write_rx {
+            let timer = metrics::start_timer(&metrics::BEACON_BLOB_DATABASE_WAIT_TIME);
             let blob_result = rx
                 .blocking_recv()
                 .map_err(|_| {
@@ -4374,6 +4384,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     })
                 })
                 .and_then(|r| r.map_err(Error::DBError));
+            drop(timer);
             if let Err(e) = blob_result {
                 error!(
                     msg = "Restoring fork choice from disk",

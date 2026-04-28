@@ -1427,6 +1427,18 @@ pub static BEACON_BLOCK_DELAY_HEAD_IMPORTED_TIME: LazyLock<Result<IntGauge>> = L
         )
     },
 );
+pub static BEACON_BLOB_DATABASE_WRITE_TIME: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "beacon_blob_database_write_time",
+        "Total time taken to write blob data during import_block",
+    )
+});
+pub static BEACON_BLOB_DATABASE_WAIT_TIME: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "beacon_blob_database_wait_time",
+        "Total time spent waiting for blob database write to complete",
+    )
+});
 pub static BEACON_BLOCK_DELAY_HEAD_SLOT_START_EXCEEDED_TOTAL: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
         try_create_int_counter(
