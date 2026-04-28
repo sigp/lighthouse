@@ -1,16 +1,17 @@
 use std::sync::Arc;
 
 use educe::Educe;
+use eth2::types::{EventKind, SseExecutionPayloadGossip};
 use parking_lot::{Mutex, RwLock};
 use store::DatabaseBlock;
-use tracing::{Span, debug};
+use tracing::debug;
 use types::{
     ChainSpec, EthSpec, ExecutionPayloadBid, ExecutionPayloadEnvelope, Hash256, SignedBeaconBlock,
     SignedExecutionPayloadEnvelope, Slot, consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
 use crate::{
-    BeaconChain, BeaconChainError, BeaconChainTypes, BeaconStore,
+    BeaconChain, BeaconChainError, BeaconChainTypes, BeaconStore, ServerSentEventHandler,
     beacon_proposer_cache::{self, BeaconProposerCache},
     canonical_head::CanonicalHead,
     payload_envelope_verification::{
@@ -28,6 +29,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub beacon_proposer_cache: &'a Mutex<BeaconProposerCache>,
     pub validator_pubkey_cache: &'a RwLock<ValidatorPubkeyCache<T>>,
     pub genesis_validators_root: Hash256,
+    pub event_handler: &'a Option<ServerSentEventHandler<T::EthSpec>>,
 }
 
 /// Verify that an execution payload envelope is consistent with its beacon block
@@ -40,18 +42,18 @@ pub(crate) fn verify_envelope_consistency<E: EthSpec>(
 ) -> Result<(), EnvelopeError> {
     // Check that the envelope's slot isn't from a slot prior
     // to the latest finalized slot.
-    if envelope.slot < latest_finalized_slot {
+    if envelope.slot() < latest_finalized_slot {
         return Err(EnvelopeError::PriorToFinalization {
-            payload_slot: envelope.slot,
+            payload_slot: envelope.slot(),
             latest_finalized_slot,
         });
     }
 
     // Check that the slot of the envelope matches the slot of the block.
-    if envelope.slot != block.slot() {
+    if envelope.slot() != block.slot() {
         return Err(EnvelopeError::SlotMismatch {
             block: block.slot(),
-            envelope: envelope.slot,
+            envelope: envelope.slot(),
         });
     }
 
@@ -142,7 +144,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         // validator pubkey cache for the proposer's pubkey, avoiding a state load from disk.
         // For external builder envelopes, we must load the state to access the builder registry.
         let builder_index = envelope.builder_index;
-        let block_slot = envelope.slot;
+        let block_slot = envelope.slot();
         let envelope_epoch = block_slot.epoch(T::EthSpec::slots_per_epoch());
         // Since the payload's block is already guaranteed to be imported, the associated `proto_block.current_epoch_shuffling_id`
         // already carries the correct `shuffling_decision_block`.
@@ -213,6 +215,19 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             return Err(EnvelopeError::BadSignature);
         }
 
+        if let Some(event_handler) = ctx.event_handler.as_ref()
+            && event_handler.has_execution_payload_gossip_subscribers()
+        {
+            event_handler.register(EventKind::ExecutionPayloadGossip(
+                SseExecutionPayloadGossip {
+                    slot: block.slot(),
+                    builder_index,
+                    block_hash: signed_envelope.message.payload.block_hash,
+                    block_root: beacon_block_root,
+                },
+            ));
+        }
+
         Ok(Self {
             signed_envelope,
             block,
@@ -226,8 +241,8 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    /// Build a `GossipVerificationContext` from this `BeaconChain`.
-    pub fn gossip_verification_context(&self) -> GossipVerificationContext<'_, T> {
+    /// Build a `GossipVerificationContext` from this `BeaconChain` for `GossipVerifiedEnvelope`.
+    pub fn payload_envelope_gossip_verification_context(&self) -> GossipVerificationContext<'_, T> {
         GossipVerificationContext {
             canonical_head: &self.canonical_head,
             store: &self.store,
@@ -235,6 +250,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             beacon_proposer_cache: &self.beacon_proposer_cache,
             validator_pubkey_cache: &self.validator_pubkey_cache,
             genesis_validators_root: self.genesis_validators_root,
+            event_handler: &self.event_handler,
         }
     }
 
@@ -253,16 +269,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
     ) -> Result<GossipVerifiedEnvelope<T>, EnvelopeError> {
         let chain = self.clone();
-        let span = Span::current();
         self.task_executor
             .clone()
             .spawn_blocking_handle(
                 move || {
-                    let _guard = span.enter();
                     let slot = envelope.slot();
                     let beacon_block_root = envelope.message.beacon_block_root;
 
-                    let ctx = chain.gossip_verification_context();
+                    let ctx = chain.payload_envelope_gossip_verification_context();
                     match GossipVerifiedEnvelope::new(envelope, &ctx) {
                         Ok(verified) => {
                             debug!(
@@ -319,13 +333,12 @@ mod tests {
         ExecutionPayloadEnvelope {
             payload: ExecutionPayloadGloas {
                 block_hash,
+                slot_number: slot,
                 ..ExecutionPayloadGloas::default()
             },
             execution_requests: ExecutionRequests::default(),
             builder_index,
             beacon_block_root: Hash256::ZERO,
-            slot,
-            state_root: Hash256::ZERO,
         }
     }
 
@@ -350,6 +363,7 @@ mod tests {
                 voluntary_exits: VariableList::empty(),
                 sync_aggregate: SyncAggregate::empty(),
                 bls_to_execution_changes: VariableList::empty(),
+                parent_execution_requests: ExecutionRequests::default(),
                 signed_execution_payload_bid: SignedExecutionPayloadBid::empty(),
                 payload_attestations: VariableList::empty(),
                 _phantom: PhantomData,

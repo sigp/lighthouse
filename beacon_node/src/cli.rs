@@ -670,6 +670,15 @@ pub fn cli_app() -> Command {
                 .hide(true)
                 .display_order(0)
         )
+        .arg(
+            Arg::new("enable-partial-columns")
+                .long("enable-partial-columns")
+                .help("Enable partial messages for data columns. This can reduce the amount of \
+                data sent over the network.")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
+        )
         /*
          * Monitoring metrics
          */

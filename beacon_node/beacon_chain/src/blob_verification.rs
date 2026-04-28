@@ -508,6 +508,8 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrat
                 index = %blob_index,
                 "Proposer shuffling cache miss for blob verification"
             );
+            // Blob verification is only relevant pre-Fulu and pre-Gloas, so `Pending` payload
+            // status is sufficient.
             chain
                 .store
                 .get_advanced_hot_state(block_parent_root, blob_slot, parent_block.state_root)

@@ -7,11 +7,9 @@
 //! used for development.
 
 mod aggregate_attestation;
-mod attestation_performance;
 mod attester_duties;
 mod beacon;
 mod block_id;
-mod block_packing_efficiency;
 mod build_block_contents;
 mod builder_states;
 mod custody;
@@ -21,6 +19,7 @@ mod metrics;
 mod peer;
 mod produce_block;
 mod proposer_duties;
+mod ptc_duties;
 mod publish_attestations;
 mod publish_blocks;
 mod standard_block_rewards;
@@ -37,7 +36,8 @@ mod validators;
 mod version;
 
 use crate::beacon::execution_payload_envelope::{
-    post_beacon_execution_payload_envelope, post_beacon_execution_payload_envelope_ssz,
+    get_beacon_execution_payload_envelope, post_beacon_execution_payload_envelope,
+    post_beacon_execution_payload_envelope_ssz,
 };
 use crate::beacon::pool::*;
 use crate::light_client::{get_light_client_bootstrap, get_light_client_updates};
@@ -1454,7 +1454,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     let post_beacon_pool_attestations_v2 = post_beacon_pool_attestations_v2(
         &network_tx_filter,
-        optional_consensus_version_header_filter,
+        optional_consensus_version_header_filter.clone(),
         &beacon_pool_path_v2,
     );
 
@@ -1487,6 +1487,21 @@ pub fn serve<T: BeaconChainTypes>(
     let post_beacon_pool_sync_committees =
         post_beacon_pool_sync_committees(&network_tx_filter, &beacon_pool_path);
 
+    // POST beacon/pool/payload_attestations
+    let post_beacon_pool_payload_attestations = post_beacon_pool_payload_attestations(
+        &network_tx_filter,
+        optional_consensus_version_header_filter,
+        &beacon_pool_path,
+    );
+
+    // POST beacon/pool/payload_attestations (SSZ)
+    let post_beacon_pool_payload_attestations_ssz = post_beacon_pool_payload_attestations_ssz(
+        eth_v1.clone(),
+        task_spawner_filter.clone(),
+        chain_filter.clone(),
+        network_tx_filter.clone(),
+    );
+
     // GET beacon/pool/bls_to_execution_changes
     let get_beacon_pool_bls_to_execution_changes =
         get_beacon_pool_bls_to_execution_changes(&beacon_pool_path);
@@ -1509,6 +1524,14 @@ pub fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
+    );
+
+    // GET beacon/execution_payload_envelope/{block_id}
+    let get_beacon_execution_payload_envelope = get_beacon_execution_payload_envelope(
+        eth_v1.clone(),
+        block_id_or_err,
+        task_spawner_filter.clone(),
+        chain_filter.clone(),
     );
 
     let beacon_rewards_path = eth_v1
@@ -1801,8 +1824,16 @@ pub fn serve<T: BeaconChainTypes>(
                     let execution_optimistic =
                         chain.is_optimistic_or_invalid_head().unwrap_or_default();
 
-                    Ok(api_types::GenericResponse::from(attestation_rewards))
-                        .map(|resp| resp.add_execution_optimistic(execution_optimistic))
+                    let finalized = epoch + 2
+                        <= chain
+                            .canonical_head
+                            .cached_head()
+                            .finalized_checkpoint()
+                            .epoch;
+
+                    Ok(api_types::GenericResponse::from(attestation_rewards)).map(|resp| {
+                        resp.add_execution_optimistic_finalized(execution_optimistic, finalized)
+                    })
                 })
             },
         );
@@ -2083,52 +2114,66 @@ pub fn serve<T: BeaconChainTypes>(
                         .nodes
                         .iter()
                         .map(|node| {
-                            let execution_status = if node.execution_status.is_execution_enabled() {
-                                Some(node.execution_status.to_string())
+                            let execution_status = if node
+                                .execution_status()
+                                .is_ok_and(|status| status.is_execution_enabled())
+                            {
+                                node.execution_status()
+                                    .ok()
+                                    .map(|status| status.to_string())
                             } else {
                                 None
                             };
 
+                            let execution_status_string = node
+                                .execution_status()
+                                .map_or_else(|_| "irrelevant".to_string(), |s| s.to_string());
+
                             ForkChoiceNode {
-                                slot: node.slot,
-                                block_root: node.root,
+                                slot: node.slot(),
+                                block_root: node.root(),
                                 parent_root: node
-                                    .parent
+                                    .parent()
                                     .and_then(|index| proto_array.nodes.get(index))
-                                    .map(|parent| parent.root),
-                                justified_epoch: node.justified_checkpoint.epoch,
-                                finalized_epoch: node.finalized_checkpoint.epoch,
-                                weight: node.weight,
+                                    .map(|parent| parent.root()),
+                                justified_epoch: node.justified_checkpoint().epoch,
+                                finalized_epoch: node.finalized_checkpoint().epoch,
+                                weight: node.weight(),
                                 validity: execution_status,
                                 execution_block_hash: node
-                                    .execution_status
-                                    .block_hash()
+                                    .execution_status()
+                                    .ok()
+                                    .and_then(|status| status.block_hash())
                                     .map(|block_hash| block_hash.into_root()),
                                 extra_data: ForkChoiceExtraData {
-                                    target_root: node.target_root,
-                                    justified_root: node.justified_checkpoint.root,
-                                    finalized_root: node.finalized_checkpoint.root,
+                                    target_root: node.target_root(),
+                                    justified_root: node.justified_checkpoint().root,
+                                    finalized_root: node.finalized_checkpoint().root,
                                     unrealized_justified_root: node
-                                        .unrealized_justified_checkpoint
+                                        .unrealized_justified_checkpoint()
                                         .map(|checkpoint| checkpoint.root),
                                     unrealized_finalized_root: node
-                                        .unrealized_finalized_checkpoint
+                                        .unrealized_finalized_checkpoint()
                                         .map(|checkpoint| checkpoint.root),
                                     unrealized_justified_epoch: node
-                                        .unrealized_justified_checkpoint
+                                        .unrealized_justified_checkpoint()
                                         .map(|checkpoint| checkpoint.epoch),
                                     unrealized_finalized_epoch: node
-                                        .unrealized_finalized_checkpoint
+                                        .unrealized_finalized_checkpoint()
                                         .map(|checkpoint| checkpoint.epoch),
-                                    execution_status: node.execution_status.to_string(),
+                                    execution_status: execution_status_string,
                                     best_child: node
-                                        .best_child
+                                        .best_child()
+                                        .ok()
+                                        .flatten()
                                         .and_then(|index| proto_array.nodes.get(index))
-                                        .map(|child| child.root),
+                                        .map(|child| child.root()),
                                     best_descendant: node
-                                        .best_descendant
+                                        .best_descendant()
+                                        .ok()
+                                        .flatten()
                                         .and_then(|index| proto_array.nodes.get(index))
-                                        .map(|descendant| descendant.root),
+                                        .map(|descendant| descendant.root()),
                                 },
                             }
                         })
@@ -2507,6 +2552,14 @@ pub fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
     );
 
+    // GET validator/payload_attestation_data/{slot}
+    let get_validator_payload_attestation_data = get_validator_payload_attestation_data(
+        eth_v1.clone(),
+        chain_filter.clone(),
+        not_while_syncing_filter.clone(),
+        task_spawner_filter.clone(),
+    );
+
     // GET validator/aggregate_attestation?attestation_data_root,slot
     let get_validator_aggregate_attestation = get_validator_aggregate_attestation(
         any_version.clone(),
@@ -2517,6 +2570,14 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST validator/duties/attester/{epoch}
     let post_validator_duties_attester = post_validator_duties_attester(
+        eth_v1.clone(),
+        chain_filter.clone(),
+        not_while_syncing_filter.clone(),
+        task_spawner_filter.clone(),
+    );
+
+    // POST validator/duties/ptc/{epoch}
+    let post_validator_duties_ptc = post_validator_duties_ptc(
         eth_v1.clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
@@ -3007,6 +3068,19 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET lighthouse/database/invariants
+    let get_lighthouse_database_invariants = database_path
+        .and(warp::path("invariants"))
+        .and(warp::path::end())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .then(
+            |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
+                task_spawner
+                    .blocking_json_task(Priority::P1, move || database::check_invariants(chain))
+            },
+        );
+
     // POST lighthouse/database/reconstruct
     let post_lighthouse_database_reconstruct = database_path
         .and(warp::path("reconstruct"))
@@ -3066,39 +3140,6 @@ pub fn serve<T: BeaconChainTypes>(
                         effective_epoch.start_slot(T::EthSpec::slots_per_epoch()),
                     ));
                     Ok(())
-                })
-            },
-        );
-
-    // GET lighthouse/analysis/attestation_performance/{index}
-    let get_lighthouse_attestation_performance = warp::path("lighthouse")
-        .and(warp::path("analysis"))
-        .and(warp::path("attestation_performance"))
-        .and(warp::path::param::<String>())
-        .and(warp::query::<eth2::lighthouse::AttestationPerformanceQuery>())
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .then(
-            |target, query, task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    attestation_performance::get_attestation_performance(target, query, chain)
-                })
-            },
-        );
-
-    // GET lighthouse/analysis/block_packing_efficiency
-    let get_lighthouse_block_packing_efficiency = warp::path("lighthouse")
-        .and(warp::path("analysis"))
-        .and(warp::path("block_packing_efficiency"))
-        .and(warp::query::<eth2::lighthouse::BlockPackingEfficiencyQuery>())
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .then(
-            |query, task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    block_packing_efficiency::get_block_packing_efficiency(query, chain)
                 })
             },
         );
@@ -3171,6 +3212,21 @@ pub fn serve<T: BeaconChainTypes>(
                                 }
                                 api_types::EventTopic::BlockGossip => {
                                     event_handler.subscribe_block_gossip()
+                                }
+                                api_types::EventTopic::ExecutionPayload => {
+                                    event_handler.subscribe_execution_payload()
+                                }
+                                api_types::EventTopic::ExecutionPayloadGossip => {
+                                    event_handler.subscribe_execution_payload_gossip()
+                                }
+                                api_types::EventTopic::ExecutionPayloadAvailable => {
+                                    event_handler.subscribe_execution_payload_available()
+                                }
+                                api_types::EventTopic::ExecutionPayloadBid => {
+                                    event_handler.subscribe_execution_payload_bid()
+                                }
+                                api_types::EventTopic::PayloadAttestationMessage => {
+                                    event_handler.subscribe_payload_attestation_message()
                                 }
                             };
 
@@ -3297,6 +3353,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_block_root)
                 .uor(get_blob_sidecars)
                 .uor(get_blobs)
+                .uor(get_beacon_execution_payload_envelope)
                 .uor(get_beacon_pool_attestations)
                 .uor(get_beacon_pool_attester_slashings)
                 .uor(get_beacon_pool_proposer_slashings)
@@ -3322,6 +3379,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_validator_blinded_blocks)
                 .uor(get_validator_execution_payload_envelope)
                 .uor(get_validator_attestation_data)
+                .uor(get_validator_payload_attestation_data)
                 .uor(get_validator_aggregate_attestation)
                 .uor(get_validator_sync_committee_contribution)
                 .uor(get_lighthouse_health)
@@ -3336,13 +3394,12 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_validator_inclusion)
                 .uor(get_lighthouse_staking)
                 .uor(get_lighthouse_database_info)
+                .uor(get_lighthouse_database_invariants)
                 .uor(get_lighthouse_custody_info)
-                .uor(get_lighthouse_attestation_performance)
                 .uor(get_beacon_light_client_optimistic_update)
                 .uor(get_beacon_light_client_finality_update)
                 .uor(get_beacon_light_client_bootstrap)
                 .uor(get_beacon_light_client_updates)
-                .uor(get_lighthouse_block_packing_efficiency)
                 .uor(get_events)
                 .uor(get_expected_withdrawals)
                 .uor(lighthouse_log_events.boxed())
@@ -3358,7 +3415,8 @@ pub fn serve<T: BeaconChainTypes>(
                             .uor(post_beacon_blocks_v2_ssz)
                             .uor(post_beacon_blinded_blocks_ssz)
                             .uor(post_beacon_blinded_blocks_v2_ssz)
-                            .uor(post_beacon_execution_payload_envelope_ssz),
+                            .uor(post_beacon_execution_payload_envelope_ssz)
+                            .uor(post_beacon_pool_payload_attestations_ssz),
                     )
                     .uor(post_beacon_blocks)
                     .uor(post_beacon_blinded_blocks)
@@ -3369,6 +3427,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_beacon_pool_proposer_slashings)
                     .uor(post_beacon_pool_voluntary_exits)
                     .uor(post_beacon_pool_sync_committees)
+                    .uor(post_beacon_pool_payload_attestations)
                     .uor(post_beacon_pool_bls_to_execution_changes)
                     .uor(post_beacon_execution_payload_envelope)
                     .uor(post_beacon_state_validators)
@@ -3377,6 +3436,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_beacon_rewards_attestations)
                     .uor(post_beacon_rewards_sync_committee)
                     .uor(post_validator_duties_attester)
+                    .uor(post_validator_duties_ptc)
                     .uor(post_validator_duties_sync)
                     .uor(post_validator_aggregate_and_proofs)
                     .uor(post_validator_contribution_and_proofs)

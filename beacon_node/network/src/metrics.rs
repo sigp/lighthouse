@@ -143,6 +143,22 @@ pub static BEACON_PROCESSOR_GOSSIP_DATA_COLUMN_SIDECAR_VERIFIED_TOTAL: LazyLock<
         "Total number of gossip data column sidecar verified for propagation.",
     )
 });
+pub static BEACON_PROCESSOR_GOSSIP_PARTIAL_DATA_COLUMN_SIDECAR_VERIFIED_TOTAL: LazyLock<
+    Result<IntCounter>,
+> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_processor_gossip_partial_data_column_verified_total",
+        "Total number of gossip partial data column sidecar verified for propagation.",
+    )
+});
+pub static BEACON_PROCESSOR_GOSSIP_PARTIAL_DATA_COLUMN_SIDECAR_MISSING_HEADER_TOTAL: LazyLock<
+    Result<IntCounter>,
+> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_processor_gossip_partial_data_column_missing_header_total",
+        "Total number of gossip partial data column sidecar received without a (cached) header.",
+    )
+});
 // Gossip Exits.
 pub static BEACON_PROCESSOR_EXIT_VERIFIED_TOTAL: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
@@ -601,6 +617,16 @@ pub static BEACON_DATA_COLUMN_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME: LazyLo
         decimal_buckets(-3, -1),
     )
 });
+pub static BEACON_PARTIAL_DATA_COLUMN_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME: LazyLock<
+    Result<Histogram>,
+> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_partial_data_column_gossip_propagation_verification_delay_time",
+        "Duration between when the partial data column sidecar is received over gossip and when it is verified for propagation.",
+        // [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
+        decimal_buckets(-3, -1),
+    )
+});
 pub static BEACON_DATA_COLUMN_GOSSIP_SLOT_START_DELAY_TIME: LazyLock<Result<Histogram>> =
     LazyLock::new(|| {
         try_create_histogram_with_buckets(
@@ -613,6 +639,28 @@ pub static BEACON_DATA_COLUMN_GOSSIP_SLOT_START_DELAY_TIME: LazyLock<Result<Hist
             ]), // NOTE: Previous values, which we may want to switch back to.
                 // [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]
                 //decimal_buckets(-1,2)
+        )
+    });
+pub static BEACON_PARTIAL_DATA_COLUMN_GOSSIP_SLOT_START_DELAY_TIME: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram_with_buckets(
+            "beacon_partial_data_column_gossip_slot_start_delay_time",
+            "Duration between when the partial data column sidecar is received over gossip and the start of the slot it belongs to.",
+            // Create a custom bucket list for greater granularity in block delay
+            Ok(vec![
+                0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0,
+                6.0, 7.0, 8.0, 9.0, 10.0, 15.0, 20.0,
+            ]), // NOTE: Previous values, which we may want to switch back to.
+                // [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]
+                //decimal_buckets(-1,2)
+        )
+    });
+pub static BEACON_USEFUL_FULL_COLUMNS_RECEIVED_TOTAL: LazyLock<Result<IntCounterVec>> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "beacon_useful_full_columns_received_total",
+            "Number of useful full columns (any cell being useful) received",
+            &["column_index"],
         )
     });
 

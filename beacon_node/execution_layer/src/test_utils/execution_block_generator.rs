@@ -26,8 +26,8 @@ use tree_hash_derive::TreeHash;
 use types::{
     Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
     ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
-    ExecutionPayloadGloas, ExecutionPayloadHeader, ForkName, Hash256, KzgProofs, Transaction,
-    Transactions, Uint256,
+    ExecutionPayloadGloas, ExecutionPayloadHeader, ExecutionRequests, ForkName, Hash256, KzgProofs,
+    Transaction, Transactions, Uint256,
 };
 
 const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
@@ -161,6 +161,14 @@ pub struct ExecutionBlockGenerator<E: EthSpec> {
     pub blobs_bundles: HashMap<PayloadId, BlobsBundle<E>>,
     pub kzg: Option<Arc<Kzg>>,
     rng: Arc<Mutex<StdRng>>,
+    /*
+     * Execution requests (electra+)
+     */
+    /// Per-payload execution requests returned by `getPayload`.
+    execution_requests: HashMap<PayloadId, ExecutionRequests<E>>,
+    /// If set, the next call to `build_new_execution_payload` will associate these
+    /// execution requests with the generated payload ID.
+    next_execution_requests: Option<ExecutionRequests<E>>,
 }
 
 fn make_rng() -> Arc<Mutex<StdRng>> {
@@ -199,6 +207,8 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             blobs_bundles: <_>::default(),
             kzg,
             rng: make_rng(),
+            execution_requests: <_>::default(),
+            next_execution_requests: None,
         };
 
         generator.insert_pow_block(0).unwrap();
@@ -456,6 +466,15 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
 
     pub fn get_blobs_bundle(&mut self, id: &PayloadId) -> Option<BlobsBundle<E>> {
         self.blobs_bundles.get(id).cloned()
+    }
+
+    pub fn get_execution_requests(&self, id: &PayloadId) -> Option<ExecutionRequests<E>> {
+        self.execution_requests.get(id).cloned()
+    }
+
+    /// Set execution requests to be returned alongside the next generated payload.
+    pub fn set_next_execution_requests(&mut self, requests: ExecutionRequests<E>) {
+        self.next_execution_requests = Some(requests);
     }
 
     /// Look up a blob and proof by versioned hash across all stored bundles.
@@ -735,6 +754,9 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     blob_gas_used: 0,
                     excess_blob_gas: 0,
                 }),
+                _ => unreachable!(),
+            },
+            PayloadAttributes::V4(pa) => match self.get_fork_at_timestamp(pa.timestamp) {
                 ForkName::Gloas => ExecutionPayload::Gloas(ExecutionPayloadGloas {
                     parent_hash: head_block_hash,
                     fee_recipient: pa.suggested_fee_recipient,
@@ -753,10 +775,17 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     withdrawals: pa.withdrawals.clone().try_into().unwrap(),
                     blob_gas_used: 0,
                     excess_blob_gas: 0,
+                    block_access_list: VariableList::empty(),
+                    slot_number: pa.slot_number.into(),
                 }),
                 _ => unreachable!(),
             },
         };
+
+        // Store execution requests for this payload if configured.
+        if let Some(requests) = self.next_execution_requests.take() {
+            self.execution_requests.insert(id, requests);
+        }
 
         let fork_name = execution_payload.fork_name();
         if fork_name.deneb_enabled() {
@@ -932,8 +961,14 @@ pub fn generate_genesis_header<E: EthSpec>(spec: &ChainSpec) -> Option<Execution
             *header.transactions_root_mut() = empty_transactions_root;
             Some(header)
         }
-        // TODO(EIP-7732): need to look into this
-        ForkName::Gloas => None,
+        ForkName::Gloas => {
+            // TODO(gloas): we are using a Fulu header for now, but this gets fixed up by the
+            // genesis builder anyway which translates it to bid/latest_block_hash.
+            let mut header = ExecutionPayloadHeader::Fulu(<_>::default());
+            *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
+            *header.transactions_root_mut() = empty_transactions_root;
+            Some(header)
+        }
     }
 }
 
@@ -989,7 +1024,7 @@ pub fn generate_pow_block(
 #[cfg(test)]
 mod test {
     use super::*;
-    use kzg::{Bytes48, CellRef, KzgBlobRef, trusted_setup::get_trusted_setup};
+    use kzg::{CellRef, KzgBlobRef, trusted_setup::get_trusted_setup};
     use types::{MainnetEthSpec, MinimalEthSpec};
 
     #[test]
@@ -1015,10 +1050,11 @@ mod test {
     fn validate_blob_bundle_v1<E: EthSpec>() -> Result<(), String> {
         let kzg = load_kzg()?;
         let (kzg_commitment, kzg_proof, blob) = load_test_blobs_bundle_v1::<E>()?;
-        let kzg_blob = kzg::Blob::from_bytes(blob.as_ref())
-            .map(Box::new)
-            .map_err(|e| format!("Error converting blob to kzg blob: {e:?}"))?;
-        kzg.verify_blob_kzg_proof(&kzg_blob, kzg_commitment, kzg_proof)
+        let kzg_blob: KzgBlobRef = blob
+            .as_ref()
+            .try_into()
+            .map_err(|e| format!("Error converting blob to kzg blob ref: {e:?}"))?;
+        kzg.verify_blob_kzg_proof(kzg_blob, kzg_commitment, kzg_proof)
             .map_err(|e| format!("Invalid blobs bundle: {e:?}"))
     }
 
@@ -1028,8 +1064,8 @@ mod test {
             load_test_blobs_bundle_v2::<E>().map(|(commitment, proofs, blob)| {
                 let kzg_blob: KzgBlobRef = blob.as_ref().try_into().unwrap();
                 (
-                    vec![Bytes48::from(commitment); proofs.len()],
-                    proofs.into_iter().map(|p| p.into()).collect::<Vec<_>>(),
+                    vec![commitment.0; proofs.len()],
+                    proofs.into_iter().map(|p| p.0).collect::<Vec<_>>(),
                     kzg.compute_cells(kzg_blob).unwrap(),
                 )
             })?;

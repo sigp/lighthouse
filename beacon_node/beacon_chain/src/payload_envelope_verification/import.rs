@@ -1,11 +1,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use eth2::types::{EventKind, SseExecutionPayload};
 use fork_choice::PayloadVerificationStatus;
 use slot_clock::SlotClock;
 use store::StoreOp;
 use tracing::{debug, error, info, info_span, instrument, warn};
-use types::{BeaconState, BlockImportSource, Hash256, Slot};
+use types::{BlockImportSource, Hash256, SignedExecutionPayloadEnvelope};
 
 use super::{
     AvailableEnvelope, AvailableExecutedEnvelope, EnvelopeError, EnvelopeImportData,
@@ -167,6 +168,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(BeaconChainError::TokioJoin)?
             .ok_or(BeaconChainError::RuntimeShutdown)??;
 
+        // TODO(gloas): optimistic sync is not supported for Gloas, maybe we could re-add it
+        if payload_verification_outcome
+            .payload_verification_status
+            .is_optimistic()
+        {
+            return Err(EnvelopeError::OptimisticSyncNotSupported {
+                block_root: import_data.block_root,
+            });
+        }
+
         Ok(ExecutedEnvelope::new(
             signed_envelope,
             import_data,
@@ -187,21 +198,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let EnvelopeImportData {
             block_root,
-            post_state,
+            _phantom,
         } = import_data;
 
         let block_root = {
-            // Capture the current span before moving into the blocking task
-            let current_span = tracing::Span::current();
             let chain = self.clone();
             self.spawn_blocking_handle(
                 move || {
-                    // Enter the captured span in the blocking thread
-                    let _guard = current_span.enter();
                     chain.import_execution_payload_envelope(
                         envelope,
                         block_root,
-                        *post_state,
                         payload_verification_outcome.payload_verification_status,
                     )
                 },
@@ -224,8 +230,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         signed_envelope: AvailableEnvelope<T::EthSpec>,
         block_root: Hash256,
-        state: BeaconState<T::EthSpec>,
-        _payload_verification_status: PayloadVerificationStatus,
+        payload_verification_status: PayloadVerificationStatus,
     ) -> Result<Hash256, EnvelopeError> {
         // Everything in this initial section is on the hot path for processing the envelope.
         // Take an upgradable read lock on fork choice so we can check if this block has already
@@ -239,16 +244,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Note that a duplicate cache/payload status table should prevent this from happening
         // but it doesnt hurt to be defensive.
 
-        // TODO(gloas) when the code below is implemented we can delete this drop
-        drop(fork_choice_reader);
-
-        // TODO(gloas) no fork choice logic yet
         // Take an exclusive write-lock on fork choice. It's very important to prevent deadlocks by
         // avoiding taking other locks whilst holding this lock.
-        // let fork_choice = parking_lot::RwLockUpgradableReadGuard::upgrade(fork_choice_reader);
+        let mut fork_choice = parking_lot::RwLockUpgradableReadGuard::upgrade(fork_choice_reader);
 
-        // TODO(gloas) Do we need this check? Do not import a block that doesn't descend from the finalized root.
-        // let signed_block = check_block_is_finalized_checkpoint_or_descendant(self, &fork_choice, signed_block)?;
+        // Update the block's payload to received in fork choice, which creates the `Full` virtual
+        // node which can be eligible for head.
+        fork_choice
+            .on_valid_payload_envelope_received(block_root)
+            .map_err(|e| EnvelopeError::InternalError(format!("{e:?}")))?;
 
         // TODO(gloas) emit SSE event if the payload became the new head payload
 
@@ -279,10 +283,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             block_root,
             signed_envelope.clone(),
         ));
-        ops.push(StoreOp::PutState(
-            signed_envelope.message.state_root,
-            &state,
-        ));
 
         let db_span = info_span!("persist_payloads_and_blobs").entered();
 
@@ -302,10 +302,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         drop(db_span);
 
-        // TODO(gloas) drop fork choice lock
         // The fork choice write-lock is dropped *after* the on-disk database has been updated.
         // This prevents inconsistency between the two at the expense of concurrency.
-        // drop(fork_choice);
+        drop(fork_choice);
 
         // We're declaring the envelope "imported" at this point, since fork choice and the DB know
         // about it.
@@ -317,8 +316,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         metrics::stop_timer(db_write_timer);
 
         self.import_envelope_update_metrics_and_events(
+            signed_envelope,
             block_root,
-            signed_envelope.slot(),
+            payload_verification_status,
             envelope_time_imported,
         );
 
@@ -327,10 +327,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     fn import_envelope_update_metrics_and_events(
         &self,
+        signed_envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
         block_root: Hash256,
-        envelope_slot: Slot,
+        payload_verification_status: PayloadVerificationStatus,
         envelope_time_imported: Duration,
     ) {
+        let envelope_slot = signed_envelope.slot();
         let envelope_delay_total =
             get_slot_delay_ms(envelope_time_imported, envelope_slot, &self.slot_clock);
 
@@ -349,6 +351,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        // TODO(gloas) emit SSE event for envelope import (similar to SseBlock for blocks).
+        if let Some(event_handler) = self.event_handler.as_ref()
+            && event_handler.has_execution_payload_subscribers()
+        {
+            event_handler.register(EventKind::ExecutionPayload(SseExecutionPayload {
+                slot: envelope_slot,
+                builder_index: signed_envelope.message.builder_index,
+                block_hash: signed_envelope.block_hash(),
+                block_root,
+                execution_optimistic: payload_verification_status.is_optimistic(),
+            }));
+        }
     }
 }

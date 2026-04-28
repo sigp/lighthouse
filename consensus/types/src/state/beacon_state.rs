@@ -14,6 +14,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use ssz::{Decode, DecodeError, Encode, ssz_encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{BitVector, FixedVector};
+use std::collections::BTreeMap;
 use superstruct::superstruct;
 use swap_or_not_shuffle::compute_shuffled_index;
 use test_random_derive::TestRandom;
@@ -23,7 +24,7 @@ use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
 
 use crate::{
-    Address, ExecutionBlockHash, ExecutionPayloadBid, Withdrawal,
+    Address, ExecutionBlockHash, ExecutionPayloadBid, ProposerPreferences, Withdrawal,
     attestation::{
         AttestationData, AttestationDuty, BeaconCommittee, Checkpoint, CommitteeIndex, PTC,
         ParticipationFlags, PendingAttestation,
@@ -71,7 +72,8 @@ const MAX_RANDOM_VALUE: u64 = (1 << 16) - 1;
 // Spec: https://github.com/ethereum/consensus-specs/blob/1937aff86b41b5171a9bc3972515986f1bbbf303/specs/phase0/weak-subjectivity.md?plain=1#L50-L71
 const SAFETY_DECAY: u64 = 10;
 
-pub type Validators<E> = List<Validator, <E as EthSpec>::ValidatorRegistryLimit>;
+pub type Validators<E> =
+    List<Validator, <E as EthSpec>::ValidatorRegistryLimit, BTreeMap<usize, Validator>>;
 pub type Balances<E> = List<u64, <E as EthSpec>::ValidatorRegistryLimit>;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -477,7 +479,7 @@ where
     // Registry
     #[compare_fields(as_iter)]
     #[test_random(default)]
-    pub validators: List<Validator, E::ValidatorRegistryLimit>,
+    pub validators: Validators<E>,
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     #[compare_fields(as_iter)]
     #[test_random(default)]
@@ -569,9 +571,10 @@ where
     )]
     #[metastruct(exclude_from(tree_lists))]
     pub latest_execution_payload_header: ExecutionPayloadHeaderFulu<E>,
+    #[test_random(default)]
     #[superstruct(only(Gloas))]
     #[metastruct(exclude_from(tree_lists))]
-    pub latest_execution_payload_bid: ExecutionPayloadBid<E>,
+    pub latest_block_hash: ExecutionBlockHash,
     #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     #[metastruct(exclude_from(tree_lists))]
@@ -655,15 +658,19 @@ where
     pub builder_pending_withdrawals:
         List<BuilderPendingWithdrawal, E::BuilderPendingWithdrawalsLimit>,
 
-    #[test_random(default)]
     #[superstruct(only(Gloas))]
     #[metastruct(exclude_from(tree_lists))]
-    pub latest_block_hash: ExecutionBlockHash,
+    pub latest_execution_payload_bid: ExecutionPayloadBid<E>,
 
     #[compare_fields(as_iter)]
     #[test_random(default)]
     #[superstruct(only(Gloas))]
     pub payload_expected_withdrawals: List<Withdrawal, E::MaxWithdrawalsPerPayload>,
+
+    #[compare_fields(as_iter)]
+    #[test_random(default)]
+    #[superstruct(only(Gloas))]
+    pub ptc_window: Vector<FixedVector<u64, E::PTCSize>, E::PtcWindowLength>,
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
@@ -1322,6 +1329,43 @@ impl<E: EthSpec> BeaconState<E> {
 
             self.compute_proposer_index(&indices, &seed, spec)
         }
+    }
+
+    /// Check if the validator is the proposer for the given slot in the current or next epoch.
+    pub fn is_valid_proposal_slot(
+        &self,
+        preferences: &ProposerPreferences,
+    ) -> Result<bool, BeaconStateError> {
+        let current_epoch = self.current_epoch();
+        let proposal_epoch = preferences.proposal_slot.epoch(E::slots_per_epoch());
+
+        if proposal_epoch < current_epoch {
+            return Ok(false);
+        }
+
+        let next_epoch = current_epoch.saturating_add(1u64);
+        if proposal_epoch > next_epoch {
+            return Ok(false);
+        }
+
+        let epoch_offset = proposal_epoch.as_u64().safe_sub(current_epoch.as_u64())?;
+
+        let slot_in_epoch = preferences
+            .proposal_slot
+            .as_u64()
+            .safe_rem(E::slots_per_epoch())?;
+
+        let index = epoch_offset
+            .safe_mul(E::slots_per_epoch())
+            .and_then(|v| v.safe_add(slot_in_epoch))?;
+
+        let proposer_lookahead = self.proposer_lookahead()?;
+
+        let proposer = proposer_lookahead
+            .get(index as usize)
+            .ok_or(BeaconStateError::ProposerLookaheadOutOfBounds { i: index as usize })?;
+
+        Ok(*proposer == preferences.validator_index)
     }
 
     /// Returns the beacon proposer index for each `slot` in `epoch`.
@@ -2411,6 +2455,18 @@ impl<E: EthSpec> BeaconState<E> {
         CommitteeCache::initialized(self, epoch, spec)
     }
 
+    /// Like [`initialize_committee_cache`](Self::initialize_committee_cache), but allows epochs
+    /// beyond `current_epoch + 1`. Only checks that the required randao seed is available.
+    ///
+    /// Used by PTC window computation which needs shufflings for lookahead epochs.
+    pub fn initialize_committee_cache_for_lookahead(
+        &self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<Arc<CommitteeCache>, BeaconStateError> {
+        CommitteeCache::initialized_for_lookahead(self, epoch, spec)
+    }
+
     /// Advances the cache for this state into the next epoch.
     ///
     /// This should be used if the `slot` of this state is advanced beyond an epoch boundary.
@@ -2430,22 +2486,6 @@ impl<E: EthSpec> BeaconState<E> {
             RelativeEpoch::Previous => 0,
             RelativeEpoch::Current => 1,
             RelativeEpoch::Next => 2,
-        }
-    }
-
-    /// Return true if the parent block was full (both beacon block and execution payload were present).
-    pub fn is_parent_block_full(&self) -> bool {
-        match self {
-            BeaconState::Base(_) | BeaconState::Altair(_) => false,
-            // TODO(EIP-7732): check the implications of this when we get to forkchoice modifications
-            BeaconState::Bellatrix(_)
-            | BeaconState::Capella(_)
-            | BeaconState::Deneb(_)
-            | BeaconState::Electra(_)
-            | BeaconState::Fulu(_) => true,
-            BeaconState::Gloas(state) => {
-                state.latest_execution_payload_bid.block_hash == state.latest_block_hash
-            }
         }
     }
 
@@ -2479,6 +2519,17 @@ impl<E: EthSpec> BeaconState<E> {
         self.committee_caches_mut()
             .get_mut(index)
             .ok_or(BeaconStateError::CommitteeCachesOutOfBounds(index))
+    }
+
+    /// Set the committee cache for the given `relative_epoch` to `cache`.
+    pub fn set_committee_cache(
+        &mut self,
+        relative_epoch: RelativeEpoch,
+        cache: Arc<CommitteeCache>,
+    ) -> Result<(), BeaconStateError> {
+        let i = Self::committee_cache_index(relative_epoch);
+        *self.committee_cache_at_index_mut(i)? = cache;
+        Ok(())
     }
 
     /// Returns the cache for some `RelativeEpoch`. Returns an error if the cache has not been
@@ -3064,12 +3115,55 @@ impl<E: EthSpec> BeaconState<E> {
         }
     }
 
-    /// Get the payload timeliness committee for the given `slot`.
-    ///
-    /// Requires the committee cache to be initialized.
-    /// TODO(EIP-7732): definitely gonna have to cache this..
+    /// Get the payload timeliness committee for the given `slot` from the `ptc_window`.
     pub fn get_ptc(&self, slot: Slot, spec: &ChainSpec) -> Result<PTC<E>, BeaconStateError> {
+        let ptc_window = self.ptc_window()?;
+        let epoch = slot.epoch(E::slots_per_epoch());
+        let state_epoch = self.current_epoch();
+        let slots_per_epoch = E::slots_per_epoch() as usize;
+        let slot_in_epoch = slot.as_usize().safe_rem(slots_per_epoch)?;
+
+        let index = if epoch < state_epoch {
+            if epoch.safe_add(1)? != state_epoch {
+                return Err(BeaconStateError::SlotOutOfBounds);
+            }
+            slot_in_epoch
+        } else {
+            if epoch > state_epoch.safe_add(spec.min_seed_lookahead)? {
+                return Err(BeaconStateError::SlotOutOfBounds);
+            }
+            let offset = epoch
+                .safe_sub(state_epoch)?
+                .safe_add(1)?
+                .as_usize()
+                .safe_mul(slots_per_epoch)?;
+            offset.safe_add(slot_in_epoch)?
+        };
+
+        let entry = ptc_window
+            .get(index)
+            .ok_or(BeaconStateError::SlotOutOfBounds)?;
+
+        // Convert from FixedVector<u64, PTCSize> to PTC<E> (FixedVector<usize, PTCSize>)
+        let indices: Vec<usize> = entry.iter().map(|&v| v as usize).collect();
+        Ok(PTC(FixedVector::new(indices)?))
+    }
+
+    /// Compute the payload timeliness committee for the given `slot` from scratch.
+    ///
+    /// Requires the committee cache to be initialized for the slot's epoch.
+    pub fn compute_ptc(&self, slot: Slot, spec: &ChainSpec) -> Result<PTC<E>, BeaconStateError> {
         let committee_cache = self.committee_cache_at_slot(slot)?;
+        self.compute_ptc_with_cache(slot, committee_cache, spec)
+    }
+
+    /// Compute the PTC for a slot using a specific committee cache.
+    pub fn compute_ptc_with_cache(
+        &self,
+        slot: Slot,
+        committee_cache: &CommitteeCache,
+        spec: &ChainSpec,
+    ) -> Result<PTC<E>, BeaconStateError> {
         let committees = committee_cache.get_beacon_committees_at_slot(slot)?;
 
         let seed = self.get_ptc_attester_seed(slot, spec)?;
@@ -3102,6 +3196,27 @@ impl<E: EthSpec> BeaconState<E> {
             .to_vec();
         preimage.append(&mut int_to_bytes8(slot.as_u64()));
         Ok(hash(&preimage))
+    }
+
+    /// Find the first slot in the given epoch where the validator is assigned to the PTC.
+    ///
+    /// Returns `Ok(Some(slot))` if the validator is in the PTC for any slot in the epoch,
+    /// `Ok(None)` if the validator is not in the PTC for this epoch.
+    ///
+    /// This iterates through all slots in the epoch, so it's O(slots_per_epoch) per validator.
+    pub fn get_ptc_assignment(
+        &self,
+        validator_index: usize,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<Option<Slot>, BeaconStateError> {
+        for slot in epoch.slot_iter(E::slots_per_epoch()) {
+            let ptc = self.get_ptc(slot, spec)?;
+            if ptc.0.contains(&validator_index) {
+                return Ok(Some(slot));
+            }
+        }
+        Ok(None)
     }
 
     /// Return size indices sampled by effective balance, using indices as candidates.
@@ -3167,6 +3282,38 @@ impl<E: EthSpec> BeaconState<E> {
 
         Ok(effective_balance.safe_mul(MAX_RANDOM_VALUE)?
             >= max_effective_balance.safe_mul(random_value)?)
+    }
+
+    pub fn can_builder_cover_bid(
+        &self,
+        builder_index: BuilderIndex,
+        bid_amount: u64,
+        spec: &ChainSpec,
+    ) -> Result<bool, BeaconStateError> {
+        let builder = self.get_builder(builder_index)?;
+
+        let builder_balance = builder.balance;
+        let pending_withdrawals_amount =
+            self.get_pending_balance_to_withdraw_for_builder(builder_index)?;
+
+        let min_balance = spec
+            .min_deposit_amount
+            .safe_add(pending_withdrawals_amount)?;
+        if builder_balance < min_balance {
+            return Ok(false);
+        }
+        Ok(builder_balance.safe_sub(min_balance)? >= bid_amount)
+    }
+
+    pub fn is_active_builder(
+        &self,
+        builder_index: BuilderIndex,
+        spec: &ChainSpec,
+    ) -> Result<bool, BeaconStateError> {
+        let builder = self.get_builder(builder_index)?;
+
+        Ok(builder.deposit_epoch < self.finalized_checkpoint().epoch
+            && builder.withdrawable_epoch == spec.far_future_epoch)
     }
 }
 

@@ -2,10 +2,10 @@ pub use case_result::CaseResult;
 pub use cases::{
     BuilderPendingPayments, Case, EffectiveBalanceUpdates, Eth1DataReset, ExecutionPayloadBidBlock,
     FeatureName, HistoricalRootsUpdate, HistoricalSummariesUpdate, InactivityUpdates,
-    JustificationAndFinalization, ParticipationFlagUpdates, ParticipationRecordUpdates,
-    PendingBalanceDeposits, PendingConsolidations, ProposerLookahead, RandaoMixesReset,
-    RegistryUpdates, RewardsAndPenalties, Slashings, SlashingsReset, SyncCommitteeUpdates,
-    WithdrawalsPayload,
+    JustificationAndFinalization, ParentExecutionPayloadBlock, ParticipationFlagUpdates,
+    ParticipationRecordUpdates, PendingBalanceDeposits, PendingConsolidations, ProposerLookahead,
+    PtcWindow, RandaoMixesReset, RegistryUpdates, RewardsAndPenalties, Slashings, SlashingsReset,
+    SyncCommitteeUpdates, WithdrawalsPayload,
 };
 pub use decode::log_file_access;
 pub use error::Error;

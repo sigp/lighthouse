@@ -23,7 +23,7 @@ use crate::{
 use bls::Signature;
 use execution_layer::ExecutionLayer;
 use fixed_bytes::FixedBytesExtended;
-use fork_choice::{ForkChoice, ResetPayloadStatuses};
+use fork_choice::{ForkChoice, PayloadStatus, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
 use kzg::Kzg;
 use logging::crit;
@@ -34,7 +34,9 @@ use rand::RngCore;
 use rayon::prelude::*;
 use slasher::Slasher;
 use slot_clock::{SlotClock, TestingSlotClock};
-use state_processing::{AllCaches, per_slot_processing};
+use state_processing::AllCaches;
+use state_processing::genesis::genesis_block;
+use state_processing::per_slot_processing;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
@@ -44,8 +46,8 @@ use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
 use types::data::CustodyIndex;
 use types::{
-    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList,
-    Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
+    BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList, Epoch, EthSpec,
+    Hash256, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -321,7 +323,7 @@ where
             .clone()
             .ok_or("set_genesis_state requires a store")?;
 
-        let beacon_block = genesis_block(&mut beacon_state, &self.spec)?;
+        let beacon_block = make_genesis_block(&mut beacon_state, &self.spec)?;
 
         beacon_state
             .build_caches(&self.spec)
@@ -358,6 +360,7 @@ where
         Ok((
             BeaconSnapshot {
                 beacon_block_root,
+                execution_envelope: None,
                 beacon_block: Arc::new(beacon_block),
                 beacon_state,
             },
@@ -373,7 +376,7 @@ where
         // Since v4.4.0 we will set the anchor with a dummy state upper limit in order to prevent
         // historic states from being retained (unless `--archive` is set).
         let retain_historic_states = self.chain_config.archive;
-        let genesis_beacon_block = genesis_block(&mut beacon_state, &self.spec)?;
+        let genesis_beacon_block = make_genesis_block(&mut beacon_state, &self.spec)?;
         self.pending_io_batch.push(
             store
                 .init_anchor_info(
@@ -618,6 +621,7 @@ where
 
         let snapshot = BeaconSnapshot {
             beacon_block_root: weak_subj_block_root,
+            execution_envelope: None,
             beacon_block: Arc::new(weak_subj_block),
             beacon_state: weak_subj_state,
         };
@@ -773,7 +777,7 @@ where
             slot_clock.now().ok_or("Unable to read slot")?
         };
 
-        let initial_head_block_root = fork_choice
+        let (initial_head_block_root, head_payload_status) = fork_choice
             .get_head(current_slot, &self.spec)
             .map_err(|e| format!("Unable to get fork choice head: {:?}", e))?;
 
@@ -790,8 +794,19 @@ where
 
         let head_shuffling_ids = BlockShufflingIds::try_from_head(head_block_root, &head_state)?;
 
+        // Load the execution envelope from the store if the head has a Full payload.
+        let execution_envelope = if head_payload_status == PayloadStatus::Full {
+            store
+                .get_payload_envelope(&head_block_root)
+                .map_err(|e| format!("Error loading head execution envelope: {:?}", e))?
+                .map(Arc::new)
+        } else {
+            None
+        };
+
         let mut head_snapshot = BeaconSnapshot {
             beacon_block_root: head_block_root,
+            execution_envelope,
             beacon_block: Arc::new(head_block),
             beacon_state: head_state,
         };
@@ -911,9 +926,11 @@ where
 
         let genesis_validators_root = head_snapshot.beacon_state.genesis_validators_root();
         let genesis_time = head_snapshot.beacon_state.genesis_time();
-        let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot));
+        let canonical_head =
+            CanonicalHead::new(fork_choice, Arc::new(head_snapshot), head_payload_status);
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
         let complete_blob_backfill = self.chain_config.complete_blob_backfill;
+        let enable_partial_columns = self.chain_config.enable_partial_columns;
 
         // Calculate the weak subjectivity point in which to backfill blocks to.
         let genesis_backfill_slot = if self.chain_config.genesis_backfill {
@@ -998,6 +1015,7 @@ where
             observed_aggregators: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
             observed_sync_aggregators: <_>::default(),
+            observed_payload_attesters: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
             observed_block_producers: <_>::default(),
             observed_column_sidecars: RwLock::new(ObservedDataSidecars::new(self.spec.clone())),
@@ -1047,11 +1065,14 @@ where
                     self.kzg.clone(),
                     Arc::new(custody_context),
                     self.spec,
+                    enable_partial_columns,
                 )
                 .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),
             kzg: self.kzg.clone(),
             rng: Arc::new(Mutex::new(rng)),
+            gossip_verified_payload_bid_cache: <_>::default(),
+            gossip_verified_proposer_preferences_cache: <_>::default(),
         };
 
         let head = beacon_chain.head_snapshot();
@@ -1152,17 +1173,19 @@ where
     }
 }
 
-fn genesis_block<E: EthSpec>(
+fn make_genesis_block<E: EthSpec>(
     genesis_state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<SignedBeaconBlock<E>, String> {
-    let mut genesis_block = BeaconBlock::empty(spec);
-    *genesis_block.state_root_mut() = genesis_state
+    let mut block = genesis_block(genesis_state, spec)
+        .map_err(|e| format!("Error building genesis block: {:?}", e))?;
+
+    *block.state_root_mut() = genesis_state
         .update_tree_hash_cache()
         .map_err(|e| format!("Error hashing genesis state: {:?}", e))?;
 
     Ok(SignedBeaconBlock::from_block(
-        genesis_block,
+        block,
         // Empty signature, which should NEVER be read. This isn't to-spec, but makes the genesis
         // block consistent with every other block.
         Signature::empty(),

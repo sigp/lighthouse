@@ -8,6 +8,7 @@ use bls::{PublicKey, Signature};
 use context_deserialize::context_deserialize;
 use educe::Educe;
 use serde::{Deserialize, Serialize};
+use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
@@ -22,8 +23,26 @@ pub struct SignedExecutionPayloadEnvelope<E: EthSpec> {
 }
 
 impl<E: EthSpec> SignedExecutionPayloadEnvelope<E> {
+    /// Returns the minimum SSZ-encoded size (all variable-length fields empty).
+    pub fn min_size() -> usize {
+        Self {
+            message: ExecutionPayloadEnvelope::empty(),
+            signature: Signature::empty(),
+        }
+        .as_ssz_bytes()
+        .len()
+    }
+
+    /// Returns the maximum SSZ-encoded size.
+    #[allow(clippy::arithmetic_side_effects)]
+    pub fn max_size() -> usize {
+        // Signature is fixed-size, so the variable-length delta is entirely from the envelope.
+        Self::min_size() + ExecutionPayloadEnvelope::<E>::max_size()
+            - ExecutionPayloadEnvelope::<E>::min_size()
+    }
+
     pub fn slot(&self) -> Slot {
-        self.message.slot
+        self.message.slot()
     }
 
     pub fn epoch(&self) -> Epoch {

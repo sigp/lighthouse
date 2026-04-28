@@ -590,6 +590,8 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::BlocksByRange => PeerAction::MidToleranceError,
                     Protocol::BlocksByRoot => PeerAction::MidToleranceError,
                     Protocol::BlobsByRange => PeerAction::MidToleranceError,
+                    Protocol::PayloadEnvelopesByRange => PeerAction::MidToleranceError,
+                    Protocol::PayloadEnvelopesByRoot => PeerAction::MidToleranceError,
                     // Lighthouse does not currently make light client requests; therefore, this
                     // is an unexpected scenario. We do not ban the peer for rate limiting.
                     Protocol::LightClientBootstrap => return,
@@ -615,6 +617,8 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::Ping => PeerAction::Fatal,
                     Protocol::BlocksByRange => return,
                     Protocol::BlocksByRoot => return,
+                    Protocol::PayloadEnvelopesByRange => return,
+                    Protocol::PayloadEnvelopesByRoot => return,
                     Protocol::BlobsByRange => return,
                     Protocol::BlobsByRoot => return,
                     Protocol::DataColumnsByRoot => return,
@@ -638,6 +642,8 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::Ping => PeerAction::LowToleranceError,
                     Protocol::BlocksByRange => PeerAction::MidToleranceError,
                     Protocol::BlocksByRoot => PeerAction::MidToleranceError,
+                    Protocol::PayloadEnvelopesByRange => PeerAction::MidToleranceError,
+                    Protocol::PayloadEnvelopesByRoot => PeerAction::MidToleranceError,
                     Protocol::BlobsByRange => PeerAction::MidToleranceError,
                     Protocol::BlobsByRoot => PeerAction::MidToleranceError,
                     Protocol::DataColumnsByRoot => PeerAction::MidToleranceError,
@@ -3081,6 +3087,9 @@ mod tests {
         const MAX_TEST_PEERS: usize = 300;
 
         proptest! {
+            // 64 cases (down from default 256) keeps this test under 10s while
+            // still providing good random coverage of the pruning logic.
+            #![proptest_config(ProptestConfig::with_cases(64))]
             #[test]
             fn prune_excess_peers(peer_conditions in proptest::collection::vec(peer_condition_strategy(), DEFAULT_TARGET_PEERS..=MAX_TEST_PEERS)) {
                 let target_peer_count = DEFAULT_TARGET_PEERS;

@@ -14,17 +14,19 @@ use beacon_processor::{BeaconProcessorSend, DuplicateCache};
 use futures::prelude::*;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{
-    MessageId, NetworkGlobals, PeerId, PubsubMessage, Response,
+    GossipTopic, MessageId, NetworkGlobals, PeerId, PubsubMessage, Response,
     service::api_types::{AppRequestId, SyncRequestId},
 };
 use logging::TimeLatch;
 use logging::crit;
+use slot_clock::SlotClock;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, trace, warn};
-use types::{BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, SignedBeaconBlock};
+use types::{
+    BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, PartialDataColumn, SignedBeaconBlock,
+};
 
 /// Handles messages from the network and routes them to the appropriate service to be handled.
 pub struct Router<T: BeaconChainTypes> {
@@ -69,6 +71,8 @@ pub enum RouterMessage<E: EthSpec> {
     /// message, the message itself and a bool which indicates if the message should be processed
     /// by the beacon chain after successful verification.
     PubsubMessage(MessageId, PeerId, PubsubMessage<E>, bool),
+    /// A partial data column sidecar has been received via gossipsub partial protocol.
+    PartialDataColumnSidecar(PeerId, Box<PartialDataColumn<E>>, GossipTopic),
     /// The peer manager has requested we re-status a peer.
     StatusPeer(PeerId),
     /// The peer has an updated custody group count from METADATA.
@@ -180,6 +184,16 @@ impl<T: BeaconChainTypes> Router<T> {
             RouterMessage::PubsubMessage(id, peer_id, gossip, should_process) => {
                 self.handle_gossip(id, peer_id, gossip, should_process);
             }
+            RouterMessage::PartialDataColumnSidecar(peer_id, column, topic) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_partial_data_column_sidecar(
+                            peer_id,
+                            column,
+                            self.chain.slot_clock.now_duration().unwrap_or_default(),
+                            topic,
+                        ),
+                ),
         }
     }
 
@@ -229,6 +243,24 @@ impl<T: BeaconChainTypes> Router<T> {
                     request,
                 ),
             ),
+            RequestType::PayloadEnvelopesByRoot(request) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_payload_envelopes_by_roots_request(
+                            peer_id,
+                            inbound_request_id,
+                            request,
+                        ),
+                ),
+            RequestType::PayloadEnvelopesByRange(request) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_payload_envelopes_by_range_request(
+                            peer_id,
+                            inbound_request_id,
+                            request,
+                        ),
+                ),
             RequestType::BlobsByRange(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor.send_blobs_by_range_request(
                     peer_id,
@@ -309,6 +341,11 @@ impl<T: BeaconChainTypes> Router<T> {
             Response::DataColumnsByRange(data_column) => {
                 self.on_data_columns_by_range_response(peer_id, app_request_id, data_column);
             }
+            // TODO(EIP-7732): implement outgoing payload envelopes by range and root
+            // responses once sync manager requests them.
+            Response::PayloadEnvelopesByRoot(_) | Response::PayloadEnvelopesByRange(_) => {
+                debug!("Requesting envelopes by root and by range not supported yet");
+            }
             // Light client responses should not be received
             Response::LightClientBootstrap(_)
             | Response::LightClientOptimisticUpdate(_)
@@ -328,6 +365,7 @@ impl<T: BeaconChainTypes> Router<T> {
         gossip_message: PubsubMessage<T::EthSpec>,
         should_process: bool,
     ) {
+        let seen_timestamp = self.chain.slot_clock.now_duration().unwrap_or_default();
         match gossip_message {
             PubsubMessage::AggregateAndProofAttestation(aggregate_and_proof) => self
                 .handle_beacon_processor_send_result(
@@ -335,7 +373,7 @@ impl<T: BeaconChainTypes> Router<T> {
                         message_id,
                         peer_id,
                         *aggregate_and_proof,
-                        timestamp_now(),
+                        seen_timestamp,
                     ),
                 ),
             PubsubMessage::Attestation(subnet_attestation) => self
@@ -346,7 +384,7 @@ impl<T: BeaconChainTypes> Router<T> {
                         subnet_attestation.1,
                         subnet_attestation.0,
                         should_process,
-                        timestamp_now(),
+                        seen_timestamp,
                     ),
                 ),
             PubsubMessage::BeaconBlock(block) => self.handle_beacon_processor_send_result(
@@ -355,7 +393,7 @@ impl<T: BeaconChainTypes> Router<T> {
                     peer_id,
                     self.network_globals.client(&peer_id),
                     block,
-                    timestamp_now(),
+                    seen_timestamp,
                 ),
             ),
             PubsubMessage::BlobSidecar(data) => {
@@ -367,7 +405,7 @@ impl<T: BeaconChainTypes> Router<T> {
                         self.network_globals.client(&peer_id),
                         blob_index,
                         blob_sidecar,
-                        timestamp_now(),
+                        seen_timestamp,
                     ),
                 )
             }
@@ -380,7 +418,7 @@ impl<T: BeaconChainTypes> Router<T> {
                             peer_id,
                             subnet_id,
                             column_sidecar,
-                            timestamp_now(),
+                            seen_timestamp,
                         ),
                 )
             }
@@ -427,7 +465,7 @@ impl<T: BeaconChainTypes> Router<T> {
                         message_id,
                         peer_id,
                         *contribution_and_proof,
-                        timestamp_now(),
+                        seen_timestamp,
                     ),
                 )
             }
@@ -442,7 +480,7 @@ impl<T: BeaconChainTypes> Router<T> {
                         peer_id,
                         sync_committtee_msg.1,
                         sync_committtee_msg.0,
-                        timestamp_now(),
+                        seen_timestamp,
                     ),
                 )
             }
@@ -457,7 +495,7 @@ impl<T: BeaconChainTypes> Router<T> {
                             message_id,
                             peer_id,
                             *light_client_finality_update,
-                            timestamp_now(),
+                            seen_timestamp,
                         ),
                 )
             }
@@ -473,7 +511,7 @@ impl<T: BeaconChainTypes> Router<T> {
                             message_id,
                             peer_id,
                             *light_client_optimistic_update,
-                            timestamp_now(),
+                            seen_timestamp,
                         ),
                 )
             }
@@ -493,7 +531,7 @@ impl<T: BeaconChainTypes> Router<T> {
                         message_id,
                         peer_id,
                         signed_execution_payload_envelope,
-                        timestamp_now(),
+                        seen_timestamp,
                     ),
                 )
             }
@@ -619,7 +657,7 @@ impl<T: BeaconChainTypes> Router<T> {
             peer_id,
             sync_request_id,
             beacon_block,
-            seen_timestamp: timestamp_now(),
+            seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
         });
     }
 
@@ -639,7 +677,7 @@ impl<T: BeaconChainTypes> Router<T> {
                 peer_id,
                 sync_request_id,
                 blob_sidecar,
-                seen_timestamp: timestamp_now(),
+                seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
             });
         } else {
             crit!("All blobs by range responses should belong to sync");
@@ -676,7 +714,7 @@ impl<T: BeaconChainTypes> Router<T> {
             peer_id,
             sync_request_id,
             beacon_block,
-            seen_timestamp: timestamp_now(),
+            seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
         });
     }
 
@@ -710,7 +748,7 @@ impl<T: BeaconChainTypes> Router<T> {
             sync_request_id,
             peer_id,
             blob_sidecar,
-            seen_timestamp: timestamp_now(),
+            seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
         });
     }
 
@@ -744,7 +782,7 @@ impl<T: BeaconChainTypes> Router<T> {
             sync_request_id,
             peer_id,
             data_column,
-            seen_timestamp: timestamp_now(),
+            seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
         });
     }
 
@@ -764,7 +802,7 @@ impl<T: BeaconChainTypes> Router<T> {
                 peer_id,
                 sync_request_id,
                 data_column,
-                seen_timestamp: timestamp_now(),
+                seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
             });
         } else {
             crit!("All data columns by range responses should belong to sync");
@@ -831,10 +869,4 @@ impl<E: EthSpec> HandlerNetworkContext<E> {
             response,
         })
     }
-}
-
-fn timestamp_now() -> Duration {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::from_secs(0))
 }

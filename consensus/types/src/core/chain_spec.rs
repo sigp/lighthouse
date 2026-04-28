@@ -96,8 +96,7 @@ pub struct ChainSpec {
      * Time parameters
      */
     pub genesis_delay: u64,
-    // TODO deprecate seconds_per_slot
-    pub seconds_per_slot: u64,
+    seconds_per_slot: u64,
     // Private so that this value can't get changed except via the `set_slot_duration_ms` function.
     slot_duration_ms: u64,
     pub min_attestation_inclusion_delay: u64,
@@ -108,6 +107,8 @@ pub struct ChainSpec {
     pub shard_committee_period: u64,
     pub proposer_reorg_cutoff_bps: u64,
     pub attestation_due_bps: u64,
+    pub attestation_due_bps_gloas: u64,
+    pub payload_attestation_due_bps: u64,
     pub aggregate_due_bps: u64,
     pub sync_message_due_bps: u64,
     pub contribution_due_bps: u64,
@@ -116,6 +117,8 @@ pub struct ChainSpec {
      * Derived time values (computed at startup via `compute_derived_values()`)
      */
     pub unaggregated_attestation_due: Duration,
+    pub unaggregated_attestation_due_gloas: Duration,
+    pub payload_attestation_due: Duration,
     pub aggregate_attestation_due: Duration,
     pub sync_message_due: Duration,
     pub contribution_and_proof_due: Duration,
@@ -149,6 +152,7 @@ pub struct ChainSpec {
     pub proposer_score_boost: Option<u64>,
     pub reorg_head_weight_threshold: Option<u64>,
     pub reorg_parent_weight_threshold: Option<u64>,
+    pub reorg_max_epochs_since_finalization: Option<u64>,
 
     /*
      * Eth1
@@ -295,6 +299,7 @@ pub struct ChainSpec {
     /*
      * Networking Gloas
      */
+    pub max_request_payloads: u64,
 
     /*
      * Networking Derived
@@ -305,6 +310,7 @@ pub struct ChainSpec {
     pub max_blocks_by_root_request_deneb: usize,
     pub max_blobs_by_root_request: usize,
     pub max_data_columns_by_root_request: usize,
+    pub max_payload_envelopes_by_root_request: usize,
 
     /*
      * Application params
@@ -700,6 +706,10 @@ impl ChainSpec {
         }
     }
 
+    pub fn max_request_payloads(&self) -> usize {
+        self.max_request_payloads as usize
+    }
+
     pub fn max_request_blob_sidecars(&self, fork_name: ForkName) -> usize {
         if fork_name.electra_enabled() {
             self.max_request_blob_sidecars_electra as usize
@@ -823,15 +833,17 @@ impl ChainSpec {
 
     /// Returns the min epoch for blob / data column sidecar requests based on the current epoch.
     /// Switch to use the column sidecar config once the `blob_retention_epoch` has passed Fulu fork epoch.
+    /// Never uses the `blob_retention_epoch` for networks that started with Fulu enabled.
     pub fn min_epoch_data_availability_boundary(&self, current_epoch: Epoch) -> Option<Epoch> {
-        let fork_epoch = self.deneb_fork_epoch?;
+        let deneb_fork_epoch = self.deneb_fork_epoch?;
         let blob_retention_epoch =
             current_epoch.saturating_sub(self.min_epochs_for_blob_sidecars_requests);
-        match self.fulu_fork_epoch {
-            Some(fulu_fork_epoch) if blob_retention_epoch > fulu_fork_epoch => Some(
-                current_epoch.saturating_sub(self.min_epochs_for_data_column_sidecars_requests),
-            ),
-            _ => Some(std::cmp::max(fork_epoch, blob_retention_epoch)),
+        if let Some(fulu_fork_epoch) = self.fulu_fork_epoch
+            && blob_retention_epoch >= fulu_fork_epoch
+        {
+            Some(current_epoch.saturating_sub(self.min_epochs_for_data_column_sidecars_requests))
+        } else {
+            Some(std::cmp::max(deneb_fork_epoch, blob_retention_epoch))
         }
     }
 
@@ -868,6 +880,20 @@ impl ChainSpec {
     /// Returns the pre-computed value from `compute_derived_values()`.
     pub fn get_unaggregated_attestation_due(&self) -> Duration {
         self.unaggregated_attestation_due
+    }
+
+    /// Spec: `get_attestation_due_ms`. Returns the epoch-appropriate threshold.
+    pub fn get_attestation_due<E: EthSpec>(&self, slot: Slot) -> Duration {
+        if self.fork_name_at_slot::<E>(slot).gloas_enabled() {
+            self.unaggregated_attestation_due_gloas
+        } else {
+            self.unaggregated_attestation_due
+        }
+    }
+
+    /// Spec: `get_payload_attestation_due_ms`.
+    pub fn get_payload_attestation_due(&self) -> Duration {
+        self.payload_attestation_due
     }
 
     /// Get the duration into a slot in which an aggregated attestation is due.
@@ -908,6 +934,7 @@ impl ChainSpec {
     /// Set the duration of a slot (in ms).
     pub fn set_slot_duration_ms<E: EthSpec>(mut self, slot_duration_ms: u64) -> Self {
         self.slot_duration_ms = slot_duration_ms;
+        self.seconds_per_slot = slot_duration_ms.saturating_div(1000);
         self.compute_derived_values::<E>()
     }
 
@@ -941,6 +968,12 @@ impl ChainSpec {
         self.unaggregated_attestation_due = self
             .compute_slot_component_duration(self.attestation_due_bps)
             .expect("invalid chain spec: cannot compute unaggregated_attestation_due");
+        self.unaggregated_attestation_due_gloas = self
+            .compute_slot_component_duration(self.attestation_due_bps_gloas)
+            .expect("invalid chain spec: cannot compute unaggregated_attestation_due_gloas");
+        self.payload_attestation_due = self
+            .compute_slot_component_duration(self.payload_attestation_due_bps)
+            .expect("invalid chain spec: cannot compute payload_attestation_due");
         self.aggregate_attestation_due = self
             .compute_slot_component_duration(self.aggregate_due_bps)
             .expect("invalid chain spec: cannot compute aggregate_attestation_due");
@@ -964,6 +997,8 @@ impl ChainSpec {
             max_blobs_by_root_request_common(self.max_request_blob_sidecars);
         self.max_data_columns_by_root_request =
             max_data_columns_by_root_request_common::<E>(self.max_request_blocks_deneb);
+        self.max_payload_envelopes_by_root_request =
+            max_blocks_by_root_request_common(self.max_request_payloads);
 
         self
     }
@@ -1069,6 +1104,8 @@ impl ChainSpec {
             shard_committee_period: 256,
             proposer_reorg_cutoff_bps: 1667,
             attestation_due_bps: 3333,
+            attestation_due_bps_gloas: 2500,
+            payload_attestation_due_bps: 7500,
             aggregate_due_bps: 6667,
             sync_message_due_bps: 3333,
             contribution_due_bps: 6667,
@@ -1077,6 +1114,8 @@ impl ChainSpec {
              * Derived time values (set by `compute_derived_values()`)
              */
             unaggregated_attestation_due: Duration::from_millis(3999),
+            unaggregated_attestation_due_gloas: Duration::from_millis(3000),
+            payload_attestation_due: Duration::from_millis(9000),
             aggregate_attestation_due: Duration::from_millis(8000),
             sync_message_due: Duration::from_millis(3999),
             contribution_and_proof_due: Duration::from_millis(8000),
@@ -1111,6 +1150,7 @@ impl ChainSpec {
             proposer_score_boost: Some(40),
             reorg_head_weight_threshold: Some(20),
             reorg_parent_weight_threshold: Some(160),
+            reorg_max_epochs_since_finalization: Some(2),
 
             /*
              * Eth1
@@ -1227,7 +1267,8 @@ impl ChainSpec {
             gloas_fork_epoch: None,
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
-            min_builder_withdrawability_delay: Epoch::new(4096),
+            min_builder_withdrawability_delay: Epoch::new(64),
+            max_request_payloads: 128,
 
             /*
              * Network specific
@@ -1293,6 +1334,7 @@ impl ChainSpec {
             min_epochs_for_data_column_sidecars_requests:
                 default_min_epochs_for_data_column_sidecars_requests(),
             max_data_columns_by_root_request: default_data_columns_by_root_request(),
+            max_payload_envelopes_by_root_request: default_max_payload_envelopes_by_root_request(),
 
             /*
              * Application specific
@@ -1371,15 +1413,21 @@ impl ChainSpec {
             // Gloas
             gloas_fork_version: [0x07, 0x00, 0x00, 0x01],
             gloas_fork_epoch: None,
+            min_builder_withdrawability_delay: Epoch::new(2),
 
             /*
              * Derived time values (set by `compute_derived_values()`)
              * Precomputed for 6000ms slot: 3333 bps = 1999ms, 6667 bps = 4000ms
              */
             unaggregated_attestation_due: Duration::from_millis(1999),
+            unaggregated_attestation_due_gloas: Duration::from_millis(1500),
+            payload_attestation_due: Duration::from_millis(4500),
             aggregate_attestation_due: Duration::from_millis(4000),
             sync_message_due: Duration::from_millis(1999),
             contribution_and_proof_due: Duration::from_millis(4000),
+
+            // Networking Fulu
+            blob_schedule: BlobSchedule::default(),
 
             // Other
             network_id: 2, // lighthouse testnet network id
@@ -1463,6 +1511,8 @@ impl ChainSpec {
             shard_committee_period: 256,
             proposer_reorg_cutoff_bps: 1667,
             attestation_due_bps: 3333,
+            attestation_due_bps_gloas: 2500,
+            payload_attestation_due_bps: 7500,
             aggregate_due_bps: 6667,
 
             /*
@@ -1470,6 +1520,8 @@ impl ChainSpec {
              * Precomputed for 5000ms slot: 3333 bps = 1666ms, 6667 bps = 3333ms
              */
             unaggregated_attestation_due: Duration::from_millis(1666),
+            unaggregated_attestation_due_gloas: Duration::from_millis(1250),
+            payload_attestation_due: Duration::from_millis(3750),
             aggregate_attestation_due: Duration::from_millis(3333),
             sync_message_due: Duration::from_millis(1666),
             contribution_and_proof_due: Duration::from_millis(3333),
@@ -1504,6 +1556,7 @@ impl ChainSpec {
             proposer_score_boost: Some(40),
             reorg_head_weight_threshold: Some(20),
             reorg_parent_weight_threshold: Some(160),
+            reorg_max_epochs_since_finalization: Some(2),
 
             /*
              * Eth1
@@ -1606,7 +1659,7 @@ impl ChainSpec {
              * Fulu hard fork params
              */
             fulu_fork_version: [0x06, 0x00, 0x00, 0x64],
-            fulu_fork_epoch: None,
+            fulu_fork_epoch: Some(Epoch::new(1714688)),
             custody_requirement: 4,
             number_of_custody_groups: 128,
             data_column_sidecar_subnet_count: 128,
@@ -1621,7 +1674,8 @@ impl ChainSpec {
             gloas_fork_epoch: None,
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
-            min_builder_withdrawability_delay: Epoch::new(4096),
+            min_builder_withdrawability_delay: Epoch::new(64),
+            max_request_payloads: 128,
 
             /*
              * Network specific
@@ -1675,9 +1729,9 @@ impl ChainSpec {
              * Networking Fulu specific
              */
             blob_schedule: BlobSchedule::default(),
-            min_epochs_for_data_column_sidecars_requests:
-                default_min_epochs_for_data_column_sidecars_requests(),
+            min_epochs_for_data_column_sidecars_requests: 16384,
             max_data_columns_by_root_request: default_data_columns_by_root_request(),
+            max_payload_envelopes_by_root_request: default_max_payload_envelopes_by_root_request(),
 
             /*
              * Application specific
@@ -1735,7 +1789,7 @@ impl<'de> Deserialize<'de> for BlobSchedule {
 impl BlobSchedule {
     pub fn new(mut vec: Vec<BlobParameters>) -> Self {
         // reverse sort by epoch
-        vec.sort_by(|a, b| b.epoch.cmp(&a.epoch));
+        vec.sort_by_key(|b| std::cmp::Reverse(b.epoch));
         Self {
             schedule: vec,
             skip_serializing: false,
@@ -1897,8 +1951,9 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub gloas_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
-    #[serde(with = "serde_utils::quoted_u64")]
-    seconds_per_slot: u64,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    seconds_per_slot: Option<MaybeQuoted<u64>>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     slot_duration_ms: Option<MaybeQuoted<u64>>,
@@ -1930,6 +1985,13 @@ pub struct Config {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     proposer_score_boost: Option<MaybeQuoted<u64>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reorg_head_weight_threshold: Option<MaybeQuoted<u64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reorg_parent_weight_threshold: Option<MaybeQuoted<u64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reorg_max_epochs_since_finalization: Option<MaybeQuoted<u64>>,
 
     #[serde(with = "serde_utils::quoted_u64")]
     deposit_chain_id: u64,
@@ -2044,6 +2106,12 @@ pub struct Config {
     #[serde(default = "default_attestation_due_bps")]
     #[serde(with = "serde_utils::quoted_u64")]
     attestation_due_bps: u64,
+    #[serde(default = "default_attestation_due_bps_gloas")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    attestation_due_bps_gloas: u64,
+    #[serde(default = "default_payload_attestation_due_bps")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    payload_attestation_due_bps: u64,
     #[serde(default = "default_aggregate_due_bps")]
     #[serde(with = "serde_utils::quoted_u64")]
     aggregate_due_bps: u64,
@@ -2053,6 +2121,10 @@ pub struct Config {
     #[serde(default = "default_contribution_due_bps")]
     #[serde(with = "serde_utils::quoted_u64")]
     contribution_due_bps: u64,
+
+    #[serde(default = "default_min_builder_withdrawability_delay")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    min_builder_withdrawability_delay: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -2266,6 +2338,14 @@ const fn default_attestation_due_bps() -> u64 {
     3333
 }
 
+const fn default_attestation_due_bps_gloas() -> u64 {
+    2500
+}
+
+const fn default_payload_attestation_due_bps() -> u64 {
+    7500
+}
+
 const fn default_aggregate_due_bps() -> u64 {
     6667
 }
@@ -2276,6 +2356,10 @@ const fn default_sync_message_due_bps() -> u64 {
 
 const fn default_contribution_due_bps() -> u64 {
     6667
+}
+
+const fn default_min_builder_withdrawability_delay() -> u64 {
+    64
 }
 
 fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
@@ -2340,6 +2424,14 @@ fn default_max_blobs_by_root_request() -> usize {
 
 fn default_data_columns_by_root_request() -> usize {
     max_data_columns_by_root_request_common::<MainnetEthSpec>(default_max_request_blocks_deneb())
+}
+
+fn default_max_payload_envelopes_by_root_request() -> usize {
+    max_blocks_by_root_request_common(default_max_request_payloads())
+}
+
+fn default_max_request_payloads() -> u64 {
+    128
 }
 
 impl Default for Config {
@@ -2440,7 +2532,9 @@ impl Config {
                 .gloas_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
-            seconds_per_slot: spec.seconds_per_slot,
+            seconds_per_slot: Some(MaybeQuoted {
+                value: spec.seconds_per_slot,
+            }),
             slot_duration_ms: Some(MaybeQuoted {
                 value: spec.slot_duration_ms,
             }),
@@ -2461,6 +2555,15 @@ impl Config {
             max_per_epoch_activation_churn_limit: spec.max_per_epoch_activation_churn_limit,
 
             proposer_score_boost: spec.proposer_score_boost.map(|value| MaybeQuoted { value }),
+            reorg_head_weight_threshold: spec
+                .reorg_head_weight_threshold
+                .map(|value| MaybeQuoted { value }),
+            reorg_parent_weight_threshold: spec
+                .reorg_parent_weight_threshold
+                .map(|value| MaybeQuoted { value }),
+            reorg_max_epochs_since_finalization: spec
+                .reorg_max_epochs_since_finalization
+                .map(|value| MaybeQuoted { value }),
 
             deposit_chain_id: spec.deposit_chain_id,
             deposit_network_id: spec.deposit_network_id,
@@ -2503,16 +2606,20 @@ impl Config {
 
             proposer_reorg_cutoff_bps: spec.proposer_reorg_cutoff_bps,
             attestation_due_bps: spec.attestation_due_bps,
+            attestation_due_bps_gloas: spec.attestation_due_bps_gloas,
+            payload_attestation_due_bps: spec.payload_attestation_due_bps,
             aggregate_due_bps: spec.aggregate_due_bps,
             sync_message_due_bps: spec.sync_message_due_bps,
             contribution_due_bps: spec.contribution_due_bps,
+
+            min_builder_withdrawability_delay: spec.min_builder_withdrawability_delay.as_u64(),
         }
     }
 
     pub fn from_file(filename: &Path) -> Result<Self, String> {
         let f = File::open(filename)
             .map_err(|e| format!("Error opening spec at {}: {:?}", filename.display(), e))?;
-        serde_yaml::from_reader(f)
+        yaml_serde::from_reader(f)
             .map_err(|e| format!("Error parsing spec at {}: {:?}", filename.display(), e))
     }
 
@@ -2559,6 +2666,9 @@ impl Config {
             max_per_epoch_activation_churn_limit,
             churn_limit_quotient,
             proposer_score_boost,
+            reorg_head_weight_threshold,
+            reorg_parent_weight_threshold,
+            reorg_max_epochs_since_finalization,
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,
@@ -2594,12 +2704,23 @@ impl Config {
             min_epochs_for_data_column_sidecars_requests,
             proposer_reorg_cutoff_bps,
             attestation_due_bps,
+            attestation_due_bps_gloas,
+            payload_attestation_due_bps,
             aggregate_due_bps,
             sync_message_due_bps,
             contribution_due_bps,
+            min_builder_withdrawability_delay,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
+            return None;
+        }
+
+        // Fail if seconds_per_slot and slot_duration_ms are both set but are inconsistent.
+        if let (Some(seconds_per_slot), Some(slot_duration_ms)) =
+            (seconds_per_slot, slot_duration_ms)
+            && seconds_per_slot.value.saturating_mul(1000) != slot_duration_ms.value
+        {
             return None;
         }
 
@@ -2623,10 +2744,12 @@ impl Config {
             fulu_fork_version,
             gloas_fork_version,
             gloas_fork_epoch: gloas_fork_epoch.map(|q| q.value),
-            seconds_per_slot,
+            seconds_per_slot: seconds_per_slot
+                .map(|q| q.value)
+                .or_else(|| slot_duration_ms.and_then(|q| q.value.checked_div(1000)))?,
             slot_duration_ms: slot_duration_ms
                 .map(|q| q.value)
-                .unwrap_or_else(|| seconds_per_slot.saturating_mul(1000)),
+                .or_else(|| seconds_per_slot.map(|q| q.value.saturating_mul(1000)))?,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
             shard_committee_period,
@@ -2642,6 +2765,10 @@ impl Config {
             max_per_epoch_activation_churn_limit,
             churn_limit_quotient,
             proposer_score_boost: proposer_score_boost.map(|q| q.value),
+            reorg_head_weight_threshold: reorg_head_weight_threshold.map(|q| q.value),
+            reorg_parent_weight_threshold: reorg_parent_weight_threshold.map(|q| q.value),
+            reorg_max_epochs_since_finalization: reorg_max_epochs_since_finalization
+                .map(|q| q.value),
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,
@@ -2682,9 +2809,13 @@ impl Config {
 
             proposer_reorg_cutoff_bps,
             attestation_due_bps,
+            attestation_due_bps_gloas,
+            payload_attestation_due_bps,
             aggregate_due_bps,
             sync_message_due_bps,
             contribution_due_bps,
+
+            min_builder_withdrawability_delay: Epoch::new(min_builder_withdrawability_delay),
 
             ..chain_spec.clone()
         };
@@ -2834,6 +2965,9 @@ mod yaml_tests {
     use super::*;
     use crate::core::MinimalEthSpec;
     use paste::paste;
+    use std::collections::BTreeSet;
+    use std::env;
+    use std::path::PathBuf;
     use std::sync::Arc;
     use tempfile::NamedTempFile;
 
@@ -2850,7 +2984,7 @@ mod yaml_tests {
 
         let yamlconfig = Config::from_chain_spec::<MinimalEthSpec>(&minimal_spec);
         // write fresh minimal config to file
-        serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
+        yaml_serde::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
         let reader = File::options()
             .read(true)
@@ -2858,7 +2992,7 @@ mod yaml_tests {
             .open(tmp_file.as_ref())
             .expect("error while opening the file");
         // deserialize minimal config from file
-        let from: Config = serde_yaml::from_reader(reader).expect("error while deserializing");
+        let from: Config = yaml_serde::from_reader(reader).expect("error while deserializing");
         assert_eq!(from, yamlconfig);
     }
 
@@ -2872,15 +3006,76 @@ mod yaml_tests {
             .expect("error opening file");
         let mainnet_spec = ChainSpec::mainnet();
         let yamlconfig = Config::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
-        serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
+        yaml_serde::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
         let reader = File::options()
             .read(true)
             .write(false)
             .open(tmp_file.as_ref())
             .expect("error while opening the file");
-        let from: Config = serde_yaml::from_reader(reader).expect("error while deserializing");
+        let from: Config = yaml_serde::from_reader(reader).expect("error while deserializing");
         assert_eq!(from, yamlconfig);
+    }
+
+    #[test]
+    fn slot_duration_fallback_both_fields() {
+        let mainnet = ChainSpec::mainnet();
+        let mut config = Config::from_chain_spec::<MainnetEthSpec>(&mainnet);
+        config.seconds_per_slot = Some(MaybeQuoted { value: 12 });
+        config.slot_duration_ms = Some(MaybeQuoted { value: 12000 });
+        let spec = config
+            .apply_to_chain_spec::<MainnetEthSpec>(&mainnet)
+            .unwrap();
+        assert_eq!(spec.seconds_per_slot, 12);
+        assert_eq!(spec.slot_duration_ms, 12000);
+    }
+
+    #[test]
+    fn slot_duration_fallback_both_fields_inconsistent() {
+        let mainnet = ChainSpec::mainnet();
+        let mut config = Config::from_chain_spec::<MainnetEthSpec>(&mainnet);
+        config.seconds_per_slot = Some(MaybeQuoted { value: 10 });
+        config.slot_duration_ms = Some(MaybeQuoted { value: 12000 });
+        assert_eq!(config.apply_to_chain_spec::<MainnetEthSpec>(&mainnet), None);
+    }
+
+    #[test]
+    fn slot_duration_fallback_seconds_only() {
+        let mainnet = ChainSpec::mainnet();
+        let mut config = Config::from_chain_spec::<MainnetEthSpec>(&mainnet);
+        config.seconds_per_slot = Some(MaybeQuoted { value: 12 });
+        config.slot_duration_ms = None;
+        let spec = config
+            .apply_to_chain_spec::<MainnetEthSpec>(&mainnet)
+            .unwrap();
+        assert_eq!(spec.seconds_per_slot, 12);
+        assert_eq!(spec.slot_duration_ms, 12000);
+    }
+
+    #[test]
+    fn slot_duration_fallback_ms_only() {
+        let mainnet = ChainSpec::mainnet();
+        let mut config = Config::from_chain_spec::<MainnetEthSpec>(&mainnet);
+        config.seconds_per_slot = None;
+        config.slot_duration_ms = Some(MaybeQuoted { value: 12000 });
+        let spec = config
+            .apply_to_chain_spec::<MainnetEthSpec>(&mainnet)
+            .unwrap();
+        assert_eq!(spec.seconds_per_slot, 12);
+        assert_eq!(spec.slot_duration_ms, 12000);
+    }
+
+    #[test]
+    fn slot_duration_fallback_neither() {
+        let mainnet = ChainSpec::mainnet();
+        let mut config = Config::from_chain_spec::<MainnetEthSpec>(&mainnet);
+        config.seconds_per_slot = None;
+        config.slot_duration_ms = None;
+        assert!(
+            config
+                .apply_to_chain_spec::<MainnetEthSpec>(&mainnet)
+                .is_none()
+        );
     }
 
     #[test]
@@ -2941,7 +3136,7 @@ mod yaml_tests {
             MAX_BLOBS_PER_BLOCK: 20
         "#;
         let config: Config =
-            serde_yaml::from_str(spec_contents).expect("error while deserializing");
+            yaml_serde::from_str(spec_contents).expect("error while deserializing");
         let spec =
             ChainSpec::from_config::<MainnetEthSpec>(&config).expect("error while creating spec");
 
@@ -3023,11 +3218,11 @@ mod yaml_tests {
         assert_eq!(spec.max_blobs_per_block_within_fork(ForkName::Fulu), 20);
 
         // Check that serialization is in ascending order
-        let yaml = serde_yaml::to_string(&spec.blob_schedule).expect("should serialize");
+        let yaml = yaml_serde::to_string(&spec.blob_schedule).expect("should serialize");
 
         // Deserialize back to Vec<BlobParameters> to check order
         let deserialized: Vec<BlobParameters> =
-            serde_yaml::from_str(&yaml).expect("should deserialize");
+            yaml_serde::from_str(&yaml).expect("should deserialize");
 
         // Should be in ascending order by epoch
         assert!(
@@ -3094,7 +3289,7 @@ mod yaml_tests {
             MAX_BLOBS_PER_BLOCK: 300
         "#;
         let config: Config =
-            serde_yaml::from_str(spec_contents).expect("error while deserializing");
+            yaml_serde::from_str(spec_contents).expect("error while deserializing");
         let spec =
             ChainSpec::from_config::<MainnetEthSpec>(&config).expect("error while creating spec");
 
@@ -3184,7 +3379,7 @@ mod yaml_tests {
         SAMPLES_PER_SLOT: 8
         "#;
 
-        let chain_spec: Config = serde_yaml::from_str(spec).unwrap();
+        let chain_spec: Config = yaml_serde::from_str(spec).unwrap();
 
         // Asserts that `chain_spec.$name` and `default_$name()` are equal.
         macro_rules! check_default {
@@ -3285,22 +3480,57 @@ mod yaml_tests {
             spec.min_epoch_data_availability_boundary(fulu_fork_epoch)
         );
 
-        // `min_epochs_for_data_sidecar_requests` at fulu fork epoch + min_epochs_for_blob_sidecars_request
-        let blob_retention_epoch_after_fulu = fulu_fork_epoch + blob_retention_epochs;
-        let expected_blob_retention_epoch = blob_retention_epoch_after_fulu - blob_retention_epochs;
+        // Now, the blob retention period starts still before the fulu fork epoch, so the boundary
+        // should respect the blob retention period.
+        let half_blob_retention_epoch_after_fulu = fulu_fork_epoch + (blob_retention_epochs / 2);
+        let expected_blob_retention_epoch =
+            half_blob_retention_epoch_after_fulu - blob_retention_epochs;
         assert_eq!(
             Some(expected_blob_retention_epoch),
-            spec.min_epoch_data_availability_boundary(blob_retention_epoch_after_fulu)
+            spec.min_epoch_data_availability_boundary(half_blob_retention_epoch_after_fulu)
         );
 
-        // After the final blob retention epoch, `min_epochs_for_data_sidecar_requests` should be calculated
-        // using `min_epochs_for_data_column_sidecars_request`
-        let current_epoch = blob_retention_epoch_after_fulu + 1;
+        // If the retention period starts with the fulu fork epoch, there are no more blobs to
+        // retain, and the return value will be based on the data column retention period.
+        let current_epoch = fulu_fork_epoch + blob_retention_epochs;
         let expected_data_column_retention_epoch = current_epoch - data_column_retention_epochs;
         assert_eq!(
             Some(expected_data_column_retention_epoch),
             spec.min_epoch_data_availability_boundary(current_epoch)
         );
+    }
+
+    #[test]
+    fn min_epochs_for_data_sidecar_requests_fulu_genesis() {
+        type E = MainnetEthSpec;
+        let spec = {
+            // fulu active at genesis
+            let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+            // set a different value for testing purpose, 4096 / 2 = 2048
+            spec.min_epochs_for_data_column_sidecars_requests =
+                spec.min_epochs_for_blob_sidecars_requests / 2;
+            Arc::new(spec)
+        };
+        let blob_retention_epochs = spec.min_epochs_for_blob_sidecars_requests;
+        let data_column_retention_epochs = spec.min_epochs_for_data_column_sidecars_requests;
+
+        // If Fulu is activated at genesis, the column retention period should always be used.
+        let assert_correct_boundary = |epoch| {
+            let epoch = Epoch::new(epoch);
+            assert_eq!(
+                Some(epoch.saturating_sub(data_column_retention_epochs)),
+                spec.min_epoch_data_availability_boundary(epoch)
+            )
+        };
+
+        assert_correct_boundary(0);
+        assert_correct_boundary(1);
+        assert_correct_boundary(blob_retention_epochs - 1);
+        assert_correct_boundary(blob_retention_epochs);
+        assert_correct_boundary(blob_retention_epochs + 1);
+        assert_correct_boundary(data_column_retention_epochs - 1);
+        assert_correct_boundary(data_column_retention_epochs);
+        assert_correct_boundary(data_column_retention_epochs + 1);
     }
 
     #[test]
@@ -3356,7 +3586,6 @@ mod yaml_tests {
         // Test slot duration
         let slot_duration = spec.get_slot_duration();
         assert_eq!(slot_duration, Duration::from_millis(12000));
-        assert_eq!(slot_duration, Duration::from_secs(spec.seconds_per_slot));
 
         // Test edge cases with custom spec
         let mut custom_spec = spec.clone();
@@ -3465,5 +3694,128 @@ mod yaml_tests {
         // 15000 bps = 150% of slot duration, which is invalid
         spec.attestation_due_bps = 15000;
         spec.compute_derived_values::<MainnetEthSpec>();
+    }
+
+    fn configs_base_path() -> PathBuf {
+        env::var("CARGO_MANIFEST_DIR")
+            .expect("should know manifest dir")
+            .parse::<PathBuf>()
+            .expect("should parse manifest dir as path")
+            .join("configs")
+    }
+
+    /// Upstream config keys that Lighthouse intentionally does not include in its
+    /// `Config` struct. These are forks/features not yet implemented. Update this
+    /// list as new forks are added.
+    const UPSTREAM_KEYS_NOT_IN_LIGHTHOUSE: &[&str] = &[
+        // Forks not yet implemented
+        "HEZE_FORK_VERSION",
+        "HEZE_FORK_EPOCH",
+        "EIP7928_FORK_VERSION",
+        "EIP7928_FORK_EPOCH",
+        // Gloas params not yet in Config
+        "AGGREGATE_DUE_BPS_GLOAS",
+        "SYNC_MESSAGE_DUE_BPS_GLOAS",
+        "CONTRIBUTION_DUE_BPS_GLOAS",
+        "MAX_REQUEST_PAYLOADS",
+        // Heze networking
+        "VIEW_FREEZE_CUTOFF_BPS",
+        "INCLUSION_LIST_SUBMISSION_DUE_BPS",
+        "PROPOSER_INCLUSION_LIST_CUTOFF_BPS",
+        "MAX_REQUEST_INCLUSION_LIST",
+        "MAX_BYTES_PER_INCLUSION_LIST",
+    ];
+
+    /// Compare a `ChainSpec` against an upstream consensus-specs config YAML file.
+    ///
+    /// 1. Extracts keys from the raw YAML text (to avoid yaml_serde's inability
+    ///    to parse integers > u64 into `Value`/`Mapping` types) and checks that
+    ///    every key is either known to `Config` or explicitly listed in
+    ///    `UPSTREAM_KEYS_NOT_IN_LIGHTHOUSE`.
+    /// 2. Deserializes the upstream YAML as `Config` (which has custom
+    ///    deserializers for large values like `TERMINAL_TOTAL_DIFFICULTY`) and
+    ///    compares against `Config::from_chain_spec`.
+    fn config_test<E: EthSpec>(spec: &ChainSpec, config_name: &str) {
+        let file_path = configs_base_path().join(format!("{config_name}.yaml"));
+        let upstream_yaml = std::fs::read_to_string(&file_path)
+            .unwrap_or_else(|e| panic!("failed to read {}: {e}", file_path.display()));
+
+        // Extract top-level keys from the raw YAML text. We can't parse as
+        // yaml_serde::Mapping because yaml_serde cannot represent integers
+        // exceeding u64 (e.g. TERMINAL_TOTAL_DIFFICULTY). Config YAML uses a
+        // simple `KEY: value` format with no indentation for top-level keys.
+        let upstream_keys: BTreeSet<String> = upstream_yaml
+            .lines()
+            .filter_map(|line| {
+                // Skip comments, blank lines, and indented lines (nested YAML).
+                if line.is_empty()
+                    || line.starts_with('#')
+                    || line.starts_with(' ')
+                    || line.starts_with('\t')
+                {
+                    return None;
+                }
+                line.split(':').next().map(|k| k.to_string())
+            })
+            .collect();
+
+        // Get the set of keys that Config knows about by serializing and collecting
+        // keys. Also include keys for optional fields that may be skipped during
+        // serialization (e.g. CONFIG_NAME).
+        let our_config = Config::from_chain_spec::<E>(spec);
+        let our_yaml = yaml_serde::to_string(&our_config).expect("failed to serialize Config");
+        let our_mapping: yaml_serde::Mapping =
+            yaml_serde::from_str(&our_yaml).expect("failed to re-parse our Config");
+        let mut known_keys: BTreeSet<String> = our_mapping
+            .keys()
+            .filter_map(|k| k.as_str().map(String::from))
+            .collect();
+        // Fields that Config knows but may skip during serialization.
+        known_keys.insert("CONFIG_NAME".to_string());
+
+        // Check for upstream keys that our Config doesn't know about.
+        let mut missing_keys: Vec<&String> = upstream_keys
+            .iter()
+            .filter(|k| {
+                !known_keys.contains(k.as_str())
+                    && !UPSTREAM_KEYS_NOT_IN_LIGHTHOUSE.contains(&k.as_str())
+            })
+            .collect();
+        missing_keys.sort();
+
+        assert!(
+            missing_keys.is_empty(),
+            "Upstream {config_name} config has keys not present in Lighthouse Config \
+             (add to Config or to UPSTREAM_KEYS_NOT_IN_LIGHTHOUSE): {missing_keys:?}"
+        );
+
+        // Compare values for all fields Config knows about.
+        let mut upstream_config: Config = yaml_serde::from_str(&upstream_yaml)
+            .unwrap_or_else(|e| panic!("failed to parse {config_name} as Config: {e}"));
+
+        // CONFIG_NAME is network metadata (not a spec parameter), so align it
+        // before comparing.
+        upstream_config.config_name = our_config.config_name.clone();
+        // SECONDS_PER_SLOT is deprecated upstream but we still emit it, so
+        // fill it in if the upstream YAML omitted it.
+        if upstream_config.seconds_per_slot.is_none() {
+            upstream_config.seconds_per_slot = our_config.seconds_per_slot;
+        }
+        assert_eq!(
+            upstream_config, our_config,
+            "Config mismatch for {config_name}"
+        );
+    }
+
+    #[test]
+    fn mainnet_config_consistent() {
+        let spec = ChainSpec::mainnet();
+        config_test::<MainnetEthSpec>(&spec, "mainnet");
+    }
+
+    #[test]
+    fn minimal_config_consistent() {
+        let spec = ChainSpec::minimal();
+        config_test::<MinimalEthSpec>(&spec, "minimal");
     }
 }
