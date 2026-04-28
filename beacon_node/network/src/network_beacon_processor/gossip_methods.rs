@@ -1320,10 +1320,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let data_column_slot = verified_data_column.slot();
         let data_column_index = verified_data_column.index();
 
+        // TODO(gloas): implement partial messages
         if let DataColumnSidecar::Fulu(col) = verified_data_column.as_data_column()
             && self
                 .chain
                 .data_availability_checker
+                .pending_block_cache()
                 .partial_assembler()
                 .is_some_and(|a| !a.is_complete(block_root, verified_data_column.index()))
         {
@@ -1380,7 +1382,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "Processed data column, waiting for other components"
                     );
 
-                    self.check_reconstruction_trigger(*slot, block_root).await;
+                    self.check_reconstruction_trigger(slot, &block_root).await;
                 }
             },
             Err(BlockError::DuplicateFullyImported(_)) => {
@@ -1570,7 +1572,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             slot,
                             process_fn: Box::pin(async move {
                                 cloned_self
-                                    .attempt_data_column_reconstruction(block_root)
+                                    .attempt_data_column_reconstruction(slot, block_root)
                                     .await;
                             }),
                         },
@@ -3871,7 +3873,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | EnvelopeError::BeaconChainError(_)
                     | EnvelopeError::BeaconStateError(_)
                     | EnvelopeError::BlockProcessingError(_)
-                    | EnvelopeError::InternalError(_) => {
+                    | EnvelopeError::InternalError(_)
+                    | EnvelopeError::AvailabilityCheck(_) => {
                         self.propagate_validation_result(
                             message_id,
                             peer_id,
@@ -3985,7 +3988,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | EnvelopeError::BeaconChainError(_)
                 | EnvelopeError::BeaconStateError(_)
                 | EnvelopeError::BlockProcessingError(_)
-                | EnvelopeError::InternalError(_) => {}
+                | EnvelopeError::InternalError(_)
+                | EnvelopeError::AvailabilityCheck(_) => {}
             },
         }
     }

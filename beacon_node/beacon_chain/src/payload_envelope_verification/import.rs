@@ -83,12 +83,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // about what the function actually does.
             let executed_envelope = chain
                 .into_executed_payload_envelope(execution_pending)
-                .await
-                .inspect_err(|_| {
-                    // If the envelope fails execution for whatever reason (e.g. engine offline),
-                    // and we keep it in the cache, then the node will NOT perform lookup and
-                    // reprocess this envelope until the envelope is evicted from DA checker, causing the
-                })?;
+                .await?;
 
             // Record the time it took to wait for execution layer verification.
             if let Some(timestamp) = slot_clock.now_duration() {
