@@ -53,13 +53,15 @@ use crate::observed_aggregates::{
     Error as AttestationObservationError, ObservedAggregateAttestations, ObservedSyncContributions,
 };
 use crate::observed_attesters::{
-    ObservedAggregators, ObservedAttesters, ObservedSyncAggregators, ObservedSyncContributors,
+    ObservedAggregators, ObservedAttesters, ObservedPayloadAttesters, ObservedSyncAggregators,
+    ObservedSyncContributors,
 };
 use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_data_sidecars::ObservedDataSidecars;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::observed_slashable::ObservedSlashable;
 use crate::partial_data_column_assembler::PartialMergeResult;
+use crate::payload_attestation_verification::VerifiedPayloadAttestationMessage;
 use crate::payload_bid_verification::payload_bid_cache::GossipVerifiedPayloadBidCache;
 #[cfg(not(test))]
 use crate::payload_envelope_streamer::{EnvelopeRequestSource, launch_payload_envelope_stream};
@@ -84,8 +86,8 @@ use crate::{
 use bls::{PublicKey, PublicKeyBytes, Signature};
 use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{
-    EventKind, SseBlobSidecar, SseBlock, SseDataColumnSidecar, SseExtendedPayloadAttributes,
-    SseHead,
+    EventKind, PtcDuty, SseBlobSidecar, SseBlock, SseDataColumnSidecar,
+    SseExtendedPayloadAttributes, SseHead,
 };
 use execution_layer::{
     BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer,
@@ -418,6 +420,9 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Maintains a record of which validators have been seen to create `SignedContributionAndProofs`
     /// in recent epochs.
     pub(crate) observed_sync_aggregators: RwLock<ObservedSyncAggregators<T::EthSpec>>,
+    /// Maintains a record of which validators have sent payload attestation messages
+    /// in recent slots.
+    pub(crate) observed_payload_attesters: RwLock<ObservedPayloadAttesters<T::EthSpec>>,
     /// Maintains a record of which validators have proposed blocks for each slot.
     pub observed_block_producers: RwLock<ObservedBlockProducers<T::EthSpec>>,
     /// Maintains a record of blob sidecars seen over the gossip network.
@@ -1719,6 +1724,46 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok((duties, dependent_root, execution_status))
     }
 
+    /// Get PTC duties for validators at a given epoch.
+    ///
+    /// TODO(gloas): per-validator `get_ptc_assignment` makes this O(N * slots_per_epoch * PTCSize).
+    /// A future ptc cache (or a single-pass `ptc_window` walk) can drop this to
+    /// O(slots_per_epoch * PTCSize + N).
+    pub fn compute_ptc_duties(
+        &self,
+        state: &BeaconState<T::EthSpec>,
+        epoch: Epoch,
+        validator_indices: &[u64],
+        dependent_block_root: Hash256,
+    ) -> Result<(Vec<Option<PtcDuty>>, Hash256), Error> {
+        // The ptc_window only covers previous, current, and next epochs.
+        let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch)
+            .map_err(Error::IncorrectStateForAttestation)?;
+
+        let dependent_root =
+            state.attester_shuffling_decision_root(dependent_block_root, relative_epoch)?;
+
+        let pubkey_cache = self.validator_pubkey_cache.read();
+
+        let duties = validator_indices
+            .iter()
+            .map(|&validator_index| -> Result<Option<PtcDuty>, Error> {
+                let Some(&pubkey) = pubkey_cache.get_pubkey_bytes(validator_index as usize) else {
+                    return Ok(None);
+                };
+                let slot_opt =
+                    state.get_ptc_assignment(validator_index as usize, epoch, &self.spec)?;
+                Ok(slot_opt.map(|slot| PtcDuty {
+                    validator_index,
+                    slot,
+                    pubkey,
+                }))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok((duties, dependent_root))
+    }
+
     pub fn get_aggregated_attestation(
         &self,
         attestation: AttestationRef<T::EthSpec>,
@@ -1956,6 +2001,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let beacon_block_root;
         let beacon_state_root;
         let target;
+        let is_same_slot_attestation;
         let current_epoch_attesting_info: Option<(Checkpoint, usize)>;
         let head_timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_HEAD_SCRAPE_SECONDS);
         let head_span = debug_span!("attestation_production_head_scrape").entered();
@@ -1996,11 +2042,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // When attesting to the head slot or later, always use the head of the chain.
                 beacon_block_root = head.beacon_block_root;
                 beacon_state_root = head.beacon_state_root();
+                is_same_slot_attestation = request_slot == head.beacon_block.slot();
             } else {
                 // Permit attesting to slots *prior* to the current head. This is desirable when
                 // the VC and BN are out-of-sync due to time issues or overloading.
                 beacon_block_root = *head_state.get_block_root(request_slot)?;
                 beacon_state_root = *head_state.get_state_root(request_slot)?;
+
+                // Fetch the previous block root. If the previous block root equals
+                // the block root being attested to, the `request_slot` is a skipped slot
+                // and this is not a same slot attestation.
+                let prior_slot_root = head_state
+                    .get_block_root(request_slot.saturating_sub(1u64))
+                    .ok();
+                is_same_slot_attestation = prior_slot_root != Some(&beacon_block_root);
             };
 
             let target_slot = request_epoch.start_slot(T::EthSpec::slots_per_epoch());
@@ -2090,6 +2145,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 )
             };
 
+        // For gloas the attestation data index indicates payload presence:
+        // `payload_present=false` for same-slot attestations or when payload not received.
+        // `payload_present=true` when attesting to a prior slot whose payload has been received.
+        let payload_present = if self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(request_slot)
+            .gloas_enabled()
+            && !is_same_slot_attestation
+        {
+            self.canonical_head
+                .block_has_canonical_payload(&beacon_block_root, &self.spec)?
+        } else {
+            false
+        };
+
         Ok(Attestation::<T::EthSpec>::empty_for_signing(
             request_index,
             committee_len,
@@ -2097,6 +2167,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             beacon_block_root,
             justified_checkpoint,
             target,
+            payload_present,
             &self.spec,
         )?)
     }
@@ -2240,6 +2311,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
         })
+    }
+
+    pub fn apply_payload_attestation_to_fork_choice(
+        &self,
+        indexed_payload_attestation: &IndexedPayloadAttestation<T::EthSpec>,
+        ptc: &PTC<T::EthSpec>,
+    ) -> Result<(), Error> {
+        self.canonical_head
+            .fork_choice_write_lock()
+            .on_payload_attestation(
+                self.slot()?,
+                indexed_payload_attestation,
+                AttestationFromBlock::False,
+                &ptc.0,
+            )
+            .map_err(Into::into)
+    }
+
+    /// Add a verified payload attestation message to the operation pool for block inclusion.
+    pub fn add_payload_attestation_to_pool(
+        &self,
+        verified: &VerifiedPayloadAttestationMessage<T>,
+    ) -> Result<(), Error> {
+        self.op_pool
+            .insert_payload_attestation_message(verified.payload_attestation_message().clone())
+            .map_err(Error::OpPoolError)?;
+        Ok(())
     }
 
     /// Accepts some `SyncCommitteeMessage` from the network and attempts to verify it, returning `Ok(_)` if
