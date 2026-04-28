@@ -326,6 +326,7 @@ async fn execution_payload_envelope_events() {
             gossip_verified,
             beacon_chain::NotifyExecutionLayer::Yes,
             types::BlockImportSource::Gossip,
+            #[allow(clippy::result_large_err)]
             || Ok(()),
         )
         .await

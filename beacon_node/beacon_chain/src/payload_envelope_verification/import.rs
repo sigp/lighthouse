@@ -364,6 +364,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }));
         }
 
+        // TODO(gloas): once the DA checker handles envelopes, this event should also be
+        // emitted from the DA resolution path (similar to `process_availability` for blocks).
         if let Some(event_handler) = self.event_handler.as_ref()
             && event_handler.has_execution_payload_available_subscribers()
         {
