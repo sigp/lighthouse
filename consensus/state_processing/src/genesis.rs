@@ -167,21 +167,12 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         // Remove intermediate Fulu fork from `state.fork`.
         state.fork_mut().previous_version = spec.gloas_fork_version;
 
-        // The genesis block's bid must have block_hash = 0x00 per spec (empty payload).
         // Retain the EL genesis hash in latest_block_hash and parent_block_hash so the
         // first post-genesis proposer can build on the correct EL head.
         let el_genesis_hash = state.latest_execution_payload_bid()?.block_hash;
         let bid = state.latest_execution_payload_bid_mut()?;
         bid.parent_block_hash = el_genesis_hash;
         bid.block_hash = ExecutionBlockHash::default();
-
-        // Update latest_block_header to reflect the Gloas genesis block body which contains
-        // the EL genesis hash in the signed_execution_payload_bid. This is needed because
-        // BeaconState::new() created the header from BeaconBlock::empty() which has zero bid
-        // fields, but the spec requires the genesis block's bid to contain the EL block hash
-        // and the tree hash root of empty ExecutionRequests.
-        let block = genesis_block(&state, spec)?;
-        state.latest_block_header_mut().body_root = block.body_root();
     }
 
     // Now that we have our validators, initialize the caches (including the committees)
@@ -193,26 +184,13 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
     Ok(state)
 }
 
-/// Create an unsigned genesis `BeaconBlock` whose body matches the genesis state.
+/// Create an unsigned genesis `BeaconBlock`.
 ///
-/// For Gloas, the block's `signed_execution_payload_bid` is populated from the state's
-/// `latest_execution_payload_bid` so that the body root is consistent with
-/// `state.latest_block_header.body_root`.
-///
-/// The returned block has `state_root == Hash256::ZERO`; callers that need the real
-/// state root should set it themselves.
-pub fn genesis_block<E: EthSpec>(
-    genesis_state: &BeaconState<E>,
-    spec: &ChainSpec,
-) -> Result<BeaconBlock<E>, BeaconStateError> {
-    let mut block = BeaconBlock::empty(spec);
-    if let Ok(block) = block.as_gloas_mut() {
-        let state_bid = genesis_state.latest_execution_payload_bid()?;
-        let bid = &mut block.body.signed_execution_payload_bid.message;
-        bid.block_hash = state_bid.block_hash;
-        bid.execution_requests_root = state_bid.execution_requests_root;
-    }
-    Ok(block)
+/// Per spec, the genesis block body is empty (all default fields).
+/// `state.latest_block_header.body_root` is set from `BeaconBlock::empty()`,
+/// so this function must return the same empty block to keep roots consistent.
+pub fn genesis_block<E: EthSpec>(spec: &ChainSpec) -> Result<BeaconBlock<E>, BeaconStateError> {
+    Ok(BeaconBlock::empty(spec))
 }
 
 /// Determine whether a candidate genesis state is suitable for starting the chain.
