@@ -663,9 +663,10 @@ fn publish_payload_attestation_messages<T: BeaconChainTypes>(
     }
 }
 
-/// POST beacon/pool/proposer_preferences
+/// POST beacon/pool/proposer_preferences (JSON)
 pub fn post_beacon_pool_proposer_preferences<T: BeaconChainTypes>(
     network_tx_filter: &NetworkTxFilter<T>,
+    optional_consensus_version_header_filter: OptionalConsensusVersionHeaderFilter,
     beacon_pool_path: &BeaconPoolPathFilter<T>,
 ) -> ResponseFilter {
     beacon_pool_path
@@ -673,13 +674,62 @@ pub fn post_beacon_pool_proposer_preferences<T: BeaconChainTypes>(
         .and(warp::path("proposer_preferences"))
         .and(warp::path::end())
         .and(warp_utils::json::json())
+        .and(optional_consensus_version_header_filter)
         .and(network_tx_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              preferences: Vec<SignedProposerPreferences>,
+             _fork_name: Option<ForkName>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
+                    publish_proposer_preferences(&chain, &network_tx, preferences)
+                })
+            },
+        )
+        .boxed()
+}
+
+/// POST beacon/pool/proposer_preferences (SSZ)
+pub fn post_beacon_pool_proposer_preferences_ssz<T: BeaconChainTypes>(
+    eth_v1: EthV1Filter,
+    task_spawner_filter: TaskSpawnerFilter<T>,
+    chain_filter: ChainFilter<T>,
+    network_tx_filter: NetworkTxFilter<T>,
+) -> ResponseFilter {
+    eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("pool"))
+        .and(warp::path("proposer_preferences"))
+        .and(warp::path::end())
+        .and(warp::body::bytes())
+        .and(task_spawner_filter)
+        .and(chain_filter)
+        .and(network_tx_filter)
+        .then(
+            |body_bytes: Bytes,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                task_spawner.blocking_json_task(Priority::P0, move || {
+                    let item_len = <SignedProposerPreferences as Encode>::ssz_fixed_len();
+                    if !body_bytes.len().is_multiple_of(item_len) {
+                        return Err(warp_utils::reject::custom_bad_request(format!(
+                            "SSZ body length {} is not a multiple of SignedProposerPreferences size {}",
+                            body_bytes.len(),
+                            item_len,
+                        )));
+                    }
+                    let preferences: Vec<SignedProposerPreferences> = body_bytes
+                        .chunks(item_len)
+                        .map(|chunk| {
+                            SignedProposerPreferences::from_ssz_bytes(chunk).map_err(|e| {
+                                warp_utils::reject::custom_bad_request(format!(
+                                    "invalid SSZ: {e:?}"
+                                ))
+                            })
+                        })
+                        .collect::<Result<_, _>>()?;
                     publish_proposer_preferences(&chain, &network_tx, preferences)
                 })
             },

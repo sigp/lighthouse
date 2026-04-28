@@ -1490,7 +1490,7 @@ pub fn serve<T: BeaconChainTypes>(
     // POST beacon/pool/payload_attestations
     let post_beacon_pool_payload_attestations = post_beacon_pool_payload_attestations(
         &network_tx_filter,
-        optional_consensus_version_header_filter,
+        optional_consensus_version_header_filter.clone(),
         &beacon_pool_path,
     );
 
@@ -1510,9 +1510,20 @@ pub fn serve<T: BeaconChainTypes>(
     let post_beacon_pool_bls_to_execution_changes =
         post_beacon_pool_bls_to_execution_changes(&network_tx_filter, &beacon_pool_path);
 
-    // POST beacon/pool/proposer_preferences
-    let post_beacon_pool_proposer_preferences =
-        post_beacon_pool_proposer_preferences(&network_tx_filter, &beacon_pool_path);
+    // POST beacon/pool/proposer_preferences (JSON)
+    let post_beacon_pool_proposer_preferences = post_beacon_pool_proposer_preferences(
+        &network_tx_filter,
+        optional_consensus_version_header_filter,
+        &beacon_pool_path,
+    );
+
+    // POST beacon/pool/proposer_preferences (SSZ)
+    let post_beacon_pool_proposer_preferences_ssz = post_beacon_pool_proposer_preferences_ssz(
+        eth_v1.clone(),
+        task_spawner_filter.clone(),
+        chain_filter.clone(),
+        network_tx_filter.clone(),
+    );
 
     // POST beacon/execution_payload_envelope
     let post_beacon_execution_payload_envelope = post_beacon_execution_payload_envelope(
@@ -3420,7 +3431,8 @@ pub fn serve<T: BeaconChainTypes>(
                             .uor(post_beacon_blinded_blocks_ssz)
                             .uor(post_beacon_blinded_blocks_v2_ssz)
                             .uor(post_beacon_execution_payload_envelope_ssz)
-                            .uor(post_beacon_pool_payload_attestations_ssz),
+                            .uor(post_beacon_pool_payload_attestations_ssz)
+                            .uor(post_beacon_pool_proposer_preferences_ssz),
                     )
                     .uor(post_beacon_blocks)
                     .uor(post_beacon_blinded_blocks)

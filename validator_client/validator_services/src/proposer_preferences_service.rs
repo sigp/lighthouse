@@ -6,7 +6,7 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
-use types::{ChainSpec, Epoch, EthSpec, ProposerPreferences};
+use types::{ChainSpec, Epoch, EthSpec, ForkName, ProposerPreferences};
 use validator_store::ValidatorStore;
 
 pub struct Inner<S, T> {
@@ -87,7 +87,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
                 }
 
                 let current_epoch = current_slot.epoch(S::E::slots_per_epoch());
-                self.publish_proposer_preferences(current_epoch).await;
+                let fork_name = self.chain_spec.fork_name_at_slot::<S::E>(current_slot);
+                self.publish_proposer_preferences(current_epoch, fork_name)
+                    .await;
 
                 let duration_to_next_epoch = self
                     .slot_clock
@@ -101,7 +103,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
         Ok(())
     }
 
-    async fn publish_proposer_preferences(&self, current_epoch: Epoch) {
+    async fn publish_proposer_preferences(&self, current_epoch: Epoch, fork_name: ForkName) {
         // Collect all data needed while holding the lock, then drop it before any awaits.
         let preferences_to_sign: Vec<_> = {
             let proposers = self.duties_service.proposers.read();
@@ -180,12 +182,32 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
                 let signed = signed.clone();
                 async move {
                     beacon_node
-                        .post_beacon_pool_proposer_preferences(&signed)
+                        .post_beacon_pool_proposer_preferences_ssz(&signed, fork_name)
                         .await
-                        .map_err(|e| format!("Failed to publish proposer preferences: {e:?}"))
+                        .map_err(|e| format!("Failed to publish proposer preferences (SSZ): {e:?}"))
                 }
             })
             .await;
+
+        let result = match result {
+            Ok(()) => Ok(()),
+            Err(_) => {
+                debug!(%current_epoch, "SSZ publish failed, falling back to JSON");
+                self.beacon_nodes
+                    .first_success(|beacon_node| {
+                        let signed = signed.clone();
+                        async move {
+                            beacon_node
+                                .post_beacon_pool_proposer_preferences(&signed, fork_name)
+                                .await
+                                .map_err(|e| {
+                                    format!("Failed to publish proposer preferences (JSON): {e:?}")
+                                })
+                        }
+                    })
+                    .await
+            }
+        };
 
         match result {
             Ok(()) => {
