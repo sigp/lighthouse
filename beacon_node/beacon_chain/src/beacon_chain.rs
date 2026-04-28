@@ -61,6 +61,7 @@ use crate::observed_data_sidecars::ObservedDataSidecars;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::observed_slashable::ObservedSlashable;
 use crate::partial_data_column_assembler::PartialMergeResult;
+use crate::payload_attestation_verification::VerifiedPayloadAttestationMessage;
 use crate::payload_bid_verification::payload_bid_cache::GossipVerifiedPayloadBidCache;
 #[cfg(not(test))]
 use crate::payload_envelope_streamer::{EnvelopeRequestSource, launch_payload_envelope_stream};
@@ -2326,6 +2327,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 &ptc.0,
             )
             .map_err(Into::into)
+    }
+
+    /// Add a verified payload attestation message to the operation pool for block inclusion.
+    pub fn add_payload_attestation_to_pool(
+        &self,
+        verified: &VerifiedPayloadAttestationMessage<T>,
+    ) -> Result<(), Error> {
+        self.op_pool
+            .insert_payload_attestation_message(verified.payload_attestation_message().clone())
+            .map_err(Error::OpPoolError)?;
+        Ok(())
     }
 
     /// Accepts some `SyncCommitteeMessage` from the network and attempts to verify it, returning `Ok(_)` if
