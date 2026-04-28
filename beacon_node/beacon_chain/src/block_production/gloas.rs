@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -138,6 +138,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         graffiti_settings: GraffitiSettings,
         verification: ProduceBlockVerification,
     ) -> Result<BlockProductionResult<T::EthSpec>, BlockProductionError> {
+        // Extract the parent's execution requests from the envelope (if parent was full).
+        let parent_execution_requests = if parent_payload_status == PayloadStatus::Full {
+            parent_envelope
+                .as_ref()
+                .map(|env| env.message.execution_requests.clone())
+                .ok_or(BlockProductionError::MissingParentExecutionPayload)?
+        } else {
+            ExecutionRequests::default()
+        };
+
         // Part 1/3 (blocking)
         //
         // Perform the state advance and block-packing functions.
@@ -146,6 +156,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .graffiti_calculator
             .get_graffiti(graffiti_settings)
             .await;
+        let parent_execution_requests_ref = parent_execution_requests.clone();
         let (partial_beacon_block, state) = self
             .task_executor
             .spawn_blocking_handle(
@@ -156,6 +167,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         produce_at_slot,
                         randao_reveal,
                         graffiti,
+                        &parent_execution_requests_ref,
                     )
                 },
                 "produce_partial_beacon_block_gloas",
@@ -163,16 +175,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(BlockProductionError::ShuttingDown)?
             .await
             .map_err(BlockProductionError::TokioJoin)??;
-
-        // Extract the parent's execution requests from the envelope (if parent was full).
-        let parent_execution_requests = if parent_payload_status == PayloadStatus::Full {
-            parent_envelope
-                .as_ref()
-                .map(|env| env.message.execution_requests.clone())
-                .ok_or(BlockProductionError::MissingParentExecutionPayload)?
-        } else {
-            ExecutionRequests::default()
-        };
 
         // Part 2/3 (async)
         //
@@ -224,6 +226,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         produce_at_slot: Slot,
         randao_reveal: Signature,
         graffiti: Graffiti,
+        parent_execution_requests: &ExecutionRequests<T::EthSpec>,
     ) -> Result<(PartialBeaconBlock<T::EthSpec>, BeaconState<T::EthSpec>), BlockProductionError>
     {
         // It is invalid to try to produce a block using a state from a future slot.
@@ -257,6 +260,31 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let slashings_and_exits_span = debug_span!("get_slashings_and_exits").entered();
         let (mut proposer_slashings, mut attester_slashings, mut voluntary_exits) =
             self.op_pool.get_slashings_and_exits(&state, &self.spec);
+
+        // Filter out voluntary exits that conflict with parent execution requests.
+        let mut exited_pubkeys = HashSet::with_capacity(
+            parent_execution_requests.withdrawals.len()
+                + parent_execution_requests.consolidations.len(),
+        );
+        for req in &parent_execution_requests.withdrawals {
+            if req.amount == self.spec.full_exit_request_amount {
+                exited_pubkeys.insert(req.validator_pubkey);
+            }
+        }
+        for req in &parent_execution_requests.consolidations {
+            if req.source_pubkey != req.target_pubkey {
+                exited_pubkeys.insert(req.source_pubkey);
+            }
+        }
+        if !exited_pubkeys.is_empty() {
+            voluntary_exits.retain(|exit| {
+                state
+                    .validators()
+                    .get(exit.message.validator_index as usize)
+                    .map(|v| !exited_pubkeys.contains(&v.pubkey))
+                    .unwrap_or(false)
+            });
+        }
 
         drop(slashings_and_exits_span);
 
