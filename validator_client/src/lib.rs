@@ -553,7 +553,6 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             beacon_nodes.clone(),
             context.executor.clone(),
         );
-
         let payload_attestation_service = PayloadAttestationService::new(
             duties_service.clone(),
             validator_store.clone(),
