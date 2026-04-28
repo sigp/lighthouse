@@ -147,7 +147,7 @@ impl<E: EthSpec> ExecutedEnvelope<E> {
                 block_hash,
                 envelope,
             } => Self::Available(AvailableExecutedEnvelope::new(
-                AvailableEnvelope::new(block_hash, envelope, vec![].into(), None, spec),
+                AvailableEnvelope::new(block_hash, envelope, vec![], None, spec),
                 import_data,
                 payload_verification_outcome,
             )),
