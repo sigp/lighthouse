@@ -296,6 +296,35 @@ pub fn blobs_to_data_column_sidecars<E: EthSpec>(
     }
 }
 
+/// Build Gloas data column sidecars from blobs, computing cells and proofs locally.
+pub fn blobs_to_data_column_sidecars_gloas<E: EthSpec>(
+    blobs: &[&Blob<E>],
+    beacon_block_root: Hash256,
+    slot: Slot,
+    kzg: &Kzg,
+    spec: &ChainSpec,
+) -> Result<DataColumnSidecarList<E>, DataColumnSidecarError> {
+    if blobs.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let blob_cells_and_proofs_vec = blobs
+        .into_par_iter()
+        .map(|blob| {
+            let blob = blob.as_ref().try_into().map_err(|e| {
+                KzgError::InconsistentArrayLength(format!(
+                    "blob should have a guaranteed size due to FixedVector: {e:?}"
+                ))
+            })?;
+
+            kzg.compute_cells_and_proofs(blob)
+        })
+        .collect::<Result<Vec<_>, KzgError>>()?;
+
+    build_data_column_sidecars_gloas(beacon_block_root, slot, blob_cells_and_proofs_vec, spec)
+        .map_err(DataColumnSidecarError::BuildSidecarFailed)
+}
+
 /// Build data column sidecars from a signed beacon block and its blobs.
 #[instrument(skip_all, level = "debug", fields(blob_count = blobs_and_proofs.len()))]
 pub fn blobs_to_partial_data_columns<E: EthSpec>(
@@ -728,8 +757,8 @@ pub fn reconstruct_data_columns<E: EthSpec>(
 #[cfg(test)]
 mod test {
     use crate::kzg_utils::{
-        blobs_to_data_column_sidecars, reconstruct_blobs, reconstruct_data_columns,
-        validate_full_data_columns,
+        blobs_to_data_column_sidecars, blobs_to_data_column_sidecars_gloas, reconstruct_blobs,
+        reconstruct_data_columns, validate_full_data_columns,
     };
     use bls::Signature;
     use eth2::types::BlobsBundle;
@@ -737,25 +766,30 @@ mod test {
     use kzg::{Kzg, KzgCommitment, trusted_setup::get_trusted_setup};
     use types::{
         BeaconBlock, BeaconBlockFulu, BlobsList, ChainSpec, EmptyBlock, EthSpec, ForkName,
-        FullPayload, KzgProofs, MainnetEthSpec, SignedBeaconBlock, kzg_ext::KzgCommitments,
+        FullPayload, Hash256, KzgProofs, MainnetEthSpec, SignedBeaconBlock, Slot,
+        kzg_ext::KzgCommitments,
     };
 
     type E = MainnetEthSpec;
 
     // Loading and initializing PeerDAS KZG is expensive and slow, so we group the tests together
     // only load it once.
-    // TODO(Gloas) make this generic over fulu/gloas, or write a separate function for Gloas
     #[test]
     fn test_build_data_columns_sidecars() {
-        let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
         let kzg = get_kzg();
-        test_build_data_columns_empty(&kzg, &spec);
-        test_build_data_columns_fulu(&kzg, &spec);
-        test_reconstruct_data_columns(&kzg, &spec);
-        test_reconstruct_data_columns_unordered(&kzg, &spec);
-        test_reconstruct_blobs_from_data_columns(&kzg, &spec);
-        test_reconstruct_blobs_from_data_columns_unordered(&kzg, &spec);
-        test_validate_data_columns(&kzg, &spec);
+
+        let fulu_spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+        test_build_data_columns_empty(&kzg, &fulu_spec);
+        test_build_data_columns_fulu(&kzg, &fulu_spec);
+        test_reconstruct_data_columns(&kzg, &fulu_spec);
+        test_reconstruct_data_columns_unordered(&kzg, &fulu_spec);
+        test_reconstruct_blobs_from_data_columns(&kzg, &fulu_spec);
+        test_reconstruct_blobs_from_data_columns_unordered(&kzg, &fulu_spec);
+        test_validate_data_columns(&kzg, &fulu_spec);
+
+        let gloas_spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
+        test_build_data_columns_gloas(&kzg, &gloas_spec);
+        test_build_data_columns_gloas_empty(&kzg, &gloas_spec);
     }
 
     #[track_caller]
@@ -784,8 +818,49 @@ mod test {
         assert!(column_sidecars.is_empty());
     }
 
-    // TODO(gloas) create `test_build_data_columns_gloas` and make sure its called
-    // in the relevant places
+    #[track_caller]
+    fn test_build_data_columns_gloas(kzg: &Kzg, spec: &ChainSpec) {
+        let num_of_blobs = 2;
+        let (blobs, _proofs) = create_test_gloas_blobs::<E>(num_of_blobs);
+        let beacon_block_root = Hash256::random();
+        let slot = Slot::new(0);
+
+        let blob_refs: Vec<_> = blobs.iter().collect();
+        let column_sidecars = blobs_to_data_column_sidecars_gloas::<E>(
+            &blob_refs,
+            beacon_block_root,
+            slot,
+            kzg,
+            spec,
+        )
+        .unwrap();
+
+        assert_eq!(column_sidecars.len(), E::number_of_columns());
+        for (idx, col_sidecar) in column_sidecars.iter().enumerate() {
+            assert_eq!(*col_sidecar.index(), idx as u64);
+            assert_eq!(col_sidecar.column().len(), num_of_blobs);
+            assert_eq!(col_sidecar.kzg_proofs().len(), num_of_blobs);
+
+            let gloas_col = col_sidecar.as_gloas().expect("should be Gloas sidecar");
+            assert_eq!(gloas_col.beacon_block_root, beacon_block_root);
+            assert_eq!(gloas_col.slot, slot);
+        }
+    }
+
+    #[track_caller]
+    fn test_build_data_columns_gloas_empty(kzg: &Kzg, spec: &ChainSpec) {
+        let blob_refs: Vec<&types::Blob<E>> = vec![];
+        let column_sidecars = blobs_to_data_column_sidecars_gloas::<E>(
+            &blob_refs,
+            Hash256::random(),
+            Slot::new(0),
+            kzg,
+            spec,
+        )
+        .unwrap();
+        assert!(column_sidecars.is_empty());
+    }
+
     #[track_caller]
     fn test_build_data_columns_fulu(kzg: &Kzg, spec: &ChainSpec) {
         // Using at least 2 blobs to make sure we're arranging the data columns correctly.
@@ -973,5 +1048,10 @@ mod test {
             .unwrap() = commitments;
 
         (signed_block, blobs, proofs)
+    }
+
+    fn create_test_gloas_blobs<E: EthSpec>(num_of_blobs: usize) -> (BlobsList<E>, KzgProofs<E>) {
+        let (blobs_bundle, _) = generate_blobs::<E>(num_of_blobs, ForkName::Gloas).unwrap();
+        (blobs_bundle.blobs, blobs_bundle.proofs)
     }
 }
