@@ -1050,7 +1050,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    fn handle_unknown_block_root(&mut self, peer_id: PeerId, block_root: Hash256, block_component: Option<BlockComponent<T::EthSpec>>,
+    fn handle_unknown_block_root(
+        &mut self,
+        peer_id: PeerId,
+        block_root: Hash256,
+        block_component: Option<BlockComponent<T::EthSpec>>,
     ) {
         match self.should_search_for_block(None, &peer_id) {
             Ok(_) => {
