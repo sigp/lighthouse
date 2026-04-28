@@ -53,8 +53,8 @@ use types::{
 };
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
-    ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadFulu, FullPayload,
-    ProposerPreparationData, Slot,
+    ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadFulu,
+    ExecutionPayloadHeaderFulu, FullPayload, ProposerPreparationData, Slot,
 };
 
 mod block_hash;
@@ -216,6 +216,24 @@ pub struct BlockProposalContentsGloas<E: EthSpec> {
     pub blobs_and_proofs: (BlobsList<E>, KzgProofs<E>),
     pub execution_requests: ExecutionRequests<E>,
     pub should_override_builder: bool,
+}
+
+/// Output of a Gloas self-build payload fetch, after racing local EL against any
+/// configured mev-boost relay using the existing pre-Gloas selection rules.
+/// Both variants are wrapped as a self-build bid (`builder_index = u64::MAX`,
+/// infinity sig) at the producer.
+pub enum GloasPayloadSource<E: EthSpec> {
+    /// Full payload from local EL.
+    Local(BlockProposalContentsGloas<E>),
+    /// Blinded relay header (Fulu wire shape — Gloas bid fields derive from
+    /// it). Full payload + blobs unblind via the existing mev-boost endpoint
+    /// before envelope publication.
+    Builder {
+        header: ExecutionPayloadHeaderFulu<E>,
+        blob_kzg_commitments: KzgCommitments<E>,
+        execution_requests: ExecutionRequests<E>,
+        value_wei: Uint256,
+    },
 }
 
 impl<E: EthSpec> From<GetPayloadResponseGloas<E>> for BlockProposalContentsGloas<E> {
@@ -913,6 +931,68 @@ impl<E: EthSpec> ExecutionLayer<E> {
     ///
     /// The result will be returned from the first node that returns successfully. No more nodes
     /// will be contacted.
+    /// Gloas self-build payload fetch with mev-boost race.
+    ///
+    /// When a builder is configured, reuses the pre-Gloas `get_payload` race
+    /// (with `builder_boost_factor` selection rules) and adapts the result to
+    /// a Gloas-shaped source. The relay's `BuilderBid::Gloas` wire format
+    /// reuses Fulu (`ExecutionPayloadHeaderFulu`); the producer extracts the
+    /// bid fields and wraps as a Gloas self-build bid.
+    #[instrument(level = "debug", skip_all)]
+    pub async fn get_payload_gloas_with_builder(
+        &self,
+        payload_parameters: PayloadParameters<'_>,
+        builder_params: BuilderParams,
+        builder_boost_factor: Option<u64>,
+        spec: &ChainSpec,
+    ) -> Result<GloasPayloadSource<E>, Error> {
+        if self.builder().is_none() {
+            return self
+                .get_payload_gloas(payload_parameters)
+                .await
+                .map(GloasPayloadSource::Local);
+        }
+        match self
+            .get_payload(
+                payload_parameters,
+                builder_params,
+                spec,
+                builder_boost_factor,
+                BlockProductionVersion::V3,
+            )
+            .await?
+        {
+            BlockProposalContentsType::Full(_) => self
+                .get_payload_gloas(payload_parameters)
+                .await
+                .map(GloasPayloadSource::Local),
+            BlockProposalContentsType::Blinded(BlockProposalContents::PayloadAndBlobs {
+                payload,
+                block_value,
+                kzg_commitments,
+                requests,
+                ..
+            }) => {
+                let ExecutionPayloadHeader::Fulu(header) = payload.to_execution_payload_header()
+                else {
+                    return Err(Error::Unexpected(
+                        "Gloas relay returned non-Fulu-shaped header".into(),
+                    ));
+                };
+                Ok(GloasPayloadSource::Builder {
+                    header,
+                    blob_kzg_commitments: kzg_commitments,
+                    execution_requests: requests
+                        .ok_or_else(|| Error::Unexpected("Gloas relay missing requests".into()))?,
+                    value_wei: block_value,
+                })
+            }
+            BlockProposalContentsType::Blinded(BlockProposalContents::Payload { .. }) => Err(
+                Error::Unexpected("blinded Gloas payload missing blob commitments".into()),
+            ),
+        }
+    }
+
     #[instrument(level = "debug", skip_all)]
     pub async fn get_payload_gloas(
         &self,

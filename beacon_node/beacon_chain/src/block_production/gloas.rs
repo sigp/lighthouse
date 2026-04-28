@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use bls::{PublicKeyBytes, Signature};
 use execution_layer::{
-    BlockProposalContentsGloas, BuilderParams, PayloadAttributes, PayloadParameters,
+    BlockProposalContentsGloas, BuilderParams, GloasPayloadSource, PayloadAttributes,
+    PayloadParameters,
 };
 use fork_choice::PayloadStatus;
 use operation_pool::CompactAttestationRef;
@@ -48,7 +49,7 @@ pub const EXECUTION_PAYMENT_TRUSTLESS_BUILD: u64 = 0;
 type ConsensusBlockValue = u64;
 type BlockProductionResult<E> = (BeaconBlock<E>, BeaconState<E>, ConsensusBlockValue);
 
-pub type PreparePayloadResult<E> = Result<BlockProposalContentsGloas<E>, BlockProductionError>;
+pub type PreparePayloadResult<E> = Result<GloasPayloadSource<E>, BlockProductionError>;
 pub type PreparePayloadHandle<E> = JoinHandle<Option<PreparePayloadResult<E>>>;
 
 pub struct PartialBeaconBlock<E: EthSpec> {
@@ -78,13 +79,17 @@ pub struct ExecutionPayloadData<E: types::EthSpec> {
     pub blobs_and_proofs: (types::BlobsList<E>, types::KzgProofs<E>),
 }
 
-/// The result of a local payload build, used to decide whether to include a builder bid
-/// from the gossip cache or fall back to self-build.
+/// The result of a self-build payload acquisition, used to decide whether to include
+/// a builder bid from the gossip cache or fall back to self-build.
+///
+/// `payload_data` is `None` when the self-build wraps a blinded relay header — the
+/// proposer will unblind via mev-boost before envelope publication.
 pub struct LocalBuildResult<E: EthSpec> {
-    pub payload_data: ExecutionPayloadData<E>,
-    /// EL block value (in wei) of the locally-built payload.
+    pub payload_data: Option<ExecutionPayloadData<E>>,
+    /// Self-build candidate value (in wei).
     pub payload_value: types::Uint256,
-    /// `true` if the EL signaled `engine_getPayload`'s `shouldOverrideBuilder` flag.
+    /// `true` if the local EL signaled `shouldOverrideBuilder` (only meaningful for
+    /// the local-EL self-build path).
     pub should_override_builder: bool,
 }
 
@@ -202,6 +207,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 produce_at_slot,
                 BID_VALUE_SELF_BUILD,
                 BUILDER_INDEX_SELF_BUILD,
+                builder_boost_factor,
             )
             .await?;
 
@@ -702,6 +708,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// For local building, payload data is always returned (`Some`).
     /// For trustless building, the builder provides the envelope separately, so `None` is returned.
     #[allow(clippy::type_complexity)]
+    #[allow(clippy::too_many_arguments)]
     #[instrument(level = "debug", skip_all)]
     pub async fn produce_execution_payload_bid(
         self: Arc<Self>,
@@ -711,6 +718,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         produce_at_slot: Slot,
         bid_value: u64,
         builder_index: BuilderIndex,
+        builder_boost_factor: Option<u64>,
     ) -> Result<
         (
             SignedExecutionPayloadBid<T::EthSpec>,
@@ -768,8 +776,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
 
         // TODO(gloas) this should be BlockProductionVersion::V4
-        // V3 is okay for now as long as we're not connected to a builder
-        // TODO(gloas) add builder boost factor
         let prepare_payload_handle = get_execution_payload_gloas(
             self.clone(),
             &state,
@@ -778,46 +784,83 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             parent_envelope,
             proposer_index,
             builder_params,
+            builder_boost_factor,
         )?;
 
-        let block_proposal_contents = prepare_payload_handle
+        let payload_source = prepare_payload_handle
             .await
             .map_err(BlockProductionError::TokioJoin)?
             .ok_or(BlockProductionError::ShuttingDown)??;
 
-        let BlockProposalContentsGloas {
-            payload,
-            payload_value,
-            execution_requests,
+        // Build a Gloas self-build bid from either the local-EL full payload or
+        // the relay's blinded header. `bid_value` is 0 for self-build regardless;
+        // the value used for the boost-factor compare against the p2p bid is the
+        // EL block-value (local) or relay bid value (builder), in wei.
+        let (
+            bid_fields,
             blob_kzg_commitments,
-            blobs_and_proofs,
+            exec_requests_root,
+            payload_value,
+            payload_data,
             should_override_builder,
-        } = block_proposal_contents;
+        ) = match payload_source {
+            GloasPayloadSource::Local(BlockProposalContentsGloas {
+                payload,
+                payload_value,
+                execution_requests,
+                blob_kzg_commitments,
+                blobs_and_proofs,
+                should_override_builder,
+            }) => {
+                let block_hash = payload.block_hash;
+                let prev_randao = payload.prev_randao;
+                let gas_limit = payload.gas_limit;
+                let exec_requests_root = execution_requests.tree_hash_root();
+                let payload_data = ExecutionPayloadData {
+                    payload,
+                    execution_requests,
+                    builder_index,
+                    slot: produce_at_slot,
+                    blobs_and_proofs,
+                };
+                (
+                    (block_hash, prev_randao, gas_limit),
+                    blob_kzg_commitments,
+                    exec_requests_root,
+                    payload_value,
+                    Some(payload_data),
+                    should_override_builder,
+                )
+            }
+            GloasPayloadSource::Builder {
+                header,
+                blob_kzg_commitments,
+                execution_requests,
+                value_wei,
+            } => (
+                (header.block_hash, header.prev_randao, header.gas_limit),
+                blob_kzg_commitments,
+                execution_requests.tree_hash_root(),
+                value_wei,
+                None,
+                false,
+            ),
+        };
+        let (block_hash, prev_randao, gas_limit) = bid_fields;
 
-        // TODO(gloas) since we are defaulting to local building, execution payment is 0
-        // execution payment should only be set to > 0 for trusted building.
         let bid = ExecutionPayloadBid::<T::EthSpec> {
             parent_block_hash,
             parent_block_root: parent_root,
-            block_hash: payload.block_hash,
-            prev_randao: payload.prev_randao,
+            block_hash,
+            prev_randao,
             fee_recipient: Address::ZERO,
-            gas_limit: payload.gas_limit,
+            gas_limit,
             builder_index,
             slot: produce_at_slot,
             value: bid_value,
             execution_payment: EXECUTION_PAYMENT_TRUSTLESS_BUILD,
             blob_kzg_commitments,
-            execution_requests_root: execution_requests.tree_hash_root(),
-        };
-
-        // Store payload data for envelope construction after block is created
-        let payload_data = ExecutionPayloadData {
-            payload,
-            execution_requests,
-            builder_index,
-            slot: produce_at_slot,
-            blobs_and_proofs,
+            execution_requests_root: exec_requests_root,
         };
 
         Ok((
@@ -885,7 +928,7 @@ pub(crate) fn select_payload_bid_pure<E: EthSpec>(
     } = local_build;
 
     let Some(cached_bid) = cached_bid else {
-        return (local_signed_bid, Some(payload_data));
+        return (local_signed_bid, payload_data);
     };
 
     let slot = local_signed_bid.message.slot;
@@ -896,7 +939,7 @@ pub(crate) fn select_payload_bid_pure<E: EthSpec>(
             cached_bid_value = cached_bid.message.value,
             "Using local payload because EL signaled shouldOverrideBuilder"
         );
-        return (local_signed_bid, Some(payload_data));
+        return (local_signed_bid, payload_data);
     }
 
     // Convert bid value (gwei) to wei for comparison with `payload_value` (wei).
@@ -917,7 +960,7 @@ pub(crate) fn select_payload_bid_pure<E: EthSpec>(
             ?builder_boost_factor,
             "Local payload is more profitable than cached builder bid"
         );
-        (local_signed_bid, Some(payload_data))
+        (local_signed_bid, payload_data)
     } else {
         debug!(
             %slot,
@@ -937,6 +980,7 @@ pub(crate) fn select_payload_bid_pure<E: EthSpec>(
 ///
 /// Will return an error when using a pre-Gloas `state`. Ensure to only run this function
 /// after the Gloas fork.
+#[allow(clippy::too_many_arguments)]
 fn get_execution_payload_gloas<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     state: &BeaconState<T::EthSpec>,
@@ -945,6 +989,7 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
     parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
     proposer_index: u64,
     builder_params: BuilderParams,
+    builder_boost_factor: Option<u64>,
 ) -> Result<PreparePayloadHandle<T::EthSpec>, BlockProductionError> {
     // Compute all required values from the `state` now to avoid needing to pass it into a spawned
     // task.
@@ -998,6 +1043,7 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
                     builder_params,
                     withdrawals,
                     parent_beacon_block_root,
+                    builder_boost_factor,
                 )
                 .await
             }
@@ -1026,7 +1072,8 @@ async fn prepare_execution_payload<T>(
     builder_params: BuilderParams,
     withdrawals: Vec<Withdrawal>,
     parent_beacon_block_root: Hash256,
-) -> Result<BlockProposalContentsGloas<T::EthSpec>, BlockProductionError>
+    builder_boost_factor: Option<u64>,
+) -> Result<GloasPayloadSource<T::EthSpec>, BlockProductionError>
 where
     T: BeaconChainTypes,
 {
@@ -1080,12 +1127,17 @@ where
         current_fork: fork,
     };
 
-    let block_contents = execution_layer
-        .get_payload_gloas(payload_parameters)
+    let payload_source = execution_layer
+        .get_payload_gloas_with_builder(
+            payload_parameters,
+            builder_params,
+            builder_boost_factor,
+            spec,
+        )
         .await
         .map_err(BlockProductionError::GetPayloadFailed)?;
 
-    Ok(block_contents)
+    Ok(payload_source)
 }
 
 /// Drop voluntary exits whose target validators will be exited by the parent envelope's
@@ -1293,13 +1345,13 @@ mod tests {
 
     fn local_build(payload_gwei: u64, should_override_builder: bool) -> LocalBuildResult<TestSpec> {
         LocalBuildResult {
-            payload_data: ExecutionPayloadData {
+            payload_data: Some(ExecutionPayloadData {
                 payload: types::ExecutionPayloadGloas::default(),
                 execution_requests: ExecutionRequests::default(),
                 builder_index: BUILDER_INDEX_SELF_BUILD,
                 slot: Slot::new(0),
                 blobs_and_proofs: (VariableList::empty(), VariableList::empty()),
-            },
+            }),
             payload_value: gwei(payload_gwei),
             should_override_builder,
         }
