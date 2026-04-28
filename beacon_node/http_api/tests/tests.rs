@@ -2803,6 +2803,12 @@ impl ApiTester {
         let fork = head.beacon_state.fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
+        // Gossip propagation requires the message slot to be within
+        // `MAXIMUM_GOSSIP_CLOCK_DISPARITY` of the slot clock. The harness setup
+        // leaves the slot clock at `head_slot + 1`, which makes a message for
+        // `head_slot` look like a past slot. Rewind the clock to the head slot.
+        self.chain.slot_clock.set_slot(head_slot.as_u64());
+
         let ptc = head
             .beacon_state
             .get_ptc(head_slot, &self.chain.spec)
@@ -8339,9 +8345,22 @@ async fn post_beacon_pool_payload_attestations_valid() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
-    ApiTester::new()
+    ApiTester::new_with_hard_forks()
         .await
         .test_post_beacon_pool_payload_attestations_valid()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_beacon_pool_payload_attestations_valid_ssz() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    // Use a separate harness from the JSON variant so that the SSZ sub-test does
+    // not collide with the JSON sub-test in the gossip dedup cache (with the
+    // small `VALIDATOR_COUNT` used by these tests, the slot's PTC may hold only
+    // one distinct validator, making the second message a duplicate).
+    ApiTester::new_with_hard_forks()
         .await
         .test_post_beacon_pool_payload_attestations_valid_ssz()
         .await;
