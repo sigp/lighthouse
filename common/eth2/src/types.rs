@@ -1883,7 +1883,9 @@ impl<E: EthSpec> FullBlockContents<E> {
 
     /// SSZ decode with fork variant passed in explicitly.
     pub fn from_ssz_bytes_for_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
-        if fork_name.deneb_enabled() {
+        // TODO(gloas): revisit when produceBlockV4 PR is finalised
+        // https://github.com/ethereum/beacon-APIs/pull/580
+        if fork_name.deneb_enabled() && !fork_name.gloas_enabled() {
             let mut builder = ssz::SszDecoderBuilder::new(bytes);
 
             builder.register_anonymous_variable_length_item()?;
@@ -2050,15 +2052,20 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for PublishBlockRequest<
         let value =
             serde_json::Value::deserialize(deserializer).map_err(serde::de::Error::custom)?;
 
-        SignedBlockContents::<E>::context_deserialize(&value, context)
-            .map(PublishBlockRequest::BlockContents)
-            .or_else(|_| {
-                Arc::<SignedBeaconBlock<E>>::context_deserialize(&value, context)
-                    .map(PublishBlockRequest::Block)
-            })
-            .map_err(|_| {
-                serde::de::Error::custom("could not match any variant of PublishBlockRequest")
-            })
+        if context.gloas_enabled() {
+            Arc::<SignedBeaconBlock<E>>::context_deserialize(&value, context)
+                .map(PublishBlockRequest::Block)
+        } else {
+            SignedBlockContents::<E>::context_deserialize(&value, context)
+                .map(PublishBlockRequest::BlockContents)
+                .or_else(|_| {
+                    Arc::<SignedBeaconBlock<E>>::context_deserialize(&value, context)
+                        .map(PublishBlockRequest::Block)
+                })
+                .map_err(|_| {
+                    serde::de::Error::custom("could not match any variant of PublishBlockRequest")
+                })
+        }
     }
 }
 
@@ -2496,7 +2503,7 @@ mod test {
         for fork_name in ForkName::list_all() {
             let signed_beacon_block =
                 map_fork_name!(fork_name, SignedBeaconBlock, <_>::random_for_test(rng));
-            let request = if fork_name.deneb_enabled() {
+            let request = if fork_name.deneb_enabled() && !fork_name.gloas_enabled() {
                 let kzg_proofs = KzgProofs::<MainnetEthSpec>::random_for_test(rng);
                 let blobs = BlobsList::<MainnetEthSpec>::random_for_test(rng);
                 let block_contents = SignedBlockContents {
