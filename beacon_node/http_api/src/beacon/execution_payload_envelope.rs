@@ -128,7 +128,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     })?;
 
     // Build and publish data column sidecars from the blobs.
-    if let Some((blobs, _kzg_proofs)) = blobs_and_proofs
+    if let Some(blobs) = blobs_and_proofs
         && !blobs.is_empty()
     {
         let gossip_verified_columns =

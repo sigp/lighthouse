@@ -6,11 +6,11 @@
 //! and publishes the payload.
 
 use std::collections::HashMap;
-use types::{BlobsList, EthSpec, ExecutionPayloadEnvelope, KzgProofs, Slot};
+use types::{BlobsList, EthSpec, ExecutionPayloadEnvelope, Slot};
 
 pub struct PendingEnvelopeData<E: EthSpec> {
     pub envelope: ExecutionPayloadEnvelope<E>,
-    pub blobs_and_proofs: Option<(BlobsList<E>, KzgProofs<E>)>,
+    pub blobs: Option<BlobsList<E>>,
 }
 
 /// Cache for pending execution payload envelopes awaiting publishing.
@@ -53,10 +53,8 @@ impl<E: EthSpec> PendingPayloadEnvelopes<E> {
     }
 
     /// Remove and return the blobs and proofs for a slot, leaving the envelope in place.
-    pub fn take_blobs(&mut self, slot: Slot) -> Option<(BlobsList<E>, KzgProofs<E>)> {
-        self.envelopes
-            .get_mut(&slot)
-            .and_then(|d| d.blobs_and_proofs.take())
+    pub fn take_blobs(&mut self, slot: Slot) -> Option<BlobsList<E>> {
+        self.envelopes.get_mut(&slot).and_then(|d| d.blobs.take())
     }
 
     /// Remove and return a pending envelope by slot.
@@ -92,7 +90,7 @@ impl<E: EthSpec> PendingPayloadEnvelopes<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{ExecutionPayloadGloas, ExecutionRequests, Hash256, KzgProofs, MainnetEthSpec};
+    use types::{ExecutionPayloadGloas, ExecutionRequests, Hash256, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 
@@ -107,7 +105,7 @@ mod tests {
                 builder_index: 0,
                 beacon_block_root: Hash256::ZERO,
             },
-            blobs_and_proofs: None,
+            blobs: None,
         }
     }
 
@@ -150,10 +148,9 @@ mod tests {
         let slot = Slot::new(1);
 
         let blobs = BlobsList::<E>::default();
-        let proofs = KzgProofs::<E>::default();
         let data = PendingEnvelopeData {
             envelope: make_envelope(slot).envelope,
-            blobs_and_proofs: Some((blobs, proofs)),
+            blobs: Some(blobs),
         };
         cache.insert(slot, data);
 

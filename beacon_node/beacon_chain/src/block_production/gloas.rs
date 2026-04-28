@@ -607,12 +607,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let envelope_slot = payload_data.slot;
             // TODO(gloas) might be safer to cache by root instead of by slot.
             // We should revisit this once this code path + beacon api spec matures
-            let blobs_and_proofs = payload_data.blobs_and_proofs;
+            let (blobs, _) = payload_data.blobs_and_proofs;
             self.pending_payload_envelopes.write().insert(
                 envelope_slot,
                 PendingEnvelopeData {
                     envelope: signed_envelope.message,
-                    blobs_and_proofs: Some(blobs_and_proofs),
+                    blobs: Some(blobs),
                 },
             );
 
