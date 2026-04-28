@@ -470,7 +470,9 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         pending_components: MappedRwLockReadGuard<'_, PendingComponents<T::EthSpec>>,
         num_expected_columns: usize,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        if let Some(available_envelope) = pending_components.make_available(num_expected_columns)? {
+        if let Some(available_envelope) =
+            pending_components.make_available(block_root, num_expected_columns)?
+        {
             // Explicitly drop read lock before acquiring write lock
             drop(pending_components);
             if let Some(components) = self.availability_cache.write().get_mut(&block_root) {
@@ -534,23 +536,17 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
             return ReconstructColumnsDecision::No("block already imported");
         };
 
-        let Some(epoch) = pending_components
-            .verified_data_columns
-            .first()
-            .map(|c| c.as_data_column().epoch())
-        else {
-            return ReconstructColumnsDecision::No("not enough columns");
-        };
+        let epoch = pending_components.epoch();
 
         let total_column_count = T::EthSpec::number_of_columns();
         let sampling_column_count = self
             .custody_context
             .num_of_data_columns_to_sample(epoch, &self.spec);
-        let received_column_count = pending_components.verified_data_columns.len();
 
         if pending_components.reconstruction_started {
             return ReconstructColumnsDecision::No("already started");
         }
+        let received_column_count = pending_components.num_completed_columns();
         if received_column_count >= sampling_column_count {
             return ReconstructColumnsDecision::No("all sampling columns received");
         }
@@ -559,7 +555,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         }
 
         pending_components.reconstruction_started = true;
-        ReconstructColumnsDecision::Yes(pending_components.verified_data_columns.clone())
+        ReconstructColumnsDecision::Yes(pending_components.get_cached_data_columns(block_root))
     }
 
     /// This could mean some invalid data columns made it through to the `DataAvailabilityChecker`.

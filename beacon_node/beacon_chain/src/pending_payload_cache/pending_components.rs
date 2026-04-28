@@ -30,6 +30,16 @@ pub struct PendingComponents<E: EthSpec> {
 }
 
 impl<E: EthSpec> PendingComponents<E> {
+    /// Returns the completed custody columns
+    pub fn get_cached_data_columns(&self, block_root: Hash256) -> Vec<Arc<DataColumnSidecar<E>>> {
+        self.verified_data_columns
+            .iter()
+            .filter_map(|(col_idx, col)| {
+                col.try_to_sidecar(*col_idx, self.slot, block_root, self.num_blobs_expected)
+            })
+            .collect()
+    }
+
     /// Returns the indices of cached custody columns
     pub fn get_cached_data_columns_indices(&self) -> Vec<ColumnIndex> {
         self.verified_data_columns
@@ -81,6 +91,13 @@ impl<E: EthSpec> PendingComponents<E> {
         self.num_blobs_expected
     }
 
+    pub fn num_completed_columns(&self) -> usize {
+        self.verified_data_columns
+            .iter()
+            .filter_map(|(_, col)| col.is_complete(self.num_blobs_expected).then_some(()))
+            .count()
+    }
+
     /// Returns `Some` if the envelope and all required data columns have been received.
     pub fn make_available(
         &self,
@@ -104,14 +121,7 @@ impl<E: EthSpec> PendingComponents<E> {
             });
             vec![]
         } else {
-            let data_columns: Vec<_> = self
-                .verified_data_columns
-                .iter()
-                .filter_map(|(col_idx, col)| {
-                    col.try_to_sidecar(*col_idx, self.slot, block_hash, self.num_blobs_expected)
-                })
-                .collect();
-            let num_completed_columns = data_columns.len();
+            let num_completed_columns = self.num_completed_columns();
             match num_completed_columns.cmp(&num_expected_columns) {
                 Ordering::Greater => {
                     // Should never happen
@@ -124,7 +134,17 @@ impl<E: EthSpec> PendingComponents<E> {
                         debug!("All data columns received, data is available");
                     });
 
-                    data_columns
+                    self.verified_data_columns
+                        .iter()
+                        .filter_map(|(col_idx, col)| {
+                            col.try_to_sidecar(
+                                *col_idx,
+                                self.slot,
+                                block_hash,
+                                self.num_blobs_expected,
+                            )
+                        })
+                        .collect()
                 }
                 Ordering::Less => {
                     // Not enough data columns received yet
@@ -187,7 +207,7 @@ impl<E: EthSpec> PendingComponents<E> {
 // the current usage, as it's deconstructed immediately.
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum ReconstructColumnsDecision<E: EthSpec> {
-    Yes(Vec<KzgVerifiedCustodyDataColumn<E>>),
+    Yes(Vec<Arc<DataColumnSidecar<E>>>),
     No(&'static str),
 }
 
