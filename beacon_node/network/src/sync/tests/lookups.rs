@@ -85,6 +85,9 @@ pub struct SimulateConfig {
     ee_offline_for_n_range_responses: Option<usize>,
     /// Disconnect all peers after this many successful BlocksByRange responses.
     successful_range_responses_before_disconnect: Option<usize>,
+    /// Number of `PayloadEnvelopesByRoot` responses that return an envelope for a
+    /// different block_root than requested.
+    return_wrong_envelopes_n_times: usize,
 }
 
 impl SimulateConfig {
@@ -113,6 +116,11 @@ impl SimulateConfig {
 
     fn return_wrong_blocks_once(mut self) -> Self {
         self.return_wrong_blocks_n_times = 1;
+        self
+    }
+
+    fn return_wrong_envelope_once(mut self) -> Self {
+        self.return_wrong_envelopes_n_times = 1;
         self
     }
 
@@ -692,6 +700,24 @@ impl TestRig {
                     return self.send_rpc_envelopes_response(req_id, peer_id, &[]);
                 }
 
+                if self.complete_strategy.return_wrong_envelopes_n_times > 0 {
+                    self.complete_strategy.return_wrong_envelopes_n_times -= 1;
+                    // Return any envelope that doesn't match the request, so the
+                    // request items layer raises `UnrequestedBlockRoot`.
+                    let requested = req
+                        .beacon_block_roots
+                        .iter()
+                        .copied()
+                        .collect::<HashSet<_>>();
+                    let wrong = self
+                        .network_envelopes_by_root
+                        .iter()
+                        .find(|(root, _)| !requested.contains(*root))
+                        .map(|(_, envelope)| envelope.clone())
+                        .expect("test fixture must produce at least one extra envelope");
+                    return self.send_rpc_envelopes_response(req_id, peer_id, &[wrong]);
+                }
+
                 let envelopes = req
                     .beacon_block_roots
                     .iter()
@@ -1051,8 +1077,10 @@ impl TestRig {
             self.network_blocks_by_slot.insert(block_slot, block);
             // Post-Gloas, also capture the execution payload envelope so peers can serve it.
             if self.is_after_gloas()
-                && let Ok(Some(envelope)) =
-                    external_harness.chain.store.get_payload_envelope(&block_root)
+                && let Ok(Some(envelope)) = external_harness
+                    .chain
+                    .store
+                    .get_payload_envelope(&block_root)
             {
                 self.network_envelopes_by_root
                     .insert(block_root, Arc::new(envelope));
@@ -1083,6 +1111,21 @@ impl TestRig {
         let columns = range_sync_block.block_data().data_columns();
         *block.signature_mut() = self.valid_signature();
         self.re_insert_block(Arc::new(block), blobs, columns);
+    }
+
+    /// Replace the cached envelope's signature for `block_root` with one signed by an
+    /// unrelated key, so it fails verification against the proposer's pubkey.
+    fn corrupt_envelope_signature_for(&mut self, block_root: Hash256) {
+        let envelope = self
+            .network_envelopes_by_root
+            .get(&block_root)
+            .expect("no envelope cached for block_root")
+            .as_ref()
+            .clone();
+        let mut envelope = envelope;
+        envelope.signature = self.valid_signature();
+        self.network_envelopes_by_root
+            .insert(block_root, Arc::new(envelope));
     }
 
     fn valid_signature(&mut self) -> bls::Signature {
@@ -2790,7 +2833,7 @@ fn payload_envelope_request_count(rig: &TestRig) -> usize {
 /// Triggering `UnknownParentEnvelope` creates exactly two lookups: an envelope-only
 /// lookup for the parent and a child lookup for the gossip block awaiting that envelope.
 #[tokio::test]
-async fn unknown_parent_envelope_creates_envelope_and_child_lookups() {
+async fn unknown_parent_envelope_creates_two_lookups() {
     let Some(mut r) = setup_unknown_parent_envelope_scenario().await else {
         return;
     };
@@ -2801,7 +2844,7 @@ async fn unknown_parent_envelope_creates_envelope_and_child_lookups() {
 /// Repeated `UnknownParentEnvelope` triggers for the same parent must not spawn extra
 /// lookups (peers are merged into the existing envelope lookup).
 #[tokio::test]
-async fn unknown_parent_envelope_idempotent_triggers() {
+async fn happy_path_unknown_parent_envelope_multiple_triggers() {
     let Some(mut r) = setup_unknown_parent_envelope_scenario().await else {
         return;
     };
@@ -2813,7 +2856,7 @@ async fn unknown_parent_envelope_idempotent_triggers() {
 /// The envelope-only lookup must dispatch a `PayloadEnvelopesByRoot` RPC for the
 /// parent block_root.
 #[tokio::test]
-async fn unknown_parent_envelope_issues_payload_envelopes_by_root_rpc() {
+async fn envelope_lookup_issues_by_root_rpc() {
     let Some(mut r) = setup_unknown_parent_envelope_scenario().await else {
         return;
     };
@@ -2829,7 +2872,7 @@ async fn unknown_parent_envelope_issues_payload_envelopes_by_root_rpc() {
 /// If the envelope RPC errors out, the envelope-only lookup is dropped and the
 /// drop cascades to the awaiting child lookup.
 #[tokio::test]
-async fn unknown_parent_envelope_drops_cascade_on_rpc_error() {
+async fn bad_peer_envelope_rpc_failure() {
     let Some(mut r) = setup_unknown_parent_envelope_scenario().await else {
         return;
     };
@@ -2837,4 +2880,40 @@ async fn unknown_parent_envelope_drops_cascade_on_rpc_error() {
     r.simulate(SimulateConfig::new().return_rpc_error(RPCError::IoError("test".into())))
         .await;
     r.assert_failed_lookup_sync();
+}
+
+/// Peer responds with an envelope for a different block_root than was requested.
+/// The request-items layer must reject as `UnrequestedBlockRoot`; both lookups drop.
+#[tokio::test]
+async fn bad_peer_wrong_envelope_response() {
+    let Some(mut r) = setup_unknown_parent_envelope_scenario().await else {
+        return;
+    };
+    r.trigger_with_last_unknown_parent_envelope();
+    r.simulate(SimulateConfig::new().return_wrong_envelope_once())
+        .await;
+    r.assert_failed_lookup_sync();
+    r.assert_penalties_of_type("UnrequestedBlockRoot");
+}
+
+/// Peer returns the requested envelope but with a corrupted signature. Gossip
+/// verification rejects it; the lookup retries (single peer → exhaust → drop)
+/// and reports `lookup_envelope_processing_failure` against the peer.
+#[tokio::test]
+async fn crypto_on_fail_with_bad_envelope_signature() {
+    let Some(mut r) = setup_unknown_parent_envelope_scenario().await else {
+        return;
+    };
+    let parent_root = r.get_last_block().block_cloned().parent_root();
+    r.corrupt_envelope_signature_for(parent_root);
+    r.trigger_with_last_unknown_parent_envelope();
+    r.simulate(SimulateConfig::happy_path()).await;
+    if cfg!(feature = "fake_crypto") {
+        // Under fake_crypto, signature checks are no-ops, so a "corrupted"
+        // signature still passes. Skip — analogous to the existing
+        // `crypto_on_fail_with_invalid_block_signature` test.
+        return;
+    }
+    r.assert_failed_lookup_sync();
+    r.assert_penalties_of_type("lookup_envelope_processing_failure");
 }
