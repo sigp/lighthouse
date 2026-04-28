@@ -1,9 +1,7 @@
 use crate::AvailabilityProcessingStatus;
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
 use crate::fetch_blobs::fetch_blobs_beacon_adapter::MockFetchBlobsBeaconAdapter;
-use crate::fetch_blobs::{
-    EngineGetBlobsOutput, FetchEngineBlobError, fetch_and_process_engine_blobs_inner,
-};
+use crate::fetch_blobs::{FetchEngineBlobError, fetch_and_process_engine_blobs_inner};
 use crate::partial_data_column_assembler::PartialDataColumnAssembler;
 use crate::test_utils::{EphemeralHarnessType, get_kzg};
 use bls::Signature;

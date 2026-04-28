@@ -12,7 +12,6 @@ mod fetch_blobs_beacon_adapter;
 #[cfg(test)]
 mod tests;
 
-use crate::blob_verification::KzgVerifiedBlob;
 use crate::data_column_verification::{
     KzgVerifiedCustodyDataColumn, KzgVerifiedCustodyPartialDataColumn, KzgVerifiedPartialDataColumn,
 };
@@ -25,16 +24,15 @@ use crate::{
     metrics,
 };
 use execution_layer::Error as ExecutionLayerError;
-use execution_layer::json_structures::{BlobAndProofV1, BlobAndProofV2, BlobAndProofV3};
+use execution_layer::json_structures::{BlobAndProofV2, BlobAndProofV3};
 use metrics::{TryExt, inc_counter};
 #[cfg(test)]
 use mockall_double::double;
-use slot_clock::timestamp_now;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::sync::Arc;
 use tracing::{debug, instrument, warn};
 use types::data::{BlobSidecarError, ColumnIndex, DataColumnSidecarError, PartialDataColumnHeader};
-use types::{BeaconStateError, BlobSidecar, EthSpec, Hash256, VersionedHash};
+use types::{BeaconStateError, EthSpec, Hash256, VersionedHash};
 
 #[derive(Debug)]
 pub enum FetchEngineBlobError {

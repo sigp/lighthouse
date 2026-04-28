@@ -94,6 +94,7 @@ impl<E: EthSpec> BlockComponent<E> {
     }
     fn get_type(&self) -> &'static str {
         match self {
+            BlockComponent::Block(_) => "block",
             BlockComponent::DataColumn(_) => "data_column",
             BlockComponent::PartialDataColumn(_) => "partial_data_column",
         }

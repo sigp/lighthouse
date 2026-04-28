@@ -90,7 +90,12 @@ mod test {
     fn test_verify_blob_inclusion_proof_from_existing_proof() {
         let (block, mut blob_sidecars) =
             generate_rand_block_and_blobs::<MainnetEthSpec>(ForkName::Deneb, 1, &mut rng());
-        let blob = blob_sidecars.pop().unwrap();
+        let BlobSidecar {
+            index,
+            blob,
+            kzg_proof,
+            ..
+        } = blob_sidecars.pop().unwrap();
 
         let blob_sidecar =
             BlobSidecar::new_with_existing_proof(index as usize, blob, &block, kzg_proof).unwrap();

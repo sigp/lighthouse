@@ -905,6 +905,249 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
+    pub async fn process_gossip_partial_data_column_sidecar(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        column: Box<PartialDataColumn<T::EthSpec>>,
+        seen_duration: Duration,
+        topic: GossipTopic,
+    ) {
+        let block_root = column.block_root;
+        let index = column.index;
+
+        let result = self
+            .chain
+            .verify_partial_data_column_sidecar_for_gossip(column, seen_duration);
+
+        let header = match result {
+            PartialColumnVerificationResult::Ok { header, column } => {
+                metrics::inc_counter(
+                    &metrics::BEACON_PROCESSOR_GOSSIP_PARTIAL_DATA_COLUMN_SIDECAR_VERIFIED_TOTAL,
+                );
+
+                let slot = header.as_header().slot();
+
+                debug!(
+                    %slot,
+                    %block_root,
+                    %index,
+                    "Successfully verified gossip partial data column sidecar"
+                );
+
+                // Log metrics to keep track of propagation delay times.
+                if let Some(duration) = UNIX_EPOCH
+                    .elapsed()
+                    .ok()
+                    .and_then(|now| now.checked_sub(seen_duration))
+                {
+                    metrics::observe_duration(
+                        &metrics::BEACON_PARTIAL_DATA_COLUMN_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME,
+                        duration,
+                    );
+                }
+
+                self.process_gossip_verified_partial_data_column(
+                    peer_id,
+                    column,
+                    header.clone(),
+                    slot,
+                )
+                .await;
+                Some(header)
+            }
+            PartialColumnVerificationResult::ErrWithValidHeader { header, err } => {
+                self.handle_partial_verification_error(peer_id, err, block_root, index, topic);
+                Some(header)
+            }
+            PartialColumnVerificationResult::Err(err) => {
+                self.handle_partial_verification_error(peer_id, err, block_root, index, topic);
+                None
+            }
+        };
+
+        if let Some(header) = header {
+            let slot = header.as_header().slot();
+            let delay = get_slot_delay_ms(seen_duration, slot, &self.chain.slot_clock);
+            // Log metrics to track delay from other nodes on the network.
+            metrics::observe_duration(
+                &metrics::BEACON_PARTIAL_DATA_COLUMN_GOSSIP_SLOT_START_DELAY_TIME,
+                delay,
+            );
+
+            if !header.was_cached() {
+                debug!(block = %block_root, "Triggering getBlobs after receiving partial header");
+                // We want to publish immediately when this finishes
+                let publish_blobs = true;
+                self.fetch_engine_blobs_and_publish(header.into_header(), block_root, publish_blobs)
+                    .await
+            }
+        }
+    }
+
+    fn handle_partial_verification_error(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        err: GossipPartialDataColumnError,
+        block_root: Hash256,
+        index: ColumnIndex,
+        topic: GossipTopic,
+    ) {
+        match err {
+            GossipPartialDataColumnError::GossipDataColumnError(err) => match err {
+                GossipDataColumnError::InvalidVariant => {
+                    // TODO(gloas) we should probably penalize the peer here
+                    debug!(
+                        %block_root,
+                        %index,
+                        "Invalid gossip partial data column variant."
+                    )
+                }
+                GossipDataColumnError::PriorKnownUnpublished => {
+                    debug!(
+                        %block_root,
+                        %index,
+                        "Gossip partial data column already processed via the EL."
+                    );
+                }
+                GossipDataColumnError::ParentUnknown { parent_root, slot } => {
+                    debug!(
+                        action = "requesting parent",
+                        %block_root,
+                        %parent_root,
+                        "Unknown parent hash for partial column"
+                    );
+                    self.send_sync_message(SyncMessage::UnknownParentPartialDataColumn {
+                        peer_id,
+                        block_root,
+                        parent_root,
+                        slot,
+                    });
+                }
+                GossipDataColumnError::PubkeyCacheTimeout
+                | GossipDataColumnError::BeaconChainError(_) => {
+                    crit!(
+                        error = ?err,
+                        "Internal error when verifying partial column sidecar"
+                    )
+                }
+                GossipDataColumnError::ProposalSignatureInvalid
+                | GossipDataColumnError::UnknownValidator(_)
+                | GossipDataColumnError::ProposerIndexMismatch { .. }
+                | GossipDataColumnError::IsNotLaterThanParent { .. }
+                | GossipDataColumnError::InvalidSubnetId { .. }
+                | GossipDataColumnError::InvalidInclusionProof
+                | GossipDataColumnError::InvalidKzgProof { .. }
+                | GossipDataColumnError::MismatchesCachedColumn
+                | GossipDataColumnError::UnexpectedDataColumn
+                | GossipDataColumnError::InvalidColumnIndex(_)
+                | GossipDataColumnError::MaxBlobsPerBlockExceeded { .. }
+                | GossipDataColumnError::InconsistentCommitmentsLength { .. }
+                | GossipDataColumnError::InconsistentProofsLength { .. }
+                | GossipDataColumnError::NotFinalizedDescendant { .. } => {
+                    debug!(
+                        error = ?err,
+                        %block_root,
+                        %index,
+                        "Could not verify partial column for gossip. Rejecting the column sidecar"
+                    );
+                    self.gossip_penalize_peer(
+                        peer_id,
+                        PeerAction::LowToleranceError,
+                        "gossip_partial_data_column_low",
+                    );
+                    self.propagate_partial_validation_failure(peer_id, topic);
+                }
+                GossipDataColumnError::PriorKnown { .. } => {
+                    debug!(
+                        %block_root,
+                        %index,
+                        "Received already available column sidecar. Ignoring the partial column sidecar"
+                    )
+                }
+                GossipDataColumnError::FutureSlot { .. }
+                | GossipDataColumnError::PastFinalizedSlot { .. } => {
+                    debug!(
+                        error = ?err,
+                        %block_root,
+                        %index,
+                        "Could not verify column sidecar for gossip. Ignoring the partial column sidecar"
+                    );
+                    self.gossip_penalize_peer(
+                        peer_id,
+                        PeerAction::HighToleranceError,
+                        "gossip_partial_data_column_high",
+                    );
+                }
+            },
+            GossipPartialDataColumnError::MissingHeader => {
+                metrics::inc_counter(
+                    &metrics::BEACON_PROCESSOR_GOSSIP_PARTIAL_DATA_COLUMN_SIDECAR_MISSING_HEADER_TOTAL,
+                );
+                warn!(
+                    error = ?err,
+                    %block_root,
+                    %index,
+                    "Received partial column while not having header stored"
+                );
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "gossip_partial_data_column_high",
+                );
+            }
+            GossipPartialDataColumnError::HeaderMismatches
+            | GossipPartialDataColumnError::HeaderIncorrectRoot { .. } => {
+                debug!(
+                    error = ?err,
+                    %block_root,
+                    %index,
+                    "Could not verify partial column header"
+                );
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "gossip_partial_data_column_low",
+                );
+            }
+            GossipPartialDataColumnError::EmptyMessage
+            | GossipPartialDataColumnError::InconsistentPresentCount { .. }
+            | GossipPartialDataColumnError::InconsistentCommitmentsLength { .. } => {
+                debug!(
+                    error = ?err,
+                    %block_root,
+                    %index,
+                    "Could not verify partial column"
+                );
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "gossip_partial_data_column_low",
+                );
+            }
+            GossipPartialDataColumnError::PartialColumnsDisabled => {
+                error!(
+                    error = ?err,
+                    %block_root,
+                    %index,
+                    "Received partial column while disabled"
+                );
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "gossip_partial_data_column_low",
+                );
+            }
+            GossipPartialDataColumnError::InternalError(_) => {
+                error!(
+                    error = ?err,
+                    %block_root,
+                    %index,
+                    "Internal error while processing partial column"
+                );
+            }
+        }
+    }
+
     /// Process a gossip-verified partial data column by merging it in the assembler
     async fn process_gossip_verified_partial_data_column(
         self: &Arc<Self>,
