@@ -10,6 +10,7 @@ use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifi
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bytes::Bytes;
 use eth2::types as api_types;
+use eth2::types::FullPayloadContents;
 use eth2::{CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
@@ -18,6 +19,7 @@ use std::future::Future;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, info, warn};
+use tree_hash::TreeHash;
 use types::{EthSpec, SignedExecutionPayloadEnvelope};
 use warp::{
     Filter, Rejection, Reply,
@@ -116,20 +118,33 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
 
     let blobs_and_proofs = chain.pending_payload_envelopes.write().take_blobs(slot);
 
-    // Spawn the column-build task (CPU-bound KZG cell-and-proof computation) before
-    // publishing the envelope so it runs in parallel with envelope gossip, narrowing
-    // the window in which peers see envelope-without-columns. If envelope publication
-    // fails below, dropping this future drops the spawned `JoinHandle` (the running
-    // closure on the blocking pool finishes and is then discarded — no work cancellation).
-    let column_build_future = match blobs_and_proofs {
-        Some(blobs) if !blobs.is_empty() => Some(spawn_build_gloas_data_columns_task(
-            &chain,
-            beacon_block_root,
-            slot,
-            blobs,
-        )?),
-        _ => None,
-    };
+    let full_payload_contents = chain
+        .execution_layer
+        .as_ref()
+        .ok_or_else(|| warp_utils::reject::custom_bad_request("Execution layer missing".into()))?
+        .get_payload_by_root(&envelope.message.payload.tree_hash_root())
+        .ok_or_else(|| warp_utils::reject::custom_bad_request("Payload missing".into()))?;
+
+    let column_build_future =
+        if let FullPayloadContents::PayloadAndBlobs(payload_and_blobs) = full_payload_contents {
+            // Spawn the column-build task (CPU-bound KZG cell-and-proof computation) before
+            // publishing the envelope so it runs in parallel with envelope gossip, narrowing
+            // the window in which peers see envelope-without-columns. If envelope publication
+            // fails below, dropping this future drops the spawned `JoinHandle` (the running
+            // closure on the blocking pool finishes and is then discarded — no work cancellation).
+            match blobs_and_proofs {
+                Some(blobs) if !blobs.is_empty() => Some(spawn_build_gloas_data_columns_task(
+                    &chain,
+                    beacon_block_root,
+                    payload_and_blobs.blobs_bundle.commitments.len(),
+                    slot,
+                    blobs,
+                )?),
+                _ => None,
+            }
+        } else {
+            None
+        };
 
     // Publish the envelope to the network.
     crate::utils::publish_pubsub_message(
@@ -196,6 +211,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
 fn spawn_build_gloas_data_columns_task<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     beacon_block_root: types::Hash256,
+    commitments_len: usize,
     slot: types::Slot,
     blobs: types::BlobsList<T::EthSpec>,
 ) -> Result<impl Future<Output = Result<Vec<GossipVerifiedDataColumn<T>>, Rejection>>, Rejection> {
@@ -203,7 +219,15 @@ fn spawn_build_gloas_data_columns_task<T: BeaconChainTypes>(
     let handle = chain
         .task_executor
         .spawn_blocking_handle(
-            move || build_gloas_data_columns(&chain_for_build, beacon_block_root, slot, &blobs),
+            move || {
+                build_gloas_data_columns(
+                    &chain_for_build,
+                    beacon_block_root,
+                    commitments_len,
+                    slot,
+                    &blobs,
+                )
+            },
             "build_gloas_data_columns",
         )
         .ok_or_else(|| warp_utils::reject::custom_server_error("runtime shutdown".to_string()))?;
@@ -218,6 +242,7 @@ fn spawn_build_gloas_data_columns_task<T: BeaconChainTypes>(
 fn build_gloas_data_columns<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     beacon_block_root: types::Hash256,
+    commitments_len: usize,
     slot: types::Slot,
     blobs: &types::BlobsList<T::EthSpec>,
 ) -> Result<Vec<GossipVerifiedDataColumn<T>>, Rejection> {
@@ -242,7 +267,7 @@ fn build_gloas_data_columns<T: BeaconChainTypes>(
         .into_iter()
         .filter_map(|col| {
             let index = *col.index();
-            match GossipVerifiedDataColumn::new_for_block_publishing(col, chain) {
+            match GossipVerifiedDataColumn::new_for_block_publishing(col, commitments_len, chain) {
                 Ok(verified) => Some(verified),
                 Err(GossipDataColumnError::PriorKnownUnpublished) => None,
                 Err(e) => {

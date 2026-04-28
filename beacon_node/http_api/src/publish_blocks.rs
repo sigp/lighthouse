@@ -417,8 +417,12 @@ fn build_data_columns<T: BeaconChainTypes>(
     let gossip_verified_data_columns = data_column_sidecars
         .into_iter()
         .filter_map(|data_column_sidecar| {
-            GossipVerifiedDataColumn::new_for_block_publishing(data_column_sidecar, block, chain)
-                .ok()
+            GossipVerifiedDataColumn::new_for_block_publishing(
+                data_column_sidecar,
+                block.num_expected_blobs(),
+                chain,
+            )
+            .ok()
         })
         .collect::<Vec<_>>();
 

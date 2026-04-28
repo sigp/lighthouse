@@ -29,8 +29,7 @@ use types::data::{
 };
 use types::{
     BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSubnetId,
-    EthSpec, Hash256, KzgCommitments, PartialDataColumnSidecarRef, SignedBeaconBlock,
-    SignedBeaconBlockHeader, Slot,
+    EthSpec, Hash256, KzgCommitments, PartialDataColumnSidecarRef, SignedBeaconBlockHeader, Slot,
 };
 
 /// An error occurred while validating a gossip data column.
@@ -353,16 +352,9 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
     /// When publishing a block constructed externally, there will be no columns here.
     pub fn new_for_block_publishing(
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
-        block: &SignedBeaconBlock<T::EthSpec>,
+        commitments_len: usize,
         chain: &BeaconChain<T>,
     ) -> Result<Self, GossipDataColumnError> {
-        let commitments_len = match column_sidecar.as_ref() {
-            DataColumnSidecar::Fulu(dc) => dc.kzg_commitments.len(),
-            DataColumnSidecar::Gloas(_) => block
-                .message()
-                .blob_kzg_commitments_len()
-                .ok_or(GossipDataColumnError::InvalidVariant)?,
-        };
         verify_data_column_sidecar(&column_sidecar, commitments_len, &chain.spec)?;
 
         // Check if the data column is already in the DA checker cache. This happens when data columns
@@ -1586,7 +1578,7 @@ mod test {
     use types::{
         Cell, CellBitmap, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSubnetId, EthSpec,
         ForkName, MainnetEthSpec, PartialDataColumn, PartialDataColumnHeader,
-        PartialDataColumnSidecar, SignedBeaconBlock,
+        PartialDataColumnSidecar,
     };
 
     type E = MainnetEthSpec;
@@ -1629,10 +1621,10 @@ mod test {
             .build();
         harness.advance_slot();
 
-        let verify_fn = |column_sidecar: DataColumnSidecar<E>, block: Arc<SignedBeaconBlock<E>>| {
+        let verify_fn = |column_sidecar: DataColumnSidecar<E>, commitments_len: usize| {
             GossipVerifiedDataColumn::<_>::new_for_block_publishing(
                 column_sidecar.into(),
-                &block,
+                commitments_len,
                 &harness.chain,
             )
         };
@@ -1643,10 +1635,7 @@ mod test {
     // TODO(gloas) make this generic over gloas/fulu
     async fn empty_data_column_sidecars_fails_validation_fulu<D>(
         harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
-        verify_fn: impl Fn(
-            DataColumnSidecar<E>,
-            Arc<SignedBeaconBlock<E>>,
-        ) -> Result<D, GossipDataColumnError>,
+        verify_fn: impl Fn(DataColumnSidecar<E>, usize) -> Result<D, GossipDataColumnError>,
     ) {
         let slot = harness.get_current_slot();
         let state = harness.get_current_state();
@@ -1670,7 +1659,10 @@ mod test {
                 .unwrap(),
         });
 
-        let result = verify_fn(column_sidecar, block);
+        let result = verify_fn(
+            column_sidecar,
+            block.message().blob_kzg_commitments_len().unwrap(),
+        );
         assert!(matches!(
             result.err(),
             Some(GossipDataColumnError::UnexpectedDataColumn)
@@ -1679,10 +1671,7 @@ mod test {
 
     async fn data_column_sidecar_commitments_exceed_max_blobs_per_block<D>(
         harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
-        verify_fn: &impl Fn(
-            DataColumnSidecar<E>,
-            Arc<SignedBeaconBlock<E>>,
-        ) -> Result<D, GossipDataColumnError>,
+        verify_fn: &impl Fn(DataColumnSidecar<E>, usize) -> Result<D, GossipDataColumnError>,
     ) {
         let slot = harness.get_current_slot();
         let epoch = slot.epoch(E::slots_per_epoch());
@@ -1712,7 +1701,10 @@ mod test {
             .next()
             .unwrap();
 
-        let result = verify_fn(Arc::try_unwrap(column_sidecar).unwrap(), block);
+        let result = verify_fn(
+            Arc::try_unwrap(column_sidecar).unwrap(),
+            block.message().blob_kzg_commitments_len().unwrap(),
+        );
         assert!(matches!(
             result.err(),
             Some(GossipDataColumnError::MaxBlobsPerBlockExceeded { .. })
