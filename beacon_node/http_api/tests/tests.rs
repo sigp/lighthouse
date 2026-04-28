@@ -3020,7 +3020,7 @@ impl ApiTester {
 
         // First submission should succeed.
         self.client
-            .post_beacon_pool_proposer_preferences(&[signed.clone()], fork_name)
+            .post_beacon_pool_proposer_preferences(std::slice::from_ref(&signed), fork_name)
             .await
             .unwrap();
         self.network_rx.network_recv.recv().await;
