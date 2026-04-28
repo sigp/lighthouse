@@ -6,7 +6,12 @@
 //! and publishes the payload.
 
 use std::collections::HashMap;
-use types::{EthSpec, ExecutionPayloadEnvelope, Slot};
+use types::{BlobsList, EthSpec, ExecutionPayloadEnvelope, Slot};
+
+pub struct PendingEnvelopeData<E: EthSpec> {
+    pub envelope: ExecutionPayloadEnvelope<E>,
+    pub blobs: Option<BlobsList<E>>,
+}
 
 /// Cache for pending execution payload envelopes awaiting publishing.
 ///
@@ -16,7 +21,7 @@ pub struct PendingPayloadEnvelopes<E: EthSpec> {
     /// Maximum number of slots to keep envelopes before pruning.
     max_slot_age: u64,
     /// The envelopes, keyed by slot.
-    envelopes: HashMap<Slot, ExecutionPayloadEnvelope<E>>,
+    envelopes: HashMap<Slot, PendingEnvelopeData<E>>,
 }
 
 impl<E: EthSpec> Default for PendingPayloadEnvelopes<E> {
@@ -38,19 +43,24 @@ impl<E: EthSpec> PendingPayloadEnvelopes<E> {
     }
 
     /// Insert a pending envelope into the cache.
-    pub fn insert(&mut self, slot: Slot, envelope: ExecutionPayloadEnvelope<E>) {
+    pub fn insert(&mut self, slot: Slot, data: PendingEnvelopeData<E>) {
         // TODO(gloas): we may want to check for duplicates here, which shouldn't be allowed
-        self.envelopes.insert(slot, envelope);
+        self.envelopes.insert(slot, data);
     }
 
     /// Get a pending envelope by slot.
     pub fn get(&self, slot: Slot) -> Option<&ExecutionPayloadEnvelope<E>> {
-        self.envelopes.get(&slot)
+        self.envelopes.get(&slot).map(|d| &d.envelope)
+    }
+
+    /// Remove and return the blobs and proofs for a slot, leaving the envelope in place.
+    pub fn take_blobs(&mut self, slot: Slot) -> Option<BlobsList<E>> {
+        self.envelopes.get_mut(&slot).and_then(|d| d.blobs.take())
     }
 
     /// Remove and return a pending envelope by slot.
     pub fn remove(&mut self, slot: Slot) -> Option<ExecutionPayloadEnvelope<E>> {
-        self.envelopes.remove(&slot)
+        self.envelopes.remove(&slot).map(|d| d.envelope)
     }
 
     /// Check if an envelope exists for the given slot.
@@ -85,15 +95,18 @@ mod tests {
 
     type E = MainnetEthSpec;
 
-    fn make_envelope(slot: Slot) -> ExecutionPayloadEnvelope<E> {
-        ExecutionPayloadEnvelope {
-            payload: ExecutionPayloadGloas {
-                slot_number: slot,
-                ..ExecutionPayloadGloas::default()
+    fn make_envelope(slot: Slot) -> PendingEnvelopeData<E> {
+        PendingEnvelopeData {
+            envelope: ExecutionPayloadEnvelope {
+                payload: ExecutionPayloadGloas {
+                    slot_number: slot,
+                    ..ExecutionPayloadGloas::default()
+                },
+                execution_requests: ExecutionRequests::default(),
+                builder_index: 0,
+                beacon_block_root: Hash256::ZERO,
             },
-            execution_requests: ExecutionRequests::default(),
-            builder_index: 0,
-            beacon_block_root: Hash256::ZERO,
+            blobs: None,
         }
     }
 
@@ -101,31 +114,71 @@ mod tests {
     fn insert_and_get() {
         let mut cache = PendingPayloadEnvelopes::<E>::default();
         let slot = Slot::new(1);
-        let envelope = make_envelope(slot);
+        let data = make_envelope(slot);
+        let expected_envelope = data.envelope.clone();
 
         assert!(!cache.contains(slot));
         assert_eq!(cache.len(), 0);
 
-        cache.insert(slot, envelope.clone());
+        cache.insert(slot, data);
 
         assert!(cache.contains(slot));
         assert_eq!(cache.len(), 1);
-        assert_eq!(cache.get(slot), Some(&envelope));
+        assert_eq!(cache.get(slot), Some(&expected_envelope));
     }
 
     #[test]
     fn remove() {
         let mut cache = PendingPayloadEnvelopes::<E>::default();
         let slot = Slot::new(1);
-        let envelope = make_envelope(slot);
+        let data = make_envelope(slot);
+        let expected_envelope = data.envelope.clone();
 
-        cache.insert(slot, envelope.clone());
+        cache.insert(slot, data);
         assert!(cache.contains(slot));
 
         let removed = cache.remove(slot);
-        assert_eq!(removed, Some(envelope));
+        assert_eq!(removed, Some(expected_envelope));
         assert!(!cache.contains(slot));
         assert_eq!(cache.len(), 0);
+    }
+
+    #[test]
+    fn take_blobs_returns_once() {
+        let mut cache = PendingPayloadEnvelopes::<E>::default();
+        let slot = Slot::new(1);
+
+        let blobs = BlobsList::<E>::default();
+        let data = PendingEnvelopeData {
+            envelope: make_envelope(slot).envelope,
+            blobs: Some(blobs),
+        };
+        cache.insert(slot, data);
+
+        // First take returns the blobs
+        let taken = cache.take_blobs(slot);
+        assert!(taken.is_some());
+
+        // Second take returns None — blobs are consumed
+        let taken_again = cache.take_blobs(slot);
+        assert!(taken_again.is_none());
+
+        // Envelope is still in the cache
+        assert!(cache.contains(slot));
+        assert!(cache.get(slot).is_some());
+    }
+
+    #[test]
+    fn take_blobs_returns_none_when_absent() {
+        let mut cache = PendingPayloadEnvelopes::<E>::default();
+        let slot = Slot::new(1);
+
+        // Insert with no blobs
+        cache.insert(slot, make_envelope(slot));
+        assert!(cache.take_blobs(slot).is_none());
+
+        // Non-existent slot
+        assert!(cache.take_blobs(Slot::new(99)).is_none());
     }
 
     #[test]

@@ -61,6 +61,22 @@ pub struct AvailableEnvelope<E: EthSpec> {
 }
 
 impl<E: EthSpec> AvailableEnvelope<E> {
+    pub fn new(
+        execution_block_hash: ExecutionBlockHash,
+        envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+        columns: DataColumnSidecarList<E>,
+        columns_available_timestamp: Option<std::time::Duration>,
+        spec: Arc<ChainSpec>,
+    ) -> Self {
+        Self {
+            execution_block_hash,
+            envelope,
+            columns,
+            columns_available_timestamp,
+            spec,
+        }
+    }
+
     pub fn message(&self) -> &ExecutionPayloadEnvelope<E> {
         &self.envelope.message
     }
@@ -105,6 +121,7 @@ pub struct EnvelopeProcessingSnapshot<E: EthSpec> {
 ///    fully available.
 /// 2. `AvailabilityPending`: This envelope hasn't received all required blobs to consider it
 ///    fully available.
+#[allow(dead_code)]
 pub enum ExecutedEnvelope<E: EthSpec> {
     Available(AvailableExecutedEnvelope<E>),
     AvailabilityPending(AvailabilityPendingExecutedEnvelope<E>),
@@ -115,6 +132,7 @@ impl<E: EthSpec> ExecutedEnvelope<E> {
         envelope: MaybeAvailableEnvelope<E>,
         import_data: EnvelopeImportData<E>,
         payload_verification_outcome: PayloadVerificationOutcome,
+        spec: Arc<ChainSpec>,
     ) -> Self {
         match envelope {
             MaybeAvailableEnvelope::Available(available_envelope) => {

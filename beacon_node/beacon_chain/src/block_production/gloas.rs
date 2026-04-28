@@ -1,17 +1,18 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use bls::Signature;
+use bls::{PublicKeyBytes, Signature};
 use execution_layer::{
     BlockProposalContentsGloas, BuilderParams, PayloadAttributes, PayloadParameters,
 };
 use fork_choice::PayloadStatus;
 use operation_pool::CompactAttestationRef;
 use ssz::Encode;
-use state_processing::common::get_attesting_indices_from_state;
+use state_processing::common::{get_attesting_indices_from_state, get_indexed_payload_attestation};
 use state_processing::envelope_processing::verify_execution_payload_envelope;
 use state_processing::epoch_cache::initialize_epoch_cache;
+use state_processing::per_block_processing::is_valid_indexed_payload_attestation;
 use state_processing::per_block_processing::{
     apply_parent_execution_payload, compute_timestamp_at_slot, get_expected_withdrawals,
     verify_attestation_for_block_inclusion,
@@ -27,13 +28,14 @@ use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::{
     Address, Attestation, AttestationElectra, AttesterSlashing, AttesterSlashingElectra,
     BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, BeaconState, BeaconStateError,
-    BuilderIndex, Deposit, Eth1Data, EthSpec, ExecutionBlockHash, ExecutionPayloadBid,
+    BuilderIndex, ChainSpec, Deposit, Eth1Data, EthSpec, ExecutionBlockHash, ExecutionPayloadBid,
     ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, FullPayload, Graffiti,
     Hash256, PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
     SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
     SignedVoluntaryExit, Slot, SyncAggregate, Withdrawal, Withdrawals,
 };
 
+use crate::pending_payload_envelopes::PendingEnvelopeData;
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockProductionError,
     ProduceBlockVerification, block_production::BlockProductionState,
@@ -73,6 +75,7 @@ pub struct ExecutionPayloadData<E: types::EthSpec> {
     pub execution_requests: ExecutionRequests<E>,
     pub builder_index: BuilderIndex,
     pub slot: Slot,
+    pub blobs_and_proofs: (types::BlobsList<E>, types::KzgProofs<E>),
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
@@ -136,6 +139,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         graffiti_settings: GraffitiSettings,
         verification: ProduceBlockVerification,
     ) -> Result<BlockProductionResult<T::EthSpec>, BlockProductionError> {
+        // Extract the parent's execution requests from the envelope (if parent was full).
+        let parent_execution_requests = if parent_payload_status == PayloadStatus::Full {
+            parent_envelope
+                .as_ref()
+                .map(|env| env.message.execution_requests.clone())
+                .ok_or(BlockProductionError::MissingParentExecutionPayload)?
+        } else {
+            ExecutionRequests::default()
+        };
+
         // Part 1/3 (blocking)
         //
         // Perform the state advance and block-packing functions.
@@ -144,6 +157,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .graffiti_calculator
             .get_graffiti(graffiti_settings)
             .await;
+        let parent_execution_requests_ref = parent_execution_requests.clone();
         let (partial_beacon_block, state) = self
             .task_executor
             .spawn_blocking_handle(
@@ -154,6 +168,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         produce_at_slot,
                         randao_reveal,
                         graffiti,
+                        &parent_execution_requests_ref,
                     )
                 },
                 "produce_partial_beacon_block_gloas",
@@ -161,16 +176,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(BlockProductionError::ShuttingDown)?
             .await
             .map_err(BlockProductionError::TokioJoin)??;
-
-        // Extract the parent's execution requests from the envelope (if parent was full).
-        let parent_execution_requests = if parent_payload_status == PayloadStatus::Full {
-            parent_envelope
-                .as_ref()
-                .map(|env| env.message.execution_requests.clone())
-                .ok_or(BlockProductionError::MissingParentExecutionPayload)?
-        } else {
-            ExecutionRequests::default()
-        };
 
         // Part 2/3 (async)
         //
@@ -222,6 +227,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         produce_at_slot: Slot,
         randao_reveal: Signature,
         graffiti: Graffiti,
+        parent_execution_requests: &ExecutionRequests<T::EthSpec>,
     ) -> Result<(PartialBeaconBlock<T::EthSpec>, BeaconState<T::EthSpec>), BlockProductionError>
     {
         // It is invalid to try to produce a block using a state from a future slot.
@@ -255,6 +261,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let slashings_and_exits_span = debug_span!("get_slashings_and_exits").entered();
         let (mut proposer_slashings, mut attester_slashings, mut voluntary_exits) =
             self.op_pool.get_slashings_and_exits(&state, &self.spec);
+
+        filter_voluntary_exits_for_parent_execution_requests(
+            &mut voluntary_exits,
+            parent_execution_requests,
+            |idx| state.validators().get(idx as usize).map(|v| v.pubkey),
+            &self.spec,
+        );
 
         drop(slashings_and_exits_span);
 
@@ -319,6 +332,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(BlockProductionError::OpPoolError)?
         };
 
+        let mut payload_attestations = self
+            .op_pool
+            .get_payload_attestations(&state, parent_root, &self.spec)
+            .map_err(BlockProductionError::OpPoolError)?;
+
         // If paranoid mode is enabled re-check the signatures of every included message.
         // This will be a lot slower but guards against bugs in block production and can be
         // quickly rolled out without a release.
@@ -341,6 +359,35 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     );
                 })
                 .is_ok()
+            });
+
+            payload_attestations.retain(|att| {
+                match get_indexed_payload_attestation(&state, att, &self.spec) {
+                    Ok(indexed) => is_valid_indexed_payload_attestation(
+                        &state,
+                        &indexed,
+                        VerifySignatures::True,
+                        &self.spec,
+                    )
+                    .map_err(|e| {
+                        warn!(
+                            err = ?e,
+                            block_slot = %state.slot(),
+                            ?att,
+                            "Attempted to include a payload attestation with invalid signature"
+                        );
+                    })
+                    .is_ok(),
+                    Err(e) => {
+                        warn!(
+                            err = ?e,
+                            block_slot = %state.slot(),
+                            ?att,
+                            "Failed to index payload attestation for verification"
+                        );
+                        false
+                    }
+                }
             });
 
             proposer_slashings.retain(|slashing| {
@@ -386,8 +433,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     })
                     .is_ok()
             });
-
-            // TODO(gloas) verify payload attestation signature here as well
         }
 
         let attester_slashings = attester_slashings
@@ -434,8 +479,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 deposits,
                 voluntary_exits,
                 sync_aggregate,
-                // TODO(gloas) need to implement payload attestations
-                payload_attestations: vec![],
+                payload_attestations,
                 bls_to_execution_changes,
             },
             state,
@@ -605,9 +649,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let envelope_slot = payload_data.slot;
             // TODO(gloas) might be safer to cache by root instead of by slot.
             // We should revisit this once this code path + beacon api spec matures
-            self.pending_payload_envelopes
-                .write()
-                .insert(envelope_slot, signed_envelope.message);
+            let (blobs, _) = payload_data.blobs_and_proofs;
+            self.pending_payload_envelopes.write().insert(
+                envelope_slot,
+                PendingEnvelopeData {
+                    envelope: signed_envelope.message,
+                    blobs: Some(blobs),
+                },
+            );
 
             debug!(
                 %beacon_block_root,
@@ -727,7 +776,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             payload_value: _,
             execution_requests,
             blob_kzg_commitments,
-            blobs_and_proofs: _,
+            blobs_and_proofs,
         } = block_proposal_contents;
 
         // TODO(gloas) since we are defaulting to local building, execution payment is 0
@@ -753,6 +802,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             execution_requests,
             builder_index,
             slot: produce_at_slot,
+            blobs_and_proofs,
         };
 
         // TODO(gloas) this is only local building
@@ -925,4 +975,179 @@ where
         .map_err(BlockProductionError::GetPayloadFailed)?;
 
     Ok(block_contents)
+}
+
+/// Drop voluntary exits whose target validators will be exited by the parent envelope's
+/// execution requests.
+///
+/// In Gloas the parent execution payload is processed before voluntary exits during block
+/// processing. EL-triggered withdrawal-full-exit requests (EIP-7002) and cross-pubkey
+/// consolidation requests (EIP-7251) call `initiate_validator_exit`, setting the target's
+/// `exit_epoch`. A voluntary exit for the same validator would then fail with `AlreadyExited`.
+fn filter_voluntary_exits_for_parent_execution_requests<E: EthSpec>(
+    voluntary_exits: &mut Vec<SignedVoluntaryExit>,
+    parent_execution_requests: &ExecutionRequests<E>,
+    pubkey_at_index: impl Fn(u64) -> Option<PublicKeyBytes>,
+    spec: &ChainSpec,
+) {
+    let mut exited_pubkeys = HashSet::with_capacity(
+        parent_execution_requests.withdrawals.len()
+            + parent_execution_requests.consolidations.len(),
+    );
+    for req in &parent_execution_requests.withdrawals {
+        if req.amount == spec.full_exit_request_amount {
+            exited_pubkeys.insert(req.validator_pubkey);
+        }
+    }
+    for req in &parent_execution_requests.consolidations {
+        if req.source_pubkey != req.target_pubkey {
+            exited_pubkeys.insert(req.source_pubkey);
+        }
+    }
+    if !exited_pubkeys.is_empty() {
+        voluntary_exits.retain(|exit| {
+            pubkey_at_index(exit.message.validator_index)
+                .map(|pk| !exited_pubkeys.contains(&pk))
+                .unwrap_or(false)
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ssz_types::VariableList;
+    use types::{ConsolidationRequest, Epoch, MainnetEthSpec, VoluntaryExit, WithdrawalRequest};
+
+    type TestSpec = MainnetEthSpec;
+
+    fn pubkey(byte: u8) -> PublicKeyBytes {
+        PublicKeyBytes::deserialize(&[byte; 48]).expect("valid pubkey byte length")
+    }
+
+    fn exit(validator_index: u64) -> SignedVoluntaryExit {
+        SignedVoluntaryExit {
+            message: VoluntaryExit {
+                epoch: Epoch::new(0),
+                validator_index,
+            },
+            signature: Signature::empty(),
+        }
+    }
+
+    fn requests(
+        withdrawals: Vec<WithdrawalRequest>,
+        consolidations: Vec<ConsolidationRequest>,
+    ) -> ExecutionRequests<TestSpec> {
+        ExecutionRequests {
+            deposits: VariableList::empty(),
+            withdrawals: VariableList::new(withdrawals).unwrap(),
+            consolidations: VariableList::new(consolidations).unwrap(),
+        }
+    }
+
+    fn run_filter(
+        exits: &mut Vec<SignedVoluntaryExit>,
+        requests: &ExecutionRequests<TestSpec>,
+        validator_pubkeys: &[PublicKeyBytes],
+        spec: &ChainSpec,
+    ) {
+        filter_voluntary_exits_for_parent_execution_requests(
+            exits,
+            requests,
+            |idx| validator_pubkeys.get(idx as usize).copied(),
+            spec,
+        );
+    }
+
+    #[test]
+    fn full_exit_withdrawal_request_filters_matching_voluntary_exit() {
+        let spec = ChainSpec::mainnet();
+        let validators = vec![pubkey(1), pubkey(2)];
+        let mut exits = vec![exit(0), exit(1)];
+        let reqs = requests(
+            vec![WithdrawalRequest {
+                source_address: Address::repeat_byte(0xaa),
+                validator_pubkey: validators[0],
+                amount: spec.full_exit_request_amount,
+            }],
+            vec![],
+        );
+
+        run_filter(&mut exits, &reqs, &validators, &spec);
+
+        assert_eq!(exits.len(), 1);
+        assert_eq!(exits[0].message.validator_index, 1);
+    }
+
+    #[test]
+    fn partial_withdrawal_request_does_not_filter_voluntary_exit() {
+        let spec = ChainSpec::mainnet();
+        let validators = vec![pubkey(1)];
+        let mut exits = vec![exit(0)];
+        let reqs = requests(
+            vec![WithdrawalRequest {
+                source_address: Address::repeat_byte(0xaa),
+                validator_pubkey: validators[0],
+                amount: spec.full_exit_request_amount + 1,
+            }],
+            vec![],
+        );
+
+        run_filter(&mut exits, &reqs, &validators, &spec);
+
+        assert_eq!(exits.len(), 1);
+    }
+
+    #[test]
+    fn cross_pubkey_consolidation_filters_voluntary_exit_for_source_only() {
+        let spec = ChainSpec::mainnet();
+        let validators = vec![pubkey(1), pubkey(2), pubkey(3)];
+        let mut exits = vec![exit(0), exit(1), exit(2)];
+        let reqs = requests(
+            vec![],
+            vec![ConsolidationRequest {
+                source_address: Address::repeat_byte(0xaa),
+                source_pubkey: validators[1],
+                target_pubkey: validators[2],
+            }],
+        );
+
+        run_filter(&mut exits, &reqs, &validators, &spec);
+
+        // The source (validator 1) is exited; the target (validator 2) is not.
+        let remaining: Vec<u64> = exits.iter().map(|e| e.message.validator_index).collect();
+        assert_eq!(remaining, vec![0, 2]);
+    }
+
+    #[test]
+    fn self_consolidation_does_not_filter_voluntary_exit() {
+        let spec = ChainSpec::mainnet();
+        let validators = vec![pubkey(1)];
+        let mut exits = vec![exit(0)];
+        let reqs = requests(
+            vec![],
+            vec![ConsolidationRequest {
+                source_address: Address::repeat_byte(0xaa),
+                source_pubkey: validators[0],
+                target_pubkey: validators[0],
+            }],
+        );
+
+        run_filter(&mut exits, &reqs, &validators, &spec);
+
+        assert_eq!(exits.len(), 1);
+    }
+
+    #[test]
+    fn empty_parent_requests_preserve_voluntary_exits() {
+        let spec = ChainSpec::mainnet();
+        let validators = vec![pubkey(1), pubkey(2)];
+        let mut exits = vec![exit(0), exit(1)];
+        let reqs = requests(vec![], vec![]);
+
+        run_filter(&mut exits, &reqs, &validators, &spec);
+
+        assert_eq!(exits.len(), 2);
+    }
 }

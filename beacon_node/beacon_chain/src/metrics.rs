@@ -1468,6 +1468,27 @@ pub static SYNC_MESSAGE_GOSSIP_VERIFICATION_TIMES: LazyLock<Result<Histogram>> =
             "Full runtime of sync contribution gossip verification",
         )
     });
+pub static PAYLOAD_ATTESTATION_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_payload_attestation_processing_requests_total",
+            "Count of all payload attestation messages submitted for processing",
+        )
+    });
+pub static PAYLOAD_ATTESTATION_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_payload_attestation_processing_successes_total",
+            "Number of payload attestation messages verified for gossip",
+        )
+    });
+pub static PAYLOAD_ATTESTATION_GOSSIP_VERIFICATION_TIMES: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "beacon_payload_attestation_gossip_verification_seconds",
+            "Full runtime of payload attestation gossip verification",
+        )
+    });
 pub static SYNC_MESSAGE_EQUIVOCATIONS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
         "sync_message_equivocations_total",
