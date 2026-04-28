@@ -715,7 +715,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         (
             SignedExecutionPayloadBid<T::EthSpec>,
             BeaconState<T::EthSpec>,
-            Option<LocalBuildResult<T::EthSpec>>,
+            LocalBuildResult<T::EthSpec>,
         ),
         BlockProductionError,
     > {
@@ -820,21 +820,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             blobs_and_proofs,
         };
 
-        // TODO(gloas) this is only local building
-        // we'll need to implement builder signature for the trustless path
         Ok((
             SignedExecutionPayloadBid {
                 message: bid,
                 signature: Signature::infinity().map_err(BlockProductionError::BlsError)?,
             },
             state,
-            // Local building always returns local-build context.
-            // Trustless building would return None here.
-            Some(LocalBuildResult {
+            LocalBuildResult {
                 payload_data,
                 payload_value,
                 should_override_builder,
-            }),
+            },
         ))
     }
 
@@ -843,21 +839,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     fn select_payload_bid(
         &self,
         local_signed_bid: SignedExecutionPayloadBid<T::EthSpec>,
-        local_build: Option<LocalBuildResult<T::EthSpec>>,
+        local_build: LocalBuildResult<T::EthSpec>,
         builder_boost_factor: Option<u64>,
     ) -> (
         SignedExecutionPayloadBid<T::EthSpec>,
         Option<ExecutionPayloadData<T::EthSpec>>,
     ) {
-        let cached_bid = if local_build.is_some() {
-            self.gossip_verified_payload_bid_cache.get_highest_bid(
-                local_signed_bid.message.slot,
-                local_signed_bid.message.parent_block_hash,
-                local_signed_bid.message.parent_block_root,
-            )
-        } else {
-            None
-        };
+        let cached_bid = self.gossip_verified_payload_bid_cache.get_highest_bid(
+            local_signed_bid.message.slot,
+            local_signed_bid.message.parent_block_hash,
+            local_signed_bid.message.parent_block_root,
+        );
         select_payload_bid_pure(
             local_signed_bid,
             local_build,
@@ -867,7 +859,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 }
 
-/// Pure selection logic, factored out for unit testing.
+/// Pure local-vs-cached selection logic, factored out for unit testing.
 ///
 /// Selection rule (mirrors the pre-Gloas builder/local race in `execution_layer`):
 ///   - `boosted_bid = (cached_bid.value / 100) * builder_boost_factor`  (raw value when `None`)
@@ -879,22 +871,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 /// `cached_bid.value` is in gwei (`u64`); `payload_value` is in wei (`Uint256`); compared in wei.
 pub(crate) fn select_payload_bid_pure<E: EthSpec>(
     local_signed_bid: SignedExecutionPayloadBid<E>,
-    local_build: Option<LocalBuildResult<E>>,
+    local_build: LocalBuildResult<E>,
     cached_bid: Option<Arc<SignedExecutionPayloadBid<E>>>,
     builder_boost_factor: Option<u64>,
 ) -> (
     SignedExecutionPayloadBid<E>,
     Option<ExecutionPayloadData<E>>,
 ) {
-    let Some(LocalBuildResult {
+    let LocalBuildResult {
         payload_data,
         payload_value,
         should_override_builder,
-    }) = local_build
-    else {
-        // Trustless / pre-built path — nothing to select against.
-        return (local_signed_bid, None);
-    };
+    } = local_build;
 
     let Some(cached_bid) = cached_bid else {
         return (local_signed_bid, Some(payload_data));
@@ -1276,13 +1264,16 @@ mod tests {
 
     // ---- select_payload_bid_pure ----
 
-    fn local_signed_bid(builder_index: BuilderIndex) -> SignedExecutionPayloadBid<TestSpec> {
+    const REMOTE_BUILDER: BuilderIndex = 999;
+
+    fn gwei(n: u64) -> types::Uint256 {
+        types::Uint256::from(n).saturating_mul(types::Uint256::from(1_000_000_000u64))
+    }
+
+    fn local_bid() -> SignedExecutionPayloadBid<TestSpec> {
         SignedExecutionPayloadBid {
             message: ExecutionPayloadBid {
-                builder_index,
-                slot: Slot::new(7),
-                parent_block_hash: ExecutionBlockHash::repeat_byte(0xaa),
-                parent_block_root: Hash256::repeat_byte(0xbb),
+                builder_index: BUILDER_INDEX_SELF_BUILD,
                 ..Default::default()
             },
             signature: Signature::empty(),
@@ -1292,10 +1283,7 @@ mod tests {
     fn cached_bid(value_gwei: u64) -> Arc<SignedExecutionPayloadBid<TestSpec>> {
         Arc::new(SignedExecutionPayloadBid {
             message: ExecutionPayloadBid {
-                builder_index: 999,
-                slot: Slot::new(7),
-                parent_block_hash: ExecutionBlockHash::repeat_byte(0xaa),
-                parent_block_root: Hash256::repeat_byte(0xbb),
+                builder_index: REMOTE_BUILDER,
                 value: value_gwei,
                 ..Default::default()
             },
@@ -1303,132 +1291,81 @@ mod tests {
         })
     }
 
-    fn local_build(
-        payload_value_wei: types::Uint256,
-        should_override_builder: bool,
-    ) -> LocalBuildResult<TestSpec> {
+    fn local_build(payload_gwei: u64, should_override_builder: bool) -> LocalBuildResult<TestSpec> {
         LocalBuildResult {
             payload_data: ExecutionPayloadData {
                 payload: types::ExecutionPayloadGloas::default(),
                 execution_requests: ExecutionRequests::default(),
                 builder_index: BUILDER_INDEX_SELF_BUILD,
-                slot: Slot::new(7),
+                slot: Slot::new(0),
                 blobs_and_proofs: (VariableList::empty(), VariableList::empty()),
             },
-            payload_value: payload_value_wei,
+            payload_value: gwei(payload_gwei),
             should_override_builder,
         }
     }
 
-    fn one_gwei_in_wei() -> types::Uint256 {
-        types::Uint256::from(1_000_000_000u64)
-    }
+    const LOCAL: BuilderIndex = BUILDER_INDEX_SELF_BUILD;
+    const REMOTE: BuilderIndex = REMOTE_BUILDER;
 
-    #[test]
-    fn select_no_local_build_returns_input_bid_and_no_data() {
-        // Trustless / pre-built path: no LocalBuildResult means we keep the supplied bid
-        // and emit no payload data, regardless of cache content.
-        let local = local_signed_bid(BUILDER_INDEX_SELF_BUILD);
-        let cache = Some(cached_bid(1_000));
-        let (out, data) = select_payload_bid_pure::<TestSpec>(local.clone(), None, cache, None);
-        assert_eq!(out.message.builder_index, BUILDER_INDEX_SELF_BUILD);
-        assert!(data.is_none());
+    /// Run `select_payload_bid_pure` and return `(winning_builder_index, has_payload_data)`.
+    ///
+    /// Args (positional, mirror `select_payload_bid_pure`):
+    ///   - `local_payload_gwei`: local payload value, in gwei.
+    ///   - `should_override`:    EL's `shouldOverrideBuilder` flag.
+    ///   - `cached_gwei`:        `Some(g)` ⇒ seed the cache with a bid of `g` gwei.
+    ///   - `boost`:              `None` = neutral, `Some(0)` = always local, `Some(>100)` = boost bid.
+    fn pick(
+        local_payload_gwei: u64,
+        should_override: bool,
+        cached_gwei: Option<u64>,
+        boost: Option<u64>,
+    ) -> (BuilderIndex, bool) {
+        let build = local_build(local_payload_gwei, should_override);
+        let cache = cached_gwei.map(cached_bid);
+        let (out, data) = select_payload_bid_pure::<TestSpec>(local_bid(), build, cache, boost);
+        (out.message.builder_index, data.is_some())
     }
 
     #[test]
     fn select_empty_cache_keeps_local() {
-        let local = local_signed_bid(BUILDER_INDEX_SELF_BUILD);
-        let build = local_build(types::Uint256::ZERO, false);
-        let (out, data) =
-            select_payload_bid_pure::<TestSpec>(local, Some(build), None, Some(u64::MAX));
-        assert_eq!(out.message.builder_index, BUILDER_INDEX_SELF_BUILD);
-        assert!(data.is_some());
+        assert_eq!(pick(0, false, None, Some(u64::MAX)), (LOCAL, true));
     }
 
     #[test]
-    fn select_should_override_builder_keeps_local() {
-        // Even with a fat cached bid and infinite boost, EL override wins.
-        let local = local_signed_bid(BUILDER_INDEX_SELF_BUILD);
-        let build = local_build(types::Uint256::ZERO, true);
-        let cache = Some(cached_bid(u64::MAX));
-        let (out, data) =
-            select_payload_bid_pure::<TestSpec>(local, Some(build), cache, Some(u64::MAX));
-        assert_eq!(out.message.builder_index, BUILDER_INDEX_SELF_BUILD);
-        assert!(data.is_some());
+    fn select_el_override_beats_any_cached_bid() {
+        // `shouldOverrideBuilder` short-circuits regardless of cache or boost.
+        assert_eq!(pick(0, true, Some(u64::MAX), Some(u64::MAX)), (LOCAL, true));
     }
 
     #[test]
-    fn select_boost_zero_keeps_local() {
-        // boost=0 deflates the bid to 0 → local always wins.
-        let local = local_signed_bid(BUILDER_INDEX_SELF_BUILD);
-        let build = local_build(types::Uint256::ZERO, false);
-        let cache = Some(cached_bid(u64::MAX));
-        let (out, data) = select_payload_bid_pure::<TestSpec>(local, Some(build), cache, Some(0));
-        assert_eq!(out.message.builder_index, BUILDER_INDEX_SELF_BUILD);
-        assert!(data.is_some());
+    fn select_boost_zero_always_keeps_local() {
+        // boost=0 deflates the bid to 0 ⇒ local always wins.
+        assert_eq!(pick(0, false, Some(u64::MAX), Some(0)), (LOCAL, true));
     }
 
     #[test]
-    fn select_neutral_boost_picks_higher() {
-        // Cached bid = 5 gwei = 5e9 wei, local payload = 1e9 wei. None means no boost.
-        let local = local_signed_bid(BUILDER_INDEX_SELF_BUILD);
-        let build = local_build(one_gwei_in_wei(), false);
-        let cache = Some(cached_bid(5));
-        let (out, data) = select_payload_bid_pure::<TestSpec>(local, Some(build), cache, None);
-        assert_eq!(out.message.builder_index, 999);
-        assert!(data.is_none());
+    fn select_neutral_boost_picks_higher_bid() {
+        // 5 gwei bid > 1 gwei local, neutral compare ⇒ bid.
+        assert_eq!(pick(1, false, Some(5), None), (REMOTE, false));
     }
 
     #[test]
     fn select_local_strictly_higher_keeps_local() {
-        // Local payload value > raw bid value → keep local (no boost).
-        let local = local_signed_bid(BUILDER_INDEX_SELF_BUILD);
-        let build = local_build(
-            one_gwei_in_wei().saturating_mul(types::Uint256::from(10u64)),
-            false,
-        );
-        let cache = Some(cached_bid(5));
-        let (out, data) = select_payload_bid_pure::<TestSpec>(local, Some(build), cache, None);
-        assert_eq!(out.message.builder_index, BUILDER_INDEX_SELF_BUILD);
-        assert!(data.is_some());
+        assert_eq!(pick(10, false, Some(5), None), (LOCAL, true));
     }
 
     #[test]
-    fn select_tie_keeps_local() {
-        // local_value == boosted_bid → `>=` keeps local.
-        let local = local_signed_bid(BUILDER_INDEX_SELF_BUILD);
-        let build = local_build(
-            one_gwei_in_wei().saturating_mul(types::Uint256::from(5u64)),
-            false,
-        );
-        let cache = Some(cached_bid(5));
-        let (out, data) = select_payload_bid_pure::<TestSpec>(local, Some(build), cache, None);
-        assert_eq!(out.message.builder_index, BUILDER_INDEX_SELF_BUILD);
-        assert!(data.is_some());
+    fn select_tie_goes_to_local() {
+        // `>=` ⇒ local wins ties.
+        assert_eq!(pick(5, false, Some(5), None), (LOCAL, true));
     }
 
     #[test]
     fn select_boost_factor_amplifies_bid() {
-        // Local 5 gwei, cached bid 3 gwei. Raw compare → local wins.
-        // With boost=200 → bid effectively 6 gwei → bid wins.
-        let local = local_signed_bid(BUILDER_INDEX_SELF_BUILD);
-        let cache = Some(cached_bid(3));
-        let build = local_build(
-            one_gwei_in_wei().saturating_mul(types::Uint256::from(5u64)),
-            false,
-        );
-        let (out_raw, data_raw) =
-            select_payload_bid_pure::<TestSpec>(local.clone(), Some(build), cache.clone(), None);
-        assert_eq!(out_raw.message.builder_index, BUILDER_INDEX_SELF_BUILD);
-        assert!(data_raw.is_some());
-
-        let build = local_build(
-            one_gwei_in_wei().saturating_mul(types::Uint256::from(5u64)),
-            false,
-        );
-        let (out_boosted, data_boosted) =
-            select_payload_bid_pure::<TestSpec>(local, Some(build), cache, Some(200));
-        assert_eq!(out_boosted.message.builder_index, 999);
-        assert!(data_boosted.is_none());
+        // 5 gwei local vs 3 gwei bid: raw ⇒ local.
+        assert_eq!(pick(5, false, Some(3), None), (LOCAL, true));
+        // boost=200 ⇒ bid scaled to 6 gwei ⇒ bid wins.
+        assert_eq!(pick(5, false, Some(3), Some(200)), (REMOTE, false));
     }
 }
