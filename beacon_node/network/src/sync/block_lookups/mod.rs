@@ -267,10 +267,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn search_unknown_block(
         &mut self,
         block_root: Hash256,
+        block_component: Option<BlockComponent<T::EthSpec>>,
         peer_source: &[PeerId],
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
-        self.new_current_lookup(block_root, None, None, peer_source, cx)
+        self.new_current_lookup(block_root, block_component, None, peer_source, cx)
     }
 
     /// A block or blob triggers the search of a parent.

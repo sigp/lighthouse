@@ -20,6 +20,7 @@ use std::iter;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
+use store::DatabaseBlock;
 use tracing::{debug, instrument};
 use tree_hash::TreeHash;
 use types::data::{
@@ -28,7 +29,8 @@ use types::data::{
 };
 use types::{
     BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSubnetId,
-    EthSpec, Hash256, PartialDataColumnSidecarRef, SignedBeaconBlockHeader, Slot,
+    EthSpec, Hash256, KzgCommitments, PartialDataColumnSidecarRef, SignedBeaconBlock,
+    SignedBeaconBlockHeader, Slot,
 };
 
 /// An error occurred while validating a gossip data column.
@@ -130,6 +132,25 @@ pub enum GossipDataColumnError {
     ParentUnknown {
         parent_root: Hash256,
         slot: Slot,
+    },
+    /// The block for this Gloas data column's `beacon_block_root` is not yet known.
+    /// The sidecar should be queued and retried when the block arrives.
+    ///
+    /// ## Peer scoring
+    ///
+    /// We cannot process the columns without validating its block, the peer isn't necessarily faulty.
+    BlockUnknown {
+        beacon_block_root: Hash256,
+        slot: Slot,
+    },
+    /// The sidecar's slot does not match the block's slot.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The data column sidecar is invalid and the peer is faulty.
+    SlotMismatch {
+        sidecar_slot: Slot,
+        block_slot: Slot,
     },
     /// The column conflicts with finalization, no need to propagate.
     ///
@@ -319,8 +340,11 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
                     )
                 })
             }
-            // TODO(gloas) support gloas data column variant
-            DataColumnSidecar::Gloas(_) => Err(GossipDataColumnError::InvalidVariant),
+            DataColumnSidecar::Gloas(_) => validate_data_column_sidecar_for_gossip_gloas::<T, O>(
+                column_sidecar,
+                subnet_id,
+                chain,
+            ),
         }
     }
 
@@ -329,9 +353,21 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
     /// When publishing a block constructed externally, there will be no columns here.
     pub fn new_for_block_publishing(
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
+        block: &SignedBeaconBlock<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, GossipDataColumnError> {
-        verify_data_column_sidecar(&column_sidecar, &chain.spec)?;
+        let commitments_len = match column_sidecar.as_ref() {
+            DataColumnSidecar::Fulu(dc) => dc.kzg_commitments.len(),
+            DataColumnSidecar::Gloas(_) => {
+                let bid = block
+                    .message()
+                    .body()
+                    .signed_execution_payload_bid()
+                    .map_err(|_| GossipDataColumnError::InvalidVariant)?;
+                bid.message.blob_kzg_commitments.len()
+            }
+        };
+        verify_data_column_sidecar(&column_sidecar, commitments_len, &chain.spec)?;
 
         // Check if the data column is already in the DA checker cache. This happens when data columns
         // are made available through the `engine_getBlobs` method.  If it exists in the cache, we know
@@ -860,6 +896,28 @@ pub fn verify_kzg_for_data_column<E: EthSpec>(
     })
 }
 
+/// Complete kzg verification for a `DataColumnSidecar` using externally provided commitments.
+/// Used for Gloas where commitments come from the block's execution payload bid.
+#[instrument(skip_all, level = "debug")]
+pub fn verify_kzg_for_data_column_with_commitments<E: EthSpec>(
+    data_column: Arc<DataColumnSidecar<E>>,
+    cells_to_verify: PartialDataColumnSidecarRef<E>,
+    kzg_commitments: &KzgCommitments<E>,
+    kzg: &Kzg,
+    seen_timestamp: Duration,
+) -> Result<KzgVerifiedDataColumn<E>, (Option<ColumnIndex>, KzgError)> {
+    let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES);
+    validate_partial_data_columns(
+        kzg,
+        iter::once((*data_column.index(), cells_to_verify)),
+        kzg_commitments,
+    )?;
+    Ok(KzgVerifiedDataColumn {
+        data: data_column,
+        seen_timestamp,
+    })
+}
+
 /// Complete kzg verification for a `VerifiablePartialDataColumn`.
 ///
 /// Returns an error if the kzg verification check fails.
@@ -916,7 +974,11 @@ pub fn validate_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes, O: Obse
     };
 
     let column_slot = data_column.slot();
-    verify_data_column_sidecar(&data_column, &chain.spec)?;
+    verify_data_column_sidecar(
+        &data_column,
+        data_column_fulu.kzg_commitments.len(),
+        &chain.spec,
+    )?;
     verify_index_matches_subnet(&data_column, subnet, &chain.spec)?;
     verify_sidecar_not_from_future_slot(chain, column_slot)?;
     verify_slot_greater_than_latest_finalized_slot(chain, column_slot)?;
@@ -982,6 +1044,109 @@ pub fn validate_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes, O: Obse
         data_column: kzg_verified_data_column,
         _phantom: PhantomData,
     })
+}
+
+#[instrument(
+    skip_all,
+    name = "validate_data_column_sidecar_for_gossip_gloas",
+    level = "debug"
+)]
+pub fn validate_data_column_sidecar_for_gossip_gloas<
+    T: BeaconChainTypes,
+    O: ObservationStrategy,
+>(
+    data_column: Arc<DataColumnSidecar<T::EthSpec>>,
+    subnet: DataColumnSubnetId,
+    chain: &BeaconChain<T>,
+) -> Result<GossipVerifiedDataColumn<T, O>, GossipDataColumnError> {
+    let DataColumnSidecar::Gloas(_) = data_column.as_ref() else {
+        return Err(GossipDataColumnError::InvalidVariant);
+    };
+
+    let column_slot = data_column.slot();
+    let block_root = data_column.block_root();
+
+    verify_index_matches_subnet(&data_column, subnet, &chain.spec)?;
+    let bid_commitments = get_gloas_block_commitments(chain, &block_root, column_slot)?;
+    verify_data_column_sidecar(&data_column, bid_commitments.len(), &chain.spec)?;
+    verify_is_unknown_sidecar(chain, &data_column)?;
+
+    // Check DA cache for already-processed columns.
+    let Some(cells_to_kzg_verify) = chain
+        .data_availability_checker
+        .missing_cells_for_column_sidecar(&data_column)
+        .map_err(|err| match err {
+            MissingCellsError::MismatchesCachedColumn => {
+                GossipDataColumnError::MismatchesCachedColumn
+            }
+            MissingCellsError::UnexpectedError(_) => todo!("handle unexpected error"),
+        })?
+    else {
+        if O::observe() {
+            observe_gossip_data_column(&data_column, chain)?;
+        }
+        return Err(GossipDataColumnError::PriorKnownUnpublished);
+    };
+
+    // [REJECT] KZG proof verification using commitments from the bid.
+    let kzg = &chain.kzg;
+    let seen_timestamp = chain.slot_clock.now_duration().unwrap_or_default();
+    let kzg_verified_data_column = verify_kzg_for_data_column_with_commitments(
+        data_column.clone(),
+        cells_to_kzg_verify,
+        &bid_commitments,
+        kzg,
+        seen_timestamp,
+    )
+    .map_err(|(_, e)| GossipDataColumnError::InvalidKzgProof(e))?;
+
+    if O::observe() {
+        observe_gossip_data_column(&data_column, chain)?;
+    }
+
+    Ok(GossipVerifiedDataColumn {
+        block_root,
+        data_column: kzg_verified_data_column,
+        _phantom: PhantomData,
+    })
+}
+
+/// Look up the block for a Gloas data column sidecar and extract the bid's `blob_kzg_commitments`.
+/// Returns `BlockUnknown` if the block is not found, `SlotMismatch` if slots don't match.
+fn get_gloas_block_commitments<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    block_root: &Hash256,
+    sidecar_slot: Slot,
+) -> Result<KzgCommitments<T::EthSpec>, GossipDataColumnError> {
+    let block = chain
+        .store
+        .try_get_full_block(block_root)
+        .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?;
+
+    // TODO(gloas): maybe also check DA cache? fork choice?
+    let block = match block {
+        Some(DatabaseBlock::Full(block)) => block,
+        Some(DatabaseBlock::Blinded(_)) | None => {
+            return Err(GossipDataColumnError::BlockUnknown {
+                beacon_block_root: *block_root,
+                slot: sidecar_slot,
+            });
+        }
+    };
+
+    if sidecar_slot != block.slot() {
+        return Err(GossipDataColumnError::SlotMismatch {
+            sidecar_slot,
+            block_slot: block.slot(),
+        });
+    }
+
+    let bid = block
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?;
+    Ok(bid.message.blob_kzg_commitments.clone())
 }
 
 #[instrument(skip_all, level = "debug")]
@@ -1116,8 +1281,13 @@ pub enum PartialColumnVerificationResult<E: EthSpec> {
 }
 
 /// Verify if the data column sidecar is valid.
+///
+/// `commitments_len` is the number of KZG commitments associated with this block.
+/// For Fulu, this comes from the sidecar's `kzg_commitments` field.
+/// For Gloas, this comes from `block.body.signed_execution_payload_bid.message.blob_kzg_commitments`.
 fn verify_data_column_sidecar<E: EthSpec>(
     data_column: &DataColumnSidecar<E>,
+    commitments_len: usize,
     spec: &ChainSpec,
 ) -> Result<(), GossipDataColumnError> {
     if *data_column.index() >= E::number_of_columns() as u64 {
@@ -1125,12 +1295,6 @@ fn verify_data_column_sidecar<E: EthSpec>(
             *data_column.index(),
         ));
     }
-
-    // TODO(gloas): implement Gloas verification that takes kzg_commitments from block as parameter
-    let commitments_len = match data_column {
-        DataColumnSidecar::Fulu(dc) => dc.kzg_commitments.len(),
-        DataColumnSidecar::Gloas(_) => return Err(GossipDataColumnError::InvalidVariant),
-    };
 
     if commitments_len == 0 {
         return Err(GossipDataColumnError::UnexpectedDataColumn);
@@ -1426,7 +1590,7 @@ mod test {
     use types::{
         Cell, CellBitmap, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSubnetId, EthSpec,
         ForkName, MainnetEthSpec, PartialDataColumn, PartialDataColumnHeader,
-        PartialDataColumnSidecar,
+        PartialDataColumnSidecar, SignedBeaconBlock,
     };
 
     type E = MainnetEthSpec;
@@ -1444,7 +1608,7 @@ mod test {
             .build();
         harness.advance_slot();
 
-        let verify_fn = |column_sidecar: DataColumnSidecar<E>| {
+        let verify_fn = |column_sidecar: DataColumnSidecar<E>, _| {
             let col_index = *column_sidecar.index();
             validate_data_column_sidecar_for_gossip_fulu::<_, Observe>(
                 column_sidecar.into(),
@@ -1469,9 +1633,10 @@ mod test {
             .build();
         harness.advance_slot();
 
-        let verify_fn = |column_sidecar: DataColumnSidecar<E>| {
+        let verify_fn = |column_sidecar: DataColumnSidecar<E>, block: Arc<SignedBeaconBlock<E>>| {
             GossipVerifiedDataColumn::<_>::new_for_block_publishing(
                 column_sidecar.into(),
+                &block,
                 &harness.chain,
             )
         };
@@ -1482,7 +1647,10 @@ mod test {
     // TODO(gloas) make this generic over gloas/fulu
     async fn empty_data_column_sidecars_fails_validation_fulu<D>(
         harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
-        verify_fn: &impl Fn(DataColumnSidecar<E>) -> Result<D, GossipDataColumnError>,
+        verify_fn: impl Fn(
+            DataColumnSidecar<E>,
+            Arc<SignedBeaconBlock<E>>,
+        ) -> Result<D, GossipDataColumnError>,
     ) {
         let slot = harness.get_current_slot();
         let state = harness.get_current_state();
@@ -1506,7 +1674,7 @@ mod test {
                 .unwrap(),
         });
 
-        let result = verify_fn(column_sidecar);
+        let result = verify_fn(column_sidecar, block);
         assert!(matches!(
             result.err(),
             Some(GossipDataColumnError::UnexpectedDataColumn)
@@ -1515,7 +1683,10 @@ mod test {
 
     async fn data_column_sidecar_commitments_exceed_max_blobs_per_block<D>(
         harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
-        verify_fn: &impl Fn(DataColumnSidecar<E>) -> Result<D, GossipDataColumnError>,
+        verify_fn: &impl Fn(
+            DataColumnSidecar<E>,
+            Arc<SignedBeaconBlock<E>>,
+        ) -> Result<D, GossipDataColumnError>,
     ) {
         let slot = harness.get_current_slot();
         let epoch = slot.epoch(E::slots_per_epoch());
@@ -1545,7 +1716,7 @@ mod test {
             .next()
             .unwrap();
 
-        let result = verify_fn(Arc::try_unwrap(column_sidecar).unwrap());
+        let result = verify_fn(Arc::try_unwrap(column_sidecar).unwrap(), block);
         assert!(matches!(
             result.err(),
             Some(GossipDataColumnError::MaxBlobsPerBlockExceeded { .. })

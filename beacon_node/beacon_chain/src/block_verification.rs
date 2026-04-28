@@ -942,18 +942,14 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
 
         // Check that we've received the parent envelope. If not, issue a single envelope
         // lookup for the parent and queue this block in the reprocess queue.
-        //
-        // The anchor block (proto-array root) is implicitly considered to have its payload
-        // received: there is no envelope to fetch for the anchor (per spec, the anchor is
-        // never added to `store.payloads`), and the anchor is trusted by definition.
+        // Skip this check for the genesis block — it's a synthetic anchor with no envelope.
         let parent_is_gloas = chain
             .spec
             .fork_name_at_slot::<T::EthSpec>(parent_block.slot)
             .gloas_enabled();
-        let parent_is_anchor = parent_block.parent_root.is_none();
 
         if parent_is_gloas
-            && !parent_is_anchor
+            && parent_block.slot != chain.spec.genesis_slot
             && !fork_choice_read_lock.is_payload_received(&block.message().parent_root())
         {
             return Err(BlockError::ParentEnvelopeUnknown {
