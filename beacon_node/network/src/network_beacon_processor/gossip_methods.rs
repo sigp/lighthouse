@@ -1831,6 +1831,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 error!(error = %e, "Internal block gossip validation error");
                 return None;
             }
+            Err(BlockError::ParentEnvelopeUnknown { .. }) => {
+                // Gossip validation does not check envelope availability; this should not occur.
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return None;
+            }
+            Err(e @ BlockError::EnvelopeError(_)) => {
+                debug!(error = %e, "Gossip block envelope error");
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return None;
+            }
+            Err(e @ BlockError::PayloadEnvelopeError { .. }) => {
+                debug!(error = %e, "Gossip block payload envelope error");
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return None;
+            }
         };
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_VERIFIED_TOTAL);

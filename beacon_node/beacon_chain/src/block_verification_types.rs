@@ -46,6 +46,7 @@ impl<E: EthSpec> LookupBlock<E> {
 /// This includes any and all blobs/columns required, including zero if
 /// none are required. This can happen if the block is pre-deneb or if
 /// it's simply past the DA boundary.
+#[derive(Clone)]
 pub enum RangeSyncBlock<E: EthSpec> {
     Base(AvailableBlock<E>),
     Gloas {
