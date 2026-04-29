@@ -19,7 +19,7 @@ participants:
 network_params:
   gloas_fork_epoch: 0
   slot_duration_ms: 6000
-  preset: "minimal"
+  preset: "mainnet"
 additional_services:
   - tx_fuzz
   - spamoor
