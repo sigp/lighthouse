@@ -23,7 +23,7 @@ if [[ "$version" == "nightly" || "$version" =~ ^nightly-[0-9]+$ ]]; then
 
 	if [[ "$version" == "nightly" ]]; then
 		run_id=$(curl --fail -s -H "${auth_header}" \
-			"${api}/repos/${repo}/actions/workflows/nightly-reftests.yml/runs?branch=master&status=success&per_page=1" |
+			"${api}/repos/${repo}/actions/workflows/tests.yml/runs?branch=master&status=success&per_page=1" |
 			jq -r '.workflow_runs[0].id')
 	else
 		run_id="${version#nightly-}"
