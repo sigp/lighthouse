@@ -3450,17 +3450,20 @@ impl ApiTester {
                 .unwrap()
                 .unwrap_or(self.chain.head_beacon_block_root());
 
-            // Presently, the beacon chain harness never runs the code that primes the proposer
-            // cache. If this changes in the future then we'll need some smarter logic here, but
-            // this is succinct and effective for the time being.
-            assert!(
-                self.chain
-                    .beacon_proposer_cache
-                    .lock()
-                    .get_epoch::<E>(dependent_root, epoch)
-                    .is_none(),
-                "the proposer cache should miss initially"
-            );
+            // Block import primes the proposer cache for each epoch it runs through (to gate
+            // proposer boost), so epochs `<= current_epoch` are already cached. The only epoch
+            // for which we can observe the endpoint's own caching behaviour is
+            // `current_epoch + 1`, which no block import has touched yet.
+            if epoch == current_epoch + 1 {
+                assert!(
+                    self.chain
+                        .beacon_proposer_cache
+                        .lock()
+                        .get_epoch::<E>(dependent_root, epoch)
+                        .is_none(),
+                    "the proposer cache should miss initially for the next epoch"
+                );
+            }
 
             let result = self
                 .client
@@ -3468,8 +3471,9 @@ impl ApiTester {
                 .await
                 .unwrap();
 
-            // Check that current-epoch requests prime the proposer cache, whilst non-current
-            // requests don't.
+            // A current-epoch request should leave the cache primed (block import already did so,
+            // but this is still a useful end-to-end check). A request for `current_epoch + 1`
+            // should not prime the cache.
             if epoch == current_epoch {
                 assert!(
                     self.chain
@@ -3477,16 +3481,16 @@ impl ApiTester {
                         .lock()
                         .get_epoch::<E>(dependent_root, epoch)
                         .is_some(),
-                    "a current-epoch request should prime the proposer cache"
+                    "the proposer cache should be primed for the current epoch"
                 );
-            } else {
+            } else if epoch == current_epoch + 1 {
                 assert!(
                     self.chain
                         .beacon_proposer_cache
                         .lock()
                         .get_epoch::<E>(dependent_root, epoch)
                         .is_none(),
-                    "a non-current-epoch request should not prime the proposer cache"
+                    "a request for the next epoch should not prime the proposer cache"
                 );
             }
 
