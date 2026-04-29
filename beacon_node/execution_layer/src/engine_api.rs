@@ -27,8 +27,7 @@ pub use types::{
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
     ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadHeze,
-    ExecutionRequests,
-    KzgProofs,
+    ExecutionRequests, KzgProofs,
 };
 use types::{GRAFFITI_BYTES_LEN, Graffiti};
 

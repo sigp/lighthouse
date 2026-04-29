@@ -397,8 +397,8 @@ pub fn get_heze_find_head_vote_transition_test_definition() -> ForkChoiceTestDef
 }
 
 /// CL attestation weight overrides payload preference tiebreaker.
-pub fn get_heze_weight_priority_over_payload_preference_test_definition()
--> ForkChoiceTestDefinition {
+pub fn get_heze_weight_priority_over_payload_preference_test_definition() -> ForkChoiceTestDefinition
+{
     let mut ops = vec![];
 
     // Build two branches where one child extends payload (Full) and the other doesn't (Empty).

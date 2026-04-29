@@ -1132,7 +1132,7 @@ fn verify_data_column_sidecar<E: EthSpec>(
     let commitments_len = match data_column {
         DataColumnSidecar::Fulu(dc) => dc.kzg_commitments.len(),
         DataColumnSidecar::Gloas(_) | DataColumnSidecar::Heze(_) => {
-            return Err(GossipDataColumnError::InvalidVariant)
+            return Err(GossipDataColumnError::InvalidVariant);
         }
     };
 

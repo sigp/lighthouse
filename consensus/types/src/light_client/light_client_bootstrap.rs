@@ -140,7 +140,9 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             ForkName::Electra => <LightClientBootstrapElectra<E> as Encode>::ssz_fixed_len(),
             ForkName::Fulu => <LightClientBootstrapFulu<E> as Encode>::ssz_fixed_len(),
             // TODO(gloas): implement Gloas light client
-            ForkName::Gloas | ForkName::Heze => <LightClientBootstrapAltair<E> as Encode>::ssz_fixed_len(),
+            ForkName::Gloas | ForkName::Heze => {
+                <LightClientBootstrapAltair<E> as Encode>::ssz_fixed_len()
+            }
         };
         fixed_len + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
     }

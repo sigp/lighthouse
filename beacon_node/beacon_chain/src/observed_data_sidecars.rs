@@ -266,8 +266,7 @@ mod tests {
     use std::sync::Arc;
     use types::{
         BeaconBlockHeader, DataColumnSidecarFulu, DataColumnSidecarGloas, DataColumnSidecarHeze,
-        ForkName, MainnetEthSpec,
-        SignedBeaconBlockHeader,
+        ForkName, MainnetEthSpec, SignedBeaconBlockHeader,
     };
 
     type E = MainnetEthSpec;

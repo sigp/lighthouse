@@ -14,8 +14,8 @@ use types::kzg_ext::KzgCommitments;
 use types::{
     Blob, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu,
     DataColumnSidecarGloas, DataColumnSidecarHeze, DataColumnSidecarList, EthSpec, Hash256,
-    KzgCommitment, KzgProof,
-    SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlindedBeaconBlock, Slot,
+    KzgCommitment, KzgProof, SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlindedBeaconBlock,
+    Slot,
 };
 
 /// Converts a blob ssz FixedVector to a reference to a fixed-size array
