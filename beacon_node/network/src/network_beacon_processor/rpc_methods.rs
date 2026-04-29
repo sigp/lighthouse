@@ -441,53 +441,45 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
 
         // 2. Spillover below the proto-array boundary. Parents of finalized blocks are
-        //    canonical, so the freezer's `slot → root` index is sufficient — no block
-        //    bodies are loaded.
+        //    canonical, so the head state's `block_roots` bucket (the 8192-slot circular
+        //    buffer carried in every `BeaconState`) gives us canonical roots for free —
+        //    purely in-memory, no DB reads. This naturally handles skip slots (consecutive
+        //    skipped slots yield the same root, deduped on insert) and lets us walk slot
+        //    by slot until we have `count` blocks regardless of skip density.
         let oldest_slot = roots_with_slots.last().expect("non-empty checked above").1;
-        let remaining = count - collected;
-        let oldest_slot_u64 = oldest_slot.as_u64();
-        let start_slot = oldest_slot_u64.saturating_sub(remaining);
-        if start_slot >= oldest_slot_u64 {
-            return Ok(roots_with_slots.into_iter().map(|(r, _)| r).collect());
-        }
+        let oldest_block_slot = self.chain.store.get_oldest_block_slot();
 
-        let iter = match self.chain.forwards_iter_block_roots(Slot::from(start_slot)) {
-            Ok(iter) => iter,
-            Err(BeaconChainError::HistoricalBlockOutOfRange { .. }) => {
-                // Below the oldest available block (e.g. backfilling); return what we have.
-                return Ok(roots_with_slots.into_iter().map(|(r, _)| r).collect());
-            }
-            Err(e) => {
-                error!(error = ?e, "Error opening forwards block roots iterator");
-                return Err((RpcErrorResponse::ServerError, "Database error"));
-            }
-        };
-
-        // Collect canonical roots in [start_slot, oldest_slot), ascending. Skip slots
-        // make `forwards_iter_block_roots` yield the same root for multiple consecutive
-        // slots, so dedup adjacent duplicates afterwards.
-        let collected_below: Vec<(Hash256, Slot)> = match process_results(iter, |it| {
-            it.take_while(|(_, slot)| *slot < oldest_slot)
-                .collect::<Vec<_>>()
-        }) {
-            Ok(v) => v,
-            Err(e) => {
-                error!(error = ?e, "Error iterating forward block roots");
-                return Err((RpcErrorResponse::ServerError, "Iteration error"));
-            }
-        };
-
-        let mut deduped: Vec<(Hash256, Slot)> = Vec::with_capacity(collected_below.len());
-        for entry in collected_below {
-            if deduped.last().map(|(r, _)| *r) != Some(entry.0) {
-                deduped.push(entry);
+        let head = self.chain.head_snapshot();
+        let state = &head.beacon_state;
+        let mut last_root = roots_with_slots.last().map(|(r, _)| *r);
+        let mut current = oldest_slot;
+        while (roots_with_slots.len() as u64) < count && current > oldest_block_slot {
+            current = match current.as_u64().checked_sub(1) {
+                Some(s) => Slot::from(s),
+                None => break,
+            };
+            match state.get_block_root(current) {
+                Ok(root) => {
+                    let root = *root;
+                    // Skip-slot entries reuse the prior block's root; dedup adjacent.
+                    if Some(root) != last_root {
+                        roots_with_slots.push((root, current));
+                        last_root = Some(root);
+                    }
+                }
+                Err(types::BeaconStateError::SlotOutOfBounds) => {
+                    // Slot is older than the head state's `block_roots` window (~8192
+                    // slots). For BlocksByHead's `count <= 128` cap this shouldn't
+                    // happen in practice; stop walking.
+                    break;
+                }
+                Err(e) => {
+                    error!(error = ?e, "Error walking head state block_roots");
+                    return Err((RpcErrorResponse::ServerError, "State read error"));
+                }
             }
         }
-
-        deduped.reverse(); // descending
-        deduped.truncate(remaining as usize);
-
-        roots_with_slots.extend(deduped);
+        drop(head);
 
         Ok(roots_with_slots.into_iter().map(|(r, _)| r).collect())
     }
