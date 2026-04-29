@@ -139,7 +139,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
                 beacon_node
                     .get_validator_payload_attestation_data(slot)
                     .await
-                    .map_err(|e| format!("Failed to get payload attestation data: {e:?}"))
                     .map(|resp| resp.into_data())
             })
             .await
@@ -148,7 +147,13 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
             Err(e) => {
                 // Per the consensus spec, validators should not submit a
                 // payload attestation when no block has been seen for the slot.
-                if e.to_string().contains("No block received for slot") {
+                // The BN returns 503 in this case.
+                let is_block_not_found = e.0.iter().any(|(_, err)| {
+                    err.request_failure()
+                        .and_then(|e| e.status())
+                        .is_some_and(|s| s == reqwest::StatusCode::SERVICE_UNAVAILABLE)
+                });
+                if is_block_not_found {
                     debug!(
                         %slot,
                         "No block received for slot, skipping payload attestation"
