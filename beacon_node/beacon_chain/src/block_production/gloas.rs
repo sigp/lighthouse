@@ -691,16 +691,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok((block, state, consensus_block_value))
     }
 
-    // TODO(gloas) introduce `ProposerPreferences` so we can build out trustless
-    // bid building. Right now this only works for local building.
-    /// Produce an `ExecutionPayloadBid` for some `slot` upon the given `state`.
+    /// Produce a self-build `ExecutionPayloadBid` for some `slot` upon the given `state`.
     /// This function assumes we've already advanced `state`.
     ///
-    /// Returns the signed bid, the state, and optionally the payload data needed to construct
-    /// the `ExecutionPayloadEnvelope` after the beacon block is created.
-    ///
-    /// For local building, payload data is always returned (`Some`).
-    /// For trustless building, the builder provides the envelope separately, so `None` is returned.
+    /// Returns the signed bid, the state, and a `LocalBuildResult` carrying the payload
+    /// data needed to construct the `ExecutionPayloadEnvelope` after the beacon block is
+    /// created, plus the EL block value and `should_override_builder` flag used by the
+    /// caller to compare against any cached p2p builder bid.
     #[allow(clippy::type_complexity)]
     #[instrument(level = "debug", skip_all)]
     pub async fn produce_execution_payload_bid(
