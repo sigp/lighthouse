@@ -3627,6 +3627,23 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.propagate_if_timely(is_timely, message_id, peer_id)
     }
 
+    /// If a payload envelope is still valid with respect to the current time (i.e., its slot
+    /// matches the current slot), propagate it on gossip. Otherwise, ignore it.
+    fn propagate_envelope_if_timely(
+        &self,
+        envelope_slot: Slot,
+        message_id: MessageId,
+        peer_id: PeerId,
+    ) {
+        let is_timely = self
+            .chain
+            .slot_clock
+            .now()
+            .is_some_and(|current_slot| envelope_slot == current_slot);
+
+        self.propagate_if_timely(is_timely, message_id, peer_id)
+    }
+
     /// If a sync committee signature or sync committee contribution is still valid with respect to
     /// the current time (i.e., timely), propagate it on gossip. Otherwise, ignore it.
     fn propagate_sync_message_if_timely(
@@ -3831,6 +3848,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         let process_fn = Box::pin(async move {
                             match chain.verify_envelope_for_gossip(envelope).await {
                                 Ok(verified_envelope) => {
+                                    let envelope_slot = verified_envelope.signed_envelope.slot();
+                                    inner_self.propagate_envelope_if_timely(
+                                        envelope_slot,
+                                        message_id,
+                                        peer_id,
+                                    );
                                     inner_self
                                         .process_gossip_verified_execution_payload_envelope(
                                             peer_id,

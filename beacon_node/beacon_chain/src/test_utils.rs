@@ -3832,12 +3832,10 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
             )
             .unwrap();
 
-        // TODO(gloas): The fixture is Fulu format. Generate Gloas-specific fixture once format
-        // is finalized, or compute columns dynamically for Gloas tests.
         let (cells, proofs) = template_data_columns
             .into_iter()
             .map(|sidecar| {
-                let DataColumnSidecarFulu {
+                let DataColumnSidecarGloas {
                     column, kzg_proofs, ..
                 } = sidecar;
                 // There's only one cell per column for a single blob

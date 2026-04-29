@@ -81,13 +81,6 @@ impl<E: EthSpec> PendingComponents<E> {
         self.envelope = Some(envelope);
     }
 
-    /// Returns the number of blobs expected by reading the bid's kzg commitments.
-    /// Returns an error if the bid is not cached. This function should only be called
-    /// after ensuring that the bid has been cached.
-    pub fn num_blobs_expected(&self) -> usize {
-        self.num_blobs_expected
-    }
-
     pub fn num_completed_columns(&self) -> usize {
         self.verified_data_columns
             .values()

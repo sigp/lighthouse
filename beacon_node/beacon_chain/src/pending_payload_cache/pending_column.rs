@@ -23,12 +23,6 @@ impl<E: EthSpec> PendingColumn<E> {
         }
     }
 
-    // TODO(gloas): insert_from_partial
-
-    pub fn has_cell(&self, index: usize) -> bool {
-        self.cells.get(index).is_some_and(|c| c.is_some())
-    }
-
     pub fn cell_matches(&self, index: usize, cell: &Cell<E>, proof: &KzgProof) -> Option<bool> {
         self.cells
             .get(index)?

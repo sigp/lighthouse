@@ -226,7 +226,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             signed_envelope,
             import_data,
             payload_verification_outcome,
-            self.spec.clone(),
         ))
     }
 
