@@ -121,7 +121,6 @@ pub fn block_not_found(msg: String) -> warp::reject::Rejection {
     warp::reject::custom(BlockNotFound(msg))
 }
 
-
 #[derive(Debug)]
 pub struct InvalidAuthorization(pub String);
 
