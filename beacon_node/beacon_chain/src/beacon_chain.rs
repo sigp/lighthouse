@@ -5023,11 +5023,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             .ok_or(Error::MissingExecutionPayloadEnvelope(parent_block_root))?;
 
-            let parent_bid = advanced_state.latest_execution_payload_bid()?.clone();
-
             apply_parent_execution_payload(
                 &mut advanced_state,
-                &parent_bid,
                 &envelope.message.execution_requests,
                 &self.spec,
             )

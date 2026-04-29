@@ -256,6 +256,7 @@ fn make_signed_preferences(
             validator_index,
             fee_recipient,
             gas_limit,
+            ..ProposerPreferences::default()
         },
         signature: Signature::empty(),
     })

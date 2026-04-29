@@ -229,9 +229,6 @@ async fn prepare_payload_generic(
     // `apply_parent_execution_payload`.
     let cached_head = harness.chain.canonical_head.cached_head();
     let unadvanced_empty_state = &cached_head.snapshot.beacon_state;
-    let parent_bid = unadvanced_empty_state
-        .latest_execution_payload_bid()
-        .unwrap();
 
     let mut advanced_empty_state = unadvanced_empty_state.clone();
     complete_state_advance(&mut advanced_empty_state, None, prepare_slot, &spec).unwrap();
@@ -239,7 +236,6 @@ async fn prepare_payload_generic(
     let mut unadvanced_full_state = unadvanced_empty_state.clone();
     apply_parent_execution_payload(
         &mut unadvanced_full_state,
-        parent_bid,
         &envelope.message.execution_requests,
         &spec,
     )
@@ -248,7 +244,6 @@ async fn prepare_payload_generic(
     let mut advanced_full_state = advanced_empty_state.clone();
     apply_parent_execution_payload(
         &mut advanced_full_state,
-        parent_bid,
         &envelope.message.execution_requests,
         &spec,
     )
