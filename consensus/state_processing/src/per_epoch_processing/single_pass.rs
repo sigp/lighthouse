@@ -1000,7 +1000,10 @@ fn get_activation_exit_churn_limit(
     } else {
         spec.max_per_epoch_activation_exit_churn_limit
     };
-    Ok(std::cmp::min(max_limit, get_balance_churn_limit(state_ctxt, spec)?))
+    Ok(std::cmp::min(
+        max_limit,
+        get_balance_churn_limit(state_ctxt, spec)?,
+    ))
 }
 
 fn get_balance_churn_limit(state_ctxt: &StateContext, spec: &ChainSpec) -> Result<u64, Error> {

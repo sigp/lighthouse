@@ -2788,7 +2788,10 @@ impl<E: EthSpec> BeaconState<E> {
         } else {
             spec.max_per_epoch_activation_exit_churn_limit
         };
-        Ok(std::cmp::min(max_limit, self.get_balance_churn_limit(spec)?))
+        Ok(std::cmp::min(
+            max_limit,
+            self.get_balance_churn_limit(spec)?,
+        ))
     }
 
     /// Return the Gloas (EIP-8061) exit churn limit for the current epoch.
@@ -2801,8 +2804,7 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn get_consolidation_churn_limit(&self, spec: &ChainSpec) -> Result<u64, BeaconStateError> {
         if self.fork_name_unchecked().gloas_enabled() {
             let total_active_balance = self.get_total_active_balance()?;
-            let churn =
-                total_active_balance.safe_div(spec.consolidation_churn_limit_quotient)?;
+            let churn = total_active_balance.safe_div(spec.consolidation_churn_limit_quotient)?;
             Ok(churn.safe_sub(churn.safe_rem(spec.effective_balance_increment)?)?)
         } else {
             self.get_balance_churn_limit(spec)?

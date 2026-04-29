@@ -104,19 +104,11 @@ mod tests {
 
         for slot in [1, 2, 3, 7] {
             assert!(cache.get_preferences(&Slot::new(slot)).is_none());
-            assert!(!cache.get_seen_validator(
-                &Slot::new(slot),
-                types::Hash256::ZERO,
-                slot
-            ));
+            assert!(!cache.get_seen_validator(&Slot::new(slot), types::Hash256::ZERO, slot));
         }
         for slot in [8, 9, 10] {
             assert!(cache.get_preferences(&Slot::new(slot)).is_some());
-            assert!(cache.get_seen_validator(
-                &Slot::new(slot),
-                types::Hash256::ZERO,
-                slot
-            ));
+            assert!(cache.get_seen_validator(&Slot::new(slot), types::Hash256::ZERO, slot));
         }
     }
 }
