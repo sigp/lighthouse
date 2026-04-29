@@ -4637,7 +4637,8 @@ impl ApiTester {
             .client
             .get_validator_payload_attestation_data(slot)
             .await
-            .unwrap();
+            .unwrap()
+            .expect("expected payload attestation data for slot with block");
 
         assert_eq!(response.version(), Some(fork_name));
 
@@ -4761,15 +4762,14 @@ impl ApiTester {
         self.harness.advance_slot();
         let slot = self.chain.slot().unwrap();
 
-        // The endpoint should return 404 when no block exists for the slot
-        match self
+        // Should return None when no block exists for the slot
+        let result = self
             .client
             .get_validator_payload_attestation_data(slot)
             .await
-        {
-            Ok(result) => panic!("query for empty slot should fail, got: {result:?}"),
-            Err(e) => assert_eq!(e.status().unwrap(), 404),
-        }
+            .unwrap();
+
+        assert!(result.is_none(), "expected None for empty slot, got: {result:?}");
 
         self
     }
