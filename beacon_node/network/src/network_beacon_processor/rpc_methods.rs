@@ -409,45 +409,87 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Walks the parent chain of `head_root` (inclusive) and returns up to `count` block roots
     /// in descending slot order. Synchronous so it can be run on a blocking thread.
     ///
-    /// Returns `ResourceUnavailable` if `head_root` itself is unknown. Stops walking (without
-    /// erroring) once the next ancestor is not locally available, returning whatever was
-    /// collected.
+    /// Sources roots from fork-choice's in-memory proto-array first (no DB reads), then falls
+    /// back to the freezer's slot→root index for the portion below the finalized boundary.
+    /// Returns `ResourceUnavailable` if `head_root` is not in proto-array.
     fn get_block_roots_ancestor_of_head(
         &self,
         head_root: Hash256,
         count: u64,
     ) -> Result<Vec<Hash256>, (RpcErrorResponse, &'static str)> {
-        let mut roots = Vec::with_capacity(count as usize);
-        let mut current_root = head_root;
-        let mut walked = 0u64;
-        loop {
-            if walked == count {
-                break;
+        if count == 0 {
+            return Ok(vec![]);
+        }
+
+        // 1. Walk ancestors in proto-array (in-memory, zero DB reads).
+        let mut roots_with_slots: Vec<(Hash256, Slot)> = {
+            let fork_choice = self.chain.canonical_head.fork_choice_read_lock();
+            fork_choice
+                .proto_array()
+                .iter_block_roots(&head_root)
+                .take(count as usize)
+                .collect()
+        };
+
+        if roots_with_slots.is_empty() {
+            return Err((RpcErrorResponse::ResourceUnavailable, "Unknown beacon_root"));
+        }
+
+        let collected = roots_with_slots.len() as u64;
+        if collected >= count {
+            return Ok(roots_with_slots.into_iter().map(|(r, _)| r).collect());
+        }
+
+        // 2. Spillover below the proto-array boundary. Parents of finalized blocks are
+        //    canonical, so the freezer's `slot → root` index is sufficient — no block
+        //    bodies are loaded.
+        let oldest_slot = roots_with_slots.last().expect("non-empty checked above").1;
+        let remaining = count - collected;
+        let oldest_slot_u64 = oldest_slot.as_u64();
+        let start_slot = oldest_slot_u64.saturating_sub(remaining);
+        if start_slot >= oldest_slot_u64 {
+            return Ok(roots_with_slots.into_iter().map(|(r, _)| r).collect());
+        }
+
+        let iter = match self.chain.forwards_iter_block_roots(Slot::from(start_slot)) {
+            Ok(iter) => iter,
+            Err(BeaconChainError::HistoricalBlockOutOfRange { .. }) => {
+                // Below the oldest available block (e.g. backfilling); return what we have.
+                return Ok(roots_with_slots.into_iter().map(|(r, _)| r).collect());
             }
-            match self.chain.get_blinded_block(&current_root) {
-                Ok(Some(block)) => {
-                    roots.push(current_root);
-                    walked = walked.saturating_add(1);
-                    let parent = block.parent_root();
-                    if parent.is_zero() {
-                        // Reached the genesis block (genesis has parent_root = 0x0..0).
-                        break;
-                    }
-                    current_root = parent;
-                }
-                Ok(None) => {
-                    if walked == 0 {
-                        return Err((RpcErrorResponse::ResourceUnavailable, "Unknown beacon_root"));
-                    }
-                    break;
-                }
-                Err(e) => {
-                    error!(error = ?e, "Error walking parent chain for BlocksByHead");
-                    return Err((RpcErrorResponse::ServerError, "Error walking parent chain"));
-                }
+            Err(e) => {
+                error!(error = ?e, "Error opening forwards block roots iterator");
+                return Err((RpcErrorResponse::ServerError, "Database error"));
+            }
+        };
+
+        // Collect canonical roots in [start_slot, oldest_slot), ascending. Skip slots
+        // make `forwards_iter_block_roots` yield the same root for multiple consecutive
+        // slots, so dedup adjacent duplicates afterwards.
+        let collected_below: Vec<(Hash256, Slot)> = match process_results(iter, |it| {
+            it.take_while(|(_, slot)| *slot < oldest_slot)
+                .collect::<Vec<_>>()
+        }) {
+            Ok(v) => v,
+            Err(e) => {
+                error!(error = ?e, "Error iterating forward block roots");
+                return Err((RpcErrorResponse::ServerError, "Iteration error"));
+            }
+        };
+
+        let mut deduped: Vec<(Hash256, Slot)> = Vec::with_capacity(collected_below.len());
+        for entry in collected_below {
+            if deduped.last().map(|(r, _)| *r) != Some(entry.0) {
+                deduped.push(entry);
             }
         }
-        Ok(roots)
+
+        deduped.reverse(); // descending
+        deduped.truncate(remaining as usize);
+
+        roots_with_slots.extend(deduped);
+
+        Ok(roots_with_slots.into_iter().map(|(r, _)| r).collect())
     }
 
     /// Handle a `ExecutionPayloadEnvelopesByRoot` request from the peer.
