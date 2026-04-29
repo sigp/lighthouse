@@ -55,12 +55,13 @@ use task_executor::TaskExecutor;
 use tracing::{Span, debug, error, instrument, trace};
 use types::{
     ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
-    PartialDataColumnSidecarRef, Slot,
+    PartialDataColumnSidecarRef, SignedBeaconBlock, Slot,
 };
 
 mod pending_column;
 mod pending_components;
 
+use crate::block_verification_types::AsBlock;
 use crate::data_column_verification::{
     GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn,
 };
@@ -159,7 +160,12 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
                 c.verified_data_columns
                     .iter()
                     .filter_map(|(col_idx, col)| {
-                        col.try_to_sidecar(*col_idx, c.slot, block_root, c.num_blobs_expected)
+                        col.try_to_sidecar(
+                            *col_idx,
+                            c.block.slot(),
+                            block_root,
+                            c.num_blobs_expected(),
+                        )
                     })
                     .collect()
             })
@@ -229,11 +235,13 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     /// Initialize pending components for a block. Called when the beacon block (containing the
     /// bid) arrives. Sets up the slot and expected blob count so that subsequent column insertions
     /// know how many cells to expect per column.
-    pub fn init_pending_block(&self, block_root: Hash256, slot: Slot, num_blobs_expected: usize) {
+    pub fn init_pending_block(
+        &self,
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    ) {
         let mut write_lock = self.availability_cache.write();
-        write_lock.get_or_insert_mut(block_root, || {
-            PendingComponents::empty(block_root, slot, num_blobs_expected, self.spec.clone())
-        });
+        write_lock.get_or_insert_mut(block_root, || PendingComponents::empty(block_root, block));
     }
 
     /// Perform KZG verification on RPC custody columns and insert them into the cache.
@@ -761,17 +769,6 @@ mod data_availability_checker_tests {
     // once the Gloas harness can produce KZG-valid columns. These wrappers add KZG verification
     // and custody column filtering on top of `put_kzg_verified_custody_data_columns`.
 
-    fn num_blobs_in_block<E: EthSpec>(block: &SignedBeaconBlock<E, FullPayload<E>>) -> usize {
-        block
-            .message()
-            .body()
-            .signed_execution_payload_bid()
-            .expect("gloas block should have bid")
-            .message
-            .blob_kzg_commitments
-            .len()
-    }
-
     fn make_test_signed_envelope(block_root: Hash256) -> Arc<SignedExecutionPayloadEnvelope<E>> {
         Arc::new(SignedExecutionPayloadEnvelope {
             message: ExecutionPayloadEnvelope {
@@ -817,7 +814,7 @@ mod data_availability_checker_tests {
         );
 
         let block_root = Hash256::random();
-        cache.init_pending_block(block_root, Slot::new(0), num_blobs_in_block(&block));
+        cache.init_pending_block(block_root, Arc::new(block));
 
         let verified_columns: Vec<_> = data_columns
             .into_iter()
@@ -861,7 +858,7 @@ mod data_availability_checker_tests {
         );
 
         let block_root = Hash256::random();
-        cache.init_pending_block(block_root, Slot::new(0), num_blobs_in_block(&block));
+        cache.init_pending_block(block_root, Arc::new(block));
 
         let first_column = data_columns.first().cloned().expect("should have column");
         let column_index = *first_column.index();
@@ -907,7 +904,7 @@ mod data_availability_checker_tests {
         );
 
         let block_root = Hash256::random();
-        cache.init_pending_block(block_root, Slot::new(0), num_blobs_in_block(&block));
+        cache.init_pending_block(block_root, Arc::new(block));
 
         let verified_columns: Vec<_> = data_columns
             .into_iter()
@@ -946,7 +943,7 @@ mod data_availability_checker_tests {
         );
 
         let block_root = Hash256::random();
-        cache.init_pending_block(block_root, Slot::new(0), num_blobs_in_block(&block));
+        cache.init_pending_block(block_root, Arc::new(block));
 
         let verified_columns: Vec<_> = data_columns
             .into_iter()
@@ -982,10 +979,20 @@ mod data_availability_checker_tests {
         }
 
         type T = DiskHarnessType<E>;
-        let (_harness, cache, _path) = setup_harness_and_cache::<T>().await;
+        let (harness, cache, _path) = setup_harness_and_cache::<T>().await;
+
+        let mut rng = StdRng::seed_from_u64(0xDEADBEEF);
+        let spec = harness.spec.clone();
+
+        let (block, _) = generate_rand_block_and_data_columns::<E>(
+            ForkName::Gloas,
+            NumBlobs::Number(0),
+            &mut rng,
+            &spec,
+        );
 
         let block_root = Hash256::random();
-        cache.init_pending_block(block_root, Slot::new(0), 0);
+        cache.init_pending_block(block_root, Arc::new(block));
 
         let executed_envelope = make_test_executed_envelope(block_root);
         let result = cache
@@ -1019,7 +1026,7 @@ mod data_availability_checker_tests {
         );
 
         let block_root = Hash256::random();
-        cache.init_pending_block(block_root, Slot::new(0), num_blobs_in_block(&block));
+        cache.init_pending_block(block_root, Arc::new(block));
 
         let verified_columns: Vec<_> = data_columns
             .into_iter()
@@ -1088,7 +1095,7 @@ mod data_availability_checker_tests {
 
         assert!(cache.get_data_columns(block_root).is_none());
 
-        cache.init_pending_block(block_root, Slot::new(0), num_blobs_in_block(&block));
+        cache.init_pending_block(block_root, Arc::new(block));
 
         let verified_columns: Vec<_> = data_columns
             .into_iter()
@@ -1128,13 +1135,13 @@ mod data_availability_checker_tests {
             &spec,
         );
 
-        let num_blobs = num_blobs_in_block(&block);
+        let block = Arc::new(block);
 
         let mut roots = Vec::new();
         for _ in 0..33 {
             let block_root = Hash256::random();
             roots.push(block_root);
-            cache.init_pending_block(block_root, Slot::new(0), num_blobs);
+            cache.init_pending_block(block_root, block.clone());
             let col = data_columns.first().cloned().expect("should have column");
             let verified = vec![KzgVerifiedCustodyDataColumn::from_asserted_custody(
                 KzgVerifiedDataColumn::__new_for_testing(col),
@@ -1169,7 +1176,7 @@ mod data_availability_checker_tests {
         );
 
         let block_root = Hash256::random();
-        cache.init_pending_block(block_root, Slot::new(0), num_blobs_in_block(&block));
+        cache.init_pending_block(block_root, Arc::new(block));
 
         let col = data_columns.first().cloned().expect("should have column");
         let verified = vec![KzgVerifiedCustodyDataColumn::from_asserted_custody(
@@ -1209,7 +1216,7 @@ mod data_availability_checker_tests {
         );
 
         let block_root = Hash256::random();
-        cache.init_pending_block(block_root, Slot::new(0), num_blobs_in_block(&block));
+        cache.init_pending_block(block_root, Arc::new(block));
 
         let executed_envelope = make_test_executed_envelope(block_root);
         cache

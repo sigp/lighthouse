@@ -344,15 +344,21 @@ impl<T: BeaconChainTypes> DataAvailabilityRouter<T> {
         self.pending_block_cache.get_cached_block(block_root)
     }
 
-    /// Inserts a pre-execution block into the cache (v1).
+    /// Inserts a pre-execution block into the cache.
     pub fn put_pre_execution_block(
         &self,
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         source: BlockImportSource,
     ) -> Result<(), AvailabilityCheckError> {
-        self.pending_block_cache
-            .put_pre_execution_block(block_root, block, source)
+        if let ForkName::Gloas = block.fork_name_unchecked() {
+            self.pending_payload_cache
+                .init_pending_block(block_root, block);
+            Ok(())
+        } else {
+            self.pending_block_cache
+                .put_pre_execution_block(block_root, block, source)
+        }
     }
 
     /// Insert an executed block and check availability (v1).

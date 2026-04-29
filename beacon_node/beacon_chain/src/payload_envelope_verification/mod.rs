@@ -25,7 +25,7 @@ use state_processing::{BlockProcessingError, envelope_processing::EnvelopeProces
 use store::Error as DBError;
 use tracing::instrument;
 use types::{
-    BeaconState, BeaconStateError, ChainSpec, DataColumnSidecarList, EthSpec, ExecutionBlockHash,
+    BeaconState, BeaconStateError, DataColumnSidecarList, EthSpec, ExecutionBlockHash,
     ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadEnvelope, Slot,
 };
 
@@ -57,7 +57,6 @@ pub struct AvailableEnvelope<E: EthSpec> {
     pub columns: DataColumnSidecarList<E>,
     /// Timestamp at which this envelope first became available (UNIX timestamp, time since 1970).
     pub columns_available_timestamp: Option<std::time::Duration>,
-    pub spec: Arc<ChainSpec>,
 }
 
 impl<E: EthSpec> AvailableEnvelope<E> {
@@ -66,14 +65,12 @@ impl<E: EthSpec> AvailableEnvelope<E> {
         envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
         columns: DataColumnSidecarList<E>,
         columns_available_timestamp: Option<std::time::Duration>,
-        spec: Arc<ChainSpec>,
     ) -> Self {
         Self {
             execution_block_hash,
             envelope,
             columns,
             columns_available_timestamp,
-            spec,
         }
     }
 

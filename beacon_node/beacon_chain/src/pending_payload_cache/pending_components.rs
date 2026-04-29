@@ -8,31 +8,38 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
-use types::{ChainSpec, ColumnIndex, Epoch, EthSpec, Hash256};
-use types::{DataColumnSidecar, Slot};
+use types::DataColumnSidecar;
+use types::{ColumnIndex, Epoch, EthSpec, Hash256, SignedBeaconBlock};
 
 /// This represents the components of a payload pending data availability.
 ///
 /// The columns are all gossip and kzg verified.
 /// The payload is considered "available" when all required columns are received.
 pub struct PendingComponents<E: EthSpec> {
-    pub slot: Slot,
-    pub num_blobs_expected: usize,
+    pub block: Arc<SignedBeaconBlock<E>>,
     /// a cached post executed payload envelope
     pub envelope: Option<AvailabilityPendingExecutedEnvelope<E>>,
     pub verified_data_columns: HashMap<ColumnIndex, PendingColumn<E>>,
     pub reconstruction_started: bool,
     pub(crate) span: Span,
-    spec: Arc<ChainSpec>,
 }
 
 impl<E: EthSpec> PendingComponents<E> {
+    pub fn num_blobs_expected(&self) -> usize {
+        self.block.num_expected_blobs()
+    }
+
     /// Returns the completed custody columns
     pub fn get_cached_data_columns(&self, block_root: Hash256) -> Vec<Arc<DataColumnSidecar<E>>> {
         self.verified_data_columns
             .iter()
             .filter_map(|(col_idx, col)| {
-                col.try_to_sidecar(*col_idx, self.slot, block_root, self.num_blobs_expected)
+                col.try_to_sidecar(
+                    *col_idx,
+                    self.block.slot(),
+                    block_root,
+                    self.num_blobs_expected(),
+                )
             })
             .collect()
     }
@@ -42,7 +49,8 @@ impl<E: EthSpec> PendingComponents<E> {
         self.verified_data_columns
             .iter()
             .filter_map(|(col_idx, col)| {
-                col.is_complete(self.num_blobs_expected).then_some(*col_idx)
+                col.is_complete(self.num_blobs_expected())
+                    .then_some(*col_idx)
             })
             .collect()
     }
@@ -52,12 +60,13 @@ impl<E: EthSpec> PendingComponents<E> {
         &mut self,
         kzg_verified_data_columns: I,
     ) -> Result<(), AvailabilityCheckError> {
+        let num_blobs_expected = self.num_blobs_expected();
         for data_column in kzg_verified_data_columns {
             let data_column = data_column.as_data_column();
             let col = self
                 .verified_data_columns
                 .entry(*data_column.index())
-                .or_insert_with(|| PendingColumn::new_with_capacity(self.num_blobs_expected));
+                .or_insert_with(|| PendingColumn::new_with_capacity(num_blobs_expected));
             for (cell_idx, (cell, proof)) in data_column
                 .column()
                 .iter()
@@ -84,7 +93,7 @@ impl<E: EthSpec> PendingComponents<E> {
     pub fn num_completed_columns(&self) -> usize {
         self.verified_data_columns
             .values()
-            .filter_map(|col| col.is_complete(self.num_blobs_expected).then_some(()))
+            .filter_map(|col| col.is_complete(self.num_blobs_expected()).then_some(()))
             .count()
     }
 
@@ -105,7 +114,7 @@ impl<E: EthSpec> PendingComponents<E> {
             payload_verification_outcome,
         } = envelope;
 
-        let columns = if self.num_blobs_expected == 0 {
+        let columns = if self.num_blobs_expected() == 0 {
             self.span.in_scope(|| {
                 debug!("Bid has no blobs, data is available");
             });
@@ -129,9 +138,9 @@ impl<E: EthSpec> PendingComponents<E> {
                         .filter_map(|(col_idx, col)| {
                             col.try_to_sidecar(
                                 *col_idx,
-                                self.slot,
+                                self.block.slot(),
                                 block_hash,
-                                self.num_blobs_expected,
+                                self.num_blobs_expected(),
                             )
                         })
                         .collect()
@@ -148,7 +157,6 @@ impl<E: EthSpec> PendingComponents<E> {
             envelope: envelope.clone(),
             columns,
             columns_available_timestamp: None,
-            spec: self.spec.clone(),
         };
 
         Ok(Some(AvailableExecutedEnvelope {
@@ -159,28 +167,21 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Returns an empty `PendingComponents` object with the given block root.
-    pub fn empty(
-        block_root: Hash256,
-        slot: Slot,
-        num_blobs_expected: usize,
-        spec: Arc<ChainSpec>,
-    ) -> Self {
-        let span = debug_span!(parent: None, "lh_pending_components", %block_root, %slot);
+    pub fn empty(block_root: Hash256, block: Arc<SignedBeaconBlock<E>>) -> Self {
+        let span = debug_span!(parent: None, "lh_pending_components", %block_root);
         let _guard = span.clone().entered();
         Self {
-            slot,
-            num_blobs_expected,
+            block,
             envelope: None,
             verified_data_columns: HashMap::new(),
             reconstruction_started: false,
             span,
-            spec,
         }
     }
 
     /// Returns the epoch of the bid or first data column, if available.
     pub fn epoch(&self) -> Epoch {
-        self.slot.epoch(E::slots_per_epoch())
+        self.block.slot().epoch(E::slots_per_epoch())
     }
 
     pub fn status_str(&self, num_expected_columns: usize) -> String {
