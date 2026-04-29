@@ -6,7 +6,8 @@ use beacon_chain::test_utils::{
     generate_data_column_sidecars_from_block, test_spec,
 };
 use beacon_chain::{
-    AvailabilityProcessingStatus, BlockError, ChainConfig, InvalidSignature, NotifyExecutionLayer,
+    AvailabilityProcessingStatus, BlockError, BlockOrEnvelopeError, ChainConfig, InvalidSignature,
+    NotifyExecutionLayer,
     block_verification_types::{AsBlock, LookupBlock},
 };
 use bls::{Keypair, Signature};
@@ -111,7 +112,9 @@ async fn rpc_columns_with_invalid_header_signature() {
         .unwrap_err();
     assert!(matches!(
         err,
-        BlockError::InvalidSignature(InvalidSignature::ProposerSignature)
+        BlockOrEnvelopeError::BlockError(BlockError::InvalidSignature(
+            InvalidSignature::ProposerSignature
+        ))
     ));
 }
 

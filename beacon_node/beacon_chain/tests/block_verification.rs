@@ -1745,7 +1745,7 @@ async fn add_base_block_to_altair_chain() {
                     RangeSyncBlock::new(
                         Arc::new(base_block),
                         AvailableBlockData::NoData,
-                        &harness.chain.pending_block_cache,
+                        &harness.chain.data_availability_checker,
                         harness.spec.clone()
                     )
                     .unwrap()
@@ -1890,7 +1890,7 @@ async fn add_altair_block_to_base_chain() {
                     RangeSyncBlock::new(
                         Arc::new(altair_block),
                         AvailableBlockData::NoData,
-                        &harness.chain.pending_block_cache,
+                        &harness.chain.data_availability_checker,
                         harness.spec.clone()
                     )
                     .unwrap()

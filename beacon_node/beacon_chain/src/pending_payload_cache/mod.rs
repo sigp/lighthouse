@@ -760,6 +760,7 @@ mod data_availability_checker_tests {
                 execution_requests: ExecutionRequests::default(),
                 builder_index: 0,
                 beacon_block_root: block_root,
+                parent_beacon_block_root: Hash256::random(),
             },
             signature: bls::Signature::infinity().expect("should create infinity sig"),
         })
