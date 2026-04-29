@@ -132,6 +132,7 @@ pub struct BeaconProcessorQueueLengths {
     status_queue: usize,
     block_brange_queue: usize,
     block_broots_queue: usize,
+    block_bhead_queue: usize,
     blob_broots_queue: usize,
     blob_brange_queue: usize,
     dcbroots_queue: usize,
@@ -206,6 +207,7 @@ impl BeaconProcessorQueueLengths {
             status_queue: 1024,
             block_brange_queue: 1024,
             block_broots_queue: 1024,
+            block_bhead_queue: 1024,
             blob_broots_queue: 1024,
             blob_brange_queue: 1024,
             dcbroots_queue: 1024,
@@ -263,6 +265,7 @@ pub struct WorkQueues<E: EthSpec> {
     pub status_queue: FifoQueue<Work<E>>,
     pub block_brange_queue: FifoQueue<Work<E>>,
     pub block_broots_queue: FifoQueue<Work<E>>,
+    pub block_bhead_queue: FifoQueue<Work<E>>,
     pub payload_envelopes_brange_queue: FifoQueue<Work<E>>,
     pub payload_envelopes_broots_queue: FifoQueue<Work<E>>,
     pub blob_broots_queue: FifoQueue<Work<E>>,
@@ -334,6 +337,7 @@ impl<E: EthSpec> WorkQueues<E> {
         let status_queue = FifoQueue::new(queue_lengths.status_queue);
         let block_brange_queue = FifoQueue::new(queue_lengths.block_brange_queue);
         let block_broots_queue = FifoQueue::new(queue_lengths.block_broots_queue);
+        let block_bhead_queue = FifoQueue::new(queue_lengths.block_bhead_queue);
         let blob_broots_queue = FifoQueue::new(queue_lengths.blob_broots_queue);
         let blob_brange_queue = FifoQueue::new(queue_lengths.blob_brange_queue);
         let dcbroots_queue = FifoQueue::new(queue_lengths.dcbroots_queue);
@@ -399,6 +403,7 @@ impl<E: EthSpec> WorkQueues<E> {
             status_queue,
             block_brange_queue,
             block_broots_queue,
+            block_bhead_queue,
             blob_broots_queue,
             blob_brange_queue,
             dcbroots_queue,

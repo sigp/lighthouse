@@ -77,6 +77,7 @@ impl<E: EthSpec> SSZSnappyInboundCodec<E> {
                 },
                 RpcSuccessResponse::BlocksByRange(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
+                RpcSuccessResponse::BlocksByHead(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::PayloadEnvelopesByRange(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::PayloadEnvelopesByRoot(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::BlobsByRange(res) => res.as_ssz_bytes(),
@@ -359,6 +360,7 @@ impl<E: EthSpec> Encoder<RequestType<E>> for SSZSnappyOutboundCodec<E> {
                 BlocksByRootRequest::V1(req) => req.block_roots.as_ssz_bytes(),
                 BlocksByRootRequest::V2(req) => req.block_roots.as_ssz_bytes(),
             },
+            RequestType::BlocksByHead(req) => req.as_ssz_bytes(),
             RequestType::PayloadEnvelopesByRange(req) => req.as_ssz_bytes(),
             RequestType::PayloadEnvelopesByRoot(req) => req.beacon_block_roots.as_ssz_bytes(),
             RequestType::BlobsByRange(req) => req.as_ssz_bytes(),
@@ -552,6 +554,9 @@ fn handle_rpc_request<E: EthSpec>(
                     spec.max_request_blocks(current_fork),
                 )?,
             }),
+        ))),
+        SupportedProtocol::BlocksByHeadV1 => Ok(Some(RequestType::BlocksByHead(
+            BlocksByHeadRequest::from_ssz_bytes(decoded_buffer)?,
         ))),
         SupportedProtocol::PayloadEnvelopesByRangeV1 => {
             Ok(Some(RequestType::PayloadEnvelopesByRange(
@@ -943,6 +948,35 @@ fn handle_rpc_response<E: EthSpec>(
                 ),
             )),
         },
+        SupportedProtocol::BlocksByHeadV1 => match fork_name {
+            Some(fork_name) if fork_name.fulu_enabled() => match fork_name {
+                ForkName::Fulu => Ok(Some(RpcSuccessResponse::BlocksByHead(Arc::new(
+                    SignedBeaconBlock::Fulu(SignedBeaconBlockFulu::from_ssz_bytes(decoded_buffer)?),
+                )))),
+                ForkName::Gloas => Ok(Some(RpcSuccessResponse::BlocksByHead(Arc::new(
+                    SignedBeaconBlock::Gloas(SignedBeaconBlockGloas::from_ssz_bytes(
+                        decoded_buffer,
+                    )?),
+                )))),
+                // `fulu_enabled()` returns true only for Fulu and later forks; the matches
+                // above cover those exhaustively.
+                _ => Err(RPCError::ErrorResponse(
+                    RpcErrorResponse::InvalidRequest,
+                    "Unexpected fork variant for blocks by head".to_string(),
+                )),
+            },
+            Some(_) => Err(RPCError::ErrorResponse(
+                RpcErrorResponse::InvalidRequest,
+                "Invalid fork name for blocks by head".to_string(),
+            )),
+            None => Err(RPCError::ErrorResponse(
+                RpcErrorResponse::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
     }
 }
 
@@ -1318,6 +1352,9 @@ mod tests {
             }
             RequestType::BlocksByRoot(bbroot) => {
                 assert_eq!(decoded, RequestType::BlocksByRoot(bbroot))
+            }
+            RequestType::BlocksByHead(bbhead) => {
+                assert_eq!(decoded, RequestType::BlocksByHead(bbhead))
             }
             RequestType::BlobsByRange(blbrange) => {
                 assert_eq!(decoded, RequestType::BlobsByRange(blbrange))
@@ -2063,6 +2100,10 @@ mod tests {
             RequestType::BlobsByRange(blbrange_request()),
             RequestType::DataColumnsByRange(dcbrange_request()),
             RequestType::MetaData(MetadataRequest::new_v2()),
+            RequestType::BlocksByHead(BlocksByHeadRequest {
+                beacon_root: Hash256::zero(),
+                count: 32,
+            }),
         ];
         for req in requests.iter() {
             for fork_name in ForkName::list_all() {
