@@ -2793,6 +2793,89 @@ impl ApiTester {
         self
     }
 
+    fn make_valid_payload_attestation_message(
+        &self,
+        ptc_offset: usize,
+    ) -> PayloadAttestationMessage {
+        let head = self.chain.head_snapshot();
+        let head_slot = head.beacon_block.slot();
+        let head_root = head.beacon_block_root;
+        let fork = head.beacon_state.fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+
+        let ptc = head
+            .beacon_state
+            .get_ptc(head_slot, &self.chain.spec)
+            .expect("should get PTC");
+
+        // Find distinct validator indices in the PTC (may contain duplicates due to
+        // weighted sampling with a small validator set).
+        let mut seen = std::collections::HashSet::new();
+        let distinct_indices: Vec<usize> = ptc
+            .0
+            .iter()
+            .copied()
+            .filter(|idx| seen.insert(*idx))
+            .collect();
+        let validator_index = distinct_indices[ptc_offset % distinct_indices.len()];
+
+        let data = PayloadAttestationData {
+            beacon_block_root: head_root,
+            slot: head_slot,
+            payload_present: true,
+            blob_data_available: true,
+        };
+
+        let epoch = head_slot.epoch(E::slots_per_epoch());
+        let domain =
+            self.chain
+                .spec
+                .get_domain(epoch, Domain::PTCAttester, &fork, genesis_validators_root);
+        let signing_root = data.signing_root(domain);
+        let sk = &self.validator_keypairs()[validator_index].sk;
+        let signature = sk.sign(signing_root);
+
+        PayloadAttestationMessage {
+            validator_index: validator_index as u64,
+            data,
+            signature,
+        }
+    }
+
+    pub async fn test_post_beacon_pool_payload_attestations_valid(mut self) -> Self {
+        let message = self.make_valid_payload_attestation_message(0);
+        let fork_name = self.chain.spec.fork_name_at_slot::<E>(message.data.slot);
+
+        self.client
+            .post_beacon_pool_payload_attestations(&[message], fork_name)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid payload attestation should be sent to network"
+        );
+
+        self
+    }
+
+    pub async fn test_post_beacon_pool_payload_attestations_valid_ssz(mut self) -> Self {
+        let message = self.make_valid_payload_attestation_message(1);
+        let fork_name = self.chain.spec.fork_name_at_slot::<E>(message.data.slot);
+
+        self.client
+            .post_beacon_pool_payload_attestations_ssz(&[message], fork_name)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid payload attestation (SSZ) should be sent to network"
+        );
+
+        self
+    }
+
     pub async fn test_get_config_fork_schedule(self) -> Self {
         let result = self.client.get_config_fork_schedule().await.unwrap().data;
 
@@ -3367,17 +3450,20 @@ impl ApiTester {
                 .unwrap()
                 .unwrap_or(self.chain.head_beacon_block_root());
 
-            // Presently, the beacon chain harness never runs the code that primes the proposer
-            // cache. If this changes in the future then we'll need some smarter logic here, but
-            // this is succinct and effective for the time being.
-            assert!(
-                self.chain
-                    .beacon_proposer_cache
-                    .lock()
-                    .get_epoch::<E>(dependent_root, epoch)
-                    .is_none(),
-                "the proposer cache should miss initially"
-            );
+            // Block import primes the proposer cache for each epoch it runs through (to gate
+            // proposer boost), so epochs `<= current_epoch` are already cached. The only epoch
+            // for which we can observe the endpoint's own caching behaviour is
+            // `current_epoch + 1`, which no block import has touched yet.
+            if epoch == current_epoch + 1 {
+                assert!(
+                    self.chain
+                        .beacon_proposer_cache
+                        .lock()
+                        .get_epoch::<E>(dependent_root, epoch)
+                        .is_none(),
+                    "the proposer cache should miss initially for the next epoch"
+                );
+            }
 
             let result = self
                 .client
@@ -3385,8 +3471,9 @@ impl ApiTester {
                 .await
                 .unwrap();
 
-            // Check that current-epoch requests prime the proposer cache, whilst non-current
-            // requests don't.
+            // A current-epoch request should leave the cache primed (block import already did so,
+            // but this is still a useful end-to-end check). A request for `current_epoch + 1`
+            // should not prime the cache.
             if epoch == current_epoch {
                 assert!(
                     self.chain
@@ -3394,16 +3481,16 @@ impl ApiTester {
                         .lock()
                         .get_epoch::<E>(dependent_root, epoch)
                         .is_some(),
-                    "a current-epoch request should prime the proposer cache"
+                    "the proposer cache should be primed for the current epoch"
                 );
-            } else {
+            } else if epoch == current_epoch + 1 {
                 assert!(
                     self.chain
                         .beacon_proposer_cache
                         .lock()
                         .get_epoch::<E>(dependent_root, epoch)
                         .is_none(),
-                    "a non-current-epoch request should not prime the proposer cache"
+                    "a request for the next epoch should not prime the proposer cache"
                 );
             }
 
@@ -8243,6 +8330,19 @@ async fn get_validator_payload_attestation_data_pre_gloas() {
     ApiTester::new()
         .await
         .test_get_validator_payload_attestation_data_pre_gloas()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_beacon_pool_payload_attestations_valid() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    ApiTester::new()
+        .await
+        .test_post_beacon_pool_payload_attestations_valid()
+        .await
+        .test_post_beacon_pool_payload_attestations_valid_ssz()
         .await;
 }
 

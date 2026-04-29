@@ -131,6 +131,7 @@ fn make_signed_preferences(
             validator_index,
             fee_recipient: Address::ZERO,
             gas_limit: 30_000_000,
+            ..ProposerPreferences::default()
         },
         signature: Signature::empty(),
     })
@@ -230,10 +231,11 @@ fn correct_proposer_bad_signature() {
         result,
         Err(ProposerPreferencesError::BadSignature)
     ));
-    assert!(
-        !ctx.preferences_cache
-            .get_seen_validator(&slot, actual_proposer)
-    );
+    assert!(!ctx.preferences_cache.get_seen_validator(
+        &slot,
+        types::Hash256::ZERO,
+        actual_proposer
+    ));
     assert!(ctx.preferences_cache.get_preferences(&slot).is_none());
 }
 

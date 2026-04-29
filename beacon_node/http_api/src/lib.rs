@@ -1454,7 +1454,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     let post_beacon_pool_attestations_v2 = post_beacon_pool_attestations_v2(
         &network_tx_filter,
-        optional_consensus_version_header_filter,
+        optional_consensus_version_header_filter.clone(),
         &beacon_pool_path_v2,
     );
 
@@ -1486,6 +1486,21 @@ pub fn serve<T: BeaconChainTypes>(
     // POST beacon/pool/sync_committees
     let post_beacon_pool_sync_committees =
         post_beacon_pool_sync_committees(&network_tx_filter, &beacon_pool_path);
+
+    // POST beacon/pool/payload_attestations
+    let post_beacon_pool_payload_attestations = post_beacon_pool_payload_attestations(
+        &network_tx_filter,
+        optional_consensus_version_header_filter,
+        &beacon_pool_path,
+    );
+
+    // POST beacon/pool/payload_attestations (SSZ)
+    let post_beacon_pool_payload_attestations_ssz = post_beacon_pool_payload_attestations_ssz(
+        eth_v1.clone(),
+        task_spawner_filter.clone(),
+        chain_filter.clone(),
+        network_tx_filter.clone(),
+    );
 
     // GET beacon/pool/bls_to_execution_changes
     let get_beacon_pool_bls_to_execution_changes =
@@ -3400,7 +3415,8 @@ pub fn serve<T: BeaconChainTypes>(
                             .uor(post_beacon_blocks_v2_ssz)
                             .uor(post_beacon_blinded_blocks_ssz)
                             .uor(post_beacon_blinded_blocks_v2_ssz)
-                            .uor(post_beacon_execution_payload_envelope_ssz),
+                            .uor(post_beacon_execution_payload_envelope_ssz)
+                            .uor(post_beacon_pool_payload_attestations_ssz),
                     )
                     .uor(post_beacon_blocks)
                     .uor(post_beacon_blinded_blocks)
@@ -3411,6 +3427,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_beacon_pool_proposer_slashings)
                     .uor(post_beacon_pool_voluntary_exits)
                     .uor(post_beacon_pool_sync_committees)
+                    .uor(post_beacon_pool_payload_attestations)
                     .uor(post_beacon_pool_bls_to_execution_changes)
                     .uor(post_beacon_execution_payload_envelope)
                     .uor(post_beacon_state_validators)

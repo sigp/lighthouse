@@ -229,9 +229,6 @@ async fn prepare_payload_generic(
     // `apply_parent_execution_payload`.
     let cached_head = harness.chain.canonical_head.cached_head();
     let unadvanced_empty_state = &cached_head.snapshot.beacon_state;
-    let parent_bid = unadvanced_empty_state
-        .latest_execution_payload_bid()
-        .unwrap();
 
     let mut advanced_empty_state = unadvanced_empty_state.clone();
     complete_state_advance(&mut advanced_empty_state, None, prepare_slot, &spec).unwrap();
@@ -239,7 +236,6 @@ async fn prepare_payload_generic(
     let mut unadvanced_full_state = unadvanced_empty_state.clone();
     apply_parent_execution_payload(
         &mut unadvanced_full_state,
-        parent_bid,
         &envelope.message.execution_requests,
         &spec,
     )
@@ -248,7 +244,6 @@ async fn prepare_payload_generic(
     let mut advanced_full_state = advanced_empty_state.clone();
     apply_parent_execution_payload(
         &mut advanced_full_state,
-        parent_bid,
         &envelope.message.execution_requests,
         &spec,
     )
@@ -571,5 +566,124 @@ async fn prepare_payload_on_fork_boundary(
         actual_withdrawals, &expected_withdrawals,
         "prepare_beacon_proposer should use withdrawals computed from the \
          advanced state"
+    );
+}
+
+#[tokio::test]
+async fn gloas_block_production_caches_blobs_for_column_publishing() {
+    use beacon_chain::ProduceBlockVerification;
+    use beacon_chain::graffiti_calculator::GraffitiSettings;
+    use eth2::types::GraffitiPolicy;
+
+    let spec = Arc::new(test_spec::<E>());
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path, spec.clone());
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    // Configure the mock EL to produce at least 1 blob per block.
+    harness.execution_block_generator().set_min_blob_count(1);
+
+    // Extend the chain a few slots to get past genesis.
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() as usize) + 1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    harness.advance_slot();
+    let slot = harness.get_current_slot();
+
+    // Produce a Gloas block directly via produce_block_on_state_gloas so we can
+    // inspect the pending cache before it's consumed.
+    let mut state = harness.get_current_state();
+    complete_state_advance(&mut state, None, slot, &spec).unwrap();
+    state.build_caches(&spec).unwrap();
+
+    let proposer_index = state.get_beacon_proposer_index(slot, &spec).unwrap();
+    let randao_reveal = harness.sign_randao_reveal(&state, proposer_index, slot);
+
+    let (parent_payload_status, parent_envelope) = {
+        let head = harness.chain.canonical_head.cached_head();
+        (
+            head.head_payload_status(),
+            head.snapshot.execution_envelope.clone(),
+        )
+    };
+
+    let graffiti_settings = GraffitiSettings::new(
+        Some(Graffiti::default()),
+        Some(GraffitiPolicy::PreserveUserGraffiti),
+    );
+
+    let (_block, _post_state, _value) = harness
+        .chain
+        .produce_block_on_state_gloas(
+            state,
+            None,
+            parent_payload_status,
+            parent_envelope,
+            slot,
+            randao_reveal,
+            graffiti_settings,
+            ProduceBlockVerification::VerifyRandao,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // The envelope + blobs should now be in the pending cache.
+    assert!(
+        harness
+            .chain
+            .pending_payload_envelopes
+            .read()
+            .contains(slot),
+        "Pending cache should contain an envelope for the produced slot"
+    );
+
+    // Take the blobs from the cache — this is what publish_execution_payload_envelope does.
+    let blobs = harness
+        .chain
+        .pending_payload_envelopes
+        .write()
+        .take_blobs(slot);
+
+    assert!(
+        blobs.is_some(),
+        "Blobs should be cached alongside the envelope"
+    );
+
+    let blobs = blobs.unwrap();
+    assert!(
+        !blobs.is_empty(),
+        "Blobs should be non-empty when min_blob_count >= 1"
+    );
+
+    // Verify take_blobs is consume-once.
+    let second_take = harness
+        .chain
+        .pending_payload_envelopes
+        .write()
+        .take_blobs(slot);
+    assert!(
+        second_take.is_none(),
+        "Blobs should only be consumable once"
+    );
+
+    // The envelope should still be in the cache after taking blobs.
+    assert!(
+        harness
+            .chain
+            .pending_payload_envelopes
+            .read()
+            .get(slot)
+            .is_some(),
+        "Envelope should remain in cache after taking blobs"
     );
 }

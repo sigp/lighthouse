@@ -49,3 +49,29 @@ pub type Hash64 = alloy_primitives::B64;
 pub type Address = alloy_primitives::Address;
 pub type VersionedHash = Hash256;
 pub type MerkleProof = Vec<Hash256>;
+
+/// Extension trait for `Hash256` to allow us to implement additional methods on it.
+pub trait Hash256Ext {
+    fn short(&self) -> ShortenedHash<'_>;
+}
+
+impl Hash256Ext for Hash256 {
+    fn short(&self) -> ShortenedHash<'_> {
+        ShortenedHash(self)
+    }
+}
+
+pub struct ShortenedHash<'a>(&'a Hash256);
+
+impl<'a> std::fmt::Display for ShortenedHash<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let hash: &[u8; 32] = self.0.as_ref();
+        write!(
+            f,
+            // Format as hex, padded to 2 digits per byte.
+            // This outputs a consistent "0x1234...abcd" format.
+            "0x{:02x}{:02x}…{:02x}{:02x}",
+            hash[0], hash[1], hash[30], hash[31]
+        )
+    }
+}

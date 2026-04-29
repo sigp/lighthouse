@@ -140,11 +140,6 @@ struct RejectedAggregate<E: EthSpec> {
     error: AttnError,
 }
 
-struct RejectedPayloadAttestation {
-    payload_attestation_message: Box<PayloadAttestationMessage>,
-    error: PayloadAttestationError,
-}
-
 /// Data for an aggregated or unaggregated attestation that failed verification.
 enum FailedAtt<E: EthSpec> {
     Unaggregate {
@@ -3632,6 +3627,23 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.propagate_if_timely(is_timely, message_id, peer_id)
     }
 
+    /// If a payload envelope is still valid with respect to the current time (i.e., its slot
+    /// matches the current slot), propagate it on gossip. Otherwise, ignore it.
+    fn propagate_envelope_if_timely(
+        &self,
+        envelope_slot: Slot,
+        message_id: MessageId,
+        peer_id: PeerId,
+    ) {
+        let is_timely = self
+            .chain
+            .slot_clock
+            .now()
+            .is_some_and(|current_slot| envelope_slot == current_slot);
+
+        self.propagate_if_timely(is_timely, message_id, peer_id)
+    }
+
     /// If a sync committee signature or sync committee contribution is still valid with respect to
     /// the current time (i.e., timely), propagate it on gossip. Otherwise, ignore it.
     fn propagate_sync_message_if_timely(
@@ -3836,6 +3848,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         let process_fn = Box::pin(async move {
                             match chain.verify_envelope_for_gossip(envelope).await {
                                 Ok(verified_envelope) => {
+                                    let envelope_slot = verified_envelope.signed_envelope.slot();
+                                    inner_self.propagate_envelope_if_timely(
+                                        envelope_slot,
+                                        message_id,
+                                        peer_id,
+                                    );
                                     inner_self
                                         .process_gossip_verified_execution_payload_envelope(
                                             peer_id,
@@ -4111,25 +4129,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         payload_attestation_message: Box<PayloadAttestationMessage>,
     ) {
-        let result = match self
+        let message_slot = payload_attestation_message.data.slot;
+        let result = self
             .chain
-            .verify_payload_attestation_message_for_gossip(*payload_attestation_message.clone())
-        {
-            Ok(verified) => Ok(verified),
-            Err(error) => Err(RejectedPayloadAttestation {
-                payload_attestation_message: payload_attestation_message.clone(),
-                error,
-            }),
-        };
+            .verify_payload_attestation_message_for_gossip(*payload_attestation_message);
 
-        self.process_gossip_payload_attestation_result(result, message_id, peer_id);
+        self.process_gossip_payload_attestation_result(result, message_id, peer_id, message_slot);
     }
 
     fn process_gossip_payload_attestation_result(
         self: &Arc<Self>,
-        result: Result<VerifiedPayloadAttestationMessage<T>, RejectedPayloadAttestation>,
+        result: Result<VerifiedPayloadAttestationMessage<T>, PayloadAttestationError>,
         message_id: MessageId,
         peer_id: PeerId,
+        message_slot: Slot,
     ) {
         match result {
             Ok(verified) => {
@@ -4156,16 +4169,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         ),
                     }
                 }
+
+                if let Err(e) = self.chain.add_payload_attestation_to_pool(&verified) {
+                    warn!(
+                        reason = ?e,
+                        %peer_id,
+                        "Failed to add payload attestation to pool"
+                    );
+                }
             }
-            Err(RejectedPayloadAttestation {
-                payload_attestation_message,
-                error,
-            }) => {
+            Err(error) => {
                 self.handle_payload_attestation_verification_failure(
                     peer_id,
                     message_id,
                     error,
-                    payload_attestation_message.data.slot,
+                    message_slot,
                 );
             }
         }
