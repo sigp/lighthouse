@@ -8447,8 +8447,6 @@ async fn get_validator_payload_attestation_data_pre_gloas() {
         .await;
 }
 
-// TODO(EIP-7732): Remove `#[ignore]` once gloas beacon chain harness is implemented
-#[ignore]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_payload_attestation_data_no_block() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
