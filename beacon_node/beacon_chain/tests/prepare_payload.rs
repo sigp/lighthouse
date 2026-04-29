@@ -632,6 +632,7 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
             randao_reveal,
             graffiti_settings,
             ProduceBlockVerification::VerifyRandao,
+            None,
         )
         .await
         .unwrap();

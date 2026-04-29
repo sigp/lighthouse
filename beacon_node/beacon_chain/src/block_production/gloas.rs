@@ -78,6 +78,16 @@ pub struct ExecutionPayloadData<E: types::EthSpec> {
     pub blobs_and_proofs: (types::BlobsList<E>, types::KzgProofs<E>),
 }
 
+/// The result of a local payload build, used to decide whether to include a builder bid
+/// from the gossip cache or fall back to self-build.
+pub struct LocalBuildResult<E: EthSpec> {
+    pub payload_data: ExecutionPayloadData<E>,
+    /// EL block value (in wei) of the locally-built payload.
+    pub payload_value: types::Uint256,
+    /// `true` if the EL signaled `engine_getPayload`'s `shouldOverrideBuilder` flag.
+    pub should_override_builder: bool,
+}
+
 impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn produce_block_with_verification_gloas(
         self: &Arc<Self>,
@@ -85,7 +95,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
         graffiti_settings: GraffitiSettings,
         verification: ProduceBlockVerification,
-        _builder_boost_factor: Option<u64>,
+        builder_boost_factor: Option<u64>,
     ) -> Result<BlockProductionResult<T::EthSpec>, BlockProductionError> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
         let _complete_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
@@ -121,11 +131,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             randao_reveal,
             graffiti_settings,
             verification,
+            builder_boost_factor,
         )
         .await
     }
 
-    // TODO(gloas) need to implement builder boost factor logic
     #[instrument(level = "debug", skip_all)]
     #[allow(clippy::too_many_arguments)]
     pub async fn produce_block_on_state_gloas(
@@ -138,6 +148,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         randao_reveal: Signature,
         graffiti_settings: GraffitiSettings,
         verification: ProduceBlockVerification,
+        builder_boost_factor: Option<u64>,
     ) -> Result<BlockProductionResult<T::EthSpec>, BlockProductionError> {
         // Extract the parent's execution requests from the envelope (if parent was full).
         let parent_execution_requests = if parent_payload_status == PayloadStatus::Full {
@@ -179,10 +190,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Part 2/3 (async)
         //
-        // Produce the execution payload bid.
-        // TODO(gloas) this is strictly for building local bids
-        // We'll need to build out trustless/trusted bid paths.
-        let (execution_payload_bid, state, payload_data) = self
+        // Produce a local execution payload bid, then select between it and any cached
+        // gossip-verified builder bid using `builder_boost_factor`.
+        // TODO(gloas) build out trustless/trusted bid paths.
+        let (local_signed_bid, state, local_build) = self
             .clone()
             .produce_execution_payload_bid(
                 state,
@@ -193,6 +204,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 BUILDER_INDEX_SELF_BUILD,
             )
             .await?;
+
+        let (execution_payload_bid, payload_data) =
+            self.select_payload_bid(local_signed_bid, local_build, builder_boost_factor);
 
         // Part 3/3 (blocking)
         //
@@ -679,16 +693,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok((block, state, consensus_block_value))
     }
 
-    // TODO(gloas) introduce `ProposerPreferences` so we can build out trustless
-    // bid building. Right now this only works for local building.
-    /// Produce an `ExecutionPayloadBid` for some `slot` upon the given `state`.
+    /// Produce a self-build `ExecutionPayloadBid` for some `slot` upon the given `state`.
     /// This function assumes we've already advanced `state`.
     ///
-    /// Returns the signed bid, the state, and optionally the payload data needed to construct
-    /// the `ExecutionPayloadEnvelope` after the beacon block is created.
-    ///
-    /// For local building, payload data is always returned (`Some`).
-    /// For trustless building, the builder provides the envelope separately, so `None` is returned.
+    /// Returns the signed bid, the state, and a `LocalBuildResult` carrying the payload
+    /// data needed to construct the `ExecutionPayloadEnvelope` after the beacon block is
+    /// created, plus the EL block value and `should_override_builder` flag used by the
+    /// caller to compare against any cached p2p builder bid.
     #[allow(clippy::type_complexity)]
     #[instrument(level = "debug", skip_all)]
     pub async fn produce_execution_payload_bid(
@@ -703,7 +714,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         (
             SignedExecutionPayloadBid<T::EthSpec>,
             BeaconState<T::EthSpec>,
-            Option<ExecutionPayloadData<T::EthSpec>>,
+            LocalBuildResult<T::EthSpec>,
         ),
         BlockProductionError,
     > {
@@ -775,10 +786,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let BlockProposalContentsGloas {
             payload,
-            payload_value: _,
+            payload_value,
             execution_requests,
             blob_kzg_commitments,
             blobs_and_proofs,
+            should_override_builder,
         } = block_proposal_contents;
 
         // TODO(gloas) since we are defaulting to local building, execution payment is 0
@@ -807,18 +819,114 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             blobs_and_proofs,
         };
 
-        // TODO(gloas) this is only local building
-        // we'll need to implement builder signature for the trustless path
         Ok((
             SignedExecutionPayloadBid {
                 message: bid,
                 signature: Signature::infinity().map_err(BlockProductionError::BlsError)?,
             },
             state,
-            // Local building always returns payload data.
-            // Trustless building would return None here.
-            Some(payload_data),
+            LocalBuildResult {
+                payload_data,
+                payload_value,
+                should_override_builder,
+            },
         ))
+    }
+
+    /// Look up the highest gossip-verified bid for the `(slot, parent_block_hash,
+    /// parent_block_root)` of the local bid, then choose the winner.
+    fn select_payload_bid(
+        &self,
+        local_signed_bid: SignedExecutionPayloadBid<T::EthSpec>,
+        local_build: LocalBuildResult<T::EthSpec>,
+        builder_boost_factor: Option<u64>,
+    ) -> (
+        SignedExecutionPayloadBid<T::EthSpec>,
+        Option<ExecutionPayloadData<T::EthSpec>>,
+    ) {
+        let cached_bid = self.gossip_verified_payload_bid_cache.get_highest_bid(
+            local_signed_bid.message.slot,
+            local_signed_bid.message.parent_block_hash,
+            local_signed_bid.message.parent_block_root,
+        );
+        select_payload_bid_pure(
+            local_signed_bid,
+            local_build,
+            cached_bid,
+            builder_boost_factor,
+        )
+    }
+}
+
+/// Pure local-vs-cached selection logic, factored out for unit testing.
+///
+/// Selection rule (mirrors the pre-Gloas builder/local race in `execution_layer`):
+///   - `boosted_bid = (cached_bid.value / 100) * builder_boost_factor`  (raw value when `None`)
+///   - if `local_value_wei >= boosted_bid_wei` → keep local
+///   - if the EL signaled `should_override_builder` → keep local
+///   - otherwise → use the cached builder bid and drop local payload data
+///     (the builder is responsible for revealing the envelope).
+///
+/// `cached_bid.value` is in gwei (`u64`); `payload_value` is in wei (`Uint256`); compared in wei.
+pub(crate) fn select_payload_bid_pure<E: EthSpec>(
+    local_signed_bid: SignedExecutionPayloadBid<E>,
+    local_build: LocalBuildResult<E>,
+    cached_bid: Option<Arc<SignedExecutionPayloadBid<E>>>,
+    builder_boost_factor: Option<u64>,
+) -> (
+    SignedExecutionPayloadBid<E>,
+    Option<ExecutionPayloadData<E>>,
+) {
+    let LocalBuildResult {
+        payload_data,
+        payload_value,
+        should_override_builder,
+    } = local_build;
+
+    let Some(cached_bid) = cached_bid else {
+        return (local_signed_bid, Some(payload_data));
+    };
+
+    let slot = local_signed_bid.message.slot;
+
+    if should_override_builder {
+        debug!(
+            %slot,
+            cached_bid_value = cached_bid.message.value,
+            "Using local payload because EL signaled shouldOverrideBuilder"
+        );
+        return (local_signed_bid, Some(payload_data));
+    }
+
+    // Convert bid value (gwei) to wei for comparison with `payload_value` (wei).
+    let bid_value_wei = types::Uint256::from(cached_bid.message.value)
+        .saturating_mul(types::Uint256::from(1_000_000_000u64));
+    let boosted_bid_wei = match builder_boost_factor {
+        Some(factor) => {
+            (bid_value_wei / types::Uint256::from(100)).saturating_mul(types::Uint256::from(factor))
+        }
+        None => bid_value_wei,
+    };
+
+    if payload_value >= boosted_bid_wei {
+        debug!(
+            %slot,
+            %payload_value,
+            cached_bid_value_gwei = cached_bid.message.value,
+            ?builder_boost_factor,
+            "Local payload is more profitable than cached builder bid"
+        );
+        (local_signed_bid, Some(payload_data))
+    } else {
+        debug!(
+            %slot,
+            %payload_value,
+            cached_bid_value_gwei = cached_bid.message.value,
+            cached_bid_builder_index = cached_bid.message.builder_index,
+            ?builder_boost_factor,
+            "Including cached builder bid"
+        );
+        ((*cached_bid).clone(), None)
     }
 }
 
@@ -1150,5 +1258,112 @@ mod tests {
         run_filter(&mut exits, &reqs, &validators, &spec);
 
         assert_eq!(exits.len(), 2);
+    }
+
+    // ---- select_payload_bid_pure ----
+
+    const REMOTE_BUILDER: BuilderIndex = 999;
+
+    fn gwei(n: u64) -> types::Uint256 {
+        types::Uint256::from(n).saturating_mul(types::Uint256::from(1_000_000_000u64))
+    }
+
+    fn local_bid() -> SignedExecutionPayloadBid<TestSpec> {
+        SignedExecutionPayloadBid {
+            message: ExecutionPayloadBid {
+                builder_index: BUILDER_INDEX_SELF_BUILD,
+                ..Default::default()
+            },
+            signature: Signature::empty(),
+        }
+    }
+
+    fn cached_bid(value_gwei: u64) -> Arc<SignedExecutionPayloadBid<TestSpec>> {
+        Arc::new(SignedExecutionPayloadBid {
+            message: ExecutionPayloadBid {
+                builder_index: REMOTE_BUILDER,
+                value: value_gwei,
+                ..Default::default()
+            },
+            signature: Signature::empty(),
+        })
+    }
+
+    fn local_build(payload_gwei: u64, should_override_builder: bool) -> LocalBuildResult<TestSpec> {
+        LocalBuildResult {
+            payload_data: ExecutionPayloadData {
+                payload: types::ExecutionPayloadGloas::default(),
+                execution_requests: ExecutionRequests::default(),
+                builder_index: BUILDER_INDEX_SELF_BUILD,
+                slot: Slot::new(0),
+                blobs_and_proofs: (VariableList::empty(), VariableList::empty()),
+            },
+            payload_value: gwei(payload_gwei),
+            should_override_builder,
+        }
+    }
+
+    const LOCAL: BuilderIndex = BUILDER_INDEX_SELF_BUILD;
+    const REMOTE: BuilderIndex = REMOTE_BUILDER;
+
+    /// Run `select_payload_bid_pure` and return `(winning_builder_index, has_payload_data)`.
+    ///
+    /// Args (positional, mirror `select_payload_bid_pure`):
+    ///   - `local_payload_gwei`: local payload value, in gwei.
+    ///   - `should_override`:    EL's `shouldOverrideBuilder` flag.
+    ///   - `cached_gwei`:        `Some(g)` ⇒ seed the cache with a bid of `g` gwei.
+    ///   - `boost`:              `None` = neutral, `Some(0)` = always local, `Some(>100)` = boost bid.
+    fn pick(
+        local_payload_gwei: u64,
+        should_override: bool,
+        cached_gwei: Option<u64>,
+        boost: Option<u64>,
+    ) -> (BuilderIndex, bool) {
+        let build = local_build(local_payload_gwei, should_override);
+        let cache = cached_gwei.map(cached_bid);
+        let (out, data) = select_payload_bid_pure::<TestSpec>(local_bid(), build, cache, boost);
+        (out.message.builder_index, data.is_some())
+    }
+
+    #[test]
+    fn select_empty_cache_keeps_local() {
+        assert_eq!(pick(0, false, None, Some(u64::MAX)), (LOCAL, true));
+    }
+
+    #[test]
+    fn select_el_override_beats_any_cached_bid() {
+        // `shouldOverrideBuilder` short-circuits regardless of cache or boost.
+        assert_eq!(pick(0, true, Some(u64::MAX), Some(u64::MAX)), (LOCAL, true));
+    }
+
+    #[test]
+    fn select_boost_zero_always_keeps_local() {
+        // boost=0 deflates the bid to 0 ⇒ local always wins.
+        assert_eq!(pick(0, false, Some(u64::MAX), Some(0)), (LOCAL, true));
+    }
+
+    #[test]
+    fn select_neutral_boost_picks_higher_bid() {
+        // 5 gwei bid > 1 gwei local, neutral compare ⇒ bid.
+        assert_eq!(pick(1, false, Some(5), None), (REMOTE, false));
+    }
+
+    #[test]
+    fn select_local_strictly_higher_keeps_local() {
+        assert_eq!(pick(10, false, Some(5), None), (LOCAL, true));
+    }
+
+    #[test]
+    fn select_tie_goes_to_local() {
+        // `>=` ⇒ local wins ties.
+        assert_eq!(pick(5, false, Some(5), None), (LOCAL, true));
+    }
+
+    #[test]
+    fn select_boost_factor_amplifies_bid() {
+        // 5 gwei local vs 3 gwei bid: raw ⇒ local.
+        assert_eq!(pick(5, false, Some(3), None), (LOCAL, true));
+        // boost=200 ⇒ bid scaled to 6 gwei ⇒ bid wins.
+        assert_eq!(pick(5, false, Some(3), Some(200)), (REMOTE, false));
     }
 }
