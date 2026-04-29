@@ -173,6 +173,12 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         let bid = state.latest_execution_payload_bid_mut()?;
         bid.parent_block_hash = el_genesis_hash;
         bid.block_hash = ExecutionBlockHash::default();
+
+        // Update the `latest_block_header.body_root` so that it matches the body of the
+        // Gloas genesis block, which embeds `state.latest_execution_payload_bid` in its
+        // `signed_execution_payload_bid` field (see `genesis_block`).
+        let genesis_body_root = genesis_block(&state, spec)?.body_root();
+        state.latest_block_header_mut().body_root = genesis_body_root;
     }
 
     // Now that we have our validators, initialize the caches (including the committees)
@@ -186,11 +192,26 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
 
 /// Create an unsigned genesis `BeaconBlock`.
 ///
-/// Per spec, the genesis block body is empty (all default fields).
-/// `state.latest_block_header.body_root` is set from `BeaconBlock::empty()`,
-/// so this function must return the same empty block to keep roots consistent.
-pub fn genesis_block<E: EthSpec>(spec: &ChainSpec) -> Result<BeaconBlock<E>, BeaconStateError> {
-    Ok(BeaconBlock::empty(spec))
+/// Per spec, the genesis block body is empty (all default fields) except for Gloas,
+/// where `body.signed_execution_payload_bid.message` is initialised from
+/// `state.latest_execution_payload_bid` so that the first post-genesis proposer can
+/// build on the correct execution layer head.
+///
+/// `state.latest_block_header.body_root` is set from this same block's body, so the
+/// two must stay in sync.
+pub fn genesis_block<E: EthSpec>(
+    state: &BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<BeaconBlock<E>, BeaconStateError> {
+    let mut block = BeaconBlock::empty(spec);
+    if let BeaconBlock::Gloas(ref mut gloas_block) = block {
+        let bid = state.latest_execution_payload_bid()?.clone();
+        gloas_block
+            .body
+            .signed_execution_payload_bid
+            .message = bid;
+    }
+    Ok(block)
 }
 
 /// Determine whether a candidate genesis state is suitable for starting the chain.
