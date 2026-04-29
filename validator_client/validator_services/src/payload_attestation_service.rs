@@ -146,11 +146,21 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
         {
             Ok(data) => data,
             Err(e) => {
-                crit!(
-                    error = %e,
-                    %slot,
-                    "Failed to produce payload attestation data"
-                );
+                // A 503 indicates no block was received for this slot. Per the
+                // consensus spec, validators should not submit a payload
+                // attestation when no block has been seen.
+                if e.to_string().contains("SERVICE_UNAVAILABLE") {
+                    debug!(
+                        %slot,
+                        "No block received for slot, skipping payload attestation"
+                    );
+                } else {
+                    error!(
+                        error = %e,
+                        %slot,
+                        "Failed to produce payload attestation data"
+                    );
+                }
                 return;
             }
         };

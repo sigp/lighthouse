@@ -110,6 +110,18 @@ pub fn not_synced(msg: String) -> warp::reject::Rejection {
     warp::reject::custom(NotSynced(msg))
 }
 
+/// A 503 Service Unavailable response for when no block has been received
+/// for the requested slot.
+#[derive(Debug)]
+pub struct BlockNotFound(pub String);
+
+impl Reject for BlockNotFound {}
+
+pub fn block_not_found(msg: String) -> warp::reject::Rejection {
+    warp::reject::custom(BlockNotFound(msg))
+}
+
+
 #[derive(Debug)]
 pub struct InvalidAuthorization(pub String);
 
@@ -199,6 +211,9 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
     } else if let Some(e) = err.find::<crate::reject::NotSynced>() {
         code = StatusCode::SERVICE_UNAVAILABLE;
         message = format!("SERVICE_UNAVAILABLE: beacon node is syncing: {}", e.0);
+    } else if let Some(e) = err.find::<crate::reject::BlockNotFound>() {
+        code = StatusCode::SERVICE_UNAVAILABLE;
+        message = format!("SERVICE_UNAVAILABLE: {}", e.0);
     } else if let Some(e) = err.find::<crate::reject::InvalidAuthorization>() {
         code = StatusCode::FORBIDDEN;
         message = format!("FORBIDDEN: Invalid auth token: {}", e.0);

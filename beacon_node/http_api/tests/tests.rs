@@ -4756,6 +4756,24 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_validator_payload_attestation_data_no_block(self) -> Self {
+        // Advance the slot clock without producing a block
+        self.harness.advance_slot();
+        let slot = self.chain.slot().unwrap();
+
+        // The endpoint should return 503 when no block exists for the slot
+        match self
+            .client
+            .get_validator_payload_attestation_data(slot)
+            .await
+        {
+            Ok(result) => panic!("query for empty slot should fail, got: {result:?}"),
+            Err(e) => assert_eq!(e.status().unwrap(), 503),
+        }
+
+        self
+    }
+
     #[allow(clippy::await_holding_lock)] // This is a test, so it should be fine.
     pub async fn test_get_validator_aggregate_attestation_v1(self) -> Self {
         let attestation = self
@@ -8426,6 +8444,19 @@ async fn get_validator_payload_attestation_data_pre_gloas() {
     ApiTester::new()
         .await
         .test_get_validator_payload_attestation_data_pre_gloas()
+        .await;
+}
+
+// TODO(EIP-7732): Remove `#[ignore]` once gloas beacon chain harness is implemented
+#[ignore]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_payload_attestation_data_no_block() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    ApiTester::new()
+        .await
+        .test_get_validator_payload_attestation_data_no_block()
         .await;
 }
 
