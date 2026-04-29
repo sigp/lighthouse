@@ -54,7 +54,7 @@ use types::{
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
     ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadFulu, FullPayload,
-    ProposerPreparationData, SignedExecutionPayloadBid, Slot,
+    ProposerPreparationData, Slot,
 };
 
 mod block_hash;
@@ -206,22 +206,6 @@ pub struct BlockProposalContentsGloas<E: EthSpec> {
     pub blobs_and_proofs: (BlobsList<E>, KzgProofs<E>),
     pub execution_requests: ExecutionRequests<E>,
     pub should_override_builder: bool,
-}
-
-/// Output of a Gloas self-build payload fetch, after racing local EL against any
-/// configured mev-boost relay using `builder_boost_factor`.
-///
-/// Both variants are wrapped as a self-build bid (`builder_index = u64::MAX`,
-/// infinity sig, `value = 0`) at the producer; the only difference is whether
-/// the proposer already holds the full payload (`Local`) or commits to the
-/// relay's bid hash and unblinds the payload via mev-boost later (`Builder`).
-pub enum GloasPayloadSource<E: EthSpec> {
-    /// Full payload from local EL.
-    Local(BlockProposalContentsGloas<E>),
-    /// Relay bid (Gloas-native `SignedExecutionPayloadBid`). The proposer
-    /// must unblind the full payload via the existing mev-boost endpoint
-    /// before envelope publication.
-    Builder(SignedExecutionPayloadBid<E>),
 }
 
 impl<E: EthSpec> From<GetPayloadResponseGloas<E>> for BlockProposalContentsGloas<E> {
@@ -919,77 +903,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
     ///
     /// The result will be returned from the first node that returns successfully. No more nodes
     /// will be contacted.
-    /// Gloas self-build payload fetch with mev-boost race.
-    ///
-    /// When a builder is configured, fetches a Gloas-native
-    /// `SignedExecutionPayloadBid` from the relay in parallel with a local-EL
-    /// `engine_getPayload` call, then races the two using `builder_boost_factor`
-    /// (same `(value / 100) * factor` rule as pre-Gloas). The local EL's
-    /// `shouldOverrideBuilder` flag also forces local.
-    ///
-    /// Whichever wins is wrapped as a Gloas self-build bid at the producer.
-    /// Bid value is in gwei (u64), local payload value is in wei (Uint256);
-    /// compared in wei.
-    #[instrument(level = "debug", skip_all)]
-    pub async fn get_payload_gloas_with_builder(
-        &self,
-        payload_parameters: PayloadParameters<'_>,
-        builder_params: BuilderParams,
-        builder_boost_factor: Option<u64>,
-        _spec: &ChainSpec,
-    ) -> Result<GloasPayloadSource<E>, Error> {
-        let Some(builder) = self.builder() else {
-            return self
-                .get_payload_gloas(payload_parameters)
-                .await
-                .map(GloasPayloadSource::Local);
-        };
-
-        if builder_params.chain_health != ChainHealth::Healthy {
-            return self
-                .get_payload_gloas(payload_parameters)
-                .await
-                .map(GloasPayloadSource::Local);
-        }
-
-        let slot = builder_params.slot;
-        let pubkey = &builder_params.pubkey;
-        let parent_hash = payload_parameters.parent_hash;
-
-        let (relay_result, local_result) = tokio::join!(
-            builder.get_builder_header_gloas::<E>(slot, parent_hash, pubkey),
-            self.get_payload_gloas(payload_parameters),
-        );
-
-        let local = local_result?;
-
-        let Ok(Some(relay)) = relay_result else {
-            // Relay error or no bid ⇒ use local.
-            return Ok(GloasPayloadSource::Local(local));
-        };
-
-        // EL hint: ignore the relay this slot.
-        if local.should_override_builder {
-            return Ok(GloasPayloadSource::Local(local));
-        }
-
-        let signed_bid = relay.data;
-        let bid_value_wei =
-            Uint256::from(signed_bid.message.value).saturating_mul(Uint256::from(1_000_000_000u64));
-        let boosted_bid_wei = match builder_boost_factor {
-            Some(factor) => {
-                (bid_value_wei / Uint256::from(100)).saturating_mul(Uint256::from(factor))
-            }
-            None => bid_value_wei,
-        };
-
-        if local.payload_value >= boosted_bid_wei {
-            Ok(GloasPayloadSource::Local(local))
-        } else {
-            Ok(GloasPayloadSource::Builder(signed_bid))
-        }
-    }
-
     #[instrument(level = "debug", skip_all)]
     pub async fn get_payload_gloas(
         &self,

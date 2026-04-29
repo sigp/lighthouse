@@ -1,11 +1,10 @@
 use crate::execution::ExecutionPayloadBid;
 use crate::test_utils::TestRandom;
-use crate::{EthSpec, ForkName, ForkVersionDecode};
+use crate::{EthSpec, ForkName};
 use bls::Signature;
 use context_deserialize::context_deserialize;
 use educe::Educe;
 use serde::{Deserialize, Serialize};
-use ssz::Decode as _;
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
@@ -31,17 +30,6 @@ impl<E: EthSpec> SignedExecutionPayloadBid<E> {
             message: ExecutionPayloadBid::default(),
             signature: Signature::empty(),
         }
-    }
-}
-
-impl<E: EthSpec> ForkVersionDecode for SignedExecutionPayloadBid<E> {
-    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
-        if !fork_name.gloas_enabled() {
-            return Err(ssz::DecodeError::BytesInvalid(format!(
-                "SignedExecutionPayloadBid is only defined for Gloas+; got {fork_name}",
-            )));
-        }
-        Self::from_ssz_bytes(bytes)
     }
 }
 
