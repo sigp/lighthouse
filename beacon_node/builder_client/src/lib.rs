@@ -521,12 +521,13 @@ impl BuilderHttpClient {
         }
     }
 
-    /// `GET /eth/v1/builder/payload_bid/{slot}/{parent_hash}/{pubkey}`
+    /// `GET /eth/v1/builder/header/{slot}/{parent_hash}/{pubkey}` for Gloas slots.
     ///
-    /// Gloas-specific endpoint. The relay returns a `SignedExecutionPayloadBid`
-    /// directly (the Gloas-native commitment type) instead of a `BuilderBid`
-    /// envelope around an `ExecutionPayloadHeader`.
-    pub async fn get_builder_payload_bid_gloas<E: EthSpec>(
+    /// Same URL as the pre-Gloas `get_builder_header`; the relay dispatches on
+    /// the slot's fork and returns a `SignedExecutionPayloadBid` (Gloas-native
+    /// commitment) instead of a `SignedBuilderBid` (pre-Gloas envelope around
+    /// an `ExecutionPayloadHeader`).
+    pub async fn get_builder_header_gloas<E: EthSpec>(
         &self,
         slot: Slot,
         parent_hash: ExecutionBlockHash,
@@ -539,7 +540,7 @@ impl BuilderHttpClient {
             .push("eth")
             .push("v1")
             .push("builder")
-            .push("payload_bid")
+            .push("header")
             .push(slot.to_string().as_str())
             .push(format!("{parent_hash:?}").as_str())
             .push(pubkey.as_hex_string().as_str());

@@ -957,7 +957,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         let parent_hash = payload_parameters.parent_hash;
 
         let (relay_result, local_result) = tokio::join!(
-            builder.get_builder_payload_bid_gloas::<E>(slot, parent_hash, pubkey),
+            builder.get_builder_header_gloas::<E>(slot, parent_hash, pubkey),
             self.get_payload_gloas(payload_parameters),
         );
 
