@@ -394,15 +394,13 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
     /// `block_hash` from the parent beacon block's bid. If the parent beacon state is available
     /// this can alternatively be fetched from `state.latest_payload_bid`.
     ///
-    /// This function returns `false` for all blocks prior to Gloas and for the zero
-    /// `parent_block_hash`.
+    /// This function returns `false` for all blocks prior to Gloas.
     pub fn is_parent_block_full(&self, parent_block_hash: ExecutionBlockHash) -> bool {
         let Ok(signed_payload_bid) = self.message().body().signed_execution_payload_bid() else {
             // Prior to Gloas.
             return false;
         };
-        parent_block_hash != ExecutionBlockHash::zero()
-            && signed_payload_bid.message.parent_block_hash == parent_block_hash
+        signed_payload_bid.message.parent_block_hash == parent_block_hash
     }
 }
 
