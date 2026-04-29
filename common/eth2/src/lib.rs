@@ -1849,8 +1849,8 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
-    /// `POST beacon/pool/proposer_preferences`
-    pub async fn post_beacon_pool_proposer_preferences(
+    /// `POST validator/proposer_preferences`
+    pub async fn post_validator_proposer_preferences(
         &self,
         signed_preferences: &[SignedProposerPreferences],
         fork_name: ForkName,
@@ -1859,8 +1859,7 @@ impl BeaconNodeHttpClient {
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("beacon")
-            .push("pool")
+            .push("validator")
             .push("proposer_preferences");
 
         self.post_generic_with_consensus_version(path, &signed_preferences, None, fork_name)
@@ -1869,8 +1868,8 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
-    /// `POST beacon/pool/proposer_preferences` (SSZ)
-    pub async fn post_beacon_pool_proposer_preferences_ssz(
+    /// `POST validator/proposer_preferences` (SSZ)
+    pub async fn post_validator_proposer_preferences_ssz(
         &self,
         signed_preferences: &[SignedProposerPreferences],
         fork_name: ForkName,
@@ -1879,8 +1878,7 @@ impl BeaconNodeHttpClient {
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("beacon")
-            .push("pool")
+            .push("validator")
             .push("proposer_preferences");
 
         let ssz_body: Vec<u8> = signed_preferences

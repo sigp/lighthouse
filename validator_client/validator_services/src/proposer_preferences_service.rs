@@ -182,7 +182,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
                 let signed = signed.clone();
                 async move {
                     beacon_node
-                        .post_beacon_pool_proposer_preferences_ssz(&signed, fork_name)
+                        .post_validator_proposer_preferences_ssz(&signed, fork_name)
                         .await
                         .map_err(|e| format!("Failed to publish proposer preferences (SSZ): {e:?}"))
                 }
@@ -198,7 +198,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
                         let signed = signed.clone();
                         async move {
                             beacon_node
-                                .post_beacon_pool_proposer_preferences(&signed, fork_name)
+                                .post_validator_proposer_preferences(&signed, fork_name)
                                 .await
                                 .map_err(|e| {
                                     format!("Failed to publish proposer preferences (JSON): {e:?}")

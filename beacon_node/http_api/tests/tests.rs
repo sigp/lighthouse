@@ -2932,7 +2932,7 @@ impl ApiTester {
         }
     }
 
-    pub async fn test_post_beacon_pool_proposer_preferences_valid(mut self) -> Self {
+    pub async fn test_post_validator_proposer_preferences_valid(mut self) -> Self {
         let signed = self.make_valid_signed_proposer_preferences(1);
         let fork_name = self
             .chain
@@ -2940,7 +2940,7 @@ impl ApiTester {
             .fork_name_at_slot::<E>(signed.message.proposal_slot);
 
         self.client
-            .post_beacon_pool_proposer_preferences(&[signed], fork_name)
+            .post_validator_proposer_preferences(&[signed], fork_name)
             .await
             .unwrap();
 
@@ -2952,7 +2952,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_post_beacon_pool_proposer_preferences_valid_ssz(mut self) -> Self {
+    pub async fn test_post_validator_proposer_preferences_valid_ssz(mut self) -> Self {
         let signed = self.make_valid_signed_proposer_preferences(2);
         let fork_name = self
             .chain
@@ -2960,7 +2960,7 @@ impl ApiTester {
             .fork_name_at_slot::<E>(signed.message.proposal_slot);
 
         self.client
-            .post_beacon_pool_proposer_preferences_ssz(&[signed], fork_name)
+            .post_validator_proposer_preferences_ssz(&[signed], fork_name)
             .await
             .unwrap();
 
@@ -2972,7 +2972,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_post_beacon_pool_proposer_preferences_invalid_sig(self) -> Self {
+    pub async fn test_post_validator_proposer_preferences_invalid_sig(self) -> Self {
         let mut signed = self.make_valid_signed_proposer_preferences(1);
         signed.signature = Signature::empty();
         let fork_name = self
@@ -2982,7 +2982,7 @@ impl ApiTester {
 
         let result = self
             .client
-            .post_beacon_pool_proposer_preferences(&[signed], fork_name)
+            .post_validator_proposer_preferences(&[signed], fork_name)
             .await;
 
         assert!(result.is_err(), "invalid signature should be rejected");
@@ -2990,7 +2990,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_post_beacon_pool_proposer_preferences_invalid_sig_ssz(self) -> Self {
+    pub async fn test_post_validator_proposer_preferences_invalid_sig_ssz(self) -> Self {
         let mut signed = self.make_valid_signed_proposer_preferences(1);
         signed.signature = Signature::empty();
         let fork_name = self
@@ -3000,7 +3000,7 @@ impl ApiTester {
 
         let result = self
             .client
-            .post_beacon_pool_proposer_preferences_ssz(&[signed], fork_name)
+            .post_validator_proposer_preferences_ssz(&[signed], fork_name)
             .await;
 
         assert!(
@@ -3011,7 +3011,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_post_beacon_pool_proposer_preferences_duplicate(mut self) -> Self {
+    pub async fn test_post_validator_proposer_preferences_duplicate(mut self) -> Self {
         let signed = self.make_valid_signed_proposer_preferences(1);
         let fork_name = self
             .chain
@@ -3020,14 +3020,14 @@ impl ApiTester {
 
         // First submission should succeed.
         self.client
-            .post_beacon_pool_proposer_preferences(std::slice::from_ref(&signed), fork_name)
+            .post_validator_proposer_preferences(std::slice::from_ref(&signed), fork_name)
             .await
             .unwrap();
         self.network_rx.network_recv.recv().await;
 
         // Second submission of the same preferences should return 200 (already known, not an error).
         self.client
-            .post_beacon_pool_proposer_preferences(&[signed], fork_name)
+            .post_validator_proposer_preferences(&[signed], fork_name)
             .await
             .unwrap();
 
@@ -9119,20 +9119,20 @@ async fn get_validator_blocks_v3_http_api_path() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn post_beacon_pool_proposer_preferences() {
+async fn post_validator_proposer_preferences() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
     ApiTester::new()
         .await
-        .test_post_beacon_pool_proposer_preferences_valid()
+        .test_post_validator_proposer_preferences_valid()
         .await
-        .test_post_beacon_pool_proposer_preferences_valid_ssz()
+        .test_post_validator_proposer_preferences_valid_ssz()
         .await
-        .test_post_beacon_pool_proposer_preferences_invalid_sig()
+        .test_post_validator_proposer_preferences_invalid_sig()
         .await
-        .test_post_beacon_pool_proposer_preferences_invalid_sig_ssz()
+        .test_post_validator_proposer_preferences_invalid_sig_ssz()
         .await
-        .test_post_beacon_pool_proposer_preferences_duplicate()
+        .test_post_validator_proposer_preferences_duplicate()
         .await;
 }
