@@ -138,7 +138,7 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
         self.chain
             .process_engine_blobs(slot, block_root, blobs)
             .await
-            .map_err(FetchEngineBlobError::BlobProcessingError)
+            .map_err(|e| FetchEngineBlobError::BlobProcessingError(Box::new(e)))
     }
 
     pub(crate) fn fork_choice_contains_block(&self, block_root: &Hash256) -> bool {

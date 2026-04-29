@@ -11,8 +11,9 @@ use beacon_chain::block_verification_types::{AsBlock, RangeSyncBlock};
 use beacon_chain::data_availability_checker::AvailabilityCheckError;
 use beacon_chain::historical_data_columns::HistoricalDataColumnError;
 use beacon_chain::{
-    AvailabilityProcessingStatus, BeaconChainTypes, BlockError, ChainSegmentResult,
-    HistoricalBlockError, NotifyExecutionLayer, validator_monitor::get_slot_delay_ms,
+    AvailabilityProcessingStatus, BeaconChainTypes, BlockError, BlockOrEnvelopeError,
+    ChainSegmentResult, HistoricalBlockError, NotifyExecutionLayer,
+    validator_monitor::get_slot_delay_ms,
 };
 use beacon_processor::{
     AsyncFn, BlockingFn, DuplicateCache,
@@ -234,7 +235,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // Sync handles these results
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type,
-            result: result.into(),
+            result: result.map_err(Into::into).into(),
         });
 
         // Drop the handle to remove the entry from the cache
@@ -345,7 +346,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // Sync handles these results
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type,
-            result: result.into(),
+            result: result.map_err(Into::into).into(),
         });
     }
 
@@ -410,7 +411,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     );
                 }
             },
-            Err(BlockError::DuplicateFullyImported(_)) => {
+            Err(BlockOrEnvelopeError::BlockError(BlockError::DuplicateFullyImported(_))) => {
                 debug!(
                     block_hash = %block_root,
                     "Custody columns have already been imported"

@@ -50,7 +50,8 @@ use crate::sync::custody_backfill_sync::CustodyBackFillSync;
 use crate::sync::network_context::{PeerGroup, RpcResponseResult};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::{
-    AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
+    AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, BlockOrEnvelopeError,
+    EngineState,
 };
 use futures::StreamExt;
 use lighthouse_network::SyncInfo;
@@ -206,7 +207,7 @@ impl BlockProcessType {
 #[derive(Debug)]
 pub enum BlockProcessingResult {
     Ok(AvailabilityProcessingStatus),
-    Err(BlockError),
+    Err(BlockOrEnvelopeError),
     Ignored,
 }
 
@@ -1449,8 +1450,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 }
 
-impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingResult {
-    fn from(result: Result<AvailabilityProcessingStatus, BlockError>) -> Self {
+impl From<Result<AvailabilityProcessingStatus, BlockOrEnvelopeError>> for BlockProcessingResult {
+    fn from(result: Result<AvailabilityProcessingStatus, BlockOrEnvelopeError>) -> Self {
         match result {
             Ok(status) => BlockProcessingResult::Ok(status),
             Err(e) => BlockProcessingResult::Err(e),
@@ -1458,8 +1459,14 @@ impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingR
     }
 }
 
+impl From<BlockOrEnvelopeError> for BlockProcessingResult {
+    fn from(e: BlockOrEnvelopeError) -> Self {
+        BlockProcessingResult::Err(e)
+    }
+}
+
 impl From<BlockError> for BlockProcessingResult {
     fn from(e: BlockError) -> Self {
-        BlockProcessingResult::Err(e)
+        BlockProcessingResult::Err(BlockOrEnvelopeError::BlockError(e))
     }
 }

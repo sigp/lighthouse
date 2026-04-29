@@ -14,8 +14,8 @@ use beacon_chain::payload_bid_verification::PayloadBidError;
 use beacon_chain::proposer_preferences_verification::ProposerPreferencesError;
 use beacon_chain::store::Error;
 use beacon_chain::{
-    AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
-    GossipVerifiedBlock, NotifyExecutionLayer,
+    AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError,
+    BlockOrEnvelopeError, ForkChoiceError, GossipVerifiedBlock, NotifyExecutionLayer,
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
     data_availability_checker::AvailabilityCheckErrorCategory,
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
@@ -1387,7 +1387,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     self.check_reconstruction_trigger(slot, &block_root).await;
                 }
             },
-            Err(BlockError::DuplicateFullyImported(_)) => {
+            Err(BlockOrEnvelopeError::BlockError(BlockError::DuplicateFullyImported(_))) => {
                 debug!(
                     ?block_root,
                     data_column_index, "Ignoring gossip column already imported"
@@ -1518,7 +1518,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     self.check_reconstruction_trigger(*slot, block_root).await;
                 }
             },
-            Err(BlockError::DuplicateFullyImported(_)) => {
+            Err(BlockOrEnvelopeError::BlockError(BlockError::DuplicateFullyImported(_))) => {
                 debug!(
                     ?block_root,
                     data_column_index, "Ignoring completed gossip column already imported"

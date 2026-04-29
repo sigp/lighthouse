@@ -337,6 +337,7 @@ easy_from_to!(StateAdvanceError, BlockProductionError);
 easy_from_to!(ForkChoiceError, BlockProductionError);
 easy_from_to!(EpochCacheError, BlockProductionError);
 
+#[derive(Debug)]
 pub enum BlockOrEnvelopeError {
     BlockError(BlockError),
     EnvelopeError(EnvelopeError),
@@ -344,3 +345,12 @@ pub enum BlockOrEnvelopeError {
 
 easy_from_to!(BlockError, BlockOrEnvelopeError);
 easy_from_to!(EnvelopeError, BlockOrEnvelopeError);
+
+impl AsRef<str> for BlockOrEnvelopeError {
+    fn as_ref(&self) -> &str {
+        match self {
+            BlockOrEnvelopeError::BlockError(e) => e.as_ref(),
+            BlockOrEnvelopeError::EnvelopeError(e) => e.as_ref(),
+        }
+    }
+}

@@ -92,6 +92,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
 
             self.check_envelope_availability_and_import(executed_envelope)
+                .await
         };
 
         // Verify and import the payload envelope.

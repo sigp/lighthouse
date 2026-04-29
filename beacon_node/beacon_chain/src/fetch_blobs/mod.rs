@@ -16,13 +16,13 @@ use crate::blob_verification::{GossipBlobError, KzgVerifiedBlob};
 use crate::data_column_verification::{
     KzgVerifiedCustodyDataColumn, KzgVerifiedCustodyPartialDataColumn, KzgVerifiedPartialDataColumn,
 };
+use crate::errors::BlockOrEnvelopeError;
 #[cfg_attr(test, double)]
 use crate::fetch_blobs::fetch_blobs_beacon_adapter::FetchBlobsBeaconAdapter;
 use crate::kzg_utils::blobs_to_partial_data_columns;
 use crate::observed_data_sidecars::ObservationKey;
 use crate::{
-    AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
-    metrics,
+    AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, metrics,
 };
 use execution_layer::Error as ExecutionLayerError;
 use execution_layer::json_structures::{BlobAndProofV1, BlobAndProofV2, BlobAndProofV3};
@@ -50,7 +50,7 @@ pub enum EngineGetBlobsOutput<T: BeaconChainTypes> {
 pub enum FetchEngineBlobError {
     BeaconStateError(BeaconStateError),
     BeaconChainError(Box<BeaconChainError>),
-    BlobProcessingError(BlockError),
+    BlobProcessingError(Box<BlockOrEnvelopeError>),
     BlobSidecarError(BlobSidecarError),
     DataColumnSidecarError(DataColumnSidecarError),
     ExecutionLayerMissing,
