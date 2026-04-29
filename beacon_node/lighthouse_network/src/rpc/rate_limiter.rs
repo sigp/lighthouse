@@ -77,6 +77,14 @@ impl Quota {
             max_tokens: n,
         }
     }
+
+    #[cfg(test)]
+    pub const fn n_every_millis(n: NonZeroU64, millis: u64) -> Self {
+        Quota {
+            replenish_all_every: Duration::from_millis(millis),
+            max_tokens: n,
+        }
+    }
 }
 
 /// Manages rate limiting of requests per peer, with differentiated rates per protocol.
@@ -101,7 +109,11 @@ pub struct RPCRateLimiter {
     blbrange_rl: Limiter<PeerId>,
     /// BlobsByRoot rate limiter.
     blbroot_rl: Limiter<PeerId>,
-    /// DataColumnssByRoot rate limiter.
+    /// PayloadEnvelopesByRange rate limiter.
+    envrange_rl: Limiter<PeerId>,
+    /// PayloadEnvelopesByRoot rate limiter.
+    envroots_rl: Limiter<PeerId>,
+    /// DataColumnsByRoot rate limiter.
     dcbroot_rl: Limiter<PeerId>,
     /// DataColumnsByRange rate limiter.
     dcbrange_rl: Limiter<PeerId>,
@@ -140,6 +152,10 @@ pub struct RPCRateLimiterBuilder {
     bbrange_quota: Option<Quota>,
     /// Quota for the BlocksByRoot protocol.
     bbroots_quota: Option<Quota>,
+    /// Quota for the ExecutionPayloadEnvelopesByRange protocol.
+    perange_quota: Option<Quota>,
+    /// Quota for the ExecutionPayloadEnvelopesByRoot protocol.
+    peroots_quota: Option<Quota>,
     /// Quota for the BlobsByRange protocol.
     blbrange_quota: Option<Quota>,
     /// Quota for the BlobsByRoot protocol.
@@ -169,6 +185,8 @@ impl RPCRateLimiterBuilder {
             Protocol::Goodbye => self.goodbye_quota = q,
             Protocol::BlocksByRange => self.bbrange_quota = q,
             Protocol::BlocksByRoot => self.bbroots_quota = q,
+            Protocol::PayloadEnvelopesByRange => self.perange_quota = q,
+            Protocol::PayloadEnvelopesByRoot => self.peroots_quota = q,
             Protocol::BlobsByRange => self.blbrange_quota = q,
             Protocol::BlobsByRoot => self.blbroot_quota = q,
             Protocol::DataColumnsByRoot => self.dcbroot_quota = q,
@@ -193,6 +211,12 @@ impl RPCRateLimiterBuilder {
         let bbrange_quota = self
             .bbrange_quota
             .ok_or("BlocksByRange quota not specified")?;
+        let perange_quota = self
+            .perange_quota
+            .ok_or("PayloadEnvelopesByRange quota not specified")?;
+        let peroots_quota = self
+            .peroots_quota
+            .ok_or("PayloadEnvelopesByRoot quota not specified")?;
         let lc_bootstrap_quota = self
             .lcbootstrap_quota
             .ok_or("LightClientBootstrap quota not specified")?;
@@ -228,6 +252,8 @@ impl RPCRateLimiterBuilder {
         let goodbye_rl = Limiter::from_quota(goodbye_quota)?;
         let bbroots_rl = Limiter::from_quota(bbroots_quota)?;
         let bbrange_rl = Limiter::from_quota(bbrange_quota)?;
+        let envrange_rl = Limiter::from_quota(perange_quota)?;
+        let envroots_rl = Limiter::from_quota(peroots_quota)?;
         let blbrange_rl = Limiter::from_quota(blbrange_quota)?;
         let blbroot_rl = Limiter::from_quota(blbroots_quota)?;
         let dcbroot_rl = Limiter::from_quota(dcbroot_quota)?;
@@ -251,6 +277,8 @@ impl RPCRateLimiterBuilder {
             goodbye_rl,
             bbroots_rl,
             bbrange_rl,
+            envrange_rl,
+            envroots_rl,
             blbrange_rl,
             blbroot_rl,
             dcbroot_rl,
@@ -304,6 +332,8 @@ impl RPCRateLimiter {
             goodbye_quota,
             blocks_by_range_quota,
             blocks_by_root_quota,
+            payload_envelopes_by_range_quota,
+            payload_envelopes_by_root_quota,
             blobs_by_range_quota,
             blobs_by_root_quota,
             data_columns_by_root_quota,
@@ -321,6 +351,14 @@ impl RPCRateLimiter {
             .set_quota(Protocol::Goodbye, goodbye_quota)
             .set_quota(Protocol::BlocksByRange, blocks_by_range_quota)
             .set_quota(Protocol::BlocksByRoot, blocks_by_root_quota)
+            .set_quota(
+                Protocol::PayloadEnvelopesByRange,
+                payload_envelopes_by_range_quota,
+            )
+            .set_quota(
+                Protocol::PayloadEnvelopesByRoot,
+                payload_envelopes_by_root_quota,
+            )
             .set_quota(Protocol::BlobsByRange, blobs_by_range_quota)
             .set_quota(Protocol::BlobsByRoot, blobs_by_root_quota)
             .set_quota(Protocol::DataColumnsByRoot, data_columns_by_root_quota)
@@ -368,6 +406,8 @@ impl RPCRateLimiter {
             Protocol::Goodbye => &mut self.goodbye_rl,
             Protocol::BlocksByRange => &mut self.bbrange_rl,
             Protocol::BlocksByRoot => &mut self.bbroots_rl,
+            Protocol::PayloadEnvelopesByRange => &mut self.envrange_rl,
+            Protocol::PayloadEnvelopesByRoot => &mut self.envroots_rl,
             Protocol::BlobsByRange => &mut self.blbrange_rl,
             Protocol::BlobsByRoot => &mut self.blbroot_rl,
             Protocol::DataColumnsByRoot => &mut self.dcbroot_rl,
@@ -392,6 +432,8 @@ impl RPCRateLimiter {
             status_rl,
             bbrange_rl,
             bbroots_rl,
+            envrange_rl,
+            envroots_rl,
             blbrange_rl,
             blbroot_rl,
             dcbroot_rl,
@@ -409,6 +451,8 @@ impl RPCRateLimiter {
         status_rl.prune(time_since_start);
         bbrange_rl.prune(time_since_start);
         bbroots_rl.prune(time_since_start);
+        envrange_rl.prune(time_since_start);
+        envroots_rl.prune(time_since_start);
         blbrange_rl.prune(time_since_start);
         blbroot_rl.prune(time_since_start);
         dcbrange_rl.prune(time_since_start);

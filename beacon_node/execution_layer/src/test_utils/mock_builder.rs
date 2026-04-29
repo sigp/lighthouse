@@ -29,7 +29,7 @@ use tokio_stream::StreamExt;
 use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
 use types::ExecutionBlockHash;
-use types::builder_bid::{
+use types::builder::{
     BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidEip7805,
     BuilderBidElectra, BuilderBidFulu, SignedBuilderBid,
 };
@@ -266,7 +266,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
     }
 
     fn sign_builder_message(&mut self, sk: &SecretKey, spec: &ChainSpec) -> Signature {
-        let domain = spec.get_builder_domain();
+        let domain = spec.get_builder_application_domain();
         let message = self.signing_root(domain);
         sk.sign(message)
     }
@@ -840,6 +840,10 @@ impl<E: EthSpec> MockBuilder<E> {
 
         let head_block_root = head_block_root.unwrap_or(head.canonical_root());
 
+        // TODO(gloas): Currently the tests are pre-Gloas and we are not considering
+        // other payload statuses. This codepath may not be relevant for Gloas.
+        let head_payload_status = fork_choice::PayloadStatus::Pending;
+
         let head_execution_payload = head
             .message()
             .body()
@@ -900,7 +904,8 @@ impl<E: EthSpec> MockBuilder<E> {
                 .data
                 .genesis_time
         };
-        let timestamp = (slots_since_genesis * self.spec.seconds_per_slot) + genesis_time;
+        let timestamp =
+            (slots_since_genesis * self.spec.get_slot_duration().as_secs()) + genesis_time;
 
         let head_state: BeaconState<E> = self
             .beacon_client
@@ -937,17 +942,25 @@ impl<E: EthSpec> MockBuilder<E> {
                 fee_recipient,
                 expected_withdrawals,
                 None,
+                None,
             ),
-            ForkName::Deneb
-            | ForkName::Electra
-            | ForkName::Fulu
-            | ForkName::Eip7805
-            | ForkName::Gloas => PayloadAttributes::new(
+            ForkName::Deneb | ForkName::Electra | ForkName::Fulu | ForkName::Eip7805 => {
+                PayloadAttributes::new(
+                    timestamp,
+                    *prev_randao,
+                    fee_recipient,
+                    expected_withdrawals,
+                    Some(head_block_root),
+                    None,
+                )
+            }
+            ForkName::Gloas => PayloadAttributes::new(
                 timestamp,
                 *prev_randao,
                 fee_recipient,
                 expected_withdrawals,
                 Some(head_block_root),
+                Some(slot.as_u64()),
             ),
             ForkName::Base | ForkName::Altair => {
                 return Err("invalid fork".to_string());
@@ -967,7 +980,13 @@ impl<E: EthSpec> MockBuilder<E> {
         );
 
         self.el
-            .insert_proposer(slot, head_block_root, val_index, payload_attributes.clone())
+            .insert_proposer(
+                slot,
+                head_block_root,
+                head_payload_status,
+                val_index,
+                payload_attributes.clone(),
+            )
             .await;
 
         let forkchoice_update_params = ForkchoiceUpdateParameters {
@@ -985,6 +1004,7 @@ impl<E: EthSpec> MockBuilder<E> {
                 finalized_execution_hash,
                 slot - 1,
                 head_block_root,
+                head_payload_status,
             )
             .await
             .map_err(|e| format!("fcu call failed : {:?}", e))?;

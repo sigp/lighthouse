@@ -11,11 +11,11 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    core::{Address, EthSpec, Hash256, Uint256},
+    core::{Address, EthSpec, ExecutionBlockHash, Hash256, Uint256},
     execution::{
-        ExecutionBlockHash, ExecutionPayloadBellatrix, ExecutionPayloadCapella,
-        ExecutionPayloadDeneb, ExecutionPayloadEip7805, ExecutionPayloadElectra,
-        ExecutionPayloadFulu, ExecutionPayloadRef, Transactions,
+        ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
+        ExecutionPayloadEip7805, ExecutionPayloadElectra, ExecutionPayloadFulu,
+        ExecutionPayloadRef, Transactions,
     },
     fork::ForkName,
     map_execution_payload_ref_into_execution_payload_header,

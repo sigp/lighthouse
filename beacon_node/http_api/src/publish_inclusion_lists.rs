@@ -1,7 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
 use beacon_chain::inclusion_list_verification::GossipInclusionListError;
-use beacon_chain::{BeaconChain, BeaconChainTypes, validator_monitor::timestamp_now};
+use beacon_chain::{BeaconChain, BeaconChainTypes};
+use slot_clock::timestamp_now;
 use eth2::types::Failure;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;

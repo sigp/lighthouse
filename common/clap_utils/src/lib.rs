@@ -159,7 +159,7 @@ where
         let chain_config = Config::from_chain_spec::<E>(spec);
         let mut file = std::fs::File::create(dump_path)
             .map_err(|e| format!("Failed to open file for writing chain config: {:?}", e))?;
-        serde_yaml::to_writer(&mut file, &chain_config)
+        yaml_serde::to_writer(&mut file, &chain_config)
             .map_err(|e| format!("Error serializing config: {:?}", e))?;
     }
     Ok(())

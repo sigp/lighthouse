@@ -4,7 +4,7 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
-use crate::json_structures::{BlobAndProofV1, BlobAndProofV2};
+use crate::json_structures::{BlobAndProofV1, BlobAndProofV2, BlobAndProofV3};
 use crate::payload_cache::PayloadCache;
 use arc_swap::ArcSwapOption;
 use auth::{Auth, JwtKey, strip_prefix};
@@ -18,11 +18,10 @@ pub use engine_api::{http, http::HttpJsonRpc, http::deposit_methods};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::{BlobsBundle, FullPayloadContents};
-use eth2::types::{ForkVersionedResponse, builder_bid::SignedBuilderBid};
+use eth2::types::{ForkVersionedResponse, builder::SignedBuilderBid};
 use fixed_bytes::UintExtended;
 use fork_choice::ForkchoiceUpdateParameters;
 use logging::crit;
-use lru::LruCache;
 pub use payload_status::PayloadStatus;
 use payload_status::process_payload_status;
 use sensitive_url::SensitiveUrl;
@@ -33,7 +32,6 @@ use std::collections::{HashMap, hash_map::Entry};
 use std::fmt;
 use std::future::Future;
 use std::io::Write;
-use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -46,10 +44,10 @@ use tokio::{
 use tokio_stream::wrappers::WatchStream;
 use tracing::{Instrument, debug, debug_span, error, info, instrument, warn};
 use tree_hash::TreeHash;
-use types::beacon_block_body::KzgCommitments;
-use types::builder_bid::BuilderBid;
-use types::non_zero_usize::new_non_zero_usize;
-use types::payload::BlockProductionVersion;
+use types::ExecutionPayloadGloas;
+use types::builder::BuilderBid;
+use types::execution::BlockProductionVersion;
+use types::kzg_ext::KzgCommitments;
 use types::{
     AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequests, KzgProofs,
     SignedBlindedBeaconBlock,
@@ -75,10 +73,6 @@ pub const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
 
 /// Name for the default file used for the jwt secret.
 pub const DEFAULT_JWT_FILE: &str = "jwt.hex";
-
-/// Each time the `ExecutionLayer` retrieves a block from an execution node, it stores that block
-/// in an LRU cache to avoid redundant lookups. This is the size of that cache.
-const EXECUTION_BLOCKS_LRU_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(128);
 
 /// A fee recipient address for use during block production. Only used as a very last resort if
 /// there is no address provided by the user.
@@ -178,6 +172,7 @@ pub enum Error {
     VerifyingVersionedHashes(versioned_hashes::Error),
     HexError(hex::FromHexError),
     SszTypeError(ssz_types::Error),
+    Unexpected(String),
 }
 
 impl From<ssz_types::Error> for Error {
@@ -218,6 +213,28 @@ impl From<EngineError> for Error {
 pub enum BlockProposalContentsType<E: EthSpec> {
     Full(BlockProposalContents<E, FullPayload<E>>),
     Blinded(BlockProposalContents<E, BlindedPayload<E>>),
+}
+
+pub struct BlockProposalContentsGloas<E: EthSpec> {
+    pub payload: ExecutionPayloadGloas<E>,
+    pub payload_value: Uint256,
+    pub blob_kzg_commitments: KzgCommitments<E>,
+    pub blobs_and_proofs: (BlobsList<E>, KzgProofs<E>),
+    pub execution_requests: ExecutionRequests<E>,
+    pub should_override_builder: bool,
+}
+
+impl<E: EthSpec> From<GetPayloadResponseGloas<E>> for BlockProposalContentsGloas<E> {
+    fn from(response: GetPayloadResponseGloas<E>) -> Self {
+        Self {
+            payload: response.execution_payload,
+            payload_value: response.block_value,
+            blob_kzg_commitments: response.blobs_bundle.commitments,
+            blobs_and_proofs: (response.blobs_bundle.blobs, response.blobs_bundle.proofs),
+            execution_requests: response.requests,
+            should_override_builder: response.should_override_builder,
+        }
+    }
 }
 
 pub enum BlockProposalContents<E: EthSpec, Payload: AbstractExecPayload<E>> {
@@ -404,6 +421,7 @@ impl ProposerPreparationDataEntry {
 pub struct ProposerKey {
     slot: Slot,
     head_block_root: Hash256,
+    head_payload_status: fork_choice::PayloadStatus,
 }
 
 #[derive(PartialEq, Clone)]
@@ -447,7 +465,6 @@ struct Inner<E: EthSpec> {
     execution_engine_forkchoice_lock: Mutex<()>,
     suggested_fee_recipient: Option<Address>,
     proposer_preparation_data: Mutex<HashMap<u64, ProposerPreparationDataEntry>>,
-    execution_blocks: Mutex<LruCache<ExecutionBlockHash, ExecutionBlock>>,
     proposers: RwLock<HashMap<ProposerKey, Proposer>>,
     executor: TaskExecutor,
     payload_cache: PayloadCache<E>,
@@ -558,7 +575,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
             suggested_fee_recipient,
             proposer_preparation_data: Mutex::new(HashMap::new()),
             proposers: RwLock::new(HashMap::new()),
-            execution_blocks: Mutex::new(LruCache::new(EXECUTION_BLOCKS_LRU_CACHE_SIZE)),
             executor,
             payload_cache: PayloadCache::default(),
             last_new_payload_errored: RwLock::new(false),
@@ -649,12 +665,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
             .await?
             .ok_or(ApiError::ExecutionHeadBlockNotFound)?;
         Ok(block.total_difficulty)
-    }
-    /// Note: this function returns a mutex guard, be careful to avoid deadlocks.
-    async fn execution_blocks(
-        &self,
-    ) -> MutexGuard<'_, LruCache<ExecutionBlockHash, ExecutionBlock>> {
-        self.inner.execution_blocks.lock().await
     }
 
     /// Gives access to a channel containing if the last engine state is online or not.
@@ -898,6 +908,44 @@ impl<E: EthSpec> ExecutionLayer<E> {
             .await
             .get(&proposer_index)
             .and_then(|entry| entry.gas_limit)
+    }
+
+    /// Maps to the `engine_getPayload` JSON-RPC call for post-Gloas payload construction.
+    ///
+    /// However, it will attempt to call `self.prepare_payload` if it cannot find an existing
+    /// payload id for the given parameters.
+    ///
+    /// ## Fallback Behavior
+    ///
+    /// The result will be returned from the first node that returns successfully. No more nodes
+    /// will be contacted.
+    #[instrument(level = "debug", skip_all)]
+    pub async fn get_payload_gloas(
+        &self,
+        payload_parameters: PayloadParameters<'_>,
+    ) -> Result<BlockProposalContentsGloas<E>, Error> {
+        let payload_response_type = self.get_full_payload_caching(payload_parameters).await?;
+        let GetPayloadResponseType::Full(payload_response) = payload_response_type else {
+            return Err(Error::Unexpected(
+                "get_payload_gloas should never return a blinded payload".to_owned(),
+            ));
+        };
+        let GetPayloadResponse::Gloas(payload_response) = payload_response else {
+            return Err(Error::Unexpected(
+                "get_payload_gloas should always return a gloas `GetPayloadResponse` variant"
+                    .to_owned(),
+            ));
+        };
+        metrics::inc_counter_vec(
+            &metrics::EXECUTION_LAYER_GET_PAYLOAD_OUTCOME,
+            &[metrics::SUCCESS],
+        );
+        metrics::inc_counter_vec(
+            &metrics::EXECUTION_LAYER_GET_PAYLOAD_SOURCE,
+            &[metrics::LOCAL],
+        );
+
+        Ok(payload_response.into())
     }
 
     /// Maps to the `engine_getPayload` JSON-RPC call.
@@ -1433,12 +1481,14 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         slot: Slot,
         head_block_root: Hash256,
+        head_payload_status: fork_choice::PayloadStatus,
         validator_index: u64,
         payload_attributes: PayloadAttributes,
     ) -> bool {
         let proposers_key = ProposerKey {
             slot,
             head_block_root,
+            head_payload_status,
         };
 
         let existing = self.proposers().write().await.insert(
@@ -1457,16 +1507,18 @@ impl<E: EthSpec> ExecutionLayer<E> {
     }
 
     /// If there has been a proposer registered via `Self::insert_proposer` with a matching `slot`
-    /// `head_block_root`, then return the appropriate `PayloadAttributes` for inclusion in
-    /// `forkchoiceUpdated` calls.
+    /// `head_block_root`, and `head_payload_status` then return the appropriate `PayloadAttributes`
+    /// for inclusion in `forkchoiceUpdated` calls.
     pub async fn payload_attributes(
         &self,
         current_slot: Slot,
         head_block_root: Hash256,
+        head_payload_status: fork_choice::PayloadStatus,
     ) -> Option<PayloadAttributes> {
         let proposers_key = ProposerKey {
             slot: current_slot,
             head_block_root,
+            head_payload_status,
         };
 
         let proposer = self.proposers().read().await.get(&proposers_key).cloned()?;
@@ -1490,6 +1542,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         finalized_block_hash: ExecutionBlockHash,
         current_slot: Slot,
         head_block_root: Hash256,
+        head_payload_status: fork_choice::PayloadStatus,
     ) -> Result<PayloadStatus, Error> {
         let _timer = metrics::start_timer_vec(
             &metrics::EXECUTION_LAYER_REQUEST_TIMES,
@@ -1506,7 +1559,9 @@ impl<E: EthSpec> ExecutionLayer<E> {
         );
 
         let next_slot = current_slot + 1;
-        let payload_attributes = self.payload_attributes(next_slot, head_block_root).await;
+        let payload_attributes = self
+            .payload_attributes(next_slot, head_block_root, head_payload_status)
+            .await;
 
         // Compute the "lookahead", the time between when the payload will be produced and now.
         if let Some(ref payload_attributes) = payload_attributes
@@ -1597,208 +1652,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
         metrics::expose_execution_layer_info(&versions);
 
         Ok(versions)
-    }
-
-    /// Used during block production to determine if the merge has been triggered.
-    ///
-    /// ## Specification
-    ///
-    /// `get_terminal_pow_block_hash`
-    ///
-    /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md
-    pub async fn get_terminal_pow_block_hash(
-        &self,
-        spec: &ChainSpec,
-        timestamp: u64,
-    ) -> Result<Option<ExecutionBlockHash>, Error> {
-        let _timer = metrics::start_timer_vec(
-            &metrics::EXECUTION_LAYER_REQUEST_TIMES,
-            &[metrics::GET_TERMINAL_POW_BLOCK_HASH],
-        );
-
-        let hash_opt = self
-            .engine()
-            .request(|engine| async move {
-                let terminal_block_hash = spec.terminal_block_hash;
-                if terminal_block_hash != ExecutionBlockHash::zero() {
-                    if self
-                        .get_pow_block(engine, terminal_block_hash)
-                        .await?
-                        .is_some()
-                    {
-                        return Ok(Some(terminal_block_hash));
-                    } else {
-                        return Ok(None);
-                    }
-                }
-
-                let block = self.get_pow_block_at_total_difficulty(engine, spec).await?;
-                if let Some(pow_block) = block {
-                    // If `terminal_block.timestamp == transition_block.timestamp`,
-                    // we violate the invariant that a block's timestamp must be
-                    // strictly greater than its parent's timestamp.
-                    // The execution layer will reject a fcu call with such payload
-                    // attributes leading to a missed block.
-                    // Hence, we return `None` in such a case.
-                    if pow_block.timestamp >= timestamp {
-                        return Ok(None);
-                    }
-                }
-                Ok(block.map(|b| b.block_hash))
-            })
-            .await
-            .map_err(Box::new)
-            .map_err(Error::EngineError)?;
-
-        if let Some(hash) = &hash_opt {
-            info!(
-                terminal_block_hash_override = ?spec.terminal_block_hash,
-                terminal_total_difficulty = ?spec.terminal_total_difficulty,
-                block_hash = ?hash,
-                "Found terminal block hash"
-            );
-        }
-
-        Ok(hash_opt)
-    }
-
-    /// This function should remain internal. External users should use
-    /// `self.get_terminal_pow_block` instead, since it checks against the terminal block hash
-    /// override.
-    ///
-    /// ## Specification
-    ///
-    /// `get_pow_block_at_terminal_total_difficulty`
-    ///
-    /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md
-    async fn get_pow_block_at_total_difficulty(
-        &self,
-        engine: &Engine,
-        spec: &ChainSpec,
-    ) -> Result<Option<ExecutionBlock>, ApiError> {
-        let mut block = engine
-            .api
-            .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
-            .await?
-            .ok_or(ApiError::ExecutionHeadBlockNotFound)?;
-
-        self.execution_blocks().await.put(block.block_hash, block);
-
-        loop {
-            let block_reached_ttd =
-                block.terminal_total_difficulty_reached(spec.terminal_total_difficulty);
-            if block_reached_ttd {
-                if block.parent_hash == ExecutionBlockHash::zero() {
-                    return Ok(Some(block));
-                }
-                let parent = self
-                    .get_pow_block(engine, block.parent_hash)
-                    .await?
-                    .ok_or(ApiError::ExecutionBlockNotFound(block.parent_hash))?;
-                let parent_reached_ttd =
-                    parent.terminal_total_difficulty_reached(spec.terminal_total_difficulty);
-
-                if block_reached_ttd && !parent_reached_ttd {
-                    return Ok(Some(block));
-                } else {
-                    block = parent;
-                }
-            } else {
-                return Ok(None);
-            }
-        }
-    }
-
-    /// Used during block verification to check that a block correctly triggers the merge.
-    ///
-    /// ## Returns
-    ///
-    /// - `Some(true)` if the given `block_hash` is the terminal proof-of-work block.
-    /// - `Some(false)` if the given `block_hash` is certainly *not* the terminal proof-of-work
-    ///   block.
-    /// - `None` if the `block_hash` or its parent were not present on the execution engine.
-    /// - `Err(_)` if there was an error connecting to the execution engine.
-    ///
-    /// ## Fallback Behaviour
-    ///
-    /// The request will be broadcast to all nodes, simultaneously. It will await a response (or
-    /// failure) from all nodes and then return based on the first of these conditions which
-    /// returns true:
-    ///
-    /// - Terminal, if any node indicates it is terminal.
-    /// - Not terminal, if any node indicates it is non-terminal.
-    /// - Block not found, if any node cannot find the block.
-    /// - An error, if all nodes return an error.
-    ///
-    /// ## Specification
-    ///
-    /// `is_valid_terminal_pow_block`
-    ///
-    /// https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/merge/fork-choice.md
-    pub async fn is_valid_terminal_pow_block_hash(
-        &self,
-        block_hash: ExecutionBlockHash,
-        spec: &ChainSpec,
-    ) -> Result<Option<bool>, Error> {
-        let _timer = metrics::start_timer_vec(
-            &metrics::EXECUTION_LAYER_REQUEST_TIMES,
-            &[metrics::IS_VALID_TERMINAL_POW_BLOCK_HASH],
-        );
-
-        self.engine()
-            .request(|engine| async move {
-                if let Some(pow_block) = self.get_pow_block(engine, block_hash).await?
-                    && let Some(pow_parent) =
-                        self.get_pow_block(engine, pow_block.parent_hash).await?
-                {
-                    return Ok(Some(
-                        self.is_valid_terminal_pow_block(pow_block, pow_parent, spec),
-                    ));
-                }
-                Ok(None)
-            })
-            .await
-            .map_err(Box::new)
-            .map_err(Error::EngineError)
-    }
-
-    /// This function should remain internal.
-    ///
-    /// External users should use `self.is_valid_terminal_pow_block_hash`.
-    fn is_valid_terminal_pow_block(
-        &self,
-        block: ExecutionBlock,
-        parent: ExecutionBlock,
-        spec: &ChainSpec,
-    ) -> bool {
-        let is_total_difficulty_reached =
-            block.terminal_total_difficulty_reached(spec.terminal_total_difficulty);
-        let is_parent_total_difficulty_valid = parent
-            .total_difficulty
-            .is_some_and(|td| td < spec.terminal_total_difficulty);
-        is_total_difficulty_reached && is_parent_total_difficulty_valid
-    }
-
-    /// Maps to the `eth_getBlockByHash` JSON-RPC call.
-    async fn get_pow_block(
-        &self,
-        engine: &Engine,
-        hash: ExecutionBlockHash,
-    ) -> Result<Option<ExecutionBlock>, ApiError> {
-        if let Some(cached) = self.execution_blocks().await.get(&hash).copied() {
-            // The block was in the cache, no need to request it from the execution
-            // engine.
-            return Ok(Some(cached));
-        }
-
-        // The block was *not* in the cache, request it from the execution
-        // engine and cache it for future reference.
-        if let Some(block) = engine.api.get_block_by_hash(hash).await? {
-            self.execution_blocks().await.put(hash, block);
-            Ok(Some(block))
-        } else {
-            Ok(None)
-        }
     }
 
     pub async fn get_payload_bodies_by_hash(
@@ -1908,6 +1761,23 @@ impl<E: EthSpec> ExecutionLayer<E> {
         if capabilities.get_blobs_v2 {
             self.engine()
                 .request(|engine| async move { engine.api.get_blobs_v2(query).await })
+                .await
+                .map_err(Box::new)
+                .map_err(Error::EngineError)
+        } else {
+            Err(Error::GetBlobsNotSupported)
+        }
+    }
+
+    pub async fn get_blobs_v3(
+        &self,
+        query: Vec<Hash256>,
+    ) -> Result<Option<Vec<BlobAndProofV3<E>>>, Error> {
+        let capabilities = self.get_engine_capabilities(None).await?;
+
+        if capabilities.get_blobs_v3 {
+            self.engine()
+                .request(|engine| async move { engine.api.get_blobs_v3(query).await })
                 .await
                 .map_err(Box::new)
                 .map_err(Error::EngineError)
@@ -2245,7 +2115,7 @@ fn verify_builder_bid<E: EthSpec>(
         .cloned()
         .map(|withdrawals| {
             Withdrawals::<E>::try_from(withdrawals)
-                .map_err(InvalidBuilderPayload::SszTypesError)
+                .map_err(|e| Box::new(InvalidBuilderPayload::SszTypesError(e)))
                 .map(|w| w.tree_hash_root())
         })
         .transpose()?;
@@ -2311,15 +2181,6 @@ async fn timed_future<F: Future<Output = T>, T>(metric: &str, future: F) -> (T, 
     (result, duration)
 }
 
-#[cfg(test)]
-/// Returns the duration since the unix epoch.
-fn timestamp_now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::from_secs(0))
-        .as_secs()
-}
-
 fn noop<E: EthSpec>(
     _: &ExecutionLayer<E>,
     _: PayloadContentsRefTuple<E>,
@@ -2340,7 +2201,6 @@ mod test {
     async fn produce_three_valid_pos_execution_blocks() {
         let runtime = TestRuntime::default();
         MockExecutionLayer::default_params(runtime.task_executor.clone())
-            .move_to_terminal_block()
             .produce_valid_execution_payload_on_head()
             .await
             .produce_valid_execution_payload_on_head()
@@ -2368,130 +2228,5 @@ mod test {
             expected_gas_limit(30_058_619, 30_000_000, &spec),
             Some(30_029_266)
         );
-    }
-
-    #[tokio::test]
-    async fn test_forked_terminal_block() {
-        let runtime = TestRuntime::default();
-        let (mock, block_hash) = MockExecutionLayer::default_params(runtime.task_executor.clone())
-            .move_to_terminal_block()
-            .produce_forked_pow_block();
-        assert!(
-            mock.el
-                .is_valid_terminal_pow_block_hash(block_hash, &mock.spec)
-                .await
-                .unwrap()
-                .unwrap()
-        );
-    }
-
-    #[tokio::test]
-    async fn finds_valid_terminal_block_hash() {
-        let runtime = TestRuntime::default();
-        MockExecutionLayer::default_params(runtime.task_executor.clone())
-            .move_to_block_prior_to_terminal_block()
-            .with_terminal_block(|spec, el, _| async move {
-                el.engine().upcheck().await;
-                assert_eq!(
-                    el.get_terminal_pow_block_hash(&spec, timestamp_now())
-                        .await
-                        .unwrap(),
-                    None
-                )
-            })
-            .await
-            .move_to_terminal_block()
-            .with_terminal_block(|spec, el, terminal_block| async move {
-                assert_eq!(
-                    el.get_terminal_pow_block_hash(&spec, timestamp_now())
-                        .await
-                        .unwrap(),
-                    Some(terminal_block.unwrap().block_hash)
-                )
-            })
-            .await;
-    }
-
-    #[tokio::test]
-    async fn rejects_terminal_block_with_equal_timestamp() {
-        let runtime = TestRuntime::default();
-        MockExecutionLayer::default_params(runtime.task_executor.clone())
-            .move_to_block_prior_to_terminal_block()
-            .with_terminal_block(|spec, el, _| async move {
-                el.engine().upcheck().await;
-                assert_eq!(
-                    el.get_terminal_pow_block_hash(&spec, timestamp_now())
-                        .await
-                        .unwrap(),
-                    None
-                )
-            })
-            .await
-            .move_to_terminal_block()
-            .with_terminal_block(|spec, el, terminal_block| async move {
-                let timestamp = terminal_block.as_ref().map(|b| b.timestamp).unwrap();
-                assert_eq!(
-                    el.get_terminal_pow_block_hash(&spec, timestamp)
-                        .await
-                        .unwrap(),
-                    None
-                )
-            })
-            .await;
-    }
-
-    #[tokio::test]
-    async fn verifies_valid_terminal_block_hash() {
-        let runtime = TestRuntime::default();
-        MockExecutionLayer::default_params(runtime.task_executor.clone())
-            .move_to_terminal_block()
-            .with_terminal_block(|spec, el, terminal_block| async move {
-                el.engine().upcheck().await;
-                assert_eq!(
-                    el.is_valid_terminal_pow_block_hash(terminal_block.unwrap().block_hash, &spec)
-                        .await
-                        .unwrap(),
-                    Some(true)
-                )
-            })
-            .await;
-    }
-
-    #[tokio::test]
-    async fn rejects_invalid_terminal_block_hash() {
-        let runtime = TestRuntime::default();
-        MockExecutionLayer::default_params(runtime.task_executor.clone())
-            .move_to_terminal_block()
-            .with_terminal_block(|spec, el, terminal_block| async move {
-                el.engine().upcheck().await;
-                let invalid_terminal_block = terminal_block.unwrap().parent_hash;
-
-                assert_eq!(
-                    el.is_valid_terminal_pow_block_hash(invalid_terminal_block, &spec)
-                        .await
-                        .unwrap(),
-                    Some(false)
-                )
-            })
-            .await;
-    }
-
-    #[tokio::test]
-    async fn rejects_unknown_terminal_block_hash() {
-        let runtime = TestRuntime::default();
-        MockExecutionLayer::default_params(runtime.task_executor.clone())
-            .move_to_terminal_block()
-            .with_terminal_block(|spec, el, _| async move {
-                el.engine().upcheck().await;
-                let missing_terminal_block = ExecutionBlockHash::repeat_byte(42);
-
-                assert_eq!(
-                    el.is_valid_terminal_pow_block_hash(missing_terminal_block, &spec)
-                        .await
-                        .unwrap(),
-                    None
-                )
-            })
-            .await;
     }
 }

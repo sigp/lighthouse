@@ -117,7 +117,7 @@ macro_rules! impl_safe_arith {
 }
 
 // Deprecated: prefer `SafeArith` methods for new code.
-#[cfg(feature = "legacy-arith")]
+#[cfg(feature = "saturating-arith")]
 macro_rules! impl_math_between {
     ($main: ident, $other: ident) => {
         impl Add<$other> for $main {
@@ -321,9 +321,9 @@ macro_rules! impl_common {
         impl_u64_eq_ord!($type);
         impl_safe_arith!($type, $type);
         impl_safe_arith!($type, u64);
-        #[cfg(feature = "legacy-arith")]
+        #[cfg(feature = "saturating-arith")]
         impl_math_between!($type, $type);
-        #[cfg(feature = "legacy-arith")]
+        #[cfg(feature = "saturating-arith")]
         impl_math_between!($type, u64);
         impl_math!($type);
         impl_display!($type);

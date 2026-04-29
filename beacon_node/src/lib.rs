@@ -22,14 +22,9 @@ use types::{ChainSpec, Epoch, EthSpec, ForkName};
 pub type ProductionClient<E> =
     Client<Witness<SystemTimeSlotClock, E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>;
 
-/// The beacon node `Client` that will be used in production.
+/// The beacon node `Client` that is used in production.
 ///
 /// Generic over some `EthSpec`.
-///
-/// ## Notes:
-///
-/// Despite being titled `Production...`, this code is not ready for production. The name
-/// demonstrates an intention, not a promise.
 pub struct ProductionBeaconNode<E: EthSpec>(ProductionClient<E>);
 
 impl<E: EthSpec> ProductionBeaconNode<E> {

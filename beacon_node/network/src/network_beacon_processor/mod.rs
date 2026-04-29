@@ -1,7 +1,8 @@
 use crate::sync::manager::BlockProcessType;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::blob_verification::{GossipBlobError, observe_gossip_blob};
-use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::block_verification_types::LookupBlock;
+use beacon_chain::block_verification_types::RangeSyncBlock;
 use beacon_chain::data_column_verification::{GossipDataColumnError, observe_gossip_data_column};
 use beacon_chain::fetch_blobs::{
     EngineGetBlobsOutput, FetchEngineBlobError, fetch_and_process_engine_blobs,
@@ -14,11 +15,12 @@ use beacon_processor::{
 use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
-    LightClientUpdatesByRangeRequest,
+    LightClientUpdatesByRangeRequest, PayloadEnvelopesByRangeRequest,
+    PayloadEnvelopesByRootRequest,
 };
 use lighthouse_network::service::api_types::CustodyBackfillBatchId;
 use lighthouse_network::{
-    Client, MessageId, NetworkGlobals, PeerId, PubsubMessage,
+    Client, GossipTopic, MessageId, NetworkGlobals, PeerId, PubsubMessage,
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
 };
 use rand::prelude::SliceRandom;
@@ -31,7 +33,7 @@ use tracing::{debug, error, instrument, trace, warn};
 use types::*;
 
 pub use sync_methods::ChainSegmentProcessId;
-use types::blob_sidecar::FixedBlobSidecarList;
+use types::data::FixedBlobSidecarList;
 
 pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
 
@@ -249,6 +251,32 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    /// Create a new `Work` event for some partial data column sidecar.
+    pub fn send_gossip_partial_data_column_sidecar(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        column_sidecar: Box<PartialDataColumn<T::EthSpec>>,
+        seen_timestamp: Duration,
+        topic: GossipTopic,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = async move {
+            processor
+                .process_gossip_partial_data_column_sidecar(
+                    peer_id,
+                    column_sidecar,
+                    seen_timestamp,
+                    topic,
+                )
+                .await
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::GossipPartialDataColumnSidecar(Box::pin(process_fn)),
+        })
+    }
+
     /// Create a new `Work` event for some sync committee signature.
     pub fn send_gossip_sync_signature(
         self: &Arc<Self>,
@@ -447,16 +475,108 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    /// Create a new `Work` event for some execution payload envelope.
+    pub fn send_gossip_execution_payload(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        execution_payload: Box<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        seen_timestamp: Duration,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = async move {
+            processor
+                .process_gossip_execution_payload_envelope(
+                    message_id,
+                    peer_id,
+                    Arc::new(*execution_payload),
+                    seen_timestamp,
+                )
+                .await
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::GossipExecutionPayload(Box::pin(process_fn)),
+        })
+    }
+
+    /// Create a new `Work` event for some execution payload bid
+    pub fn send_gossip_execution_payload_bid(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        execution_payload_bid: Box<SignedExecutionPayloadBid<T::EthSpec>>,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = move || {
+            processor.process_gossip_execution_payload_bid(
+                message_id,
+                peer_id,
+                Arc::new(*execution_payload_bid),
+            )
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work: Work::GossipExecutionPayloadBid(Box::new(process_fn)),
+        })
+    }
+
+    /// Create a new `Work` event for some payload attestation
+    pub fn send_gossip_payload_attestation(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        payload_attestation_message: Box<PayloadAttestationMessage>,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = move || {
+            processor.process_gossip_payload_attestation(
+                message_id,
+                peer_id,
+                payload_attestation_message,
+            )
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work: Work::GossipPayloadAttestation(Box::new(process_fn)),
+        })
+    }
+
+    /// Create a new `Work` event for some proposer preferences
+    pub fn send_gossip_proposer_preferences(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        proposer_preferences: Box<SignedProposerPreferences>,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = move || {
+            processor.process_gossip_proposer_preferences(
+                message_id,
+                peer_id,
+                Arc::new(*proposer_preferences),
+            )
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work: Work::GossipProposerPreferences(Box::new(process_fn)),
+        })
+    }
+
     /// Create a new `Work` event for some block, where the result from computation (if any) is
     /// sent to the other side of `result_tx`.
-    pub fn send_rpc_beacon_block(
+    pub fn send_lookup_beacon_block(
         self: &Arc<Self>,
         block_root: Hash256,
-        block: RpcBlock<T::EthSpec>,
+        block: LookupBlock<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), Error<T::EthSpec>> {
-        let process_fn = self.clone().generate_rpc_beacon_block_process_fn(
+        let process_fn = self.clone().generate_lookup_beacon_block_process_fn(
             block_root,
             block,
             seen_timestamp,
@@ -464,7 +584,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
-            work: Work::RpcBlock { process_fn },
+            work: Work::RpcBlock {
+                process_fn,
+                beacon_block_root: block_root,
+            },
         })
     }
 
@@ -539,7 +662,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_chain_segment(
         self: &Arc<Self>,
         process_id: ChainSegmentProcessId,
-        blocks: Vec<RpcBlock<T::EthSpec>>,
+        blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) -> Result<(), Error<T::EthSpec>> {
         debug!(blocks = blocks.len(), id = ?process_id, "Batch sending for process");
         let processor = self.clone();
@@ -547,11 +670,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // Back-sync batches are dispatched with a different `Work` variant so
         // they can be rate-limited.
         let work = match process_id {
-            ChainSegmentProcessId::RangeBatchId(_, _) => {
+            ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
                 let process_fn = async move {
                     processor.process_chain_segment(process_id, blocks).await;
                 };
-                Work::ChainSegment(Box::pin(process_fn))
+                Work::ChainSegment {
+                    process_fn: Box::pin(process_fn),
+                    process_id: (chain_id, epoch.as_u64()),
+                }
             }
             ChainSegmentProcessId::BackSyncBatchId(_) => {
                 let process_fn =
@@ -618,6 +744,46 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::BlocksByRootsRequest(Box::pin(process_fn)),
+        })
+    }
+
+    /// Create a new work event to process `PayloadEnvelopesByRootRequest`s from the RPC network.
+    pub fn send_payload_envelopes_by_roots_request(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        inbound_request_id: InboundRequestId, // Use ResponseId here
+        request: PayloadEnvelopesByRootRequest,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = async move {
+            processor
+                .handle_payload_envelopes_by_root_request(peer_id, inbound_request_id, request)
+                .await;
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::PayloadEnvelopesByRootRequest(Box::pin(process_fn)),
+        })
+    }
+
+    /// Create a new work event to process `PayloadEnvelopesByRangeRequest`s from the RPC network.
+    pub fn send_payload_envelopes_by_range_request(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        inbound_request_id: InboundRequestId,
+        request: PayloadEnvelopesByRangeRequest,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = async move {
+            processor
+                .handle_payload_envelopes_by_range_request(peer_id, inbound_request_id, request)
+                .await;
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::PayloadEnvelopesByRangeRequest(Box::pin(process_fn)),
         })
     }
 
@@ -778,14 +944,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     pub async fn fetch_engine_blobs_and_publish(
         self: &Arc<Self>,
-        block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
+        header: Arc<PartialDataColumnHeader<T::EthSpec>>,
         block_root: Hash256,
         publish_blobs: bool,
     ) {
         if self.chain.config.disable_get_blobs {
             return;
         }
-        let epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
+        let epoch = header.slot().epoch(T::EthSpec::slots_per_epoch());
         let custody_columns = self.chain.sampling_columns_for_epoch(epoch);
         let self_cloned = self.clone();
         let publish_fn = move |blobs_or_data_column| {
@@ -810,7 +976,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         match fetch_and_process_engine_blobs(
             self.chain.clone(),
             block_root,
-            block.clone(),
+            header.clone(),
             custody_columns,
             publish_fn,
         )
@@ -852,6 +1018,23 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     %block_root,
                     "Error fetching or processing blobs from EL"
                 );
+            }
+        }
+
+        // Publish partial columns without eager send
+        if let Some(assembler) = self.chain.data_availability_checker.partial_assembler() {
+            let columns = assembler.get_partials_and_mark_as_local_fetched(block_root, &header);
+            if !columns.is_empty() {
+                debug!(block = %block_root, "Publishing all partials after getBlobs");
+                self.send_network_message(NetworkMessage::PublishPartialColumns {
+                    columns: columns
+                        .into_iter()
+                        .map(|partial| partial.into_inner())
+                        .collect(),
+                    header,
+                });
+            } else {
+                debug!(block = %block_root, "No partials to publish after getBlobs");
             }
         }
     }
@@ -1004,7 +1187,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             .into_iter()
                             .map(|d| {
                                 let subnet =
-                                    DataColumnSubnetId::from_column_index(d.index, &chain.spec);
+                                    DataColumnSubnetId::from_column_index(*d.index(), &chain.spec);
                                 PubsubMessage::DataColumnSidecar(Box::new((subnet, d)))
                             })
                             .collect(),

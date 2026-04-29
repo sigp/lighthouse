@@ -11,17 +11,18 @@ use std::io;
 use std::marker::PhantomData;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
-use strum::{AsRefStr, Display, EnumString, IntoStaticStr};
+use strum::{AsRefStr, Display, EnumIter, EnumString, IntoStaticStr};
 use tokio_util::{
     codec::Framed,
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BlobSidecar, ChainSpec, DataColumnSidecar,
-    EmptyBlock, Epoch, EthSpec, EthSpecId, ForkContext, ForkName, LightClientBootstrap,
-    LightClientBootstrapAltair, LightClientFinalityUpdate, LightClientFinalityUpdateAltair,
-    LightClientOptimisticUpdate, LightClientOptimisticUpdateAltair, LightClientUpdate,
-    MainnetEthSpec, MinimalEthSpec, SignedBeaconBlock,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BlobSidecar, ChainSpec, DataColumnSidecarFulu,
+    DataColumnSidecarGloas, EmptyBlock, Epoch, EthSpec, EthSpecId, ForkContext, ForkName,
+    LightClientBootstrap, LightClientBootstrapAltair, LightClientFinalityUpdate,
+    LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
+    LightClientOptimisticUpdateAltair, LightClientUpdate, MainnetEthSpec, MinimalEthSpec,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelope,
 };
 
 // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
@@ -63,6 +64,12 @@ pub static SIGNED_BEACON_BLOCK_BELLATRIX_MAX: LazyLock<usize> =
     *SIGNED_BEACON_BLOCK_ALTAIR_MAX
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_bellatrix_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET); // Adding the additional ssz offset for the `ExecutionPayload` field
+
+pub static SIGNED_EXECUTION_PAYLOAD_ENVELOPE_MIN: LazyLock<usize> =
+    LazyLock::new(SignedExecutionPayloadEnvelope::<MainnetEthSpec>::min_size);
+
+pub static SIGNED_EXECUTION_PAYLOAD_ENVELOPE_MAX: LazyLock<usize> =
+    LazyLock::new(SignedExecutionPayloadEnvelope::<MainnetEthSpec>::max_size);
 
 pub static BLOB_SIDECAR_SIZE: LazyLock<usize> =
     LazyLock::new(BlobSidecar::<MainnetEthSpec>::max_size);
@@ -139,11 +146,29 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
         ),
         // After the merge the max SSZ size of a block is absurdly big. The size is actually
         // bound by other constants, so here we default to the bellatrix's max value
-        _ => RpcLimits::new(
-            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and bellatrix blocks
-            *SIGNED_BEACON_BLOCK_BELLATRIX_MAX, // Bellatrix block is larger than base and altair blocks
+        // After the merge the max SSZ size includes the execution payload.
+        // Gloas blocks no longer contain the execution payload, but we must
+        // still accept pre-Gloas blocks during historical sync, so we keep the
+        // Bellatrix max as the upper bound.
+        ForkName::Bellatrix
+        | ForkName::Capella
+        | ForkName::Deneb
+        | ForkName::Electra
+        | ForkName::Fulu
+        | ForkName::Eip7805
+        | ForkName::Gloas => RpcLimits::new(
+            *SIGNED_BEACON_BLOCK_BASE_MIN,
+            *SIGNED_BEACON_BLOCK_BELLATRIX_MAX,
         ),
     }
+}
+
+/// Returns the rpc limits for payload_envelope_by_range and payload_envelope_by_root responses.
+pub fn rpc_payload_limits() -> RpcLimits {
+    RpcLimits::new(
+        *SIGNED_EXECUTION_PAYLOAD_ENVELOPE_MIN,
+        *SIGNED_EXECUTION_PAYLOAD_ENVELOPE_MAX,
+    )
 }
 
 fn rpc_light_client_updates_by_range_limits_by_fork(current_fork: ForkName) -> RpcLimits {
@@ -241,6 +266,12 @@ pub enum Protocol {
     /// The `BlobsByRange` protocol name.
     #[strum(serialize = "blob_sidecars_by_range")]
     BlobsByRange,
+    /// The `ExecutionPayloadEnvelopesByRoot` protocol name.
+    #[strum(serialize = "execution_payload_envelopes_by_root")]
+    PayloadEnvelopesByRoot,
+    /// The `ExecutionPayloadEnvelopesByRange` protocol name.
+    #[strum(serialize = "execution_payload_envelopes_by_range")]
+    PayloadEnvelopesByRange,
     /// The `BlobsByRoot` protocol name.
     #[strum(serialize = "blob_sidecars_by_root")]
     BlobsByRoot,
@@ -276,6 +307,8 @@ impl Protocol {
             Protocol::Goodbye => None,
             Protocol::BlocksByRange => Some(ResponseTermination::BlocksByRange),
             Protocol::BlocksByRoot => Some(ResponseTermination::BlocksByRoot),
+            Protocol::PayloadEnvelopesByRange => Some(ResponseTermination::PayloadEnvelopesByRange),
+            Protocol::PayloadEnvelopesByRoot => Some(ResponseTermination::PayloadEnvelopesByRoot),
             Protocol::BlobsByRange => Some(ResponseTermination::BlobsByRange),
             Protocol::BlobsByRoot => Some(ResponseTermination::BlobsByRoot),
             Protocol::DataColumnsByRoot => Some(ResponseTermination::DataColumnsByRoot),
@@ -297,7 +330,7 @@ pub enum Encoding {
 }
 
 /// All valid protocol name and version combinations.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumIter)]
 pub enum SupportedProtocol {
     StatusV1,
     StatusV2,
@@ -306,6 +339,8 @@ pub enum SupportedProtocol {
     BlocksByRangeV2,
     BlocksByRootV1,
     BlocksByRootV2,
+    PayloadEnvelopesByRangeV1,
+    PayloadEnvelopesByRootV1,
     BlobsByRangeV1,
     BlobsByRootV1,
     DataColumnsByRootV1,
@@ -328,6 +363,8 @@ impl SupportedProtocol {
             SupportedProtocol::GoodbyeV1 => "1",
             SupportedProtocol::BlocksByRangeV1 => "1",
             SupportedProtocol::BlocksByRangeV2 => "2",
+            SupportedProtocol::PayloadEnvelopesByRangeV1 => "1",
+            SupportedProtocol::PayloadEnvelopesByRootV1 => "1",
             SupportedProtocol::BlocksByRootV1 => "1",
             SupportedProtocol::BlocksByRootV2 => "2",
             SupportedProtocol::BlobsByRangeV1 => "1",
@@ -354,6 +391,8 @@ impl SupportedProtocol {
             SupportedProtocol::BlocksByRangeV2 => Protocol::BlocksByRange,
             SupportedProtocol::BlocksByRootV1 => Protocol::BlocksByRoot,
             SupportedProtocol::BlocksByRootV2 => Protocol::BlocksByRoot,
+            SupportedProtocol::PayloadEnvelopesByRangeV1 => Protocol::PayloadEnvelopesByRange,
+            SupportedProtocol::PayloadEnvelopesByRootV1 => Protocol::PayloadEnvelopesByRoot,
             SupportedProtocol::BlobsByRangeV1 => Protocol::BlobsByRange,
             SupportedProtocol::BlobsByRootV1 => Protocol::BlobsByRoot,
             SupportedProtocol::DataColumnsByRootV1 => Protocol::DataColumnsByRoot,
@@ -408,6 +447,18 @@ impl SupportedProtocol {
                 ProtocolId::new(SupportedProtocol::DataColumnsByRangeV1, Encoding::SSZSnappy),
             ]);
         }
+        if fork_context.fork_exists(ForkName::Gloas) {
+            supported.extend_from_slice(&[
+                ProtocolId::new(
+                    SupportedProtocol::PayloadEnvelopesByRangeV1,
+                    Encoding::SSZSnappy,
+                ),
+                ProtocolId::new(
+                    SupportedProtocol::PayloadEnvelopesByRootV1,
+                    Encoding::SSZSnappy,
+                ),
+            ]);
+        }
         supported
     }
 }
@@ -447,6 +498,10 @@ impl<E: EthSpec> UpgradeInfo for RPCProtocol<E> {
             ));
             supported_protocols.push(ProtocolId::new(
                 SupportedProtocol::LightClientFinalityUpdateV1,
+                Encoding::SSZSnappy,
+            ));
+            supported_protocols.push(ProtocolId::new(
+                SupportedProtocol::LightClientUpdatesByRangeV1,
                 Encoding::SSZSnappy,
             ));
         }
@@ -510,6 +565,13 @@ impl ProtocolId {
                 <OldBlocksByRangeRequestV2 as Encode>::ssz_fixed_len(),
             ),
             Protocol::BlocksByRoot => RpcLimits::new(0, spec.max_blocks_by_root_request),
+            Protocol::PayloadEnvelopesByRange => RpcLimits::new(
+                <PayloadEnvelopesByRangeRequest as Encode>::ssz_fixed_len(),
+                <PayloadEnvelopesByRangeRequest as Encode>::ssz_fixed_len(),
+            ),
+            Protocol::PayloadEnvelopesByRoot => {
+                RpcLimits::new(0, spec.max_payload_envelopes_by_root_request)
+            }
             Protocol::BlobsByRange => RpcLimits::new(
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
@@ -548,6 +610,8 @@ impl ProtocolId {
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
             Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork_name()),
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork_name()),
+            Protocol::PayloadEnvelopesByRange => rpc_payload_limits(),
+            Protocol::PayloadEnvelopesByRoot => rpc_payload_limits(),
             Protocol::BlobsByRange => rpc_blob_limits::<E>(),
             Protocol::BlobsByRoot => rpc_blob_limits::<E>(),
             Protocol::DataColumnsByRoot => {
@@ -585,6 +649,8 @@ impl ProtocolId {
         match self.versioned_protocol {
             SupportedProtocol::BlocksByRangeV2
             | SupportedProtocol::BlocksByRootV2
+            | SupportedProtocol::PayloadEnvelopesByRangeV1
+            | SupportedProtocol::PayloadEnvelopesByRootV1
             | SupportedProtocol::BlobsByRangeV1
             | SupportedProtocol::BlobsByRootV1
             | SupportedProtocol::DataColumnsByRootV1
@@ -640,10 +706,23 @@ pub fn rpc_data_column_limits<E: EthSpec>(
     current_digest_epoch: Epoch,
     spec: &ChainSpec,
 ) -> RpcLimits {
-    RpcLimits::new(
-        DataColumnSidecar::<E>::min_size(),
-        DataColumnSidecar::<E>::max_size(spec.max_blobs_per_block(current_digest_epoch) as usize),
-    )
+    let fork_name = spec.fork_name_at_epoch(current_digest_epoch);
+
+    if fork_name.gloas_enabled() {
+        RpcLimits::new(
+            DataColumnSidecarGloas::<E>::min_size(),
+            DataColumnSidecarGloas::<E>::max_size(
+                spec.max_blobs_per_block(current_digest_epoch) as usize
+            ),
+        )
+    } else {
+        RpcLimits::new(
+            DataColumnSidecarFulu::<E>::min_size(),
+            DataColumnSidecarFulu::<E>::max_size(
+                spec.max_blobs_per_block(current_digest_epoch) as usize
+            ),
+        )
+    }
 }
 
 /* Inbound upgrade */
@@ -661,7 +740,7 @@ where
     E: EthSpec,
 {
     type Output = InboundOutput<TSocket, E>;
-    type Error = RPCError;
+    type Error = (Protocol, RPCError);
     type Future = BoxFuture<'static, Result<Self::Output, Self::Error>>;
 
     fn upgrade_inbound(self, socket: TSocket, protocol: ProtocolId) -> Self::Future {
@@ -703,10 +782,12 @@ where
                     )
                     .await
                     {
-                        Err(e) => Err(RPCError::from(e)),
+                        Err(e) => Err((versioned_protocol.protocol(), RPCError::from(e))),
                         Ok((Some(Ok(request)), stream)) => Ok((request, stream)),
-                        Ok((Some(Err(e)), _)) => Err(e),
-                        Ok((None, _)) => Err(RPCError::IncompleteStream),
+                        Ok((Some(Err(e)), _)) => Err((versioned_protocol.protocol(), e)),
+                        Ok((None, _)) => {
+                            Err((versioned_protocol.protocol(), RPCError::IncompleteStream))
+                        }
                     }
                 }
             }
@@ -715,12 +796,14 @@ where
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, IntoStaticStr)]
 pub enum RequestType<E: EthSpec> {
     Status(StatusMessage),
     Goodbye(GoodbyeReason),
     BlocksByRange(OldBlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
+    PayloadEnvelopesByRange(PayloadEnvelopesByRangeRequest),
+    PayloadEnvelopesByRoot(PayloadEnvelopesByRootRequest),
     BlobsByRange(BlobsByRangeRequest),
     BlobsByRoot(BlobsByRootRequest),
     DataColumnsByRoot(DataColumnsByRootRequest<E>),
@@ -744,6 +827,8 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::Goodbye(_) => 0,
             RequestType::BlocksByRange(req) => *req.count(),
             RequestType::BlocksByRoot(req) => req.block_roots().len() as u64,
+            RequestType::PayloadEnvelopesByRange(req) => req.count,
+            RequestType::PayloadEnvelopesByRoot(req) => req.beacon_block_roots.len() as u64,
             RequestType::BlobsByRange(req) => req.max_blobs_requested(digest_epoch, spec),
             RequestType::BlobsByRoot(req) => req.blob_ids.len() as u64,
             RequestType::DataColumnsByRoot(req) => req.max_requested() as u64,
@@ -773,6 +858,8 @@ impl<E: EthSpec> RequestType<E> {
                 BlocksByRootRequest::V1(_) => SupportedProtocol::BlocksByRootV1,
                 BlocksByRootRequest::V2(_) => SupportedProtocol::BlocksByRootV2,
             },
+            RequestType::PayloadEnvelopesByRange(_) => SupportedProtocol::PayloadEnvelopesByRangeV1,
+            RequestType::PayloadEnvelopesByRoot(_) => SupportedProtocol::PayloadEnvelopesByRootV1,
             RequestType::BlobsByRange(_) => SupportedProtocol::BlobsByRangeV1,
             RequestType::BlobsByRoot(_) => SupportedProtocol::BlobsByRootV1,
             RequestType::DataColumnsByRoot(_) => SupportedProtocol::DataColumnsByRootV1,
@@ -804,6 +891,8 @@ impl<E: EthSpec> RequestType<E> {
             // variants that have `multiple_responses()` can have values.
             RequestType::BlocksByRange(_) => ResponseTermination::BlocksByRange,
             RequestType::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
+            RequestType::PayloadEnvelopesByRange(_) => ResponseTermination::PayloadEnvelopesByRange,
+            RequestType::PayloadEnvelopesByRoot(_) => ResponseTermination::PayloadEnvelopesByRoot,
             RequestType::BlobsByRange(_) => ResponseTermination::BlobsByRange,
             RequestType::BlobsByRoot(_) => ResponseTermination::BlobsByRoot,
             RequestType::DataColumnsByRoot(_) => ResponseTermination::DataColumnsByRoot,
@@ -838,6 +927,14 @@ impl<E: EthSpec> RequestType<E> {
                 ProtocolId::new(SupportedProtocol::BlocksByRootV2, Encoding::SSZSnappy),
                 ProtocolId::new(SupportedProtocol::BlocksByRootV1, Encoding::SSZSnappy),
             ],
+            RequestType::PayloadEnvelopesByRange(_) => vec![ProtocolId::new(
+                SupportedProtocol::PayloadEnvelopesByRangeV1,
+                Encoding::SSZSnappy,
+            )],
+            RequestType::PayloadEnvelopesByRoot(_) => vec![ProtocolId::new(
+                SupportedProtocol::PayloadEnvelopesByRootV1,
+                Encoding::SSZSnappy,
+            )],
             RequestType::BlobsByRange(_) => vec![ProtocolId::new(
                 SupportedProtocol::BlobsByRangeV1,
                 Encoding::SSZSnappy,
@@ -889,6 +986,8 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::BlocksByRange(_) => false,
             RequestType::BlocksByRoot(_) => false,
             RequestType::BlobsByRange(_) => false,
+            RequestType::PayloadEnvelopesByRange(_) => false,
+            RequestType::PayloadEnvelopesByRoot(_) => false,
             RequestType::BlobsByRoot(_) => false,
             RequestType::DataColumnsByRoot(_) => false,
             RequestType::DataColumnsByRange(_) => false,
@@ -999,6 +1098,12 @@ impl<E: EthSpec> std::fmt::Display for RequestType<E> {
             RequestType::Goodbye(reason) => write!(f, "Goodbye: {}", reason),
             RequestType::BlocksByRange(req) => write!(f, "Blocks by range: {}", req),
             RequestType::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
+            RequestType::PayloadEnvelopesByRange(req) => {
+                write!(f, "Payload envelopes by range: {:?}", req)
+            }
+            RequestType::PayloadEnvelopesByRoot(req) => {
+                write!(f, "Payload envelopes by root: {:?}", req)
+            }
             RequestType::BlobsByRange(req) => write!(f, "Blobs by range: {:?}", req),
             RequestType::BlobsByRoot(req) => write!(f, "Blobs by root: {:?}", req),
             RequestType::DataColumnsByRoot(req) => write!(f, "Data columns by root: {:?}", req),
@@ -1030,6 +1135,104 @@ impl RPCError {
         match self {
             RPCError::ErrorResponse(code, ..) => code.into(),
             e => e.into(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use libp2p::core::UpgradeInfo;
+    use std::collections::HashSet;
+    use strum::IntoEnumIterator;
+    use types::{Hash256, Slot};
+
+    type E = MainnetEthSpec;
+
+    /// Whether this protocol should appear in `currently_supported()` for the given context.
+    ///
+    /// Uses an exhaustive match so that adding a new `SupportedProtocol` variant
+    /// causes a compile error until this function is updated.
+    fn expected_in_currently_supported(
+        protocol: SupportedProtocol,
+        fork_context: &ForkContext,
+    ) -> bool {
+        use SupportedProtocol::*;
+        match protocol {
+            StatusV1 | StatusV2 | GoodbyeV1 | PingV1 | BlocksByRangeV1 | BlocksByRangeV2
+            | BlocksByRootV1 | BlocksByRootV2 | MetaDataV1 | MetaDataV2 => true,
+
+            BlobsByRangeV1 | BlobsByRootV1 => fork_context.fork_exists(ForkName::Deneb),
+
+            DataColumnsByRootV1 | DataColumnsByRangeV1 | MetaDataV3 => {
+                fork_context.spec.is_peer_das_scheduled()
+            }
+
+            PayloadEnvelopesByRangeV1 | PayloadEnvelopesByRootV1 => {
+                fork_context.fork_exists(ForkName::Gloas)
+            }
+
+            // Light client protocols are not in currently_supported()
+            LightClientBootstrapV1
+            | LightClientOptimisticUpdateV1
+            | LightClientFinalityUpdateV1
+            | LightClientUpdatesByRangeV1 => false,
+        }
+    }
+
+    /// Whether this protocol should appear in `protocol_info()` when light client server is
+    /// enabled.
+    ///
+    /// Uses an exhaustive match so that adding a new `SupportedProtocol` variant
+    /// causes a compile error until this function is updated.
+    fn expected_in_protocol_info(protocol: SupportedProtocol, fork_context: &ForkContext) -> bool {
+        use SupportedProtocol::*;
+        match protocol {
+            LightClientBootstrapV1
+            | LightClientOptimisticUpdateV1
+            | LightClientFinalityUpdateV1
+            | LightClientUpdatesByRangeV1 => true,
+
+            _ => expected_in_currently_supported(protocol, fork_context),
+        }
+    }
+
+    #[test]
+    fn all_protocols_registered() {
+        for fork in ForkName::list_all() {
+            let spec = fork.make_genesis_spec(E::default_spec());
+            let fork_context = Arc::new(ForkContext::new::<E>(Slot::new(0), Hash256::ZERO, &spec));
+
+            let currently_supported: HashSet<SupportedProtocol> =
+                SupportedProtocol::currently_supported(&fork_context)
+                    .into_iter()
+                    .map(|pid| pid.versioned_protocol)
+                    .collect();
+
+            let rpc_protocol = RPCProtocol::<E> {
+                fork_context: fork_context.clone(),
+                max_rpc_size: spec.max_payload_size as usize,
+                enable_light_client_server: true,
+                phantom: PhantomData,
+            };
+            let protocol_info: HashSet<SupportedProtocol> = rpc_protocol
+                .protocol_info()
+                .into_iter()
+                .map(|pid| pid.versioned_protocol)
+                .collect();
+
+            for protocol in SupportedProtocol::iter() {
+                assert_eq!(
+                    currently_supported.contains(&protocol),
+                    expected_in_currently_supported(protocol, &fork_context),
+                    "{protocol:?} registration mismatch in currently_supported() at {fork:?}"
+                );
+                assert_eq!(
+                    protocol_info.contains(&protocol),
+                    expected_in_protocol_info(protocol, &fork_context),
+                    "{protocol:?} registration mismatch in protocol_info() at {fork:?}"
+                );
+            }
         }
     }
 }

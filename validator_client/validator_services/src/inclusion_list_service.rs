@@ -136,7 +136,7 @@ impl<S, T> Deref for InclusionListService<S, T> {
 impl<S: ValidatorStore + 'static, T: SlotClock + 'static> InclusionListService<S, T> {
     /// Starts the service which periodically produces inclusion lists.
     pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
-        let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+        let slot_duration = spec.get_slot_duration();
 
         let duration_to_next_slot = self
             .slot_clock

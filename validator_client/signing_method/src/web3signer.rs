@@ -20,6 +20,9 @@ pub enum MessageType {
     SyncCommitteeContributionAndProof,
     ValidatorRegistration,
     InclusionList,
+    // TODO(gloas) verify w/ web3signer specs
+    ExecutionPayloadEnvelope,
+    PayloadAttestation,
 }
 
 #[derive(Debug, PartialEq, Copy, Clone, Serialize)]
@@ -78,6 +81,8 @@ pub enum Web3SignerObject<'a, E: EthSpec, Payload: AbstractExecPayload<E>> {
     ContributionAndProof(&'a ContributionAndProof<E>),
     ValidatorRegistration(&'a ValidatorRegistrationData),
     InclusionList(&'a InclusionList<E>),
+    ExecutionPayloadEnvelope(&'a ExecutionPayloadEnvelope<E>),
+    PayloadAttestationData(&'a PayloadAttestationData),
 }
 
 impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> Web3SignerObject<'a, E, Payload> {
@@ -149,6 +154,8 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> Web3SignerObject<'a, E, Pa
             }
             Web3SignerObject::ValidatorRegistration(_) => MessageType::ValidatorRegistration,
             Web3SignerObject::InclusionList(_) => MessageType::InclusionList,
+            Web3SignerObject::ExecutionPayloadEnvelope(_) => MessageType::ExecutionPayloadEnvelope,
+            Web3SignerObject::PayloadAttestationData(_) => MessageType::PayloadAttestation,
         }
     }
 }

@@ -1,4 +1,5 @@
 #![cfg(not(debug_assertions))]
+#![allow(clippy::result_large_err)]
 
 use beacon_chain::attestation_verification::{
     Error, batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations,
@@ -14,18 +15,20 @@ use beacon_chain::{
     },
 };
 use bls::{AggregateSignature, Keypair, SecretKey};
+use execution_layer::test_utils::generate_genesis_header;
 use fixed_bytes::FixedBytesExtended;
 use genesis::{DEFAULT_ETH1_BLOCK_HASH, interop_genesis_state};
 use int_to_bytes::int_to_bytes32;
+use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::per_slot_processing;
 use std::sync::{Arc, LazyLock};
+use tempfile::tempdir;
 use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
     Address, Attestation, AttestationRef, ChainSpec, Epoch, EthSpec, ForkName, Hash256,
     MainnetEthSpec, SelectionProof, SignedAggregateAndProof, SingleAttestation, Slot, SubnetId,
-    signed_aggregate_and_proof::SignedAggregateAndProofRefMut,
-    test_utils::generate_deterministic_keypair,
+    attestation::SignedAggregateAndProofRefMut, test_utils::generate_deterministic_keypair,
 };
 
 pub type E = MainnetEthSpec;
@@ -55,7 +58,7 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .spec(spec)
         .chain_config(ChainConfig {
-            reconstruct_historic_states: true,
+            archive: true,
             ..ChainConfig::default()
         })
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
@@ -80,11 +83,13 @@ fn get_harness_capella_spec(
     let spec = Arc::new(spec);
 
     let validator_keypairs = KEYPAIRS[0..validator_count].to_vec();
+    // Use the proper genesis execution payload header that matches the mock execution layer
+    let execution_payload_header = generate_genesis_header(&spec);
     let genesis_state = interop_genesis_state(
         &validator_keypairs,
         HARNESS_GENESIS_TIME,
         Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
-        None,
+        execution_payload_header,
         &spec,
     )
     .unwrap();
@@ -92,7 +97,7 @@ fn get_harness_capella_spec(
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .spec(spec.clone())
         .chain_config(ChainConfig {
-            reconstruct_historic_states: true,
+            archive: true,
             ..ChainConfig::default()
         })
         .keypairs(validator_keypairs)
@@ -106,11 +111,6 @@ fn get_harness_capella_spec(
         .genesis_state_ephemeral_store(genesis_state)
         .mock_execution_layer()
         .build();
-
-    harness
-        .execution_block_generator()
-        .move_to_terminal_block()
-        .unwrap();
 
     harness.advance_slot();
 
@@ -369,6 +369,13 @@ impl GossipTester {
         self.harness.chain.epoch().unwrap()
     }
 
+    pub fn is_gloas(&self) -> bool {
+        self.harness
+            .spec
+            .fork_name_at_slot::<E>(self.valid_attestation.data.slot)
+            .gloas_enabled()
+    }
+
     pub fn earliest_valid_attestation_slot(&self) -> Slot {
         let offset = if self
             .harness
@@ -522,6 +529,44 @@ impl GossipTester {
         inspect_err(&self, batch_err);
 
         self
+    }
+
+    /// Like `inspect_aggregate_err`, but only runs the check if gloas is enabled.
+    /// If gloas is not enabled, this is a no-op that returns self.
+    pub fn inspect_aggregate_err_if_gloas<G, I>(
+        self,
+        desc: &str,
+        get_attn: G,
+        inspect_err: I,
+    ) -> Self
+    where
+        G: Fn(&Self, &mut SignedAggregateAndProof<E>),
+        I: Fn(&Self, AttnError),
+    {
+        if self.is_gloas() {
+            self.inspect_aggregate_err(desc, get_attn, inspect_err)
+        } else {
+            self
+        }
+    }
+
+    /// Like `inspect_unaggregate_err`, but only runs the check if gloas is enabled.
+    /// If gloas is not enabled, this is a no-op that returns self.
+    pub fn inspect_unaggregate_err_if_gloas<G, I>(
+        self,
+        desc: &str,
+        get_attn: G,
+        inspect_err: I,
+    ) -> Self
+    where
+        G: Fn(&Self, &mut SingleAttestation, &mut SubnetId, &ChainSpec),
+        I: Fn(&Self, AttnError),
+    {
+        if self.is_gloas() {
+            self.inspect_unaggregate_err(desc, get_attn, inspect_err)
+        } else {
+            self
+        }
     }
 }
 /// Tests verification of `SignedAggregateAndProof` from the gossip network.
@@ -855,6 +900,27 @@ async fn aggregated_gossip_verification() {
                 ))
             },
         )
+        /*
+         * [New in Gloas]: attestation.data.index must be < 2
+         */
+        .inspect_aggregate_err_if_gloas(
+            "gloas: aggregate with index >= 2",
+            |_, a| match a.to_mut() {
+                SignedAggregateAndProofRefMut::Base(_) => {
+                    panic!("Expected Electra attestation variant");
+                }
+                SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.message.aggregate.data.index = 2;
+                }
+            },
+            |_, err| {
+                assert!(
+                    matches!(err, AttnError::CommitteeIndexInvalid),
+                    "expected CommitteeIndexInvalid, got {:?}",
+                    err
+                )
+            },
+        )
         // NOTE: from here on, the tests are stateful, and rely on the valid attestation having
         // been seen.
         .import_valid_aggregate()
@@ -1070,6 +1136,22 @@ async fn unaggregated_gossip_verification() {
                     err,
                     AttnError::InvalidSignature
                 ))
+            },
+        )
+        /*
+         * [New in Gloas]: attestation.data.index must be < 2
+         */
+        .inspect_unaggregate_err_if_gloas(
+            "gloas: attestation with index >= 2",
+            |_, a, _, _| {
+                a.data.index = 2;
+            },
+            |_, err| {
+                assert!(
+                    matches!(err, AttnError::CommitteeIndexInvalid),
+                    "expected CommitteeIndexInvalid, got {:?}",
+                    err
+                )
             },
         )
         // NOTE: from here on, the tests are stateful, and rely on the valid attestation having
@@ -1307,13 +1389,18 @@ async fn attestation_to_finalized_block() {
     let earlier_block_root = earlier_block.canonical_root();
     assert_ne!(earlier_block_root, finalized_checkpoint.root);
 
+    // For Gloas, `block.state_root()` returns the pending state root, but the cold DB
+    // may store the full state root. Use `get_cold_state_root` to get the actual stored key.
+    let cold_state_root = harness
+        .chain
+        .store
+        .get_cold_state_root(earlier_slot)
+        .expect("should not error getting cold state root")
+        .expect("cold state root should be present for finalized slot in archive store");
+
     let mut state = harness
         .chain
-        .get_state(
-            &earlier_block.state_root(),
-            Some(earlier_slot),
-            CACHE_STATE_IN_TESTS,
-        )
+        .get_state(&cold_state_root, Some(earlier_slot), CACHE_STATE_IN_TESTS)
         .expect("should not error getting state")
         .expect("should find state");
 
@@ -1700,4 +1787,236 @@ async fn aggregated_attestation_verification_use_head_state_fork() {
             "should reject aggregates with `data.slot` >= first capella slot signed using the pre-Capella fork"
         );
     }
+}
+
+/// [New in Gloas]: Tests that unaggregated attestations with `data.index == 1` are rejected
+/// when `head_block.slot == attestation.data.slot`.
+///
+/// This test only runs when `FORK_NAME=gloas` is set with `fork_from_env` feature.
+// TODO(EIP-7732): Enable this test once gloas block production works in test harness.
+// `state.latest_execution_payload_header()` not available in Gloas.
+#[ignore]
+#[tokio::test]
+async fn gloas_unaggregated_attestation_same_slot_index_must_be_zero() {
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    // Skip this test if not running with gloas fork
+    if !harness
+        .spec
+        .fork_name_at_epoch(Epoch::new(0))
+        .gloas_enabled()
+    {
+        return;
+    }
+
+    // Extend the chain out a few epochs so we have some chain depth to play with.
+    harness
+        .extend_chain(
+            MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Produce a block in the current slot (this creates the same-slot scenario)
+    harness
+        .extend_chain(
+            1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(vec![]),
+        )
+        .await;
+
+    let current_slot = harness.chain.slot().expect("should get slot");
+    let head = harness.chain.head_snapshot();
+
+    // Verify head block is in the current slot
+    assert_eq!(
+        head.beacon_block.slot(),
+        current_slot,
+        "head block should be in current slot for same-slot test"
+    );
+
+    // Produce an attestation for the current slot
+    let (mut attestation, _attester_sk, subnet_id) =
+        get_valid_unaggregated_attestation(&harness.chain);
+
+    // Verify we have a same-slot scenario
+    let attested_block_slot = harness
+        .chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .get_block(&attestation.data.beacon_block_root)
+        .expect("block should exist")
+        .slot;
+    assert_eq!(
+        attested_block_slot, attestation.data.slot,
+        "attested block slot should equal attestation slot for same-slot test"
+    );
+
+    // index == 1 should be rejected when head_block.slot == attestation.data.slot
+    attestation.data.index = 1;
+    let result = harness
+        .chain
+        .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id));
+    assert!(
+        matches!(result, Err(AttnError::CommitteeIndexNonZero(_))),
+        "gloas: attestation with index == 1 when head_block.slot == attestation.data.slot should be rejected, got {:?}",
+        result.err()
+    );
+}
+
+/// [New in Gloas]: Tests that aggregated attestations with `data.index == 1` are rejected
+/// when `head_block.slot == attestation.data.slot`.
+///
+/// This test only runs when `FORK_NAME=gloas` is set with `fork_from_env` feature.
+// TODO(EIP-7732): Enable this test once gloas block production works in test harness.
+// `state.latest_execution_payload_header()` not available in Gloas.
+#[ignore]
+#[tokio::test]
+async fn gloas_aggregated_attestation_same_slot_index_must_be_zero() {
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    // Skip this test if not running with gloas fork
+    if !harness
+        .spec
+        .fork_name_at_epoch(Epoch::new(0))
+        .gloas_enabled()
+    {
+        return;
+    }
+
+    // Extend the chain out a few epochs so we have some chain depth to play with.
+    harness
+        .extend_chain(
+            MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Produce a block in the current slot (this creates the same-slot scenario)
+    harness
+        .extend_chain(
+            1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(vec![]),
+        )
+        .await;
+
+    let current_slot = harness.chain.slot().expect("should get slot");
+    let head = harness.chain.head_snapshot();
+
+    // Verify head block is in the current slot
+    assert_eq!(
+        head.beacon_block.slot(),
+        current_slot,
+        "head block should be in current slot for same-slot test"
+    );
+
+    // Produce an attestation for the current slot
+    let (valid_attestation, _attester_sk, _subnet_id) =
+        get_valid_unaggregated_attestation(&harness.chain);
+
+    // Verify we have a same-slot scenario
+    let attested_block_slot = harness
+        .chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .get_block(&valid_attestation.data.beacon_block_root)
+        .expect("block should exist")
+        .slot;
+    assert_eq!(
+        attested_block_slot, valid_attestation.data.slot,
+        "attested block slot should equal attestation slot for same-slot test"
+    );
+
+    // Convert to aggregate
+    let committee = head
+        .beacon_state
+        .get_beacon_committee(current_slot, valid_attestation.committee_index)
+        .expect("should get committee");
+    let fork_name = harness
+        .spec
+        .fork_name_at_slot::<E>(valid_attestation.data.slot);
+    let aggregate_attestation =
+        single_attestation_to_attestation(&valid_attestation, committee.committee, fork_name)
+            .unwrap();
+
+    let (mut valid_aggregate, _, _) =
+        get_valid_aggregated_attestation(&harness.chain, aggregate_attestation);
+
+    // index == 1 should be rejected when head_block.slot == attestation.data.slot
+    match valid_aggregate.to_mut() {
+        SignedAggregateAndProofRefMut::Base(att) => {
+            att.message.aggregate.data.index = 1;
+        }
+        SignedAggregateAndProofRefMut::Electra(att) => {
+            att.message.aggregate.data.index = 1;
+        }
+    }
+
+    let result = harness
+        .chain
+        .verify_aggregated_attestation_for_gossip(&valid_aggregate);
+    assert!(
+        matches!(result, Err(AttnError::CommitteeIndexNonZero(_))),
+        "gloas: aggregate with index == 1 when head_block.slot == attestation.data.slot should be rejected, got {:?}",
+        result.err()
+    );
+}
+
+/// Regression test: a SingleAttestation with a huge bogus attester_index must not be forwarded to
+/// the slasher. Previously the slasher received the IndexedAttestation before committee-membership
+/// validation, causing an OOM when the slasher tried to allocate based on the untrusted index.
+#[tokio::test]
+async fn unaggregated_attestation_bogus_attester_index_not_sent_to_slasher() {
+    let slasher_dir = tempdir().unwrap();
+    let spec = Arc::new(test_spec::<E>());
+    let slasher = Arc::new(
+        Slasher::<E>::open(SlasherConfig::new(slasher_dir.path().into()), spec.clone()).unwrap(),
+    );
+
+    let inner_slasher = slasher.clone();
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec)
+        .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
+        .fresh_ephemeral_store()
+        .initial_mutator(Box::new(move |builder| builder.slasher(inner_slasher)))
+        .mock_execution_layer()
+        .build();
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    harness.advance_slot();
+
+    // Build a valid SingleAttestation, then replace the attester_index with a huge value.
+    let (mut bogus_attestation, _, _) = get_valid_unaggregated_attestation(&harness.chain);
+    bogus_attestation.attester_index = 1 << 40; // ~2^40, would OOM the slasher
+
+    // Drain any attestations already queued from block production.
+    slasher
+        .process_queued(harness.get_current_slot().epoch(E::slots_per_epoch()))
+        .unwrap();
+    let queue_len_before = slasher.attestation_queue_len();
+    assert_eq!(queue_len_before, 0);
+
+    let result = harness
+        .chain
+        .verify_unaggregated_attestation_for_gossip(&bogus_attestation, None);
+    assert!(
+        result.is_err(),
+        "attestation with bogus index should fail verification"
+    );
+
+    assert_eq!(
+        slasher.attestation_queue_len(),
+        0,
+        "slasher queue length must not change — bogus attestation must not be forwarded"
+    );
 }

@@ -1,7 +1,8 @@
 #![cfg(not(debug_assertions))]
+#![allow(clippy::result_large_err)]
 
 use beacon_chain::attestation_verification::Error as AttnError;
-use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::builder::BeaconChainBuilder;
 use beacon_chain::custody_context::CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS;
 use beacon_chain::data_availability_checker::AvailableBlock;
@@ -21,12 +22,12 @@ use beacon_chain::{
         compute_proposer_duties_from_head, ensure_state_can_determine_proposers_for_epoch,
     },
     custody_context::NodeCustodyType,
-    data_availability_checker::MaybeAvailableBlock,
     historical_blocks::HistoricalBlockError,
     migrate::MigratorConfig,
 };
 use bls::{Keypair, Signature, SignatureBytes};
 use fixed_bytes::FixedBytesExtended;
+use fork_choice::PayloadStatus;
 use logging::create_test_tracing_subscriber;
 use maplit::hashset;
 use rand::Rng;
@@ -53,7 +54,7 @@ use types::test_utils::{SeedableRng, XorShiftRng};
 use types::*;
 
 // Should ideally be divisible by 3.
-pub const LOW_VALIDATOR_COUNT: usize = 24;
+pub const LOW_VALIDATOR_COUNT: usize = 32;
 pub const HIGH_VALIDATOR_COUNT: usize = 64;
 
 // When set to true, cache any states fetched from the db.
@@ -101,7 +102,7 @@ fn get_harness(
 ) -> TestHarness {
     // Most tests expect to retain historic states, so we use this as the default.
     let chain_config = ChainConfig {
-        reconstruct_historic_states: true,
+        archive: true,
         ..ChainConfig::default()
     };
     get_harness_generic(
@@ -118,7 +119,8 @@ fn get_harness_import_all_data_columns(
 ) -> TestHarness {
     // Most tests expect to retain historic states, so we use this as the default.
     let chain_config = ChainConfig {
-        reconstruct_historic_states: true,
+        ignore_ws_check: true,
+        archive: true,
         ..ChainConfig::default()
     };
     get_harness_generic(
@@ -147,6 +149,22 @@ fn get_harness_generic(
     harness
 }
 
+/// Check that all database invariants hold.
+///
+/// Panics with a descriptive message if any invariant is violated.
+fn check_db_invariants(harness: &TestHarness) {
+    let result = harness
+        .chain
+        .check_database_invariants()
+        .expect("invariant check should not error");
+
+    assert!(
+        result.is_ok(),
+        "database invariant violations found:\n{:#?}",
+        result.violations,
+    );
+}
+
 fn get_states_descendant_of_block(
     store: &HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>,
     block_root: Hash256,
@@ -167,6 +185,10 @@ async fn light_client_bootstrap_test() {
         // No-op prior to Altair.
         return;
     };
+    // TODO(EIP-7732): Light client not yet implemented for Gloas.
+    if spec.is_gloas_scheduled() {
+        return;
+    }
 
     let db_path = tempdir().unwrap();
     let store = get_store_generic(&db_path, StoreConfig::default(), spec.clone());
@@ -222,6 +244,10 @@ async fn light_client_updates_test() {
         // No-op prior to Altair.
         return;
     };
+    // TODO(EIP-7732): Light client not yet implemented for Gloas.
+    if spec.is_gloas_scheduled() {
+        return;
+    }
 
     let num_final_blocks = E::slots_per_epoch() * 2;
     let db_path = tempdir().unwrap();
@@ -307,6 +333,7 @@ async fn full_participation_no_skips() {
     check_split_slot(&harness, store);
     check_chain_dump(&harness, num_blocks_produced + 1);
     check_iterators(&harness);
+    check_db_invariants(&harness);
 }
 
 #[tokio::test]
@@ -351,6 +378,7 @@ async fn randomised_skips() {
     check_split_slot(&harness, store.clone());
     check_chain_dump(&harness, num_blocks_produced + 1);
     check_iterators(&harness);
+    check_db_invariants(&harness);
 }
 
 #[tokio::test]
@@ -399,6 +427,7 @@ async fn long_skip() {
     check_split_slot(&harness, store);
     check_chain_dump(&harness, initial_blocks + final_blocks + 1);
     check_iterators(&harness);
+    check_db_invariants(&harness);
 }
 
 /// Go forward to the point where the genesis randao value is no longer part of the vector.
@@ -548,13 +577,12 @@ async fn epoch_boundary_state_attestation_processing() {
             .get_blinded_block(&block_root)
             .unwrap()
             .expect("block exists");
-        // Use get_state as the state may be finalized by this point
+        // Use get_state as the state may be finalized by this point.
+        let state_root = block.state_root();
         let mut epoch_boundary_state = store
-            .get_state(&block.state_root(), None, CACHE_STATE_IN_TESTS)
+            .get_state(&state_root, None, CACHE_STATE_IN_TESTS)
             .expect("no error")
-            .unwrap_or_else(|| {
-                panic!("epoch boundary state should exist {:?}", block.state_root())
-            });
+            .unwrap_or_else(|| panic!("epoch boundary state should exist {:?}", state_root));
         let ebs_state_root = epoch_boundary_state.update_tree_hash_cache().unwrap();
         let mut ebs_of_ebs = store
             .get_state(&ebs_state_root, None, CACHE_STATE_IN_TESTS)
@@ -653,8 +681,11 @@ async fn forwards_iter_block_and_state_roots_until() {
             let block_root = block_roots[slot.as_usize()];
             assert_eq!(block_root_iter.next().unwrap().unwrap(), (block_root, slot));
 
+            let (iter_state_root, iter_slot) = state_root_iter.next().unwrap().unwrap();
+            assert_eq!(iter_slot, slot);
+
             let state_root = state_roots[slot.as_usize()];
-            assert_eq!(state_root_iter.next().unwrap().unwrap(), (state_root, slot));
+            assert_eq!(iter_state_root, state_root);
         }
     };
 
@@ -1364,6 +1395,7 @@ async fn proposer_shuffling_root_consistency_at_fork_boundary() {
 }
 
 #[tokio::test]
+#[allow(clippy::large_stack_frames)]
 async fn proposer_shuffling_changing_with_lookahead() {
     let initial_blocks = E::slots_per_epoch() * 4 - 1;
 
@@ -1767,6 +1799,8 @@ async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
     }
 
     assert!(!rig.knows_head(&stray_head));
+
+    check_db_invariants(&rig);
 }
 
 #[tokio::test]
@@ -1895,6 +1929,8 @@ async fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
     assert!(!rig.knows_head(&stray_head));
     let chain_dump = rig.chain.chain_dump().unwrap();
     assert!(get_blocks(&chain_dump).contains(&shared_head));
+
+    check_db_invariants(&rig);
 }
 
 #[tokio::test]
@@ -1986,6 +2022,8 @@ async fn pruning_does_not_touch_blocks_prior_to_finalization() {
     }
 
     rig.assert_knows_head(stray_head.into());
+
+    check_db_invariants(&rig);
 }
 
 #[tokio::test]
@@ -2125,6 +2163,8 @@ async fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
     }
 
     assert!(!rig.knows_head(&stray_head));
+
+    check_db_invariants(&rig);
 }
 
 // This is to check if state outside of normal block processing are pruned correctly.
@@ -2375,6 +2415,8 @@ async fn finalizes_non_epoch_start_slot() {
             state_hash
         );
     }
+
+    check_db_invariants(&rig);
 }
 
 fn check_all_blocks_exist<'a>(
@@ -2641,6 +2683,8 @@ async fn pruning_test(
     check_all_states_exist(&harness, all_canonical_states.iter());
     check_no_states_exist(&harness, stray_states.difference(&all_canonical_states));
     check_no_blocks_exist(&harness, stray_blocks.values());
+
+    check_db_invariants(&harness);
 }
 
 #[tokio::test]
@@ -2705,6 +2749,8 @@ async fn garbage_collect_temp_states_from_failed_block_on_finalization() {
         vec![(genesis_state_root, Slot::new(0))],
         "get_states_descendant_of_block({bad_block_parent_root:?})"
     );
+
+    check_db_invariants(&harness);
 }
 
 #[tokio::test]
@@ -2831,12 +2877,6 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
         .block_root_at_slot(checkpoint_slot, WhenSlotSkipped::Prev)
         .unwrap()
         .unwrap();
-    let wss_state_root = harness
-        .chain
-        .state_root_at_slot(checkpoint_slot)
-        .unwrap()
-        .unwrap();
-
     let wss_block = harness
         .chain
         .store
@@ -2844,8 +2884,21 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
         .unwrap()
         .unwrap();
 
-    // The test premise requires the anchor block to have a payload.
-    assert!(wss_block.message().execution_payload().is_ok());
+    let wss_state_root = harness
+        .chain
+        .state_root_at_slot(checkpoint_slot)
+        .unwrap()
+        .unwrap();
+
+    // The test premise requires the anchor block to have a payload (or a payload bid in Gloas).
+    assert!(
+        wss_block.message().execution_payload().is_ok()
+            || wss_block
+                .message()
+                .body()
+                .signed_execution_payload_bid()
+                .is_ok()
+    );
 
     let wss_blobs_opt = harness
         .chain
@@ -2870,12 +2923,12 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
     let slot_clock = TestingSlotClock::new(
         Slot::new(0),
         Duration::from_secs(harness.chain.genesis_time),
-        Duration::from_secs(spec.seconds_per_slot),
+        spec.get_slot_duration(),
     );
     slot_clock.set_slot(harness.get_current_slot().as_u64());
 
     let chain_config = ChainConfig {
-        reconstruct_historic_states: true,
+        archive: true,
         ..ChainConfig::default()
     };
 
@@ -2927,15 +2980,19 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
         chain.head_snapshot().beacon_state.slot()
     );
 
-    let payload_exists = chain
-        .store
-        .execution_payload_exists(&wss_block_root)
-        .unwrap_or(false);
+    // In Gloas, the execution payload envelope is separate from the block and will be synced
+    // from the network. We don't check for its existence here.
+    if !wss_block.fork_name_unchecked().gloas_enabled() {
+        let payload_exists = chain
+            .store
+            .execution_payload_exists(&wss_block_root)
+            .unwrap_or(false);
 
-    assert!(
-        payload_exists,
-        "Split block payload must exist in the new node's store after checkpoint sync"
-    );
+        assert!(
+            payload_exists,
+            "Split block payload must exist in the new node's store after checkpoint sync"
+        );
+    }
 }
 
 async fn weak_subjectivity_sync_test(
@@ -2973,16 +3030,15 @@ async fn weak_subjectivity_sync_test(
         .block_root_at_slot(checkpoint_slot, WhenSlotSkipped::Prev)
         .unwrap()
         .unwrap();
-    let wss_state_root = harness
-        .chain
-        .state_root_at_slot(checkpoint_slot)
-        .unwrap()
-        .unwrap();
-
     let wss_block = harness
         .chain
         .store
         .get_full_block(&wss_block_root)
+        .unwrap()
+        .unwrap();
+    let wss_state_root = harness
+        .chain
+        .state_root_at_slot(checkpoint_slot)
         .unwrap()
         .unwrap();
     let wss_blobs_opt = harness
@@ -3011,7 +3067,6 @@ async fn weak_subjectivity_sync_test(
     let temp2 = tempdir().unwrap();
     let store = get_store(&temp2);
     let spec = test_spec::<E>();
-    let seconds_per_slot = spec.seconds_per_slot;
 
     let kzg = get_kzg(&spec);
 
@@ -3025,14 +3080,14 @@ async fn weak_subjectivity_sync_test(
     let slot_clock = TestingSlotClock::new(
         Slot::new(0),
         Duration::from_secs(harness.chain.genesis_time),
-        Duration::from_secs(seconds_per_slot),
+        spec.get_slot_duration(),
     );
     slot_clock.set_slot(harness.get_current_slot().as_u64());
 
     let chain_config = ChainConfig {
-        // Set reconstruct_historic_states to true from the start in the genesis case. This makes
+        // Set archive to true from the start in the genesis case. This makes
         // some of the later checks more uniform across the genesis/non-genesis cases.
-        reconstruct_historic_states: checkpoint_slot == 0,
+        archive: checkpoint_slot == 0,
         ..ChainConfig::default()
     };
 
@@ -3062,6 +3117,20 @@ async fn weak_subjectivity_sync_test(
         .build()
         .expect("should build");
 
+    // Store the WSS envelope to simulate it arriving from network sync.
+    // In production, the envelope would be synced from the network after checkpoint sync.
+    if let Some(envelope) = harness
+        .chain
+        .store
+        .get_payload_envelope(&wss_block.canonical_root())
+        .unwrap_or(None)
+    {
+        beacon_chain
+            .store
+            .put_payload_envelope(&wss_block.canonical_root(), &envelope)
+            .unwrap();
+    }
+
     let beacon_chain = Arc::new(beacon_chain);
     let wss_block_root = wss_block.canonical_root();
     let store_wss_block = harness
@@ -3079,6 +3148,21 @@ async fn weak_subjectivity_sync_test(
     // TODO(fulu): Remove this condition once #6760 (PeerDAS checkpoint sync) is merged.
     if !beacon_chain.spec.is_peer_das_scheduled() {
         assert_eq!(store_wss_blobs_opt, wss_blobs_opt);
+    }
+
+    // Store the WSS block's envelope in the new chain (required for Gloas forward sync).
+    // The first forward block needs the checkpoint block's envelope to determine the parent's
+    // Full state.
+    if let Some(envelope) = harness
+        .chain
+        .store
+        .get_payload_envelope(&wss_block_root)
+        .unwrap()
+    {
+        beacon_chain
+            .store
+            .put_payload_envelope(&wss_block_root, &envelope)
+            .unwrap();
     }
 
     // Apply blocks forward to reach head.
@@ -3105,13 +3189,31 @@ async fn weak_subjectivity_sync_test(
         beacon_chain
             .process_block(
                 full_block_root,
-                harness.build_rpc_block_from_store_blobs(Some(block_root), Arc::new(full_block)),
+                harness.build_range_sync_block_from_store_blobs(
+                    Some(block_root),
+                    Arc::new(full_block),
+                ),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
             )
             .await
             .unwrap();
+
+        // Store the envelope and apply it to fork choice.
+        if let Some(envelope) = &snapshot.execution_envelope {
+            beacon_chain
+                .store
+                .put_payload_envelope(&block_root, envelope)
+                .unwrap();
+            // Update fork choice so head selection accounts for Full payload status.
+            beacon_chain
+                .canonical_head
+                .fork_choice_write_lock()
+                .on_valid_payload_envelope_received(block_root)
+                .unwrap();
+        }
+
         beacon_chain.recompute_head_at_current_slot().await;
 
         // Check that the new block's state can be loaded correctly.
@@ -3175,17 +3277,16 @@ async fn weak_subjectivity_sync_test(
                 .expect("should get block")
                 .expect("should get block");
 
-            if let MaybeAvailableBlock::Available(block) = harness
+            let range_sync_block = harness
+                .build_range_sync_block_from_store_blobs(Some(block_root), Arc::new(full_block));
+
+            let fully_available_block = range_sync_block.into_available_block();
+            harness
                 .chain
                 .data_availability_checker
-                .verify_kzg_for_rpc_block(
-                    harness
-                        .build_rpc_block_from_store_blobs(Some(block_root), Arc::new(full_block)),
-                )
-                .expect("should verify kzg")
-            {
-                available_blocks.push(block);
-            }
+                .verify_kzg_for_available_block(&fully_available_block)
+                .expect("should verify kzg");
+            available_blocks.push(fully_available_block);
         }
 
         // Corrupt the signature on the 1st block to ensure that the backfill processor is checking
@@ -3193,15 +3294,16 @@ async fn weak_subjectivity_sync_test(
         let mut batch_with_invalid_first_block =
             available_blocks.iter().map(clone_block).collect::<Vec<_>>();
         batch_with_invalid_first_block[0] = {
-            let (block_root, block, data) = clone_block(&available_blocks[0]).deconstruct();
+            let (_, block, data) = clone_block(&available_blocks[0]).deconstruct();
             let mut corrupt_block = (*block).clone();
             *corrupt_block.signature_mut() = Signature::empty();
-            AvailableBlock::__new_for_testing(
-                block_root,
+            AvailableBlock::new(
                 Arc::new(corrupt_block),
                 data,
+                &beacon_chain.data_availability_checker,
                 Arc::new(spec),
             )
+            .expect("available block")
         };
 
         // Importing the invalid batch should error.
@@ -3262,6 +3364,17 @@ async fn weak_subjectivity_sync_test(
         }
     }
     assert_eq!(beacon_chain.store.get_oldest_block_slot(), 0);
+
+    // Store envelopes for all historic blocks (needed for dumping the chain from the new node).
+    for snapshot in chain_dump.iter() {
+        let block_root = snapshot.beacon_block_root;
+        if let Some(envelope) = &snapshot.execution_envelope {
+            beacon_chain
+                .store
+                .put_payload_envelope(&block_root, envelope)
+                .unwrap();
+        }
+    }
 
     // Sanity check for non-aligned WSS starts, to make sure the WSS block is persisted properly
     if wss_block_slot != wss_state_slot {
@@ -3332,13 +3445,12 @@ async fn weak_subjectivity_sync_test(
         assert_eq!(state.canonical_root().unwrap(), state_root);
     }
 
-    // Anchor slot is still set to the slot of the checkpoint block.
-    // Note: since hot tree states the anchor slot is set to the aligned ws state slot
-    // https://github.com/sigp/lighthouse/pull/6750
-    let wss_aligned_slot = if checkpoint_slot % E::slots_per_epoch() == 0 {
-        checkpoint_slot
+    // Anchor slot is set to the WSS state slot, which is always epoch-aligned (the state is
+    // advanced to an epoch boundary during checkpoint sync).
+    let wss_aligned_slot = if wss_state_slot % E::slots_per_epoch() == 0 {
+        wss_state_slot
     } else {
-        (checkpoint_slot.epoch(E::slots_per_epoch()) + Epoch::new(1))
+        (wss_state_slot.epoch(E::slots_per_epoch()) + Epoch::new(1))
             .start_slot(E::slots_per_epoch())
     };
     assert_eq!(store.get_anchor_info().anchor_slot, wss_aligned_slot);
@@ -3356,6 +3468,16 @@ async fn weak_subjectivity_sync_test(
     store.clone().reconstruct_historic_states(None).unwrap();
     assert_eq!(store.get_anchor_info().anchor_slot, wss_aligned_slot);
     assert_eq!(store.get_anchor_info().state_upper_limit, Slot::new(0));
+
+    // Check database invariants after full checkpoint sync + backfill + reconstruction.
+    let result = beacon_chain
+        .check_database_invariants()
+        .expect("invariant check should not error");
+    assert!(
+        result.is_ok(),
+        "database invariant violations:\n{:#?}",
+        result.violations,
+    );
 }
 
 // This test prunes data columns from epoch 0 and then tries to re-import them via
@@ -3380,7 +3502,7 @@ async fn test_import_historical_data_columns_batch() {
         .await;
     harness.advance_slot();
 
-    let block_root_iter = harness
+    let block_root_and_slot = harness
         .chain
         .forwards_iter_block_roots_until(start_slot, end_slot)
         .unwrap();
@@ -3388,9 +3510,14 @@ async fn test_import_historical_data_columns_batch() {
     let mut data_columns_list = vec![];
 
     // Get all data columns for epoch 0
-    for block in block_root_iter {
-        let (block_root, _) = block.unwrap();
-        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+    for block_root_and_slot in block_root_and_slot {
+        let (block_root, slot) = block_root_and_slot.unwrap();
+        let fork_name = harness.spec.fork_name_at_slot::<E>(slot);
+        let data_columns = harness
+            .chain
+            .store
+            .get_data_columns(&block_root, fork_name)
+            .unwrap();
         for data_column in data_columns.unwrap_or_default() {
             data_columns_list.push(data_column);
         }
@@ -3415,15 +3542,20 @@ async fn test_import_historical_data_columns_batch() {
         .try_prune_blobs(true, Epoch::new(2))
         .unwrap();
 
-    let block_root_iter = harness
+    let block_root_and_slot_iter = harness
         .chain
         .forwards_iter_block_roots_until(start_slot, end_slot)
         .unwrap();
 
     // Assert that data columns no longer exist for epoch 0
-    for block in block_root_iter {
-        let (block_root, _) = block.unwrap();
-        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+    for block_root_and_slot in block_root_and_slot_iter {
+        let (block_root, slot) = block_root_and_slot.unwrap();
+        let fork_name = harness.spec.fork_name_at_slot::<E>(slot);
+        let data_columns = harness
+            .chain
+            .store
+            .get_data_columns(&block_root, fork_name)
+            .unwrap();
         assert!(data_columns.is_none())
     }
 
@@ -3433,14 +3565,14 @@ async fn test_import_historical_data_columns_batch() {
         .import_historical_data_column_batch(Epoch::new(0), data_columns_list, cgc)
         .unwrap();
 
-    let block_root_iter = harness
+    let block_root_and_slot_iter = harness
         .chain
         .forwards_iter_block_roots_until(start_slot, end_slot)
         .unwrap();
 
     // Assert that data columns now exist for epoch 0
-    for block in block_root_iter {
-        let (block_root, _) = block.unwrap();
+    for block_root_and_slot in block_root_and_slot_iter {
+        let (block_root, slot) = block_root_and_slot.unwrap();
         if !harness
             .get_block(block_root.into())
             .unwrap()
@@ -3450,7 +3582,12 @@ async fn test_import_historical_data_columns_batch() {
             .unwrap()
             .is_empty()
         {
-            let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+            let fork_name = harness.spec.fork_name_at_slot::<E>(slot);
+            let data_columns = harness
+                .chain
+                .store
+                .get_data_columns(&block_root, fork_name)
+                .unwrap();
             assert!(data_columns.is_some())
         };
     }
@@ -3478,7 +3615,7 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
         .await;
     harness.advance_slot();
 
-    let block_root_iter = harness
+    let block_root_and_slot_iter = harness
         .chain
         .forwards_iter_block_roots_until(start_slot, end_slot)
         .unwrap();
@@ -3487,14 +3624,23 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
 
     // Get all data columns from start_slot to end_slot
     // and mutate the data columns with an invalid block root
-    for block in block_root_iter {
-        let (block_root, _) = block.unwrap();
-        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+    for block_root_and_slot in block_root_and_slot_iter {
+        let (block_root, slot) = block_root_and_slot.unwrap();
+        let fork_name = harness.spec.fork_name_at_slot::<E>(slot);
+        let data_columns = harness
+            .chain
+            .store
+            .get_data_columns(&block_root, fork_name)
+            .unwrap();
 
         for data_column in data_columns.unwrap_or_default() {
             let mut data_column = (*data_column).clone();
-            if data_column.index % 2 == 0 {
-                data_column.signed_block_header.message.body_root = Hash256::ZERO;
+            if data_column.index() % 2 == 0 {
+                data_column
+                    .signed_block_header_mut()
+                    .unwrap()
+                    .message
+                    .body_root = Hash256::ZERO;
             }
 
             data_columns_list.push(Arc::new(data_column));
@@ -3519,15 +3665,20 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
         .try_prune_blobs(true, Epoch::new(2))
         .unwrap();
 
-    let block_root_iter = harness
+    let block_root_and_slot_iter = harness
         .chain
         .forwards_iter_block_roots_until(start_slot, end_slot)
         .unwrap();
 
     // Assert there are no columns between start_slot and end_slot
-    for block in block_root_iter {
-        let (block_root, _) = block.unwrap();
-        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+    for block_root_and_slot in block_root_and_slot_iter {
+        let (block_root, slot) = block_root_and_slot.unwrap();
+        let fork_name = harness.spec.fork_name_at_slot::<E>(slot);
+        let data_columns = harness
+            .chain
+            .store
+            .get_data_columns(&block_root, fork_name)
+            .unwrap();
         assert!(data_columns.is_none())
     }
 
@@ -3554,6 +3705,10 @@ async fn test_import_historical_data_columns_batch_no_block_found() {
     if fork_name_from_env().is_some_and(|f| !f.fulu_enabled()) {
         return;
     };
+    // TODO(Gloas): blocks don't have blob_kzg_commitments (blobs are in the execution payload envelope).
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
 
     let spec = test_spec::<E>();
     let db_path = tempdir().unwrap();
@@ -3573,20 +3728,29 @@ async fn test_import_historical_data_columns_batch_no_block_found() {
         .await;
     harness.advance_slot();
 
-    let block_root_iter = harness
+    let block_root_and_slot_iter = harness
         .chain
         .forwards_iter_block_roots_until(start_slot, end_slot)
         .unwrap();
 
     let mut data_columns_list = vec![];
 
-    for block in block_root_iter {
-        let (block_root, _) = block.unwrap();
-        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+    for block_root_and_slot in block_root_and_slot_iter {
+        let (block_root, slot) = block_root_and_slot.unwrap();
+        let fork_name = harness.spec.fork_name_at_slot::<E>(slot);
+        let data_columns = harness
+            .chain
+            .store
+            .get_data_columns(&block_root, fork_name)
+            .unwrap();
 
         for data_column in data_columns.unwrap_or_default() {
             let mut data_column = (*data_column).clone();
-            data_column.signed_block_header.message.body_root = Hash256::ZERO;
+            data_column
+                .signed_block_header_mut()
+                .unwrap()
+                .message
+                .body_root = Hash256::ZERO;
             data_columns_list.push(Arc::new(data_column));
         }
     }
@@ -3609,14 +3773,19 @@ async fn test_import_historical_data_columns_batch_no_block_found() {
         .try_prune_blobs(true, Epoch::new(2))
         .unwrap();
 
-    let block_root_iter = harness
+    let block_root_and_slot_iter = harness
         .chain
         .forwards_iter_block_roots_until(start_slot, end_slot)
         .unwrap();
 
-    for block in block_root_iter {
-        let (block_root, _) = block.unwrap();
-        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+    for block_root_and_slot in block_root_and_slot_iter {
+        let (block_root, slot) = block_root_and_slot.unwrap();
+        let fork_name = harness.spec.fork_name_at_slot::<E>(slot);
+        let data_columns = harness
+            .chain
+            .store
+            .get_data_columns(&block_root, fork_name)
+            .unwrap();
         assert!(data_columns.is_none())
     }
 
@@ -3638,7 +3807,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     let temp = tempdir().unwrap();
     let store = get_store(&temp);
     let chain_config = ChainConfig {
-        reconstruct_historic_states: false,
+        archive: false,
         ..ChainConfig::default()
     };
     let harness = get_harness_generic(
@@ -3650,12 +3819,14 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
 
     let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
 
-    let split_slot = Slot::new(E::slots_per_epoch() * 4);
+    let finalized_epoch_start_slot = Slot::new(E::slots_per_epoch() * 4);
     let pre_skips = 1;
     let post_skips = 1;
 
-    // Build the chain up to the intended split slot, with 3 skips before the split.
-    let slots = (1..=split_slot.as_u64() - pre_skips)
+    let split_slot = finalized_epoch_start_slot;
+
+    // Build the chain up to the intended finalized epoch slot, with 1 skip before the split.
+    let slots = (1..=finalized_epoch_start_slot.as_u64() - pre_skips)
         .map(Slot::new)
         .collect::<Vec<_>>();
 
@@ -3674,20 +3845,26 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     //
     // - one that is invalid because it conflicts with finalization (slot <= finalized_slot)
     // - one that is valid because its slot is not finalized (slot > finalized_slot)
+    //
+    // Note: block verification uses finalized_checkpoint.epoch.start_slot() (==
+    // finalized_epoch_start_slot) for the finalized slot check.
     let (unadvanced_split_state, unadvanced_split_state_root) =
         harness.get_current_state_and_root();
 
     let ((invalid_fork_block, _), _) = harness
-        .make_block(unadvanced_split_state.clone(), split_slot)
+        .make_block(unadvanced_split_state.clone(), finalized_epoch_start_slot)
         .await;
     let ((valid_fork_block, _), _) = harness
-        .make_block(unadvanced_split_state.clone(), split_slot + 1)
+        .make_block(
+            unadvanced_split_state.clone(),
+            finalized_epoch_start_slot + 1,
+        )
         .await;
 
     // Advance the chain so that the intended split slot is finalized.
     // Do not attest in the epoch boundary slot, to make attestation production later easier (no
     // equivocations).
-    let finalizing_slot = split_slot + 2 * E::slots_per_epoch();
+    let finalizing_slot = finalized_epoch_start_slot + 2 * E::slots_per_epoch();
     for _ in 0..pre_skips + post_skips {
         harness.advance_slot();
     }
@@ -3702,13 +3879,13 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     assert_eq!(split.block_root, valid_fork_block.parent_root());
     assert_ne!(split.state_root, unadvanced_split_state_root);
 
-    let invalid_fork_rpc_block = RpcBlock::new_without_blobs(None, invalid_fork_block.clone());
+    let invalid_fork_lookup_block = LookupBlock::new(invalid_fork_block.clone());
     // Applying the invalid block should fail.
     let err = harness
         .chain
         .process_block(
-            invalid_fork_rpc_block.block_root(),
-            invalid_fork_rpc_block,
+            invalid_fork_lookup_block.block_root(),
+            invalid_fork_lookup_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -3718,12 +3895,12 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     assert!(matches!(err, BlockError::WouldRevertFinalizedSlot { .. }));
 
     // Applying the valid block should succeed, but it should not become head.
-    let valid_fork_rpc_block = RpcBlock::new_without_blobs(None, valid_fork_block.clone());
+    let valid_fork_lookup_block = LookupBlock::new(valid_fork_block.clone());
     harness
         .chain
         .process_block(
-            valid_fork_rpc_block.block_root(),
-            valid_fork_rpc_block,
+            valid_fork_lookup_block.block_root(),
+            valid_fork_lookup_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -3865,204 +4042,18 @@ async fn finalizes_after_resuming_from_db() {
     );
 }
 
-#[allow(clippy::large_stack_frames)]
-#[tokio::test]
-async fn revert_minority_fork_on_resume() {
-    let validator_count = 16;
-    let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
-
-    let fork_epoch = Epoch::new(4);
-    let fork_slot = fork_epoch.start_slot(slots_per_epoch);
-    let initial_blocks = slots_per_epoch * fork_epoch.as_u64() - 1;
-    let post_fork_blocks = slots_per_epoch * 3;
-
-    let mut spec1 = MinimalEthSpec::default_spec();
-    spec1.altair_fork_epoch = None;
-    let mut spec2 = MinimalEthSpec::default_spec();
-    spec2.altair_fork_epoch = Some(fork_epoch);
-
-    let seconds_per_slot = spec1.seconds_per_slot;
-
-    let all_validators = (0..validator_count).collect::<Vec<usize>>();
-
-    // Chain with no fork epoch configured.
-    let db_path1 = tempdir().unwrap();
-    let store1 = get_store_generic(&db_path1, StoreConfig::default(), spec1.clone());
-    let harness1 = BeaconChainHarness::builder(MinimalEthSpec)
-        .spec(spec1.clone().into())
-        .keypairs(KEYPAIRS[0..validator_count].to_vec())
-        .fresh_disk_store(store1)
-        .mock_execution_layer()
-        .build();
-
-    // Chain with fork epoch configured.
-    let db_path2 = tempdir().unwrap();
-    let store2 = get_store_generic(&db_path2, StoreConfig::default(), spec2.clone());
-    let harness2 = BeaconChainHarness::builder(MinimalEthSpec)
-        .spec(spec2.clone().into())
-        .keypairs(KEYPAIRS[0..validator_count].to_vec())
-        .fresh_disk_store(store2)
-        .mock_execution_layer()
-        .build();
-
-    // Apply the same blocks to both chains initially.
-    let mut state = harness1.get_current_state();
-    let mut block_root = harness1.chain.genesis_block_root;
-    for slot in (1..=initial_blocks).map(Slot::new) {
-        let state_root = state.update_tree_hash_cache().unwrap();
-
-        let attestations = harness1.make_attestations(
-            &all_validators,
-            &state,
-            state_root,
-            block_root.into(),
-            slot,
-        );
-        harness1.set_current_slot(slot);
-        harness2.set_current_slot(slot);
-        harness1.process_attestations(attestations.clone(), &state);
-        harness2.process_attestations(attestations, &state);
-
-        let ((block, blobs), new_state) = harness1.make_block(state, slot).await;
-
-        harness1
-            .process_block(slot, block.canonical_root(), (block.clone(), blobs.clone()))
-            .await
-            .unwrap();
-        harness2
-            .process_block(slot, block.canonical_root(), (block.clone(), blobs.clone()))
-            .await
-            .unwrap();
-
-        state = new_state;
-        block_root = block.canonical_root();
-    }
-
-    assert_eq!(harness1.head_slot(), fork_slot - 1);
-    assert_eq!(harness2.head_slot(), fork_slot - 1);
-
-    // Fork the two chains.
-    let mut state1 = state.clone();
-    let mut state2 = state.clone();
-
-    let mut majority_blocks = vec![];
-
-    for i in 0..post_fork_blocks {
-        let slot = fork_slot + i;
-
-        // Attestations on majority chain.
-        let state_root = state.update_tree_hash_cache().unwrap();
-
-        let attestations = harness2.make_attestations(
-            &all_validators,
-            &state2,
-            state_root,
-            block_root.into(),
-            slot,
-        );
-        harness2.set_current_slot(slot);
-        harness2.process_attestations(attestations, &state2);
-
-        // Minority chain block (no attesters).
-        let ((block1, blobs1), new_state1) = harness1.make_block(state1, slot).await;
-        harness1
-            .process_block(slot, block1.canonical_root(), (block1, blobs1))
-            .await
-            .unwrap();
-        state1 = new_state1;
-
-        // Majority chain block (all attesters).
-        let ((block2, blobs2), new_state2) = harness2.make_block(state2, slot).await;
-        harness2
-            .process_block(slot, block2.canonical_root(), (block2.clone(), blobs2))
-            .await
-            .unwrap();
-
-        state2 = new_state2;
-        block_root = block2.canonical_root();
-
-        majority_blocks.push(block2);
-    }
-
-    let end_slot = fork_slot + post_fork_blocks - 1;
-    assert_eq!(harness1.head_slot(), end_slot);
-    assert_eq!(harness2.head_slot(), end_slot);
-
-    // Resume from disk with the hard-fork activated: this should revert the post-fork blocks.
-    // We have to do some hackery with the `slot_clock` so that the correct slot is set when
-    // the beacon chain builder loads the head block.
-    drop(harness1);
-    let resume_store = get_store_generic(&db_path1, StoreConfig::default(), spec2.clone());
-
-    let resumed_harness = TestHarness::builder(MinimalEthSpec)
-        .spec(spec2.clone().into())
-        .keypairs(KEYPAIRS[0..validator_count].to_vec())
-        .resumed_disk_store(resume_store)
-        .override_store_mutator(Box::new(move |mut builder| {
-            builder = builder
-                .resume_from_db()
-                .unwrap()
-                .testing_slot_clock(Duration::from_secs(seconds_per_slot))
-                .unwrap();
-            builder
-                .get_slot_clock()
-                .unwrap()
-                .set_slot(end_slot.as_u64());
-            builder
-        }))
-        .mock_execution_layer()
-        .build();
-
-    // Head should now be just before the fork.
-    resumed_harness.chain.recompute_head_at_current_slot().await;
-    assert_eq!(resumed_harness.head_slot(), fork_slot - 1);
-
-    // Fork choice should only know the canonical head. When we reverted the head we also should
-    // have called `reset_fork_choice_to_finalization` which rebuilds fork choice from scratch
-    // without the reverted block.
-    assert_eq!(
-        resumed_harness.chain.heads(),
-        vec![(resumed_harness.head_block_root(), fork_slot - 1)]
-    );
-
-    // Apply blocks from the majority chain and trigger finalization.
-    let initial_split_slot = resumed_harness.chain.store.get_split_slot();
-    for block in &majority_blocks {
-        resumed_harness
-            .process_block_result((block.clone(), None))
-            .await
-            .unwrap();
-
-        // The canonical head should be the block from the majority chain.
-        resumed_harness.chain.recompute_head_at_current_slot().await;
-        assert_eq!(resumed_harness.head_slot(), block.slot());
-        assert_eq!(resumed_harness.head_block_root(), block.canonical_root());
-    }
-    let advanced_split_slot = resumed_harness.chain.store.get_split_slot();
-
-    // Check that the migration ran successfully.
-    assert!(advanced_split_slot > initial_split_slot);
-
-    // Check that there is only a single head now matching harness2 (the minority chain is gone).
-    let heads = resumed_harness.chain.heads();
-    assert_eq!(heads, harness2.chain.heads());
-    assert_eq!(heads.len(), 1);
-}
-
 // This test checks whether the schema downgrade from the latest version to some minimum supported
 // version is correct. This is the easiest schema test to write without historic versions of
 // Lighthouse on-hand, but has the disadvantage that the min version needs to be adjusted manually
 // as old downgrades are deprecated.
-async fn schema_downgrade_to_min_version(
-    store_config: StoreConfig,
-    reconstruct_historic_states: bool,
-) {
+async fn schema_downgrade_to_min_version(store_config: StoreConfig, archive: bool) {
     let num_blocks_produced = E::slots_per_epoch() * 4;
     let db_path = tempdir().unwrap();
     let spec = test_spec::<E>();
+    let is_gloas = spec.is_gloas_scheduled();
 
     let chain_config = ChainConfig {
-        reconstruct_historic_states,
+        archive,
         ..ChainConfig::default()
     };
 
@@ -4082,10 +4073,10 @@ async fn schema_downgrade_to_min_version(
         )
         .await;
 
-    let min_version = if spec.is_fulu_scheduled() {
-        SchemaVersion(27)
+    let min_version = if is_gloas {
+        SchemaVersion(29)
     } else {
-        SchemaVersion(22)
+        SchemaVersion(28)
     };
 
     // Save the slot clock so that the new harness doesn't revert in time.
@@ -4117,7 +4108,7 @@ async fn schema_downgrade_to_min_version(
         .build();
 
     // Check chain dump for appropriate range depending on whether this is an archive node.
-    let chain_dump_start_slot = if reconstruct_historic_states {
+    let chain_dump_start_slot = if archive {
         Slot::new(0)
     } else {
         store.get_split_slot()
@@ -4656,6 +4647,10 @@ async fn fulu_prune_data_columns_happy_case() {
         // No-op if PeerDAS not scheduled.
         return;
     }
+    // TODO(Gloas): blocks don't have blob_kzg_commitments (blobs are in the execution payload envelope).
+    if store.get_chain_spec().is_gloas_scheduled() {
+        return;
+    }
     let Some(fulu_fork_epoch) = store.get_chain_spec().fulu_fork_epoch else {
         // No-op prior to Fulu.
         return;
@@ -4709,6 +4704,10 @@ async fn fulu_prune_data_columns_no_finalization() {
 
     if !store.get_chain_spec().is_peer_das_scheduled() {
         // No-op if PeerDAS not scheduled.
+        return;
+    }
+    // TODO(Gloas): blocks don't have blob_kzg_commitments (blobs are in the execution payload envelope).
+    if store.get_chain_spec().is_gloas_scheduled() {
         return;
     }
     let Some(fulu_fork_epoch) = store.get_chain_spec().fulu_fork_epoch else {
@@ -4930,6 +4929,10 @@ async fn fulu_prune_data_columns_margin_test(margin: u64) {
         // No-op if PeerDAS not scheduled.
         return;
     }
+    // TODO(Gloas): blocks don't have blob_kzg_commitments (blobs are in the execution payload envelope).
+    if store.get_chain_spec().is_gloas_scheduled() {
+        return;
+    }
     let Some(fulu_fork_epoch) = store.get_chain_spec().fulu_fork_epoch else {
         // No-op prior to Fulu.
         return;
@@ -4995,7 +4998,13 @@ fn check_data_column_existence(
         .unwrap()
         .map(Result::unwrap)
     {
-        if let Some(columns) = harness.chain.store.get_data_columns(&block_root).unwrap() {
+        let fork_name = harness.spec.fork_name_at_slot::<E>(slot);
+        if let Some(columns) = harness
+            .chain
+            .store
+            .get_data_columns(&block_root, fork_name)
+            .unwrap()
+        {
             assert!(should_exist, "columns at slot {slot} exist but should not");
             columns_seen += columns.len();
         } else {
@@ -5091,7 +5100,7 @@ async fn ancestor_state_root_prior_to_split() {
         ..StoreConfig::default()
     };
     let chain_config = ChainConfig {
-        reconstruct_historic_states: false,
+        archive: false,
         ..ChainConfig::default()
     };
 
@@ -5184,7 +5193,7 @@ async fn replay_from_split_state() {
         ..StoreConfig::default()
     };
     let chain_config = ChainConfig {
-        reconstruct_historic_states: false,
+        archive: false,
         ..ChainConfig::default()
     };
 
@@ -5241,6 +5250,10 @@ async fn test_custody_column_filtering_regular_node() {
     if !test_spec::<E>().is_peer_das_scheduled() {
         return;
     }
+    // TODO(Gloas): blocks don't have blob_kzg_commitments (blobs are in the execution payload envelope).
+    if test_spec::<E>().is_gloas_scheduled() {
+        return;
+    }
 
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
@@ -5283,6 +5296,10 @@ async fn test_custody_column_filtering_regular_node() {
 async fn test_custody_column_filtering_supernode() {
     // Skip test if PeerDAS is not scheduled
     if !test_spec::<E>().is_peer_das_scheduled() {
+        return;
+    }
+    // TODO(Gloas): blocks don't have blob_kzg_commitments (blobs are in the execution payload envelope).
+    if test_spec::<E>().is_gloas_scheduled() {
         return;
     }
 
@@ -5419,8 +5436,8 @@ async fn test_safely_backfill_data_column_custody_info() {
         .await;
 
     let epoch_before_increase = Epoch::new(start_epochs);
-    let effective_delay_slots =
-        CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS / harness.chain.spec.seconds_per_slot;
+    let effective_delay_slots = CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS
+        / harness.chain.spec.get_slot_duration().as_secs();
 
     let cgc_change_slot = epoch_before_increase.end_slot(E::slots_per_epoch());
 
@@ -5511,10 +5528,12 @@ fn assert_chains_pretty_much_the_same<T: BeaconChainTypes>(a: &BeaconChain<T>, b
             .fork_choice_write_lock()
             .get_head(slot, &spec)
             .unwrap()
+            .0
             == b.canonical_head
                 .fork_choice_write_lock()
                 .get_head(slot, &spec)
-                .unwrap(),
+                .unwrap()
+                .0,
         "fork_choice heads should be equal"
     );
 }
@@ -5546,6 +5565,286 @@ fn check_finalization(harness: &TestHarness, expected_slot: u64) {
         state.current_epoch() - 2,
         "the head should be finalized two behind the current epoch"
     );
+}
+
+// ===================== Gloas Store Tests =====================
+
+/// Test basic Gloas block + envelope storage and retrieval.
+#[tokio::test]
+async fn test_gloas_block_and_envelope_storage_no_skips() {
+    test_gloas_block_and_envelope_storage_generic(32, vec![], false).await
+}
+
+#[tokio::test]
+async fn test_gloas_block_and_envelope_storage_some_skips() {
+    test_gloas_block_and_envelope_storage_generic(32, vec![2, 4, 5, 16, 23, 24, 25], false).await
+}
+
+#[tokio::test]
+async fn test_gloas_block_and_envelope_storage_no_skips_w_cache() {
+    test_gloas_block_and_envelope_storage_generic(32, vec![], true).await
+}
+
+#[tokio::test]
+async fn test_gloas_block_and_envelope_storage_some_skips_w_cache() {
+    test_gloas_block_and_envelope_storage_generic(32, vec![2, 4, 5, 16, 23, 24, 25], true).await
+}
+
+async fn test_gloas_block_and_envelope_storage_generic(
+    num_slots: u64,
+    skipped_slots: Vec<u64>,
+    use_state_cache: bool,
+) {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let db_path = tempdir().unwrap();
+    let store_config = if !use_state_cache {
+        StoreConfig {
+            state_cache_size: new_non_zero_usize(1),
+            ..StoreConfig::default()
+        }
+    } else {
+        StoreConfig::default()
+    };
+    let spec = test_spec::<E>();
+    let store = get_store_generic(&db_path, store_config, spec);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let spec = &harness.chain.spec;
+
+    let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
+    let mut state = genesis_state;
+
+    let mut block_roots = vec![];
+    let mut stored_states = vec![(Slot::new(0), genesis_state_root)];
+
+    for i in 1..=num_slots {
+        let slot = Slot::new(i);
+        harness.advance_slot();
+
+        if skipped_slots.contains(&i) {
+            complete_state_advance(&mut state, None, slot, spec)
+                .expect("should be able to advance state to slot");
+
+            let state_root = state.canonical_root().unwrap();
+            store.put_state(&state_root, &state).unwrap();
+            stored_states.push((slot, state_root));
+        }
+
+        let (block_contents, envelope, mut post_block_state) =
+            harness.make_block_with_envelope(state, slot).await;
+        let block_root = block_contents.0.canonical_root();
+
+        // Process the block.
+        harness
+            .process_block(slot, block_root, block_contents)
+            .await
+            .unwrap();
+
+        let state_root = post_block_state.update_tree_hash_cache().unwrap();
+        stored_states.push((slot, state_root));
+
+        // Process the envelope.
+        let envelope = envelope.expect("Gloas block should have envelope");
+        harness
+            .process_envelope(block_root, envelope, &post_block_state, state_root)
+            .await;
+
+        block_roots.push(block_root);
+        state = post_block_state;
+    }
+
+    // Verify block storage.
+    for (i, block_root) in block_roots.iter().enumerate() {
+        // Block can be loaded.
+        assert!(
+            store.get_blinded_block(block_root).unwrap().is_some(),
+            "block at slot {} should be in DB",
+            i + 1
+        );
+
+        // Envelope can be loaded.
+        let loaded_envelope = store.get_payload_envelope(block_root).unwrap();
+        assert!(
+            loaded_envelope.is_some(),
+            "envelope at slot {} should be in DB",
+            i + 1
+        );
+    }
+
+    // Verify state storage.
+    // Iterate in reverse order to frustrate the cache.
+    for (slot, state_root) in stored_states.into_iter().rev() {
+        println!("{slot}: {state_root:?}");
+        let Some(mut loaded_state) = store
+            .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
+            .unwrap()
+        else {
+            panic!("missing state at slot {slot} with root {state_root:?}");
+        };
+        assert_eq!(loaded_state.slot(), slot);
+        assert_eq!(
+            loaded_state.canonical_root().unwrap(),
+            state_root,
+            "slot = {slot}"
+        );
+    }
+    check_db_invariants(&harness);
+}
+
+/// Test that Gloas block replay works without envelopes.
+#[tokio::test]
+async fn test_gloas_block_replay_with_envelopes() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    let num_blocks = 16u64;
+    let (genesis_state, _genesis_state_root) = harness.get_current_state_and_root();
+    let mut state = genesis_state.clone();
+
+    let mut last_block_root = Hash256::zero();
+    let mut states = HashMap::new();
+
+    for i in 1..=num_blocks {
+        let slot = Slot::new(i);
+        harness.advance_slot();
+
+        let (block_contents, envelope, mut block_state) =
+            harness.make_block_with_envelope(state, slot).await;
+        let block_root = block_contents.0.canonical_root();
+
+        harness
+            .process_block(slot, block_root, block_contents)
+            .await
+            .unwrap();
+
+        let state_root = block_state.update_tree_hash_cache().unwrap();
+        states.insert(slot, (state_root, block_state.clone()));
+
+        let envelope = envelope.expect("Gloas block should have envelope");
+        harness
+            .process_envelope(block_root, envelope, &block_state, state_root)
+            .await;
+
+        last_block_root = block_root;
+        state = block_state;
+    }
+
+    let end_slot = Slot::new(num_blocks);
+
+    // Load blocks for replay.
+    let blocks = store
+        .load_blocks_to_replay(Slot::new(0), end_slot, last_block_root)
+        .unwrap();
+    assert!(!blocks.is_empty(), "should have blocks for replay");
+
+    // Replay blocks and verify against the expected state.
+    let mut replayed = BlockReplayer::<MinimalEthSpec>::new(genesis_state, store.get_chain_spec())
+        .no_signature_verification()
+        .minimal_block_root_verification()
+        .apply_blocks(blocks, None)
+        .expect("should replay blocks")
+        .into_state();
+    replayed.apply_pending_mutations().unwrap();
+
+    let (_, mut expected) = states.get(&end_slot).unwrap().clone();
+    expected.apply_pending_mutations().unwrap();
+
+    replayed.drop_all_caches().unwrap();
+    expected.drop_all_caches().unwrap();
+    assert_eq!(
+        replayed, expected,
+        "replayed state should match stored state"
+    );
+    check_db_invariants(&harness);
+}
+
+/// Test the hot state hierarchy with Full states stored as ReplayFrom.
+#[tokio::test]
+async fn test_gloas_hot_state_hierarchy() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    // Build enough blocks to span multiple epochs. With MinimalEthSpec (8 slots/epoch),
+    // 40 slots covers 5 epochs.
+    let num_blocks = E::slots_per_epoch() * 5;
+    let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
+
+    let (genesis_state, _genesis_state_root) = harness.get_current_state_and_root();
+
+    // Use manual block building with envelopes for the first few blocks,
+    // then use the standard attested-blocks path once we've verified envelope handling.
+    let mut state = genesis_state;
+    let mut last_block_root = Hash256::zero();
+
+    for i in 1..=num_blocks {
+        let slot = Slot::new(i);
+        harness.advance_slot();
+
+        let (block_contents, envelope, mut block_state) =
+            harness.make_block_with_envelope(state.clone(), slot).await;
+        let block_root = block_contents.0.canonical_root();
+        let signed_block = block_contents.0.clone();
+
+        harness
+            .process_block(slot, block_root, block_contents)
+            .await
+            .unwrap();
+
+        // Attest to the current block at its own slot (same-slot attestation).
+        // In Gloas, same-slot attestations have index=0 and route to Pending in
+        // fork choice, correctly propagating weight through the Full path.
+        let state_root = block_state.update_tree_hash_cache().unwrap();
+        harness.attest_block(
+            &block_state,
+            state_root,
+            block_root.into(),
+            &signed_block,
+            &all_validators,
+        );
+
+        let envelope = envelope.expect("Gloas block should have envelope");
+        harness
+            .process_envelope(block_root, envelope, &block_state, state_root)
+            .await;
+
+        last_block_root = block_root;
+        state = block_state;
+    }
+
+    // Head should be the block at slot 40 with full payload.
+    let head = harness.chain.canonical_head.cached_head();
+    assert_eq!(head.head_block_root(), last_block_root);
+    assert_eq!(head.head_payload_status(), PayloadStatus::Full);
+
+    // States at all slots on the canonical chain should be retrievable.
+    for slot_num in 1..=num_blocks {
+        let slot = Slot::new(slot_num);
+        // Get the state root from the block at this slot via the state root iterator.
+        let state_root = harness.chain.state_root_at_slot(slot).unwrap().unwrap();
+
+        let mut loaded_state = store
+            .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
+            .unwrap()
+            .unwrap_or_else(|| panic!("missing state at {slot}/{state_root:?}"));
+        assert_eq!(loaded_state.canonical_root().unwrap(), state_root);
+    }
+
+    // Verify chain dump and iterators work with Gloas states.
+    check_chain_dump(&harness, num_blocks + 1);
+    check_iterators(&harness);
+    check_db_invariants(&harness);
 }
 
 /// Check that the HotColdDB's split_slot is equal to the start slot of the last finalized epoch.
@@ -5599,7 +5898,9 @@ fn check_chain_dump_from_slot(harness: &TestHarness, from_slot: Slot, expected_l
         );
 
         // Check presence of execution payload on disk.
-        if harness.chain.spec.bellatrix_fork_epoch.is_some() {
+        if harness.chain.spec.bellatrix_fork_epoch.is_some()
+            && !harness.chain.spec.is_gloas_scheduled()
+        {
             assert!(
                 harness
                     .chain
@@ -5677,6 +5978,226 @@ fn check_iterators_from_slot(harness: &TestHarness, slot: Slot) {
             .map(Result::unwrap)
             .map(|(_, slot)| slot),
         Some(harness.head_slot())
+    );
+}
+
+/// Test that blocks with default (pre-merge) execution payloads and non-default (post-merge)
+/// execution payloads can be produced, stored, and retrieved correctly through a merge transition.
+///
+/// Spec (see .claude/plans/8658.md):
+///   - Bellatrix at epoch 0 (genesis), genesis has default execution payload header
+///   - Slots 1-9: blocks have default (zeroed) execution payloads
+///   - Slot 10: first block with a non-default execution payload (merge transition block)
+///   - Slots 11-32+: non-default payloads, each with parent_hash == prev payload block_hash
+///   - Chain must finalize past genesis
+#[tokio::test]
+async fn bellatrix_produce_and_store_payloads() {
+    use beacon_chain::test_utils::{
+        DEFAULT_ETH1_BLOCK_HASH, HARNESS_GENESIS_TIME, InteropGenesisBuilder,
+    };
+    use safe_arith::SafeArith;
+    use state_processing::per_block_processing::is_merge_transition_complete;
+    use tree_hash::TreeHash;
+
+    let merge_slot = 10u64;
+    let total_slots = 48u64;
+    let spec = ForkName::Bellatrix.make_genesis_spec(E::default_spec());
+
+    // Build genesis state with a default (zeroed) execution payload header so that
+    // is_merge_transition_complete = false at genesis.
+    let keypairs = KEYPAIRS[0..LOW_VALIDATOR_COUNT].to_vec();
+    let genesis_state = InteropGenesisBuilder::default()
+        .set_alternating_eth1_withdrawal_credentials()
+        .set_opt_execution_payload_header(None)
+        .build_genesis_state(
+            &keypairs,
+            HARNESS_GENESIS_TIME,
+            Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+            &spec,
+        )
+        .unwrap();
+
+    assert!(
+        !is_merge_transition_complete(&genesis_state),
+        "genesis should NOT have merge complete"
+    );
+
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(
+        &db_path,
+        StoreConfig {
+            prune_payloads: false,
+            ..StoreConfig::default()
+        },
+        spec.clone(),
+    );
+
+    let chain_config = ChainConfig {
+        archive: true,
+        ..ChainConfig::default()
+    };
+    let harness = TestHarness::builder(MinimalEthSpec)
+        .spec(store.get_chain_spec().clone())
+        .keypairs(keypairs.clone())
+        .fresh_disk_store(store.clone())
+        .override_store_mutator(Box::new(move |builder: BeaconChainBuilder<_>| {
+            builder
+                .genesis_state(genesis_state)
+                .expect("should set genesis state")
+        }))
+        .mock_execution_layer()
+        .chain_config(chain_config)
+        .build();
+
+    harness
+        .mock_execution_layer
+        .as_ref()
+        .unwrap()
+        .server
+        .all_payloads_valid();
+
+    harness.advance_slot();
+
+    // Phase 1: slots 1 to merge_slot-1 — blocks with default execution payloads.
+    let mut state = harness.get_current_state();
+    for slot_num in 1..merge_slot {
+        let slot = Slot::new(slot_num);
+        harness.advance_slot();
+        harness
+            .build_and_import_block_with_payload(
+                &mut state,
+                slot,
+                ExecutionPayloadBellatrix::default(),
+            )
+            .await;
+        state = harness.get_current_state();
+    }
+
+    // Phase 2: slot merge_slot — the merge transition block with a real payload.
+    {
+        let slot = Slot::new(merge_slot);
+        harness.advance_slot();
+
+        // Advance state to compute correct timestamp and randao.
+        let mut pre_state = state.clone();
+        complete_state_advance(&mut pre_state, None, slot, &harness.spec)
+            .expect("should advance state");
+        pre_state
+            .build_caches(&harness.spec)
+            .expect("should build caches");
+
+        let timestamp = pre_state
+            .genesis_time()
+            .safe_add(
+                slot.as_u64()
+                    .safe_mul(harness.spec.get_slot_duration().as_secs())
+                    .unwrap(),
+            )
+            .unwrap();
+        let prev_randao = *pre_state.get_randao_mix(pre_state.current_epoch()).unwrap();
+
+        let mut transition_payload = ExecutionPayloadBellatrix {
+            parent_hash: ExecutionBlockHash::zero(),
+            fee_recipient: Address::repeat_byte(42),
+            receipts_root: Hash256::repeat_byte(42),
+            state_root: Hash256::repeat_byte(43),
+            logs_bloom: vec![0; 256].try_into().unwrap(),
+            prev_randao,
+            block_number: 1,
+            gas_limit: 30_000_000,
+            gas_used: 0,
+            timestamp,
+            extra_data: VariableList::empty(),
+            base_fee_per_gas: Uint256::from(1u64),
+            block_hash: ExecutionBlockHash::zero(),
+            transactions: VariableList::empty(),
+        };
+        transition_payload.block_hash =
+            ExecutionBlockHash::from_root(transition_payload.tree_hash_root());
+
+        // Insert the transition payload into the mock EL so subsequent blocks can chain.
+        {
+            let mock_el = harness.mock_execution_layer.as_ref().unwrap();
+            let mut block_gen = mock_el.server.execution_block_generator();
+            block_gen.insert_block_without_checks(execution_layer::test_utils::Block::PoS(
+                ExecutionPayload::Bellatrix(transition_payload.clone()),
+            ));
+        }
+
+        harness
+            .build_and_import_block_with_payload(&mut state, slot, transition_payload)
+            .await;
+        state = harness.get_current_state();
+
+        assert!(
+            is_merge_transition_complete(&state),
+            "merge should be complete after slot {merge_slot}"
+        );
+    }
+
+    // Phase 3: slots merge_slot+1 to total_slots — use harness with attestations.
+    let post_merge_slots = (total_slots - merge_slot) as usize;
+    harness.extend_slots(post_merge_slots).await;
+
+    // ---- Verification: check all blocks in the store against plan invariants ----
+
+    let mut prev_payload_block_hash: Option<ExecutionBlockHash> = None;
+
+    for slot_num in 1..=total_slots {
+        let slot = Slot::new(slot_num);
+        let block_root = harness
+            .chain
+            .block_root_at_slot(slot, WhenSlotSkipped::Prev)
+            .unwrap()
+            .unwrap_or_else(|| panic!("missing block at slot {slot_num}"));
+        let block = store
+            .get_blinded_block(&block_root)
+            .unwrap()
+            .unwrap_or_else(|| panic!("block not in store at slot {slot_num}"));
+        let payload = block
+            .message()
+            .body()
+            .execution_payload()
+            .expect("bellatrix block should have execution payload");
+
+        if slot_num < merge_slot {
+            // Slots 1 to merge_slot-1: payload must be default.
+            assert!(
+                payload.is_default_with_empty_roots(),
+                "slot {slot_num} should have default payload"
+            );
+        } else if slot_num == merge_slot {
+            // Merge transition block: first non-default payload.
+            assert!(
+                !payload.is_default_with_empty_roots(),
+                "slot {slot_num} (merge) should have non-default payload"
+            );
+            prev_payload_block_hash = Some(payload.block_hash());
+        } else {
+            // Post-merge: non-default payload with valid parent_hash chain.
+            assert!(
+                !payload.is_default_with_empty_roots(),
+                "slot {slot_num} should have non-default payload"
+            );
+            assert_eq!(
+                payload.parent_hash(),
+                prev_payload_block_hash.unwrap(),
+                "slot {slot_num} payload parent_hash should chain from previous payload"
+            );
+            prev_payload_block_hash = Some(payload.block_hash());
+        }
+    }
+
+    // Verify finalization.
+    let finalized_epoch = harness
+        .chain
+        .canonical_head
+        .cached_head()
+        .finalized_checkpoint()
+        .epoch;
+    assert!(
+        finalized_epoch > 0,
+        "chain should have finalized past genesis"
     );
 }
 

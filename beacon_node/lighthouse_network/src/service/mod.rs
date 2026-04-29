@@ -14,18 +14,20 @@ use crate::rpc::{
     GoodbyeReason, HandlerErr, InboundRequestId, Protocol, RPC, RPCError, RPCMessage, RPCReceived,
     RequestType, ResponseTermination, RpcResponse, RpcSuccessResponse,
 };
+use crate::service::partial_column_header_tracker::PartialColumnHeaderTracker;
 use crate::types::{
-    GossipEncoding, GossipKind, GossipTopic, SnappyTransform, Subnet, SubnetDiscovery,
-    all_topics_at_fork, core_topics_to_subscribe, is_fork_non_core_topic, subnet_from_topic_hash,
+    GossipEncoding, GossipKind, GossipTopic, OutgoingPartialColumn, SnappyTransform, Subnet,
+    SubnetDiscovery, all_topics_at_fork, core_topics_to_subscribe, is_fork_non_core_topic,
+    subnet_from_topic_hash,
 };
-use crate::{Enr, NetworkGlobals, PubsubMessage, TopicHash, metrics};
+use crate::{Enr, NetworkGlobals, PubsubMessage, TopicHash, decode_partial, metrics};
 use api_types::{AppRequestId, Response};
 use futures::stream::StreamExt;
-use gossipsub::{
-    IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
-    TopicScoreParams,
-};
 use gossipsub_scoring_parameters::{PeerScoreSettings, lighthouse_gossip_thresholds};
+use libp2p::gossipsub::{
+    self, Event, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId,
+    PublishError, TopicScoreParams,
+};
 use libp2p::identity::Keypair;
 use libp2p::multiaddr::{self, Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::behaviour::toggle::Toggle;
@@ -40,16 +42,18 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, trace, warn};
-use types::{ChainSpec, ForkName};
 use types::{
-    EnrForkId, EthSpec, ForkContext, Slot, SubnetId, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
+    ChainSpec, DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, ForkName, PartialDataColumn,
+    PartialDataColumnHeader, Slot, SubnetId, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
 };
 use utils::{Context as ServiceContext, build_transport, strip_peer_id};
 
 pub mod api_types;
 mod gossip_cache;
 pub mod gossipsub_scoring_parameters;
+mod partial_column_header_tracker;
 pub mod utils;
+
 /// The number of peers we target per subnet for discovery queries.
 pub const TARGET_SUBNET_PEERS: usize = 3;
 
@@ -98,6 +102,15 @@ pub enum NetworkEvent<E: EthSpec> {
         topic: TopicHash,
         /// The message itself.
         message: PubsubMessage<E>,
+    },
+    /// A partial data column sidecar received via gossipsub partial protocol.
+    PartialDataColumnSidecar {
+        /// The peer from which we received this message.
+        source: PeerId,
+        /// The partial column data.
+        column: Box<PartialDataColumn<E>>,
+        /// The topic that this message was sent on.
+        topic: GossipTopic,
     },
     /// Inform the network to send a Status to this peer.
     StatusPeer(PeerId),
@@ -162,6 +175,7 @@ pub struct Network<E: EthSpec> {
     /// The interval for updating gossipsub scores
     update_gossipsub_scores: tokio::time::Interval,
     gossip_cache: GossipCache,
+    partial_column_header_tracker: PartialColumnHeaderTracker,
     /// This node's PeerId.
     pub local_peer_id: PeerId,
 }
@@ -187,10 +201,9 @@ impl<E: EthSpec> Network<E> {
 
         // set up a collection of variables accessible outside of the network crate
         // Create an ENR or load from disk if appropriate
-        let next_fork_digest = ctx
-            .fork_context
-            .next_fork_digest()
-            .unwrap_or_else(|| ctx.fork_context.current_fork_digest());
+        // Per [spec](https://github.com/ethereum/consensus-specs/blob/1baa05e71148b0975e28918ac6022d2256b56f4a/specs/fulu/p2p-interface.md?plain=1#L636-L637)
+        // `nfd` must be zero-valued when no next fork is scheduled.
+        let next_fork_digest = ctx.fork_context.next_fork_digest().unwrap_or_default();
 
         let advertised_cgc = config
             .advertise_false_custody_group_count
@@ -232,7 +245,7 @@ impl<E: EthSpec> Network<E> {
             config.network_load,
             ctx.fork_context.clone(),
             gossipsub_config_params,
-            ctx.chain_spec.seconds_per_slot,
+            ctx.chain_spec.get_slot_duration(),
             E::slots_per_epoch(),
             config.idontwant_message_size_threshold,
         );
@@ -240,13 +253,12 @@ impl<E: EthSpec> Network<E> {
         let score_settings = PeerScoreSettings::new(&ctx.chain_spec, gs_config.mesh_n());
 
         let gossip_cache = {
-            let slot_duration = std::time::Duration::from_secs(ctx.chain_spec.seconds_per_slot);
-            let half_epoch = std::time::Duration::from_secs(
-                ctx.chain_spec.seconds_per_slot * E::slots_per_epoch() / 2,
+            let half_epoch = std::time::Duration::from_millis(
+                (ctx.chain_spec.get_slot_duration().as_millis() as u64) * E::slots_per_epoch() / 2,
             );
 
             GossipCache::builder()
-                .beacon_block_timeout(slot_duration)
+                .beacon_block_timeout(ctx.chain_spec.get_slot_duration())
                 .aggregates_timeout(half_epoch)
                 .attestation_timeout(half_epoch)
                 .voluntary_exit_timeout(half_epoch * 2)
@@ -507,6 +519,7 @@ impl<E: EthSpec> Network<E> {
             score_settings,
             update_gossipsub_scores,
             gossip_cache,
+            partial_column_header_tracker: PartialColumnHeaderTracker::new(),
             local_peer_id,
         };
 
@@ -574,6 +587,7 @@ impl<E: EthSpec> Network<E> {
         };
 
         // attempt to connect to user-input libp2p nodes
+        // DEPRECATED: can be removed in v8.2.0./v9.0.0
         for multiaddr in &config.libp2p_nodes {
             dial(multiaddr.clone());
         }
@@ -805,9 +819,18 @@ impl<E: EthSpec> Network<E> {
             .write()
             .insert(topic.clone());
 
+        let partial = topic
+            .kind()
+            .use_partial_messages(self.network_globals.config.as_ref());
         let topic: Topic = topic.into();
 
-        match self.gossipsub_mut().subscribe(&topic) {
+        let subscribe_result = if partial {
+            self.gossipsub_mut().subscribe_partial(&topic, true)
+        } else {
+            self.gossipsub_mut().subscribe(&topic)
+        };
+
+        match subscribe_result {
             Err(e) => {
                 warn!(%topic, error = ?e, "Failed to subscribe to topic");
                 false
@@ -850,6 +873,16 @@ impl<E: EthSpec> Network<E> {
                                 "Attempted to publish duplicate message"
                             );
                         }
+                        PublishError::NoPeersSubscribedToTopic
+                            if topic
+                                .kind()
+                                .use_partial_messages(self.network_globals.config.as_ref()) =>
+                        {
+                            debug!(
+                                kind = %topic.kind(),
+                                "No peers supporting full messages"
+                            );
+                        }
                         ref e => {
                             warn!(
                                 error = ?e,
@@ -887,6 +920,66 @@ impl<E: EthSpec> Network<E> {
         }
     }
 
+    /// Publishes partial data column sidecars to the gossipsub network.
+    pub fn publish_partial(
+        &mut self,
+        columns: Vec<Arc<PartialDataColumn<E>>>,
+        header: Arc<PartialDataColumnHeader<E>>,
+    ) {
+        if !self.network_globals.config.enable_partial_columns {
+            return;
+        }
+
+        debug!(
+            count = columns.len(),
+            "Sending partial data column sidecars"
+        );
+
+        for column in columns {
+            let subnet =
+                DataColumnSubnetId::from_column_index(column.index, &self.fork_context.spec);
+            let topic = GossipTopic::new(
+                GossipKind::DataColumnSidecar(subnet),
+                GossipEncoding::default(),
+                self.enr_fork_id.fork_digest,
+            );
+            let header_sent_set = self
+                .partial_column_header_tracker
+                .get_for_block(column.block_root);
+            let partial_message = OutgoingPartialColumn::new(column, &header, header_sent_set);
+            let publish_topic: Topic = topic.clone().into();
+
+            if let Err(e) = self
+                .gossipsub_mut()
+                .publish_partial(publish_topic, partial_message)
+            {
+                match e {
+                    PublishError::NoPeersSubscribedToTopic => {
+                        debug!(
+                            kind = %topic.kind(),
+                            "No peers supporting partial messages"
+                        );
+                    }
+                    ref e => {
+                        warn!(
+                            error = ?e,
+                            kind = %topic.kind(),
+                            "Could not publish partial message"
+                        );
+                    }
+                }
+
+                // add to metrics
+                if let Some(v) = metrics::get_int_gauge(
+                    &metrics::FAILED_PARTIAL_PUBLISHES_PER_MAIN_TOPIC,
+                    &[&format!("{:?}", topic.kind())],
+                ) {
+                    v.inc()
+                };
+            }
+        }
+    }
+
     /// Informs the gossipsub about the result of a message validation.
     /// If the message is valid it will get propagated by gossipsub.
     pub fn report_message_validation_result(
@@ -917,6 +1010,29 @@ impl<E: EthSpec> Network<E> {
             propagation_source,
             validation_result,
         );
+    }
+
+    /// Informs the gossipsub about the failure of a partial message validation.
+    pub fn report_partial_message_validation_failure(
+        &mut self,
+        propagation_source: PeerId,
+        topic: GossipTopic,
+    ) {
+        if let Some(client) = self
+            .network_globals
+            .peers
+            .read()
+            .peer_info(&propagation_source)
+            .map(|info| info.client().kind.as_ref())
+        {
+            metrics::inc_counter_vec(
+                &metrics::GOSSIP_UNACCEPTED_MESSAGES_PER_CLIENT,
+                &[client, "reject"],
+            )
+        }
+
+        self.gossipsub_mut()
+            .report_invalid_partial(propagation_source, &TopicHash::from(Topic::from(topic)));
     }
 
     /// Updates the current gossipsub scoring parameters based on the validator count and current
@@ -1291,6 +1407,56 @@ impl<E: EthSpec> Network<E> {
                     }
                 }
             }
+            Event::Partial {
+                topic_hash,
+                peer_id,
+                group_id,
+                message,
+                ..
+            } => {
+                let topic = GossipTopic::decode(topic_hash.as_str())
+                    .inspect_err(|error| {
+                        debug!(
+                            topic = ?topic_hash,
+                            error,
+                            "Could not decode gossipsub partial message topic"
+                        );
+                        // punish the peer
+                        self.gossipsub_mut()
+                            .report_invalid_partial(peer_id, &topic_hash);
+                    })
+                    .ok()?;
+
+                if let Some(message) = message {
+                    match decode_partial::<E>(&topic, &group_id, &message) {
+                        Err(error) => {
+                            debug!(
+                                topic = ?topic_hash,
+                                error,
+                                "Could not decode gossipsub partial message"
+                            );
+                            //reject the message
+                            self.gossipsub_mut()
+                                .report_invalid_partial(peer_id, &topic_hash);
+                        }
+                        Ok(column) => {
+                            debug!(
+                                block_root = %column.block_root,
+                                index = column.index,
+                                %peer_id,
+                                cells_present = %column.sidecar.cells_present_bitmap,
+                                "Decoded partial message"
+                            );
+                            // Notify the network
+                            return Some(NetworkEvent::PartialDataColumnSidecar {
+                                source: peer_id,
+                                column: Box::new(column),
+                                topic,
+                            });
+                        }
+                    }
+                }
+            }
             gossipsub::Event::Subscribed { peer_id, topic } => {
                 if let Ok(topic) = GossipTopic::decode(topic.as_str()) {
                     if let Some(subnet_id) = topic.subnet_id() {
@@ -1525,6 +1691,28 @@ impl<E: EthSpec> Network<E> {
                             request_type,
                         })
                     }
+                    RequestType::PayloadEnvelopesByRange(_) => {
+                        metrics::inc_counter_vec(
+                            &metrics::TOTAL_RPC_REQUESTS,
+                            &["payload_envelopes_by_range"],
+                        );
+                        Some(NetworkEvent::RequestReceived {
+                            peer_id,
+                            inbound_request_id,
+                            request_type,
+                        })
+                    }
+                    RequestType::PayloadEnvelopesByRoot(_) => {
+                        metrics::inc_counter_vec(
+                            &metrics::TOTAL_RPC_REQUESTS,
+                            &["payload_envelopes_by_root"],
+                        );
+                        Some(NetworkEvent::RequestReceived {
+                            peer_id,
+                            inbound_request_id,
+                            request_type,
+                        })
+                    }
                     RequestType::BlobsByRange(_) => {
                         metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_range"]);
                         Some(NetworkEvent::RequestReceived {
@@ -1639,6 +1827,16 @@ impl<E: EthSpec> Network<E> {
                     RpcSuccessResponse::BlocksByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRoot(Some(resp)))
                     }
+                    RpcSuccessResponse::PayloadEnvelopesByRange(resp) => self.build_response(
+                        id,
+                        peer_id,
+                        Response::PayloadEnvelopesByRange(Some(resp)),
+                    ),
+                    RpcSuccessResponse::PayloadEnvelopesByRoot(resp) => self.build_response(
+                        id,
+                        peer_id,
+                        Response::PayloadEnvelopesByRoot(Some(resp)),
+                    ),
                     RpcSuccessResponse::BlobsByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlobsByRoot(Some(resp)))
                     }
@@ -1673,6 +1871,12 @@ impl<E: EthSpec> Network<E> {
                 let response = match termination {
                     ResponseTermination::BlocksByRange => Response::BlocksByRange(None),
                     ResponseTermination::BlocksByRoot => Response::BlocksByRoot(None),
+                    ResponseTermination::PayloadEnvelopesByRange => {
+                        Response::PayloadEnvelopesByRange(None)
+                    }
+                    ResponseTermination::PayloadEnvelopesByRoot => {
+                        Response::PayloadEnvelopesByRoot(None)
+                    }
                     ResponseTermination::BlobsByRange => Response::BlobsByRange(None),
                     ResponseTermination::BlobsByRoot => Response::BlobsByRoot(None),
                     ResponseTermination::DataColumnsByRoot => Response::DataColumnsByRoot(None),
@@ -1764,9 +1968,9 @@ impl<E: EthSpec> Network<E> {
 
     fn inject_upnp_event(&mut self, event: libp2p::upnp::Event) {
         match event {
-            libp2p::upnp::Event::NewExternalAddr(addr) => {
-                info!(%addr, "UPnP route established");
-                let mut iter = addr.iter();
+            libp2p::upnp::Event::NewExternalAddr { external_addr, .. } => {
+                info!(%external_addr, "UPnP route established");
+                let mut iter = external_addr.iter();
                 let is_ip6 = {
                     let addr = iter.next();
                     matches!(addr, Some(MProtocol::Ip6(_)))
@@ -1781,7 +1985,7 @@ impl<E: EthSpec> Network<E> {
                             }
                         }
                         _ => {
-                            trace!(%addr, "UPnP address mapped multiaddr from unknown transport");
+                            trace!(%external_addr, "UPnP address mapped multiaddr from unknown transport");
                         }
                     },
                     Some(multiaddr::Protocol::Tcp(tcp_port)) => {
@@ -1790,11 +1994,11 @@ impl<E: EthSpec> Network<E> {
                         }
                     }
                     _ => {
-                        trace!(%addr, "UPnP address mapped multiaddr from unknown transport");
+                        trace!(%external_addr, "UPnP address mapped multiaddr from unknown transport");
                     }
                 }
             }
-            libp2p::upnp::Event::ExpiredExternalAddr(_) => {}
+            libp2p::upnp::Event::ExpiredExternalAddr { .. } => {}
             libp2p::upnp::Event::GatewayNotFound => {
                 info!("UPnP not available");
             }
@@ -1861,8 +2065,6 @@ impl<E: EthSpec> Network<E> {
                     self.inject_upnp_event(e);
                     None
                 }
-                #[allow(unreachable_patterns)]
-                BehaviourEvent::ConnectionLimits(le) => libp2p::core::util::unreachable(le),
             },
             SwarmEvent::ConnectionEstablished { .. } => None,
             SwarmEvent::ConnectionClosed { .. } => None,

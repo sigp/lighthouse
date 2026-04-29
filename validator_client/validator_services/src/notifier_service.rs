@@ -2,7 +2,7 @@ use crate::duties_service::DutiesService;
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use tokio::time::{Duration, sleep};
+use tokio::time::sleep;
 use tracing::{debug, error, info};
 use types::{ChainSpec, EthSpec};
 use validator_metrics::set_gauge;
@@ -14,7 +14,7 @@ pub fn spawn_notifier<S: ValidatorStore + 'static, T: SlotClock + 'static>(
     executor: TaskExecutor,
     spec: &ChainSpec,
 ) -> Result<(), String> {
-    let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+    let slot_duration = spec.get_slot_duration();
 
     let interval_fut = async move {
         loop {
@@ -109,6 +109,7 @@ pub async fn notify<S: ValidatorStore, T: SlotClock + 'static>(
         let total_validators = duties_service.total_validator_count();
         let proposing_validators = duties_service.proposer_count(epoch);
         let attesting_validators = duties_service.attester_count(epoch);
+        let ptc_validators = duties_service.ptc_count(epoch);
         let doppelganger_detecting_validators = duties_service.doppelganger_detecting_count();
 
         if doppelganger_detecting_validators > 0 {
@@ -126,6 +127,7 @@ pub async fn notify<S: ValidatorStore, T: SlotClock + 'static>(
         } else if total_validators == attesting_validators {
             info!(
                 current_epoch_proposers = proposing_validators,
+                current_epoch_ptc = ptc_validators,
                 active_validators = attesting_validators,
                 total_validators = total_validators,
                 %epoch,
@@ -135,6 +137,7 @@ pub async fn notify<S: ValidatorStore, T: SlotClock + 'static>(
         } else if attesting_validators > 0 {
             info!(
                 current_epoch_proposers = proposing_validators,
+                current_epoch_ptc = ptc_validators,
                 active_validators = attesting_validators,
                 total_validators = total_validators,
                 %epoch,
@@ -146,7 +149,7 @@ pub async fn notify<S: ValidatorStore, T: SlotClock + 'static>(
                 validators = total_validators,
                 %epoch,
                 %slot,
-                "Awaiting activation"
+                "All validators inactive"
             );
         }
     } else {

@@ -1,12 +1,80 @@
 use crate::data_availability_checker::{AvailableBlock, AvailableBlockData};
-use crate::{
-    attester_cache::{CommitteeLengths, Error},
-    metrics,
-};
+use crate::{BeaconChainError as Error, metrics};
 use parking_lot::RwLock;
 use proto_array::Block as ProtoBlock;
+use safe_arith::SafeArith;
 use std::sync::Arc;
+use tracing::instrument;
 use types::*;
+
+/// Stores the minimal amount of data required to compute the committee length for any committee at any
+/// slot in a given `epoch`.
+pub struct CommitteeLengths {
+    /// The `epoch` to which the lengths pertain.
+    epoch: Epoch,
+    /// The length of the shuffling in `self.epoch`.
+    active_validator_indices_len: usize,
+}
+
+impl CommitteeLengths {
+    /// Instantiate `Self` using `state.current_epoch()`.
+    pub fn new<E: EthSpec>(state: &BeaconState<E>) -> Result<Self, Error> {
+        let active_validator_indices_len = state
+            .committee_cache(RelativeEpoch::Current)?
+            .active_validator_indices()
+            .len();
+
+        Ok(Self {
+            epoch: state.current_epoch(),
+            active_validator_indices_len,
+        })
+    }
+
+    /// Get the count of committees per each slot of `self.epoch`.
+    pub fn get_committee_count_per_slot<E: EthSpec>(
+        &self,
+        spec: &ChainSpec,
+    ) -> Result<usize, Error> {
+        E::get_committee_count_per_slot(self.active_validator_indices_len, spec).map_err(Into::into)
+    }
+
+    /// Get the length of the committee at the given `slot` and `committee_index`.
+    pub fn get_committee_length<E: EthSpec>(
+        &self,
+        slot: Slot,
+        committee_index: CommitteeIndex,
+        spec: &ChainSpec,
+    ) -> Result<usize, Error> {
+        let slots_per_epoch = E::slots_per_epoch();
+        let request_epoch = slot.epoch(slots_per_epoch);
+
+        // Sanity check.
+        if request_epoch != self.epoch {
+            return Err(Error::EarlyAttesterCacheError);
+        }
+
+        let slots_per_epoch = slots_per_epoch as usize;
+        let committees_per_slot = self.get_committee_count_per_slot::<E>(spec)?;
+        let index_in_epoch = compute_committee_index_in_epoch(
+            slot,
+            slots_per_epoch,
+            committees_per_slot,
+            committee_index as usize,
+        )?;
+        let epoch_committee_count = committees_per_slot.safe_mul(slots_per_epoch)?;
+        let range = compute_committee_range_in_epoch(
+            epoch_committee_count,
+            index_in_epoch,
+            self.active_validator_indices_len,
+        )?
+        .ok_or(Error::EarlyAttesterCacheError)?;
+
+        range
+            .end
+            .checked_sub(range.start)
+            .ok_or(Error::EarlyAttesterCacheError)
+    }
+}
 
 pub struct CacheItem<E: EthSpec> {
     /*
@@ -55,10 +123,9 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
         block: &AvailableBlock<E>,
         proto_block: ProtoBlock,
         state: &BeaconState<E>,
-        spec: &ChainSpec,
     ) -> Result<(), Error> {
         let epoch = state.current_epoch();
-        let committee_lengths = CommitteeLengths::new(state, spec)?;
+        let committee_lengths = CommitteeLengths::new(state)?;
         let source = state.current_justified_checkpoint();
         let target_slot = epoch.start_slot(E::slots_per_epoch());
         let target = Checkpoint {
@@ -98,6 +165,13 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
     /// - There is a cache `item` present.
     /// - If `request_slot` is in the same epoch as `item.epoch`.
     /// - If `request_index` does not exceed `item.committee_count`.
+    ///
+    /// Post gloas an additional condition must be met:
+    /// - `request_slot` is the same slot as `item.block.slot` (i.e. a same slot attestation).
+    ///
+    /// Non-same-slot Gloas attestations need `data.index` set from the canonical payload
+    /// status, which the cache doesn't track. Returning `None` falls through to fork choice.
+    #[instrument(skip_all, fields(%request_slot, %request_index), level = "debug")]
     pub fn try_attest(
         &self,
         request_slot: Slot,
@@ -129,6 +203,12 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             item.committee_lengths
                 .get_committee_length::<E>(request_slot, request_index, spec)?;
 
+        let is_same_slot_attestation = request_slot == item.block.slot();
+        if spec.fork_name_at_slot::<E>(request_slot).gloas_enabled() && !is_same_slot_attestation {
+            return Ok(None);
+        }
+        let payload_present = false;
+
         let attestation = Attestation::empty_for_signing(
             request_index,
             committee_len,
@@ -136,6 +216,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             item.beacon_block_root,
             item.source,
             item.target,
+            payload_present,
             spec,
         )
         .map_err(Error::AttestationError)?;
@@ -187,5 +268,13 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             .as_ref()
             .filter(|item| item.beacon_block_root == block_root)
             .map(|item| item.proto_block.clone())
+    }
+
+    /// Fetch the slot and block root of the current head block.
+    pub fn get_head_block_root(&self) -> Option<(Slot, Hash256)> {
+        self.item
+            .read()
+            .as_ref()
+            .map(|item| (item.block.slot(), item.beacon_block_root))
     }
 }

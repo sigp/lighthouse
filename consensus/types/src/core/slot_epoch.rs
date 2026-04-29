@@ -22,7 +22,7 @@ use crate::{
     test_utils::TestRandom,
 };
 
-#[cfg(feature = "legacy-arith")]
+#[cfg(feature = "saturating-arith")]
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign};
 
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]

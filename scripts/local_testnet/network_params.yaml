@@ -18,13 +18,16 @@ participants:
     count: 2
 network_params:
   fulu_fork_epoch: 0
-  seconds_per_slot: 6
+  slot_duration_ms: 3000
 snooper_enabled: false
 global_log_level: debug
+tempo_params:
+  image: grafana/tempo:2.10.3
 additional_services:
   - dora
   - spamoor
-  - prometheus_grafana
+  - prometheus
+  - grafana
   - tempo
 spamoor_params:
   image: ethpandaops/spamoor:master

@@ -2,10 +2,10 @@ use std::time::Duration;
 
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes,
-    validator_monitor::{get_slot_delay_ms, timestamp_now},
+    validator_monitor::get_slot_delay_ms,
 };
 
-use slot_clock::SlotClock;
+use slot_clock::{SlotClock, timestamp_now};
 use strum::AsRefStr;
 use tree_hash::TreeHash;
 use types::{Domain, SignedInclusionList, SignedRoot, Slot};
@@ -67,7 +67,7 @@ impl<T: BeaconChainTypes> GossipVerifiedInclusionList<T> {
             });
         }
 
-        let attestation_deadline = Duration::from_secs(chain.spec.seconds_per_slot / 3);
+        let attestation_deadline = chain.spec.get_slot_duration() / 3;
 
         let inclusion_list_delay_total =
             get_slot_delay_ms(timestamp_now(), message_slot, &chain.slot_clock);

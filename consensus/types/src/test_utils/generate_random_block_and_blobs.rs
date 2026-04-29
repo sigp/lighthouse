@@ -34,11 +34,8 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
         .blob_kzg_commitments_mut()
         .expect("kzg commitment expected from Deneb") = commitments.clone();
 
-    for (index, ((blob, kzg_commitment), kzg_proof)) in blobs
-        .into_iter()
-        .zip(commitments.into_iter())
-        .zip(proofs.into_iter())
-        .enumerate()
+    for (index, ((blob, kzg_commitment), kzg_proof)) in
+        blobs.into_iter().zip(commitments).zip(proofs).enumerate()
     {
         blob_sidecars.push(BlobSidecar {
             index: index as u64,
@@ -100,20 +97,8 @@ mod test {
             ..
         } = blob_sidecars.pop().unwrap();
 
-        // Compute the commitments inclusion proof and use it for building blob sidecar.
-        let (signed_block_header, kzg_commitments_inclusion_proof) = block
-            .signed_block_header_and_kzg_commitments_proof()
-            .unwrap();
-
-        let blob_sidecar = BlobSidecar::new_with_existing_proof(
-            index as usize,
-            blob,
-            &block,
-            signed_block_header,
-            &kzg_commitments_inclusion_proof,
-            kzg_proof,
-        )
-        .unwrap();
+        let blob_sidecar =
+            BlobSidecar::new_with_existing_proof(index as usize, blob, &block, kzg_proof).unwrap();
 
         assert!(blob_sidecar.verify_blob_sidecar_inclusion_proof());
     }
