@@ -316,6 +316,7 @@ impl ForkChoiceTest {
                 Duration::from_secs(0),
                 &state,
                 PayloadVerificationStatus::Verified,
+                block.message().proposer_index(),
                 &self.harness.chain.spec,
             )
             .unwrap();
@@ -359,6 +360,7 @@ impl ForkChoiceTest {
                 Duration::from_secs(0),
                 &state,
                 PayloadVerificationStatus::Verified,
+                block.message().proposer_index(),
                 &self.harness.chain.spec,
             )
             .expect_err("on_block did not return an error");

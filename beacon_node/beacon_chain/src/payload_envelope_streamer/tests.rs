@@ -72,6 +72,7 @@ fn build_chain(
                     execution_requests: Default::default(),
                     builder_index: 0,
                     beacon_block_root: block_root,
+                    parent_beacon_block_root: Hash256::ZERO,
                 },
                 signature: Signature::empty(),
             })
