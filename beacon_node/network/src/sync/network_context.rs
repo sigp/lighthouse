@@ -778,10 +778,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         let range_req = entry.get_mut();
         if let Some(blocks_result) = range_req.responses(
-            self.chain
-                .data_availability_checker
-                .pending_block_cache()
-                .clone(),
+            self.chain.data_availability_checker.clone(),
             self.chain.spec.clone(),
         ) {
             if let Err(CouplingError::DataColumnPeerFailure {
@@ -1085,14 +1082,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn custody_lookup_request(
         &mut self,
         lookup_id: SingleLookupId,
-        slot: Slot,
+        _slot: Slot,
         block_root: Hash256,
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
         let custody_indexes_imported = self
             .chain
             .data_availability_checker
-            .cached_data_column_indexes(&block_root, slot)
+            .cached_data_column_indexes(&block_root)
             .unwrap_or_default();
 
         let current_epoch = self.chain.epoch().map_err(|e| {

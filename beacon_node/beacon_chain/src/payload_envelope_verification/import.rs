@@ -17,7 +17,6 @@ use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes,
     NotifyExecutionLayer,
     block_verification_types::AvailableBlockData,
-    data_availability_router::AvailabilityOutcome,
     metrics,
     payload_envelope_verification::{
         AvailabilityPendingExecutedEnvelope, ExecutionPendingEnvelope,
@@ -153,41 +152,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     async fn process_payload_envelope_availability(
         self: &Arc<Self>,
         slot: Slot,
-        availability: AvailabilityOutcome<T::EthSpec>,
+        availability: PayloadAvailability<T::EthSpec>,
         publish_fn: impl FnOnce() -> Result<(), EnvelopeError>,
     ) -> Result<AvailabilityProcessingStatus, EnvelopeError> {
         match availability {
-            AvailabilityOutcome::Block(_) => {
-                Err(EnvelopeError::InternalError("Received a block availability outcome variant when a payload envelope variant was expected".to_string()))
+            PayloadAvailability::Available(available_envelope) => {
+                publish_fn()?;
+                self.import_available_execution_payload_envelope(available_envelope)
+                    .await
             }
-            AvailabilityOutcome::Payload(availability) => match availability {
-                PayloadAvailability::Available(available_envelope) => {
-                    publish_fn()?;
-
-                    // Payload envelope is fully available
-                    self.import_available_execution_payload_envelope(available_envelope)
-                        .await
-                }
-                PayloadAvailability::MissingComponents(block_root) => Ok(
-                    AvailabilityProcessingStatus::MissingComponents(slot, block_root),
-                ),
-            },
+            PayloadAvailability::MissingComponents(block_root) => Ok(
+                AvailabilityProcessingStatus::MissingComponents(slot, block_root),
+            ),
         }
     }
 
-    /// Checks if the payload envelope is available, and imports immediately if so, otherwise caches the envelope
-    /// in the data availability checker.
     #[instrument(skip_all)]
     async fn check_envelope_availability_and_import(
         self: &Arc<Self>,
         envelope: AvailabilityPendingExecutedEnvelope<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, EnvelopeError> {
         let slot = envelope.envelope.slot();
-        let availability = AvailabilityOutcome::Payload(
-            self.data_availability_checker
-                .pending_payload_cache()
-                .put_executed_payload_envelope(envelope)?,
-        );
+        let availability = self
+            .pending_payload_cache
+            .put_executed_payload_envelope(envelope)?;
         self.process_payload_envelope_availability(slot, availability, || Ok(()))
             .await
     }

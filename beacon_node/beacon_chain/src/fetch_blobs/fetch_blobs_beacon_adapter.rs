@@ -39,7 +39,6 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
     pub(crate) fn partial_assembler(&self) -> Option<Arc<PartialDataColumnAssembler<T::EthSpec>>> {
         self.chain
             .data_availability_checker
-            .pending_block_cache()
             .partial_assembler()
             .cloned()
     }
@@ -122,12 +121,12 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
 
     pub(crate) fn cached_data_column_indexes(
         &self,
-        slot: Slot,
+        _slot: Slot,
         block_root: &Hash256,
     ) -> Option<Vec<u64>> {
         self.chain
             .data_availability_checker
-            .cached_data_column_indexes(block_root, slot)
+            .cached_data_column_indexes(block_root)
     }
 
     pub(crate) async fn process_engine_blobs(

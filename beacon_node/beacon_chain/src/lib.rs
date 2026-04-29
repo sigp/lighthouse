@@ -18,7 +18,6 @@ pub mod canonical_head;
 pub mod chain_config;
 pub mod custody_context;
 pub mod data_availability_checker;
-pub mod data_availability_router;
 pub mod data_column_verification;
 mod early_attester_cache;
 pub mod envelope_times_cache;

@@ -331,7 +331,6 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, GossipDataColumnError> {
-        let slot = column_sidecar.slot();
         verify_data_column_sidecar(&column_sidecar, &chain.spec)?;
 
         // Check if the data column is already in the DA checker cache. This happens when data columns
@@ -343,7 +342,7 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
 
         match chain
             .data_availability_checker
-            .missing_cells_for_column_sidecar(slot, &column_sidecar)
+            .missing_cells_for_column_sidecar(&column_sidecar)
         {
             Ok(Some(_)) => Ok(Self {
                 block_root: column_sidecar.block_root(),
@@ -541,11 +540,7 @@ impl<E: EthSpec> GossipVerifiedPartialDataColumnHeader<E> {
         let header = Arc::new(header);
 
         // Cache the valid header
-        let Some(assembler) = chain
-            .data_availability_checker
-            .pending_block_cache()
-            .partial_assembler()
-        else {
+        let Some(assembler) = chain.data_availability_checker.partial_assembler() else {
             return Err(GossipPartialDataColumnError::PartialColumnsDisabled);
         };
         let newly_cached = assembler.init(group_id, header.clone());
@@ -929,7 +924,7 @@ pub fn validate_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes, O: Obse
     // propagation.
     let Some(cells_to_kzg_verify) = chain
         .data_availability_checker
-        .missing_cells_for_column_sidecar(column_slot, &data_column)
+        .missing_cells_for_column_sidecar(&data_column)
         .map_err(|err| match err {
             MissingCellsError::MismatchesCachedColumn => {
                 GossipDataColumnError::MismatchesCachedColumn
@@ -1003,11 +998,7 @@ pub fn validate_partial_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
             }
         }
     } else {
-        let Some(assembler) = chain
-            .data_availability_checker
-            .pending_block_cache()
-            .partial_assembler()
-        else {
+        let Some(assembler) = chain.data_availability_checker.partial_assembler() else {
             return PartialColumnVerificationResult::Err(
                 GossipPartialDataColumnError::PartialColumnsDisabled,
             );
@@ -1064,7 +1055,6 @@ pub fn validate_partial_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
     let column = Arc::from(column);
     let cells_to_kzg_verify = match chain
         .data_availability_checker
-        .pending_block_cache()
         .missing_cells_for_partial_column_sidecar(&column)
     {
         Ok(Some(cells_to_kzg_verify)) => cells_to_kzg_verify,
@@ -1625,7 +1615,6 @@ mod test {
         harness
             .chain
             .data_availability_checker
-            .pending_block_cache()
             .partial_assembler()
             .unwrap()
             .init(block_root, header.clone());

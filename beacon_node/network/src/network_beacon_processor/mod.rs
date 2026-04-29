@@ -999,12 +999,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         // Publish partial columns without eager send
         // TODO(gloas): implement
-        if let Some(assembler) = self
-            .chain
-            .data_availability_checker
-            .pending_block_cache()
-            .partial_assembler()
-        {
+        if let Some(assembler) = self.chain.data_availability_checker.partial_assembler() {
             let columns = assembler.get_partials_and_mark_as_local_fetched(block_root, &header);
             if !columns.is_empty() {
                 debug!(block = %block_root, "Publishing all partials after getBlobs");

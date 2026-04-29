@@ -1110,10 +1110,7 @@ impl TestRig {
         let range_sync_block = RangeSyncBlock::new(
             block,
             block_data,
-            self.harness
-                .chain
-                .data_availability_checker
-                .pending_block_cache(),
+            &self.harness.chain.data_availability_checker,
             self.harness.chain.spec.clone(),
         )
         .unwrap();

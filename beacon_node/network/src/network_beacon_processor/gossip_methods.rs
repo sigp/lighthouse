@@ -1328,7 +1328,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             && self
                 .chain
                 .data_availability_checker
-                .pending_block_cache()
                 .partial_assembler()
                 .is_some_and(|a| !a.is_complete(block_root, verified_data_column.index()))
         {

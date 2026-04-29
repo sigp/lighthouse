@@ -556,10 +556,7 @@ pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
 ) {
     if chain.spec.gloas_fork_epoch.is_some() {
-        let da_checker = chain
-            .data_availability_checker
-            .pending_payload_cache()
-            .clone();
+        let da_checker = chain.pending_payload_cache.clone();
         executor.spawn(
             async move { availability_cache_maintenance_service(chain, da_checker).await },
             "availability_cache_service",
