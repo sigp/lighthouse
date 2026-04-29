@@ -983,8 +983,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
             }
             Err(FetchEngineBlobError::BlobProcessingError(e))
-                if let BlockOrEnvelopeError::BlockError(BlockError::DuplicateFullyImported(..)) =
-                    *e =>
+                if matches!(
+                    *e,
+                    BlockOrEnvelopeError::BlockError(BlockError::DuplicateFullyImported(..))
+                ) =>
             {
                 debug!(
                     %block_root,
