@@ -632,7 +632,6 @@ mod data_availability_checker_tests {
     use super::*;
 
     use crate::block_verification::PayloadVerificationOutcome;
-    use crate::data_column_verification::{KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn};
     use crate::test_utils::{
         NumBlobs, generate_data_column_indices_rand_order, generate_rand_block_and_data_columns,
         test_spec,
@@ -749,10 +748,6 @@ mod data_availability_checker_tests {
         assert_eq!(cache.block_cache_size(), 0);
     }
 
-    // TODO(gloas): Add tests for `put_rpc_custody_columns` and `put_gossip_verified_data_columns`
-    // once the Gloas harness can produce KZG-valid columns. These wrappers add KZG verification
-    // and custody column filtering on top of `put_kzg_verified_custody_data_columns`.
-
     fn make_test_signed_envelope(block_root: Hash256) -> Arc<SignedExecutionPayloadEnvelope<E>> {
         Arc::new(SignedExecutionPayloadEnvelope {
             message: ExecutionPayloadEnvelope {
@@ -794,22 +789,14 @@ mod data_availability_checker_tests {
             &mut rng,
             &spec,
         );
-
+        let slot = block.slot();
         let block_root = Hash256::random();
         cache.init_pending_block(block_root, Arc::new(block));
 
-        let verified_columns: Vec<_> = data_columns
-            .into_iter()
-            .take(1)
-            .map(|col| {
-                KzgVerifiedCustodyDataColumn::from_asserted_custody(
-                    KzgVerifiedDataColumn::__new_for_testing(col),
-                )
-            })
-            .collect();
+        let columns: DataColumnSidecarList<E> = data_columns.into_iter().take(1).collect();
 
-        let result = cache.put_kzg_verified_custody_data_columns(block_root, verified_columns);
-        assert!(result.is_ok());
+        let result = cache.put_rpc_custody_columns(block_root, slot, columns);
+        assert!(result.is_ok(), "put_rpc_custody_columns failed: {result:?}");
 
         assert_eq!(cache.block_cache_size(), 1);
 
@@ -838,23 +825,19 @@ mod data_availability_checker_tests {
             &mut rng,
             &spec,
         );
-
+        let slot = block.slot();
         let block_root = Hash256::random();
         cache.init_pending_block(block_root, Arc::new(block));
 
         let first_column = data_columns.first().cloned().expect("should have column");
         let column_index = *first_column.index();
 
-        let verified_column = KzgVerifiedCustodyDataColumn::from_asserted_custody(
-            KzgVerifiedDataColumn::__new_for_testing(first_column.clone()),
-        );
-
         cache
-            .put_kzg_verified_custody_data_columns(block_root, vec![verified_column.clone()])
+            .put_rpc_custody_columns(block_root, slot, vec![first_column.clone()])
             .expect("should put column");
 
         cache
-            .put_kzg_verified_custody_data_columns(block_root, vec![verified_column])
+            .put_rpc_custody_columns(block_root, slot, vec![first_column])
             .expect("should put column again");
 
         let cached_indices = cache.peek_pending_components(&block_root, |components| {
@@ -884,21 +867,12 @@ mod data_availability_checker_tests {
             &mut rng,
             &spec,
         );
-
+        let slot = block.slot();
         let block_root = Hash256::random();
         cache.init_pending_block(block_root, Arc::new(block));
 
-        let verified_columns: Vec<_> = data_columns
-            .into_iter()
-            .map(|col| {
-                KzgVerifiedCustodyDataColumn::from_asserted_custody(
-                    KzgVerifiedDataColumn::__new_for_testing(col),
-                )
-            })
-            .collect();
-
         let result = cache
-            .put_kzg_verified_custody_data_columns(block_root, verified_columns)
+            .put_rpc_custody_columns(block_root, slot, data_columns)
             .expect("should put columns");
 
         // Without an executed envelope, should still be missing components
@@ -923,21 +897,12 @@ mod data_availability_checker_tests {
             &mut rng,
             &spec,
         );
-
+        let slot = block.slot();
         let block_root = Hash256::random();
         cache.init_pending_block(block_root, Arc::new(block));
 
-        let verified_columns: Vec<_> = data_columns
-            .into_iter()
-            .map(|col| {
-                KzgVerifiedCustodyDataColumn::from_asserted_custody(
-                    KzgVerifiedDataColumn::__new_for_testing(col),
-                )
-            })
-            .collect();
-
         let result = cache
-            .put_kzg_verified_custody_data_columns(block_root, verified_columns)
+            .put_rpc_custody_columns(block_root, slot, data_columns)
             .expect("should put columns");
 
         assert!(matches!(result, Availability::MissingComponents(_)));
@@ -1006,22 +971,14 @@ mod data_availability_checker_tests {
             &mut rng,
             &spec,
         );
-
+        let slot = block.slot();
         let block_root = Hash256::random();
         cache.init_pending_block(block_root, Arc::new(block));
 
-        let verified_columns: Vec<_> = data_columns
-            .into_iter()
-            .take(5)
-            .map(|col| {
-                KzgVerifiedCustodyDataColumn::from_asserted_custody(
-                    KzgVerifiedDataColumn::__new_for_testing(col),
-                )
-            })
-            .collect();
+        let columns: DataColumnSidecarList<E> = data_columns.into_iter().take(5).collect();
 
         cache
-            .put_kzg_verified_custody_data_columns(block_root, verified_columns)
+            .put_rpc_custody_columns(block_root, slot, columns)
             .expect("should put columns");
 
         let cached_count = cache.peek_pending_components(&block_root, |components| {
@@ -1072,25 +1029,17 @@ mod data_availability_checker_tests {
             &mut rng,
             &spec,
         );
-
+        let slot = block.slot();
         let block_root = Hash256::random();
 
         assert!(cache.get_data_columns(block_root).is_none());
 
         cache.init_pending_block(block_root, Arc::new(block));
 
-        let verified_columns: Vec<_> = data_columns
-            .into_iter()
-            .take(3)
-            .map(|col| {
-                KzgVerifiedCustodyDataColumn::from_asserted_custody(
-                    KzgVerifiedDataColumn::__new_for_testing(col),
-                )
-            })
-            .collect();
+        let columns: DataColumnSidecarList<E> = data_columns.into_iter().take(3).collect();
 
         cache
-            .put_kzg_verified_custody_data_columns(block_root, verified_columns)
+            .put_rpc_custody_columns(block_root, slot, columns)
             .expect("should put columns");
 
         let peeked = cache.get_data_columns(block_root);
@@ -1116,20 +1065,17 @@ mod data_availability_checker_tests {
             &mut rng,
             &spec,
         );
-
+        let slot = block.slot();
         let block = Arc::new(block);
+        let first_column = data_columns.first().cloned().expect("should have column");
 
         let mut roots = Vec::new();
         for _ in 0..33 {
             let block_root = Hash256::random();
             roots.push(block_root);
             cache.init_pending_block(block_root, block.clone());
-            let col = data_columns.first().cloned().expect("should have column");
-            let verified = vec![KzgVerifiedCustodyDataColumn::from_asserted_custody(
-                KzgVerifiedDataColumn::__new_for_testing(col),
-            )];
             cache
-                .put_kzg_verified_custody_data_columns(block_root, verified)
+                .put_rpc_custody_columns(block_root, slot, vec![first_column.clone()])
                 .expect("should put columns");
         }
 
@@ -1156,16 +1102,13 @@ mod data_availability_checker_tests {
             &mut rng,
             &spec,
         );
-
+        let slot = block.slot();
         let block_root = Hash256::random();
         cache.init_pending_block(block_root, Arc::new(block));
 
         let col = data_columns.first().cloned().expect("should have column");
-        let verified = vec![KzgVerifiedCustodyDataColumn::from_asserted_custody(
-            KzgVerifiedDataColumn::__new_for_testing(col),
-        )];
         cache
-            .put_kzg_verified_custody_data_columns(block_root, verified)
+            .put_rpc_custody_columns(block_root, slot, vec![col])
             .expect("should put columns");
 
         assert_eq!(cache.block_cache_size(), 1);
@@ -1196,7 +1139,7 @@ mod data_availability_checker_tests {
             &mut rng,
             &spec,
         );
-
+        let slot = block.slot();
         let block_root = Hash256::random();
         cache.init_pending_block(block_root, Arc::new(block));
 
@@ -1206,18 +1149,10 @@ mod data_availability_checker_tests {
             .expect("should put executed envelope");
 
         // Insert only 1 column (need 128 for fullnode)
-        let verified_columns: Vec<_> = data_columns
-            .into_iter()
-            .take(1)
-            .map(|col| {
-                KzgVerifiedCustodyDataColumn::from_asserted_custody(
-                    KzgVerifiedDataColumn::__new_for_testing(col),
-                )
-            })
-            .collect();
+        let columns: DataColumnSidecarList<E> = data_columns.into_iter().take(1).collect();
 
         let result = cache
-            .put_kzg_verified_custody_data_columns(block_root, verified_columns)
+            .put_rpc_custody_columns(block_root, slot, columns)
             .expect("should put columns");
 
         assert!(
