@@ -4761,14 +4761,14 @@ impl ApiTester {
         self.harness.advance_slot();
         let slot = self.chain.slot().unwrap();
 
-        // The endpoint should return 503 when no block exists for the slot
+        // The endpoint should return 404 when no block exists for the slot
         match self
             .client
             .get_validator_payload_attestation_data(slot)
             .await
         {
             Ok(result) => panic!("query for empty slot should fail, got: {result:?}"),
-            Err(e) => assert_eq!(e.status().unwrap(), 503),
+            Err(e) => assert_eq!(e.status().unwrap(), 404),
         }
 
         self

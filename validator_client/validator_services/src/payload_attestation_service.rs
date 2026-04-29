@@ -147,11 +147,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
             Err(e) => {
                 // Per the consensus spec, validators should not submit a
                 // payload attestation when no block has been seen for the slot.
-                // The BN returns 503 in this case.
+                // The BN returns 404 in this case.
                 let is_block_not_found = e.0.iter().any(|(_, err)| {
                     err.request_failure()
                         .and_then(|e| e.status())
-                        .is_some_and(|s| s == reqwest::StatusCode::SERVICE_UNAVAILABLE)
+                        .is_some_and(|s| s == reqwest::StatusCode::NOT_FOUND)
                 });
                 if is_block_not_found {
                     debug!(
