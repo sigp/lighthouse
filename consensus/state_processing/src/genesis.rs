@@ -206,10 +206,7 @@ pub fn genesis_block<E: EthSpec>(
     let mut block = BeaconBlock::empty(spec);
     if let BeaconBlock::Gloas(ref mut gloas_block) = block {
         let bid = state.latest_execution_payload_bid()?.clone();
-        gloas_block
-            .body
-            .signed_execution_payload_bid
-            .message = bid;
+        gloas_block.body.signed_execution_payload_bid.message = bid;
     }
     Ok(block)
 }
