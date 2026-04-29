@@ -12,7 +12,7 @@ use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sideca
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::observed_data_sidecars::ObservedDataSidecars;
-use crate::pending_payload_cache::PendingPayloadCache as DataAvailabilityCheckerV2;
+use crate::pending_payload_cache::PendingPayloadCache;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::persisted_custody::load_custody_context;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
@@ -987,31 +987,7 @@ where
             )
         };
         debug!(?custody_context, "Loaded persisted custody context");
-
         let custody_context = Arc::new(custody_context);
-        let da_checker_v1 = Arc::new(
-            DataAvailabilityChecker::new(
-                complete_blob_backfill,
-                slot_clock.clone(),
-                self.kzg.clone(),
-                custody_context.clone(),
-                self.spec.clone(),
-                enable_partial_columns,
-            )
-            .map_err(|e| format!("Error initializing DataAvailabilityCheckerV1: {:?}", e))?,
-        );
-
-        let da_checker_v2 = Arc::new(
-            DataAvailabilityCheckerV2::new(
-                self.kzg.clone(),
-                custody_context.clone(),
-                self.spec.clone(),
-            )
-            .map_err(|e| format!("Error initializing DataAvailabilityCheckerV2: {:?}", e))?,
-        );
-
-        let pending_block_cache = da_checker_v1;
-        let pending_payload_cache = da_checker_v2;
 
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
@@ -1084,8 +1060,25 @@ where
             slasher: self.slasher.clone(),
             validator_monitor: RwLock::new(validator_monitor),
             genesis_backfill_slot,
-            data_availability_checker: pending_block_cache,
-            pending_payload_cache,
+            data_availability_checker: Arc::new(
+                DataAvailabilityChecker::new(
+                    complete_blob_backfill,
+                    slot_clock.clone(),
+                    self.kzg.clone(),
+                    custody_context.clone(),
+                    self.spec.clone(),
+                    enable_partial_columns,
+                )
+                .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
+            ),
+            pending_payload_cache: Arc::new(
+                PendingPayloadCache::new(
+                    self.kzg.clone(),
+                    custody_context.clone(),
+                    self.spec.clone(),
+                )
+                .map_err(|e| format!("Error initializing PendingPayloadCache: {:?}", e))?,
+            ),
             kzg: self.kzg.clone(),
             rng: Arc::new(Mutex::new(rng)),
             gossip_verified_payload_bid_cache: <_>::default(),

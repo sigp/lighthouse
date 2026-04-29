@@ -543,7 +543,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             match self.chain.get_data_columns_checking_all_caches(
                 data_column_ids_by_root.block_root,
                 &indices_to_retrieve,
-                request.fork_name,
             ) {
                 Ok(data_columns) => {
                     send_data_column_count += data_columns.len();

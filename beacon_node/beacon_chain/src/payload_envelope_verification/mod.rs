@@ -100,47 +100,6 @@ pub struct EnvelopeProcessingSnapshot<E: EthSpec> {
     pub beacon_block_root: Hash256,
 }
 
-/// A payload envelope that has gone through processing checks and execution by an EL client.
-/// This envelope hasn't necessarily completed data availability checks.
-///
-///
-/// It contains 2 variants:
-/// 1. `Available`: This envelope has been executed and also contains all data to consider it
-///    fully available.
-/// 2. `AvailabilityPending`: This envelope hasn't received all required blobs to consider it
-///    fully available.
-#[allow(dead_code)]
-pub enum ExecutedEnvelope<E: EthSpec> {
-    Available(AvailableExecutedEnvelope<E>),
-    AvailabilityPending(AvailabilityPendingExecutedEnvelope<E>),
-}
-
-impl<E: EthSpec> ExecutedEnvelope<E> {
-    pub fn new(
-        envelope: MaybeAvailableEnvelope<E>,
-        block_root: Hash256,
-        payload_verification_outcome: PayloadVerificationOutcome,
-    ) -> Self {
-        match envelope {
-            MaybeAvailableEnvelope::Available(available_envelope) => {
-                Self::Available(AvailableExecutedEnvelope::new(
-                    available_envelope,
-                    block_root,
-                    payload_verification_outcome,
-                ))
-            }
-            MaybeAvailableEnvelope::AvailabilityPending {
-                block_hash: _,
-                envelope,
-            } => Self::AvailabilityPending(AvailabilityPendingExecutedEnvelope::new(
-                envelope,
-                block_root,
-                payload_verification_outcome,
-            )),
-        }
-    }
-}
-
 /// A payload ernvelope that has completed all envelope procesing checks, verification
 /// by an EL client but does not have all requisite columns to get imported into
 /// fork choice.
@@ -161,10 +120,6 @@ impl<E: EthSpec> AvailabilityPendingExecutedEnvelope<E> {
             block_root,
             payload_verification_outcome,
         }
-    }
-
-    pub fn as_envelope(&self) -> &SignedExecutionPayloadEnvelope<E> {
-        &self.envelope
     }
 }
 

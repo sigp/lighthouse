@@ -71,7 +71,7 @@ use crate::payload_envelope_verification::EnvelopeError;
 use crate::pending_payload_cache::PendingPayloadCache;
 use crate::pending_payload_cache::{
     Availability as PayloadAvailability,
-    DataColumnReconstructionResult as DataColumnReconstructionResultV2,
+    DataColumnReconstructionResult as DataColumnReconstructionResultGloas,
 };
 use crate::pending_payload_envelopes::PendingPayloadEnvelopes;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
@@ -1185,14 +1185,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block_root: Hash256,
         indices: &[ColumnIndex],
-        fork_name: ForkName,
     ) -> Result<DataColumnSidecarList<T::EthSpec>, Error> {
-        let all_cached_columns_opt = if fork_name.gloas_enabled() {
-            self.pending_payload_cache.get_data_columns(block_root)
-        } else {
-            self.data_availability_checker.get_data_columns(block_root)
-        }
-        .or_else(|| self.early_attester_cache.get_data_columns(block_root));
+        let all_cached_columns_opt = self
+            .pending_payload_cache
+            .get_data_columns(block_root)
+            .or_else(|| self.data_availability_checker.get_data_columns(block_root))
+            .or_else(|| self.early_attester_cache.get_data_columns(block_root));
 
         if let Some(mut all_cached_columns) = all_cached_columns_opt {
             all_cached_columns.retain(|col| indices.contains(col.index()));
@@ -3676,7 +3674,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(EnvelopeError::from)?;
 
             match result {
-                DataColumnReconstructionResultV2::Success((
+                DataColumnReconstructionResultGloas::Success((
                     availability,
                     data_columns_to_publish,
                 )) => {
@@ -3689,8 +3687,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .await
                         .map(|status| Some((status, data_columns_to_publish)))?)
                 }
-                DataColumnReconstructionResultV2::NotStarted(reason)
-                | DataColumnReconstructionResultV2::RecoveredColumnsNotImported(reason) => {
+                DataColumnReconstructionResultGloas::NotStarted(reason)
+                | DataColumnReconstructionResultGloas::RecoveredColumnsNotImported(reason) => {
                     metrics::inc_counter_vec(
                         &metrics::KZG_DATA_COLUMN_RECONSTRUCTION_INCOMPLETE_TOTAL,
                         &[reason],

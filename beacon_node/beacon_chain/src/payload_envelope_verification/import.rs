@@ -56,6 +56,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
+        // TODO(gloas) insert the pre-executed envelope into some type of cache?
+
         let _full_timer = metrics::start_timer(&metrics::ENVELOPE_PROCESSING_TIMES);
 
         metrics::inc_counter(&metrics::ENVELOPE_PROCESSING_REQUESTS);

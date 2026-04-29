@@ -21,7 +21,7 @@ use tracing::{debug, error, instrument};
 use types::data::{BlobIdentifier, FixedBlobSidecarList, PartialDataColumn};
 use types::{
     BlobSidecar, BlobSidecarList, BlockImportSource, ChainSpec, DataColumnSidecar,
-    DataColumnSidecarList, Epoch, EthSpec, Hash256, PartialDataColumnSidecarError,
+    DataColumnSidecarList, Epoch, EthSpec, ForkName, Hash256, PartialDataColumnSidecarError,
     PartialDataColumnSidecarRef, SignedBeaconBlock, Slot, new_non_zero_usize,
 };
 
@@ -877,10 +877,16 @@ impl<E: EthSpec> AvailableBlock<E> {
 
         match &block_data {
             AvailableBlockData::NoData => {
-                if columns_required {
-                    return Err(AvailabilityCheckError::MissingCustodyColumns);
-                } else if blobs_required {
-                    return Err(AvailabilityCheckError::MissingBlobs);
+                // For Gloas, DA is checked for the PayloadEnvelope, not for the block.
+                if block.fork_name(&spec).map_err(|_| {
+                    AvailabilityCheckError::Unexpected("Unexpected fork mismatch".to_string())
+                })? < ForkName::Gloas
+                {
+                    if columns_required {
+                        return Err(AvailabilityCheckError::MissingCustodyColumns);
+                    } else if blobs_required {
+                        return Err(AvailabilityCheckError::MissingBlobs);
+                    }
                 }
             }
             AvailableBlockData::Blobs(blobs) => {

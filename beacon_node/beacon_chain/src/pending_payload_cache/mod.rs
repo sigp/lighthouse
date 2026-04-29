@@ -80,9 +80,6 @@ use types::new_non_zero_usize;
 /// eviction to prevent race conditions (#7961), so we expect this cache to be full all the time.
 const OVERFLOW_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
 
-/// Represents available data for a payload - its block root and its data columns.
-pub type AvailableData<E> = (Hash256, DataColumnSidecarList<E>);
-
 /// This type is returned after adding a bid / column to the `DataAvailabilityChecker`.
 ///
 /// Indicates if the payloads data is fully `Available` or if we need more columns.

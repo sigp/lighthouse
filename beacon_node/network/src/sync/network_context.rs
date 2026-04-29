@@ -1082,7 +1082,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn custody_lookup_request(
         &mut self,
         lookup_id: SingleLookupId,
-        _slot: Slot,
         block_root: Hash256,
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
@@ -1090,6 +1089,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .chain
             .data_availability_checker
             .cached_data_column_indexes(&block_root)
+            .or_else(|| {
+                self.chain
+                    .pending_payload_cache
+                    .cached_data_column_indexes(&block_root)
+            })
             .unwrap_or_default();
 
         let current_epoch = self.chain.epoch().map_err(|e| {
