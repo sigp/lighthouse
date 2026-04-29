@@ -18,7 +18,6 @@
 //!
 //! ```
 
-use std::marker::PhantomData;
 use std::sync::Arc;
 
 use state_processing::{BlockProcessingError, envelope_processing::EnvelopeProcessingError};
@@ -42,15 +41,7 @@ mod payload_notifier;
 use crate::data_availability_checker::AvailabilityCheckError;
 pub use execution_pending_envelope::ExecutionPendingEnvelope;
 
-// TODO(gloas): could remove this type completely, or remove the generic
-#[derive(Clone, Debug, PartialEq)]
-pub struct EnvelopeImportData<E: EthSpec> {
-    pub block_root: Hash256,
-    pub _phantom: PhantomData<E>,
-}
-
 #[derive(Debug)]
-#[allow(dead_code)]
 pub struct AvailableEnvelope<E: EthSpec> {
     pub execution_block_hash: ExecutionBlockHash,
     pub envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
@@ -127,14 +118,14 @@ pub enum ExecutedEnvelope<E: EthSpec> {
 impl<E: EthSpec> ExecutedEnvelope<E> {
     pub fn new(
         envelope: MaybeAvailableEnvelope<E>,
-        import_data: EnvelopeImportData<E>,
+        block_root: Hash256,
         payload_verification_outcome: PayloadVerificationOutcome,
     ) -> Self {
         match envelope {
             MaybeAvailableEnvelope::Available(available_envelope) => {
                 Self::Available(AvailableExecutedEnvelope::new(
                     available_envelope,
-                    import_data,
+                    block_root,
                     payload_verification_outcome,
                 ))
             }
@@ -143,7 +134,7 @@ impl<E: EthSpec> ExecutedEnvelope<E> {
                 envelope,
             } => Self::AvailabilityPending(AvailabilityPendingExecutedEnvelope::new(
                 envelope,
-                import_data,
+                block_root,
                 payload_verification_outcome,
             )),
         }
@@ -155,19 +146,19 @@ impl<E: EthSpec> ExecutedEnvelope<E> {
 /// fork choice.
 pub struct AvailabilityPendingExecutedEnvelope<E: EthSpec> {
     pub envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
-    pub import_data: EnvelopeImportData<E>,
+    pub block_root: Hash256,
     pub payload_verification_outcome: PayloadVerificationOutcome,
 }
 
 impl<E: EthSpec> AvailabilityPendingExecutedEnvelope<E> {
     pub fn new(
         envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
-        import_data: EnvelopeImportData<E>,
+        block_root: Hash256,
         payload_verification_outcome: PayloadVerificationOutcome,
     ) -> Self {
         Self {
             envelope,
-            import_data,
+            block_root,
             payload_verification_outcome,
         }
     }
@@ -181,19 +172,19 @@ impl<E: EthSpec> AvailabilityPendingExecutedEnvelope<E> {
 /// by an EL client **and** has all requisite blob data to be imported into fork choice.
 pub struct AvailableExecutedEnvelope<E: EthSpec> {
     pub envelope: AvailableEnvelope<E>,
-    pub import_data: EnvelopeImportData<E>,
+    pub block_root: Hash256,
     pub payload_verification_outcome: PayloadVerificationOutcome,
 }
 
 impl<E: EthSpec> AvailableExecutedEnvelope<E> {
     pub fn new(
         envelope: AvailableEnvelope<E>,
-        import_data: EnvelopeImportData<E>,
+        block_root: Hash256,
         payload_verification_outcome: PayloadVerificationOutcome,
     ) -> Self {
         Self {
             envelope,
-            import_data,
+            block_root,
             payload_verification_outcome,
         }
     }

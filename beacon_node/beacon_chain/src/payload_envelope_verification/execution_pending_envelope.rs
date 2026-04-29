@@ -1,7 +1,7 @@
-use std::sync::Arc;
-
+use bls::Hash256;
 use slot_clock::SlotClock;
 use state_processing::{VerifySignatures, envelope_processing::verify_execution_payload_envelope};
+use std::sync::Arc;
 use types::EthSpec;
 
 use crate::{
@@ -9,15 +9,14 @@ use crate::{
     PayloadVerificationOutcome,
     block_verification::PayloadVerificationHandle,
     payload_envelope_verification::{
-        EnvelopeError, EnvelopeImportData, MaybeAvailableEnvelope,
-        gossip_verified_envelope::GossipVerifiedEnvelope, load_snapshot_from_state_root,
-        payload_notifier::PayloadNotifier,
+        EnvelopeError, MaybeAvailableEnvelope, gossip_verified_envelope::GossipVerifiedEnvelope,
+        load_snapshot_from_state_root, payload_notifier::PayloadNotifier,
     },
 };
 
 pub struct ExecutionPendingEnvelope<E: EthSpec> {
     pub signed_envelope: MaybeAvailableEnvelope<E>,
-    pub import_data: EnvelopeImportData<E>,
+    pub block_root: Hash256,
     pub payload_verification_handle: PayloadVerificationHandle,
 }
 
@@ -91,10 +90,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
                 block_hash: payload.block_hash,
                 envelope: signed_envelope,
             },
-            import_data: EnvelopeImportData {
-                block_root,
-                _phantom: Default::default(),
-            },
+            block_root,
             payload_verification_handle,
         })
     }

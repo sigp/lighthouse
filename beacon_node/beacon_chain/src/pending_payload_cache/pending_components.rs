@@ -110,7 +110,7 @@ impl<E: EthSpec> PendingComponents<E> {
 
         let AvailabilityPendingExecutedEnvelope {
             envelope,
-            import_data,
+            block_root,
             payload_verification_outcome,
         } = envelope;
 
@@ -161,7 +161,7 @@ impl<E: EthSpec> PendingComponents<E> {
 
         Ok(Some(AvailableExecutedEnvelope {
             envelope: available_envelope,
-            import_data: import_data.clone(),
+            block_root: *block_root,
             payload_verification_outcome: payload_verification_outcome.clone(),
         }))
     }
@@ -186,7 +186,8 @@ impl<E: EthSpec> PendingComponents<E> {
 
     pub fn status_str(&self, num_expected_columns: usize) -> String {
         format!(
-            "data_columns {}/{}",
+            "envelope {}, data_columns {}/{}",
+            self.envelope.is_some(),
             self.verified_data_columns.len(),
             num_expected_columns
         )

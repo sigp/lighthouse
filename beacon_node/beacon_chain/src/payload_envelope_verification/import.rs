@@ -9,8 +9,8 @@ use tracing::{debug, error, info, info_span, instrument, warn};
 use types::{BlockImportSource, Hash256, SignedExecutionPayloadEnvelope, Slot};
 
 use super::{
-    AvailableEnvelope, AvailableExecutedEnvelope, EnvelopeError, EnvelopeImportData,
-    ExecutedEnvelope, gossip_verified_envelope::GossipVerifiedEnvelope,
+    AvailableEnvelope, AvailableExecutedEnvelope, EnvelopeError, ExecutedEnvelope,
+    gossip_verified_envelope::GossipVerifiedEnvelope,
 };
 use crate::pending_payload_cache::Availability as PayloadAvailability;
 use crate::{
@@ -203,7 +203,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<ExecutedEnvelope<T::EthSpec>, EnvelopeError> {
         let ExecutionPendingEnvelope {
             signed_envelope,
-            import_data,
+            block_root,
             payload_verification_handle,
         } = pending_envelope;
 
@@ -217,14 +217,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .payload_verification_status
             .is_optimistic()
         {
-            return Err(EnvelopeError::OptimisticSyncNotSupported {
-                block_root: import_data.block_root,
-            });
+            return Err(EnvelopeError::OptimisticSyncNotSupported { block_root });
         }
 
         Ok(ExecutedEnvelope::new(
             signed_envelope,
-            import_data,
+            block_root,
             payload_verification_outcome,
         ))
     }
@@ -236,14 +234,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<AvailabilityProcessingStatus, EnvelopeError> {
         let AvailableExecutedEnvelope {
             envelope,
-            import_data,
+            block_root,
             payload_verification_outcome,
         } = *envelope;
-
-        let EnvelopeImportData {
-            block_root,
-            _phantom,
-        } = import_data;
 
         let block_root = {
             let chain = self.clone();

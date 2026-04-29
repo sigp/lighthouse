@@ -99,7 +99,7 @@ impl<E: EthSpec> Debug for Availability<E> {
             }
             // TODO(gloas) fix success case
             Self::Available(envelope) => {
-                write!(f, "Available({:?})", envelope.import_data.block_root)
+                write!(f, "Available({:?})", envelope.block_root)
             }
         }
     }
@@ -299,19 +299,11 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         block_root: Hash256,
         kzg_verified_data_columns: Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let mut kzg_verified_data_columns = kzg_verified_data_columns.into_iter().peekable();
-        let Some(epoch) = kzg_verified_data_columns
-            .peek()
-            .map(|verified_col| verified_col.as_data_column().epoch())
-        else {
-            return Ok(Availability::MissingComponents(block_root));
-        };
-
         let pending_components = self.get_pending_components(block_root, |pending_components| {
             pending_components.merge_data_columns(kzg_verified_data_columns)
         })?;
 
-        let num_expected_columns = self.get_num_expected_columns(epoch);
+        let num_expected_columns = self.get_num_expected_columns(pending_components.epoch());
 
         pending_components.span.in_scope(|| {
             debug!(
@@ -644,11 +636,9 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
 #[cfg(test)]
 mod data_availability_checker_tests {
     use super::*;
-    use std::marker::PhantomData;
 
     use crate::block_verification::PayloadVerificationOutcome;
     use crate::data_column_verification::{KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn};
-    use crate::payload_envelope_verification::EnvelopeImportData;
     use crate::test_utils::{
         NumBlobs, generate_data_column_indices_rand_order, generate_rand_block_and_data_columns,
         test_spec,
@@ -664,8 +654,8 @@ mod data_availability_checker_tests {
     use store::{HotColdDB, StoreConfig, database::interface::BeaconNodeBackend};
     use tempfile::{TempDir, tempdir};
     use types::{
-        ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, ForkName, FullPayload,
-        MinimalEthSpec, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
+        ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, ForkName,
+        MinimalEthSpec, SignedExecutionPayloadEnvelope, Slot,
     };
 
     type E = MinimalEthSpec;
@@ -784,10 +774,7 @@ mod data_availability_checker_tests {
     fn make_test_executed_envelope(block_root: Hash256) -> AvailabilityPendingExecutedEnvelope<E> {
         AvailabilityPendingExecutedEnvelope {
             envelope: make_test_signed_envelope(block_root),
-            import_data: EnvelopeImportData {
-                block_root,
-                _phantom: PhantomData,
-            },
+            block_root,
             payload_verification_outcome: PayloadVerificationOutcome {
                 payload_verification_status: PayloadVerificationStatus::Verified,
             },
