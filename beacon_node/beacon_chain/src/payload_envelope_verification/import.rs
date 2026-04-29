@@ -9,7 +9,7 @@ use tracing::{debug, error, info, info_span, instrument, warn};
 use types::{BlockImportSource, Hash256, SignedExecutionPayloadEnvelope, Slot};
 
 use super::{
-    AvailableEnvelope, AvailableExecutedEnvelope, EnvelopeError, ExecutedEnvelope,
+    AvailableEnvelope, AvailableExecutedEnvelope, EnvelopeError,
     gossip_verified_envelope::GossipVerifiedEnvelope,
 };
 use crate::pending_payload_cache::Availability as PayloadAvailability;
@@ -91,15 +91,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .set_time_executed(block_root, block_slot, timestamp);
             }
 
-            match executed_envelope {
-                ExecutedEnvelope::Available(envelope) => {
-                    self.import_available_execution_payload_envelope(Box::new(envelope))
-                        .await
-                }
-                ExecutedEnvelope::AvailabilityPending(envelope) => {
-                    self.check_envelope_availability_and_import(envelope).await
-                }
-            }
+            self.check_envelope_availability_and_import(executed_envelope)
         };
 
         // Verify and import the payload envelope.
@@ -188,7 +180,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     async fn into_executed_payload_envelope(
         self: Arc<Self>,
         pending_envelope: ExecutionPendingEnvelope<T::EthSpec>,
-    ) -> Result<ExecutedEnvelope<T::EthSpec>, EnvelopeError> {
+    ) -> Result<AvailabilityPendingExecutedEnvelope<T::EthSpec>, EnvelopeError> {
         let ExecutionPendingEnvelope {
             signed_envelope,
             block_root,
@@ -208,7 +200,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(EnvelopeError::OptimisticSyncNotSupported { block_root });
         }
 
-        Ok(ExecutedEnvelope::new(
+        Ok(AvailabilityPendingExecutedEnvelope::new(
             signed_envelope,
             block_root,
             payload_verification_outcome,
