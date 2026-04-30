@@ -68,7 +68,7 @@ use crate::metrics::{
     KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS, KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES,
 };
 use crate::observed_data_sidecars::ObservationStrategy;
-pub(crate) use pending_components::PendingPayloadBid;
+pub use pending_components::PendingPayloadBid;
 use pending_components::{PendingComponents, ReconstructColumnsDecision};
 use types::new_non_zero_usize;
 
