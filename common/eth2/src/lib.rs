@@ -3004,10 +3004,7 @@ impl BeaconNodeHttpClient {
             .push(&slot.to_string());
 
         let opt_response = self
-            .get_response(
-                path,
-                |b| b.timeout(self.timeouts.payload_attestation),
-            )
+            .get_response(path, |b| b.timeout(self.timeouts.payload_attestation))
             .await
             .optional()?;
 

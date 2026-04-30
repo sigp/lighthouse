@@ -4769,7 +4769,10 @@ impl ApiTester {
             .await
             .unwrap();
 
-        assert!(result.is_none(), "expected None for empty slot, got: {result:?}");
+        assert!(
+            result.is_none(),
+            "expected None for empty slot, got: {result:?}"
+        );
 
         self
     }
