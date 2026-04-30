@@ -545,11 +545,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             | BeaconState::Deneb(_)
             | BeaconState::Electra(_)
             | BeaconState::Fulu(_)
-            | BeaconState::Heze(_) => {
-                return Err(BlockProductionError::InvalidBlockVariant(
-                    "Cannot construct a block pre-Gloas".to_owned(),
-                ));
-            }
             BeaconState::Gloas(_) => BeaconBlock::Gloas(BeaconBlockGloas {
                 slot,
                 proposer_index,
@@ -588,6 +583,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }),
             BeaconState::Heze(_) => {
                 let gloas_bid = signed_execution_payload_bid;
+                // Compute inclusion_list_bits for the previous slot's ILs
+                let il_slot = slot.saturating_sub(1_u64);
+                let inclusion_list_bits = state
+                    .get_inclusion_list_committee(il_slot, &self.spec)
+                    .map(|committee| {
+                        self.inclusion_list_cache
+                            .read()
+                            .get_inclusion_list_bits(il_slot, &committee, false)
+                    })
+                    .unwrap_or_default();
                 let heze_bid = SignedExecutionPayloadBidHeze {
                     message: ExecutionPayloadBidHeze {
                         parent_block_hash: gloas_bid.message.parent_block_hash,
@@ -602,7 +607,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         execution_payment: gloas_bid.message.execution_payment,
                         blob_kzg_commitments: gloas_bid.message.blob_kzg_commitments,
                         execution_requests_root: gloas_bid.message.execution_requests_root,
-                        inclusion_list_bits: Default::default(),
+                        inclusion_list_bits,
                     },
                     signature: gloas_bid.signature,
                 };

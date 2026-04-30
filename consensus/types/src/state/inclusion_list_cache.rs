@@ -1,4 +1,5 @@
-use crate::{EthSpec, SignedInclusionList, Slot, Transaction, Transactions};
+use crate::{EthSpec, InclusionListCommittee, SignedInclusionList, Slot, Transaction, Transactions};
+use ssz_types::BitVector;
 use std::collections::{HashMap, HashSet};
 use tracing::info;
 
@@ -122,5 +123,56 @@ impl<E: EthSpec> InclusionListCache<E> {
 
         let il: Vec<_> = txs.iter().cloned().collect();
         il.try_into().ok()
+    }
+
+    /// Returns a bitvector with bits set for each committee member who submitted a valid,
+    /// non-equivocating inclusion list.
+    pub fn get_inclusion_list_bits(
+        &self,
+        slot: Slot,
+        committee: &InclusionListCommittee<E>,
+        only_timely: bool,
+    ) -> BitVector<E::InclusionListCommitteeSize> {
+        let mut bits = BitVector::new();
+        let Some(inner) = self.inner_map.get(&slot) else {
+            return bits;
+        };
+
+        for (i, validator_index) in committee.iter().enumerate() {
+            if inner.inclusion_list_equivocators.contains(validator_index) {
+                continue;
+            }
+            if !inner.inclusion_lists_seen.contains(validator_index) {
+                continue;
+            }
+            if only_timely {
+                if inner.inclusion_list_timeliness.get(validator_index) == Some(&true) {
+                    bits.set(i, true).ok();
+                }
+            } else {
+                bits.set(i, true).ok();
+            }
+        }
+
+        bits
+    }
+
+    /// Checks that `inclusion_list_bits` is a superset of the locally observed bits.
+    pub fn is_inclusion_list_bits_inclusive(
+        &self,
+        slot: Slot,
+        committee: &InclusionListCommittee<E>,
+        inclusion_list_bits: &BitVector<E::InclusionListCommitteeSize>,
+        only_timely: bool,
+    ) -> bool {
+        let local_bits = self.get_inclusion_list_bits(slot, committee, only_timely);
+        // Check that inclusion_list_bits is a superset of local_bits:
+        // every bit set in local_bits must also be set in inclusion_list_bits.
+        for i in 0..local_bits.len() {
+            if local_bits.get(i).unwrap_or(false) && !inclusion_list_bits.get(i).unwrap_or(false) {
+                return false;
+            }
+        }
+        true
     }
 }
