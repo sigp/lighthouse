@@ -2355,10 +2355,7 @@ fn disable_proposer_re_orgs() {
     CommandLineTest::new()
         .flag("disable-proposer-reorgs", None)
         .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(config.chain.re_org_head_threshold, None);
-            assert_eq!(config.chain.re_org_parent_threshold, None)
-        });
+        .with_config(|config| assert_eq!(config.chain.re_org_parent_threshold, None));
 }
 
 #[test]

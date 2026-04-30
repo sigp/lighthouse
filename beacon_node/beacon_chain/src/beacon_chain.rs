@@ -105,7 +105,7 @@ use operation_pool::{
     CompactAttestationRef, OperationPool, PersistedOperationPool, ReceivedPreCapella,
 };
 use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
-use proto_array::{DoNotReOrg, ProposerHeadError};
+use proto_array::{DoNotReOrg, ProposerHeadError, ReOrgThreshold};
 use rand::RngCore;
 use safe_arith::SafeArith;
 use slasher::Slasher;
@@ -4940,8 +4940,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Never override if proposer re-orgs are disabled.
         let re_org_head_threshold = self
-            .config
-            .re_org_head_threshold
+            .spec
+            .reorg_head_weight_threshold
+            .map(ReOrgThreshold)
             .ok_or(Box::new(DoNotReOrg::ReOrgsDisabled.into()))?;
 
         let re_org_parent_threshold = self

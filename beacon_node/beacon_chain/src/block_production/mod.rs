@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use fork_choice::PayloadStatus;
-use proto_array::ProposerHeadError;
+use proto_array::{ProposerHeadError, ReOrgThreshold};
 use slot_clock::SlotClock;
 use tracing::{debug, error, info, instrument, warn};
 use types::{BeaconState, Hash256, SignedExecutionPayloadEnvelope, Slot};
@@ -174,7 +174,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         head_slot: Slot,
         canonical_head: Hash256,
     ) -> Option<(BeaconState<T::EthSpec>, Hash256)> {
-        let re_org_head_threshold = self.config.re_org_head_threshold?;
+        let re_org_head_threshold = self.spec.reorg_head_weight_threshold.map(ReOrgThreshold)?;
         let re_org_parent_threshold = self.config.re_org_parent_threshold?;
 
         if self.spec.proposer_score_boost.is_none() {

@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::{
     Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec,
-    MinimalEthSpec, ProposerPreparationData, Slot, Uint256,
+    MinimalEthSpec, ProposerPreparationData, Slot,
 };
 
 type E = MainnetEthSpec;
@@ -184,7 +184,6 @@ pub struct ReOrgTest {
     parent_distance: u64,
     /// Number of slots between head block and block proposal slot.
     head_distance: u64,
-    re_org_head_threshold: u64,
     re_org_parent_threshold: u64,
     max_epochs_since_finalization: u64,
     percent_parent_votes: usize,
@@ -205,7 +204,6 @@ impl Default for ReOrgTest {
             head_slot: Slot::new(E::slots_per_epoch() - 2),
             parent_distance: 1,
             head_distance: 1,
-            re_org_head_threshold: 20,
             re_org_parent_threshold: 160,
             max_epochs_since_finalization: 2,
             percent_parent_votes: 100,
@@ -392,7 +390,6 @@ pub async fn proposer_boost_re_org_test(
         head_slot,
         parent_distance,
         head_distance,
-        re_org_head_threshold,
         re_org_parent_threshold,
         max_epochs_since_finalization,
         percent_parent_votes,
@@ -411,7 +408,7 @@ pub async fn proposer_boost_re_org_test(
     // Issue is that `get_validator_blocks_v3` below expects to be able to use `state.latest_execution_payload_header` during `produce_block_on_state` -> `produce_partial_beacon_block` -> `get_execution_payload`, but gloas will no longer support this state field
     // This will be resolved in a subsequent block processing PR
     let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
-    spec.terminal_total_difficulty = Uint256::from(1);
+    spec.reorg_head_weight_threshold = Some(20);
 
     // Ensure there are enough validators to have `attesters_per_slot`.
     let attesters_per_slot = 10;
@@ -435,7 +432,6 @@ pub async fn proposer_boost_re_org_test(
         None,
         Some(Box::new(move |builder| {
             builder
-                .proposer_re_org_head_threshold(Some(ReOrgThreshold(re_org_head_threshold)))
                 .proposer_re_org_parent_threshold(Some(ReOrgThreshold(re_org_parent_threshold)))
                 .proposer_re_org_max_epochs_since_finalization(Epoch::new(
                     max_epochs_since_finalization,

@@ -38,8 +38,6 @@ pub struct ChainConfig {
     pub archive: bool,
     /// The max size of a message that can be sent over the network.
     pub max_network_size: usize,
-    /// Maximum percentage of the head committee weight at which to attempt re-orging the canonical head.
-    pub re_org_head_threshold: Option<ReOrgThreshold>,
     /// Minimum percentage of the parent committee weight at which to attempt re-orging the canonical head.
     pub re_org_parent_threshold: Option<ReOrgThreshold>,
     /// Maximum number of epochs since finalization for attempting a proposer re-org.
@@ -131,7 +129,6 @@ impl Default for ChainConfig {
             weak_subjectivity_checkpoint: None,
             archive: false,
             max_network_size: 10 * 1_048_576, // 10M
-            re_org_head_threshold: Some(ReOrgThreshold(20)),
             re_org_parent_threshold: Some(ReOrgThreshold(160)),
             re_org_max_epochs_since_finalization: Epoch::new(2),
             re_org_cutoff_millis: None,

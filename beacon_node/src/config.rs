@@ -741,11 +741,8 @@ pub fn get_config<E: EthSpec>(
     }
 
     if cli_args.get_flag("disable-proposer-reorgs") {
-        client_config.chain.re_org_head_threshold = None;
         client_config.chain.re_org_parent_threshold = None;
     } else {
-        client_config.chain.re_org_head_threshold =
-            spec.reorg_head_weight_threshold.map(ReOrgThreshold);
         client_config.chain.re_org_max_epochs_since_finalization = spec
             .reorg_max_epochs_since_finalization
             .map(Epoch::new)
