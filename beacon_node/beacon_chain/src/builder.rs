@@ -1186,7 +1186,9 @@ fn make_genesis_block<E: EthSpec>(
         .map_err(|e| format!("Error building genesis block: {:?}", e))?;
 
     let state_body_root = genesis_state.latest_block_header().body_root;
-    if state_body_root != block.body_root() {
+    if state_body_root != block.body_root()
+        && state_body_root == BeaconBlock::<E>::empty(spec).body_root()
+    {
         block = BeaconBlock::empty(spec);
     }
 
