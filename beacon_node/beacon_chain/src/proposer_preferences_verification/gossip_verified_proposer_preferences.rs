@@ -64,7 +64,7 @@ impl GossipVerifiedProposerPreferences {
         ctx: &GossipVerificationContext<'_, T>,
     ) -> Result<Self, ProposerPreferencesError> {
         let proposal_slot = signed_preferences.message.proposal_slot;
-        let checkpoint_root = signed_preferences.message.checkpoint_root;
+        let dependent_root = signed_preferences.message.dependent_root;
         let validator_index = signed_preferences.message.validator_index;
         let cached_head = ctx.canonical_head.cached_head();
         let current_slot = ctx
@@ -75,7 +75,7 @@ impl GossipVerifiedProposerPreferences {
 
         if ctx
             .gossip_verified_proposer_preferences_cache
-            .get_seen_validator(&proposal_slot, checkpoint_root, validator_index)
+            .get_seen_validator(&proposal_slot, dependent_root, validator_index)
         {
             return Err(ProposerPreferencesError::AlreadySeen {
                 validator_index,
@@ -163,7 +163,7 @@ mod tests {
 
     fn make_preferences(proposal_slot: Slot, validator_index: u64) -> ProposerPreferences {
         ProposerPreferences {
-            checkpoint_root: types::Hash256::ZERO,
+            dependent_root: types::Hash256::ZERO,
             proposal_slot,
             validator_index,
             fee_recipient: Address::ZERO,
