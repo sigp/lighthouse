@@ -1293,7 +1293,7 @@ impl ChainSpec {
             /*
              * FOCIL params
              */
-            domain_inclusion_list_committee: 12,
+            domain_inclusion_list_committee: 0x0E,
             inclusion_list_committee_size: 16,
             max_bytes_per_inclusion_list: 8192,
             max_request_inclusion_list: 16,
@@ -1734,7 +1734,7 @@ impl ChainSpec {
             /*
              * FOCIL params
              */
-            domain_inclusion_list_committee: 12,
+            domain_inclusion_list_committee: 0x0E,
             inclusion_list_committee_size: 16,
             max_bytes_per_inclusion_list: 8192,
             max_request_inclusion_list: 16,
