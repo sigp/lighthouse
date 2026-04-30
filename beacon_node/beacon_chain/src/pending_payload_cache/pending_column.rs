@@ -1,6 +1,7 @@
 use kzg::KzgProof;
 use ssz_types::VariableList;
 use std::sync::Arc;
+use types::data::{CellBitmap, PartialDataColumnGloas, PartialDataColumnSidecarGloas};
 use types::{Cell, ColumnIndex, DataColumnSidecar, DataColumnSidecarGloas, EthSpec, Hash256, Slot};
 
 #[derive(Clone)]
@@ -17,11 +18,16 @@ impl<E: EthSpec> PendingColumn<E> {
         }
     }
 
-    pub fn insert(&mut self, index: usize, cell: &Cell<E>, proof: &KzgProof) {
+    /// Returns `true` if the cell was newly inserted, `false` if it was already present or the
+    /// index is out of bounds.
+    pub fn insert(&mut self, index: usize, cell: &Cell<E>, proof: &KzgProof) -> bool {
         if let Some(existing_cell) = self.cells.get_mut(index)
             && existing_cell.is_none()
         {
             *existing_cell = Some((cell.clone(), *proof));
+            true
+        } else {
+            false
         }
     }
 
@@ -30,6 +36,54 @@ impl<E: EthSpec> PendingColumn<E> {
             .get(index)?
             .as_ref()
             .map(|(c, p)| c == cell && p == proof)
+    }
+
+    /// Returns `true` if the cell at `index` is present.
+    pub fn has_cell(&self, index: usize) -> bool {
+        self.cells.get(index).is_some_and(|c| c.is_some())
+    }
+
+    /// Returns `true` if all cells of this column are present.
+    pub fn is_complete(&self) -> bool {
+        self.cells.iter().all(|c| c.is_some())
+    }
+
+    /// Build a partial Gloas data column from the cells currently populated. Returns `None` if no
+    /// cells are present.
+    pub fn to_partial(
+        &self,
+        index: ColumnIndex,
+        slot: Slot,
+        block_root: Hash256,
+    ) -> Option<PartialDataColumnGloas<E>> {
+        let total = self.cells.len();
+        let mut bitmap = CellBitmap::<E>::with_capacity(total).ok()?;
+        let mut column = Vec::with_capacity(total);
+        let mut kzg_proofs = Vec::with_capacity(total);
+
+        for (idx, cell) in self.cells.iter().enumerate() {
+            let Some((cell, proof)) = cell.as_ref() else {
+                continue;
+            };
+            bitmap.set(idx, true).ok()?;
+            column.push(cell.clone());
+            kzg_proofs.push(*proof);
+        }
+
+        if column.is_empty() {
+            return None;
+        }
+
+        Some(PartialDataColumnGloas {
+            block_root,
+            slot,
+            index,
+            sidecar: PartialDataColumnSidecarGloas {
+                cells_present_bitmap: bitmap,
+                column: VariableList::try_from(column).ok()?,
+                kzg_proofs: VariableList::try_from(kzg_proofs).ok()?,
+            },
+        })
     }
 
     /// Returns a full `DataColumnSidecar` if all cells are present, or `None` if any are missing.

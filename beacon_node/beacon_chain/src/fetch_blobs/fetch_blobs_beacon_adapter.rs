@@ -2,6 +2,7 @@ use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
 use crate::fetch_blobs::FetchEngineBlobError;
 use crate::observed_data_sidecars::ObservationKey;
 use crate::partial_data_column_assembler::PartialDataColumnAssembler;
+use crate::pending_payload_cache::{Availability, PendingPayloadCache};
 use crate::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes};
 use execution_layer::json_structures::{BlobAndProofV2, BlobAndProofV3};
 use kzg::Kzg;
@@ -42,6 +43,10 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
             .data_availability_checker
             .partial_assembler()
             .cloned()
+    }
+
+    pub(crate) fn pending_payload_cache(&self) -> &Arc<PendingPayloadCache<T>> {
+        &self.chain.pending_payload_cache
     }
 
     pub(crate) async fn get_blobs_v2(
@@ -95,14 +100,25 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
         self.chain.cached_data_column_indexes(block_root, slot)
     }
 
-    pub(crate) async fn process_engine_blobs(
+    pub(crate) async fn process_engine_blobs_fulu(
         &self,
         slot: Slot,
         block_root: Hash256,
         blobs: Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>,
     ) -> Result<AvailabilityProcessingStatus, FetchEngineBlobError> {
         self.chain
-            .process_engine_blobs(slot, block_root, blobs)
+            .process_engine_blobs_fulu(slot, block_root, blobs)
+            .await
+            .map_err(FetchEngineBlobError::BlobProcessingError)
+    }
+
+    pub(crate) async fn process_payload_envelope_availability(
+        &self,
+        slot: Slot,
+        availability: Availability<T::EthSpec>,
+    ) -> Result<AvailabilityProcessingStatus, FetchEngineBlobError> {
+        self.chain
+            .process_payload_envelope_availability(slot, availability, || Ok(()))
             .await
             .map_err(FetchEngineBlobError::BlobProcessingError)
     }

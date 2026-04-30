@@ -17,9 +17,9 @@ use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::RequestType;
 use lighthouse_network::rpc::methods::RpcResponse;
 use lighthouse_network::service::Network;
-use lighthouse_network::types::GossipKind;
+use lighthouse_network::types::{GossipKind, PubsubPartialMessage};
 use lighthouse_network::{
-    Context, PeerAction, PubsubMessage, PubsubPartialMessage, ReportSource, Response, Subnet,
+    Context, PeerAction, PubsubMessage, ReportSource, Response, Subnet,
     rpc::{GoodbyeReason, RpcErrorResponse},
 };
 use lighthouse_network::{MessageAcceptance, prometheus_client::registry::Registry};

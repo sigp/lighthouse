@@ -3299,50 +3299,69 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         .await
     }
 
-    /// Process a gossip-verified partial data column by attempting to merge it in the assembler.
-    /// Returns the merge result which indicates if a column was completed.
+    /// Process a gossip-verified partial data column by attempting to merge it into the appropriate
+    /// store for its fork (the Fulu assembler, or the Gloas pending payload cache). Returns the
+    /// merge result, which indicates whether any column was completed.
+    ///
+    /// `verified_header` must be `Some` for Fulu partials (the assembler needs it) and `None`
+    /// for Gloas partials.
     #[instrument(skip_all, level = "debug")]
     pub async fn process_gossip_partial_data_column(
         self: &Arc<Self>,
         verified_partial: KzgVerifiedPartialDataColumn<T::EthSpec>,
-        verified_header: GossipVerifiedPartialDataColumnHeader<T::EthSpec>,
+        verified_header: Option<GossipVerifiedPartialDataColumnHeader<T::EthSpec>>,
         slot: Slot,
     ) -> Result<ProcessedPartialColumnStatus<T::EthSpec>, BlockError> {
         let block_root = verified_partial.block_root();
-        let partial = verified_partial.as_data_column();
-        let index_str = partial.index.to_string();
+        let column_index = verified_partial.index();
+        let index_str = column_index.to_string();
         metrics::inc_counter_vec_by(
             &metrics::BEACON_PARTIAL_MESSAGE_CELLS_RECEIVED_TOTAL,
             &[index_str.as_str()],
-            partial.sidecar.column.len() as u64,
+            verified_partial.sidecar().column().len() as u64,
         );
 
         // Check if we have custody of this column
         let sampling_columns =
             self.sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()));
-        let verified_partial = if sampling_columns.contains(&partial.index) {
-            KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(verified_partial)
-        } else {
+        if !sampling_columns.contains(&column_index) {
             return Ok(None);
-        };
+        }
 
         if self.is_block_data_imported(block_root, slot) {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
-        let Some(assembler) = self.data_availability_checker.partial_assembler() else {
-            // Partial messages are apparently not activated
-            return Ok(None);
-        };
+        let (merge_result, gloas_availability) =
+            match KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(verified_partial) {
+                KzgVerifiedCustodyPartialDataColumn::Fulu(verified_partial) => {
+                    // Fulu: merge via the partial assembler.
+                    let Some(assembler) = self.data_availability_checker.partial_assembler() else {
+                        // Partial messages are apparently not activated
+                        return Ok(None);
+                    };
+                    let Some(header) = verified_header else {
+                        return Err(BlockError::InternalError(
+                            "Fulu partial data column received without a header".to_string(),
+                        ));
+                    };
 
-        // Merge the partial into the assembler
-        let merge_result = assembler
-            .merge_partials(
-                block_root,
-                vec![verified_partial],
-                verified_header.into_header(),
-            )
-            .ok_or_else(|| BlockError::InternalError("No assembly found for block".to_string()))?;
+                    let merge_result = assembler
+                        .merge_partials(block_root, vec![verified_partial], header.into_header())
+                        .ok_or_else(|| {
+                            BlockError::InternalError("No assembly found for block".to_string())
+                        })?;
+                    (merge_result, None)
+                }
+                KzgVerifiedCustodyPartialDataColumn::Gloas(verified_partial) => {
+                    // Gloas: merge directly into the pending payload cache.
+                    let (availability, merge_result) = self
+                        .pending_payload_cache
+                        .merge_partial_data_columns(block_root, &[verified_partial])
+                        .map_err(BlockError::from)?;
+                    (merge_result, Some(availability))
+                }
+            };
 
         metrics::inc_counter_vec_by(
             &metrics::BEACON_PARTIAL_MESSAGE_USEFUL_CELLS_TOTAL,
@@ -3350,7 +3369,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             merge_result.added_cells as u64,
         );
 
-        let availability = if !merge_result.full_columns.is_empty() {
+        if !merge_result.full_columns.is_empty() {
             metrics::inc_counter_vec_by(
                 &metrics::BEACON_PARTIAL_MESSAGE_COLUMN_COMPLETIONS_TOTAL,
                 &[index_str.as_str()],
@@ -3364,29 +3383,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .iter()
                     .map(|column| column.as_data_column()),
             );
+        }
 
-            if self
-                .spec
-                .fork_name_at_slot::<T::EthSpec>(slot)
-                .gloas_enabled()
-            {
-                let availability = self
-                    .pending_payload_cache
-                    .put_kzg_verified_custody_data_columns(block_root, &merge_result.full_columns)
-                    .map_err(BlockError::from)?;
-                self.process_payload_envelope_availability(slot, availability, || Ok(()))
-                    .await?
-            } else {
-                let availability = self
-                    .data_availability_checker
-                    .put_kzg_verified_custody_data_columns(
-                        block_root,
-                        merge_result.full_columns.clone(),
-                    )
-                    .map_err(BlockError::from)?;
-                self.process_availability(slot, availability, || Ok(()))
-                    .await?
-            }
+        let availability = if let Some(availability) = gloas_availability {
+            self.process_payload_envelope_availability(slot, availability, || Ok(()))
+                .await?
+        } else if !merge_result.full_columns.is_empty() {
+            // The above branch already handles gloas availability, so we only care about Fulu here.
+            let availability = self
+                .data_availability_checker
+                .put_kzg_verified_custody_data_columns(
+                    block_root,
+                    merge_result.full_columns.clone(),
+                )
+                .map_err(BlockError::from)?;
+            self.process_availability(slot, availability, || Ok(()))
+                .await?
         } else {
             AvailabilityProcessingStatus::MissingComponents(slot, block_root)
         };
@@ -3432,7 +3444,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Process blobs retrieved from the EL and returns the `AvailabilityProcessingStatus`.
-    pub async fn process_engine_blobs(
+    pub async fn process_engine_blobs_fulu(
         self: &Arc<Self>,
         slot: Slot,
         block_root: Hash256,

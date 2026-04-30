@@ -5,7 +5,9 @@ use beacon_chain::block_verification_types::RangeSyncBlock;
 use beacon_chain::data_column_verification::{
     GossipDataColumnError, KzgVerifiedCustodyDataColumn, observe_gossip_data_column,
 };
-use beacon_chain::fetch_blobs::{FetchEngineBlobError, fetch_and_process_engine_blobs};
+use beacon_chain::fetch_blobs::{
+    FetchEngineBlobError, PartialHeaderOrBid, fetch_and_process_engine_blobs,
+};
 use beacon_chain::partial_data_column_assembler::AssemblyColumn;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError};
@@ -913,14 +915,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     pub async fn fetch_engine_blobs_and_publish_full(
         self: &Arc<Self>,
-        header: Arc<PartialDataColumnHeader<T::EthSpec>>,
+        header_or_bid: PartialHeaderOrBid<T::EthSpec>,
         block_root: Hash256,
         publish_blobs: bool,
     ) {
         if self.chain.config.disable_get_blobs {
             return;
         }
-        let epoch = header.slot().epoch(T::EthSpec::slots_per_epoch());
+        let epoch = header_or_bid.slot().epoch(T::EthSpec::slots_per_epoch());
         let custody_columns = self.chain.sampling_columns_for_epoch(epoch);
         let self_cloned = self.clone();
         let publish_fn = move |columns: Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>| {
@@ -935,7 +937,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         match fetch_and_process_engine_blobs(
             self.chain.clone(),
             block_root,
-            header,
+            header_or_bid,
             custody_columns,
             publish_fn,
         )
@@ -983,60 +985,73 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     pub async fn publish_partial_data_columns(
         self: &Arc<Self>,
-        header: Arc<PartialDataColumnHeader<T::EthSpec>>,
+        header_or_bid: PartialHeaderOrBid<T::EthSpec>,
         block_root: Hash256,
     ) {
-        if header.kzg_commitments.is_empty() {
+        if header_or_bid.kzg_commitments().is_empty() {
             return;
         }
 
-        // TODO(gloas): implement publish partial columns
         let Some(assembler) = self.chain.data_availability_checker.partial_assembler() else {
             // Partials are disabled.
             return;
         };
-        let epoch = header.slot().epoch(T::EthSpec::slots_per_epoch());
+        let epoch = header_or_bid.slot().epoch(T::EthSpec::slots_per_epoch());
         let custody_columns = self.chain.sampling_columns_for_epoch(epoch);
-        let columns = assembler.get_columns_and_mark_as_local_fetched(block_root, &header);
 
-        let mut present_indices: HashSet<ColumnIndex> = HashSet::with_capacity(columns.len());
-        let mut messages: Vec<PubsubPartialMessage<T::EthSpec>> = Vec::with_capacity(columns.len());
-        for column in columns {
-            // Republish both complete and incomplete columns as partials
-            let partial_column = match column {
-                AssemblyColumn::Incomplete(partial) => partial.into_inner(),
-                AssemblyColumn::Complete(full) => {
-                    let DataColumnSidecar::Fulu(fulu) = full.as_data_column() else {
-                        continue;
-                    };
-                    match fulu.to_partial() {
-                        Ok(partial) => Arc::new(partial),
-                        Err(err) => {
-                            error!(
-                                %block_root,
-                                column_index = %full.index(),
-                                ?err,
-                                "Failed to convert complete column to partial for re-seeding"
-                            );
-                            continue;
-                        }
+        let mut present_indices: HashSet<ColumnIndex> = HashSet::new();
+        let mut messages: Vec<PubsubPartialMessage<T::EthSpec>> = match &header_or_bid {
+            PartialHeaderOrBid::PartialHeader(header) => {
+                assembler
+                    .get_columns_and_mark_as_local_fetched(block_root, header)
+                    .into_iter()
+                    .filter_map(|column| {
+                        let column = match column {
+                            AssemblyColumn::Incomplete(partial) => partial.into_inner(),
+                            AssemblyColumn::Complete(full) => {
+                                match full.as_data_column().to_partial() {
+                                    Ok(PartialDataColumn::Fulu(fulu)) => Arc::new(fulu),
+                                    // The Fulu assembler never holds Gloas columns.
+                                    Ok(PartialDataColumn::Gloas(_)) => return None,
+                                    Err(err) => {
+                                        crit!(?err, "Failed to convert full column to partial");
+                                        return None;
+                                    }
+                                }
+                            }
+                        };
+                        present_indices.insert(column.index);
+                        let mut request_cells = column.sidecar.cells_present_bitmap.clone_zeroed();
+                        request_cells.not_inplace();
+                        Some(PubsubPartialMessage::DataColumnFulu {
+                            column,
+                            request_cells,
+                            header: header.clone(),
+                        })
+                    })
+                    .collect()
+            }
+            PartialHeaderOrBid::Bid(bid) => self
+                .chain
+                .pending_payload_cache
+                .get_partials_and_mark_as_local_fetched(block_root, bid)
+                .into_iter()
+                .map(|partial| {
+                    present_indices.insert(partial.index());
+                    let column = Arc::unwrap_or_clone(partial.into_inner());
+                    let mut request_cells = column.sidecar.cells_present_bitmap.clone_zeroed();
+                    request_cells.not_inplace();
+                    PubsubPartialMessage::DataColumnGloas {
+                        column: Box::new(column),
+                        request_cells,
                     }
-                }
-            };
-
-            present_indices.insert(partial_column.index);
-            let mut request_cells = partial_column.sidecar.cells_present_bitmap.clone_zeroed();
-            request_cells.not_inplace();
-            messages.push(PubsubPartialMessage::DataColumnFulu {
-                column: partial_column,
-                request_cells,
-                header: header.clone(),
-            });
-        }
+                })
+                .collect(),
+        };
 
         // For each custody column without any local partial, send an empty placeholder
         // that requests all cells.
-        let num_cells = header.kzg_commitments.len();
+        let num_cells = header_or_bid.kzg_commitments().len();
         for col_idx in custody_columns {
             if present_indices.contains(col_idx) {
                 continue;
@@ -1054,20 +1069,36 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 continue;
             };
             let request_cells = cells_present_bitmap.not();
-            messages.push(PubsubPartialMessage::DataColumnFulu {
-                column: Arc::new(PartialDataColumn {
-                    block_root,
-                    index: *col_idx,
-                    sidecar: PartialDataColumnSidecar {
-                        cells_present_bitmap,
-                        column: VariableList::empty(),
-                        kzg_proofs: VariableList::empty(),
-                        header: None.into(),
-                    },
-                }),
-                request_cells,
-                header: header.clone(),
-            });
+            let message = match &header_or_bid {
+                PartialHeaderOrBid::PartialHeader(header) => PubsubPartialMessage::DataColumnFulu {
+                    column: Arc::new(PartialDataColumnFulu {
+                        block_root,
+                        index: *col_idx,
+                        sidecar: PartialDataColumnSidecarFulu {
+                            cells_present_bitmap,
+                            column: VariableList::empty(),
+                            kzg_proofs: VariableList::empty(),
+                            header: None.into(),
+                        },
+                    }),
+                    request_cells,
+                    header: header.clone(),
+                },
+                PartialHeaderOrBid::Bid(_) => PubsubPartialMessage::DataColumnGloas {
+                    column: Box::new(PartialDataColumnGloas {
+                        block_root,
+                        slot: header_or_bid.slot(),
+                        index: *col_idx,
+                        sidecar: PartialDataColumnSidecarGloas {
+                            cells_present_bitmap,
+                            column: VariableList::empty(),
+                            kzg_proofs: VariableList::empty(),
+                        },
+                    }),
+                    request_cells,
+                },
+            };
+            messages.push(message);
         }
 
         if !messages.is_empty() {
