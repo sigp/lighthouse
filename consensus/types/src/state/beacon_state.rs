@@ -1007,46 +1007,26 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn get_inclusion_list_committee(
         &self,
         slot: Slot,
-        spec: &ChainSpec,
+        _spec: &ChainSpec,
     ) -> Result<InclusionListCommittee<E>, BeaconStateError> {
-        let epoch = slot.epoch(E::slots_per_epoch());
-        let current_epoch = self.current_epoch();
-        let next_epoch = current_epoch.safe_add(1)?;
+        let committees = self.get_beacon_committees_at_slot(slot)?;
 
-        // TODO(focil) review this logic
-        if epoch != current_epoch && epoch != next_epoch {
-            return Err(BeaconStateError::SlotOutOfBounds);
+        let indices: Vec<usize> = committees
+            .into_iter()
+            .flat_map(|c| c.committee.iter().copied())
+            .collect();
+
+        if indices.is_empty() {
+            return Err(BeaconStateError::InsufficientValidators);
         }
 
-        let seed = self.get_seed(epoch, Domain::InclusionListCommittee, spec)?;
-        let active_validator_indices = self.get_active_validator_indices(epoch, spec)?;
-        let active_validator_count = active_validator_indices.len();
-
-        let start = (slot.safe_rem(E::slots_per_epoch())?)
-            .as_usize()
-            .safe_mul(E::InclusionListCommitteeSize::to_usize())?;
-        let end = start.safe_add(E::InclusionListCommitteeSize::to_usize())?;
-
-        let mut i = start;
-        let mut il_committee_indices =
-            Vec::with_capacity(E::InclusionListCommitteeSize::to_usize());
-        while i < end {
-            let shuffled_index = compute_shuffled_index(
-                i.safe_rem(active_validator_count)?,
-                active_validator_count,
-                seed.as_slice(),
-                spec.shuffle_round_count,
-            )
-            .ok_or(BeaconStateError::UnableToShuffle)?;
-            let validator_index = *active_validator_indices
-                .get(shuffled_index)
-                .ok_or(BeaconStateError::ShuffleIndexOutOfBounds(shuffled_index))?;
-            il_committee_indices.push(validator_index as u64);
-            i.safe_add_assign(1)?;
-        }
+        let committee_size = E::InclusionListCommitteeSize::to_usize();
+        let il_committee: Vec<u64> = (0..committee_size)
+            .map(|i| indices[i % indices.len()] as u64)
+            .collect();
 
         Ok(InclusionListCommittee::<E>::from(
-            il_committee_indices.try_into()?,
+            il_committee.try_into()?,
         ))
     }
 
