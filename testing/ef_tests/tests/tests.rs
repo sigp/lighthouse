@@ -738,9 +738,9 @@ mod ssz_static {
             .run();
         SszStaticHandler::<DataColumnSidecarGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only()
             .run();
-        SszStaticHandler::<DataColumnSidecarHeze<MinimalEthSpec>, MinimalEthSpec>::heze_only()
+        SszStaticHandler::<DataColumnSidecarGloas<MinimalEthSpec>, MinimalEthSpec>::heze_only()
             .run();
-        SszStaticHandler::<DataColumnSidecarHeze<MainnetEthSpec>, MainnetEthSpec>::heze_only()
+        SszStaticHandler::<DataColumnSidecarGloas<MainnetEthSpec>, MainnetEthSpec>::heze_only()
             .run();
     }
 

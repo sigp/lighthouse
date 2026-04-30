@@ -44,7 +44,7 @@ pub struct DataColumnsByRootIdentifier<E: EthSpec> {
 pub type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
 
 #[superstruct(
-    variants(Fulu, Gloas, Heze),
+    variants(Fulu, Gloas),
     variant_attributes(
         derive(
             Debug,
@@ -95,9 +95,9 @@ pub struct DataColumnSidecar<E: EthSpec> {
     /// An inclusion proof, proving the inclusion of `blob_kzg_commitments` in `BeaconBlockBody`.
     #[superstruct(only(Fulu))]
     pub kzg_commitments_inclusion_proof: FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
-    #[superstruct(only(Gloas, Heze), partial_getter(rename = "slot_gloas"))]
+    #[superstruct(only(Gloas), partial_getter(rename = "slot_gloas"))]
     pub slot: Slot,
-    #[superstruct(only(Gloas, Heze))]
+    #[superstruct(only(Gloas))]
     pub beacon_block_root: Hash256,
 }
 
@@ -106,7 +106,6 @@ impl<E: EthSpec> DataColumnSidecar<E> {
         match self {
             DataColumnSidecar::Fulu(column) => column.slot(),
             DataColumnSidecar::Gloas(column) => column.slot,
-            DataColumnSidecar::Heze(column) => column.slot,
         }
     }
 
@@ -118,7 +117,6 @@ impl<E: EthSpec> DataColumnSidecar<E> {
         match self {
             DataColumnSidecar::Fulu(column) => column.block_root(),
             DataColumnSidecar::Gloas(column) => column.beacon_block_root,
-            DataColumnSidecar::Heze(column) => column.beacon_block_root,
         }
     }
 
@@ -137,11 +135,8 @@ impl<E: EthSpec> DataColumnSidecar<E> {
             ForkName::Fulu => Ok(DataColumnSidecar::Fulu(
                 DataColumnSidecarFulu::from_ssz_bytes(bytes)?,
             )),
-            ForkName::Gloas => Ok(DataColumnSidecar::Gloas(
+            ForkName::Gloas | ForkName::Heze => Ok(DataColumnSidecar::Gloas(
                 DataColumnSidecarGloas::from_ssz_bytes(bytes)?,
-            )),
-            ForkName::Heze => Ok(DataColumnSidecar::Heze(
-                DataColumnSidecarHeze::from_ssz_bytes(bytes)?,
             )),
         }
     }
@@ -289,33 +284,6 @@ impl<E: EthSpec> DataColumnSidecarFulu<E> {
 }
 
 impl<E: EthSpec> DataColumnSidecarGloas<E> {
-    pub fn min_size() -> usize {
-        // min size is one cell
-        Self {
-            index: 0,
-            column: VariableList::new(vec![Cell::<E>::default()]).unwrap(),
-            kzg_proofs: VariableList::new(vec![KzgProof::empty()]).unwrap(),
-            slot: Slot::new(0),
-            beacon_block_root: Hash256::ZERO,
-        }
-        .as_ssz_bytes()
-        .len()
-    }
-
-    pub fn max_size(max_blobs_per_block: usize) -> usize {
-        Self {
-            index: 0,
-            column: VariableList::new(vec![Cell::<E>::default(); max_blobs_per_block]).unwrap(),
-            kzg_proofs: VariableList::new(vec![KzgProof::empty(); max_blobs_per_block]).unwrap(),
-            slot: Slot::new(0),
-            beacon_block_root: Hash256::ZERO,
-        }
-        .as_ssz_bytes()
-        .len()
-    }
-}
-
-impl<E: EthSpec> DataColumnSidecarHeze<E> {
     pub fn min_size() -> usize {
         // min size is one cell
         Self {

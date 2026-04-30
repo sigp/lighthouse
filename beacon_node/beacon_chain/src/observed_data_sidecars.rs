@@ -265,8 +265,8 @@ mod tests {
     use bls::{FixedBytesExtended, Signature};
     use std::sync::Arc;
     use types::{
-        BeaconBlockHeader, DataColumnSidecarFulu, DataColumnSidecarGloas, DataColumnSidecarHeze,
-        ForkName, MainnetEthSpec, SignedBeaconBlockHeader,
+        BeaconBlockHeader, DataColumnSidecarFulu, DataColumnSidecarGloas, ForkName, MainnetEthSpec,
+        SignedBeaconBlockHeader,
     };
 
     type E = MainnetEthSpec;
@@ -320,31 +320,13 @@ mod tests {
         }))
     }
 
-    /// Creates a Heze DataColumnSidecar for testing.
-    /// Keyed by (beacon_block_root, slot) in the observation cache.
-    fn get_data_column_sidecar_heze(
-        slot: u64,
-        beacon_block_root: Hash256,
-        index: u64,
-    ) -> Arc<DataColumnSidecar<E>> {
-        Arc::new(DataColumnSidecar::Heze(DataColumnSidecarHeze {
-            index,
-            column: vec![].try_into().unwrap(),
-            kzg_proofs: vec![].try_into().unwrap(),
-            slot: slot.into(),
-            beacon_block_root,
-        }))
-    }
-
     fn get_sidecar(
         slot: u64,
         key: u64,
         index: u64,
         fork_name: ForkName,
     ) -> Arc<DataColumnSidecar<E>> {
-        if fork_name.heze_enabled() {
-            get_data_column_sidecar_heze(slot, Hash256::from_low_u64_be(key), index)
-        } else if fork_name.gloas_enabled() {
+        if fork_name.gloas_enabled() {
             get_data_column_sidecar_gloas(slot, Hash256::from_low_u64_be(key), index)
         } else {
             get_data_column_sidecar_fulu(slot, key, index)

@@ -3,10 +3,7 @@ use crate::block_verification_types::{AsBlock, AvailableBlockData, LookupBlock, 
 use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::graffiti_calculator::GraffitiSettings;
-use crate::kzg_utils::{
-    build_data_column_sidecars_fulu, build_data_column_sidecars_gloas,
-    build_data_column_sidecars_heze,
-};
+use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sidecars_gloas};
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::{BeaconBlockResponseWrapper, CustodyContext, get_block_root};
@@ -3894,8 +3891,8 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
         let num_blobs = kzg_commitments.len();
         let signed_block_header = block.signed_block_header();
         let template_data_columns =
-            RuntimeVariableList::<DataColumnSidecarHeze<E>>::from_ssz_bytes(
-                TEST_DATA_COLUMN_SIDECARS_SSZ,
+            RuntimeVariableList::<DataColumnSidecarGloas<E>>::from_ssz_bytes(
+                TEST_DATA_COLUMN_SIDECARS_GLOAS_SSZ,
                 E::number_of_columns(),
             )
             .unwrap();
@@ -3903,7 +3900,7 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
         let (cells, proofs) = template_data_columns
             .into_iter()
             .map(|sidecar| {
-                let DataColumnSidecarHeze {
+                let DataColumnSidecarGloas {
                     column, kzg_proofs, ..
                 } = sidecar;
                 // There's only one cell per column for a single blob
@@ -3917,7 +3914,7 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
         let blob_cells_and_proofs_vec =
             vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); num_blobs];
 
-        build_data_column_sidecars_heze(
+        build_data_column_sidecars_gloas(
             signed_block_header.message.tree_hash_root(),
             signed_block_header.message.slot,
             blob_cells_and_proofs_vec,

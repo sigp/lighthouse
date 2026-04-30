@@ -1044,7 +1044,6 @@ impl SseDataColumnSidecar {
         let kzg_commitments: Vec<KzgCommitment> = match data_column_sidecar {
             DataColumnSidecar::Fulu(dc) => dc.kzg_commitments.to_vec(),
             DataColumnSidecar::Gloas(_) => vec![],
-            DataColumnSidecar::Heze(_) => vec![],
         };
         let versioned_hashes = kzg_commitments
             .iter()

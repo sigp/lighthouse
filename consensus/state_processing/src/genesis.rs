@@ -204,9 +204,10 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
 
 /// Create an unsigned genesis `BeaconBlock`.
 ///
-/// For Gloas and later, the block's `signed_execution_payload_bid` is populated from the state's
-/// `latest_execution_payload_bid` so that the body root is consistent with
-/// `state.latest_block_header.body_root`.
+/// Per spec, the genesis block body is empty (all default fields) except for Gloas and later,
+/// where `body.signed_execution_payload_bid.message` is initialised from
+/// `state.latest_execution_payload_bid` so that the first post-genesis proposer can
+/// build on the correct execution layer head.
 ///
 /// `state.latest_block_header.body_root` is set from this same block's body, so the
 /// two must stay in sync.
