@@ -756,7 +756,15 @@ mod data_availability_checker_tests {
         let (harness, cache, _path) = setup().await;
         let (bid, block_root, data_columns) =
             init_block(&cache, &harness.spec, NumBlobs::Number(1), RNG_SEED);
-        let column = data_columns.first().cloned().expect("should have column");
+        let epoch = bid.slot.epoch(E::slots_per_epoch());
+        let sampling_cols = cache
+            .custody_context()
+            .sampling_columns_for_epoch(epoch, &harness.spec);
+        let column = data_columns
+            .iter()
+            .find(|c| sampling_cols.contains(c.index()))
+            .cloned()
+            .expect("should have a sampling column");
         let column_index = *column.index();
 
         for _ in 0..2 {
@@ -782,6 +790,12 @@ mod data_availability_checker_tests {
         let (bid, block_root, data_columns) =
             init_block(&cache, &harness.spec, NumBlobs::Number(1), RNG_SEED);
 
+        let epoch = bid.slot.epoch(E::slots_per_epoch());
+        let num_sampling_columns = cache
+            .custody_context()
+            .sampling_columns_for_epoch(epoch, &harness.spec)
+            .len();
+
         let result = cache
             .put_rpc_custody_columns(block_root, bid.clone(), data_columns)
             .expect("should put columns");
@@ -794,7 +808,7 @@ mod data_availability_checker_tests {
             panic!("expected available envelope");
         };
         assert_eq!(envelope.block_root, block_root);
-        assert_eq!(envelope.envelope.columns.len(), E::number_of_columns());
+        assert_eq!(envelope.envelope.columns.len(), num_sampling_columns);
     }
 
     #[tokio::test]
@@ -834,7 +848,17 @@ mod data_availability_checker_tests {
         let (harness, cache, _path) = setup().await;
         let (bid, block_root, data_columns) =
             init_block(&cache, &harness.spec, NumBlobs::Number(1), RNG_SEED);
-        let columns = data_columns.into_iter().take(5).collect();
+
+        let epoch = bid.slot.epoch(E::slots_per_epoch());
+        let sampling_cols = cache
+            .custody_context()
+            .sampling_columns_for_epoch(epoch, &harness.spec);
+        let columns: Vec<_> = data_columns
+            .into_iter()
+            .filter(|c| sampling_cols.contains(c.index()))
+            .take(5)
+            .collect();
+        let num_columns = columns.len();
 
         cache
             .put_rpc_custody_columns(block_root, bid, columns)
@@ -843,7 +867,7 @@ mod data_availability_checker_tests {
             cache
                 .cached_data_column_indexes(&block_root)
                 .map(|indices| indices.len()),
-            Some(5)
+            Some(num_columns)
         );
 
         cache.handle_reconstruction_failure(&block_root);
@@ -875,6 +899,7 @@ mod data_availability_checker_tests {
         let (harness, cache, _path) = setup().await;
         let (bid, block_root, data_columns) =
             init_block(&cache, &harness.spec, NumBlobs::Number(1), RNG_SEED);
+        let block_epoch = bid.slot.epoch(E::slots_per_epoch());
         let column = data_columns.first().cloned().expect("should have column");
 
         cache
@@ -883,7 +908,7 @@ mod data_availability_checker_tests {
 
         assert_eq!(cache.block_cache_size(), 1);
         cache
-            .do_maintenance(Epoch::new(1))
+            .do_maintenance(block_epoch + 1)
             .expect("maintenance should succeed");
         assert_eq!(cache.block_cache_size(), 0);
     }
