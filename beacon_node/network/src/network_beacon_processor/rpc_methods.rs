@@ -439,12 +439,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 .collect()
         };
 
-        let from_proto_array = !roots_with_slots.is_empty();
+        let head_below_finalization = roots_with_slots.is_empty();
 
         // 2. Fallback: `head_root` is at or below finalization (proto-array doesn't
         //    track it). Look it up in the store to learn its slot so we can still serve
         //    a partial response from the freezer's block-root index.
-        if !from_proto_array {
+        if head_below_finalization {
             let block = self
                 .chain
                 .get_blinded_block(&head_root)
@@ -474,7 +474,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // outside the freezer's range) we return what we already collected, which is
         // at least the head_root itself, satisfying the spec's "MUST return at least
         // one block if you have it" clause.
-        if !from_proto_array {
+        if head_below_finalization {
             match store.get_cold_block_root(current) {
                 Ok(Some(r)) if r == head_root => {} // canonical, OK to walk
                 Ok(_) => {
