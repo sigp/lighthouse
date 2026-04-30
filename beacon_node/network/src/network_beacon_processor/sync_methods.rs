@@ -234,7 +234,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // Sync handles these results
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type,
-            result: result.map_err(Into::into).into(),
+            result: result.into(),
         });
 
         // Drop the handle to remove the entry from the cache

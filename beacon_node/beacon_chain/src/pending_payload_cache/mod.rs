@@ -638,7 +638,7 @@ mod data_availability_checker_tests {
     use tempfile::{TempDir, tempdir};
     use types::{
         ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, ForkName,
-        MinimalEthSpec, SignedExecutionPayloadEnvelope, Slot,
+        MinimalEthSpec, SignedExecutionPayloadEnvelope,
     };
 
     type E = MinimalEthSpec;
@@ -783,7 +783,7 @@ mod data_availability_checker_tests {
             init_block(&cache, &harness.spec, NumBlobs::Number(1), RNG_SEED);
 
         let result = cache
-            .put_rpc_custody_columns(block_root, bid, data_columns)
+            .put_rpc_custody_columns(block_root, bid.clone(), data_columns)
             .expect("should put columns");
         assert!(matches!(result, Availability::MissingComponents(_)));
 
