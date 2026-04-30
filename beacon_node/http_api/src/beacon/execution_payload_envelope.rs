@@ -7,7 +7,7 @@ use crate::version::{
     execution_optimistic_finalized_beacon_response,
 };
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes, NotifyExecutionLayer};
 use bytes::Bytes;
 use eth2::types as api_types;
 use eth2::{CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
@@ -18,7 +18,7 @@ use std::future::Future;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, info, warn};
-use types::{EthSpec, SignedExecutionPayloadEnvelope};
+use types::{BlockImportSource, EthSpec, SignedExecutionPayloadEnvelope};
 use warp::{
     Filter, Rejection, Reply,
     hyper::{Body, Response},
@@ -99,14 +99,12 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     let slot = envelope.slot();
     let beacon_block_root = envelope.message.beacon_block_root;
 
-    // TODO(gloas): Replace this check once we have gossip validation.
     if !chain.spec.is_gloas_scheduled() {
         return Err(warp_utils::reject::custom_bad_request(
             "Execution payload envelopes are not supported before the Gloas fork".into(),
         ));
     }
 
-    // TODO(gloas): We should probably add validation here i.e. BroadcastValidation::Gossip
     info!(
         %slot,
         %beacon_block_root,
@@ -118,7 +116,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
 
     // Spawn the column-build task (CPU-bound KZG cell-and-proof computation) before
     // publishing the envelope so it runs in parallel with envelope gossip, narrowing
-    // the window in which peers see envelope-without-columns. If envelope publication
+    // the window in which peers see envelope-without-columns. If envelope import
     // fails below, dropping this future drops the spawned `JoinHandle` (the running
     // closure on the blocking pool finishes and is then discarded — no work cancellation).
     let column_build_future = match blobs_and_proofs {
@@ -131,17 +129,47 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         _ => None,
     };
 
-    // Publish the envelope to the network.
-    crate::utils::publish_pubsub_message(
-        network_tx,
-        PubsubMessage::ExecutionPayload(Box::new(envelope)),
-    )
-    .map_err(|_| {
-        warn!(%slot, "Failed to publish execution payload envelope to network");
-        warp_utils::reject::custom_server_error(
-            "Unable to publish execution payload envelope to network".into(),
+    // Gossip-verify the envelope before publishing.
+    let gossip_verified = chain
+        .verify_envelope_for_gossip(Arc::new(envelope))
+        .await
+        .map_err(|e| {
+            warn!(%slot, error = ?e, "Execution payload envelope failed gossip verification");
+            warp_utils::reject::custom_bad_request(format!(
+                "envelope failed gossip verification: {e}"
+            ))
+        })?;
+
+    let network_tx_clone = network_tx.clone();
+    let envelope_for_gossip = gossip_verified.signed_envelope.as_ref().clone();
+    let publish_fn = || {
+        crate::utils::publish_pubsub_message(
+            &network_tx_clone,
+            PubsubMessage::ExecutionPayload(Box::new(envelope_for_gossip)),
         )
-    })?;
+        .map_err(|_| {
+            beacon_chain::payload_envelope_verification::EnvelopeError::BeaconChainError(Arc::new(
+                beacon_chain::BeaconChainError::UnableToPublish,
+            ))
+        })
+    };
+
+    let import_result = chain
+        .process_execution_payload_envelope(
+            beacon_block_root,
+            gossip_verified,
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::HttpApi,
+            publish_fn,
+        )
+        .await;
+
+    if let Err(e) = import_result {
+        warn!(%slot, error = ?e, "Failed to import execution payload envelope");
+        return Err(warp_utils::reject::custom_server_error(format!(
+            "envelope import failed: {e}"
+        )));
+    }
 
     // From here on the envelope is on the wire. `take_blobs` already consumed the cache
     // entry, so a retry would not republish columns; returning Err would mislead the

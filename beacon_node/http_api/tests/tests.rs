@@ -2846,6 +2846,8 @@ impl ApiTester {
         let message = self.make_valid_payload_attestation_message(0);
         let fork_name = self.chain.spec.fork_name_at_slot::<E>(message.data.slot);
 
+        let pool_count_before = self.chain.op_pool.num_payload_attestation_messages();
+
         self.client
             .post_beacon_pool_payload_attestations(&[message], fork_name)
             .await
@@ -2856,12 +2858,20 @@ impl ApiTester {
             "valid payload attestation should be sent to network"
         );
 
+        assert_eq!(
+            self.chain.op_pool.num_payload_attestation_messages(),
+            pool_count_before + 1,
+            "payload attestation should be added to op pool"
+        );
+
         self
     }
 
     pub async fn test_post_beacon_pool_payload_attestations_valid_ssz(mut self) -> Self {
         let message = self.make_valid_payload_attestation_message(1);
         let fork_name = self.chain.spec.fork_name_at_slot::<E>(message.data.slot);
+
+        let pool_count_before = self.chain.op_pool.num_payload_attestation_messages();
 
         self.client
             .post_beacon_pool_payload_attestations_ssz(&[message], fork_name)
@@ -2871,6 +2881,12 @@ impl ApiTester {
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
             "valid payload attestation (SSZ) should be sent to network"
+        );
+
+        assert_eq!(
+            self.chain.op_pool.num_payload_attestation_messages(),
+            pool_count_before + 1,
+            "payload attestation should be added to op pool"
         );
 
         self
@@ -4653,6 +4669,86 @@ impl ApiTester {
             .unwrap();
 
         assert_eq!(ssz_result, expected);
+
+        self
+    }
+
+    /// Regression test: publishing an envelope via the HTTP API must import it locally so
+    /// that `produce_payload_attestation_data` returns `payload_present = true`. Without
+    /// local import, the `envelope_times_cache` is never populated and PTC voters on the
+    /// same node incorrectly vote MISSING for their own payload.
+    pub async fn test_payload_attestation_present_after_envelope_publish(self) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+
+        for _ in 0..E::slots_per_epoch() * 3 {
+            let slot = self.chain.slot().unwrap();
+            let epoch = self.chain.epoch().unwrap();
+            let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
+
+            if !fork_name.gloas_enabled() {
+                self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+                continue;
+            }
+
+            let (sk, randao_reveal) = self
+                .proposer_setup(slot, epoch, &fork, genesis_validators_root)
+                .await;
+
+            // Produce and publish a block.
+            let (response, _metadata) = self
+                .client
+                .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, None, None)
+                .await
+                .unwrap();
+            let block = response.data;
+            let block_root = block.tree_hash_root();
+
+            let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+            let signed_block_request =
+                PublishBlockRequest::try_from(Arc::new(signed_block)).unwrap();
+            self.client
+                .post_beacon_blocks_v2(&signed_block_request, None)
+                .await
+                .unwrap();
+
+            // Retrieve and publish the envelope.
+            let envelope = self
+                .client
+                .get_validator_execution_payload_envelope::<E>(slot, BUILDER_INDEX_SELF_BUILD)
+                .await
+                .unwrap()
+                .data;
+
+            let signed_envelope =
+                self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
+            self.client
+                .post_beacon_execution_payload_envelope(&signed_envelope, fork_name)
+                .await
+                .unwrap();
+
+            // The payload attestation data endpoint must now report the payload as present.
+            let pa_data = self
+                .client
+                .get_validator_payload_attestation_data(slot)
+                .await
+                .unwrap()
+                .into_data();
+
+            assert_eq!(pa_data.beacon_block_root, block_root);
+            assert_eq!(pa_data.slot, slot);
+            assert!(
+                pa_data.payload_present,
+                "payload attestation should report payload_present=true after publishing \
+                 the envelope via the HTTP API (slot {slot})"
+            );
+
+            self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+        }
 
         self
     }
@@ -8359,6 +8455,14 @@ async fn get_validator_payload_attestation_data_pre_gloas() {
     ApiTester::new()
         .await
         .test_get_validator_payload_attestation_data_pre_gloas()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn payload_attestation_present_after_envelope_publish() {
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_payload_attestation_present_after_envelope_publish()
         .await;
 }
 
