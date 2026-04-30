@@ -5,11 +5,11 @@ use std::{
 
 use crate::proposer_preferences_verification::gossip_verified_proposer_preferences::GossipVerifiedProposerPreferences;
 use parking_lot::RwLock;
-use types::{SignedProposerPreferences, Slot};
+use types::{Hash256, SignedProposerPreferences, Slot};
 
 pub struct GossipVerifiedProposerPreferenceCache {
     preferences: RwLock<BTreeMap<Slot, GossipVerifiedProposerPreferences>>,
-    seen: RwLock<BTreeMap<Slot, HashSet<u64>>>,
+    seen: RwLock<BTreeMap<Slot, HashSet<(Hash256, u64)>>>,
 }
 
 impl Default for GossipVerifiedProposerPreferenceCache {
@@ -34,21 +34,27 @@ impl GossipVerifiedProposerPreferenceCache {
         self.preferences.write().insert(slot, preferences);
     }
 
-    pub fn get_seen_validator(&self, slot: &Slot, validator_index: u64) -> bool {
+    pub fn get_seen_validator(
+        &self,
+        slot: &Slot,
+        dependent_root: Hash256,
+        validator_index: u64,
+    ) -> bool {
         self.seen
             .read()
             .get(slot)
-            .is_some_and(|seen| seen.contains(&validator_index))
+            .is_some_and(|seen| seen.contains(&(dependent_root, validator_index)))
     }
 
     pub fn insert_seen_validator(&self, preferences: &GossipVerifiedProposerPreferences) {
         let slot = preferences.signed_preferences.message.proposal_slot;
+        let dependent_root = preferences.signed_preferences.message.dependent_root;
         let validator_index = preferences.signed_preferences.message.validator_index;
         self.seen
             .write()
             .entry(slot)
             .or_default()
-            .insert(validator_index);
+            .insert((dependent_root, validator_index));
     }
 
     pub fn prune(&self, current_slot: Slot) {
@@ -77,6 +83,7 @@ mod tests {
                     validator_index,
                     fee_recipient: Address::ZERO,
                     gas_limit: 30_000_000,
+                    ..ProposerPreferences::default()
                 },
                 signature: Signature::empty(),
             }),
@@ -97,11 +104,11 @@ mod tests {
 
         for slot in [1, 2, 3, 7] {
             assert!(cache.get_preferences(&Slot::new(slot)).is_none());
-            assert!(!cache.get_seen_validator(&Slot::new(slot), slot));
+            assert!(!cache.get_seen_validator(&Slot::new(slot), types::Hash256::ZERO, slot));
         }
         for slot in [8, 9, 10] {
             assert!(cache.get_preferences(&Slot::new(slot)).is_some());
-            assert!(cache.get_seen_validator(&Slot::new(slot), slot));
+            assert!(cache.get_seen_validator(&Slot::new(slot), types::Hash256::ZERO, slot));
         }
     }
 }

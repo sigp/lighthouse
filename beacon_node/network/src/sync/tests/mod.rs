@@ -148,13 +148,13 @@ pub fn init_tracing() {
     INIT_TRACING.call_once(|| {
         if std::env::var(CI_LOGGER_DIR_ENV_VAR).is_ok() {
             // Enable logging to log files for each test and each fork.
-            tracing_subscriber::registry()
+            let _ = tracing_subscriber::registry()
                 .with(
                     tracing_subscriber::fmt::layer()
                         .with_ansi(false)
                         .with_writer(CILogWriter),
                 )
-                .init();
+                .try_init();
         }
     });
 }
