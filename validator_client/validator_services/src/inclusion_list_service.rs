@@ -274,7 +274,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> InclusionListService<S
 
         for transaction in inclusion_list_transactions.into_iter() {
             total_bytes += transaction.len();
-            if total_bytes <= 8192 {
+            if total_bytes <= self.chain_spec.max_bytes_per_inclusion_list as usize {
                 trimmed_il.push(transaction);
             }
         }

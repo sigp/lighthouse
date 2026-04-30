@@ -235,6 +235,9 @@ pub struct ChainSpec {
      */
     pub domain_inclusion_list_committee: u32,
     pub inclusion_list_committee_size: u64,
+    pub max_bytes_per_inclusion_list: u64,
+    pub max_request_inclusion_list: u64,
+    pub inclusion_list_due_bps: u64,
 
     /*
      * Fulu hard fork params
@@ -1292,6 +1295,9 @@ impl ChainSpec {
              */
             domain_inclusion_list_committee: 12,
             inclusion_list_committee_size: 16,
+            max_bytes_per_inclusion_list: 8192,
+            max_request_inclusion_list: 16,
+            inclusion_list_due_bps: 6667,
 
             /*
              * Fulu hard fork params
@@ -1730,6 +1736,9 @@ impl ChainSpec {
              */
             domain_inclusion_list_committee: 12,
             inclusion_list_committee_size: 16,
+            max_bytes_per_inclusion_list: 8192,
+            max_request_inclusion_list: 16,
+            inclusion_list_due_bps: 6667,
 
             /*
              * Fulu hard fork params
