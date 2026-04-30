@@ -166,10 +166,12 @@ impl TestContext {
         );
         let message = bid.signing_root(domain);
         let signature = self.keypairs[bid.builder_index as usize].sk.sign(message);
-        Arc::new(SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
-            message: bid,
-            signature,
-        }))
+        Arc::new(SignedExecutionPayloadBid::Gloas(
+            SignedExecutionPayloadBidGloas {
+                message: bid,
+                signature,
+            },
+        ))
     }
 
     fn gossip_ctx(&self) -> GossipVerificationContext<'_, T> {
@@ -423,16 +425,18 @@ fn execution_payment_nonzero() {
     let slot = Slot::new(0);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
-    let bid = Arc::new(SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
-        message: ExecutionPayloadBidGloas {
-            slot,
-            gas_limit: 30_000_000,
-            execution_payment: 42,
-            parent_block_root: ctx.genesis_block_root,
-            ..ExecutionPayloadBidGloas::default()
+    let bid = Arc::new(SignedExecutionPayloadBid::Gloas(
+        SignedExecutionPayloadBidGloas {
+            message: ExecutionPayloadBidGloas {
+                slot,
+                gas_limit: 30_000_000,
+                execution_payment: 42,
+                parent_block_root: ctx.genesis_block_root,
+                ..ExecutionPayloadBidGloas::default()
+            },
+            signature: Signature::empty(),
         },
-        signature: Signature::empty(),
-    }));
+    ));
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(matches!(
         result,
@@ -579,19 +583,21 @@ fn invalid_blob_kzg_commitments() {
         .map(|_| KzgCommitment::empty_for_testing())
         .collect();
 
-    let bid = Arc::new(SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
-        message: ExecutionPayloadBidGloas {
-            slot,
-            builder_index: 0,
-            fee_recipient: Address::ZERO,
-            gas_limit: 30_000_000,
-            value: 0,
-            parent_block_root: ctx.genesis_block_root,
-            blob_kzg_commitments: VariableList::new(commitments).unwrap(),
-            ..ExecutionPayloadBidGloas::default()
+    let bid = Arc::new(SignedExecutionPayloadBid::Gloas(
+        SignedExecutionPayloadBidGloas {
+            message: ExecutionPayloadBidGloas {
+                slot,
+                builder_index: 0,
+                fee_recipient: Address::ZERO,
+                gas_limit: 30_000_000,
+                value: 0,
+                parent_block_root: ctx.genesis_block_root,
+                blob_kzg_commitments: VariableList::new(commitments).unwrap(),
+                ..ExecutionPayloadBidGloas::default()
+            },
+            signature: Signature::empty(),
         },
-        signature: Signature::empty(),
-    }));
+    ));
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(matches!(
         result,

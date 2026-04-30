@@ -251,9 +251,8 @@ mod tests {
     use kzg::KzgCommitment;
     use ssz_types::VariableList;
     use types::{
-        Address, BeaconState, ChainSpec, EthSpec, ExecutionPayloadBidGloas,
-        ExecutionPayloadBidRef, MinimalEthSpec, ProposerPreferences, SignedProposerPreferences,
-        Slot,
+        Address, BeaconState, ChainSpec, EthSpec, ExecutionPayloadBidGloas, ExecutionPayloadBidRef,
+        MinimalEthSpec, ProposerPreferences, SignedProposerPreferences, Slot,
     };
 
     use super::verify_bid_consistency;

@@ -5,7 +5,10 @@ use ssz_types::BitVector;
 use std::collections::{HashMap, HashSet};
 use tracing::info;
 
-/// Map from slot to inclusion lists
+/// Map from slot to inclusion lists.
+// TODO(focil): Spec keys InclusionListStore by (slot, committee_root), not just slot.
+// A reorg that changes committee membership for the same slot would conflate ILs.
+// See: https://github.com/ethereum/consensus-specs/blob/master/specs/heze/inclusion-list.md#inclusionliststore
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct InclusionListCache<E: EthSpec> {
     inner_map: HashMap<Slot, Inner<E>>,
@@ -18,6 +21,9 @@ struct Inner<E: EthSpec> {
     pub inclusion_lists: HashSet<SignedInclusionList<E>>,
     pub inclusion_lists_seen: HashSet<ValidatorIndex>,
     pub inclusion_list_equivocators: HashSet<ValidatorIndex>,
+    // TODO(focil): Spec tracks timeliness per IL root, not per validator index.
+    // Functionally equivalent for non-equivocating validators.
+    // See: https://github.com/ethereum/consensus-specs/blob/master/specs/heze/inclusion-list.md#inclusionliststore
     pub inclusion_list_timeliness: HashMap<ValidatorIndex, bool>,
     pub inclusion_list_transactions: HashSet<Transaction<E::MaxBytesPerTransaction>>,
     pub timely_transactions: HashSet<Transaction<E::MaxBytesPerTransaction>>,

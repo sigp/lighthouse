@@ -2008,11 +2008,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
     pub async fn get_inclusion_list(&self) -> Result<Transactions<E>, Error> {
         debug!("Requesting inclusion list from EL");
-        let raw_transactions = self
-            .engine()
-            .api
-            .get_inclusion_list::<E>()
-            .await?;
+        let raw_transactions = self.engine().api.get_inclusion_list::<E>().await?;
 
         let mut transactions = vec![];
 

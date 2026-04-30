@@ -1025,9 +1025,7 @@ impl<E: EthSpec> BeaconState<E> {
             .map(|i| indices[i % indices.len()] as u64)
             .collect();
 
-        Ok(InclusionListCommittee::<E>::from(
-            il_committee.try_into()?,
-        ))
+        Ok(InclusionListCommittee::<E>::from(il_committee.try_into()?))
     }
 
     /// Returns the block root which decided the proposer shuffling for the epoch passed in parameter. This root

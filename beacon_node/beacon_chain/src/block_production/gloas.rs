@@ -33,8 +33,8 @@ use types::{
     ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, FullPayload, Graffiti,
     Hash256, PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
     SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas,
-    SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope, SignedVoluntaryExit,
-    Slot, SyncAggregate, Withdrawal, Withdrawals,
+    SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope, SignedVoluntaryExit, Slot,
+    SyncAggregate, Withdrawal, Withdrawals,
 };
 
 use crate::pending_payload_envelopes::PendingEnvelopeData;
@@ -607,26 +607,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .unwrap_or_default();
                 let heze_bid = match signed_execution_payload_bid {
                     SignedExecutionPayloadBid::Heze(bid) => bid,
-                    SignedExecutionPayloadBid::Gloas(gloas_bid) => {
-                        SignedExecutionPayloadBidHeze {
-                            message: ExecutionPayloadBidHeze {
-                                parent_block_hash: gloas_bid.message.parent_block_hash,
-                                parent_block_root: gloas_bid.message.parent_block_root,
-                                block_hash: gloas_bid.message.block_hash,
-                                prev_randao: gloas_bid.message.prev_randao,
-                                fee_recipient: gloas_bid.message.fee_recipient,
-                                gas_limit: gloas_bid.message.gas_limit,
-                                builder_index: gloas_bid.message.builder_index,
-                                slot: gloas_bid.message.slot,
-                                value: gloas_bid.message.value,
-                                execution_payment: gloas_bid.message.execution_payment,
-                                blob_kzg_commitments: gloas_bid.message.blob_kzg_commitments,
-                                execution_requests_root: gloas_bid.message.execution_requests_root,
-                                inclusion_list_bits,
-                            },
-                            signature: gloas_bid.signature,
-                        }
-                    }
+                    SignedExecutionPayloadBid::Gloas(gloas_bid) => SignedExecutionPayloadBidHeze {
+                        message: ExecutionPayloadBidHeze {
+                            parent_block_hash: gloas_bid.message.parent_block_hash,
+                            parent_block_root: gloas_bid.message.parent_block_root,
+                            block_hash: gloas_bid.message.block_hash,
+                            prev_randao: gloas_bid.message.prev_randao,
+                            fee_recipient: gloas_bid.message.fee_recipient,
+                            gas_limit: gloas_bid.message.gas_limit,
+                            builder_index: gloas_bid.message.builder_index,
+                            slot: gloas_bid.message.slot,
+                            value: gloas_bid.message.value,
+                            execution_payment: gloas_bid.message.execution_payment,
+                            blob_kzg_commitments: gloas_bid.message.blob_kzg_commitments,
+                            execution_requests_root: gloas_bid.message.execution_requests_root,
+                            inclusion_list_bits,
+                        },
+                        signature: gloas_bid.signature,
+                    },
                 };
                 BeaconBlock::Heze(BeaconBlockHeze {
                     slot,
