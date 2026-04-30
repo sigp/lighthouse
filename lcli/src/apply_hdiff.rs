@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 use store::config::StoreConfig;
 use store::hdiff::{HDiff, HDiffBuffer};
+use tracing_subscriber::fmt::format::FmtSpan;
 use types::{BeaconState, EthSpec};
 
 pub fn run<E: EthSpec>(
@@ -46,12 +47,21 @@ pub fn run<E: EthSpec>(
     let to_buffer_time = t.elapsed();
     println!("BeaconState -> HDiffBuffer: {:?}", to_buffer_time);
 
-    // Apply the diff
+    // Apply the diff. Install a scoped subscriber so the per-component spans emitted inside
+    // `HDiff::apply` are printed with their busy/idle timings. Scoped with `set_default` so we
+    // don't stomp on the global lcli logger.
+    let timing_subscriber = tracing_subscriber::fmt()
+        .with_target(false)
+        .with_span_events(FmtSpan::CLOSE)
+        .with_max_level(tracing::Level::DEBUG)
+        .finish();
+
     let config = StoreConfig::default();
     let t = Instant::now();
-    hdiff
-        .apply(&mut buffer, &config)
-        .map_err(|e| format!("Failed to apply HDiff: {:?}", e))?;
+    let apply_result = tracing::subscriber::with_default(timing_subscriber, || {
+        hdiff.apply(&mut buffer, &config)
+    });
+    apply_result.map_err(|e| format!("Failed to apply HDiff: {:?}", e))?;
     let apply_time = t.elapsed();
     println!("HDiff apply: {:?}", apply_time);
 

@@ -13,6 +13,7 @@ use std::ops::RangeInclusive;
 use std::str::FromStr;
 use std::sync::LazyLock;
 use superstruct::superstruct;
+use tracing::debug_span;
 use typenum::Unsigned;
 use types::state::HistoricalSummary;
 use types::state::Validators;
@@ -277,34 +278,30 @@ impl HDiff {
         source: &mut HDiffBuffer<E>,
         config: &StoreConfig,
     ) -> Result<(), Error> {
-        let t = std::time::Instant::now();
         let source_state = std::mem::take(&mut source.state);
-        self.state_diff().apply(&source_state, &mut source.state)?;
-        eprintln!("  state_diff (xdelta3) apply: {:?}", t.elapsed());
+        debug_span!("state_diff_apply")
+            .in_scope(|| self.state_diff().apply(&source_state, &mut source.state))?;
 
-        let t = std::time::Instant::now();
-        self.balances_diff().apply(&mut source.balances, config)?;
-        eprintln!("  balances_diff apply: {:?}", t.elapsed());
+        debug_span!("balances_diff_apply")
+            .in_scope(|| self.balances_diff().apply(&mut source.balances, config))?;
 
-        let t = std::time::Instant::now();
-        self.inactivity_scores_diff()
-            .apply(&mut source.inactivity_scores, config)?;
-        eprintln!("  inactivity_scores_diff apply: {:?}", t.elapsed());
+        debug_span!("inactivity_scores_diff_apply").in_scope(|| {
+            self.inactivity_scores_diff()
+                .apply(&mut source.inactivity_scores, config)
+        })?;
 
-        let t = std::time::Instant::now();
-        self.validators_diff()
-            .apply::<E>(&mut source.validators, config)?;
-        eprintln!("  validators_diff apply: {:?}", t.elapsed());
+        debug_span!("validators_diff_apply").in_scope(|| {
+            self.validators_diff()
+                .apply::<E>(&mut source.validators, config)
+        })?;
 
-        let t = std::time::Instant::now();
-        self.historical_roots()
-            .apply(&mut source.historical_roots)?;
-        eprintln!("  historical_roots apply: {:?}", t.elapsed());
+        debug_span!("historical_roots_apply")
+            .in_scope(|| self.historical_roots().apply(&mut source.historical_roots))?;
 
-        let t = std::time::Instant::now();
-        self.historical_summaries()
-            .apply(&mut source.historical_summaries)?;
-        eprintln!("  historical_summaries apply: {:?}", t.elapsed());
+        debug_span!("historical_summaries_apply").in_scope(|| {
+            self.historical_summaries()
+                .apply(&mut source.historical_summaries)
+        })?;
 
         Ok(())
     }
