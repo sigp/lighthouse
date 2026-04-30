@@ -150,11 +150,14 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> InclusionListService<S
 
         let executor = self.executor.clone();
         let chain_spec = spec.clone();
+        let il_due_fraction = spec.inclusion_list_due_bps as u32;
         let interval_fut = async move {
             loop {
                 if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
-                    // 3/4 of the way into the slot
-                    sleep(duration_to_next_slot + (slot_duration * 3 / 4)).await;
+                    // Wait until the start of the next slot, then sleep to
+                    // inclusion_list_due_bps fraction into that slot.
+                    let il_offset = slot_duration * il_due_fraction / 10000;
+                    sleep(duration_to_next_slot + il_offset).await;
                     if let Err(e) = self.spawn_inclusion_list_task(slot_duration, &chain_spec) {
                         crit!(
                             error = ?e,
