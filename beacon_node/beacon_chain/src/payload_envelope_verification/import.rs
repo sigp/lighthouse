@@ -6,7 +6,7 @@ use fork_choice::PayloadVerificationStatus;
 use slot_clock::SlotClock;
 use store::StoreOp;
 use tracing::{debug, error, info, info_span, instrument, warn};
-use types::{BlockImportSource, Hash256, SignedExecutionPayloadEnvelope};
+use types::{BlockImportSource, EthSpec, Hash256, SignedExecutionPayloadEnvelope};
 
 use super::{
     AvailableEnvelope, AvailableExecutedEnvelope, EnvelopeError, EnvelopeImportData,
@@ -76,6 +76,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // TODO(gloas): rename/refactor these `into_` names to be less similar and more clear
             // about what the function actually does.
+            let chain_ref = chain.clone();
             let executed_envelope = chain
                 .into_executed_payload_envelope(execution_pending)
                 .await
@@ -92,6 +93,43 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 envelope_times_cache
                     .write()
                     .set_time_executed(block_root, block_slot, timestamp);
+            }
+
+            // Per spec: record_payload_inclusion_list_satisfaction after payload verification.
+            // Call the EL to check if the payload satisfies the aggregated IL constraints.
+            if let ExecutedEnvelope::Available(ref envelope) = executed_envelope {
+                if chain_ref
+                    .spec
+                    .is_focil_enabled_for_epoch(block_slot.epoch(T::EthSpec::slots_per_epoch()))
+                {
+                    let payload_block_hash = envelope.envelope.message().payload.block_hash;
+                    let il_slot = block_slot.saturating_sub(1_u64);
+                    let il_txs = chain_ref
+                        .inclusion_list_cache
+                        .read()
+                        .get_inclusion_list_transactions(il_slot, true)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|tx| tx.to_vec())
+                        .collect::<Vec<Vec<u8>>>();
+
+                    if let Some(execution_layer) = chain_ref.execution_layer.as_ref() {
+                        let satisfied = execution_layer
+                            .is_inclusion_list_satisfied(payload_block_hash, il_txs)
+                            .await
+                            .unwrap_or(false);
+
+                        if let Err(e) = chain_ref
+                            .record_payload_inclusion_list_satisfaction(block_root, satisfied)
+                            .await
+                        {
+                            warn!(
+                                error = ?e,
+                                "Failed to record IL satisfaction"
+                            );
+                        }
+                    }
+                }
             }
 
             match executed_envelope {

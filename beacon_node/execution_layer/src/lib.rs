@@ -1562,6 +1562,22 @@ impl<E: EthSpec> ExecutionLayer<E> {
             .map_err(Error::EngineError)
     }
 
+    pub async fn is_inclusion_list_satisfied(
+        &self,
+        payload_block_hash: ExecutionBlockHash,
+        inclusion_list_transactions: Vec<Vec<u8>>,
+    ) -> Result<bool, Error> {
+        self.engine()
+            .request(|engine| {
+                engine
+                    .api
+                    .is_inclusion_list_satisfied(payload_block_hash, inclusion_list_transactions)
+            })
+            .await
+            .map_err(Box::new)
+            .map_err(Error::EngineError)
+    }
+
     /// Update engine sync status.
     pub async fn upcheck(&self) {
         self.engine().upcheck().await;
