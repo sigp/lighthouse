@@ -97,11 +97,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Per spec: record_payload_inclusion_list_satisfaction after payload verification.
             // Call the EL to check if the payload satisfies the aggregated IL constraints.
-            if let ExecutedEnvelope::Available(ref envelope) = executed_envelope {
-                if chain_ref
+            if let ExecutedEnvelope::Available(ref envelope) = executed_envelope
+                && chain_ref
                     .spec
                     .is_focil_enabled_for_epoch(block_slot.epoch(T::EthSpec::slots_per_epoch()))
-                {
+            {
                     let payload_block_hash = envelope.envelope.message().payload.block_hash;
                     let il_slot = block_slot.saturating_sub(1_u64);
                     let il_txs = chain_ref
@@ -129,7 +129,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             );
                         }
                     }
-                }
             }
 
             match executed_envelope {

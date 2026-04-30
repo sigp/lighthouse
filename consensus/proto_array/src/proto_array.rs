@@ -12,7 +12,6 @@ use ssz_derive::{Decode, Encode};
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use superstruct::superstruct;
-use tracing::info;
 use typenum::U512;
 use types::{
     AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,

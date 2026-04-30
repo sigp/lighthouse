@@ -3,9 +3,9 @@ use crate::state::BeaconStateError;
 use crate::test_utils::TestRandom;
 use crate::{EthSpec, ForkName};
 use bls::Signature;
-use context_deserialize::context_deserialize;
+use context_deserialize::{ContextDeserialize, context_deserialize};
 use educe::Educe;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
@@ -107,6 +107,32 @@ impl<E: EthSpec> SignedExecutionPayloadBidHeze<E> {
         Self {
             message: ExecutionPayloadBidHeze::default(),
             signature: Signature::empty(),
+        }
+    }
+}
+
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for SignedExecutionPayloadBid<E> {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let convert_err = |e| {
+            serde::de::Error::custom(format!(
+                "SignedExecutionPayloadBid failed to deserialize: {:?}",
+                e
+            ))
+        };
+        match context {
+            ForkName::Heze => Ok(Self::Heze(
+                Deserialize::deserialize(deserializer).map_err(convert_err)?,
+            )),
+            ForkName::Gloas => Ok(Self::Gloas(
+                Deserialize::deserialize(deserializer).map_err(convert_err)?,
+            )),
+            _ => Err(serde::de::Error::custom(format!(
+                "SignedExecutionPayloadBid failed to deserialize: unsupported fork '{}'",
+                context
+            ))),
         }
     }
 }

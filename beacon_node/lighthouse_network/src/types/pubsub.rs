@@ -15,7 +15,8 @@ use types::{
     SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
     SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
     SignedBeaconBlockFulu, SignedBeaconBlockGloas, SignedBeaconBlockHeze,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedExecutionPayloadBidGloas,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedExecutionPayloadBid,
+    SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze,
     SignedExecutionPayloadEnvelope, SignedInclusionList, SignedProposerPreferences,
     SignedVoluntaryExit, SingleAttestation, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
@@ -49,7 +50,7 @@ pub enum PubsubMessage<E: EthSpec> {
     /// Gossipsub message providing notification of a payload attestation message.
     PayloadAttestation(Box<PayloadAttestationMessage>),
     /// Gossipsub message providing notification of a signed execution payload bid.
-    ExecutionPayloadBid(Box<SignedExecutionPayloadBidGloas<E>>),
+    ExecutionPayloadBid(Box<SignedExecutionPayloadBid<E>>),
     /// Gossipsub message providing notification of signed proposer preferences.
     ProposerPreferences(Box<SignedProposerPreferences>),
     /// Gossipsub message providing notification of a light client finality update.
@@ -379,9 +380,28 @@ impl<E: EthSpec> PubsubMessage<E> {
                         )))
                     }
                     GossipKind::ExecutionPayloadBid => {
-                        let execution_payload_bid =
-                            SignedExecutionPayloadBidGloas::from_ssz_bytes(data)
-                                .map_err(|e| format!("{:?}", e))?;
+                        let execution_payload_bid = match fork_context
+                            .get_fork_from_context_bytes(gossip_topic.fork_digest)
+                        {
+                            Some(fork_name) if fork_name.heze_enabled() => {
+                                SignedExecutionPayloadBid::Heze(
+                                    SignedExecutionPayloadBidHeze::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                )
+                            }
+                            Some(fork_name) if fork_name.gloas_enabled() => {
+                                SignedExecutionPayloadBid::Gloas(
+                                    SignedExecutionPayloadBidGloas::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                )
+                            }
+                            _ => {
+                                return Err(format!(
+                                    "execution_payload_bid topic invalid for given fork digest {:?}",
+                                    gossip_topic.fork_digest
+                                ));
+                            }
+                        };
                         Ok(PubsubMessage::ExecutionPayloadBid(Box::new(
                             execution_payload_bid,
                         )))
@@ -596,7 +616,7 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
                 write!(
                     f,
                     "Execution payload bid: slot: {:?} value: {:?}",
-                    data.message.slot, data.message.value
+                    data.message().slot(), data.message().value()
                 )
             }
             PubsubMessage::ProposerPreferences(data) => {

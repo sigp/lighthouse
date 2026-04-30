@@ -7,7 +7,7 @@ use crate::{
     BeaconChainTypes, payload_bid_verification::gossip_verified_bid::GossipVerifiedPayloadBid,
 };
 use parking_lot::RwLock;
-use types::{BuilderIndex, ExecutionBlockHash, Hash256, SignedExecutionPayloadBidGloas, Slot};
+use types::{BuilderIndex, ExecutionBlockHash, Hash256, SignedExecutionPayloadBid, Slot};
 
 type HighestBidMap<T> =
     BTreeMap<Slot, HashMap<(ExecutionBlockHash, Hash256), GossipVerifiedPayloadBid<T>>>;
@@ -27,38 +27,35 @@ impl<T: BeaconChainTypes> Default for GossipVerifiedPayloadBidCache<T> {
 }
 
 impl<T: BeaconChainTypes> GossipVerifiedPayloadBidCache<T> {
-    /// Get the cached bid for the tuple `(slot, parent_block_hash, parent_block_root)`.
     pub fn get_highest_bid(
         &self,
         slot: Slot,
         parent_block_hash: ExecutionBlockHash,
         parent_block_root: Hash256,
-    ) -> Option<Arc<SignedExecutionPayloadBidGloas<T::EthSpec>>> {
+    ) -> Option<Arc<SignedExecutionPayloadBid<T::EthSpec>>> {
         self.highest_bid.read().get(&slot).and_then(|map| {
             map.get(&(parent_block_hash, parent_block_root))
                 .map(|b| b.signed_bid.clone())
         })
     }
 
-    /// Insert a bid for the tuple `(slot, parent_block_hash, parent_block_root)` only if
-    /// its value is higher than the currently cached bid for that tuple.
     pub fn insert_highest_bid(&self, bid: GossipVerifiedPayloadBid<T>) {
-        let key = (
-            bid.signed_bid.message.parent_block_hash,
-            bid.signed_bid.message.parent_block_root,
-        );
+        let bid_msg = bid.signed_bid.message();
+        let key = (bid_msg.parent_block_hash(), bid_msg.parent_block_root());
+        let slot = bid_msg.slot();
+        let value = bid_msg.value();
+
         let mut highest_bid = self.highest_bid.write();
-        let slot_map = highest_bid.entry(bid.signed_bid.message.slot).or_default();
+        let slot_map = highest_bid.entry(slot).or_default();
 
         if let Some(existing) = slot_map.get(&key)
-            && existing.signed_bid.message.value >= bid.signed_bid.message.value
+            && existing.signed_bid.message().value() >= value
         {
             return;
         }
         slot_map.insert(key, bid);
     }
 
-    /// A gossip verified bid for `BuilderIndex` already exists at `slot`
     pub fn seen_builder_index(&self, slot: &Slot, builder_index: BuilderIndex) -> bool {
         self.seen_builder
             .read()
@@ -66,16 +63,15 @@ impl<T: BeaconChainTypes> GossipVerifiedPayloadBidCache<T> {
             .is_some_and(|seen_builders| seen_builders.contains(&builder_index))
     }
 
-    /// Insert a builder into the seen cache.
     pub fn insert_seen_builder(&self, bid: &GossipVerifiedPayloadBid<T>) {
+        let bid_msg = bid.signed_bid.message();
         let mut seen_builder = self.seen_builder.write();
         seen_builder
-            .entry(bid.signed_bid.message.slot)
+            .entry(bid_msg.slot())
             .or_default()
-            .insert(bid.signed_bid.message.builder_index);
+            .insert(bid_msg.builder_index());
     }
 
-    /// Prune anything before `current_slot`
     pub fn prune(&self, current_slot: Slot) {
         self.highest_bid
             .write()
@@ -94,7 +90,7 @@ mod tests {
     use bls::Signature;
     use types::{
         ExecutionBlockHash, ExecutionPayloadBidGloas, Hash256, MinimalEthSpec,
-        SignedExecutionPayloadBidGloas, Slot,
+        SignedExecutionPayloadBid, Slot,
     };
 
     use super::GossipVerifiedPayloadBidCache;
@@ -114,17 +110,19 @@ mod tests {
         value: u64,
     ) -> GossipVerifiedPayloadBid<T> {
         GossipVerifiedPayloadBid {
-            signed_bid: Arc::new(SignedExecutionPayloadBidGloas {
-                message: ExecutionPayloadBidGloas {
-                    slot,
-                    builder_index,
-                    parent_block_hash,
-                    parent_block_root,
-                    value,
-                    ..ExecutionPayloadBidGloas::default()
+            signed_bid: Arc::new(SignedExecutionPayloadBid::Gloas(
+                types::SignedExecutionPayloadBidGloas {
+                    message: ExecutionPayloadBidGloas {
+                        slot,
+                        builder_index,
+                        parent_block_hash,
+                        parent_block_root,
+                        value,
+                        ..ExecutionPayloadBidGloas::default()
+                    },
+                    signature: Signature::empty(),
                 },
-                signature: Signature::empty(),
-            }),
+            )),
         }
     }
 
@@ -142,12 +140,10 @@ mod tests {
 
         cache.prune(Slot::new(8));
 
-        // Slots 1-7 pruned from both maps.
         for slot in [1, 2, 3, 7] {
             assert!(cache.get_highest_bid(Slot::new(slot), hash, root).is_none());
             assert!(!cache.seen_builder_index(&Slot::new(slot), slot));
         }
-        // Slots 8-10 retained in both maps.
         for slot in [8, 9, 10] {
             assert!(cache.get_highest_bid(Slot::new(slot), hash, root).is_some());
             assert!(cache.seen_builder_index(&Slot::new(slot), slot));

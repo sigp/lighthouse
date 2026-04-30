@@ -15,7 +15,8 @@ use store::{HotColdDB, StoreConfig};
 use types::{
     Address, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ExecutionBlockHash,
     ExecutionPayloadBidGloas, Hash256, MinimalEthSpec, ProposerPreferences, SignedBeaconBlock,
-    SignedExecutionPayloadBidGloas, SignedProposerPreferences, SignedRoot, Slot,
+    SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas, SignedProposerPreferences,
+    SignedRoot, Slot,
 };
 
 use proto_array::{Block as ProtoBlock, ExecutionStatus, PayloadStatus};
@@ -154,7 +155,7 @@ impl TestContext {
         }
     }
 
-    fn sign_bid(&self, bid: ExecutionPayloadBidGloas<E>) -> Arc<SignedExecutionPayloadBidGloas<E>> {
+    fn sign_bid(&self, bid: ExecutionPayloadBidGloas<E>) -> Arc<SignedExecutionPayloadBid<E>> {
         let head = self.canonical_head.cached_head();
         let state = &head.snapshot.beacon_state;
         let domain = self.spec.get_domain(
@@ -165,10 +166,10 @@ impl TestContext {
         );
         let message = bid.signing_root(domain);
         let signature = self.keypairs[bid.builder_index as usize].sk.sign(message);
-        Arc::new(SignedExecutionPayloadBidGloas {
+        Arc::new(SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
             message: bid,
             signature,
-        })
+        }))
     }
 
     fn gossip_ctx(&self) -> GossipVerificationContext<'_, T> {
@@ -229,19 +230,21 @@ fn make_signed_bid(
     gas_limit: u64,
     value: u64,
     parent_block_root: Hash256,
-) -> Arc<SignedExecutionPayloadBidGloas<E>> {
-    Arc::new(SignedExecutionPayloadBidGloas {
-        message: ExecutionPayloadBidGloas {
-            slot,
-            builder_index,
-            fee_recipient,
-            gas_limit,
-            value,
-            parent_block_root,
-            ..ExecutionPayloadBidGloas::default()
+) -> Arc<SignedExecutionPayloadBid<E>> {
+    Arc::new(SignedExecutionPayloadBid::Gloas(
+        SignedExecutionPayloadBidGloas {
+            message: ExecutionPayloadBidGloas {
+                slot,
+                builder_index,
+                fee_recipient,
+                gas_limit,
+                value,
+                parent_block_root,
+                ..ExecutionPayloadBidGloas::default()
+            },
+            signature: Signature::empty(),
         },
-        signature: Signature::empty(),
-    })
+    ))
 }
 
 fn make_signed_preferences(
@@ -420,7 +423,7 @@ fn execution_payment_nonzero() {
     let slot = Slot::new(0);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
-    let bid = Arc::new(SignedExecutionPayloadBidGloas {
+    let bid = Arc::new(SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
         message: ExecutionPayloadBidGloas {
             slot,
             gas_limit: 30_000_000,
@@ -429,7 +432,7 @@ fn execution_payment_nonzero() {
             ..ExecutionPayloadBidGloas::default()
         },
         signature: Signature::empty(),
-    });
+    }));
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(matches!(
         result,
@@ -576,7 +579,7 @@ fn invalid_blob_kzg_commitments() {
         .map(|_| KzgCommitment::empty_for_testing())
         .collect();
 
-    let bid = Arc::new(SignedExecutionPayloadBidGloas {
+    let bid = Arc::new(SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
         message: ExecutionPayloadBidGloas {
             slot,
             builder_index: 0,
@@ -588,7 +591,7 @@ fn invalid_blob_kzg_commitments() {
             ..ExecutionPayloadBidGloas::default()
         },
         signature: Signature::empty(),
-    });
+    }));
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(matches!(
         result,
@@ -703,8 +706,8 @@ fn two_builders_coexist_in_cache() {
         .bid_cache
         .get_highest_bid(slot, ExecutionBlockHash::zero(), ctx.genesis_block_root)
         .expect("should have highest bid");
-    assert_eq!(highest.message.value, 1);
-    assert_eq!(highest.message.builder_index, 1);
+    assert_eq!(highest.message().value(), 1);
+    assert_eq!(highest.message().builder_index(), 1);
 }
 
 #[test]

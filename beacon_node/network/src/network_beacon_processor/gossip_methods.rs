@@ -58,7 +58,7 @@ use types::{
     LightClientFinalityUpdate, LightClientOptimisticUpdate, PartialDataColumn,
     PartialDataColumnHeader, PayloadAttestationMessage, ProposerSlashing, SignedAggregateAndProof,
     SignedBeaconBlock, SignedBlsToExecutionChange, SignedContributionAndProof,
-    SignedExecutionPayloadBidGloas, SignedExecutionPayloadEnvelope, SignedInclusionList,
+    SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope, SignedInclusionList,
     SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
     SyncCommitteeMessage, SyncSubnetId, block::BlockImportSource,
 };
@@ -4073,13 +4073,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         parent = None,
         level = "debug",
         skip_all,
-        fields(parent_block_hash = ?bid.message.parent_block_hash, parent_block_root = ?bid.message.parent_block_root),
+        fields(parent_block_hash = ?bid.message().parent_block_hash(), parent_block_root = ?bid.message().parent_block_root()),
     )]
     pub fn process_gossip_execution_payload_bid(
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        bid: Arc<SignedExecutionPayloadBidGloas<T::EthSpec>>,
+        bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>,
     ) {
         let verification_result = self.chain.verify_payload_bid_for_gossip(bid.clone());
 
