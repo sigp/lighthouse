@@ -18,7 +18,7 @@
 //!
 //! ```
 
-use state_processing::{BlockProcessingError, envelope_processing::EnvelopeProcessingError};
+use state_processing::envelope_processing::EnvelopeProcessingError;
 use std::sync::Arc;
 use store::Error as DBError;
 use strum::AsRefStr;
@@ -38,7 +38,6 @@ pub mod gossip_verified_envelope;
 pub mod import;
 mod payload_notifier;
 
-use crate::data_availability_checker::AvailabilityCheckError;
 pub use execution_pending_envelope::ExecutionPendingEnvelope;
 
 #[derive(Debug)]
@@ -173,25 +172,16 @@ pub enum EnvelopeError {
         payload_slot: Slot,
         latest_finalized_slot: Slot,
     },
-    /// Optimistic sync is not supported for Gloas payload envelopes.
-    OptimisticSyncNotSupported { block_root: Hash256 },
     /// Some Beacon Chain Error
     BeaconChainError(Arc<BeaconChainError>),
     /// Some Beacon State error
     BeaconStateError(BeaconStateError),
-    /// Some BlockProcessingError (for electra operations)
-    BlockProcessingError(BlockProcessingError),
     /// Some EnvelopeProcessingError
     EnvelopeProcessingError(EnvelopeProcessingError),
     /// Error verifying the execution payload
     ExecutionPayloadError(ExecutionPayloadError),
-    /// An error from block-level checks reused during envelope import
-    BlockError(BlockError),
-    /// The envelope satisfied all validity conditions except consistency
-    /// with the corresponding columns that we received over gossip/rpc.
-    AvailabilityCheck(AvailabilityCheckError),
-    /// Internal error
-    InternalError(String),
+    /// An error from importing the envelope.
+    ImportError(BlockError),
 }
 
 impl std::fmt::Display for EnvelopeError {
@@ -221,18 +211,6 @@ impl From<BeaconStateError> for EnvelopeError {
 impl From<DBError> for EnvelopeError {
     fn from(e: DBError) -> Self {
         EnvelopeError::BeaconChainError(Arc::new(BeaconChainError::DBError(e)))
-    }
-}
-
-impl From<BlockError> for EnvelopeError {
-    fn from(e: BlockError) -> Self {
-        EnvelopeError::BlockError(e)
-    }
-}
-
-impl From<AvailabilityCheckError> for EnvelopeError {
-    fn from(e: AvailabilityCheckError) -> Self {
-        EnvelopeError::AvailabilityCheck(e)
     }
 }
 

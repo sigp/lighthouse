@@ -1,4 +1,3 @@
-use crate::BlockError;
 use crate::beacon_block_streamer::Error as BlockStreamerError;
 use crate::beacon_chain::ForkChoiceError;
 use crate::beacon_fork_choice_store::Error as ForkChoiceStoreError;
@@ -10,7 +9,6 @@ use crate::observed_attesters::Error as ObservedAttestersError;
 use crate::observed_block_producers::Error as ObservedBlockProducersError;
 use crate::observed_data_sidecars::Error as ObservedDataSidecarsError;
 use crate::payload_envelope_streamer::Error as EnvelopeStreamerError;
-use crate::payload_envelope_verification::EnvelopeError;
 use bls::PublicKeyBytes;
 use execution_layer::PayloadStatus;
 use fork_choice::ExecutionStatus;
@@ -336,21 +334,3 @@ easy_from_to!(SlotProcessingError, BlockProductionError);
 easy_from_to!(StateAdvanceError, BlockProductionError);
 easy_from_to!(ForkChoiceError, BlockProductionError);
 easy_from_to!(EpochCacheError, BlockProductionError);
-
-#[derive(Debug)]
-pub enum BlockOrEnvelopeError {
-    BlockError(BlockError),
-    EnvelopeError(EnvelopeError),
-}
-
-easy_from_to!(BlockError, BlockOrEnvelopeError);
-easy_from_to!(EnvelopeError, BlockOrEnvelopeError);
-
-impl AsRef<str> for BlockOrEnvelopeError {
-    fn as_ref(&self) -> &str {
-        match self {
-            BlockOrEnvelopeError::BlockError(e) => e.as_ref(),
-            BlockOrEnvelopeError::EnvelopeError(e) => e.as_ref(),
-        }
-    }
-}

@@ -15,7 +15,7 @@ use super::{
 use crate::data_column_verification::load_gloas_payload_bid;
 use crate::pending_payload_cache::Availability as PayloadAvailability;
 use crate::{
-    AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes,
+    AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
     NotifyExecutionLayer,
     block_verification_types::AvailableBlockData,
     metrics,
@@ -85,7 +85,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // about what the function actually does.
             let executed_envelope = chain
                 .into_executed_payload_envelope(execution_pending)
-                .await?;
+                .await
+                .map_err(|error| match error {
+                    BlockError::ExecutionPayloadError(error) => {
+                        EnvelopeError::ExecutionPayloadError(error)
+                    }
+                    error => EnvelopeError::ImportError(error),
+                })?;
 
             // Record the time it took to wait for execution layer verification.
             if let Some(timestamp) = slot_clock.now_duration() {
@@ -96,6 +102,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             self.check_envelope_availability_and_import(executed_envelope)
                 .await
+                .map_err(EnvelopeError::ImportError)
         };
 
         // Verify and import the payload envelope.
@@ -131,6 +138,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
                 Err(EnvelopeError::BeaconChainError(e))
             }
+            Err(EnvelopeError::ImportError(BlockError::BeaconChainError(e))) => {
+                if matches!(e.as_ref(), BeaconChainError::TokioJoin(_)) {
+                    debug!(error = ?e, "Envelope processing cancelled");
+                } else {
+                    warn!(error = ?e, "Execution payload envelope rejected");
+                }
+                Err(EnvelopeError::ImportError(BlockError::BeaconChainError(e)))
+            }
             Err(other) => {
                 warn!(
                     reason = other.to_string(),
@@ -149,8 +164,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         slot: Slot,
         availability: PayloadAvailability<T::EthSpec>,
-        publish_fn: impl FnOnce() -> Result<(), EnvelopeError>,
-    ) -> Result<AvailabilityProcessingStatus, EnvelopeError> {
+        publish_fn: impl FnOnce() -> Result<(), BlockError>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError> {
         match availability {
             PayloadAvailability::Available(available_envelope) => {
                 publish_fn()?;
@@ -167,11 +182,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     async fn check_envelope_availability_and_import(
         self: &Arc<Self>,
         envelope: AvailabilityPendingExecutedEnvelope<T::EthSpec>,
-    ) -> Result<AvailabilityProcessingStatus, EnvelopeError> {
+    ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let slot = envelope.envelope.slot();
         let block_root = envelope.block_root;
         let bid = load_gloas_payload_bid(block_root, self)?
-            .ok_or(EnvelopeError::BlockRootUnknown { block_root })?;
+            .ok_or(BlockError::EnvelopeBlockRootUnknown { block_root })?;
         let availability = self
             .pending_payload_cache
             .put_executed_payload_envelope(bid, envelope)?;
@@ -187,7 +202,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     async fn into_executed_payload_envelope(
         self: Arc<Self>,
         pending_envelope: ExecutionPendingEnvelope<T::EthSpec>,
-    ) -> Result<AvailabilityPendingExecutedEnvelope<T::EthSpec>, EnvelopeError> {
+    ) -> Result<AvailabilityPendingExecutedEnvelope<T::EthSpec>, BlockError> {
         let ExecutionPendingEnvelope {
             signed_envelope,
             block_root,
@@ -204,7 +219,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .payload_verification_status
             .is_optimistic()
         {
-            return Err(EnvelopeError::OptimisticSyncNotSupported { block_root });
+            return Err(BlockError::OptimisticSyncNotSupported { block_root });
         }
 
         Ok(AvailabilityPendingExecutedEnvelope::new(
@@ -218,7 +233,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn import_available_execution_payload_envelope(
         self: &Arc<Self>,
         envelope: Box<AvailableExecutedEnvelope<T::EthSpec>>,
-    ) -> Result<AvailabilityProcessingStatus, EnvelopeError> {
+    ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let AvailableExecutedEnvelope {
             envelope,
             block_root,
@@ -255,13 +270,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         signed_envelope: AvailableEnvelope<T::EthSpec>,
         block_root: Hash256,
         payload_verification_status: PayloadVerificationStatus,
-    ) -> Result<Hash256, EnvelopeError> {
+    ) -> Result<Hash256, BlockError> {
         // Everything in this initial section is on the hot path for processing the envelope.
         // Take an upgradable read lock on fork choice so we can check if this block has already
         // been imported. We don't want to repeat work importing a block that is already imported.
         let fork_choice_reader = self.canonical_head.fork_choice_upgradable_read_lock();
         if !fork_choice_reader.contains_block(&block_root) {
-            return Err(EnvelopeError::BlockRootUnknown { block_root });
+            return Err(BlockError::EnvelopeBlockRootUnknown { block_root });
         }
 
         // TODO(gloas) add defensive check to see if payload envelope is already in fork choice
@@ -276,7 +291,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // node which can be eligible for head.
         fork_choice
             .on_valid_payload_envelope_received(block_root)
-            .map_err(|e| EnvelopeError::InternalError(format!("{e:?}")))?;
+            .map_err(|e| BlockError::InternalError(format!("{e:?}")))?;
 
         // TODO(gloas) emit SSE event if the payload became the new head payload
 

@@ -14,8 +14,8 @@ use beacon_chain::payload_bid_verification::PayloadBidError;
 use beacon_chain::proposer_preferences_verification::ProposerPreferencesError;
 use beacon_chain::store::Error;
 use beacon_chain::{
-    AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError,
-    BlockOrEnvelopeError, ForkChoiceError, GossipVerifiedBlock, NotifyExecutionLayer,
+    AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
+    GossipVerifiedBlock, NotifyExecutionLayer,
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
     data_availability_checker::AvailabilityCheckErrorCategory,
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
@@ -1407,7 +1407,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     self.check_reconstruction_trigger(slot, &block_root).await;
                 }
             },
-            Err(BlockOrEnvelopeError::BlockError(BlockError::DuplicateFullyImported(_))) => {
+            Err(BlockError::DuplicateFullyImported(_)) => {
                 debug!(
                     ?block_root,
                     data_column_index, "Ignoring gossip column already imported"
@@ -1538,7 +1538,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     self.check_reconstruction_trigger(*slot, block_root).await;
                 }
             },
-            Err(BlockOrEnvelopeError::BlockError(BlockError::DuplicateFullyImported(_))) => {
+            Err(BlockError::DuplicateFullyImported(_)) => {
                 debug!(
                     ?block_root,
                     data_column_index, "Ignoring completed gossip column already imported"
@@ -1846,7 +1846,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 return None;
             }
             // BlobNotRequired is unreachable. Only constructed in `process_gossip_blob`
-            Err(e @ BlockError::InternalError(_)) | Err(e @ BlockError::BlobNotRequired(_)) => {
+            Err(e @ BlockError::InternalError(_))
+            | Err(e @ BlockError::BlobNotRequired(_))
+            | Err(e @ BlockError::EnvelopeBlockRootUnknown { .. })
+            | Err(e @ BlockError::OptimisticSyncNotSupported { .. }) => {
                 error!(error = %e, "Internal block gossip validation error");
                 return None;
             }
@@ -3833,8 +3836,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | EnvelopeError::UnknownValidator { .. }
                     | EnvelopeError::IncorrectBlockProposer { .. }
                     | EnvelopeError::ExecutionPayloadError(_)
-                    | EnvelopeError::EnvelopeProcessingError(_)
-                    | EnvelopeError::BlockError(_) => {
+                    | EnvelopeError::EnvelopeProcessingError(_) => {
                         self.propagate_validation_result(
                             message_id,
                             peer_id,
@@ -3914,12 +3916,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
 
                     EnvelopeError::PriorToFinalization { .. }
-                    | EnvelopeError::OptimisticSyncNotSupported { .. }
                     | EnvelopeError::BeaconChainError(_)
                     | EnvelopeError::BeaconStateError(_)
-                    | EnvelopeError::BlockProcessingError(_)
-                    | EnvelopeError::InternalError(_)
-                    | EnvelopeError::AvailabilityCheck(_) => {
+                    | EnvelopeError::ImportError(_) => {
                         self.propagate_validation_result(
                             message_id,
                             peer_id,
@@ -4010,7 +4009,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | EnvelopeError::BlockHashMismatch { .. }
                 | EnvelopeError::UnknownValidator { .. }
                 | EnvelopeError::IncorrectBlockProposer { .. }
-                | EnvelopeError::ExecutionPayloadError(_) => {
+                | EnvelopeError::ExecutionPayloadError(_)
+                | EnvelopeError::EnvelopeProcessingError(_) => {
                     self.gossip_penalize_peer(
                         peer_id,
                         PeerAction::LowToleranceError,
@@ -4018,23 +4018,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     );
                 }
 
-                EnvelopeError::EnvelopeProcessingError(_)
-                | EnvelopeError::BlockError(_)
-                | EnvelopeError::BlockRootUnknown { .. } => {
-                    self.gossip_penalize_peer(
-                        peer_id,
-                        PeerAction::LowToleranceError,
-                        "gossip_envelope_processing_error",
-                    );
-                }
-
-                EnvelopeError::PriorToFinalization { .. }
-                | EnvelopeError::OptimisticSyncNotSupported { .. }
+                EnvelopeError::BlockRootUnknown { .. }
+                | EnvelopeError::PriorToFinalization { .. }
                 | EnvelopeError::BeaconChainError(_)
                 | EnvelopeError::BeaconStateError(_)
-                | EnvelopeError::BlockProcessingError(_)
-                | EnvelopeError::InternalError(_)
-                | EnvelopeError::AvailabilityCheck(_) => {}
+                | EnvelopeError::ImportError(_) => {}
             },
         }
     }

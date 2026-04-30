@@ -1307,9 +1307,11 @@ pub(crate) fn load_gloas_payload_bid<T: BeaconChainTypes>(
     block_root: Hash256,
     chain: &BeaconChain<T>,
 ) -> Result<Option<PendingPayloadBid<T::EthSpec>>, BeaconChainError> {
-    let bid = if let Some(bid) = chain.pending_payload_cache.get_bid(&block_root) {
-        bid
-    } else if let Some(block) = chain.early_attester_cache.get_block(block_root) {
+    if let Some(bid) = chain.pending_payload_cache.get_bid(&block_root) {
+        return Ok(Some(bid));
+    }
+
+    let bid = if let Some(block) = chain.early_attester_cache.get_block(block_root) {
         PendingPayloadBid::from_block(block.as_ref()).map_err(BeaconChainError::BeaconStateError)?
     } else {
         match chain

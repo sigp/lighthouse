@@ -7,9 +7,7 @@ use beacon_chain::data_column_verification::{GossipDataColumnError, observe_goss
 use beacon_chain::fetch_blobs::{
     EngineGetBlobsOutput, FetchEngineBlobError, fetch_and_process_engine_blobs,
 };
-use beacon_chain::{
-    AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, BlockOrEnvelopeError,
-};
+use beacon_chain::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError};
 use beacon_processor::{
     BeaconProcessorSend, DuplicateCache, GossipAggregatePackage, GossipAttestationPackage, Work,
     WorkEvent as BeaconWorkEvent,
@@ -983,10 +981,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
             }
             Err(FetchEngineBlobError::BlobProcessingError(e))
-                if matches!(
-                    *e,
-                    BlockOrEnvelopeError::BlockError(BlockError::DuplicateFullyImported(..))
-                ) =>
+                if matches!(*e, BlockError::DuplicateFullyImported(..)) =>
             {
                 debug!(
                     %block_root,
@@ -1055,7 +1050,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Reconstruction not required for block"
                 );
             }
-            Err(BlockOrEnvelopeError::BlockError(BlockError::DuplicateFullyImported(_))) => {
+            Err(BlockError::DuplicateFullyImported(_)) => {
                 debug!("Block already imported in parallel with reconstruction");
             }
             Err(e) => {

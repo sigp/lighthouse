@@ -76,7 +76,7 @@ pub use self::beacon_chain::{
 };
 pub use self::beacon_snapshot::BeaconSnapshot;
 pub use self::chain_config::ChainConfig;
-pub use self::errors::{BeaconChainError, BlockOrEnvelopeError, BlockProductionError};
+pub use self::errors::{BeaconChainError, BlockProductionError};
 pub use self::historical_blocks::HistoricalBlockError;
 pub use attestation_verification::Error as AttestationError;
 pub use beacon_fork_choice_store::{

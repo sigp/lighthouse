@@ -33,9 +33,7 @@ use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_availability_checker::{
     AvailabilityCheckError, AvailabilityCheckErrorCategory,
 };
-use beacon_chain::{
-    AvailabilityProcessingStatus, BeaconChainTypes, BlockError, BlockOrEnvelopeError,
-};
+use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
 pub use common::RequestState;
 use fnv::FnvHashMap;
 use lighthouse_network::service::api_types::SingleLookupReqId;
@@ -591,12 +589,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         let action = match result {
             BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(_))
-            | BlockProcessingResult::Err(BlockOrEnvelopeError::BlockError(
-                BlockError::DuplicateFullyImported(..),
-            ))
-            | BlockProcessingResult::Err(BlockOrEnvelopeError::BlockError(
-                BlockError::GenesisBlock,
-            )) => {
+            | BlockProcessingResult::Err(BlockError::DuplicateFullyImported(..))
+            | BlockProcessingResult::Err(BlockError::GenesisBlock) => {
                 // Successfully imported
                 request_state.on_processing_success()?;
                 Action::Continue
@@ -620,9 +614,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     Action::Retry
                 }
             }
-            BlockProcessingResult::Err(BlockOrEnvelopeError::BlockError(
-                BlockError::DuplicateImportStatusUnknown(..),
-            )) => {
+            BlockProcessingResult::Err(BlockError::DuplicateImportStatusUnknown(..)) => {
                 // This is unreachable because RPC blocks do not undergo gossip verification, and
                 // this error can *only* come from gossip verification.
                 error!(?block_root, "Single block lookup hit unreachable condition");
@@ -638,11 +630,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 Action::Drop("Block processing ignored".to_owned())
             }
             BlockProcessingResult::Err(e) => {
-                let BlockOrEnvelopeError::BlockError(e) = e else {
-                    // TODO(gloas): handle properly
-                    return Err(LookupRequestError::Failed(format!("{e:?}")));
-                };
-
                 match e {
                     BlockError::BeaconChainError(e) => {
                         // Internal error
