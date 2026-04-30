@@ -542,6 +542,7 @@ where
         withdrawals,
         parent_beacon_block_root,
         slot_number,
+        None,
     );
 
     let target_gas_limit = execution_layer.get_proposer_gas_limit(proposer_index).await;

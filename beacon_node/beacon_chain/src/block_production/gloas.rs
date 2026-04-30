@@ -1120,6 +1120,24 @@ where
         .await;
     let slot_number = Some(builder_params.slot.as_u64());
 
+    // For Heze, fetch inclusion list transactions from the cache (previous slot's ILs).
+    let inclusion_list_transactions = if fork.heze_enabled() {
+        let il_slot = builder_params.slot.saturating_sub(1_u64);
+        let il_txs = chain
+            .inclusion_list_cache
+            .read()
+            .get_inclusion_list_transactions(il_slot)
+            .unwrap_or_default();
+        Some(
+            il_txs
+                .into_iter()
+                .map(|tx| tx.to_vec())
+                .collect::<Vec<Vec<u8>>>(),
+        )
+    } else {
+        None
+    };
+
     let payload_attributes = PayloadAttributes::new(
         timestamp,
         random,
@@ -1127,6 +1145,7 @@ where
         Some(withdrawals),
         Some(parent_beacon_block_root),
         slot_number,
+        inclusion_list_transactions,
     );
 
     let target_gas_limit = execution_layer.get_proposer_gas_limit(proposer_index).await;

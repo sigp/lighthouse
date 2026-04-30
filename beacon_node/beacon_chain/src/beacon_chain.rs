@@ -6525,6 +6525,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None
             };
 
+            // For Heze, fetch inclusion list transactions from the cache.
+            let inclusion_list_transactions =
+                if prepare_slot_fork.heze_enabled() {
+                    let il_slot = prepare_slot.saturating_sub(1_u64);
+                    let il_txs = self
+                        .inclusion_list_cache
+                        .read()
+                        .get_inclusion_list_transactions(il_slot)
+                        .unwrap_or_default();
+                    Some(
+                        il_txs
+                            .into_iter()
+                            .map(|tx| tx.to_vec())
+                            .collect::<Vec<Vec<u8>>>(),
+                    )
+                } else {
+                    None
+                };
+
             let payload_attributes = PayloadAttributes::new(
                 self.slot_clock
                     .start_of(prepare_slot)
@@ -6535,6 +6554,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 withdrawals.map(Into::into),
                 parent_beacon_block_root,
                 slot_number,
+                inclusion_list_transactions,
             );
 
             execution_layer

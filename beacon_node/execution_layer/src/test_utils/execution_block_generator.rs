@@ -806,6 +806,30 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 }),
                 _ => unreachable!(),
             },
+            PayloadAttributes::V5(pa) => match self.get_fork_at_timestamp(pa.timestamp) {
+                ForkName::Heze => ExecutionPayload::Heze(ExecutionPayloadHeze {
+                    parent_hash: head_block_hash,
+                    fee_recipient: pa.suggested_fee_recipient,
+                    receipts_root: Hash256::repeat_byte(42),
+                    state_root: Hash256::repeat_byte(43),
+                    logs_bloom: vec![0; 256].try_into().unwrap(),
+                    prev_randao: pa.prev_randao,
+                    block_number: parent.block_number() + 1,
+                    gas_limit: DEFAULT_GAS_LIMIT,
+                    gas_used: GAS_USED,
+                    timestamp: pa.timestamp,
+                    extra_data: "block gen was here".as_bytes().to_vec().try_into().unwrap(),
+                    base_fee_per_gas: Uint256::from(1u64),
+                    block_hash: ExecutionBlockHash::zero(),
+                    transactions: vec![].try_into().unwrap(),
+                    withdrawals: pa.withdrawals.clone().try_into().unwrap(),
+                    blob_gas_used: 0,
+                    excess_blob_gas: 0,
+                    block_access_list: VariableList::empty(),
+                    slot_number: pa.slot_number.into(),
+                }),
+                _ => unreachable!(),
+            },
         };
 
         // Store execution requests for this payload if configured.
