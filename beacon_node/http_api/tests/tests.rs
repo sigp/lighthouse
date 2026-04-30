@@ -4650,7 +4650,8 @@ impl ApiTester {
             .client
             .get_validator_payload_attestation_data(slot)
             .await
-            .unwrap();
+            .unwrap()
+            .expect("expected payload attestation data for slot with block");
 
         assert_eq!(response.version(), Some(fork_name));
 
@@ -4737,6 +4738,7 @@ impl ApiTester {
                 .get_validator_payload_attestation_data(slot)
                 .await
                 .unwrap()
+                .expect("expected payload attestation data for slot with block")
                 .into_data();
 
             assert_eq!(pa_data.beacon_block_root, block_root);
@@ -4765,6 +4767,26 @@ impl ApiTester {
             Ok(result) => panic!("query for pre-Gloas slot should fail, got: {result:?}"),
             Err(e) => assert_eq!(e.status().unwrap(), 400),
         }
+
+        self
+    }
+
+    pub async fn test_get_validator_payload_attestation_data_no_block(self) -> Self {
+        // Advance the slot clock without producing a block
+        self.harness.advance_slot();
+        let slot = self.chain.slot().unwrap();
+
+        // Should return None when no block exists for the slot
+        let result = self
+            .client
+            .get_validator_payload_attestation_data(slot)
+            .await
+            .unwrap();
+
+        assert!(
+            result.is_none(),
+            "expected None for empty slot, got: {result:?}"
+        );
 
         self
     }
@@ -8437,6 +8459,17 @@ async fn get_validator_payload_attestation_data_pre_gloas() {
     ApiTester::new()
         .await
         .test_get_validator_payload_attestation_data_pre_gloas()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_payload_attestation_data_no_block() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    ApiTester::new()
+        .await
+        .test_get_validator_payload_attestation_data_no_block()
         .await;
 }
 
