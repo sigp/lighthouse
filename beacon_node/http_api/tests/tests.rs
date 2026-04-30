@@ -2846,6 +2846,8 @@ impl ApiTester {
         let message = self.make_valid_payload_attestation_message(0);
         let fork_name = self.chain.spec.fork_name_at_slot::<E>(message.data.slot);
 
+        let pool_count_before = self.chain.op_pool.num_payload_attestation_messages();
+
         self.client
             .post_beacon_pool_payload_attestations(&[message], fork_name)
             .await
@@ -2856,12 +2858,20 @@ impl ApiTester {
             "valid payload attestation should be sent to network"
         );
 
+        assert_eq!(
+            self.chain.op_pool.num_payload_attestation_messages(),
+            pool_count_before + 1,
+            "payload attestation should be added to op pool"
+        );
+
         self
     }
 
     pub async fn test_post_beacon_pool_payload_attestations_valid_ssz(mut self) -> Self {
         let message = self.make_valid_payload_attestation_message(1);
         let fork_name = self.chain.spec.fork_name_at_slot::<E>(message.data.slot);
+
+        let pool_count_before = self.chain.op_pool.num_payload_attestation_messages();
 
         self.client
             .post_beacon_pool_payload_attestations_ssz(&[message], fork_name)
@@ -2871,6 +2881,12 @@ impl ApiTester {
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
             "valid payload attestation (SSZ) should be sent to network"
+        );
+
+        assert_eq!(
+            self.chain.op_pool.num_payload_attestation_messages(),
+            pool_count_before + 1,
+            "payload attestation should be added to op pool"
         );
 
         self
