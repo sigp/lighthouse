@@ -4946,9 +4946,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(Box::new(DoNotReOrg::ReOrgsDisabled.into()))?;
 
         let re_org_parent_threshold = self
-            .config
-            .re_org_parent_threshold
+            .spec
+            .reorg_parent_weight_threshold
+            .map(ReOrgThreshold)
             .ok_or(Box::new(DoNotReOrg::ReOrgsDisabled.into()))?;
+
+        let re_org_max_epochs_since_finalization = self
+            .spec
+            .reorg_max_epochs_since_finalization
+            .map(Epoch::new)
+            .unwrap_or(Epoch::new(2));
 
         let head_block_root = canonical_forkchoice_params.head_root;
 
@@ -4961,7 +4968,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 re_org_head_threshold,
                 re_org_parent_threshold,
                 &self.config.re_org_disallowed_offsets,
-                self.config.re_org_max_epochs_since_finalization,
+                re_org_max_epochs_since_finalization,
             )
             .map_err(|e| e.map_inner_error(Error::ProposerHeadForkChoiceError))?;
 

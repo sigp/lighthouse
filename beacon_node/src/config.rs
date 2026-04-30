@@ -1,7 +1,6 @@
 use account_utils::{STDIN_INPUTS_FLAG, read_input_from_user};
 use beacon_chain::chain_config::{
     DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, DisallowedReOrgOffsets, INVALID_HOLESKY_BLOCK_ROOT,
-    ReOrgThreshold,
 };
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::graffiti_calculator::GraffitiOrigin;
@@ -741,17 +740,9 @@ pub fn get_config<E: EthSpec>(
     }
 
     if cli_args.get_flag("disable-proposer-reorgs") {
-        client_config.chain.re_org_parent_threshold = None;
     } else {
-        client_config.chain.re_org_max_epochs_since_finalization = spec
-            .reorg_max_epochs_since_finalization
-            .map(Epoch::new)
-            .unwrap_or(Epoch::new(2));
         client_config.chain.re_org_cutoff_millis =
             clap_utils::parse_optional(cli_args, "proposer-reorg-cutoff")?;
-
-        client_config.chain.re_org_parent_threshold =
-            spec.reorg_parent_weight_threshold.map(ReOrgThreshold);
 
         if let Some(disallowed_offsets_str) =
             clap_utils::parse_optional::<String>(cli_args, "proposer-reorg-disallowed-offsets")?

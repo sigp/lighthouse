@@ -4,7 +4,7 @@ use fork_choice::PayloadStatus;
 use proto_array::{ProposerHeadError, ReOrgThreshold};
 use slot_clock::SlotClock;
 use tracing::{debug, error, info, instrument, warn};
-use types::{BeaconState, Hash256, SignedExecutionPayloadEnvelope, Slot};
+use types::{BeaconState, Epoch, Hash256, SignedExecutionPayloadEnvelope, Slot};
 
 use crate::{
     BeaconChain, BeaconChainTypes, BlockProductionError, StateSkipConfig,
@@ -175,7 +175,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         canonical_head: Hash256,
     ) -> Option<(BeaconState<T::EthSpec>, Hash256)> {
         let re_org_head_threshold = self.spec.reorg_head_weight_threshold.map(ReOrgThreshold)?;
-        let re_org_parent_threshold = self.config.re_org_parent_threshold?;
+        let re_org_parent_threshold = self
+            .spec
+            .reorg_parent_weight_threshold
+            .map(ReOrgThreshold)?;
+        let re_org_max_epochs_since_finalization = self
+            .spec
+            .reorg_max_epochs_since_finalization
+            .map(Epoch::new)
+            .unwrap_or(Epoch::new(2));
 
         if self.spec.proposer_score_boost.is_none() {
             warn!(
@@ -223,7 +231,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 re_org_head_threshold,
                 re_org_parent_threshold,
                 &self.config.re_org_disallowed_offsets,
-                self.config.re_org_max_epochs_since_finalization,
+                re_org_max_epochs_since_finalization,
             )
             .map_err(|e| match e {
                 ProposerHeadError::DoNotReOrg(reason) => {

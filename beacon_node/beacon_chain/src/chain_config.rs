@@ -3,7 +3,7 @@ pub use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::{collections::HashSet, sync::LazyLock, time::Duration};
-use types::{Checkpoint, Epoch, Hash256};
+use types::{Checkpoint, Hash256};
 
 /// Default to 1/12th of the slot, which is 1 second on mainnet.
 pub const DEFAULT_RE_ORG_CUTOFF_DENOMINATOR: u32 = 12;
@@ -38,10 +38,6 @@ pub struct ChainConfig {
     pub archive: bool,
     /// The max size of a message that can be sent over the network.
     pub max_network_size: usize,
-    /// Minimum percentage of the parent committee weight at which to attempt re-orging the canonical head.
-    pub re_org_parent_threshold: Option<ReOrgThreshold>,
-    /// Maximum number of epochs since finalization for attempting a proposer re-org.
-    pub re_org_max_epochs_since_finalization: Epoch,
     /// Maximum delay after the start of the slot at which to propose a reorging block.
     pub re_org_cutoff_millis: Option<u64>,
     /// Additional epoch offsets at which re-orging block proposals are not permitted.
@@ -129,8 +125,6 @@ impl Default for ChainConfig {
             weak_subjectivity_checkpoint: None,
             archive: false,
             max_network_size: 10 * 1_048_576, // 10M
-            re_org_parent_threshold: Some(ReOrgThreshold(160)),
-            re_org_max_epochs_since_finalization: Epoch::new(2),
             re_org_cutoff_millis: None,
             re_org_disallowed_offsets: DisallowedReOrgOffsets::default(),
             fork_choice_before_proposal_timeout_ms: DEFAULT_FORK_CHOICE_BEFORE_PROPOSAL_TIMEOUT,
