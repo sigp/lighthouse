@@ -7,7 +7,7 @@ use crate::{
     BeaconChainTypes, payload_bid_verification::gossip_verified_bid::GossipVerifiedPayloadBid,
 };
 use parking_lot::RwLock;
-use types::{BuilderIndex, ExecutionBlockHash, Hash256, SignedExecutionPayloadBid, Slot};
+use types::{BuilderIndex, ExecutionBlockHash, Hash256, SignedExecutionPayloadBidGloas, Slot};
 
 type HighestBidMap<T> =
     BTreeMap<Slot, HashMap<(ExecutionBlockHash, Hash256), GossipVerifiedPayloadBid<T>>>;
@@ -33,7 +33,7 @@ impl<T: BeaconChainTypes> GossipVerifiedPayloadBidCache<T> {
         slot: Slot,
         parent_block_hash: ExecutionBlockHash,
         parent_block_root: Hash256,
-    ) -> Option<Arc<SignedExecutionPayloadBid<T::EthSpec>>> {
+    ) -> Option<Arc<SignedExecutionPayloadBidGloas<T::EthSpec>>> {
         self.highest_bid.read().get(&slot).and_then(|map| {
             map.get(&(parent_block_hash, parent_block_root))
                 .map(|b| b.signed_bid.clone())
@@ -52,6 +52,7 @@ impl<T: BeaconChainTypes> GossipVerifiedPayloadBidCache<T> {
 
         if let Some(existing) = slot_map.get(&key)
             && existing.signed_bid.message.value >= bid.signed_bid.message.value
+
         {
             return;
         }
@@ -93,8 +94,8 @@ mod tests {
 
     use bls::Signature;
     use types::{
-        ExecutionBlockHash, ExecutionPayloadBid, Hash256, MinimalEthSpec,
-        SignedExecutionPayloadBid, Slot,
+        ExecutionBlockHash, ExecutionPayloadBidGloas, Hash256, MinimalEthSpec,
+        SignedExecutionPayloadBidGloas, Slot,
     };
 
     use super::GossipVerifiedPayloadBidCache;
@@ -114,14 +115,14 @@ mod tests {
         value: u64,
     ) -> GossipVerifiedPayloadBid<T> {
         GossipVerifiedPayloadBid {
-            signed_bid: Arc::new(SignedExecutionPayloadBid {
-                message: ExecutionPayloadBid {
+            signed_bid: Arc::new(SignedExecutionPayloadBidGloas {
+                message: ExecutionPayloadBidGloas {
                     slot,
                     builder_index,
                     parent_block_hash,
                     parent_block_root,
                     value,
-                    ..ExecutionPayloadBid::default()
+                    ..ExecutionPayloadBidGloas::default()
                 },
                 signature: Signature::empty(),
             }),

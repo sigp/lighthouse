@@ -15,7 +15,7 @@ use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
 
 use crate::{
-    SignedExecutionPayloadBid,
+    SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze,
     attestation::{AttestationBase, AttestationData, IndexedAttestationBase},
     block::{
         BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyBellatrix,
@@ -729,7 +729,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockGloa
                 sync_aggregate: SyncAggregate::empty(),
                 bls_to_execution_changes: VariableList::empty(),
                 parent_execution_requests: ExecutionRequests::default(),
-                signed_execution_payload_bid: SignedExecutionPayloadBid::empty(),
+                signed_execution_payload_bid: SignedExecutionPayloadBidGloas::empty(),
                 payload_attestations: VariableList::empty(),
                 _phantom: PhantomData,
             },
@@ -761,7 +761,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockHeze
                 sync_aggregate: SyncAggregate::empty(),
                 bls_to_execution_changes: VariableList::empty(),
                 parent_execution_requests: ExecutionRequests::default(),
-                signed_execution_payload_bid: SignedExecutionPayloadBid::empty(),
+                signed_execution_payload_bid: SignedExecutionPayloadBidHeze::empty(),
                 payload_attestations: VariableList::empty(),
                 _phantom: PhantomData,
             },

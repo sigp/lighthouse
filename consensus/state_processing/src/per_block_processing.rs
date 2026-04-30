@@ -559,12 +559,12 @@ pub fn process_parent_execution_payload<E: EthSpec, Payload: AbstractExecPayload
     let bid_parent_block_hash = block
         .body()
         .signed_execution_payload_bid()?
-        .message
-        .parent_block_hash;
+        .message()
+        .parent_block_hash();
     let parent_bid = state.latest_execution_payload_bid()?;
     let requests = block.body().parent_execution_requests()?;
 
-    if bid_parent_block_hash != parent_bid.block_hash {
+    if bid_parent_block_hash != parent_bid.block_hash() {
         // Parent was EMPTY -- no execution requests expected
         block_verify!(
             *requests == ExecutionRequests::default(),
@@ -576,9 +576,9 @@ pub fn process_parent_execution_payload<E: EthSpec, Payload: AbstractExecPayload
     // Parent was FULL -- verify the bid commitment and apply the payload
     let requests_root = requests.tree_hash_root();
     block_verify!(
-        requests_root == parent_bid.execution_requests_root,
+        requests_root == parent_bid.execution_requests_root(),
         BlockProcessingError::ExecutionRequestsRootMismatch {
-            expected: parent_bid.execution_requests_root,
+            expected: parent_bid.execution_requests_root(),
             found: requests_root,
         }
     );
@@ -597,8 +597,12 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
     requests: &ExecutionRequests<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    let parent_bid = state.latest_execution_payload_bid()?.clone();
-    let parent_slot = parent_bid.slot;
+    let parent_bid = state.latest_execution_payload_bid()?;
+    let parent_slot = parent_bid.slot();
+    let parent_value = parent_bid.value();
+    let parent_fee_recipient = parent_bid.fee_recipient();
+    let parent_builder_index = parent_bid.builder_index();
+    let parent_block_hash = parent_bid.block_hash();
     let parent_epoch = parent_slot.epoch(E::slots_per_epoch());
 
     // Process execution requests from the parent's payload
@@ -615,16 +619,16 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
     } else if parent_epoch == state.previous_epoch() {
         let payment_index = parent_slot.as_u64().safe_rem(E::slots_per_epoch())? as usize;
         settle_builder_payment(state, payment_index)?;
-    } else if parent_bid.value > 0 {
+    } else if parent_value > 0 {
         // Parent is older than previous epoch -- payment entry has already been
         // settled or evicted by process_builder_pending_payments at epoch boundaries.
         // Append the withdrawal directly from the bid.
         state
             .builder_pending_withdrawals_mut()?
             .push(BuilderPendingWithdrawal {
-                fee_recipient: parent_bid.fee_recipient,
-                amount: parent_bid.value,
-                builder_index: parent_bid.builder_index,
+                fee_recipient: parent_fee_recipient,
+                amount: parent_value,
+                builder_index: parent_builder_index,
             })
             .map_err(|e| BlockProcessingError::BeaconStateError(e.into()))?;
     }
@@ -639,7 +643,7 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
         .map_err(BlockProcessingError::BitfieldError)?;
 
     // Update latest_block_hash to the parent bid's block_hash
-    *state.latest_block_hash_mut()? = parent_bid.block_hash;
+    *state.latest_block_hash_mut()? = parent_block_hash;
 
     Ok(())
 }
@@ -681,9 +685,9 @@ pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>
     // Verify the bid signature
     let signed_bid = block.body().signed_execution_payload_bid()?;
 
-    let bid = &signed_bid.message;
-    let amount = bid.value;
-    let builder_index = bid.builder_index;
+    let bid = signed_bid.message();
+    let amount = bid.value();
+    let builder_index = bid.builder_index();
 
     // For self-builds, amount must be zero regardless of withdrawal credential prefix
     if builder_index == BUILDER_INDEX_SELF_BUILD {
@@ -692,7 +696,7 @@ pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>
             ExecutionPayloadBidInvalid::SelfBuildNonZeroAmount.into()
         );
         block_verify!(
-            signed_bid.signature.is_infinity(),
+            signed_bid.signature().is_infinity(),
             ExecutionPayloadBidInvalid::BadSignature.into()
         );
     } else {
@@ -735,19 +739,19 @@ pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>
     // Verify commitments are under limit
     let max_blobs_per_block = spec.max_blobs_per_block(state.current_epoch()) as usize;
     block_verify!(
-        bid.blob_kzg_commitments.len() <= max_blobs_per_block,
+        bid.blob_kzg_commitments().len() <= max_blobs_per_block,
         ExecutionPayloadBidInvalid::ExcessBlobCommitments {
             max: max_blobs_per_block,
-            bid: bid.blob_kzg_commitments.len(),
+            bid: bid.blob_kzg_commitments().len(),
         }
         .into()
     );
 
     // Verify that the bid is for the current slot
     block_verify!(
-        bid.slot == block.slot(),
+        bid.slot() == block.slot(),
         ExecutionPayloadBidInvalid::SlotMismatch {
-            bid_slot: bid.slot,
+            bid_slot: bid.slot(),
             block_slot: block.slot(),
         }
         .into()
@@ -756,29 +760,29 @@ pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>
     // Verify that the bid is for the right parent block
     let latest_block_hash = state.latest_block_hash()?;
     block_verify!(
-        bid.parent_block_hash == *latest_block_hash,
+        bid.parent_block_hash() == *latest_block_hash,
         ExecutionPayloadBidInvalid::ParentBlockHashMismatch {
             state_block_hash: *latest_block_hash,
-            bid_parent_hash: bid.parent_block_hash,
+            bid_parent_hash: bid.parent_block_hash(),
         }
         .into()
     );
 
     block_verify!(
-        bid.parent_block_root == block.parent_root(),
+        bid.parent_block_root() == block.parent_root(),
         ExecutionPayloadBidInvalid::ParentBlockRootMismatch {
             block_parent_root: block.parent_root(),
-            bid_parent_root: bid.parent_block_root,
+            bid_parent_root: bid.parent_block_root(),
         }
         .into()
     );
 
     let expected_randao = *state.get_randao_mix(state.current_epoch())?;
     block_verify!(
-        bid.prev_randao == expected_randao,
+        bid.prev_randao() == expected_randao,
         ExecutionPayloadBidInvalid::PrevRandaoMismatch {
             expected: expected_randao,
-            bid: bid.prev_randao,
+            bid: bid.prev_randao(),
         }
         .into()
     );
@@ -788,14 +792,14 @@ pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>
         let pending_payment = BuilderPendingPayment {
             weight: 0,
             withdrawal: BuilderPendingWithdrawal {
-                fee_recipient: bid.fee_recipient,
+                fee_recipient: bid.fee_recipient(),
                 amount,
                 builder_index,
             },
         };
 
         let payment_index = E::SlotsPerEpoch::to_usize()
-            .safe_add(bid.slot.as_usize().safe_rem(E::SlotsPerEpoch::to_usize())?)?;
+            .safe_add(bid.slot().as_usize().safe_rem(E::SlotsPerEpoch::to_usize())?)?;
 
         *state
             .builder_pending_payments_mut()?
@@ -806,7 +810,14 @@ pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>
     }
 
     // Cache the execution bid
-    *state.latest_execution_payload_bid_mut()? = bid.clone();
+    match block.body().signed_execution_payload_bid()? {
+        SignedExecutionPayloadBidRef::Gloas(signed) => {
+            *state.latest_execution_payload_bid_gloas_mut()? = signed.message.clone();
+        }
+        SignedExecutionPayloadBidRef::Heze(signed) => {
+            *state.latest_execution_payload_bid_heze_mut()? = signed.message.clone();
+        }
+    }
 
     Ok(())
 }

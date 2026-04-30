@@ -14,7 +14,7 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    SignedExecutionPayloadBid,
+    SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze, SignedExecutionPayloadBidRef,
     attestation::{
         AttestationBase, AttestationElectra, AttestationRef, AttestationRefMut, PayloadAttestation,
     },
@@ -169,8 +169,16 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     pub blob_kzg_commitments: KzgCommitments<E>,
     #[superstruct(only(Electra, Fulu))]
     pub execution_requests: ExecutionRequests<E>,
-    #[superstruct(only(Gloas, Heze))]
-    pub signed_execution_payload_bid: SignedExecutionPayloadBid<E>,
+    #[superstruct(
+        only(Gloas),
+        partial_getter(rename = "signed_execution_payload_bid_gloas")
+    )]
+    pub signed_execution_payload_bid: SignedExecutionPayloadBidGloas<E>,
+    #[superstruct(
+        only(Heze),
+        partial_getter(rename = "signed_execution_payload_bid_heze")
+    )]
+    pub signed_execution_payload_bid: SignedExecutionPayloadBidHeze<E>,
     #[superstruct(only(Gloas, Heze))]
     pub payload_attestations: VariableList<PayloadAttestation<E>, E::MaxPayloadAttestations>,
     #[superstruct(only(Gloas, Heze))]
@@ -196,6 +204,20 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBody<E, Payload> {
 }
 
 impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, Payload> {
+    pub fn signed_execution_payload_bid(
+        &self,
+    ) -> Result<SignedExecutionPayloadBidRef<'a, E>, BeaconStateError> {
+        match self {
+            Self::Gloas(body) => Ok(SignedExecutionPayloadBidRef::Gloas(
+                &body.signed_execution_payload_bid,
+            )),
+            Self::Heze(body) => Ok(SignedExecutionPayloadBidRef::Heze(
+                &body.signed_execution_payload_bid,
+            )),
+            _ => Err(BeaconStateError::IncorrectStateVariant),
+        }
+    }
+
     pub fn execution_payload(&self) -> Result<Payload::Ref<'a>, BeaconStateError> {
         match self {
             Self::Base(_) | Self::Altair(_) => Err(BeaconStateError::IncorrectStateVariant),

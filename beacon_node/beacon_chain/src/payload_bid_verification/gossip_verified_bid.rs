@@ -13,14 +13,14 @@ use state_processing::signature_sets::{
 };
 use tracing::debug;
 use types::{
-    BeaconState, ChainSpec, EthSpec, ExecutionPayloadBid, SignedExecutionPayloadBid,
-    SignedProposerPreferences, Slot,
+    BeaconState, ChainSpec, EthSpec, ExecutionPayloadBidGloas, SignedExecutionPayloadBidGloas,
+    SignedExecutionPayloadBidRef, SignedProposerPreferences, Slot,
 };
 
 /// Verify that an execution payload bid is consistent with the current chain state
 /// and proposer preferences.
 pub(crate) fn verify_bid_consistency<E: EthSpec>(
-    bid: &ExecutionPayloadBid<E>,
+    bid: &ExecutionPayloadBidGloas<E>,
     current_slot: Slot,
     proposer_preferences: &SignedProposerPreferences,
     head_state: &BeaconState<E>,
@@ -85,7 +85,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub spec: &'a ChainSpec,
 }
 
-/// A wrapper around a `SignedExecutionPayloadBid` that indicates it has been approved for re-gossiping on
+/// A wrapper around a `SignedExecutionPayloadBidGloas` that indicates it has been approved for re-gossiping on
 /// the p2p network.
 #[derive(Educe)]
 #[educe(
@@ -93,12 +93,12 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     Clone(bound = "T: BeaconChainTypes")
 )]
 pub struct GossipVerifiedPayloadBid<T: BeaconChainTypes> {
-    pub signed_bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>,
+    pub signed_bid: Arc<SignedExecutionPayloadBidGloas<T::EthSpec>>,
 }
 
 impl<T: BeaconChainTypes> GossipVerifiedPayloadBid<T> {
     pub fn new(
-        signed_bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>,
+        signed_bid: Arc<SignedExecutionPayloadBidGloas<T::EthSpec>>,
         ctx: &GossipVerificationContext<'_, T>,
     ) -> Result<Self, PayloadBidError> {
         let bid_slot = signed_bid.message.slot;
@@ -177,7 +177,7 @@ impl<T: BeaconChainTypes> GossipVerifiedPayloadBid<T> {
         execution_payload_bid_signature_set(
             head_state,
             |i| get_builder_pubkey_from_state(head_state, i),
-            &signed_bid,
+            SignedExecutionPayloadBidRef::Gloas(&signed_bid),
             ctx.spec,
         )
         .map_err(|_| PayloadBidError::BadSignature)?
@@ -219,7 +219,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns an `Err` if the given bid was invalid, or an error was encountered during verification.
     pub fn verify_payload_bid_for_gossip(
         &self,
-        bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>,
+        bid: Arc<SignedExecutionPayloadBidGloas<T::EthSpec>>,
     ) -> Result<GossipVerifiedPayloadBid<T>, PayloadBidError> {
         let slot = bid.message.slot;
         let parent_block_root = bid.message.parent_block_root;
@@ -269,7 +269,7 @@ mod tests {
     use kzg::KzgCommitment;
     use ssz_types::VariableList;
     use types::{
-        Address, BeaconState, ChainSpec, EthSpec, ExecutionPayloadBid, MinimalEthSpec,
+        Address, BeaconState, ChainSpec, EthSpec, ExecutionPayloadBidGloas, MinimalEthSpec,
         ProposerPreferences, SignedProposerPreferences, Slot,
     };
 
@@ -278,13 +278,13 @@ mod tests {
 
     type E = MinimalEthSpec;
 
-    fn make_bid(slot: Slot, fee_recipient: Address, gas_limit: u64) -> ExecutionPayloadBid<E> {
-        ExecutionPayloadBid {
+    fn make_bid(slot: Slot, fee_recipient: Address, gas_limit: u64) -> ExecutionPayloadBidGloas<E> {
+        ExecutionPayloadBidGloas {
             slot,
             fee_recipient,
             gas_limit,
             value: 100,
-            ..ExecutionPayloadBid::default()
+            ..ExecutionPayloadBidGloas::default()
         }
     }
 

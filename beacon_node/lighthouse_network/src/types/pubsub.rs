@@ -15,7 +15,7 @@ use types::{
     SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
     SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
     SignedBeaconBlockFulu, SignedBeaconBlockGloas, SignedBeaconBlockHeze,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedExecutionPayloadBid,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedExecutionPayloadBidGloas,
     SignedExecutionPayloadEnvelope, SignedInclusionList, SignedProposerPreferences,
     SignedVoluntaryExit, SingleAttestation, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
@@ -49,7 +49,7 @@ pub enum PubsubMessage<E: EthSpec> {
     /// Gossipsub message providing notification of a payload attestation message.
     PayloadAttestation(Box<PayloadAttestationMessage>),
     /// Gossipsub message providing notification of a signed execution payload bid.
-    ExecutionPayloadBid(Box<SignedExecutionPayloadBid<E>>),
+    ExecutionPayloadBid(Box<SignedExecutionPayloadBidGloas<E>>),
     /// Gossipsub message providing notification of signed proposer preferences.
     ProposerPreferences(Box<SignedProposerPreferences>),
     /// Gossipsub message providing notification of a light client finality update.
@@ -383,7 +383,7 @@ impl<E: EthSpec> PubsubMessage<E> {
                         )))
                     }
                     GossipKind::ExecutionPayloadBid => {
-                        let execution_payload_bid = SignedExecutionPayloadBid::from_ssz_bytes(data)
+                        let execution_payload_bid = SignedExecutionPayloadBidGloas::from_ssz_bytes(data)
                             .map_err(|e| format!("{:?}", e))?;
                         Ok(PubsubMessage::ExecutionPayloadBid(Box::new(
                             execution_payload_bid,

@@ -24,7 +24,8 @@ use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
 
 use crate::{
-    Address, ExecutionBlockHash, ExecutionPayloadBid, ProposerPreferences, Withdrawal,
+    Address, ExecutionBlockHash, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze,
+    ExecutionPayloadBidRef, ProposerPreferences, Withdrawal,
     attestation::{
         AttestationData, AttestationDuty, BeaconCommittee, Checkpoint, CommitteeIndex, PTC,
         ParticipationFlags, PendingAttestation,
@@ -673,9 +674,18 @@ where
     pub builder_pending_withdrawals:
         List<BuilderPendingWithdrawal, E::BuilderPendingWithdrawalsLimit>,
 
-    #[superstruct(only(Gloas, Heze))]
+    #[superstruct(
+        only(Gloas),
+        partial_getter(rename = "latest_execution_payload_bid_gloas")
+    )]
     #[metastruct(exclude_from(tree_lists))]
-    pub latest_execution_payload_bid: ExecutionPayloadBid<E>,
+    pub latest_execution_payload_bid: ExecutionPayloadBidGloas<E>,
+    #[superstruct(
+        only(Heze),
+        partial_getter(rename = "latest_execution_payload_bid_heze")
+    )]
+    #[metastruct(exclude_from(tree_lists))]
+    pub latest_execution_payload_bid: ExecutionPayloadBidHeze<E>,
 
     #[compare_fields(as_iter)]
     #[test_random(default)]
@@ -1338,6 +1348,20 @@ impl<E: EthSpec> BeaconState<E> {
             // TODO(EIP-7732): investigate calling functions
             BeaconState::Gloas(_) => Err(BeaconStateError::IncorrectStateVariant),
             BeaconState::Heze(_) => Err(BeaconStateError::IncorrectStateVariant),
+        }
+    }
+
+    pub fn latest_execution_payload_bid(
+        &self,
+    ) -> Result<ExecutionPayloadBidRef<'_, E>, BeaconStateError> {
+        match self {
+            BeaconState::Gloas(state) => Ok(ExecutionPayloadBidRef::Gloas(
+                &state.latest_execution_payload_bid,
+            )),
+            BeaconState::Heze(state) => Ok(ExecutionPayloadBidRef::Heze(
+                &state.latest_execution_payload_bid,
+            )),
+            _ => Err(BeaconStateError::IncorrectStateVariant),
         }
     }
 
@@ -2613,9 +2637,11 @@ impl<E: EthSpec> BeaconState<E> {
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_)
             | BeaconState::Electra(_)
-            | BeaconState::Fulu(_)
-            | BeaconState::Heze(_) => true,
+            | BeaconState::Fulu(_) => true,
             BeaconState::Gloas(state) => {
+                state.latest_execution_payload_bid.block_hash == state.latest_block_hash
+            }
+            BeaconState::Heze(state) => {
                 state.latest_execution_payload_bid.block_hash == state.latest_block_hash
             }
         }

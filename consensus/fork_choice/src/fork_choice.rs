@@ -420,8 +420,8 @@ where
                 // is decoupled from beacon blocks.
                 (
                     ExecutionStatus::irrelevant(),
-                    Some(signed_bid.message.parent_block_hash),
-                    Some(signed_bid.message.block_hash),
+                    Some(signed_bid.message().parent_block_hash()),
+                    Some(signed_bid.message().block_hash()),
                 )
             } else if let Ok(execution_payload) = anchor_block.message().execution_payload() {
                 // Pre-Gloas forks: do not set payload hashes, they are only used post-Gloas.
@@ -991,8 +991,8 @@ where
         let (execution_payload_parent_hash, execution_payload_block_hash) =
             if let Ok(signed_bid) = block.body().signed_execution_payload_bid() {
                 (
-                    Some(signed_bid.message.parent_block_hash),
-                    Some(signed_bid.message.block_hash),
+                    Some(signed_bid.message().parent_block_hash()),
+                    Some(signed_bid.message().block_hash()),
                 )
             } else {
                 (None, None)

@@ -275,7 +275,7 @@ mod ssz_static {
         BuilderPendingWithdrawal, ConsolidationRequest, DepositRequest, ExecutionPayloadBid,
         ExecutionPayloadEnvelope, IndexedPayloadAttestation, LightClientBootstrapAltair,
         PayloadAttestation, PayloadAttestationData, PayloadAttestationMessage, PendingDeposit,
-        PendingPartialWithdrawal, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
+        PendingPartialWithdrawal, SignedExecutionPayloadBidGloas, SignedExecutionPayloadEnvelope,
         WithdrawalRequest, *,
     };
 
@@ -688,8 +688,8 @@ mod ssz_static {
 
     #[test]
     fn signed_execution_payload_bid() {
-        SszStaticHandler::<SignedExecutionPayloadBid<MinimalEthSpec>, MinimalEthSpec>::gloas_and_later().run();
-        SszStaticHandler::<SignedExecutionPayloadBid<MainnetEthSpec>, MainnetEthSpec>::gloas_and_later().run();
+        SszStaticHandler::<SignedExecutionPayloadBidGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_and_later().run();
+        SszStaticHandler::<SignedExecutionPayloadBidGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_and_later().run();
     }
 
     #[test]

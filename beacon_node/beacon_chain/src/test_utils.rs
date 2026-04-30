@@ -2847,15 +2847,15 @@ where
             .expect("should read block from store")
             .expect("block should exist in store");
 
-        let bid = &block
+        let bid = block
             .message()
             .body()
             .signed_execution_payload_bid()
-            .expect("Gloas block should have a payload bid")
-            .message;
+            .expect("Gloas block should have a payload bid");
+        let bid_message = bid.message();
 
-        let versioned_hashes = bid
-            .blob_kzg_commitments
+        let versioned_hashes = bid_message
+            .blob_kzg_commitments()
             .iter()
             .map(kzg_commitment_to_versioned_hash)
             .collect();
@@ -3878,13 +3878,12 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
     // Load the precomputed column sidecar to avoid computing them for every block in the tests.
     // Then repeat the cells and proofs for every blob
     if block.fork_name_unchecked().heze_enabled() {
-        let kzg_commitments = &block
+        let bid_ref = block
             .message()
             .body()
             .signed_execution_payload_bid()
-            .expect("Heze block should have a payload bid")
-            .message
-            .blob_kzg_commitments;
+            .expect("Heze block should have a payload bid");
+        let kzg_commitments = bid_ref.message().blob_kzg_commitments();
         if kzg_commitments.is_empty() {
             return vec![];
         }
@@ -3922,13 +3921,12 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
         )
         .unwrap()
     } else if block.fork_name_unchecked().gloas_enabled() {
-        let kzg_commitments = &block
+        let bid_ref = block
             .message()
             .body()
             .signed_execution_payload_bid()
-            .expect("Gloas block should have a payload bid")
-            .message
-            .blob_kzg_commitments;
+            .expect("Gloas block should have a payload bid");
+        let kzg_commitments = bid_ref.message().blob_kzg_commitments();
         if kzg_commitments.is_empty() {
             return vec![];
         }

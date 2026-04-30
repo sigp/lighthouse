@@ -29,10 +29,12 @@ use types::{
     Address, Attestation, AttestationElectra, AttesterSlashing, AttesterSlashingElectra,
     BeaconBlock, BeaconBlockBodyGloas, BeaconBlockBodyHeze, BeaconBlockGloas, BeaconBlockHeze,
     BeaconState, BeaconStateError, BuilderIndex, ChainSpec, Deposit, Eth1Data, EthSpec,
-    ExecutionBlockHash, ExecutionPayloadBid, ExecutionPayloadEnvelope, ExecutionPayloadGloas,
+    ExecutionBlockHash, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze,
+    ExecutionPayloadEnvelope, ExecutionPayloadGloas,
     ExecutionRequests, FullPayload, Graffiti, Hash256, PayloadAttestation, ProposerSlashing,
-    RelativeEpoch, SignedBeaconBlock, SignedBlsToExecutionChange, SignedExecutionPayloadBid,
-    SignedExecutionPayloadEnvelope, SignedVoluntaryExit, Slot, SyncAggregate, Withdrawal,
+    RelativeEpoch, SignedBeaconBlock, SignedBlsToExecutionChange, SignedExecutionPayloadBidGloas,
+    SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope, SignedVoluntaryExit, Slot,
+    SyncAggregate, Withdrawal,
     Withdrawals,
 };
 
@@ -512,7 +514,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     fn complete_partial_beacon_block_gloas(
         &self,
         partial_beacon_block: PartialBeaconBlock<T::EthSpec>,
-        signed_execution_payload_bid: SignedExecutionPayloadBid<T::EthSpec>,
+        signed_execution_payload_bid: SignedExecutionPayloadBidGloas<T::EthSpec>,
         parent_execution_requests: ExecutionRequests<T::EthSpec>,
         payload_data: Option<ExecutionPayloadData<T::EthSpec>>,
         mut state: BeaconState<T::EthSpec>,
@@ -584,42 +586,63 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     _phantom: PhantomData::<FullPayload<T::EthSpec>>,
                 },
             }),
-            BeaconState::Heze(_) => BeaconBlock::Heze(BeaconBlockHeze {
-                slot,
-                proposer_index,
-                parent_root,
-                state_root: Hash256::ZERO,
-                body: BeaconBlockBodyHeze {
-                    randao_reveal,
-                    eth1_data,
-                    graffiti,
-                    proposer_slashings: proposer_slashings
-                        .try_into()
-                        .map_err(BlockProductionError::SszTypesError)?,
-                    attester_slashings: attester_slashings
-                        .try_into()
-                        .map_err(BlockProductionError::SszTypesError)?,
-                    attestations: attestations
-                        .try_into()
-                        .map_err(BlockProductionError::SszTypesError)?,
-                    deposits: deposits
-                        .try_into()
-                        .map_err(BlockProductionError::SszTypesError)?,
-                    voluntary_exits: voluntary_exits
-                        .try_into()
-                        .map_err(BlockProductionError::SszTypesError)?,
-                    sync_aggregate,
-                    bls_to_execution_changes: bls_to_execution_changes
-                        .try_into()
-                        .map_err(BlockProductionError::SszTypesError)?,
-                    parent_execution_requests,
-                    signed_execution_payload_bid,
-                    payload_attestations: payload_attestations
-                        .try_into()
-                        .map_err(BlockProductionError::SszTypesError)?,
-                    _phantom: PhantomData::<FullPayload<T::EthSpec>>,
-                },
-            }),
+            BeaconState::Heze(_) => {
+                let gloas_bid = signed_execution_payload_bid;
+                let heze_bid = SignedExecutionPayloadBidHeze {
+                    message: ExecutionPayloadBidHeze {
+                        parent_block_hash: gloas_bid.message.parent_block_hash,
+                        parent_block_root: gloas_bid.message.parent_block_root,
+                        block_hash: gloas_bid.message.block_hash,
+                        prev_randao: gloas_bid.message.prev_randao,
+                        fee_recipient: gloas_bid.message.fee_recipient,
+                        gas_limit: gloas_bid.message.gas_limit,
+                        builder_index: gloas_bid.message.builder_index,
+                        slot: gloas_bid.message.slot,
+                        value: gloas_bid.message.value,
+                        execution_payment: gloas_bid.message.execution_payment,
+                        blob_kzg_commitments: gloas_bid.message.blob_kzg_commitments,
+                        execution_requests_root: gloas_bid.message.execution_requests_root,
+                        inclusion_list_bits: Default::default(),
+                    },
+                    signature: gloas_bid.signature,
+                };
+                BeaconBlock::Heze(BeaconBlockHeze {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root: Hash256::ZERO,
+                    body: BeaconBlockBodyHeze {
+                        randao_reveal,
+                        eth1_data,
+                        graffiti,
+                        proposer_slashings: proposer_slashings
+                            .try_into()
+                            .map_err(BlockProductionError::SszTypesError)?,
+                        attester_slashings: attester_slashings
+                            .try_into()
+                            .map_err(BlockProductionError::SszTypesError)?,
+                        attestations: attestations
+                            .try_into()
+                            .map_err(BlockProductionError::SszTypesError)?,
+                        deposits: deposits
+                            .try_into()
+                            .map_err(BlockProductionError::SszTypesError)?,
+                        voluntary_exits: voluntary_exits
+                            .try_into()
+                            .map_err(BlockProductionError::SszTypesError)?,
+                        sync_aggregate,
+                        bls_to_execution_changes: bls_to_execution_changes
+                            .try_into()
+                            .map_err(BlockProductionError::SszTypesError)?,
+                        parent_execution_requests,
+                        signed_execution_payload_bid: heze_bid,
+                        payload_attestations: payload_attestations
+                            .try_into()
+                            .map_err(BlockProductionError::SszTypesError)?,
+                        _phantom: PhantomData::<FullPayload<T::EthSpec>>,
+                    },
+                })
+            }
         };
 
         let signed_beacon_block = SignedBeaconBlock::from_block(
@@ -750,7 +773,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         builder_index: BuilderIndex,
     ) -> Result<
         (
-            SignedExecutionPayloadBid<T::EthSpec>,
+            SignedExecutionPayloadBidGloas<T::EthSpec>,
             BeaconState<T::EthSpec>,
             LocalBuildResult<T::EthSpec>,
         ),
@@ -798,10 +821,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let parent_block_hash =
             if parent_payload_status == PayloadStatus::Full || parent_is_pre_gloas {
                 // Build on parent bid's payload.
-                parent_bid.block_hash
+                parent_bid.block_hash()
             } else {
                 // Skip parent bid's payload. For genesis this is the EL genesis hash.
-                parent_bid.parent_block_hash
+                parent_bid.parent_block_hash()
             };
 
         // TODO(gloas) this should be BlockProductionVersion::V4
@@ -833,7 +856,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // TODO(gloas) since we are defaulting to local building, execution payment is 0
         // execution payment should only be set to > 0 for trusted building.
-        let bid = ExecutionPayloadBid::<T::EthSpec> {
+        let bid = ExecutionPayloadBidGloas::<T::EthSpec> {
             parent_block_hash,
             parent_block_root: parent_root,
             block_hash: payload.block_hash,
@@ -858,7 +881,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         Ok((
-            SignedExecutionPayloadBid {
+            SignedExecutionPayloadBidGloas {
                 message: bid,
                 signature: Signature::infinity().map_err(BlockProductionError::BlsError)?,
             },
@@ -875,11 +898,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// parent_block_root)` of the local bid, then choose the winner.
     fn select_payload_bid(
         &self,
-        local_signed_bid: SignedExecutionPayloadBid<T::EthSpec>,
+        local_signed_bid: SignedExecutionPayloadBidGloas<T::EthSpec>,
         local_build: LocalBuildResult<T::EthSpec>,
         builder_boost_factor: Option<u64>,
     ) -> (
-        SignedExecutionPayloadBid<T::EthSpec>,
+        SignedExecutionPayloadBidGloas<T::EthSpec>,
         Option<ExecutionPayloadData<T::EthSpec>>,
     ) {
         let cached_bid = self.gossip_verified_payload_bid_cache.get_highest_bid(
@@ -907,12 +930,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 ///
 /// `cached_bid.value` is in gwei (`u64`); `payload_value` is in wei (`Uint256`); compared in wei.
 pub(crate) fn select_payload_bid_pure<E: EthSpec>(
-    local_signed_bid: SignedExecutionPayloadBid<E>,
+    local_signed_bid: SignedExecutionPayloadBidGloas<E>,
     local_build: LocalBuildResult<E>,
-    cached_bid: Option<Arc<SignedExecutionPayloadBid<E>>>,
+    cached_bid: Option<Arc<SignedExecutionPayloadBidGloas<E>>>,
     builder_boost_factor: Option<u64>,
 ) -> (
-    SignedExecutionPayloadBid<E>,
+    SignedExecutionPayloadBidGloas<E>,
     Option<ExecutionPayloadData<E>>,
 ) {
     let LocalBuildResult {
@@ -993,9 +1016,9 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
 
     // TODO(gloas): this gas limit calc is not necessarily right
     let parent_bid = state.latest_execution_payload_bid()?;
-    let latest_gas_limit = parent_bid.gas_limit;
+    let latest_gas_limit = parent_bid.gas_limit();
 
-    let is_parent_block_full = parent_block_hash == parent_bid.block_hash;
+    let is_parent_block_full = parent_block_hash == parent_bid.block_hash();
 
     let withdrawals = if is_parent_block_full {
         if let Some(envelope) = parent_envelope {
@@ -1306,9 +1329,9 @@ mod tests {
         types::Uint256::from(n).saturating_mul(types::Uint256::from(1_000_000_000u64))
     }
 
-    fn local_bid() -> SignedExecutionPayloadBid<TestSpec> {
-        SignedExecutionPayloadBid {
-            message: ExecutionPayloadBid {
+    fn local_bid() -> SignedExecutionPayloadBidGloas<TestSpec> {
+        SignedExecutionPayloadBidGloas {
+            message: ExecutionPayloadBidGloas {
                 builder_index: BUILDER_INDEX_SELF_BUILD,
                 ..Default::default()
             },
@@ -1316,9 +1339,9 @@ mod tests {
         }
     }
 
-    fn cached_bid(value_gwei: u64) -> Arc<SignedExecutionPayloadBid<TestSpec>> {
-        Arc::new(SignedExecutionPayloadBid {
-            message: ExecutionPayloadBid {
+    fn cached_bid(value_gwei: u64) -> Arc<SignedExecutionPayloadBidGloas<TestSpec>> {
+        Arc::new(SignedExecutionPayloadBidGloas {
+            message: ExecutionPayloadBidGloas {
                 builder_index: REMOTE_BUILDER,
                 value: value_gwei,
                 ..Default::default()

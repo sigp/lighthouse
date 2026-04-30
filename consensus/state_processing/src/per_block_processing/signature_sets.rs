@@ -13,7 +13,7 @@ use types::{
     BuilderIndex, ChainSpec, DepositData, Domain, Epoch, EthSpec, Fork, Hash256, InconsistentFork,
     IndexedAttestation, IndexedAttestationRef, IndexedPayloadAttestation, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedExecutionPayloadBid,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedExecutionPayloadBidRef,
     SignedProposerPreferences, SignedRoot, SignedVoluntaryExit, SigningData, Slot, SyncAggregate,
     SyncAggregatorSelectionData, consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
@@ -424,15 +424,15 @@ where
 pub fn execution_payload_bid_signature_set<'a, E, F>(
     state: &'a BeaconState<E>,
     get_builder_pubkey: F,
-    signed_execution_payload_bid: &'a SignedExecutionPayloadBid<E>,
+    signed_execution_payload_bid: SignedExecutionPayloadBidRef<'a, E>,
     spec: &'a ChainSpec,
 ) -> Result<Option<SignatureSet<'a>>>
 where
     E: EthSpec,
     F: Fn(BuilderIndex) -> Option<Cow<'a, PublicKey>>,
 {
-    let execution_payload_bid = &signed_execution_payload_bid.message;
-    let builder_index = execution_payload_bid.builder_index;
+    let bid = signed_execution_payload_bid.message();
+    let builder_index = bid.builder_index();
     if builder_index == BUILDER_INDEX_SELF_BUILD {
         // No signatures to verify in case of a self-build, but consensus code MUST check that
         // the signature is the point at infinity.
@@ -440,10 +440,7 @@ where
         return Ok(None);
     }
 
-    let bid_epoch = signed_execution_payload_bid
-        .message
-        .slot
-        .epoch(E::slots_per_epoch());
+    let bid_epoch = bid.slot().epoch(E::slots_per_epoch());
     let bid_fork = spec.fork_at_epoch(bid_epoch);
     let domain = spec.get_domain(
         bid_epoch,
@@ -453,10 +450,10 @@ where
     );
 
     let pubkey = get_builder_pubkey(builder_index).ok_or(Error::BuilderUnknown(builder_index))?;
-    let message = execution_payload_bid.signing_root(domain);
+    let message = bid.signing_root(domain);
 
     Ok(Some(SignatureSet::single_pubkey(
-        &signed_execution_payload_bid.signature,
+        signed_execution_payload_bid.signature(),
         pubkey,
         message,
     )))

@@ -158,7 +158,7 @@ async fn gloas_envelope_blobs_produce_valid_columns() {
         .signed_execution_payload_bid()
         .expect("Gloas block should have a payload bid");
     assert!(
-        !bid.message.blob_kzg_commitments.is_empty(),
+        !bid.message().blob_kzg_commitments().is_empty(),
         "Block should have blob KZG commitments"
     );
 

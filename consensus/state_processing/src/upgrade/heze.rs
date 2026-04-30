@@ -1,5 +1,9 @@
+use ssz_types::BitVector;
 use std::mem;
-use types::{BeaconState, BeaconStateError as Error, BeaconStateHeze, ChainSpec, EthSpec, Fork};
+use types::{
+    BeaconState, BeaconStateError as Error, BeaconStateHeze, ChainSpec, EthSpec,
+    ExecutionPayloadBidHeze, Fork,
+};
 
 /// Transform a `Gloas` state into a `Heze` state.
 pub fn upgrade_to_heze<E: EthSpec>(
@@ -64,7 +68,21 @@ pub fn upgrade_state_to_heze<E: EthSpec>(
         current_sync_committee: pre.current_sync_committee.clone(),
         next_sync_committee: pre.next_sync_committee.clone(),
         // Execution Bid
-        latest_execution_payload_bid: pre.latest_execution_payload_bid.clone(),
+        latest_execution_payload_bid: ExecutionPayloadBidHeze {
+            parent_block_hash: pre.latest_execution_payload_bid.parent_block_hash,
+            parent_block_root: pre.latest_execution_payload_bid.parent_block_root,
+            block_hash: pre.latest_execution_payload_bid.block_hash,
+            prev_randao: pre.latest_execution_payload_bid.prev_randao,
+            fee_recipient: pre.latest_execution_payload_bid.fee_recipient,
+            gas_limit: pre.latest_execution_payload_bid.gas_limit,
+            builder_index: pre.latest_execution_payload_bid.builder_index,
+            slot: pre.latest_execution_payload_bid.slot,
+            value: pre.latest_execution_payload_bid.value,
+            execution_payment: pre.latest_execution_payload_bid.execution_payment,
+            blob_kzg_commitments: pre.latest_execution_payload_bid.blob_kzg_commitments.clone(),
+            execution_requests_root: pre.latest_execution_payload_bid.execution_requests_root,
+            inclusion_list_bits: BitVector::new(),
+        },
         // Capella
         next_withdrawal_index: pre.next_withdrawal_index,
         next_withdrawal_validator_index: pre.next_withdrawal_validator_index,
