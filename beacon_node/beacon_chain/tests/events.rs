@@ -84,6 +84,11 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
             let epoch = slot.epoch(E::slots_per_epoch());
             random_sidecar.slot = slot;
             random_sidecar.index = harness.chain.sampling_columns_for_epoch(epoch)[0];
+
+            // For gloas, the bid must be known, e.g. in the pending payload cache
+            let bid = harness.chain.pending_payload_cache.init_pending_bid(random_sidecar.beacon_block_root, PendingPa)
+
+
             DataColumnSidecar::Gloas(random_sidecar)
         } else {
             let mut random_sidecar = DataColumnSidecarFulu::random_for_test(&mut rng);
