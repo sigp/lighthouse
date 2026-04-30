@@ -249,19 +249,20 @@ impl HDiff {
         target: &HDiffBuffer<E>,
         config: &StoreConfig,
     ) -> Result<Self, Error> {
-        let state_diff = BytesDiff::compute(&source.state, &target.state)?;
-        let balances_diff = CompressedU64Diff::compute(&source.balances, &target.balances, config)?;
-        let inactivity_scores_diff = CompressedU64Diff::compute(
-            &source.inactivity_scores,
-            &target.inactivity_scores,
-            config,
-        )?;
-        let validators_diff =
-            ValidatorsDiff::compute::<E>(&source.validators, &target.validators, config)?;
-        let historical_roots =
-            AppendOnlyDiff::compute(&source.historical_roots, &target.historical_roots)?;
-        let historical_summaries =
-            AppendOnlyDiff::compute(&source.historical_summaries, &target.historical_summaries)?;
+        let state_diff = debug_span!("state_diff_compute")
+            .in_scope(|| BytesDiff::compute(&source.state, &target.state))?;
+        let balances_diff = debug_span!("balances_diff_compute")
+            .in_scope(|| CompressedU64Diff::compute(&source.balances, &target.balances, config))?;
+        let inactivity_scores_diff = debug_span!("inactivity_scores_diff_compute").in_scope(|| {
+            CompressedU64Diff::compute(&source.inactivity_scores, &target.inactivity_scores, config)
+        })?;
+        let validators_diff = debug_span!("validators_diff_compute")
+            .in_scope(|| ValidatorsDiff::compute::<E>(&source.validators, &target.validators, config))?;
+        let historical_roots = debug_span!("historical_roots_compute")
+            .in_scope(|| AppendOnlyDiff::compute(&source.historical_roots, &target.historical_roots))?;
+        let historical_summaries = debug_span!("historical_summaries_compute").in_scope(|| {
+            AppendOnlyDiff::compute(&source.historical_summaries, &target.historical_summaries)
+        })?;
 
         Ok(HDiff::V0(HDiffV0 {
             state_diff,
