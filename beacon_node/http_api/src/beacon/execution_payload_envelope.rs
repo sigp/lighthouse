@@ -273,7 +273,8 @@ fn build_gloas_data_columns<T: BeaconChainTypes>(
             let index = *col.index();
             match GossipVerifiedDataColumn::new_for_block_publishing(col, chain) {
                 Ok(verified) => Some(verified),
-                Err(GossipDataColumnError::PriorKnownUnpublished) => None,
+                Err(GossipDataColumnError::PriorKnownUnpublished)
+                | Err(GossipDataColumnError::PriorKnown { .. }) => None,
                 Err(e) => {
                     warn!(
                         %slot,
