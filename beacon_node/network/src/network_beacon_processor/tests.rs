@@ -2131,6 +2131,7 @@ fn make_test_payload_envelope(
             execution_requests: ExecutionRequests::default(),
             builder_index: 0,
             beacon_block_root,
+            parent_beacon_block_root: Hash256::ZERO,
         },
         signature: Signature::empty(),
     }

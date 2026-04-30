@@ -86,6 +86,8 @@ pub const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
 // `beacon_node/execution_layer/src/test_utils/fixtures/mainnet/test_blobs_bundle.ssz`
 pub const TEST_DATA_COLUMN_SIDECARS_SSZ: &[u8] =
     include_bytes!("test_utils/fixtures/test_data_column_sidecars.ssz");
+pub const TEST_DATA_COLUMN_SIDECARS_GLOAS_SSZ: &[u8] =
+    include_bytes!("test_utils/fixtures/test_data_column_sidecars_gloas.ssz");
 
 // Default target aggregators to set during testing, this ensures an aggregator at each slot.
 //
@@ -771,6 +773,36 @@ where
             .execution_block_generator()
     }
 
+    /// Create a switch-to-compounding `ConsolidationRequest` for the given validator.
+    ///
+    /// Panics if the validator doesn't exist, doesn't have eth1 withdrawal credentials,
+    /// or doesn't have an execution withdrawal address.
+    pub fn make_switch_to_compounding_request(
+        &self,
+        validator_index: usize,
+    ) -> ConsolidationRequest {
+        let head = self.chain.canonical_head.cached_head();
+        let head_state = &head.snapshot.beacon_state;
+        let validator = head_state
+            .get_validator(validator_index)
+            .expect("validator should exist");
+
+        assert!(
+            validator.has_eth1_withdrawal_credential(&self.spec),
+            "validator {validator_index} should have eth1 withdrawal credentials"
+        );
+
+        let source_address = validator
+            .get_execution_withdrawal_address(&self.spec)
+            .expect("validator should have execution withdrawal address");
+
+        ConsolidationRequest {
+            source_address,
+            source_pubkey: validator.pubkey,
+            target_pubkey: validator.pubkey,
+        }
+    }
+
     pub fn set_mock_builder(
         &mut self,
         beacon_url: SensitiveUrl,
@@ -985,6 +1017,28 @@ where
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
+        // For Gloas, blinded and full blocks are structurally identical (no payload in body).
+        // Produce via the Gloas path and convert to blinded.
+        if self.spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
+            let (block_contents, _envelope, pending_state) =
+                Box::pin(self.make_block_with_envelope(state, slot)).await;
+            let (signed_block, _blobs) = block_contents;
+            let signed_blinded = signed_block.clone_as_blinded();
+            let (mut blinded_block, _signature) = signed_blinded.deconstruct();
+            block_modifier(&mut blinded_block);
+            let proposer_index = pending_state
+                .get_beacon_proposer_index(slot, &self.spec)
+                .unwrap();
+            // Re-sign after modification.
+            let signed_blinded = blinded_block.sign(
+                &self.validator_keypairs[proposer_index].sk,
+                &pending_state.fork(),
+                pending_state.genesis_validators_root(),
+                &self.spec,
+            );
+            return (signed_blinded, pending_state);
+        }
+
         complete_state_advance(&mut state, None, slot, &self.spec)
             .expect("should be able to advance state to slot");
 
@@ -1154,6 +1208,7 @@ where
                     randao_reveal,
                     graffiti_settings,
                     ProduceBlockVerification::VerifyRandao,
+                    None,
                 )
                 .await
                 .unwrap();
@@ -1204,6 +1259,21 @@ where
     ) -> (SignedBlockContentsTuple<E>, BeaconState<E>) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
+
+        // For Gloas forks, delegate to make_block_with_envelope which uses the
+        // Gloas-specific block production path, and return the pre-state.
+        if self.spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
+            let pre_state = {
+                let mut s = state.clone();
+                complete_state_advance(&mut s, None, slot, &self.spec)
+                    .expect("should be able to advance state to slot");
+                s.build_caches(&self.spec).expect("should build caches");
+                s
+            };
+            let (block_contents, _envelope, _state) =
+                Box::pin(self.make_block_with_envelope(state, slot)).await;
+            return (block_contents, pre_state);
+        }
 
         complete_state_advance(&mut state, None, slot, &self.spec)
             .expect("should be able to advance state to slot");
@@ -1421,6 +1491,7 @@ where
                 epoch,
                 root: target_root,
             },
+            false,
             &self.spec,
         )?;
 
@@ -1530,6 +1601,7 @@ where
                 epoch,
                 root: target_root,
             },
+            false,
             &self.spec,
         )?)
     }
@@ -3757,24 +3829,24 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
     block: &SignedBeaconBlock<E>,
     spec: &ChainSpec,
 ) -> DataColumnSidecarList<E> {
-    let kzg_commitments = block.message().body().blob_kzg_commitments().unwrap();
-    if kzg_commitments.is_empty() {
-        return vec![];
-    }
-
-    let kzg_commitments_inclusion_proof = block
-        .message()
-        .body()
-        .kzg_commitments_merkle_proof()
-        .unwrap();
-    let signed_block_header = block.signed_block_header();
-
     // Load the precomputed column sidecar to avoid computing them for every block in the tests.
     // Then repeat the cells and proofs for every blob
     if block.fork_name_unchecked().gloas_enabled() {
+        let kzg_commitments = &block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .expect("Gloas block should have a payload bid")
+            .message
+            .blob_kzg_commitments;
+        if kzg_commitments.is_empty() {
+            return vec![];
+        }
+        let num_blobs = kzg_commitments.len();
+        let signed_block_header = block.signed_block_header();
         let template_data_columns =
             RuntimeVariableList::<DataColumnSidecarGloas<E>>::from_ssz_bytes(
-                TEST_DATA_COLUMN_SIDECARS_SSZ,
+                TEST_DATA_COLUMN_SIDECARS_GLOAS_SSZ,
                 E::number_of_columns(),
             )
             .unwrap();
@@ -3794,7 +3866,7 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
             .collect::<(Vec<_>, Vec<_>)>();
 
         let blob_cells_and_proofs_vec =
-            vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); kzg_commitments.len()];
+            vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); num_blobs];
 
         build_data_column_sidecars_gloas(
             signed_block_header.message.tree_hash_root(),
@@ -3804,6 +3876,18 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
         )
         .unwrap()
     } else {
+        let kzg_commitments = block.message().body().blob_kzg_commitments().unwrap();
+        if kzg_commitments.is_empty() {
+            return vec![];
+        }
+
+        let kzg_commitments_inclusion_proof = block
+            .message()
+            .body()
+            .kzg_commitments_merkle_proof()
+            .unwrap();
+        let signed_block_header = block.signed_block_header();
+
         // load the precomputed column sidecar to avoid computing them for every block in the tests.
         let template_data_columns =
             RuntimeVariableList::<DataColumnSidecarFulu<E>>::from_ssz_bytes(

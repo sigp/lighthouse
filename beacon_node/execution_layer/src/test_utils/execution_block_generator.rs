@@ -26,8 +26,8 @@ use tree_hash_derive::TreeHash;
 use types::{
     Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
     ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
-    ExecutionPayloadGloas, ExecutionPayloadHeader, ForkName, Hash256, KzgProofs, Transaction,
-    Transactions, Uint256,
+    ExecutionPayloadGloas, ExecutionPayloadHeader, ExecutionRequests, ForkName, Hash256, KzgProofs,
+    Transaction, Transactions, Uint256,
 };
 
 const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
@@ -161,6 +161,14 @@ pub struct ExecutionBlockGenerator<E: EthSpec> {
     pub blobs_bundles: HashMap<PayloadId, BlobsBundle<E>>,
     pub kzg: Option<Arc<Kzg>>,
     rng: Arc<Mutex<StdRng>>,
+    /*
+     * Execution requests (electra+)
+     */
+    /// Per-payload execution requests returned by `getPayload`.
+    execution_requests: HashMap<PayloadId, ExecutionRequests<E>>,
+    /// If set, the next call to `build_new_execution_payload` will associate these
+    /// execution requests with the generated payload ID.
+    next_execution_requests: Option<ExecutionRequests<E>>,
 }
 
 fn make_rng() -> Arc<Mutex<StdRng>> {
@@ -199,6 +207,8 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             blobs_bundles: <_>::default(),
             kzg,
             rng: make_rng(),
+            execution_requests: <_>::default(),
+            next_execution_requests: None,
         };
 
         generator.insert_pow_block(0).unwrap();
@@ -456,6 +466,15 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
 
     pub fn get_blobs_bundle(&mut self, id: &PayloadId) -> Option<BlobsBundle<E>> {
         self.blobs_bundles.get(id).cloned()
+    }
+
+    pub fn get_execution_requests(&self, id: &PayloadId) -> Option<ExecutionRequests<E>> {
+        self.execution_requests.get(id).cloned()
+    }
+
+    /// Set execution requests to be returned alongside the next generated payload.
+    pub fn set_next_execution_requests(&mut self, requests: ExecutionRequests<E>) {
+        self.next_execution_requests = Some(requests);
     }
 
     /// Look up a blob and proof by versioned hash across all stored bundles.
@@ -762,6 +781,11 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 _ => unreachable!(),
             },
         };
+
+        // Store execution requests for this payload if configured.
+        if let Some(requests) = self.next_execution_requests.take() {
+            self.execution_requests.insert(id, requests);
+        }
 
         let fork_name = execution_payload.fork_name();
         if fork_name.deneb_enabled() {

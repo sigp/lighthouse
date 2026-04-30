@@ -251,6 +251,9 @@ pub struct ChainSpec {
     pub builder_payment_threshold_numerator: u64,
     pub builder_payment_threshold_denominator: u64,
     pub min_builder_withdrawability_delay: Epoch,
+    pub churn_limit_quotient_gloas: u64,
+    pub consolidation_churn_limit_quotient: u64,
+    pub max_per_epoch_activation_churn_limit_gloas: u64,
 
     /*
      * Networking
@@ -1268,6 +1271,14 @@ impl ChainSpec {
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
             min_builder_withdrawability_delay: Epoch::new(64),
+            churn_limit_quotient_gloas: option_wrapper(|| u64::checked_pow(2, 15))
+                .expect("calculation does not overflow"),
+            consolidation_churn_limit_quotient: option_wrapper(|| u64::checked_pow(2, 16))
+                .expect("calculation does not overflow"),
+            max_per_epoch_activation_churn_limit_gloas: option_wrapper(|| {
+                u64::checked_pow(2, 8)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
             max_request_payloads: 128,
 
             /*
@@ -1414,6 +1425,14 @@ impl ChainSpec {
             gloas_fork_version: [0x07, 0x00, 0x00, 0x01],
             gloas_fork_epoch: None,
             min_builder_withdrawability_delay: Epoch::new(2),
+            churn_limit_quotient_gloas: option_wrapper(|| u64::checked_pow(2, 4))
+                .expect("calculation does not overflow"),
+            consolidation_churn_limit_quotient: option_wrapper(|| u64::checked_pow(2, 5))
+                .expect("calculation does not overflow"),
+            max_per_epoch_activation_churn_limit_gloas: option_wrapper(|| {
+                u64::checked_pow(2, 7)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
 
             /*
              * Derived time values (set by `compute_derived_values()`)
@@ -1675,6 +1694,14 @@ impl ChainSpec {
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
             min_builder_withdrawability_delay: Epoch::new(64),
+            churn_limit_quotient_gloas: option_wrapper(|| u64::checked_pow(2, 15))
+                .expect("calculation does not overflow"),
+            consolidation_churn_limit_quotient: option_wrapper(|| u64::checked_pow(2, 16))
+                .expect("calculation does not overflow"),
+            max_per_epoch_activation_churn_limit_gloas: option_wrapper(|| {
+                u64::checked_pow(2, 8)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
             max_request_payloads: 128,
 
             /*
@@ -2125,6 +2152,16 @@ pub struct Config {
     #[serde(default = "default_min_builder_withdrawability_delay")]
     #[serde(with = "serde_utils::quoted_u64")]
     min_builder_withdrawability_delay: u64,
+
+    #[serde(default = "default_churn_limit_quotient_gloas")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    churn_limit_quotient_gloas: u64,
+    #[serde(default = "default_consolidation_churn_limit_quotient")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    consolidation_churn_limit_quotient: u64,
+    #[serde(default = "default_max_per_epoch_activation_churn_limit_gloas")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_per_epoch_activation_churn_limit_gloas: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -2360,6 +2397,18 @@ const fn default_contribution_due_bps() -> u64 {
 
 const fn default_min_builder_withdrawability_delay() -> u64 {
     64
+}
+
+const fn default_churn_limit_quotient_gloas() -> u64 {
+    32_768
+}
+
+const fn default_consolidation_churn_limit_quotient() -> u64 {
+    65_536
+}
+
+const fn default_max_per_epoch_activation_churn_limit_gloas() -> u64 {
+    256_000_000_000
 }
 
 fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
@@ -2613,6 +2662,11 @@ impl Config {
             contribution_due_bps: spec.contribution_due_bps,
 
             min_builder_withdrawability_delay: spec.min_builder_withdrawability_delay.as_u64(),
+
+            churn_limit_quotient_gloas: spec.churn_limit_quotient_gloas,
+            consolidation_churn_limit_quotient: spec.consolidation_churn_limit_quotient,
+            max_per_epoch_activation_churn_limit_gloas: spec
+                .max_per_epoch_activation_churn_limit_gloas,
         }
     }
 
@@ -2710,6 +2764,9 @@ impl Config {
             sync_message_due_bps,
             contribution_due_bps,
             min_builder_withdrawability_delay,
+            churn_limit_quotient_gloas,
+            consolidation_churn_limit_quotient,
+            max_per_epoch_activation_churn_limit_gloas,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -2816,6 +2873,10 @@ impl Config {
             contribution_due_bps,
 
             min_builder_withdrawability_delay: Epoch::new(min_builder_withdrawability_delay),
+
+            churn_limit_quotient_gloas,
+            consolidation_churn_limit_quotient,
+            max_per_epoch_activation_churn_limit_gloas,
 
             ..chain_spec.clone()
         };
@@ -3719,9 +3780,7 @@ mod yaml_tests {
         "CONTRIBUTION_DUE_BPS_GLOAS",
         "MAX_REQUEST_PAYLOADS",
         // Heze networking
-        "VIEW_FREEZE_CUTOFF_BPS",
-        "INCLUSION_LIST_SUBMISSION_DUE_BPS",
-        "PROPOSER_INCLUSION_LIST_CUTOFF_BPS",
+        "INCLUSION_LIST_DUE_BPS",
         "MAX_REQUEST_INCLUSION_LIST",
         "MAX_BYTES_PER_INCLUSION_LIST",
     ];

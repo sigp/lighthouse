@@ -101,7 +101,7 @@ pub enum ExecutionStatus {
 }
 
 /// Represents the status of an execution payload post-Gloas.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
 #[ssz(enum_behaviour = "tag")]
 #[repr(u8)]
 pub enum PayloadStatus {
