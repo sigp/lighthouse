@@ -256,6 +256,41 @@ fn validator_index_out_of_bounds() {
     ));
 }
 
+/// Same (slot, validator_index) but different dependent_root should NOT be deduplicated.
+#[test]
+fn same_validator_different_dependent_root_not_deduplicated() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let slot = Slot::new(1);
+
+    let verified_a = GossipVerifiedProposerPreferences {
+        signed_preferences: Arc::new(SignedProposerPreferences {
+            message: ProposerPreferences {
+                proposal_slot: slot,
+                validator_index: 42,
+                dependent_root: Hash256::repeat_byte(0xaa),
+                fee_recipient: Address::ZERO,
+                gas_limit: 30_000_000,
+            },
+            signature: Signature::empty(),
+        }),
+    };
+    ctx.preferences_cache.insert_seen_validator(&verified_a);
+
+    // Different dependent_root — should not be seen.
+    assert!(
+        !ctx.preferences_cache
+            .get_seen_validator(&slot, Hash256::repeat_byte(0xbb), 42,)
+    );
+    // Same dependent_root — should be seen.
+    assert!(
+        ctx.preferences_cache
+            .get_seen_validator(&slot, Hash256::repeat_byte(0xaa), 42,)
+    );
+}
+
 // TODO(gloas) add successful proposer preferences check once we have proposer preferences signing logic
 
 #[test]
