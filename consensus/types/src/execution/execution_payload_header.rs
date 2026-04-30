@@ -14,8 +14,8 @@ use crate::{
     core::{Address, EthSpec, ExecutionBlockHash, Hash256, Uint256},
     execution::{
         ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-        ExecutionPayloadHeze, ExecutionPayloadElectra, ExecutionPayloadFulu,
-        ExecutionPayloadRef, Transactions,
+        ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadHeze, ExecutionPayloadRef,
+        Transactions,
     },
     fork::ForkName,
     map_execution_payload_ref_into_execution_payload_header,
@@ -561,9 +561,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderHe
     type Error = BeaconStateError;
     fn try_from(header: ExecutionPayloadHeader<E>) -> Result<Self, Self::Error> {
         match header {
-            ExecutionPayloadHeader::Heze(execution_payload_header) => {
-                Ok(execution_payload_header)
-            }
+            ExecutionPayloadHeader::Heze(execution_payload_header) => Ok(execution_payload_header),
             _ => Err(BeaconStateError::IncorrectStateVariant),
         }
     }

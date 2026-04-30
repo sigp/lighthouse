@@ -1,4 +1,6 @@
-use crate::{EthSpec, InclusionListCommittee, SignedInclusionList, Slot, Transaction, Transactions};
+use crate::{
+    EthSpec, InclusionListCommittee, SignedInclusionList, Slot, Transaction, Transactions,
+};
 use ssz_types::BitVector;
 use std::collections::{HashMap, HashSet};
 use tracing::info;
@@ -40,11 +42,7 @@ impl<E: EthSpec> InclusionListCache<E> {
             .contains(&inclusion_list.message.validator_index)
     }
 
-    pub fn on_inclusion_list(
-        &mut self,
-        inclusion_list: SignedInclusionList<E>,
-        is_timely: bool,
-    ) {
+    pub fn on_inclusion_list(&mut self, inclusion_list: SignedInclusionList<E>, is_timely: bool) {
         let slot = inclusion_list.message.slot;
         let validator_index = inclusion_list.message.validator_index;
         let inner = self.inner_map.entry(slot).or_default();
@@ -52,8 +50,7 @@ impl<E: EthSpec> InclusionListCache<E> {
         if inner.inclusion_list_equivocators.contains(&validator_index) {
             info!(
                 ?slot,
-                validator_index,
-                "This validator was flagged for an equivocating inclusion list",
+                validator_index, "This validator was flagged for an equivocating inclusion list",
             );
             return;
         }
@@ -69,10 +66,7 @@ impl<E: EthSpec> InclusionListCache<E> {
         if inner.inclusion_lists_seen.contains(&validator_index)
             && !inner.inclusion_lists.contains(&inclusion_list)
         {
-            info!(
-                ?slot,
-                validator_index, "Equivocating inclusion list",
-            );
+            info!(?slot, validator_index, "Equivocating inclusion list",);
             inner.inclusion_list_equivocators.insert(validator_index);
 
             // Remove equivocator's transactions per spec
@@ -86,7 +80,12 @@ impl<E: EthSpec> InclusionListCache<E> {
             return;
         }
 
-        let txs: Vec<_> = inclusion_list.message.transactions.iter().cloned().collect();
+        let txs: Vec<_> = inclusion_list
+            .message
+            .transactions
+            .iter()
+            .cloned()
+            .collect();
         for tx in &txs {
             inner.inclusion_list_transactions.insert(tx.clone());
             if is_timely {
@@ -94,7 +93,9 @@ impl<E: EthSpec> InclusionListCache<E> {
             }
         }
         inner.validator_transactions.insert(validator_index, txs);
-        inner.inclusion_list_timeliness.insert(validator_index, is_timely);
+        inner
+            .inclusion_list_timeliness
+            .insert(validator_index, is_timely);
         inner.inclusion_lists_seen.insert(validator_index);
         inner.inclusion_lists.insert(inclusion_list);
 

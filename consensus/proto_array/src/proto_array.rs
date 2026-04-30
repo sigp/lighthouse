@@ -1512,11 +1512,7 @@ impl ProtoArray {
     ) -> Result<bool, Error> {
         // If the block's inclusion list satisfaction has been recorded as false,
         // do not extend the payload.
-        if self
-            .payload_inclusion_list_satisfaction
-            .get(&fc_node.root)
-            == Some(&false)
-        {
+        if self.payload_inclusion_list_satisfaction.get(&fc_node.root) == Some(&false) {
             return Ok(false);
         }
 
@@ -1626,11 +1622,7 @@ impl ProtoArray {
             return false;
         }
 
-        if self
-            .payload_inclusion_list_satisfaction
-            .get(&node.root())
-            == Some(&false)
-        {
+        if self.payload_inclusion_list_satisfaction.get(&node.root()) == Some(&false) {
             info!(
                 ?current_slot,
                 source = "node_is_viable_for_head",

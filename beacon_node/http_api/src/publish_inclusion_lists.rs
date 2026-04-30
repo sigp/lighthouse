@@ -2,10 +2,10 @@ use std::{sync::Arc, time::Duration};
 
 use beacon_chain::inclusion_list_verification::GossipInclusionListError;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use slot_clock::timestamp_now;
 use eth2::types::Failure;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
+use slot_clock::timestamp_now;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
 use tracing::{debug, error, info};
 use types::SignedInclusionList;

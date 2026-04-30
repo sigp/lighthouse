@@ -2318,7 +2318,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         Ok(Some(inclusion_list))
     }
-    
+
     /// Produce a `PayloadAttestationData` for a PTC validator to sign.
     ///
     /// This is used by PTC (Payload Timeliness Committee) validators to attest to the
@@ -6526,23 +6526,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
 
             // For Heze, fetch inclusion list transactions from the cache.
-            let inclusion_list_transactions =
-                if prepare_slot_fork.heze_enabled() {
-                    let il_slot = prepare_slot.saturating_sub(1_u64);
-                    let il_txs = self
-                        .inclusion_list_cache
-                        .read()
-                        .get_inclusion_list_transactions(il_slot, false)
-                        .unwrap_or_default();
-                    Some(
-                        il_txs
-                            .into_iter()
-                            .map(|tx| tx.to_vec())
-                            .collect::<Vec<Vec<u8>>>(),
-                    )
-                } else {
-                    None
-                };
+            let inclusion_list_transactions = if prepare_slot_fork.heze_enabled() {
+                let il_slot = prepare_slot.saturating_sub(1_u64);
+                let il_txs = self
+                    .inclusion_list_cache
+                    .read()
+                    .get_inclusion_list_transactions(il_slot, false)
+                    .unwrap_or_default();
+                Some(
+                    il_txs
+                        .into_iter()
+                        .map(|tx| tx.to_vec())
+                        .collect::<Vec<Vec<u8>>>(),
+                )
+            } else {
+                None
+            };
 
             let payload_attributes = PayloadAttributes::new(
                 self.slot_clock

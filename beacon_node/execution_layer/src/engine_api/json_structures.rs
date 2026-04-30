@@ -313,9 +313,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayload<E>> for JsonExecutionPayload<E> {
             ExecutionPayload::Gloas(payload) => {
                 Ok(JsonExecutionPayload::Gloas(payload.try_into()?))
             }
-            ExecutionPayload::Heze(payload) => {
-                Ok(JsonExecutionPayload::Heze(payload.try_into()?))
-            }
+            ExecutionPayload::Heze(payload) => Ok(JsonExecutionPayload::Heze(payload.try_into()?)),
         }
     }
 }
@@ -519,9 +517,7 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayload<E>> for ExecutionPayload<E> {
             JsonExecutionPayload::Gloas(payload) => {
                 Ok(ExecutionPayload::Gloas(payload.try_into()?))
             }
-            JsonExecutionPayload::Heze(payload) => {
-                Ok(ExecutionPayload::Heze(payload.try_into()?))
-            }
+            JsonExecutionPayload::Heze(payload) => Ok(ExecutionPayload::Heze(payload.try_into()?)),
         }
     }
 }
@@ -943,9 +939,7 @@ impl From<JsonPayloadAttributes> for PayloadAttributes {
                 inclusion_list_transactions: jpa
                     .inclusion_list_transactions
                     .into_iter()
-                    .map(|s| {
-                        hex::decode(s.strip_prefix("0x").unwrap_or(&s)).unwrap_or_default()
-                    })
+                    .map(|s| hex::decode(s.strip_prefix("0x").unwrap_or(&s)).unwrap_or_default())
                     .collect(),
             }),
         }

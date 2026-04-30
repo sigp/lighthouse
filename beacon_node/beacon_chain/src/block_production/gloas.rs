@@ -30,11 +30,10 @@ use types::{
     BeaconBlock, BeaconBlockBodyGloas, BeaconBlockBodyHeze, BeaconBlockGloas, BeaconBlockHeze,
     BeaconState, BeaconStateError, BuilderIndex, ChainSpec, Deposit, Eth1Data, EthSpec,
     ExecutionBlockHash, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze,
-    ExecutionPayloadEnvelope, ExecutionPayloadGloas,
-    ExecutionRequests, FullPayload, Graffiti, Hash256, PayloadAttestation, ProposerSlashing,
-    RelativeEpoch, SignedBeaconBlock, SignedBlsToExecutionChange, SignedExecutionPayloadBidGloas,
-    SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope, SignedVoluntaryExit, Slot,
-    SyncAggregate, Withdrawal,
+    ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, FullPayload, Graffiti,
+    Hash256, PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
+    SignedBlsToExecutionChange, SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze,
+    SignedExecutionPayloadEnvelope, SignedVoluntaryExit, Slot, SyncAggregate, Withdrawal,
     Withdrawals,
 };
 
@@ -548,7 +547,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return Err(BlockProductionError::GloasNotImplemented(
                     "complete_partial_beacon_block_gloas called with pre-Gloas state".to_owned(),
                 ));
-            },
+            }
             BeaconState::Gloas(_) => BeaconBlock::Gloas(BeaconBlockGloas {
                 slot,
                 proposer_index,

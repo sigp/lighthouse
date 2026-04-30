@@ -6,8 +6,9 @@ use parking_lot::{Mutex, RwLock};
 use store::DatabaseBlock;
 use tracing::debug;
 use types::{
-    ChainSpec, EthSpec, ExecutionPayloadBidRef, ExecutionPayloadEnvelope, Hash256, SignedBeaconBlock,
-    SignedExecutionPayloadEnvelope, Slot, consts::gloas::BUILDER_INDEX_SELF_BUILD,
+    ChainSpec, EthSpec, ExecutionPayloadBidRef, ExecutionPayloadEnvelope, Hash256,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
+    consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
 use crate::{
@@ -391,7 +392,15 @@ mod tests {
         let block = make_block(slot);
         let bid = make_bid(builder_index, block_hash);
 
-        assert!(verify_envelope_consistency::<E>(&envelope, &block, ExecutionPayloadBidRef::Gloas(&bid), Slot::new(0)).is_ok());
+        assert!(
+            verify_envelope_consistency::<E>(
+                &envelope,
+                &block,
+                ExecutionPayloadBidRef::Gloas(&bid),
+                Slot::new(0)
+            )
+            .is_ok()
+        );
     }
 
     #[test]
@@ -405,8 +414,12 @@ mod tests {
         let bid = make_bid(builder_index, block_hash);
         let latest_finalized_slot = Slot::new(10);
 
-        let result =
-            verify_envelope_consistency::<E>(&envelope, &block, ExecutionPayloadBidRef::Gloas(&bid), latest_finalized_slot);
+        let result = verify_envelope_consistency::<E>(
+            &envelope,
+            &block,
+            ExecutionPayloadBidRef::Gloas(&bid),
+            latest_finalized_slot,
+        );
         assert!(matches!(
             result,
             Err(EnvelopeError::PriorToFinalization { .. })
@@ -422,7 +435,12 @@ mod tests {
         let block = make_block(Slot::new(20));
         let bid = make_bid(builder_index, block_hash);
 
-        let result = verify_envelope_consistency::<E>(&envelope, &block, ExecutionPayloadBidRef::Gloas(&bid), Slot::new(0));
+        let result = verify_envelope_consistency::<E>(
+            &envelope,
+            &block,
+            ExecutionPayloadBidRef::Gloas(&bid),
+            Slot::new(0),
+        );
         assert!(matches!(result, Err(EnvelopeError::SlotMismatch { .. })));
     }
 
@@ -435,7 +453,12 @@ mod tests {
         let block = make_block(slot);
         let bid = make_bid(2, block_hash);
 
-        let result = verify_envelope_consistency::<E>(&envelope, &block, ExecutionPayloadBidRef::Gloas(&bid), Slot::new(0));
+        let result = verify_envelope_consistency::<E>(
+            &envelope,
+            &block,
+            ExecutionPayloadBidRef::Gloas(&bid),
+            Slot::new(0),
+        );
         assert!(matches!(
             result,
             Err(EnvelopeError::BuilderIndexMismatch { .. })
@@ -451,7 +474,12 @@ mod tests {
         let block = make_block(slot);
         let bid = make_bid(builder_index, ExecutionBlockHash::repeat_byte(0xff));
 
-        let result = verify_envelope_consistency::<E>(&envelope, &block, ExecutionPayloadBidRef::Gloas(&bid), Slot::new(0));
+        let result = verify_envelope_consistency::<E>(
+            &envelope,
+            &block,
+            ExecutionPayloadBidRef::Gloas(&bid),
+            Slot::new(0),
+        );
         assert!(matches!(
             result,
             Err(EnvelopeError::BlockHashMismatch { .. })

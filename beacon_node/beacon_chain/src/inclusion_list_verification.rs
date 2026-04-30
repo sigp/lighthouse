@@ -1,6 +1,5 @@
 use crate::{
-    BeaconChain, BeaconChainError, BeaconChainTypes,
-    validator_monitor::get_slot_delay_ms,
+    BeaconChain, BeaconChainError, BeaconChainTypes, validator_monitor::get_slot_delay_ms,
 };
 
 use slot_clock::{SlotClock, timestamp_now};
@@ -122,8 +121,7 @@ impl<T: BeaconChainTypes> GossipVerifiedInclusionList<T> {
         }
 
         let slot_duration_ms = chain.spec.get_slot_duration().as_millis() as u64;
-        let inclusion_list_due_ms =
-            slot_duration_ms * chain.spec.inclusion_list_due_bps / 10000;
+        let inclusion_list_due_ms = slot_duration_ms * chain.spec.inclusion_list_due_bps / 10000;
         let il_delay_ms =
             get_slot_delay_ms(timestamp_now(), message_slot, &chain.slot_clock).as_millis() as u64;
         let is_timely = il_delay_ms <= inclusion_list_due_ms;

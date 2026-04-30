@@ -79,7 +79,10 @@ pub fn upgrade_state_to_heze<E: EthSpec>(
             slot: pre.latest_execution_payload_bid.slot,
             value: pre.latest_execution_payload_bid.value,
             execution_payment: pre.latest_execution_payload_bid.execution_payment,
-            blob_kzg_commitments: pre.latest_execution_payload_bid.blob_kzg_commitments.clone(),
+            blob_kzg_commitments: pre
+                .latest_execution_payload_bid
+                .blob_kzg_commitments
+                .clone(),
             execution_requests_root: pre.latest_execution_payload_bid.execution_requests_root,
             inclusion_list_bits: BitVector::new(),
         },

@@ -12,8 +12,8 @@ use crate::{
     core::{ChainSpec, EthSpec, SignedRoot, Uint256},
     execution::{
         ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
-        ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderHeze, ExecutionPayloadHeaderElectra,
-        ExecutionPayloadHeaderFulu, ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
+        ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
+        ExecutionPayloadHeaderHeze, ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
         ExecutionRequests,
     },
     fork::{ForkName, ForkVersionDecode},

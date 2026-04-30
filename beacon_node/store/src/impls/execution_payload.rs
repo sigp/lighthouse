@@ -2,8 +2,8 @@ use crate::{DBColumn, Error, StoreItem};
 use ssz::{Decode, Encode};
 use types::{
     EthSpec, ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella,
-    ExecutionPayloadDeneb, ExecutionPayloadHeze, ExecutionPayloadElectra, ExecutionPayloadFulu,
-    ExecutionPayloadGloas,
+    ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas,
+    ExecutionPayloadHeze,
 };
 
 macro_rules! impl_store_item {

@@ -10,9 +10,8 @@ use types::{
     ExecutionPayloadEnvelope, Graffiti, Hash256, InclusionList, PayloadAttestationData,
     PayloadAttestationMessage, SelectionProof, SignedAggregateAndProof, SignedBlindedBeaconBlock,
     SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedInclusionList,
-    SignedValidatorRegistrationData, Slot,
-    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
-    ValidatorRegistrationData,
+    SignedValidatorRegistrationData, Slot, SyncCommitteeContribution, SyncCommitteeMessage,
+    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
 };
 
 #[derive(Debug, PartialEq, Clone)]

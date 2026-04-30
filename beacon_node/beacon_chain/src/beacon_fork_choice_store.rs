@@ -385,11 +385,7 @@ where
         self.equivocating_indices.extend(indices);
     }
 
-    fn record_payload_inclusion_list_satisfaction(
-        &mut self,
-        block_root: Hash256,
-        satisfied: bool,
-    ) {
+    fn record_payload_inclusion_list_satisfaction(&mut self, block_root: Hash256, satisfied: bool) {
         info!(
             %block_root,
             satisfied,

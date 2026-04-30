@@ -1091,15 +1091,8 @@ mod test {
         const TERMINAL_BLOCK: u64 = 10;
         const DIFFICULTY_INCREMENT: u64 = 1;
 
-        let mut generator: ExecutionBlockGenerator<MainnetEthSpec> = ExecutionBlockGenerator::new(
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        );
+        let mut generator: ExecutionBlockGenerator<MainnetEthSpec> =
+            ExecutionBlockGenerator::new(None, None, None, None, None, None, None);
         generator.terminal_total_difficulty = Uint256::from(TERMINAL_DIFFICULTY);
         generator.terminal_block_number = TERMINAL_BLOCK;
 

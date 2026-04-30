@@ -374,7 +374,6 @@ impl GloasPreset {
     }
 }
 
-
 #[cfg(test)]
 mod test {
     use super::*;

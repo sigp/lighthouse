@@ -14,11 +14,10 @@ use crate::{
     core::{Address, EthSpec, ExecutionBlockHash, Hash256},
     execution::{
         ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella,
-        ExecutionPayloadDeneb, ExecutionPayloadHeze, ExecutionPayloadElectra,
-        ExecutionPayloadFulu, ExecutionPayloadHeader, ExecutionPayloadHeaderBellatrix,
-        ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderHeze,
-        ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu, ExecutionPayloadRef,
-        Transactions,
+        ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
+        ExecutionPayloadHeader, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
+        ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
+        ExecutionPayloadHeaderHeze, ExecutionPayloadHeze, ExecutionPayloadRef, Transactions,
     },
     fork::ForkName,
     map_execution_payload_into_blinded_payload, map_execution_payload_into_full_payload,
@@ -483,9 +482,7 @@ impl<E: EthSpec> ExecPayload<E> for FullPayloadRef<'_, E> {
             FullPayloadRef::Electra(inner) => {
                 Ok(inner.execution_payload.withdrawals.tree_hash_root())
             }
-            FullPayloadRef::Heze(inner) => {
-                Ok(inner.execution_payload.withdrawals.tree_hash_root())
-            }
+            FullPayloadRef::Heze(inner) => Ok(inner.execution_payload.withdrawals.tree_hash_root()),
             FullPayloadRef::Fulu(inner) => Ok(inner.execution_payload.withdrawals.tree_hash_root()),
         }
     }
@@ -803,9 +800,7 @@ impl<'b, E: EthSpec> ExecPayload<E> for BlindedPayloadRef<'b, E> {
             BlindedPayloadRef::Electra(inner) => {
                 Ok(inner.execution_payload_header.withdrawals_root)
             }
-            BlindedPayloadRef::Heze(inner) => {
-                Ok(inner.execution_payload_header.withdrawals_root)
-            }
+            BlindedPayloadRef::Heze(inner) => Ok(inner.execution_payload_header.withdrawals_root),
             BlindedPayloadRef::Fulu(inner) => Ok(inner.execution_payload_header.withdrawals_root),
         }
     }

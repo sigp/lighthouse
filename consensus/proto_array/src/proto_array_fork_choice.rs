@@ -2,7 +2,7 @@ use crate::{
     JustifiedBalances,
     error::Error,
     proto_array::{
-        InvalidationOperation, Iter, NodeDelta, ProtoArray, ProtoNode, ProposerBoost,
+        InvalidationOperation, Iter, NodeDelta, ProposerBoost, ProtoArray, ProtoNode,
         calculate_committee_fraction,
     },
     ssz_container::SszContainer,

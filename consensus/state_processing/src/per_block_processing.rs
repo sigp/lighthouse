@@ -798,8 +798,11 @@ pub fn process_execution_payload_bid<E: EthSpec, Payload: AbstractExecPayload<E>
             },
         };
 
-        let payment_index = E::SlotsPerEpoch::to_usize()
-            .safe_add(bid.slot().as_usize().safe_rem(E::SlotsPerEpoch::to_usize())?)?;
+        let payment_index = E::SlotsPerEpoch::to_usize().safe_add(
+            bid.slot()
+                .as_usize()
+                .safe_rem(E::SlotsPerEpoch::to_usize())?,
+        )?;
 
         *state
             .builder_pending_payments_mut()?

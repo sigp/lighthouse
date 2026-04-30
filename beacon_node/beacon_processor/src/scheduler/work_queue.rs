@@ -370,8 +370,7 @@ impl<E: EthSpec> WorkQueues<E> {
             FifoQueue::new(queue_lengths.lc_rpc_finality_update_queue);
         let lc_update_range_queue: FifoQueue<Work<E>> =
             FifoQueue::new(queue_lengths.lc_update_range_queue);
-        let gossip_inclusion_list_queue =
-            FifoQueue::new(queue_lengths.gossip_inclusion_list_queue);
+        let gossip_inclusion_list_queue = FifoQueue::new(queue_lengths.gossip_inclusion_list_queue);
 
         let api_request_p0_queue = FifoQueue::new(queue_lengths.api_request_p0_queue);
         let api_request_p1_queue = FifoQueue::new(queue_lengths.api_request_p1_queue);

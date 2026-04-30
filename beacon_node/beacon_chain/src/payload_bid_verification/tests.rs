@@ -705,7 +705,6 @@ fn two_builders_coexist_in_cache() {
         .expect("should have highest bid");
     assert_eq!(highest.message.value, 1);
     assert_eq!(highest.message.builder_index, 1);
-
 }
 
 #[test]

@@ -557,10 +557,10 @@ where
                 genesis_time
                     + spec.get_slot_duration().as_secs() * E::slots_per_epoch() * epoch.as_u64()
             });
-        mock.server.execution_block_generator().heze_time =
-            spec.heze_fork_epoch.map(|epoch| {
-                genesis_time + spec.get_slot_duration().as_secs() * E::slots_per_epoch() * epoch.as_u64()
-            });
+        mock.server.execution_block_generator().heze_time = spec.heze_fork_epoch.map(|epoch| {
+            genesis_time
+                + spec.get_slot_duration().as_secs() * E::slots_per_epoch() * epoch.as_u64()
+        });
         mock.server.execution_block_generator().osaka_time = spec.fulu_fork_epoch.map(|epoch| {
             genesis_time
                 + spec.get_slot_duration().as_secs() * E::slots_per_epoch() * epoch.as_u64()

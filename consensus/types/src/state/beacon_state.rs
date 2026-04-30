@@ -37,9 +37,9 @@ use crate::{
     deposit::PendingDeposit,
     execution::{
         Eth1Data, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
-        ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra,
-        ExecutionPayloadHeaderFulu, ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
-        InclusionListCommittee, InclusionListDuty,
+        ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
+        ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut, InclusionListCommittee,
+        InclusionListDuty,
     },
     fork::{Fork, ForkName, ForkVersionDecode, InconsistentFork, map_fork_name},
     light_client::consts::{
@@ -2634,7 +2634,6 @@ impl<E: EthSpec> BeaconState<E> {
         }
     }
 
-
     /// Get the committee cache for some `slot`.
     ///
     /// Return an error if the cache for the slot's epoch is not initialized.
@@ -2785,12 +2784,9 @@ impl<E: EthSpec> BeaconState<E> {
                 });
             }
             Self::Heze(self_inner) => {
-                map_beacon_state_heze_tree_list_fields_immutable!(
-                    self_inner,
-                    |_, self_field| {
-                        any_pending_mutations |= self_field.has_pending_updates();
-                    }
-                );
+                map_beacon_state_heze_tree_list_fields_immutable!(self_inner, |_, self_field| {
+                    any_pending_mutations |= self_field.has_pending_updates();
+                });
             }
         };
         any_pending_mutations

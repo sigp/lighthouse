@@ -30,8 +30,8 @@ use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
 use types::ExecutionBlockHash;
 use types::builder::{
-    BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb,
-    BuilderBidElectra, BuilderBidFulu, SignedBuilderBid,
+    BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidElectra,
+    BuilderBidFulu, SignedBuilderBid,
 };
 use types::{
     Address, BeaconState, ChainSpec, Epoch, EthSpec, ExecPayload, ExecutionPayload,

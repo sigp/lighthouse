@@ -23,14 +23,13 @@ pub use execution_payload::{
     ExecutionPayloadRef, Transaction, Transactions,
 };
 pub use execution_payload_bid::{
-    ExecutionPayloadBid, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze,
-    ExecutionPayloadBidRef,
+    ExecutionPayloadBid, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef,
 };
 pub use execution_payload_envelope::ExecutionPayloadEnvelope;
 pub use execution_payload_header::{
     ExecutionPayloadHeader, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
-    ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderHeze, ExecutionPayloadHeaderElectra,
-    ExecutionPayloadHeaderFulu, ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
+    ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
+    ExecutionPayloadHeaderHeze, ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
 };
 pub use execution_requests::{
     ConsolidationRequests, DepositRequests, ExecutionRequests, RequestType, WithdrawalRequests,
@@ -40,10 +39,10 @@ pub use inclusion_list::{
 };
 pub use payload::{
     AbstractExecPayload, BlindedPayload, BlindedPayloadBellatrix, BlindedPayloadCapella,
-    BlindedPayloadDeneb, BlindedPayloadHeze, BlindedPayloadElectra, BlindedPayloadFulu,
+    BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadFulu, BlindedPayloadHeze,
     BlindedPayloadRef, BlockProductionVersion, BlockType, ExecPayload, FullPayload,
-    FullPayloadBellatrix, FullPayloadCapella, FullPayloadDeneb, FullPayloadHeze,
-    FullPayloadElectra, FullPayloadFulu, FullPayloadRef, OwnedExecPayload,
+    FullPayloadBellatrix, FullPayloadCapella, FullPayloadDeneb, FullPayloadElectra,
+    FullPayloadFulu, FullPayloadHeze, FullPayloadRef, OwnedExecPayload,
 };
 pub use signed_bls_to_execution_change::SignedBlsToExecutionChange;
 pub use signed_execution_payload_bid::{

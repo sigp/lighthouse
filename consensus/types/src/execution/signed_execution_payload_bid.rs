@@ -1,6 +1,4 @@
-use crate::execution::{
-    ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef,
-};
+use crate::execution::{ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef};
 use crate::state::BeaconStateError;
 use crate::test_utils::TestRandom;
 use crate::{EthSpec, ForkName};

@@ -52,7 +52,6 @@ impl<T: BeaconChainTypes> GossipVerifiedPayloadBidCache<T> {
 
         if let Some(existing) = slot_map.get(&key)
             && existing.signed_bid.message.value >= bid.signed_bid.message.value
-
         {
             return;
         }

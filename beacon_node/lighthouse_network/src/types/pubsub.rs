@@ -379,8 +379,9 @@ impl<E: EthSpec> PubsubMessage<E> {
                         )))
                     }
                     GossipKind::ExecutionPayloadBid => {
-                        let execution_payload_bid = SignedExecutionPayloadBidGloas::from_ssz_bytes(data)
-                            .map_err(|e| format!("{:?}", e))?;
+                        let execution_payload_bid =
+                            SignedExecutionPayloadBidGloas::from_ssz_bytes(data)
+                                .map_err(|e| format!("{:?}", e))?;
                         Ok(PubsubMessage::ExecutionPayloadBid(Box::new(
                             execution_payload_bid,
                         )))

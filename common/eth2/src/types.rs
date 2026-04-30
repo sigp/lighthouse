@@ -1179,7 +1179,8 @@ pub struct SseExtendedPayloadAttributesGeneric<T> {
 
 pub type SseExtendedPayloadAttributes = SseExtendedPayloadAttributesGeneric<SsePayloadAttributes>;
 pub type VersionedSsePayloadAttributes = ForkVersionedResponse<SseExtendedPayloadAttributes>;
-pub type VersionedSseExecutionPayloadBid<E> = ForkVersionedResponse<SignedExecutionPayloadBidGloas<E>>;
+pub type VersionedSseExecutionPayloadBid<E> =
+    ForkVersionedResponse<SignedExecutionPayloadBidGloas<E>>;
 pub type VersionedSsePayloadAttestationMessage = ForkVersionedResponse<PayloadAttestationMessage>;
 
 impl<'de> ContextDeserialize<'de, ForkName> for SsePayloadAttributes {
@@ -2587,9 +2588,7 @@ mod test {
             ExecutionPayload::Electra(ExecutionPayloadElectra::<MainnetEthSpec>::random_for_test(
                 rng,
             )),
-            ExecutionPayload::Heze(ExecutionPayloadHeze::<MainnetEthSpec>::random_for_test(
-                rng,
-            )),
+            ExecutionPayload::Heze(ExecutionPayloadHeze::<MainnetEthSpec>::random_for_test(rng)),
             ExecutionPayload::Fulu(ExecutionPayloadFulu::<MainnetEthSpec>::random_for_test(rng)),
             ExecutionPayload::Gloas(ExecutionPayloadGloas::<MainnetEthSpec>::random_for_test(
                 rng,

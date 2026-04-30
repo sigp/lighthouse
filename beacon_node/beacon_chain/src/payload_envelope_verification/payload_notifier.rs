@@ -64,7 +64,8 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         } else {
             let parent_root = self.block.message().parent_root();
             let request = Self::build_new_payload_request(&self.envelope, &self.block)?;
-            notify_new_payload_with_request(&self.chain, self.envelope.slot(), parent_root, request).await
+            notify_new_payload_with_request(&self.chain, self.envelope.slot(), parent_root, request)
+                .await
         }
     }
 

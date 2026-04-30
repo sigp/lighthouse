@@ -97,9 +97,5 @@ pub trait ForkChoiceStore<E: EthSpec>: Sized {
     fn is_payload_inclusion_list_satisfied(&self, block_root: &Hash256) -> bool;
 
     /// Records whether a block root satisfies the inclusion list.
-    fn record_payload_inclusion_list_satisfaction(
-        &mut self,
-        block_root: Hash256,
-        satisfied: bool,
-    );
+    fn record_payload_inclusion_list_satisfaction(&mut self, block_root: Hash256, satisfied: bool);
 }

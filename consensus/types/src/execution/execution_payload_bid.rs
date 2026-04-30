@@ -95,7 +95,6 @@ impl<E: EthSpec> SignedRoot for ExecutionPayloadBidGloas<E> {}
 impl<E: EthSpec> SignedRoot for ExecutionPayloadBidHeze<E> {}
 impl<'a, E: EthSpec> SignedRoot for ExecutionPayloadBidRef<'a, E> {}
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

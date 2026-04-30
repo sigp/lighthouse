@@ -21,12 +21,12 @@ use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
 use types::{
     AbstractExecPayload, Address, AggregateAndProof, Attestation, BeaconBlock, BlindedPayload,
     ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, ExecutionPayloadEnvelope, Fork,
-    FullPayload, Graffiti, Hash256, InclusionList, PayloadAttestationData, PayloadAttestationMessage,
-    SelectionProof, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof,
-    SignedExecutionPayloadEnvelope, SignedInclusionList, SignedRoot, SignedValidatorRegistrationData,
-    SignedVoluntaryExit, Slot, SyncAggregatorSelectionData, SyncCommitteeContribution,
-    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
-    VoluntaryExit, graffiti::GraffitiString,
+    FullPayload, Graffiti, Hash256, InclusionList, PayloadAttestationData,
+    PayloadAttestationMessage, SelectionProof, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedInclusionList, SignedRoot,
+    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncAggregatorSelectionData,
+    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
+    ValidatorRegistrationData, VoluntaryExit, graffiti::GraffitiString,
 };
 use validator_store::{
     AggregateToSign, AttestationToSign, ContributionToSign, DoppelgangerStatus,

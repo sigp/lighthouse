@@ -266,7 +266,6 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRef<'a, E, Payl
             BeaconBlockRef::Fulu { .. } => ForkName::Fulu,
             BeaconBlockRef::Gloas { .. } => ForkName::Gloas,
             BeaconBlockRef::Heze { .. } => ForkName::Heze,
-
         }
     }
 
