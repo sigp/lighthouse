@@ -409,15 +409,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Walks the parent chain of `head_root` (inclusive) and returns up to `count` block roots
     /// in descending slot order. Synchronous so it can be run on a blocking thread.
     ///
-    /// Three regimes are handled:
-    /// 1. `head_root` and ≥`count` ancestors live in fork-choice's in-memory proto-array →
-    ///    served entirely from proto-array, zero DB reads.
-    /// 2. `head_root` is in proto-array but the requested chain crosses the finalized
-    ///    boundary → proto-array yields the above-finalized portion, the head state's
-    ///    `block_roots` bucket fills the rest (still in-memory).
-    /// 3. `head_root` is below finalized (proto-array iter empty) → a single
-    ///    `get_blinded_block` looks up its slot, then `state.block_roots` provides the
-    ///    canonical ancestors.
+    /// Two regimes are handled:
+    /// 1. Above finalization → fork-choice's in-memory proto-array supplies the roots
+    ///    (zero DB reads).
+    /// 2. At or below finalization → the freezer DB's `BeaconBlockRoots` column (the
+    ///    canonical slot→root index for finalized blocks, populated for
+    ///    `[oldest_block_slot, split.slot)` with skip slots reusing the prior block's
+    ///    root) supplies the roots. The head state is never consulted: its 8192-slot
+    ///    `block_roots` bucket would silently truncate deep walks and is the wrong
+    ///    source of truth for canonical history below finalization.
     ///
     /// Returns `ResourceUnavailable` if `head_root` is not known to the node.
     fn get_block_roots_ancestor_of_head(
@@ -441,8 +441,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let from_proto_array = !roots_with_slots.is_empty();
 
-        // 2. Fallback for case 3: `head_root` not in proto-array. Look it up in the store
-        //    to get its slot so we can still serve a partial response from `state.block_roots`.
+        // 2. Fallback: `head_root` is at or below finalization (proto-array doesn't
+        //    track it). Look it up in the store to learn its slot so we can still serve
+        //    a partial response from the freezer's block-root index.
         if !from_proto_array {
             let block = self
                 .chain
@@ -459,62 +460,57 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             return Ok(roots_with_slots.into_iter().map(|(r, _)| r).collect());
         }
 
-        // 3. Spillover via the head state's `block_roots` bucket (the 8192-slot circular
-        //    buffer carried in every `BeaconState`). Below the proto-array boundary parents
-        //    of finalized blocks are canonical, so this gives us the right roots for free.
-        //    Skip slots reuse the prior block's root; dedup on insert.
-        let oldest_slot = roots_with_slots.last().expect("non-empty above").1;
-        let oldest_block_slot = self.chain.store.get_oldest_block_slot();
+        // 3. Spillover via the freezer DB's `BeaconBlockRoots` index (the canonical
+        //    slot→root mapping for finalized blocks). Skip slots reuse the prior
+        //    block's root; dedup on insert.
+        let store = &self.chain.store;
+        let oldest_block_slot = store.get_oldest_block_slot();
+        let mut current = roots_with_slots.last().expect("non-empty above").1;
 
-        let head = self.chain.head_snapshot();
-        let state = &head.beacon_state;
-
-        // For the case-3 fallback, verify `head_root` is canonical at its slot before
-        // walking `state.block_roots` — otherwise we'd return a different chain's
-        // ancestors. For non-canonical or out-of-window heads, return what we already
-        // collected (which is at least the head_root itself, satisfying the spec's
-        // "MUST return at least one block if you have it" clause).
+        // For the case-2 fallback, verify `head_root` is the canonical block at its
+        // slot before walking back — otherwise we'd return a different chain's
+        // ancestors. A non-canonical hot-DB block at slot < split.slot can shadow the
+        // finalized chain at the same slot. If verification fails (or the slot is
+        // outside the freezer's range) we return what we already collected, which is
+        // at least the head_root itself, satisfying the spec's "MUST return at least
+        // one block if you have it" clause.
         if !from_proto_array {
-            match state.get_block_root(oldest_slot) {
-                Ok(r) if *r == head_root => {} // canonical, OK to walk
-                Ok(_) | Err(types::BeaconStateError::SlotOutOfBounds) => {
+            match store.get_cold_block_root(current) {
+                Ok(Some(r)) if r == head_root => {} // canonical, OK to walk
+                Ok(_) => {
                     return Ok(roots_with_slots.into_iter().map(|(r, _)| r).collect());
                 }
                 Err(e) => {
-                    error!(error = ?e, "Error reading head state block_roots");
-                    return Err((RpcErrorResponse::ServerError, "State read error"));
+                    error!(error = ?e, "Error reading freezer block_root for BlocksByHead");
+                    return Err((RpcErrorResponse::ServerError, "Database error"));
                 }
             }
         }
 
         let mut last_root = roots_with_slots.last().map(|(r, _)| *r);
-        let mut current = oldest_slot;
         while (roots_with_slots.len() as u64) < count && current > oldest_block_slot {
             current = match current.as_u64().checked_sub(1) {
                 Some(s) => Slot::from(s),
                 None => break,
             };
-            match state.get_block_root(current) {
-                Ok(root) => {
-                    let root = *root;
+            match store.get_cold_block_root(current) {
+                Ok(Some(root)) => {
                     if Some(root) != last_root {
                         roots_with_slots.push((root, current));
                         last_root = Some(root);
                     }
                 }
-                Err(types::BeaconStateError::SlotOutOfBounds) => {
-                    // Slot is older than the head state's `block_roots` window (~8192
-                    // slots). For BlocksByHead's `count <= 128` cap this shouldn't happen
-                    // in practice; stop walking.
+                Ok(None) => {
+                    // Hole in the freezer index (e.g. before `oldest_block_slot` on a
+                    // checkpoint-synced node). Stop walking.
                     break;
                 }
                 Err(e) => {
-                    error!(error = ?e, "Error walking head state block_roots");
-                    return Err((RpcErrorResponse::ServerError, "State read error"));
+                    error!(error = ?e, "Error walking freezer block_roots");
+                    return Err((RpcErrorResponse::ServerError, "Database error"));
                 }
             }
         }
-        drop(head);
 
         Ok(roots_with_slots.into_iter().map(|(r, _)| r).collect())
     }
