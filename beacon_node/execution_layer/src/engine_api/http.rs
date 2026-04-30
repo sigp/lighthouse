@@ -1591,15 +1591,6 @@ impl HttpJsonRpc {
                     Err(Error::RequiredMethodUnsupported("engine_newPayloadV4"))
                 }
             }
-            // TODO(HEZE) engine capabilties should be v5?
-            NewPayloadRequest::Heze(new_payload_request_heze) => {
-                if engine_capabilities.new_payload_v4 {
-                    self.new_payload_v4_heze(new_payload_request_heze)
-                        .await
-                } else {
-                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV4"))
-                }
-            }
             NewPayloadRequest::Gloas(new_payload_request_gloas) => {
                 if engine_capabilities.new_payload_v5 {
                     self.new_payload_v5_gloas(new_payload_request_gloas).await
@@ -1649,13 +1640,6 @@ impl HttpJsonRpc {
                     Err(Error::RequiredMethodUnsupported("engine_getPayloadv4"))
                 }
             }
-            ForkName::Heze => {
-                if engine_capabilities.get_payload_v4 {
-                    self.get_payload_v4(fork_name, payload_id).await
-                } else {
-                    Err(Error::RequiredMethodUnsupported("engine_getPayloadv4"))
-                }
-            }
             ForkName::Fulu => {
                 if engine_capabilities.get_payload_v5 {
                     self.get_payload_v5(fork_name, payload_id).await
@@ -1663,14 +1647,7 @@ impl HttpJsonRpc {
                     Err(Error::RequiredMethodUnsupported("engine_getPayloadv5"))
                 }
             }
-            ForkName::Gloas => {
-                if engine_capabilities.get_payload_v6 {
-                    self.get_payload_v6(fork_name, payload_id).await
-                } else {
-                    Err(Error::RequiredMethodUnsupported("engine_getPayloadV6"))
-                }
-            }
-            ForkName::Heze => {
+            ForkName::Gloas | ForkName::Heze => {
                 if engine_capabilities.get_payload_v6 {
                     self.get_payload_v6(fork_name, payload_id).await
                 } else {

@@ -565,8 +565,8 @@ impl<S: ValidatorStore, T: SlotClock + 'static> DutiesService<S, T> {
 
         self.inclusion_list_duties
             .read()
-            .iter()
-            .filter_map(|(_, map)| map.get(&epoch))
+            .values()
+            .filter_map(|map| map.get(&epoch))
             .map(|(_, duty)| duty)
             .filter(|duty| duty.slot == slot && signing_pubkeys.contains(&duty.pubkey))
             .cloned()

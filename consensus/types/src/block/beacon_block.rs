@@ -266,6 +266,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRef<'a, E, Payl
             BeaconBlockRef::Fulu { .. } => ForkName::Fulu,
             BeaconBlockRef::Gloas { .. } => ForkName::Gloas,
             BeaconBlockRef::Heze { .. } => ForkName::Heze,
+
         }
     }
 
@@ -1111,26 +1112,6 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_heze_block() {
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
-        let spec = &ForkName::Heze.make_genesis_spec(MainnetEthSpec::default_spec());
-
-        let inner_block = BeaconBlockHeze {
-            slot: Slot::random_for_test(rng),
-            proposer_index: u64::random_for_test(rng),
-            parent_root: Hash256::random_for_test(rng),
-            state_root: Hash256::random_for_test(rng),
-            body: BeaconBlockBodyHeze::random_for_test(rng),
-        };
-
-        let block = BeaconBlock::Heze(inner_block.clone());
-
-        test_ssz_tree_hash_pair_with(&block, &inner_block, |bytes| {
-            BeaconBlock::from_ssz_bytes(bytes, spec)
-        });
-    }
-
-    #[test]
     fn roundtrip_fulu_block() {
         let rng = &mut XorShiftRng::from_seed([42; 16]);
         let spec = &ForkName::Fulu.make_genesis_spec(MainnetEthSpec::default_spec());
@@ -1144,26 +1125,6 @@ mod tests {
         };
 
         let block = BeaconBlock::Fulu(inner_block.clone());
-
-        test_ssz_tree_hash_pair_with(&block, &inner_block, |bytes| {
-            BeaconBlock::from_ssz_bytes(bytes, spec)
-        });
-    }
-
-    #[test]
-    fn roundtrip_heze_block() {
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
-        let spec = &ForkName::Heze.make_genesis_spec(MainnetEthSpec::default_spec());
-
-        let inner_block = BeaconBlockHeze {
-            slot: Slot::random_for_test(rng),
-            proposer_index: u64::random_for_test(rng),
-            parent_root: Hash256::random_for_test(rng),
-            state_root: Hash256::random_for_test(rng),
-            body: BeaconBlockBodyHeze::random_for_test(rng),
-        };
-
-        let block = BeaconBlock::Heze(inner_block.clone());
 
         test_ssz_tree_hash_pair_with(&block, &inner_block, |bytes| {
             BeaconBlock::from_ssz_bytes(bytes, spec)
@@ -1191,6 +1152,26 @@ mod tests {
     }
 
     #[test]
+    fn roundtrip_heze_block() {
+        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let spec = &ForkName::Heze.make_genesis_spec(MainnetEthSpec::default_spec());
+
+        let inner_block = BeaconBlockHeze {
+            slot: Slot::random_for_test(rng),
+            proposer_index: u64::random_for_test(rng),
+            parent_root: Hash256::random_for_test(rng),
+            state_root: Hash256::random_for_test(rng),
+            body: BeaconBlockBodyHeze::random_for_test(rng),
+        };
+
+        let block = BeaconBlock::Heze(inner_block.clone());
+
+        test_ssz_tree_hash_pair_with(&block, &inner_block, |bytes| {
+            BeaconBlock::from_ssz_bytes(bytes, spec)
+        });
+    }
+
+    #[test]
     fn decode_base_and_altair() {
         type E = MainnetEthSpec;
         let mut spec = E::default_spec();
@@ -1209,9 +1190,7 @@ mod tests {
         let deneb_slot = deneb_epoch.start_slot(E::slots_per_epoch());
         let electra_epoch = deneb_epoch + 1;
         let electra_slot = electra_epoch.start_slot(E::slots_per_epoch());
-        let heze_epoch = electra_epoch + 1;
-        let heze_slot = heze_epoch.start_slot(E::slots_per_epoch());
-        let fulu_epoch = heze_epoch + 1;
+        let fulu_epoch = electra_epoch + 1;
         let fulu_slot = fulu_epoch.start_slot(E::slots_per_epoch());
         let gloas_epoch = fulu_epoch + 1;
         let gloas_slot = gloas_epoch.start_slot(E::slots_per_epoch());
@@ -1222,7 +1201,6 @@ mod tests {
         spec.capella_fork_epoch = Some(capella_epoch);
         spec.deneb_fork_epoch = Some(deneb_epoch);
         spec.electra_fork_epoch = Some(electra_epoch);
-        spec.heze_fork_epoch = Some(heze_epoch);
         spec.fulu_fork_epoch = Some(fulu_epoch);
         spec.gloas_fork_epoch = Some(gloas_epoch);
         spec.heze_fork_epoch = Some(heze_epoch);
@@ -1335,28 +1313,6 @@ mod tests {
             );
             BeaconBlock::from_ssz_bytes(&bad_block.as_ssz_bytes(), &spec)
                 .expect_err("bad electra block cannot be decoded");
-        }
-
-        // BeaconBlockHeze
-        {
-            let good_block = BeaconBlock::Heze(BeaconBlockHeze {
-                slot: heze_slot,
-                ..<_>::random_for_test(rng)
-            });
-            // It's invalid to have an Electra block with a epoch lower than the fork epoch.
-            let bad_block = {
-                let mut bad = good_block.clone();
-                *bad.slot_mut() = deneb_slot;
-                bad
-            };
-
-            assert_eq!(
-                BeaconBlock::from_ssz_bytes(&good_block.as_ssz_bytes(), &spec)
-                    .expect("good heze block can be decoded"),
-                good_block
-            );
-            BeaconBlock::from_ssz_bytes(&bad_block.as_ssz_bytes(), &spec)
-                .expect_err("bad heze block cannot be decoded");
         }
 
         // BeaconBlockFulu

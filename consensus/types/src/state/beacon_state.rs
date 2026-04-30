@@ -37,7 +37,7 @@ use crate::{
     deposit::PendingDeposit,
     execution::{
         Eth1Data, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
-        ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderHeze, ExecutionPayloadHeaderElectra,
+        ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra,
         ExecutionPayloadHeaderFulu, ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
         InclusionListCommittee, InclusionListDuty,
     },
@@ -836,7 +836,6 @@ impl<E: EthSpec> BeaconState<E> {
             BeaconState::Deneb { .. } => ForkName::Deneb,
             BeaconState::Electra { .. } => ForkName::Electra,
             BeaconState::Fulu { .. } => ForkName::Fulu,
-            BeaconState::Heze { .. } => ForkName::Heze,
             BeaconState::Gloas { .. } => ForkName::Gloas,
             BeaconState::Heze { .. } => ForkName::Heze,
         }
@@ -1983,16 +1982,6 @@ impl<E: EthSpec> BeaconState<E> {
                 &mut state.exit_cache,
                 &mut state.epoch_cache,
             )),
-            BeaconState::Heze(state) => Ok((
-                &mut state.validators,
-                &mut state.balances,
-                &state.previous_epoch_participation,
-                &state.current_epoch_participation,
-                &mut state.inactivity_scores,
-                &mut state.progressive_balances_cache,
-                &mut state.exit_cache,
-                &mut state.epoch_cache,
-            )),
             BeaconState::Fulu(state) => Ok((
                 &mut state.validators,
                 &mut state.balances,
@@ -2459,7 +2448,6 @@ impl<E: EthSpec> BeaconState<E> {
                 BeaconState::Deneb(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Electra(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Fulu(state) => Ok(&mut state.current_epoch_participation),
-                BeaconState::Heze(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Gloas(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Heze(state) => Ok(&mut state.current_epoch_participation),
             }
@@ -2472,7 +2460,6 @@ impl<E: EthSpec> BeaconState<E> {
                 BeaconState::Deneb(state) => Ok(&mut state.previous_epoch_participation),
                 BeaconState::Electra(state) => Ok(&mut state.previous_epoch_participation),
                 BeaconState::Fulu(state) => Ok(&mut state.previous_epoch_participation),
-                BeaconState::Heze(state) => Ok(&mut state.previous_epoch_participation),
                 BeaconState::Gloas(state) => Ok(&mut state.previous_epoch_participation),
                 BeaconState::Heze(state) => Ok(&mut state.previous_epoch_participation),
             }
@@ -2787,14 +2774,6 @@ impl<E: EthSpec> BeaconState<E> {
                     }
                 );
             }
-            Self::Heze(self_inner) => {
-                map_beacon_state_heze_tree_list_fields_immutable!(
-                    self_inner,
-                    |_, self_field| {
-                        any_pending_mutations |= self_field.has_pending_updates();
-                    }
-                );
-            }
             Self::Fulu(self_inner) => {
                 map_beacon_state_fulu_tree_list_fields_immutable!(self_inner, |_, self_field| {
                     any_pending_mutations |= self_field.has_pending_updates();
@@ -2806,9 +2785,12 @@ impl<E: EthSpec> BeaconState<E> {
                 });
             }
             Self::Heze(self_inner) => {
-                map_beacon_state_heze_tree_list_fields_immutable!(self_inner, |_, self_field| {
-                    any_pending_mutations |= self_field.has_pending_updates();
-                });
+                map_beacon_state_heze_tree_list_fields_immutable!(
+                    self_inner,
+                    |_, self_field| {
+                        any_pending_mutations |= self_field.has_pending_updates();
+                    }
+                );
             }
         };
         any_pending_mutations
@@ -3229,14 +3211,6 @@ impl<E: EthSpec> BeaconState<E> {
                 );
             }
             (Self::Fulu(_), _) => (),
-            (Self::Heze(self_inner), Self::Heze(base_inner)) => {
-                bimap_beacon_state_heze_tree_list_fields!(
-                    self_inner,
-                    base_inner,
-                    |_, self_field, base_field| { self_field.rebase_on(base_field) }
-                );
-            }
-            (Self::Heze(_), _) => (),
             (Self::Gloas(self_inner), Self::Gloas(base_inner)) => {
                 bimap_beacon_state_gloas_tree_list_fields!(
                     self_inner,
@@ -3575,7 +3549,6 @@ impl<E: EthSpec> BeaconState<E> {
             ForkName::Fulu => BeaconStateFulu::<E>::NUM_FIELDS.next_power_of_two(),
             ForkName::Heze => BeaconStateHeze::<E>::NUM_FIELDS.next_power_of_two(),
             ForkName::Gloas => BeaconStateGloas::<E>::NUM_FIELDS.next_power_of_two(),
-            ForkName::Heze => BeaconStateHeze::<E>::NUM_FIELDS.next_power_of_two(),
         }
     }
 
@@ -3622,9 +3595,6 @@ impl<E: EthSpec> BeaconState<E> {
             }
             Self::Electra(inner) => {
                 map_beacon_state_electra_tree_list_fields!(inner, |_, x| { x.apply_updates() })
-            }
-            Self::Heze(inner) => {
-                map_beacon_state_heze_tree_list_fields!(inner, |_, x| { x.apply_updates() })
             }
             Self::Fulu(inner) => {
                 map_beacon_state_fulu_tree_list_fields!(inner, |_, x| { x.apply_updates() })
@@ -3742,11 +3712,6 @@ impl<E: EthSpec> BeaconState<E> {
                     leaves.push(field.tree_hash_root());
                 });
             }
-            BeaconState::Heze(state) => {
-                map_beacon_state_heze_fields!(state, |_, field| {
-                    leaves.push(field.tree_hash_root());
-                });
-            }
             BeaconState::Fulu(state) => {
                 map_beacon_state_fulu_fields!(state, |_, field| {
                     leaves.push(field.tree_hash_root());
@@ -3822,7 +3787,6 @@ impl<E: EthSpec> CompareFields for BeaconState<E> {
             (BeaconState::Heze(x), BeaconState::Heze(y)) => x.compare_fields(y),
             (BeaconState::Fulu(x), BeaconState::Fulu(y)) => x.compare_fields(y),
             (BeaconState::Gloas(x), BeaconState::Gloas(y)) => x.compare_fields(y),
-            (BeaconState::Heze(x), BeaconState::Heze(y)) => x.compare_fields(y),
             _ => panic!("compare_fields: mismatched state variants",),
         }
     }

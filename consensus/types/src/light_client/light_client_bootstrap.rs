@@ -120,7 +120,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             }
             ForkName::Fulu => Self::Fulu(LightClientBootstrapFulu::from_ssz_bytes(bytes)?),
             // TODO(gloas): implement Gloas light client
-            ForkName::Base | ForkName::Gloas | ForkName::Heze => {
+            ForkName::Base | ForkName::Gloas => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientBootstrap decoding for {fork_name} not implemented"
                 )));
@@ -144,7 +144,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             }
             ForkName::Fulu => <LightClientBootstrapFulu<E> as Encode>::ssz_fixed_len(),
             // TODO(gloas): implement Gloas light client
-            ForkName::Gloas | ForkName::Heze => {
+            ForkName::Gloas => {
                 <LightClientBootstrapAltair<E> as Encode>::ssz_fixed_len()
             }
         };
@@ -199,7 +199,6 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             }),
             // TODO(gloas): implement Gloas light client
             ForkName::Gloas => return Err(LightClientError::GloasNotImplemented),
-            ForkName::Heze => return Err(LightClientError::HezeNotImplemented),
         };
 
         Ok(light_client_bootstrap)
@@ -255,7 +254,6 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             }),
             // TODO(gloas): implement Gloas light client
             ForkName::Gloas => return Err(LightClientError::GloasNotImplemented),
-            ForkName::Heze => return Err(LightClientError::HezeNotImplemented),
         };
 
         Ok(light_client_bootstrap)
@@ -295,7 +293,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientBootstrap
             ForkName::Fulu => {
                 Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
-            ForkName::Gloas | ForkName::Heze => {
+            ForkName::Gloas => {
                 // TODO(EIP-7732): check if this is correct
                 return Err(serde::de::Error::custom(format!(
                     "LightClientBootstrap failed to deserialize: unsupported fork '{}'",

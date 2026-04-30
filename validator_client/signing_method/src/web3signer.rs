@@ -118,11 +118,6 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> Web3SignerObject<'a, E, Pa
                 block: None,
                 block_header: Some(block.block_header()),
             }),
-            BeaconBlock::Heze(_) => Ok(Web3SignerObject::BeaconBlock {
-                version: ForkName::Heze,
-                block: None,
-                block_header: Some(block.block_header()),
-            }),
             BeaconBlock::Fulu(_) => Ok(Web3SignerObject::BeaconBlock {
                 version: ForkName::Fulu,
                 block: None,

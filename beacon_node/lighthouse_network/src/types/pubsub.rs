@@ -256,10 +256,6 @@ impl<E: EthSpec> PubsubMessage<E> {
                                 SignedBeaconBlockFulu::from_ssz_bytes(data)
                                     .map_err(|e| format!("{:?}", e))?,
                             ),
-                            Some(ForkName::Heze) => SignedBeaconBlock::<E>::Heze(
-                                SignedBeaconBlockHeze::from_ssz_bytes(data)
-                                    .map_err(|e| format!("{:?}", e))?,
-                            ),
                             Some(ForkName::Gloas) => SignedBeaconBlock::<E>::Gloas(
                                 SignedBeaconBlockGloas::from_ssz_bytes(data)
                                     .map_err(|e| format!("{:?}", e))?,

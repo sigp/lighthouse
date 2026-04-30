@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes,
     validator_monitor::get_slot_delay_ms,

@@ -1804,9 +1804,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 ForkName::Gloas => {
                     return Err(Error::InvalidForkForPayload);
                 }
-                ForkName::Heze => {
-                    return Err(Error::InvalidForkForPayload);
-                }
             };
             return Ok(Some(payload));
         }

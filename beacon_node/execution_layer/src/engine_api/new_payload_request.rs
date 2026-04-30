@@ -185,7 +185,7 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
 impl<'a, E: EthSpec> NewPayloadRequest<'a, E> {
     pub fn try_from_block_and_il_transactions(
         block: BeaconBlockRef<'a, E>,
-        il_transactions: Transactions<E>,
+        _il_transactions: Transactions<E>,
     ) -> Result<Self, BeaconStateError> {
         match block {
             BeaconBlockRef::Base(_) | BeaconBlockRef::Altair(_) => {

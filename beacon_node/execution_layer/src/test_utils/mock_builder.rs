@@ -30,7 +30,7 @@ use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
 use types::ExecutionBlockHash;
 use types::builder::{
-    BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidHeze,
+    BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb,
     BuilderBidElectra, BuilderBidFulu, SignedBuilderBid,
 };
 use types::{
@@ -633,18 +633,6 @@ impl<E: EthSpec> MockBuilder<E> {
                             .into(),
                         blob_kzg_commitments: maybe_blobs_bundle
                             .map(|b| b.commitments.clone())
-                            .unwrap_or_default(),
-                        value: self.get_bid_value(value),
-                        pubkey: self.builder_sk.public_key().compress(),
-                        execution_requests: maybe_requests.unwrap_or_default(),
-                    }),
-                    ForkName::Heze => BuilderBid::Heze(BuilderBidHeze {
-                        header: payload
-                            .as_heze()
-                            .map_err(|_| "incorrect payload variant".to_string())?
-                            .into(),
-                        blob_kzg_commitments: maybe_blobs_bundle
-                            .map(|b| b.commitments)
                             .unwrap_or_default(),
                         value: self.get_bid_value(value),
                         pubkey: self.builder_sk.public_key().compress(),

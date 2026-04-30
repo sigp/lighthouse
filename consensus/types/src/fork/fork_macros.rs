@@ -51,10 +51,6 @@ macro_rules! map_fork_name_with {
                 let (value, extra_data) = $body;
                 ($t::Fulu(value), extra_data)
             }
-            $crate::fork::ForkName::Heze => {
-                let (value, extra_data) = $body;
-                ($t::Heze(value), extra_data)
-            }
             $crate::fork::ForkName::Gloas => {
                 let (value, extra_data) = $body;
                 ($t::Gloas(value), extra_data)

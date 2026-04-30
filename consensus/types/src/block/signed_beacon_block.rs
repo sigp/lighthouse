@@ -25,11 +25,11 @@ use crate::{
     core::{ChainSpec, Domain, Epoch, EthSpec, Hash256, SignedRoot, SigningData, Slot},
     execution::{
         AbstractExecPayload, BlindedPayload, BlindedPayloadBellatrix, BlindedPayloadCapella,
-        BlindedPayloadDeneb, BlindedPayloadHeze, BlindedPayloadElectra, BlindedPayloadFulu,
+        BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadFulu,
         ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella,
-        ExecutionPayloadDeneb, ExecutionPayloadHeze, ExecutionPayloadElectra,
+        ExecutionPayloadDeneb, ExecutionPayloadElectra,
         ExecutionPayloadFulu, FullPayload, FullPayloadBellatrix, FullPayloadCapella,
-        FullPayloadDeneb, FullPayloadHeze, FullPayloadElectra, FullPayloadFulu,
+        FullPayloadDeneb, FullPayloadElectra, FullPayloadFulu,
     },
     fork::{Fork, ForkName, ForkVersionDecode, InconsistentFork, map_fork_name},
     kzg_ext::format_kzg_commitments,
@@ -204,9 +204,6 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             }
             BeaconBlock::Electra(message) => {
                 SignedBeaconBlock::Electra(SignedBeaconBlockElectra { message, signature })
-            }
-            BeaconBlock::Heze(message) => {
-                SignedBeaconBlock::Heze(SignedBeaconBlockHeze { message, signature })
             }
             BeaconBlock::Fulu(message) => {
                 SignedBeaconBlock::Fulu(SignedBeaconBlockFulu { message, signature })
@@ -920,9 +917,6 @@ pub mod ssz_tagged_signed_beacon_block {
                 )),
                 ForkName::Electra => Ok(SignedBeaconBlock::Electra(
                     SignedBeaconBlockElectra::from_ssz_bytes(body)?,
-                )),
-                ForkName::Heze => Ok(SignedBeaconBlock::Heze(
-                    SignedBeaconBlockHeze::from_ssz_bytes(body)?,
                 )),
                 ForkName::Fulu => Ok(SignedBeaconBlock::Fulu(
                     SignedBeaconBlockFulu::from_ssz_bytes(body)?,

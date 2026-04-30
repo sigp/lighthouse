@@ -890,11 +890,6 @@ fn handle_rpc_response<E: EthSpec>(
                     decoded_buffer,
                 )?),
             )))),
-            Some(ForkName::Heze) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Heze(SignedBeaconBlockHeze::from_ssz_bytes(
-                    decoded_buffer,
-                )?),
-            )))),
             Some(ForkName::Fulu) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
                 SignedBeaconBlock::Fulu(SignedBeaconBlockFulu::from_ssz_bytes(decoded_buffer)?),
             )))),
@@ -934,11 +929,6 @@ fn handle_rpc_response<E: EthSpec>(
             )))),
             Some(ForkName::Electra) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
                 SignedBeaconBlock::Electra(SignedBeaconBlockElectra::from_ssz_bytes(
-                    decoded_buffer,
-                )?),
-            )))),
-            Some(ForkName::Heze) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
-                SignedBeaconBlock::Heze(SignedBeaconBlockHeze::from_ssz_bytes(
                     decoded_buffer,
                 )?),
             )))),
@@ -1024,7 +1014,6 @@ mod tests {
             ForkName::Deneb => spec.deneb_fork_epoch,
             ForkName::Electra => spec.electra_fork_epoch,
             ForkName::Fulu => spec.fulu_fork_epoch,
-            ForkName::Heze => spec.heze_fork_epoch,
             ForkName::Gloas => spec.gloas_fork_epoch,
             ForkName::Heze => spec.heze_fork_epoch,
         };

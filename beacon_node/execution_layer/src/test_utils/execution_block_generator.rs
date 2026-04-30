@@ -1005,12 +1005,6 @@ pub fn generate_genesis_header<E: EthSpec>(spec: &ChainSpec) -> Option<Execution
             *header.transactions_root_mut() = empty_transactions_root;
             Some(header)
         }
-        ForkName::Heze => {
-            let mut header = ExecutionPayloadHeader::Heze(<_>::default());
-            *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
-            *header.transactions_root_mut() = empty_transactions_root;
-            Some(header)
-        }
         ForkName::Fulu => {
             let mut header = ExecutionPayloadHeader::Fulu(<_>::default());
             *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
@@ -1098,9 +1092,6 @@ mod test {
         const DIFFICULTY_INCREMENT: u64 = 1;
 
         let mut generator: ExecutionBlockGenerator<MainnetEthSpec> = ExecutionBlockGenerator::new(
-            Uint256::from(TERMINAL_DIFFICULTY),
-            TERMINAL_BLOCK,
-            ExecutionBlockHash::zero(),
             None,
             None,
             None,
@@ -1109,6 +1100,8 @@ mod test {
             None,
             None,
         );
+        generator.terminal_total_difficulty = Uint256::from(TERMINAL_DIFFICULTY);
+        generator.terminal_block_number = TERMINAL_BLOCK;
 
         for i in 0..=TERMINAL_BLOCK {
             if i > 0 {

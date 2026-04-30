@@ -100,7 +100,6 @@ fn reconstruct_default_header_block<E: EthSpec>(
         ForkName::Capella => ExecutionPayloadCapella::default().into(),
         ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
         ForkName::Electra => ExecutionPayloadElectra::default().into(),
-        ForkName::Heze => ExecutionPayloadHeze::default().into(),
         ForkName::Fulu => ExecutionPayloadFulu::default().into(),
         ForkName::Gloas => ExecutionPayloadGloas::default().into(),
         ForkName::Heze => ExecutionPayloadHeze::default().into(),

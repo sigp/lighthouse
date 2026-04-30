@@ -238,22 +238,6 @@ pub async fn handle_rpc<E: EthSpec>(
                         ));
                     }
                 }
-                ForkName::Gloas => {
-                    if method != ENGINE_NEW_PAYLOAD_V5 {
-                        return Err((
-                            format!("{} called after Gloas fork!", method),
-                            GENERIC_ERROR_CODE,
-                        ));
-                    }
-                }
-                ForkName::Heze => {
-                    if method != ENGINE_NEW_PAYLOAD_V5 {
-                        return Err((
-                            format!("{} called after Heze fork!", method),
-                            GENERIC_ERROR_CODE,
-                        ));
-                    }
-                }
                 _ => unreachable!(),
             };
 
@@ -710,22 +694,6 @@ pub async fn handle_rpc<E: EthSpec>(
                         if method == ENGINE_FORKCHOICE_UPDATED_V2 {
                             return Err((
                                 format!("{} called after Deneb fork!", method),
-                                FORK_REQUEST_MISMATCH_ERROR_CODE,
-                            ));
-                        }
-                    }
-                    ForkName::Gloas => {
-                        if method != ENGINE_FORKCHOICE_UPDATED_V4 {
-                            return Err((
-                                format!("{} called after Gloas fork! Use V4.", method),
-                                FORK_REQUEST_MISMATCH_ERROR_CODE,
-                            ));
-                        }
-                    }
-                    ForkName::Heze => {
-                        if method != ENGINE_FORKCHOICE_UPDATED_V4 {
-                            return Err((
-                                format!("{} called after Heze fork! Use V4.", method),
                                 FORK_REQUEST_MISMATCH_ERROR_CODE,
                             ));
                         }

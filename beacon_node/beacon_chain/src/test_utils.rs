@@ -695,9 +695,6 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
         HARNESS_GENESIS_TIME
             + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()
     });
-    let heze_time = spec.heze_fork_epoch.map(|epoch| {
-        HARNESS_GENESIS_TIME + spec.get_slot_duration().as_secs() * E::slots_per_epoch() * epoch.as_u64()
-    });
     let osaka_time = spec.fulu_fork_epoch.map(|epoch| {
         HARNESS_GENESIS_TIME
             + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()

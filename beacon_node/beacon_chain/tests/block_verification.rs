@@ -923,11 +923,6 @@ async fn invalid_signature_attester_slashing() {
                     .push(attester_slashing.as_electra().unwrap().clone())
                     .expect("should update attester slashing");
             }
-            BeaconBlockBodyRefMut::Heze(blk) => {
-                blk.attester_slashings
-                    .push(attester_slashing.as_electra().unwrap().clone())
-                    .expect("should update attester slashing");
-            }
             BeaconBlockBodyRefMut::Gloas(blk) => {
                 blk.attester_slashings
                     .push(attester_slashing.as_electra().unwrap().clone())
@@ -994,10 +989,6 @@ async fn invalid_signature_attestation() {
                 .get_mut(0)
                 .map(|att| att.signature = junk_aggregate_signature()),
             BeaconBlockBodyRefMut::Fulu(blk) => blk
-                .attestations
-                .get_mut(0)
-                .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Heze(blk) => blk
                 .attestations
                 .get_mut(0)
                 .map(|att| att.signature = junk_aggregate_signature()),

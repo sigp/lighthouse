@@ -95,7 +95,7 @@ use tokio_stream::{
 use tracing::{debug, error, info, warn};
 use types::{
     BeaconStateError, Checkpoint, ConfigAndPreset, Epoch, EthSpec, ForkName, Hash256,
-    SignedBlindedBeaconBlock, SignedInclusionList, Slot,
+    SignedBlindedBeaconBlock, SignedInclusionList,
 };
 use validator::execution_payload_envelope::get_validator_execution_payload_envelope;
 use version::{

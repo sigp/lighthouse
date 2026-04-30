@@ -421,7 +421,7 @@ mod test {
         assert_eq!(electra, ElectraPreset::from_chain_spec::<E>(&spec));
 
         let heze: HezePreset = preset_from_file(&preset_name, "heze.yaml");
-        assert_eq!(heze, HezePreset::from_chain_spec(&spec));
+        assert_eq!(heze, HezePreset::from_chain_spec::<E>(&spec));
 
         let fulu: FuluPreset = preset_from_file(&preset_name, "fulu.yaml");
         assert_eq!(fulu, FuluPreset::from_chain_spec::<E>(&spec));

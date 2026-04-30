@@ -23,11 +23,11 @@ use crate::{
     deposit::Deposit,
     execution::{
         AbstractExecPayload, BlindedPayload, BlindedPayloadBellatrix, BlindedPayloadCapella,
-        BlindedPayloadDeneb, BlindedPayloadHeze, BlindedPayloadElectra, BlindedPayloadFulu,
+        BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadFulu,
         Eth1Data, ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella,
-        ExecutionPayloadDeneb, ExecutionPayloadHeze, ExecutionPayloadElectra,
+        ExecutionPayloadDeneb, ExecutionPayloadElectra,
         ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionRequests, FullPayload,
-        FullPayloadBellatrix, FullPayloadCapella, FullPayloadDeneb, FullPayloadHeze,
+        FullPayloadBellatrix, FullPayloadCapella, FullPayloadDeneb,
         FullPayloadElectra, FullPayloadFulu, SignedBlsToExecutionChange,
     },
     exit::SignedVoluntaryExit,
@@ -258,10 +258,6 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
                 beacon_block_body_electra_fields!(body, |_, field| leaves
                     .push(field.tree_hash_root()));
             }
-            Self::Heze(body) => {
-                beacon_block_body_heze_fields!(body, |_, field| leaves
-                    .push(field.tree_hash_root()));
-            }
             Self::Fulu(body) => {
                 beacon_block_body_fulu_fields!(body, |_, field| leaves
                     .push(field.tree_hash_root()));
@@ -388,7 +384,6 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
             Self::Capella(body) => Box::new(body.attestations.iter().map(AttestationRef::Base)),
             Self::Deneb(body) => Box::new(body.attestations.iter().map(AttestationRef::Base)),
             Self::Electra(body) => Box::new(body.attestations.iter().map(AttestationRef::Electra)),
-            Self::Heze(body) => Box::new(body.attestations.iter().map(AttestationRef::Electra)),
             Self::Fulu(body) => Box::new(body.attestations.iter().map(AttestationRef::Electra)),
             Self::Gloas(body) => Box::new(body.attestations.iter().map(AttestationRef::Electra)),
             Self::Heze(body) => Box::new(body.attestations.iter().map(AttestationRef::Electra)),
@@ -423,11 +418,6 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
                     .map(AttesterSlashingRef::Base),
             ),
             Self::Electra(body) => Box::new(
-                body.attester_slashings
-                    .iter()
-                    .map(AttesterSlashingRef::Electra),
-            ),
-            Self::Heze(body) => Box::new(
                 body.attester_slashings
                     .iter()
                     .map(AttesterSlashingRef::Electra),
@@ -472,9 +462,6 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRefMut<'a, 
             Self::Electra(body) => {
                 Box::new(body.attestations.iter_mut().map(AttestationRefMut::Electra))
             }
-            Self::Heze(body) => {
-                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Electra))
-            }
             Self::Fulu(body) => {
                 Box::new(body.attestations.iter_mut().map(AttestationRefMut::Electra))
             }
@@ -498,7 +485,6 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'_, E, Payl
             BeaconBlockBodyRef::Capella { .. } => ForkName::Capella,
             BeaconBlockBodyRef::Deneb { .. } => ForkName::Deneb,
             BeaconBlockBodyRef::Electra { .. } => ForkName::Electra,
-            BeaconBlockBodyRef::Heze { .. } => ForkName::Heze,
             BeaconBlockBodyRef::Fulu { .. } => ForkName::Fulu,
             BeaconBlockBodyRef::Gloas { .. } => ForkName::Gloas,
             BeaconBlockBodyRef::Heze { .. } => ForkName::Heze,

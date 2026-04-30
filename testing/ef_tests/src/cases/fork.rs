@@ -71,7 +71,6 @@ impl<E: EthSpec> Case for ForkTest<E> {
             ForkName::Capella => upgrade_to_capella(&mut result_state, spec).map(|_| result_state),
             ForkName::Deneb => upgrade_to_deneb(&mut result_state, spec).map(|_| result_state),
             ForkName::Electra => upgrade_to_electra(&mut result_state, spec).map(|_| result_state),
-            ForkName::Heze => upgrade_to_heze(&mut result_state, spec).map(|_| result_state),
             ForkName::Fulu => upgrade_to_fulu(&mut result_state, spec).map(|_| result_state),
             ForkName::Gloas => upgrade_to_gloas(&mut result_state, spec).map(|_| result_state),
             ForkName::Heze => upgrade_to_heze(&mut result_state, spec).map(|_| result_state),

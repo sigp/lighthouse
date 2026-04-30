@@ -101,6 +101,12 @@ mod tests {
     use super::*;
     use crate::MainnetEthSpec;
 
-    ssz_and_tree_hash_tests!(ExecutionPayloadBidGloas<MainnetEthSpec>);
-    ssz_and_tree_hash_tests!(ExecutionPayloadBidHeze<MainnetEthSpec>);
+    mod gloas {
+        use super::*;
+        ssz_and_tree_hash_tests!(ExecutionPayloadBidGloas<MainnetEthSpec>);
+    }
+    mod heze {
+        use super::*;
+        ssz_and_tree_hash_tests!(ExecutionPayloadBidHeze<MainnetEthSpec>);
+    }
 }
