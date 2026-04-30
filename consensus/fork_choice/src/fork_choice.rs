@@ -564,8 +564,9 @@ where
         // For Gloas blocks, `execution_status` is Irrelevant (no embedded payload).
         // If the payload envelope was received (Full), use the bid's block_hash as the
         // execution chain head. Otherwise fall back to the parent hash (Pending) or None.
-        // For justified/finalized hashes we always use the bid's parent_block_hash, since it
-        // references an EL block already known to the EL (the previous block_hash).
+        // For justified/finalized hashes we always use the bid's parent_block_hash, since the
+        // payload from the justified/finalized block is not itself justified/finalized due to
+        // being applied immediately prior to the next block.
         let head_hash = self.get_block(&head_root).and_then(|b| {
             b.execution_status
                 .block_hash()
