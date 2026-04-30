@@ -544,7 +544,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_)
             | BeaconState::Electra(_)
-            | BeaconState::Fulu(_)
+            | BeaconState::Fulu(_) => {
+                return Err(BlockProductionError::GloasNotImplemented(
+                    "complete_partial_beacon_block_gloas called with pre-Gloas state".to_owned(),
+                ));
+            },
             BeaconState::Gloas(_) => BeaconBlock::Gloas(BeaconBlockGloas {
                 slot,
                 proposer_index,

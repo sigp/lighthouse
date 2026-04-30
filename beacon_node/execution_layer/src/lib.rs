@@ -951,11 +951,46 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 "get_payload_gloas should never return a blinded payload".to_owned(),
             ));
         };
-        let GetPayloadResponse::Gloas(payload_response) = payload_response else {
-            return Err(Error::Unexpected(
-                "get_payload_gloas should always return a gloas `GetPayloadResponse` variant"
-                    .to_owned(),
-            ));
+        let block_contents = match payload_response {
+            GetPayloadResponse::Gloas(resp) => BlockProposalContentsGloas::from(resp),
+            GetPayloadResponse::Heze(resp) => {
+                // Heze and Gloas execution payloads are structurally identical,
+                // convert via BlockProposalContentsHeze then into Gloas.
+                let heze: BlockProposalContentsHeze<E> = resp.into();
+                BlockProposalContentsGloas {
+                    payload: ExecutionPayloadGloas {
+                        parent_hash: heze.payload.parent_hash,
+                        fee_recipient: heze.payload.fee_recipient,
+                        state_root: heze.payload.state_root,
+                        receipts_root: heze.payload.receipts_root,
+                        logs_bloom: heze.payload.logs_bloom,
+                        prev_randao: heze.payload.prev_randao,
+                        block_number: heze.payload.block_number,
+                        gas_limit: heze.payload.gas_limit,
+                        gas_used: heze.payload.gas_used,
+                        timestamp: heze.payload.timestamp,
+                        extra_data: heze.payload.extra_data,
+                        base_fee_per_gas: heze.payload.base_fee_per_gas,
+                        block_hash: heze.payload.block_hash,
+                        transactions: heze.payload.transactions,
+                        withdrawals: heze.payload.withdrawals,
+                        blob_gas_used: heze.payload.blob_gas_used,
+                        excess_blob_gas: heze.payload.excess_blob_gas,
+                        block_access_list: heze.payload.block_access_list,
+                        slot_number: heze.payload.slot_number,
+                    },
+                    payload_value: heze.payload_value,
+                    blob_kzg_commitments: heze.blob_kzg_commitments,
+                    blobs_and_proofs: heze.blobs_and_proofs,
+                    execution_requests: heze.execution_requests,
+                    should_override_builder: false,
+                }
+            }
+            _ => {
+                return Err(Error::Unexpected(
+                    "get_payload_gloas: unexpected GetPayloadResponse variant".to_owned(),
+                ));
+            }
         };
         metrics::inc_counter_vec(
             &metrics::EXECUTION_LAYER_GET_PAYLOAD_OUTCOME,
@@ -966,7 +1001,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
             &[metrics::LOCAL],
         );
 
-        Ok(payload_response.into())
+        Ok(block_contents)
     }
 
     /// Maps to the `engine_getPayload` JSON-RPC call for post-Heze payload construction.
