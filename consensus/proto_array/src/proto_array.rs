@@ -23,14 +23,6 @@ use types::{
 four_byte_option_impl!(four_byte_option_usize, usize);
 four_byte_option_impl!(four_byte_option_checkpoint, Checkpoint);
 
-fn all_true_bitvector<N: typenum::Unsigned + Clone>() -> BitVector<N> {
-    let mut bv = BitVector::new();
-    for i in 0..bv.len() {
-        let _ = bv.set(i, true);
-    }
-    bv
-}
-
 /// Defines an operation which may invalidate the `execution_status` of some nodes.
 #[derive(Clone, Debug)]
 pub enum InvalidationOperation {
@@ -568,10 +560,8 @@ impl ProtoArray {
                         ProtoNode::V29(v29) => {
                             // Both parent and child are Gloas blocks. The parent is full if the
                             // block hash in the parent node matches the parent block hash in the
-                            // child bid and the parent block isn't the genesis block.
-                            if v29.execution_payload_block_hash != ExecutionBlockHash::zero()
-                                && execution_payload_parent_hash == v29.execution_payload_block_hash
-                            {
+                            // child bid.
+                            if execution_payload_parent_hash == v29.execution_payload_block_hash {
                                 PayloadStatus::Full
                             } else {
                                 PayloadStatus::Empty
@@ -613,18 +603,8 @@ impl ProtoArray {
                 full_payload_weight: 0,
                 execution_payload_block_hash,
                 execution_payload_parent_hash,
-                // Per spec `get_forkchoice_store`: the anchor block's PTC votes are
-                // initialized to all-True.
-                payload_timeliness_votes: if is_anchor {
-                    all_true_bitvector()
-                } else {
-                    BitVector::default()
-                },
-                payload_data_availability_votes: if is_anchor {
-                    all_true_bitvector()
-                } else {
-                    BitVector::default()
-                },
+                payload_timeliness_votes: BitVector::default(),
+                payload_data_availability_votes: BitVector::default(),
                 payload_received: false,
                 proposer_index,
                 // Spec: `record_block_timeliness` + `get_forkchoice_store`.
@@ -1262,6 +1242,90 @@ impl ProtoArray {
         }
     }
 
+    /// Returns the canonical payload status of a block, matching the decision
+    /// `get_head` would make between `(root, FULL)` and `(root, EMPTY)`.
+    pub(crate) fn get_canonical_payload_status<E: EthSpec>(
+        &self,
+        root: Hash256,
+        current_slot: Slot,
+        proposer_boost_root: Hash256,
+        justified_balances: &JustifiedBalances,
+        spec: &ChainSpec,
+    ) -> Result<PayloadStatus, Error> {
+        let proto_node_index = *self.indices.get(&root).ok_or(Error::NodeUnknown(root))?;
+        let proto_node = self
+            .nodes
+            .get(proto_node_index)
+            .ok_or(Error::InvalidNodeIndex(proto_node_index))?;
+
+        if !proto_node
+            .payload_received()
+            .map_err(|_| Error::InvalidNodeVariant { block_root: root })?
+        {
+            return Ok(PayloadStatus::Empty);
+        }
+
+        let full_fc = IndexedForkChoiceNode {
+            root,
+            proto_node_index,
+            payload_status: PayloadStatus::Full,
+        };
+        let empty_fc = IndexedForkChoiceNode {
+            root,
+            proto_node_index,
+            payload_status: PayloadStatus::Empty,
+        };
+
+        // Matches the hoisting optimization in `find_head`: `get_weight`'s spec-level
+        // `should_apply_proposer_boost` check is precomputed once.
+        let apply_proposer_boost =
+            self.should_apply_proposer_boost::<E>(proposer_boost_root, justified_balances, spec)?;
+
+        let full_weight = self.get_weight::<E>(
+            &full_fc,
+            proto_node,
+            apply_proposer_boost,
+            proposer_boost_root,
+            current_slot,
+            justified_balances,
+            spec,
+        )?;
+
+        let empty_weight = self.get_weight::<E>(
+            &empty_fc,
+            proto_node,
+            apply_proposer_boost,
+            proposer_boost_root,
+            current_slot,
+            justified_balances,
+            spec,
+        )?;
+
+        match full_weight.cmp(&empty_weight) {
+            std::cmp::Ordering::Greater => Ok(PayloadStatus::Full),
+            std::cmp::Ordering::Less => Ok(PayloadStatus::Empty),
+            std::cmp::Ordering::Equal => {
+                let full_tb = self.get_payload_status_tiebreaker::<E>(
+                    &full_fc,
+                    proto_node,
+                    current_slot,
+                    proposer_boost_root,
+                )?;
+                let empty_tb = self.get_payload_status_tiebreaker::<E>(
+                    &empty_fc,
+                    proto_node,
+                    current_slot,
+                    proposer_boost_root,
+                )?;
+                if full_tb >= empty_tb {
+                    Ok(PayloadStatus::Full)
+                } else {
+                    Ok(PayloadStatus::Empty)
+                }
+            }
+        }
+    }
+
     /// Spec: `get_weight`.
     #[allow(clippy::too_many_arguments)]
     fn get_weight<E: EthSpec>(
@@ -1417,7 +1481,7 @@ impl ProtoArray {
         }
     }
 
-    fn get_payload_status_tiebreaker<E: EthSpec>(
+    pub(crate) fn get_payload_status_tiebreaker<E: EthSpec>(
         &self,
         fc_node: &IndexedForkChoiceNode,
         proto_node: &ProtoNode,

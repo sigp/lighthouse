@@ -3,14 +3,14 @@ use std::marker::PhantomData;
 use bls::Signature;
 use context_deserialize::{ContextDeserialize, context_deserialize};
 use educe::Educe;
-use merkle_proof::{MerkleTree, MerkleTreeError};
+use merkle_proof::MerkleTree;
 use metastruct::metastruct;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
-use tree_hash::{BYTES_PER_CHUNK, TreeHash};
+use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
@@ -18,6 +18,7 @@ use crate::{
     attestation::{
         AttestationBase, AttestationElectra, AttestationRef, AttestationRefMut, PayloadAttestation,
     },
+    complete_kzg_commitment_merkle_proof,
     core::{EthSpec, Graffiti, Hash256},
     deposit::Deposit,
     execution::{
@@ -272,46 +273,11 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
             | Self::Capella(_)
             | Self::Gloas(_) => Err(BeaconStateError::IncorrectStateVariant),
             Self::Deneb(_) | Self::Electra(_) | Self::Fulu(_) => {
-                // We compute the branches by generating 2 merkle trees:
-                // 1. Merkle tree for the `blob_kzg_commitments` List object
-                // 2. Merkle tree for the `BeaconBlockBody` container
-                // We then merge the branches for both the trees all the way up to the root.
-
-                // Part1 (Branches for the subtree rooted at `blob_kzg_commitments`)
-                //
-                // Branches for `blob_kzg_commitments` without length mix-in
-                let blob_leaves = self
-                    .blob_kzg_commitments()?
-                    .iter()
-                    .map(|commitment| commitment.tree_hash_root())
-                    .collect::<Vec<_>>();
-                let depth = E::max_blob_commitments_per_block()
-                    .next_power_of_two()
-                    .ilog2();
-                let tree = MerkleTree::create(&blob_leaves, depth as usize);
-                let (_, mut proof) = tree
-                    .generate_proof(index, depth as usize)
-                    .map_err(BeaconStateError::MerkleTreeError)?;
-
-                // Add the branch corresponding to the length mix-in.
-                let length = blob_leaves.len();
-                let usize_len = std::mem::size_of::<usize>();
-                let mut length_bytes = [0; BYTES_PER_CHUNK];
-                length_bytes
-                    .get_mut(0..usize_len)
-                    .ok_or(BeaconStateError::MerkleTreeError(
-                        MerkleTreeError::PleaseNotifyTheDevs,
-                    ))?
-                    .copy_from_slice(&length.to_le_bytes());
-                let length_root = Hash256::from_slice(length_bytes.as_slice());
-                proof.push(length_root);
-
-                // Part 2
-                // Branches for `BeaconBlockBody` container
-                // Join the proofs for the subtree and the main tree
-                proof.extend_from_slice(kzg_commitments_proof);
-
-                Ok(FixedVector::new(proof)?)
+                complete_kzg_commitment_merkle_proof::<E>(
+                    self.blob_kzg_commitments()?,
+                    index,
+                    kzg_commitments_proof,
+                )
             }
         }
     }

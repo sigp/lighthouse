@@ -20,7 +20,7 @@ use lighthouse_network::rpc::methods::{
 };
 use lighthouse_network::service::api_types::CustodyBackfillBatchId;
 use lighthouse_network::{
-    Client, MessageId, NetworkGlobals, PeerId, PubsubMessage,
+    Client, GossipTopic, MessageId, NetworkGlobals, PeerId, PubsubMessage,
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
 };
 use rand::prelude::SliceRandom;
@@ -248,6 +248,32 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::GossipDataColumnSidecar(Box::pin(process_fn)),
+        })
+    }
+
+    /// Create a new `Work` event for some partial data column sidecar.
+    pub fn send_gossip_partial_data_column_sidecar(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        column_sidecar: Box<PartialDataColumn<T::EthSpec>>,
+        seen_timestamp: Duration,
+        topic: GossipTopic,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = async move {
+            processor
+                .process_gossip_partial_data_column_sidecar(
+                    peer_id,
+                    column_sidecar,
+                    seen_timestamp,
+                    topic,
+                )
+                .await
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::GossipPartialDataColumnSidecar(Box::pin(process_fn)),
         })
     }
 
@@ -485,7 +511,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             processor.process_gossip_payload_attestation(
                 message_id,
                 peer_id,
-                *payload_attestation_message,
+                payload_attestation_message,
             )
         };
 
@@ -894,14 +920,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     pub async fn fetch_engine_blobs_and_publish(
         self: &Arc<Self>,
-        block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
+        header: Arc<PartialDataColumnHeader<T::EthSpec>>,
         block_root: Hash256,
         publish_blobs: bool,
     ) {
         if self.chain.config.disable_get_blobs {
             return;
         }
-        let epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
+        let epoch = header.slot().epoch(T::EthSpec::slots_per_epoch());
         let custody_columns = self.chain.sampling_columns_for_epoch(epoch);
         let self_cloned = self.clone();
         let publish_fn = move |blobs_or_data_column| {
@@ -926,7 +952,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         match fetch_and_process_engine_blobs(
             self.chain.clone(),
             block_root,
-            block.clone(),
+            header.clone(),
             custody_columns,
             publish_fn,
         )
@@ -968,6 +994,23 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     %block_root,
                     "Error fetching or processing blobs from EL"
                 );
+            }
+        }
+
+        // Publish partial columns without eager send
+        if let Some(assembler) = self.chain.data_availability_checker.partial_assembler() {
+            let columns = assembler.get_partials_and_mark_as_local_fetched(block_root, &header);
+            if !columns.is_empty() {
+                debug!(block = %block_root, "Publishing all partials after getBlobs");
+                self.send_network_message(NetworkMessage::PublishPartialColumns {
+                    columns: columns
+                        .into_iter()
+                        .map(|partial| partial.into_inner())
+                        .collect(),
+                    header,
+                });
+            } else {
+                debug!(block = %block_root, "No partials to publish after getBlobs");
             }
         }
     }

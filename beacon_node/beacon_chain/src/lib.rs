@@ -43,6 +43,8 @@ pub mod observed_block_producers;
 pub mod observed_data_sidecars;
 pub mod observed_operations;
 mod observed_slashable;
+pub mod partial_data_column_assembler;
+pub mod payload_attestation_verification;
 pub mod payload_bid_verification;
 pub mod payload_envelope_streamer;
 pub mod payload_envelope_verification;

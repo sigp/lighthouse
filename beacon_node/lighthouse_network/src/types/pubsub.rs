@@ -1,23 +1,23 @@
 //! Handles the encoding and decoding of pubsub messages.
 
-use crate::TopicHash;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
-use libp2p::gossipsub;
+use gossipsub::TopicHash;
 use snap::raw::{Decoder, Encoder, decompress_len};
 use ssz::{Decode, Encode};
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, BlobSidecar,
-    DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkName,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, PayloadAttestationMessage,
-    ProposerSlashing, SignedAggregateAndProof, SignedAggregateAndProofBase,
-    SignedAggregateAndProofElectra, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
-    SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockFulu,
-    SignedBeaconBlockGloas, SignedBlsToExecutionChange, SignedContributionAndProof,
-    SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
-    SignedVoluntaryExit, SingleAttestation, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkName, Hash256,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, PartialDataColumn,
+    PartialDataColumnSidecar, PayloadAttestationMessage, ProposerSlashing, SignedAggregateAndProof,
+    SignedAggregateAndProofBase, SignedAggregateAndProofElectra, SignedBeaconBlock,
+    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
+    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
+    SignedBeaconBlockFulu, SignedBeaconBlockGloas, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
+    SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -461,6 +461,35 @@ impl<E: EthSpec> PubsubMessage<E> {
             PubsubMessage::LightClientFinalityUpdate(data) => data.as_ssz_bytes(),
             PubsubMessage::LightClientOptimisticUpdate(data) => data.as_ssz_bytes(),
         }
+    }
+}
+
+/// Decodes incoming partial data column sidecar from gossipsub partial protocol.
+/// Note: Currently, data columns are the only supported partial messages. In future this could
+/// return an enum.
+pub fn decode_partial<E: EthSpec>(
+    topic: &GossipTopic,
+    group: &[u8],
+    data: &[u8],
+) -> Result<PartialDataColumn<E>, String> {
+    match topic.kind() {
+        GossipKind::DataColumnSidecar(id) => {
+            if group.first() != Some(&0) {
+                return Err(format!("Unknown data column format: {:?}", group.first()));
+            }
+            let block_root = Hash256::from_ssz_bytes(&group[1..])
+                .map_err(|e| format!("Error decoding group: {:?}", e))?;
+            let sidecar = PartialDataColumnSidecar::from_ssz_bytes(data)
+                .map_err(|e| format!("Error decoding sidecar: {:?}", e))?;
+            let data_column = PartialDataColumn {
+                block_root,
+                // Partial messages are spec'd under the assumption that there is one column per subnet.
+                index: **id,
+                sidecar,
+            };
+            Ok(data_column)
+        }
+        other => Err(format!("Partial message unsupported for topic: {other}")),
     }
 }
 
