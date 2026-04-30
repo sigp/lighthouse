@@ -4725,6 +4725,7 @@ impl ApiTester {
                 .get_validator_payload_attestation_data(slot)
                 .await
                 .unwrap()
+                .expect("expected payload attestation data for slot with block")
                 .into_data();
 
             assert_eq!(pa_data.beacon_block_root, block_root);
