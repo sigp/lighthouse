@@ -116,6 +116,10 @@ impl<T: BeaconChainTypes> GossipVerifiedInclusionList<T> {
             return Err(GossipInclusionListError::InvalidSignature);
         }
 
+        // TODO(focil): Per spec p2p-interface.md rule 5, the first OR second valid message
+        // should be allowed (to enable equivocation detection in the cache). Currently this
+        // rejects any second message, making the cache's equivocation logic dead code.
+        // See: https://github.com/ethereum/consensus-specs/blob/master/specs/heze/p2p-interface.md#inclusion_list
         if chain.inclusion_list_seen(signed_il) {
             return Err(GossipInclusionListError::PriorInclusionListKnown);
         }

@@ -1510,9 +1510,14 @@ impl ProtoArray {
         proto_node: &ProtoNode,
         proposer_boost_root: Hash256,
     ) -> Result<bool, Error> {
-        // If the block's inclusion list satisfaction has been recorded as false,
-        // do not extend the payload.
-        if self.payload_inclusion_list_satisfaction.get(&fc_node.root) == Some(&false) {
+        // Per spec: is_payload_inclusion_list_satisfied returns false unless the
+        // root is in the map AND the value is true.
+        if !self
+            .payload_inclusion_list_satisfaction
+            .get(&fc_node.root)
+            .copied()
+            .unwrap_or(false)
+        {
             return Ok(false);
         }
 
