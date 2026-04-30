@@ -146,7 +146,7 @@ pub struct BeaconForkChoiceStore<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<
     proposer_boost_root: Hash256,
     equivocating_indices: BTreeSet<u64>,
     inclusion_list_equivocators: HashMap<(Slot, Hash256), BTreeSet<u64>>,
-    unsatisfied_inclusion_list_blocks: HashMap<Slot, Hash256>,
+    payload_inclusion_list_satisfaction: HashMap<Hash256, bool>,
     _phantom: PhantomData<E>,
 }
 
@@ -215,7 +215,7 @@ where
             proposer_boost_root: Hash256::zero(),
             equivocating_indices: BTreeSet::new(),
             inclusion_list_equivocators: HashMap::new(),
-            unsatisfied_inclusion_list_blocks: HashMap::new(),
+            payload_inclusion_list_satisfaction: HashMap::new(),
             _phantom: PhantomData,
         })
     }
@@ -265,7 +265,7 @@ where
             proposer_boost_root: persisted.proposer_boost_root,
             equivocating_indices: persisted.equivocating_indices,
             inclusion_list_equivocators: HashMap::new(),
-            unsatisfied_inclusion_list_blocks: HashMap::new(),
+            payload_inclusion_list_satisfaction: HashMap::new(),
             _phantom: PhantomData,
         })
     }
@@ -385,22 +385,29 @@ where
         self.equivocating_indices.extend(indices);
     }
 
-    fn set_unsatisfied_inclusion_list_block(&mut self, slot: Slot, block_root: Hash256) {
+    fn record_payload_inclusion_list_satisfaction(
+        &mut self,
+        block_root: Hash256,
+        satisfied: bool,
+    ) {
         info!(
-            ?slot,
             %block_root,
-            "Set unsatisfied inclusion list block"
+            satisfied,
+            "Record payload inclusion list satisfaction"
         );
-        self.unsatisfied_inclusion_list_blocks
-            .insert(slot, block_root);
+        self.payload_inclusion_list_satisfaction
+            .insert(block_root, satisfied);
     }
 
-    fn unsatisfied_inclusion_list_block(&self, slot: Slot) -> Option<&Hash256> {
-        self.unsatisfied_inclusion_list_blocks.get(&slot)
+    fn is_payload_inclusion_list_satisfied(&self, block_root: &Hash256) -> bool {
+        self.payload_inclusion_list_satisfaction
+            .get(block_root)
+            .copied()
+            .unwrap_or(false)
     }
 
-    fn unsatisfied_inclusion_list_blocks(&self) -> &HashMap<Slot, Hash256> {
-        &self.unsatisfied_inclusion_list_blocks
+    fn payload_inclusion_list_satisfaction(&self) -> &HashMap<Hash256, bool> {
+        &self.payload_inclusion_list_satisfaction
     }
 }
 

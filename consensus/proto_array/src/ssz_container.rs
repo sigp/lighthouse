@@ -8,7 +8,7 @@ use ssz::{Encode, four_byte_option_impl};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
 use superstruct::superstruct;
-use types::{Checkpoint, Hash256, Slot};
+use types::{Checkpoint, Hash256};
 
 // Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union
 // selector.
@@ -40,7 +40,7 @@ pub struct SszContainer {
     pub indices: Vec<(Hash256, usize)>,
     #[superstruct(only(V28))]
     pub previous_proposer_boost: ProposerBoost,
-    pub unsatisfied_inclusion_list_blocks: Vec<(Slot, Hash256)>,
+    pub payload_inclusion_list_satisfaction: Vec<(Hash256, bool)>,
 }
 
 impl SszContainerV29 {
@@ -52,8 +52,8 @@ impl SszContainerV29 {
             prune_threshold: proto_array.prune_threshold,
             nodes: proto_array.nodes.clone(),
             indices: proto_array.indices.iter().map(|(k, v)| (*k, *v)).collect(),
-            unsatisfied_inclusion_list_blocks: proto_array
-                .unsatisfied_inclusion_list_blocks
+            payload_inclusion_list_satisfaction: proto_array
+                .payload_inclusion_list_satisfaction
                 .iter()
                 .map(|(k, v)| (*k, *v))
                 .collect(),
@@ -70,8 +70,8 @@ impl TryFrom<(SszContainerV29, JustifiedBalances)> for ProtoArrayForkChoice {
             nodes: from.nodes,
             indices: from.indices.into_iter().collect::<HashMap<_, _>>(),
             previous_proposer_boost: ProposerBoost::default(),
-            unsatisfied_inclusion_list_blocks: from
-                .unsatisfied_inclusion_list_blocks
+            payload_inclusion_list_satisfaction: from
+                .payload_inclusion_list_satisfaction
                 .into_iter()
                 .collect::<HashMap<_, _>>(),
         };
@@ -102,7 +102,7 @@ impl From<SszContainerV28> for SszContainerV29 {
                 })
                 .collect(),
             indices: v28.indices,
-            unsatisfied_inclusion_list_blocks: vec![],
+            payload_inclusion_list_satisfaction: vec![],
         }
     }
 }
@@ -128,7 +128,7 @@ impl From<SszContainerV29> for SszContainerV28 {
             indices: v29.indices,
             // Proposer boost is not tracked in V29 (computed on-the-fly), so reset it.
             previous_proposer_boost: ProposerBoost::default(),
-            unsatisfied_inclusion_list_blocks: v29.unsatisfied_inclusion_list_blocks,
+            payload_inclusion_list_satisfaction: v29.payload_inclusion_list_satisfaction,
         }
     }
 }

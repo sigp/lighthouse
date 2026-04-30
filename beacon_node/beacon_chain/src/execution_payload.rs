@@ -232,9 +232,9 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
                             "Unsatisfied inclusion list"
                         );
                         chain
-                            .set_unsatisfied_inclusion_list_block(
-                                block.slot(),
+                            .record_payload_inclusion_list_satisfaction(
                                 block.tree_hash_root(),
+                                false,
                             )
                             .await?;
                     }

@@ -452,7 +452,7 @@ where
             *fc_store.finalized_checkpoint(),
             current_epoch_shuffling_id,
             next_epoch_shuffling_id,
-            fc_store.unsatisfied_inclusion_list_blocks().clone(),
+            fc_store.payload_inclusion_list_satisfaction().clone(),
             execution_status,
             execution_payload_parent_hash,
             execution_payload_block_hash,
@@ -724,10 +724,20 @@ where
             .map_err(Error::FailedToProcessInvalidExecutionPayload)
     }
 
-    // TODO(focil) add documentation
-    pub fn on_invalid_inclusion_list_payload(&mut self, slot: Slot, block_root: Hash256) {
+    /// Record whether a block root satisfies the inclusion list.
+    pub fn record_payload_inclusion_list_satisfaction(
+        &mut self,
+        block_root: Hash256,
+        satisfied: bool,
+    ) {
         self.fc_store
-            .set_unsatisfied_inclusion_list_block(slot, block_root);
+            .record_payload_inclusion_list_satisfaction(block_root, satisfied);
+    }
+
+    /// Returns `true` if the block root has been recorded as satisfying the inclusion list.
+    pub fn is_payload_inclusion_list_satisfied(&self, block_root: &Hash256) -> bool {
+        self.fc_store
+            .is_payload_inclusion_list_satisfied(block_root)
     }
 
     /// Add `block` to the fork choice DAG.

@@ -360,7 +360,7 @@ pub struct ProtoArray {
     pub prune_threshold: usize,
     pub nodes: Vec<ProtoNode>,
     pub indices: HashMap<Hash256, usize>,
-    pub unsatisfied_inclusion_list_blocks: HashMap<Slot, Hash256>,
+    pub payload_inclusion_list_satisfaction: HashMap<Hash256, bool>,
     pub previous_proposer_boost: ProposerBoost,
 }
 
@@ -1510,6 +1510,16 @@ impl ProtoArray {
         proto_node: &ProtoNode,
         proposer_boost_root: Hash256,
     ) -> Result<bool, Error> {
+        // If the block's inclusion list satisfaction has been recorded as false,
+        // do not extend the payload.
+        if self
+            .payload_inclusion_list_satisfaction
+            .get(&fc_node.root)
+            == Some(&false)
+        {
+            return Ok(false);
+        }
+
         // Per spec: `proposer_root == Root()` is one of the `or` conditions that
         // makes `should_extend_payload` return True.
         if proposer_boost_root.is_zero() {
@@ -1616,12 +1626,10 @@ impl ProtoArray {
             return false;
         }
 
-        // TODO(focil) unwrap_or
-        if node.root()
-            == *self
-                .unsatisfied_inclusion_list_blocks
-                .get(&current_slot)
-                .unwrap_or(&Hash256::zero())
+        if self
+            .payload_inclusion_list_satisfaction
+            .get(&node.root())
+            == Some(&false)
         {
             info!(
                 ?current_slot,

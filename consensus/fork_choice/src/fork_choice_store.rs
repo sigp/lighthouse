@@ -90,12 +90,16 @@ pub trait ForkChoiceStore<E: EthSpec>: Sized {
     /// Adds to the set of equivocating indices.
     fn extend_equivocating_indices(&mut self, indices: impl IntoIterator<Item = u64>);
 
-    /// Returns the `unsatisfied_inclusion_list_blocks` mapping.
-    fn unsatisfied_inclusion_list_blocks(&self) -> &HashMap<Slot, Hash256>;
+    /// Returns the `payload_inclusion_list_satisfaction` mapping.
+    fn payload_inclusion_list_satisfaction(&self) -> &HashMap<Hash256, bool>;
 
-    /// Returns the `unsatisfied_inclusion_list_block` for the given slot.
-    fn unsatisfied_inclusion_list_block(&self, slot: Slot) -> Option<&Hash256>;
+    /// Returns `true` if the block root is in the map AND the value is `true`.
+    fn is_payload_inclusion_list_satisfied(&self, block_root: &Hash256) -> bool;
 
-    /// Sets the `unsatisfied_inclusion_list_block`.
-    fn set_unsatisfied_inclusion_list_block(&mut self, slot: Slot, block_root: Hash256);
+    /// Records whether a block root satisfies the inclusion list.
+    fn record_payload_inclusion_list_satisfaction(
+        &mut self,
+        block_root: Hash256,
+        satisfied: bool,
+    );
 }

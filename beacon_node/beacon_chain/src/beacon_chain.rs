@@ -7765,10 +7765,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )
     }
 
-    pub async fn set_unsatisfied_inclusion_list_block(
+    pub async fn record_payload_inclusion_list_satisfaction(
         self: &Arc<Self>,
-        slot: Slot,
         block_root: Hash256,
+        satisfied: bool,
     ) -> Result<(), Error> {
         let chain = self.clone();
         let fork_choice_result = self
@@ -7777,9 +7777,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     chain
                         .canonical_head
                         .fork_choice_write_lock()
-                        .on_invalid_inclusion_list_payload(slot, block_root)
+                        .record_payload_inclusion_list_satisfaction(block_root, satisfied)
                 },
-                "invalid_inclusion_list_payload",
+                "record_payload_inclusion_list_satisfaction",
             )
             .await;
 
@@ -7787,7 +7787,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Err(e) = fork_choice_result {
             crit!(
                 error = ?e,
-                "Failed to process invalid inclusion list payload"
+                "Failed to record payload inclusion list satisfaction"
             );
         }
 

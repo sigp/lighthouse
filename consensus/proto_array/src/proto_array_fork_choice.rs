@@ -505,7 +505,7 @@ impl ProtoArrayForkChoice {
         finalized_checkpoint: Checkpoint,
         current_epoch_shuffling_id: AttestationShufflingId,
         next_epoch_shuffling_id: AttestationShufflingId,
-        unsatisfied_inclusion_list_blocks: HashMap<Slot, Hash256>,
+        payload_inclusion_list_satisfaction: HashMap<Hash256, bool>,
         execution_status: ExecutionStatus,
         execution_payload_parent_hash: Option<ExecutionBlockHash>,
         execution_payload_block_hash: Option<ExecutionBlockHash>,
@@ -516,7 +516,7 @@ impl ProtoArrayForkChoice {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
             nodes: Vec::with_capacity(1),
             indices: HashMap::with_capacity(1),
-            unsatisfied_inclusion_list_blocks,
+            payload_inclusion_list_satisfaction,
             previous_proposer_boost: ProposerBoost::default(),
         };
 
