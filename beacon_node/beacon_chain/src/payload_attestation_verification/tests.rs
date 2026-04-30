@@ -7,8 +7,8 @@ use genesis::{generate_deterministic_keypairs, interop_genesis_state};
 use parking_lot::RwLock;
 use proto_array::PayloadStatus;
 use slot_clock::{SlotClock, TestingSlotClock};
-use state_processing::genesis::genesis_block;
 use state_processing::AllCaches;
+use state_processing::genesis::genesis_block;
 use store::{HotColdDB, StoreConfig};
 use types::{
     ChainSpec, Checkpoint, Domain, Epoch, EthSpec, Hash256, MinimalEthSpec, PayloadAttestationData,
