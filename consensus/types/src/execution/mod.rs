@@ -47,6 +47,7 @@ pub use payload::{
 };
 pub use signed_bls_to_execution_change::SignedBlsToExecutionChange;
 pub use signed_execution_payload_bid::{
-    SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze, SignedExecutionPayloadBidRef,
+    SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze,
+    SignedExecutionPayloadBidRef,
 };
 pub use signed_execution_payload_envelope::SignedExecutionPayloadEnvelope;

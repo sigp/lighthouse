@@ -1,4 +1,7 @@
-use crate::execution::{ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef};
+use crate::execution::{
+    ExecutionPayloadBid, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef,
+};
+use crate::state::BeaconStateError;
 use crate::test_utils::TestRandom;
 use crate::{EthSpec, ForkName};
 use bls::Signature;
@@ -6,21 +9,90 @@ use context_deserialize::context_deserialize;
 use educe::Educe;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-#[derive(TestRandom, TreeHash, Debug, Clone, Encode, Decode, Serialize, Deserialize, Educe)]
+#[superstruct(
+    variants(Gloas, Heze),
+    variant_attributes(
+        derive(
+            Debug,
+            Clone,
+            Serialize,
+            Deserialize,
+            Encode,
+            Decode,
+            TestRandom,
+            TreeHash,
+            Educe,
+        ),
+        educe(PartialEq, Hash(bound(E: EthSpec))),
+        context_deserialize(ForkName),
+        serde(bound = "E: EthSpec"),
+        cfg_attr(
+            feature = "arbitrary",
+            derive(arbitrary::Arbitrary),
+            arbitrary(bound = "E: EthSpec"),
+        ),
+    ),
+    cast_error(
+        ty = "BeaconStateError",
+        expr = "BeaconStateError::IncorrectStateVariant"
+    ),
+    partial_getter_error(
+        ty = "BeaconStateError",
+        expr = "BeaconStateError::IncorrectStateVariant"
+    ),
+    map_ref_into(ExecutionPayloadBidRef)
+)]
 #[cfg_attr(
     feature = "arbitrary",
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[educe(PartialEq, Hash)]
-#[serde(bound = "E: EthSpec")]
-#[context_deserialize(ForkName)]
-pub struct SignedExecutionPayloadBidGloas<E: EthSpec> {
-    pub message: ExecutionPayloadBidGloas<E>,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, TreeHash)]
+#[serde(untagged)]
+#[tree_hash(enum_behaviour = "transparent")]
+#[ssz(enum_behaviour = "transparent")]
+#[serde(bound = "E: EthSpec", deny_unknown_fields)]
+pub struct SignedExecutionPayloadBid<E: EthSpec> {
+    #[superstruct(flatten)]
+    pub message: ExecutionPayloadBid<E>,
     pub signature: Signature,
+}
+
+impl<E: EthSpec> SignedExecutionPayloadBid<E> {
+    pub fn message(&self) -> ExecutionPayloadBidRef<'_, E> {
+        match self {
+            Self::Gloas(inner) => ExecutionPayloadBidRef::Gloas(&inner.message),
+            Self::Heze(inner) => ExecutionPayloadBidRef::Heze(&inner.message),
+        }
+    }
+
+    pub fn empty_gloas() -> Self {
+        Self::Gloas(SignedExecutionPayloadBidGloas {
+            message: ExecutionPayloadBidGloas::default(),
+            signature: Signature::empty(),
+        })
+    }
+
+    pub fn empty_heze() -> Self {
+        Self::Heze(SignedExecutionPayloadBidHeze {
+            message: ExecutionPayloadBidHeze::default(),
+            signature: Signature::empty(),
+        })
+    }
+}
+
+impl<'a, E: EthSpec> SignedExecutionPayloadBidRef<'a, E> {
+    pub fn message(&self) -> ExecutionPayloadBidRef<'a, E> {
+        map_signed_execution_payload_bid_ref_into_execution_payload_bid_ref!(
+            &'a _,
+            *self,
+            |inner, cons| { cons(&inner.message) }
+        )
+    }
 }
 
 impl<E: EthSpec> SignedExecutionPayloadBidGloas<E> {
@@ -32,46 +104,11 @@ impl<E: EthSpec> SignedExecutionPayloadBidGloas<E> {
     }
 }
 
-#[derive(TestRandom, TreeHash, Debug, Clone, Encode, Decode, Serialize, Deserialize, Educe)]
-#[cfg_attr(
-    feature = "arbitrary",
-    derive(arbitrary::Arbitrary),
-    arbitrary(bound = "E: EthSpec")
-)]
-#[educe(PartialEq, Hash)]
-#[serde(bound = "E: EthSpec")]
-#[context_deserialize(ForkName)]
-pub struct SignedExecutionPayloadBidHeze<E: EthSpec> {
-    pub message: ExecutionPayloadBidHeze<E>,
-    pub signature: Signature,
-}
-
 impl<E: EthSpec> SignedExecutionPayloadBidHeze<E> {
     pub fn empty() -> Self {
         Self {
             message: ExecutionPayloadBidHeze::default(),
             signature: Signature::empty(),
-        }
-    }
-}
-
-pub enum SignedExecutionPayloadBidRef<'a, E: EthSpec> {
-    Gloas(&'a SignedExecutionPayloadBidGloas<E>),
-    Heze(&'a SignedExecutionPayloadBidHeze<E>),
-}
-
-impl<'a, E: EthSpec> SignedExecutionPayloadBidRef<'a, E> {
-    pub fn message(&self) -> ExecutionPayloadBidRef<'a, E> {
-        match self {
-            Self::Gloas(inner) => ExecutionPayloadBidRef::Gloas(&inner.message),
-            Self::Heze(inner) => ExecutionPayloadBidRef::Heze(&inner.message),
-        }
-    }
-
-    pub fn signature(&self) -> &'a Signature {
-        match self {
-            Self::Gloas(inner) => &inner.signature,
-            Self::Heze(inner) => &inner.signature,
         }
     }
 }
