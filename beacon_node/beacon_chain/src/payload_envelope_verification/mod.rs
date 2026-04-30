@@ -136,7 +136,6 @@ impl<E: EthSpec> ExecutedEnvelope<E> {
         envelope: MaybeAvailableEnvelope<E>,
         import_data: EnvelopeImportData<E>,
         payload_verification_outcome: PayloadVerificationOutcome,
-        spec: Arc<ChainSpec>,
     ) -> Self {
         match envelope {
             MaybeAvailableEnvelope::Available(available_envelope) => {
