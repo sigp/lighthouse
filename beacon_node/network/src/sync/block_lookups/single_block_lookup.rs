@@ -78,8 +78,8 @@ pub struct SingleBlockLookup<T: BeaconChainTypes> {
     /// than the lifetime of a custody request.
     #[educe(Debug(method(fmt_peer_set_as_len)))]
     peers: Arc<RwLock<HashSet<PeerId>>>,
-    block_root: Hash256,
-    awaiting_parent: Option<AwaitingParent>,
+    pub(super) block_root: Hash256,
+    pub(super) awaiting_parent: Option<AwaitingParent>,
     created: Instant,
     pub(crate) span: Span,
 }
@@ -120,21 +120,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         }
     }
 
-    /// Create an envelope-only lookup. The block is already imported, we just need the envelope.
-    pub fn new_envelope_only(block_root: Hash256, peers: &[PeerId], id: Id) -> Self {
-        let mut lookup = Self::new(block_root, peers, id, None);
-        // Block is already imported, mark as completed
-        lookup
-            .block_request_state
-            .state
-            .on_completed_request("block already imported")
-            .expect("block state starts as AwaitingDownload");
-        lookup.component_requests =
-            ComponentRequests::ActiveEnvelopeRequest(EnvelopeRequestState::new(block_root));
-        lookup
-    }
-
-    /// Reset the status of all internal requests
     pub fn reset_requests(&mut self) {
         self.block_request_state = BlockRequestState::new(self.block_root);
         match &self.component_requests {
@@ -174,22 +159,9 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         }
     }
 
-    /// Returns the parent root if awaiting a parent envelope.
-    pub fn awaiting_parent_envelope(&self) -> Option<Hash256> {
-        match self.awaiting_parent {
-            Some(AwaitingParent::Envelope(root)) => Some(root),
-            _ => None,
-        }
-    }
-
     /// Mark this lookup as awaiting a parent block to be imported before processing.
     pub fn set_awaiting_parent(&mut self, parent_root: Hash256) {
         self.awaiting_parent = Some(AwaitingParent::Block(parent_root));
-    }
-
-    /// Mark this lookup as awaiting a parent envelope to be imported before processing.
-    pub fn set_awaiting_parent_envelope(&mut self, parent_root: Hash256) {
-        self.awaiting_parent = Some(AwaitingParent::Envelope(parent_root));
     }
 
     /// Mark this lookup as no longer awaiting any parent.

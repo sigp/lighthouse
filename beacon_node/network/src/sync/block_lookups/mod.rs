@@ -54,6 +54,7 @@ use types::{EthSpec, SignedBeaconBlock};
 pub mod common;
 pub mod parent_chain;
 mod single_block_lookup;
+mod single_envelope_lookup;
 
 /// The maximum depth we will search for a parent block. In principle we should have sync'd any
 /// canonical chain to its head once the peer connects. A chain should not appear where it's depth
@@ -645,6 +646,31 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 self.on_processing_result_inner::<CustodyRequestState<T::EthSpec>>(id, result, cx)
             }
             BlockProcessType::SinglePayloadEnvelope { id, block_root } => {
+                // When envelope processing returns `MissingComponents`, the envelope has been
+                // executed but data columns are not yet available. Transition the lookup to fetch
+                // custody columns instead of retrying the envelope or erroring.
+                if matches!(
+                    &result,
+                    BlockProcessingResult::Ok(
+                        AvailabilityProcessingStatus::MissingComponents { .. }
+                    )
+                ) && let Some(lookup) = self.single_block_lookups.get_mut(&id)
+                    && lookup.transition_envelope_to_custody()
+                {
+                    debug!(
+                        ?block_root,
+                        "Envelope processed, transitioning to custody column lookup"
+                    );
+                    let lookup_result = lookup.continue_requests(cx);
+                    self.on_lookup_result(
+                        id,
+                        lookup_result,
+                        "envelope_to_custody_transition",
+                        cx,
+                    );
+                    return;
+                }
+
                 let result = self
                     .on_processing_result_inner::<EnvelopeRequestState<T::EthSpec>>(id, result, cx);
                 // On successful envelope import, unblock child lookups waiting for this envelope

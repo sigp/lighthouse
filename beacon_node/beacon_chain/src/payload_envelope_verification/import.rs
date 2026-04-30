@@ -103,14 +103,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 ExecutedEnvelope::AvailabilityPending {
                     signed_envelope,
                     import_data,
-                    payload_verification_outcome,
+                    payload_verification_outcome: _,
                 } => {
-                    self.import_pending_execution_payload_envelope(
-                        signed_envelope,
-                        import_data,
-                        payload_verification_outcome,
-                    )
-                    .await
+                    // The envelope has been executed but data columns have not yet arrived.
+                    // Do not import — return MissingComponents so callers know to fetch columns.
+                    // TODO(gloas): once an envelope DA checker exists, cache the envelope here
+                    // (analogous to `data_availability_checker.put_executed_block`) so that
+                    // import is driven automatically when columns arrive.
+                    let slot = signed_envelope.slot();
+                    let block_root = import_data.block_root;
+                    Ok(AvailabilityProcessingStatus::MissingComponents(
+                        slot, block_root,
+                    ))
                 }
             }
         };

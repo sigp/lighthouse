@@ -4007,8 +4007,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     block_root: *block_root,
                 });
             }
-            Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
-                // Nothing to do
+            Ok(AvailabilityProcessingStatus::MissingComponents(_slot, _block_root)) => {
+                // TODO(gloas): wire this into the envelope DA checker once it exists, analogous to
+                // how `process_availability` drives block import once blobs/columns arrive. Until
+                // then gossip envelopes with missing columns will be stuck until columns arrive via
+                // gossip or engineGetBlobs.
             }
             Err(e) => match e {
                 EnvelopeError::ExecutionPayloadError(epe) if !epe.penalize_peer() => {}
