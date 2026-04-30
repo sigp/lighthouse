@@ -401,8 +401,7 @@ pub async fn proposer_boost_re_org_test(
     // TODO(EIP-7732): extend test for Gloas by reverting back to using `ForkName::latest()`
     // Issue is that `get_validator_blocks_v3` below expects to be able to use `state.latest_execution_payload_header` during `produce_block_on_state` -> `produce_partial_beacon_block` -> `get_execution_payload`, but gloas will no longer support this state field
     // This will be resolved in a subsequent block processing PR
-    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
-    spec.reorg_head_weight_threshold = Some(20);
+    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
 
     // Ensure there are enough validators to have `attesters_per_slot`.
     let attesters_per_slot = 10;

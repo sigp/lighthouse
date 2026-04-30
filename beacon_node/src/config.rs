@@ -741,9 +741,6 @@ pub fn get_config<E: EthSpec>(
 
     if cli_args.get_flag("disable-proposer-reorgs") {
     } else {
-        client_config.chain.re_org_cutoff_millis =
-            clap_utils::parse_optional(cli_args, "proposer-reorg-cutoff")?;
-
         if let Some(disallowed_offsets_str) =
             clap_utils::parse_optional::<String>(cli_args, "proposer-reorg-disallowed-offsets")?
         {

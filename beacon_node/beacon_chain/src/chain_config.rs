@@ -5,8 +5,6 @@ use std::str::FromStr;
 use std::{collections::HashSet, sync::LazyLock, time::Duration};
 use types::{Checkpoint, Hash256};
 
-/// Default to 1/12th of the slot, which is 1 second on mainnet.
-pub const DEFAULT_RE_ORG_CUTOFF_DENOMINATOR: u32 = 12;
 pub const DEFAULT_FORK_CHOICE_BEFORE_PROPOSAL_TIMEOUT: u64 = 250;
 
 /// Default fraction of a slot lookahead for payload preparation (12/3 = 4 seconds on mainnet).
@@ -38,8 +36,6 @@ pub struct ChainConfig {
     pub archive: bool,
     /// The max size of a message that can be sent over the network.
     pub max_network_size: usize,
-    /// Maximum delay after the start of the slot at which to propose a reorging block.
-    pub re_org_cutoff_millis: Option<u64>,
     /// Additional epoch offsets at which re-orging block proposals are not permitted.
     ///
     /// By default this list is empty, but it can be useful for reacting to network conditions, e.g.
@@ -125,7 +121,6 @@ impl Default for ChainConfig {
             weak_subjectivity_checkpoint: None,
             archive: false,
             max_network_size: 10 * 1_048_576, // 10M
-            re_org_cutoff_millis: None,
             re_org_disallowed_offsets: DisallowedReOrgOffsets::default(),
             fork_choice_before_proposal_timeout_ms: DEFAULT_FORK_CHOICE_BEFORE_PROPOSAL_TIMEOUT,
             // Builder fallback configs that are set in `clap` will override these.
@@ -157,14 +152,5 @@ impl Default for ChainConfig {
             enable_partial_columns: false,
             node_custody_type: NodeCustodyType::Fullnode,
         }
-    }
-}
-
-impl ChainConfig {
-    /// The latest delay from the start of the slot at which to attempt a 1-slot re-org.
-    pub fn re_org_cutoff(&self, slot_duration: Duration) -> Duration {
-        self.re_org_cutoff_millis
-            .map(Duration::from_millis)
-            .unwrap_or_else(|| slot_duration / DEFAULT_RE_ORG_CUTOFF_DENOMINATOR)
     }
 }
