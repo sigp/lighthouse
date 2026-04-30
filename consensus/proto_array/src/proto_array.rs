@@ -1627,15 +1627,6 @@ impl ProtoArray {
             return false;
         }
 
-        if self.payload_inclusion_list_satisfaction.get(&node.root()) == Some(&false) {
-            info!(
-                ?current_slot,
-                source = "node_is_viable_for_head",
-                "this block doesn't satisfy the inclusion list"
-            );
-            return false;
-        }
-
         let genesis_epoch = Epoch::new(0);
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
         let node_epoch = node.slot().epoch(E::slots_per_epoch());
