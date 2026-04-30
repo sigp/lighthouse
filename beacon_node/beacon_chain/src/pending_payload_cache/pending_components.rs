@@ -9,14 +9,35 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
 use types::DataColumnSidecar;
-use types::{ColumnIndex, Epoch, EthSpec, Hash256, SignedBeaconBlock};
+use types::{
+    AbstractExecPayload, BeaconStateError, ColumnIndex, Epoch, EthSpec, Hash256, KzgCommitments,
+    SignedBeaconBlock, Slot,
+};
+
+#[derive(Clone)]
+pub struct PendingPayloadBid<E: EthSpec> {
+    pub slot: Slot,
+    pub blob_kzg_commitments: KzgCommitments<E>,
+}
+
+impl<E: EthSpec> PendingPayloadBid<E> {
+    pub fn from_block<Payload: AbstractExecPayload<E>>(
+        block: &SignedBeaconBlock<E, Payload>,
+    ) -> Result<Self, BeaconStateError> {
+        let signed_bid = block.message().body().signed_execution_payload_bid()?;
+        Ok(Self {
+            slot: block.slot(),
+            blob_kzg_commitments: signed_bid.message.blob_kzg_commitments.clone(),
+        })
+    }
+}
 
 /// This represents the components of a payload pending data availability.
 ///
 /// The columns are all gossip and kzg verified.
 /// The payload is considered "available" when all required columns are received.
 pub struct PendingComponents<E: EthSpec> {
-    pub block: Arc<SignedBeaconBlock<E>>,
+    pub bid: PendingPayloadBid<E>,
     /// a cached post executed payload envelope
     pub envelope: Option<AvailabilityPendingExecutedEnvelope<E>>,
     pub verified_data_columns: HashMap<ColumnIndex, PendingColumn<E>>,
@@ -26,7 +47,7 @@ pub struct PendingComponents<E: EthSpec> {
 
 impl<E: EthSpec> PendingComponents<E> {
     pub fn num_blobs_expected(&self) -> usize {
-        self.block.num_expected_blobs()
+        self.bid.blob_kzg_commitments.len()
     }
 
     /// Returns the completed custody columns
@@ -36,7 +57,7 @@ impl<E: EthSpec> PendingComponents<E> {
             .filter_map(|(col_idx, col)| {
                 col.try_to_sidecar(
                     *col_idx,
-                    self.block.slot(),
+                    self.bid.slot,
                     block_root,
                     self.num_blobs_expected(),
                 )
@@ -138,7 +159,7 @@ impl<E: EthSpec> PendingComponents<E> {
                         .filter_map(|(col_idx, col)| {
                             col.try_to_sidecar(
                                 *col_idx,
-                                self.block.slot(),
+                                self.bid.slot,
                                 block_hash,
                                 self.num_blobs_expected(),
                             )
@@ -167,11 +188,11 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Returns an empty `PendingComponents` object with the given block root.
-    pub fn empty(block_root: Hash256, block: Arc<SignedBeaconBlock<E>>) -> Self {
+    pub fn empty(block_root: Hash256, bid: PendingPayloadBid<E>) -> Self {
         let span = debug_span!(parent: None, "lh_pending_components", %block_root);
         let _guard = span.clone().entered();
         Self {
-            block,
+            bid,
             envelope: None,
             verified_data_columns: HashMap::new(),
             reconstruction_started: false,
@@ -181,7 +202,7 @@ impl<E: EthSpec> PendingComponents<E> {
 
     /// Returns the epoch of the bid or first data column, if available.
     pub fn epoch(&self) -> Epoch {
-        self.block.slot().epoch(E::slots_per_epoch())
+        self.bid.slot.epoch(E::slots_per_epoch())
     }
 
     pub fn status_str(&self, num_expected_columns: usize) -> String {
@@ -202,62 +223,3 @@ pub(crate) enum ReconstructColumnsDecision<E: EthSpec> {
     Yes(Vec<Arc<DataColumnSidecar<E>>>),
     No(&'static str),
 }
-
-/*
-#[cfg(test)]
-mod pending_components_tests {
-    use crate::test_utils::test_spec;
-
-    use super::*;
-    use types::MinimalEthSpec;
-
-    type E = MinimalEthSpec;
-
-    #[test]
-    fn test_get_cached_data_columns_indices_empty() {
-        let spec = Arc::new(test_spec::<E>());
-        let block_root = Hash256::random();
-        let components = PendingComponents::<E>::empty(block_root, spec);
-
-        let indices = components.get_cached_data_columns_indices();
-        assert!(indices.is_empty());
-    }
-
-    #[test]
-    fn test_status_str_no_bid() {
-        let spec = Arc::new(test_spec::<E>());
-        let block_root = Hash256::random();
-        let components = PendingComponents::<E>::empty(block_root, spec);
-
-        let status = components.status_str(10);
-        assert_eq!(status, "data_columns 0/10");
-    }
-
-    #[test]
-    fn test_num_blobs_expected_no_bid() {
-        let spec = Arc::new(test_spec::<E>());
-        let block_root = Hash256::random();
-        let components = PendingComponents::<E>::empty(block_root, spec);
-
-        let result = components.num_blobs_expected();
-        assert!(result.is_err());
-        // Error should be AvailabilityCheckError::Unexpected
-        assert!(matches!(
-            result.unwrap_err(),
-            AvailabilityCheckError::Unexpected(_)
-        ));
-    }
-
-    #[test]
-    fn test_make_available_no_bid_returns_none() {
-        let spec = Arc::new(test_spec::<E>());
-        let block_root = Hash256::random();
-        let components = PendingComponents::<E>::empty(block_root, spec);
-
-        // Without a bid, make_available should return Ok(None)
-        let result = components.make_available(10);
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_none());
-    }
-}
-*/

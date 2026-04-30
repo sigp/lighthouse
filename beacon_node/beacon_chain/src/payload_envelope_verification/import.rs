@@ -12,6 +12,7 @@ use super::{
     AvailableEnvelope, AvailableExecutedEnvelope, EnvelopeError,
     gossip_verified_envelope::GossipVerifiedEnvelope,
 };
+use crate::data_column_verification::load_gloas_payload_bid;
 use crate::pending_payload_cache::Availability as PayloadAvailability;
 use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes,
@@ -168,9 +169,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         envelope: AvailabilityPendingExecutedEnvelope<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, EnvelopeError> {
         let slot = envelope.envelope.slot();
+        let block_root = envelope.block_root;
+        let bid = load_gloas_payload_bid(block_root, self)?
+            .ok_or(EnvelopeError::BlockRootUnknown { block_root })?;
         let availability = self
             .pending_payload_cache
-            .put_executed_payload_envelope(envelope)?;
+            .put_executed_payload_envelope(bid, envelope)?;
         self.process_payload_envelope_availability(slot, availability, || Ok(()))
             .await
     }

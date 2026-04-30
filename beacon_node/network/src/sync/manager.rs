@@ -906,9 +906,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             }),
                         );
                     }
-                    // TODO(gloas) support gloas data column variant
                     DataColumnSidecar::Gloas(_) => {
-                        error!("Gloas variant not yet supported")
+                        debug!(%block_root, "Received unknown block data column message");
+                        self.handle_unknown_block_root(peer_id, block_root);
                     }
                 }
             }

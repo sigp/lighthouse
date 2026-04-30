@@ -27,7 +27,7 @@ use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::data_column_verification::{
     GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
     GossipVerifiedPartialDataColumnHeader, KzgVerifiedCustodyPartialDataColumn,
-    KzgVerifiedPartialDataColumn, PartialColumnVerificationResult,
+    KzgVerifiedPartialDataColumn, PartialColumnVerificationResult, load_gloas_payload_bid,
     validate_partial_data_column_sidecar_for_gossip,
 };
 use crate::early_attester_cache::EarlyAttesterCache;
@@ -71,7 +71,7 @@ use crate::payload_envelope_verification::EnvelopeError;
 use crate::pending_payload_cache::PendingPayloadCache;
 use crate::pending_payload_cache::{
     Availability as PayloadAvailability,
-    DataColumnReconstructionResult as DataColumnReconstructionResultGloas,
+    DataColumnReconstructionResult as DataColumnReconstructionResultGloas, PendingPayloadBid,
 };
 use crate::pending_payload_envelopes::PendingPayloadEnvelopes;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
@@ -3317,12 +3317,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .into());
         };
 
-        // If this block has already been imported to forkchoice it must have been available, so
-        // we don't need to process its samples again.
-        if self
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(&block_root)
+        let is_gloas = self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(slot)
+            .gloas_enabled();
+
+        // Before Gloas, if this block has already been imported to fork choice it must have been
+        // available, so we don't need to process its samples again. In Gloas the beacon block is
+        // imported before the payload envelope and data columns, so this check does not apply.
+        if !is_gloas
+            && self
+                .canonical_head
+                .fork_choice_read_lock()
+                .contains_block(&block_root)
         {
             return Err(BlockError::DuplicateFullyImported(block_root).into());
         }
@@ -3419,10 +3426,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .fork_name_at_slot::<T::EthSpec>(slot)
                 .gloas_enabled()
             {
+                let Some(bid) =
+                    load_gloas_payload_bid(block_root, self).map_err(EnvelopeError::from)?
+                else {
+                    return Err(EnvelopeError::BlockRootUnknown { block_root }.into());
+                };
                 let availability = self
                     .pending_payload_cache
                     .put_kzg_verified_custody_data_columns(
                         block_root,
+                        bid,
                         merge_result.full_columns.clone(),
                     )
                     .map_err(EnvelopeError::from)?;
@@ -3631,8 +3644,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             custody_columns.iter().map(|column| column.as_ref()),
         );
 
-        self.check_rpc_custody_columns_availability_and_import(slot, block_root, custody_columns)
-            .await
+        Ok(self
+            .check_rpc_custody_columns_availability_and_import(slot, block_root, custody_columns)
+            .await?)
     }
 
     pub async fn reconstruct_data_columns(
@@ -3663,11 +3677,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .gloas_enabled();
 
         if is_gloas {
+            let Some(bid) =
+                load_gloas_payload_bid(block_root, self).map_err(EnvelopeError::from)?
+            else {
+                return Err(EnvelopeError::BlockRootUnknown { block_root }.into());
+            };
             let pending_payload_cache = self.pending_payload_cache.clone();
             let result = self
                 .task_executor
                 .spawn_blocking_with_rayon_async(RayonPoolType::HighPriority, move || {
-                    pending_payload_cache.reconstruct_data_columns(&block_root)
+                    pending_payload_cache.reconstruct_data_columns(&block_root, bid)
                 })
                 .await
                 .map_err(|_| EnvelopeError::from(BeaconChainError::RuntimeShutdown))?
@@ -3806,6 +3825,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 &chain,
                 notify_execution_layer,
             )?;
+
+            let block = execution_pending.block.block_cloned();
+            if block.fork_name_unchecked().gloas_enabled() {
+                let bid = PendingPayloadBid::from_block(block.as_ref())?;
+                chain
+                    .pending_payload_cache
+                    .init_pending_bid(block_root, bid);
+            }
+
             publish_fn()?;
 
             // Record the time it took to complete consensus verification.
@@ -3979,9 +4007,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_name_at_slot::<T::EthSpec>(slot)
             .gloas_enabled()
         {
+            let Some(bid) =
+                load_gloas_payload_bid(block_root, self).map_err(EnvelopeError::from)?
+            else {
+                return Ok(AvailabilityProcessingStatus::MissingComponents(
+                    slot, block_root,
+                ));
+            };
             let availability = self
                 .pending_payload_cache
-                .put_gossip_verified_data_columns(block_root, slot, data_columns)
+                .put_gossip_verified_data_columns(block_root, bid, data_columns)
                 .map_err(EnvelopeError::from)?;
             Ok(self
                 .process_payload_availability(slot, availability, publish_fn)
@@ -4085,9 +4120,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .fork_name_at_slot::<T::EthSpec>(slot)
                     .gloas_enabled()
                 {
+                    let Some(bid) =
+                        load_gloas_payload_bid(block_root, self).map_err(EnvelopeError::from)?
+                    else {
+                        return Ok(AvailabilityProcessingStatus::MissingComponents(
+                            slot, block_root,
+                        ));
+                    };
                     let availability = self
                         .pending_payload_cache
-                        .put_kzg_verified_custody_data_columns(block_root, data_columns)
+                        .put_kzg_verified_custody_data_columns(block_root, bid, data_columns)
                         .map_err(EnvelopeError::from)?;
                     Ok(self
                         .process_payload_availability(slot, availability, || Ok(()))
@@ -4112,7 +4154,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
         block_root: Hash256,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
-    ) -> Result<AvailabilityProcessingStatus, BlockOrEnvelopeError> {
+    ) -> Result<AvailabilityProcessingStatus, BlockError> {
         // TODO(gloas) ensure that this check is no longer relevant post gloas
         self.check_data_column_sidecar_header_signature_and_slashability(
             block_root,
@@ -4127,13 +4169,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_name_at_slot::<T::EthSpec>(slot)
             .gloas_enabled()
         {
+            let Some(bid) = load_gloas_payload_bid(block_root, self).map_err(BlockError::from)?
+            else {
+                return Ok(AvailabilityProcessingStatus::MissingComponents(
+                    slot, block_root,
+                ));
+            };
             let availability = self
                 .pending_payload_cache
-                .put_rpc_custody_columns(block_root, slot, custody_columns)
-                .map_err(EnvelopeError::from)?;
+                .put_rpc_custody_columns(block_root, bid, custody_columns)
+                .map_err(BlockError::from)?;
             Ok(self
                 .process_payload_availability(slot, availability, || Ok(()))
-                .await?)
+                .await
+                .map_err(|error| match error {
+                    EnvelopeError::BlockError(error) => error,
+                    error => BlockError::InternalError(error.to_string()),
+                })?)
         } else {
             let availability = self
                 .data_availability_checker

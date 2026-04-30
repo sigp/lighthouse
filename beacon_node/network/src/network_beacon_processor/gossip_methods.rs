@@ -698,15 +698,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(err) => {
                 match err {
-                    GossipDataColumnError::InvalidVariant => {
-                        // TODO(gloas) we should probably penalize the peer here
-                        debug!(
-                            %slot,
-                            %block_root,
-                            %index,
-                            "Invalid gossip data column variant."
-                        )
-                    }
                     GossipDataColumnError::PriorKnownUnpublished => {
                         debug!(
                             %slot,
@@ -732,6 +723,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             column_sidecar,
                         ));
                     }
+                    GossipDataColumnError::BlockRootUnknown {
+                        block_root: unknown_block_root,
+                        ..
+                    } => {
+                        debug!(
+                            action = "requesting block",
+                            %unknown_block_root,
+                            "Unknown block root for column"
+                        );
+                        self.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
+                            peer_id,
+                            unknown_block_root,
+                        ));
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
                     GossipDataColumnError::PubkeyCacheTimeout
                     | GossipDataColumnError::BeaconChainError(_) => {
                         crit!(
@@ -739,10 +749,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "Internal error when verifying column sidecar"
                         )
                     }
-                    GossipDataColumnError::ProposalSignatureInvalid
+                    GossipDataColumnError::InvalidVariant
+                    | GossipDataColumnError::ProposalSignatureInvalid
                     | GossipDataColumnError::UnknownValidator(_)
                     | GossipDataColumnError::ProposerIndexMismatch { .. }
                     | GossipDataColumnError::IsNotLaterThanParent { .. }
+                    | GossipDataColumnError::BlockSlotMismatch { .. }
                     | GossipDataColumnError::InvalidSubnetId { .. }
                     | GossipDataColumnError::InvalidInclusionProof
                     | GossipDataColumnError::InvalidKzgProof { .. }
@@ -904,14 +916,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         match err {
             GossipPartialDataColumnError::GossipDataColumnError(err) => match err {
-                GossipDataColumnError::InvalidVariant => {
-                    // TODO(gloas) we should probably penalize the peer here
-                    debug!(
-                        %block_root,
-                        %index,
-                        "Invalid gossip partial data column variant."
-                    )
-                }
                 GossipDataColumnError::PriorKnownUnpublished => {
                     debug!(
                         %block_root,
@@ -933,6 +937,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         slot,
                     });
                 }
+                GossipDataColumnError::BlockRootUnknown {
+                    block_root: unknown_block_root,
+                    ..
+                } => {
+                    debug!(
+                        action = "requesting block",
+                        %unknown_block_root,
+                        "Unknown block root for partial column"
+                    );
+                    self.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
+                        peer_id,
+                        unknown_block_root,
+                    ));
+                }
                 GossipDataColumnError::PubkeyCacheTimeout
                 | GossipDataColumnError::BeaconChainError(_) => {
                     crit!(
@@ -940,10 +958,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "Internal error when verifying partial column sidecar"
                     )
                 }
-                GossipDataColumnError::ProposalSignatureInvalid
+                GossipDataColumnError::InvalidVariant
+                | GossipDataColumnError::ProposalSignatureInvalid
                 | GossipDataColumnError::UnknownValidator(_)
                 | GossipDataColumnError::ProposerIndexMismatch { .. }
                 | GossipDataColumnError::IsNotLaterThanParent { .. }
+                | GossipDataColumnError::BlockSlotMismatch { .. }
                 | GossipDataColumnError::InvalidSubnetId { .. }
                 | GossipDataColumnError::InvalidInclusionProof
                 | GossipDataColumnError::InvalidKzgProof { .. }
