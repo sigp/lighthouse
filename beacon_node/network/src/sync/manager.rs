@@ -906,8 +906,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         );
                     }
                     // TODO(gloas) support gloas data column variant
-                    DataColumnSidecar::Gloas(_) | DataColumnSidecar::Heze(_) => {
-                        error!("Gloas/Heze variant not yet supported")
+                    DataColumnSidecar::Gloas(_) => {
+                        error!("Gloas variant not yet supported")
                     }
                 }
             }

@@ -1,7 +1,5 @@
 use std::mem;
-use types::{
-    BeaconState, BeaconStateError as Error, BeaconStateHeze, ChainSpec, EthSpec, Fork,
-};
+use types::{BeaconState, BeaconStateError as Error, BeaconStateHeze, ChainSpec, EthSpec, Fork};
 
 /// Transform a `Gloas` state into a `Heze` state.
 pub fn upgrade_to_heze<E: EthSpec>(

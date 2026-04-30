@@ -1453,7 +1453,8 @@ impl ChainSpec {
                 .expect("calculation does not overflow"),
             max_per_epoch_activation_churn_limit_gloas: option_wrapper(|| {
                 u64::checked_pow(2, 7)?.checked_mul(u64::checked_pow(10, 9)?)
-            }).expect("calculation does not overflow"),
+            })
+            .expect("calculation does not overflow"),
             // Heze
             heze_fork_version: [0x08, 0x00, 0x00, 0x01],
             heze_fork_epoch: None,

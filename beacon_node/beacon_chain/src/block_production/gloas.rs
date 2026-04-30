@@ -27,18 +27,13 @@ use tree_hash::TreeHash;
 use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::{
     Address, Attestation, AttestationElectra, AttesterSlashing, AttesterSlashingElectra,
-<<<<<<< HEAD
     BeaconBlock, BeaconBlockBodyGloas, BeaconBlockBodyHeze, BeaconBlockGloas, BeaconBlockHeze,
-    BeaconState, BeaconStateError,
-    BuilderIndex, Deposit, Eth1Data, EthSpec, ExecutionBlockHash, ExecutionPayloadBid,
-=======
-    BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, BeaconState, BeaconStateError,
-    BuilderIndex, ChainSpec, Deposit, Eth1Data, EthSpec, ExecutionBlockHash, ExecutionPayloadBid,
->>>>>>> f406e9c3fbf6f4abdd65a7d1501e2e892c96d2c9
-    ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, FullPayload, Graffiti,
-    Hash256, PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
-    SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
-    SignedVoluntaryExit, Slot, SyncAggregate, Withdrawal, Withdrawals,
+    BeaconState, BeaconStateError, BuilderIndex, ChainSpec, Deposit, Eth1Data, EthSpec,
+    ExecutionBlockHash, ExecutionPayloadBid, ExecutionPayloadEnvelope, ExecutionPayloadGloas,
+    ExecutionRequests, FullPayload, Graffiti, Hash256, PayloadAttestation, ProposerSlashing,
+    RelativeEpoch, SignedBeaconBlock, SignedBlsToExecutionChange, SignedExecutionPayloadBid,
+    SignedExecutionPayloadEnvelope, SignedVoluntaryExit, Slot, SyncAggregate, Withdrawal,
+    Withdrawals,
 };
 
 use crate::pending_payload_envelopes::PendingEnvelopeData;

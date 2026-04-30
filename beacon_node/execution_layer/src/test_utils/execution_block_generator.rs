@@ -26,9 +26,8 @@ use tree_hash_derive::TreeHash;
 use types::{
     Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
     ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
-    ExecutionPayloadGloas, ExecutionPayloadHeze, ExecutionPayloadHeader, ExecutionRequests,
-    ForkName, Hash256, KzgProofs,
-    Transaction, Transactions, Uint256,
+    ExecutionPayloadGloas, ExecutionPayloadHeader, ExecutionPayloadHeze, ExecutionRequests,
+    ForkName, Hash256, KzgProofs, Transaction, Transactions, Uint256,
 };
 
 const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
@@ -156,7 +155,7 @@ pub struct ExecutionBlockGenerator<E: EthSpec> {
     pub prague_time: Option<u64>,    // electra
     pub osaka_time: Option<u64>,     // fulu
     pub amsterdam_time: Option<u64>, // gloas
-    pub heze_time: Option<u64>,     // heze
+    pub heze_time: Option<u64>,      // heze
     /*
      * deneb stuff
      */

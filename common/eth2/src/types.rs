@@ -1039,7 +1039,6 @@ impl SseDataColumnSidecar {
         let kzg_commitments: Vec<KzgCommitment> = match data_column_sidecar {
             DataColumnSidecar::Fulu(dc) => dc.kzg_commitments.to_vec(),
             DataColumnSidecar::Gloas(_) => vec![],
-            DataColumnSidecar::Heze(_) => vec![],
         };
         let versioned_hashes = kzg_commitments
             .iter()
@@ -1195,7 +1194,11 @@ impl<'de> ContextDeserialize<'de, ForkName> for SsePayloadAttributes {
             ForkName::Capella => {
                 Self::V2(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
-            ForkName::Deneb | ForkName::Electra | ForkName::Fulu | ForkName::Gloas | ForkName::Heze => {
+            ForkName::Deneb
+            | ForkName::Electra
+            | ForkName::Fulu
+            | ForkName::Gloas
+            | ForkName::Heze => {
                 Self::V3(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
         })
@@ -2566,9 +2569,7 @@ mod test {
             ExecutionPayload::Gloas(ExecutionPayloadGloas::<MainnetEthSpec>::random_for_test(
                 rng,
             )),
-            ExecutionPayload::Heze(ExecutionPayloadHeze::<MainnetEthSpec>::random_for_test(
-                rng,
-            )),
+            ExecutionPayload::Heze(ExecutionPayloadHeze::<MainnetEthSpec>::random_for_test(rng)),
         ];
         let merged_forks = &ForkName::list_all()[2..];
         assert_eq!(

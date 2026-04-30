@@ -13,8 +13,7 @@ use types::data::{
 use types::kzg_ext::KzgCommitments;
 use types::{
     Blob, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu,
-    DataColumnSidecarGloas, DataColumnSidecarHeze, DataColumnSidecarList, EthSpec, Hash256,
-    KzgCommitment, KzgProof,
+    DataColumnSidecarGloas, DataColumnSidecarList, EthSpec, Hash256, KzgCommitment, KzgProof,
     SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlindedBeaconBlock, Slot,
 };
 
@@ -81,11 +80,11 @@ pub fn validate_full_data_columns<'a, E: EthSpec>(
         // This function requires Fulu sidecars with embedded commitments.
         let kzg_commitments = match data_column.as_ref() {
             DataColumnSidecar::Fulu(dc) => &dc.kzg_commitments,
-            DataColumnSidecar::Gloas(_) | DataColumnSidecar::Heze(_) => {
+            DataColumnSidecar::Gloas(_) => {
                 return Err((
                     Some(col_index),
                     KzgError::InconsistentArrayLength(
-                        "Gloas/Heze data columns require commitments from block".to_string(),
+                        "Gloas data columns require commitments from block".to_string(),
                     ),
                 ));
             }
@@ -275,15 +274,7 @@ pub fn blobs_to_data_column_sidecars<E: EthSpec>(
         })
         .collect::<Result<Vec<_>, KzgError>>()?;
 
-    if block.fork_name_unchecked().heze_enabled() {
-        build_data_column_sidecars_heze(
-            signed_block_header.message.tree_hash_root(),
-            block.slot(),
-            blob_cells_and_proofs_vec,
-            spec,
-        )
-        .map_err(DataColumnSidecarError::BuildSidecarFailed)
-    } else if block.fork_name_unchecked().gloas_enabled() {
+    if block.fork_name_unchecked().gloas_enabled() {
         build_data_column_sidecars_gloas(
             signed_block_header.message.tree_hash_root(),
             block.slot(),
@@ -403,7 +394,7 @@ pub(crate) fn build_data_column_sidecars_fulu<E: EthSpec>(
         .fork_name_at_slot::<E>(signed_block_header.message.slot)
         .gloas_enabled()
     {
-        return Err("Attempting to construct Fulu data columns post-Gloas/Heze".to_owned());
+        return Err("Attempting to construct Fulu data columns post-Gloas".to_owned());
     }
 
     let number_of_columns = E::number_of_columns();
@@ -513,68 +504,6 @@ pub(crate) fn build_data_column_sidecars_gloas<E: EthSpec>(
         .map(
             |(index, (col, proofs))| -> Result<Arc<DataColumnSidecar<E>>, String> {
                 Ok(Arc::new(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
-                    index: index as u64,
-                    column: DataColumn::<E>::try_from(col)
-                        .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
-                    kzg_proofs: VariableList::try_from(proofs)
-                        .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
-                    beacon_block_root,
-                    slot,
-                })))
-            },
-        )
-        .collect();
-
-    sidecars
-}
-
-pub(crate) fn build_data_column_sidecars_heze<E: EthSpec>(
-    beacon_block_root: Hash256,
-    slot: Slot,
-    blob_cells_and_proofs_vec: Vec<CellsAndKzgProofs>,
-    spec: &ChainSpec,
-) -> Result<DataColumnSidecarList<E>, String> {
-    if !spec.fork_name_at_slot::<E>(slot).heze_enabled() {
-        return Err("Attempting to construct Heze data columns pre-Heze".to_owned());
-    }
-
-    let number_of_columns = E::number_of_columns();
-    let max_blobs_per_block = spec.max_blobs_per_block(slot.epoch(E::slots_per_epoch())) as usize;
-    let mut columns = vec![Vec::with_capacity(max_blobs_per_block); number_of_columns];
-    let mut column_kzg_proofs = vec![Vec::with_capacity(max_blobs_per_block); number_of_columns];
-
-    for (blob_cells, blob_cell_proofs) in blob_cells_and_proofs_vec {
-        for col in 0..number_of_columns {
-            let cell = blob_cells
-                .get(col)
-                .ok_or(format!("Missing blob cell at index {col}"))?;
-            let cell: Vec<u8> = cell.to_vec();
-            let cell =
-                Cell::<E>::try_from(cell).map_err(|e| format!("BytesPerCell exceeded: {e:?}"))?;
-
-            let proof = blob_cell_proofs
-                .get(col)
-                .ok_or(format!("Missing blob cell KZG proof at index {col}"))?;
-
-            let column = columns
-                .get_mut(col)
-                .ok_or(format!("Missing data column at index {col}"))?;
-            let column_proofs = column_kzg_proofs
-                .get_mut(col)
-                .ok_or(format!("Missing data column proofs at index {col}"))?;
-
-            column.push(cell);
-            column_proofs.push(*proof);
-        }
-    }
-
-    let sidecars: Result<Vec<Arc<DataColumnSidecar<E>>>, String> = columns
-        .into_iter()
-        .zip(column_kzg_proofs)
-        .enumerate()
-        .map(
-            |(index, (col, proofs))| -> Result<Arc<DataColumnSidecar<E>>, String> {
-                Ok(Arc::new(DataColumnSidecar::Heze(DataColumnSidecarHeze {
                     index: index as u64,
                     column: DataColumn::<E>::try_from(col)
                         .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
@@ -700,7 +629,7 @@ pub fn reconstruct_blobs<E: EthSpec>(
             // https://github.com/sigp/lighthouse/issues/7413
             let num_of_blobs = first_data_column
                 .kzg_commitments()
-                .map_err(|_| "Gloas/Heze blob reconstruction not yet supported".to_string())?
+                .map_err(|_| "Gloas blob reconstruction not yet supported".to_string())?
                 .len();
             (0..num_of_blobs).collect()
         }
@@ -780,7 +709,7 @@ pub fn reconstruct_data_columns<E: EthSpec>(
         .kzg_commitments()
         .map_err(|_| {
             KzgError::InconsistentArrayLength(
-                "Gloas/Heze data column reconstruction not yet supported".to_string(),
+                "Gloas data column reconstruction not yet supported".to_string(),
             )
         })?
         .len();
@@ -816,13 +745,6 @@ pub fn reconstruct_data_columns<E: EthSpec>(
             .map_err(KzgError::ReconstructFailed)
         }
         DataColumnSidecar::Gloas(first_column) => build_data_column_sidecars_gloas(
-            first_column.beacon_block_root,
-            first_column.slot,
-            blob_cells_and_proofs_vec,
-            spec,
-        )
-        .map_err(KzgError::ReconstructFailed),
-        DataColumnSidecar::Heze(first_column) => build_data_column_sidecars_heze(
             first_column.beacon_block_root,
             first_column.slot,
             blob_cells_and_proofs_vec,

@@ -313,9 +313,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayload<E>> for JsonExecutionPayload<E> {
             ExecutionPayload::Gloas(payload) => {
                 Ok(JsonExecutionPayload::Gloas(payload.try_into()?))
             }
-            ExecutionPayload::Heze(payload) => {
-                Ok(JsonExecutionPayload::Heze(payload.try_into()?))
-            }
+            ExecutionPayload::Heze(payload) => Ok(JsonExecutionPayload::Heze(payload.try_into()?)),
         }
     }
 }
@@ -519,9 +517,7 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayload<E>> for ExecutionPayload<E> {
             JsonExecutionPayload::Gloas(payload) => {
                 Ok(ExecutionPayload::Gloas(payload.try_into()?))
             }
-            JsonExecutionPayload::Heze(payload) => {
-                Ok(ExecutionPayload::Heze(payload.try_into()?))
-            }
+            JsonExecutionPayload::Heze(payload) => Ok(ExecutionPayload::Heze(payload.try_into()?)),
         }
     }
 }
