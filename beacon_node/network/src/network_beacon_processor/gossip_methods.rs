@@ -2643,11 +2643,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         match GossipVerifiedInclusionList::verify(&il, &self.chain) {
             Ok(gossip_verified_il) => {
-                debug!("Successfully verified gossip inclusion list");
+                debug!(
+                    is_timely = gossip_verified_il.is_timely,
+                    "Successfully verified gossip inclusion list"
+                );
                 // Store validated inclusion list in the IL cache. This also catches
                 // equivocating IL's and handles them accordingly.
+                let is_timely = gossip_verified_il.is_timely;
                 self.chain
-                    .on_verified_inclusion_list(gossip_verified_il.signed_il);
+                    .on_verified_inclusion_list(gossip_verified_il.signed_il, is_timely);
             }
             Err(err) => match err {
                 GossipInclusionListError::InvalidSlot { .. }

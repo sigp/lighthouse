@@ -110,7 +110,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
                 chain
                     .inclusion_list_cache
                     .read()
-                    .get_inclusion_list_transactions(il_slot)
+                    .get_inclusion_list_transactions(il_slot, true)
                     .unwrap_or(VariableList::new(vec![]).map_err(|_| {
                         BlockError::InternalError("Cant create empty IL".to_string())
                     })?);

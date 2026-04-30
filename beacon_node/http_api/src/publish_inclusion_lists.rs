@@ -206,7 +206,10 @@ fn verify_and_publish_inclusion_list<T: BeaconChainTypes>(
     );
 
     // Store verified IL in the IL cache
-    chain.on_verified_inclusion_list(verified_inclusion_list.signed_il);
+    chain.on_verified_inclusion_list(
+        verified_inclusion_list.signed_il,
+        verified_inclusion_list.is_timely,
+    );
 
     Ok(())
 }

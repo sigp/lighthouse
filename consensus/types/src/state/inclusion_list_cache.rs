@@ -15,7 +15,12 @@ struct Inner<E: EthSpec> {
     pub inclusion_lists: HashSet<SignedInclusionList<E>>,
     pub inclusion_lists_seen: HashSet<ValidatorIndex>,
     pub inclusion_list_equivocators: HashSet<ValidatorIndex>,
+    pub inclusion_list_timeliness: HashMap<ValidatorIndex, bool>,
     pub inclusion_list_transactions: HashSet<Transaction<E::MaxBytesPerTransaction>>,
+    pub timely_transactions: HashSet<Transaction<E::MaxBytesPerTransaction>>,
+    /// Track which transactions belong to which validator so we can remove them on equivocation.
+    pub validator_transactions:
+        HashMap<ValidatorIndex, Vec<Transaction<E::MaxBytesPerTransaction>>>,
 }
 
 impl<E: EthSpec> InclusionListCache<E> {
@@ -34,75 +39,88 @@ impl<E: EthSpec> InclusionListCache<E> {
             .contains(&inclusion_list.message.validator_index)
     }
 
-    pub fn on_inclusion_list(&mut self, inclusion_list: SignedInclusionList<E>) {
+    pub fn on_inclusion_list(
+        &mut self,
+        inclusion_list: SignedInclusionList<E>,
+        is_timely: bool,
+    ) {
         let slot = inclusion_list.message.slot;
+        let validator_index = inclusion_list.message.validator_index;
         let inner = self.inner_map.entry(slot).or_default();
 
-        if inner
-            .inclusion_list_equivocators
-            .contains(&inclusion_list.message.validator_index)
-        {
+        if inner.inclusion_list_equivocators.contains(&validator_index) {
             info!(
                 ?slot,
-                inclusion_list.message.validator_index,
+                validator_index,
                 "This validator was flagged for an equivocating inclusion list",
             );
             return;
         }
 
         // Skip inserting into the cache if we've already seen an identical IL
-        if inner
-            .inclusion_lists_seen
-            .contains(&inclusion_list.message.validator_index)
+        if inner.inclusion_lists_seen.contains(&validator_index)
             && inner.inclusion_lists.contains(&inclusion_list)
         {
             info!("Already seen identical inclusion list from this validator");
             return;
         }
 
-        if inner
-            .inclusion_lists_seen
-            .contains(&inclusion_list.message.validator_index)
+        if inner.inclusion_lists_seen.contains(&validator_index)
             && !inner.inclusion_lists.contains(&inclusion_list)
         {
             info!(
                 ?slot,
-                inclusion_list.message.validator_index, "Equivocating inclusion list",
+                validator_index, "Equivocating inclusion list",
             );
-            inner
-                .inclusion_list_equivocators
-                .insert(inclusion_list.message.validator_index);
+            inner.inclusion_list_equivocators.insert(validator_index);
+
+            // Remove equivocator's transactions per spec
+            if let Some(txs) = inner.validator_transactions.remove(&validator_index) {
+                for tx in &txs {
+                    inner.inclusion_list_transactions.remove(tx);
+                    inner.timely_transactions.remove(tx);
+                }
+            }
+            inner.inclusion_list_timeliness.remove(&validator_index);
             return;
         }
 
-        for transaction in &inclusion_list.message.transactions {
-            inner
-                .inclusion_list_transactions
-                .insert(transaction.clone());
+        let txs: Vec<_> = inclusion_list.message.transactions.iter().cloned().collect();
+        for tx in &txs {
+            inner.inclusion_list_transactions.insert(tx.clone());
+            if is_timely {
+                inner.timely_transactions.insert(tx.clone());
+            }
         }
-        inner
-            .inclusion_lists_seen
-            .insert(inclusion_list.message.validator_index);
+        inner.validator_transactions.insert(validator_index, txs);
+        inner.inclusion_list_timeliness.insert(validator_index, is_timely);
+        inner.inclusion_lists_seen.insert(validator_index);
         inner.inclusion_lists.insert(inclusion_list);
 
         info!(
             ?slot,
             tx_count = inner.inclusion_list_transactions.len(),
+            timely_tx_count = inner.timely_transactions.len(),
             "Successfully added inclusion list transactions to the cache",
         );
     }
 
-    pub fn get_inclusion_list_transactions(&self, slot: Slot) -> Option<Transactions<E>> {
+    pub fn get_inclusion_list_transactions(
+        &self,
+        slot: Slot,
+        only_timely: bool,
+    ) -> Option<Transactions<E>> {
         let Some(inner) = self.inner_map.get(&slot) else {
             return None;
         };
 
-        let il = inner
-            .inclusion_list_transactions
-            .iter()
-            .cloned()
-            .collect::<Vec<_>>();
-        // TODO(heze) should return an error instead of None?
+        let txs = if only_timely {
+            &inner.timely_transactions
+        } else {
+            &inner.inclusion_list_transactions
+        };
+
+        let il: Vec<_> = txs.iter().cloned().collect();
         il.try_into().ok()
     }
 }

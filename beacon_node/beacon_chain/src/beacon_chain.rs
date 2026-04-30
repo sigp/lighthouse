@@ -6532,7 +6532,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     let il_txs = self
                         .inclusion_list_cache
                         .read()
-                        .get_inclusion_list_transactions(il_slot)
+                        .get_inclusion_list_transactions(il_slot, false)
                         .unwrap_or_default();
                     Some(
                         il_txs
@@ -7794,11 +7794,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
-    pub fn on_verified_inclusion_list(&self, signed_il: SignedInclusionList<T::EthSpec>) {
-        info!("Adding verified inclusion list to the cache");
+    pub fn on_verified_inclusion_list(
+        &self,
+        signed_il: SignedInclusionList<T::EthSpec>,
+        is_timely: bool,
+    ) {
+        info!(is_timely, "Adding verified inclusion list to the cache");
         self.inclusion_list_cache
             .write()
-            .on_inclusion_list(signed_il);
+            .on_inclusion_list(signed_il, is_timely);
     }
 
     pub fn inclusion_list_seen(&self, signed_il: &SignedInclusionList<T::EthSpec>) -> bool {

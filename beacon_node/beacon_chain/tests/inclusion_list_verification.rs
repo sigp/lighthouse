@@ -170,7 +170,7 @@ impl InclusionListGossipTester {
 
         self.harness
             .chain
-            .on_verified_inclusion_list(self.inclusion_list.clone());
+            .on_verified_inclusion_list(self.inclusion_list.clone(), true);
         self
     }
 

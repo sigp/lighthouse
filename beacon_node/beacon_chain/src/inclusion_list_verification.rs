@@ -33,6 +33,7 @@ impl From<BeaconChainError> for GossipInclusionListError {
 
 pub struct GossipVerifiedInclusionList<T: BeaconChainTypes> {
     pub signed_il: SignedInclusionList<T::EthSpec>,
+    pub is_timely: bool,
 }
 
 impl<T: BeaconChainTypes> GossipVerifiedInclusionList<T> {
@@ -123,8 +124,17 @@ impl<T: BeaconChainTypes> GossipVerifiedInclusionList<T> {
             return Err(GossipInclusionListError::PriorInclusionListKnown);
         }
 
+        // Compute timeliness: timely if received before INCLUSION_LIST_DUE_BPS into the slot
+        // INCLUSION_LIST_DUE_BPS = 6667 basis points = 66.67% of slot duration
+        let slot_duration_ms = chain.spec.get_slot_duration().as_millis() as u64;
+        let inclusion_list_due_ms = slot_duration_ms * 6667 / 10000;
+        let il_delay_ms =
+            get_slot_delay_ms(timestamp_now(), message_slot, &chain.slot_clock).as_millis() as u64;
+        let is_timely = il_delay_ms <= inclusion_list_due_ms;
+
         Ok(Self {
             signed_il: signed_il.clone(),
+            is_timely,
         })
     }
 }

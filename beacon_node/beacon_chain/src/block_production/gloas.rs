@@ -1126,7 +1126,7 @@ where
         let il_txs = chain
             .inclusion_list_cache
             .read()
-            .get_inclusion_list_transactions(il_slot)
+            .get_inclusion_list_transactions(il_slot, false)
             .unwrap_or_default();
         Some(
             il_txs
