@@ -429,22 +429,34 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             return Ok(vec![]);
         }
 
-        // 1. Walk ancestors in proto-array (in-memory, zero DB reads).
-        let mut roots_with_slots: Vec<(Hash256, Slot)> = {
+        // 1. Walk ancestors in proto-array (in-memory, zero DB reads). Track the
+        //    deepest slot we collected — that's where the freezer walk picks up.
+        let mut roots: Vec<Hash256> = Vec::with_capacity(count as usize);
+        let mut deepest_slot: Option<Slot> = None;
+        {
             let fork_choice = self.chain.canonical_head.fork_choice_read_lock();
-            fork_choice
+            for (root, slot) in fork_choice
                 .proto_array()
                 .iter_block_roots(&head_root)
                 .take(count as usize)
-                .collect()
-        };
+            {
+                roots.push(root);
+                deepest_slot = Some(slot);
+            }
+        }
 
-        let head_below_finalization = roots_with_slots.is_empty();
+        let store = &self.chain.store;
 
         // 2. Fallback: `head_root` is at or below finalization (proto-array doesn't
-        //    track it). Look it up in the store to learn its slot so we can still serve
-        //    a partial response from the freezer's block-root index.
-        if head_below_finalization {
+        //    track it). Look up its slot in the store, then verify it is the canonical
+        //    block at that slot via the freezer index — a non-canonical hot-DB block at
+        //    slot < split.slot can shadow the finalized chain. If the freezer
+        //    disagrees (or doesn't have that slot), serve just the single block we
+        //    found, satisfying the spec's "MUST return at least one block if you have
+        //    it" clause.
+        let mut current_slot = if let Some(slot) = deepest_slot {
+            slot
+        } else {
             let block = self
                 .chain
                 .get_blinded_block(&head_root)
@@ -453,50 +465,39 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     (RpcErrorResponse::ServerError, "Database error")
                 })?
                 .ok_or((RpcErrorResponse::ResourceUnavailable, "Unknown beacon_root"))?;
-            roots_with_slots.push((head_root, block.slot()));
-        }
+            let block_slot = block.slot();
+            roots.push(head_root);
 
-        if (roots_with_slots.len() as u64) >= count {
-            return Ok(roots_with_slots.into_iter().map(|(r, _)| r).collect());
-        }
-
-        // 3. Spillover via the freezer DB's `BeaconBlockRoots` index (the canonical
-        //    slot→root mapping for finalized blocks). Skip slots reuse the prior
-        //    block's root; dedup on insert.
-        let store = &self.chain.store;
-        let oldest_block_slot = store.get_oldest_block_slot();
-        let mut current = roots_with_slots.last().expect("non-empty above").1;
-
-        // For the case-2 fallback, verify `head_root` is the canonical block at its
-        // slot before walking back — otherwise we'd return a different chain's
-        // ancestors. A non-canonical hot-DB block at slot < split.slot can shadow the
-        // finalized chain at the same slot. If verification fails (or the slot is
-        // outside the freezer's range) we return what we already collected, which is
-        // at least the head_root itself, satisfying the spec's "MUST return at least
-        // one block if you have it" clause.
-        if head_below_finalization {
-            match store.get_cold_block_root(current) {
-                Ok(Some(r)) if r == head_root => {} // canonical, OK to walk
-                Ok(_) => {
-                    return Ok(roots_with_slots.into_iter().map(|(r, _)| r).collect());
-                }
+            match store.get_cold_block_root(block_slot) {
+                Ok(Some(r)) if r == head_root => {} // canonical, OK to walk back
+                Ok(_) => return Ok(roots),
                 Err(e) => {
                     error!(error = ?e, "Error reading freezer block_root for BlocksByHead");
                     return Err((RpcErrorResponse::ServerError, "Database error"));
                 }
             }
+
+            block_slot
+        };
+
+        if (roots.len() as u64) >= count {
+            return Ok(roots);
         }
 
-        let mut last_root = roots_with_slots.last().map(|(r, _)| *r);
-        while (roots_with_slots.len() as u64) < count && current > oldest_block_slot {
-            current = match current.as_u64().checked_sub(1) {
+        // 3. Spillover via the freezer DB's `BeaconBlockRoots` index (the canonical
+        //    slot→root mapping for finalized blocks). Skip slots reuse the prior
+        //    block's root; dedup on insert.
+        let oldest_block_slot = store.get_oldest_block_slot();
+        let mut last_root = roots.last().copied();
+        while (roots.len() as u64) < count && current_slot > oldest_block_slot {
+            current_slot = match current_slot.as_u64().checked_sub(1) {
                 Some(s) => Slot::from(s),
                 None => break,
             };
-            match store.get_cold_block_root(current) {
+            match store.get_cold_block_root(current_slot) {
                 Ok(Some(root)) => {
                     if Some(root) != last_root {
-                        roots_with_slots.push((root, current));
+                        roots.push(root);
                         last_root = Some(root);
                     }
                 }
@@ -512,7 +513,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         }
 
-        Ok(roots_with_slots.into_iter().map(|(r, _)| r).collect())
+        Ok(roots)
     }
 
     /// Handle a `ExecutionPayloadEnvelopesByRoot` request from the peer.
