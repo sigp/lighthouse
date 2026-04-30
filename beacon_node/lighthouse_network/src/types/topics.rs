@@ -90,7 +90,7 @@ pub fn core_topics_to_subscribe<E: EthSpec>(
         }
     }
 
-    if fork_name.eip7805_enabled() {
+    if fork_name.heze_enabled() {
         topics.push(GossipKind::InclusionList);
     }
 

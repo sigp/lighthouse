@@ -235,8 +235,6 @@ pub struct ChainSpec {
      */
     pub domain_inclusion_list_committee: u32,
     pub inclusion_list_committee_size: u64,
-    pub eip7805_fork_epoch: Option<Epoch>,
-    pub eip7805_fork_version: [u8; 4],
 
     /*
      * Fulu hard fork params
@@ -263,6 +261,13 @@ pub struct ChainSpec {
     pub churn_limit_quotient_gloas: u64,
     pub consolidation_churn_limit_quotient: u64,
     pub max_per_epoch_activation_churn_limit_gloas: u64,
+
+    /*
+     * Heze hard fork params
+     */
+    pub heze_fork_version: [u8; 4],
+    /// The Heze fork epoch is optional, with `None` representing "Heze never happens".
+    pub heze_fork_epoch: Option<Epoch>,
 
     /*
      * Networking
@@ -386,8 +391,8 @@ impl ChainSpec {
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
         let forks = [
+            (self.heze_fork_epoch, ForkName::Heze),
             (self.gloas_fork_epoch, ForkName::Gloas),
-            (self.eip7805_fork_epoch, ForkName::Eip7805),
             (self.fulu_fork_epoch, ForkName::Fulu),
             (self.electra_fork_epoch, ForkName::Electra),
             (self.deneb_fork_epoch, ForkName::Deneb),
@@ -417,9 +422,9 @@ impl ChainSpec {
             ForkName::Capella => self.capella_fork_version,
             ForkName::Deneb => self.deneb_fork_version,
             ForkName::Electra => self.electra_fork_version,
-            ForkName::Eip7805 => self.eip7805_fork_version,
             ForkName::Fulu => self.fulu_fork_version,
             ForkName::Gloas => self.gloas_fork_version,
+            ForkName::Heze => self.heze_fork_version,
         }
     }
 
@@ -437,9 +442,9 @@ impl ChainSpec {
             ForkName::Capella => self.capella_fork_epoch,
             ForkName::Deneb => self.deneb_fork_epoch,
             ForkName::Electra => self.electra_fork_epoch,
-            ForkName::Eip7805 => self.eip7805_fork_epoch,
             ForkName::Fulu => self.fulu_fork_epoch,
             ForkName::Gloas => self.gloas_fork_epoch,
+            ForkName::Heze => self.heze_fork_epoch,
         }
     }
 
@@ -478,22 +483,28 @@ impl ChainSpec {
             .is_some_and(|fulu_fork_epoch| fulu_fork_epoch != self.far_future_epoch)
     }
 
-    /// Returns true if the given epoch is greater than or equal to the `EIP7805_FORK_EPOCH`.
+    /// Returns true if the given epoch is greater than or equal to the `HEZE_FORK_EPOCH`.
     pub fn is_focil_enabled_for_epoch(&self, block_epoch: Epoch) -> bool {
-        self.eip7805_fork_epoch
-            .is_some_and(|eip7805_fork_epoch| block_epoch >= eip7805_fork_epoch)
+        self.heze_fork_epoch
+            .is_some_and(|heze_fork_epoch| block_epoch >= heze_fork_epoch)
     }
 
-    /// Returns true if `EIP7805_FORK_EPOCH` is set and is not set to `FAR_FUTURE_EPOCH`.
+    /// Returns true if `HEZE_FORK_EPOCH` is set and is not set to `FAR_FUTURE_EPOCH`.
     pub fn is_focil_scheduled(&self) -> bool {
-        self.eip7805_fork_epoch
-            .is_some_and(|eip7805_fork_epoch| eip7805_fork_epoch != self.far_future_epoch)
+        self.heze_fork_epoch
+            .is_some_and(|heze_fork_epoch| heze_fork_epoch != self.far_future_epoch)
     }
 
     /// Returns true if `GLOAS_FORK_EPOCH` is set and is not set to `FAR_FUTURE_EPOCH`.
     pub fn is_gloas_scheduled(&self) -> bool {
         self.gloas_fork_epoch
             .is_some_and(|gloas_fork_epoch| gloas_fork_epoch != self.far_future_epoch)
+    }
+
+    /// Returns true if `HEZE_FORK_EPOCH` is set and is not set to `FAR_FUTURE_EPOCH`.
+    pub fn is_heze_scheduled(&self) -> bool {
+        self.heze_fork_epoch
+            .is_some_and(|heze_fork_epoch| heze_fork_epoch != self.far_future_epoch)
     }
 
     /// Returns a full `Fork` struct for a given epoch.
@@ -1281,8 +1292,6 @@ impl ChainSpec {
              */
             domain_inclusion_list_committee: 12,
             inclusion_list_committee_size: 16,
-            eip7805_fork_epoch: None,
-            eip7805_fork_version: [0x06, 0x00, 0x00, 0x00],
 
             /*
              * Fulu hard fork params
@@ -1313,6 +1322,12 @@ impl ChainSpec {
             })
             .expect("calculation does not overflow"),
             max_request_payloads: 128,
+
+            /*
+             * Heze hard fork params
+             */
+            heze_fork_version: [0x08, 0x00, 0x00, 0x00],
+            heze_fork_epoch: None,
 
             /*
              * Network specific
@@ -1451,9 +1466,6 @@ impl ChainSpec {
                 u64::checked_pow(2, 7)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
-            // FOCIL
-            eip7805_fork_epoch: None,
-            eip7805_fork_version: [0x06, 0x00, 0x00, 0x00],
             // Fulu
             fulu_fork_version: [0x07, 0x00, 0x00, 0x00],
             fulu_fork_epoch: None,
@@ -1469,6 +1481,9 @@ impl ChainSpec {
                 u64::checked_pow(2, 7)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
+            // Heze
+            heze_fork_version: [0x08, 0x00, 0x00, 0x01],
+            heze_fork_epoch: None,
 
             /*
              * Derived time values (set by `compute_derived_values()`)
@@ -1715,8 +1730,6 @@ impl ChainSpec {
              */
             domain_inclusion_list_committee: 12,
             inclusion_list_committee_size: 16,
-            eip7805_fork_epoch: None,
-            eip7805_fork_version: [0x06, 0x00, 0x00, 0x00],
 
             /*
              * Fulu hard fork params
@@ -1747,6 +1760,12 @@ impl ChainSpec {
             })
             .expect("calculation does not overflow"),
             max_request_payloads: 128,
+
+            /*
+             * Heze hard fork params
+             */
+            heze_fork_version: [0x08, 0x00, 0x00, 0x64],
+            heze_fork_epoch: None,
 
             /*
              * Network specific
@@ -2014,14 +2033,6 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub fulu_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
-    #[serde(default = "default_eip7805_fork_version")]
-    #[serde(with = "serde_utils::bytes_4_hex")]
-    eip7805_fork_version: [u8; 4],
-    #[serde(default)]
-    #[serde(serialize_with = "serialize_fork_epoch")]
-    #[serde(deserialize_with = "deserialize_fork_epoch")]
-    pub eip7805_fork_epoch: Option<MaybeQuoted<Epoch>>,
-
     #[serde(default = "default_gloas_fork_version")]
     #[serde(with = "serde_utils::bytes_4_hex")]
     gloas_fork_version: [u8; 4],
@@ -2029,6 +2040,14 @@ pub struct Config {
     #[serde(serialize_with = "serialize_fork_epoch")]
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub gloas_fork_epoch: Option<MaybeQuoted<Epoch>>,
+
+    #[serde(default = "default_heze_fork_version")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
+    heze_fork_version: [u8; 4],
+    #[serde(default)]
+    #[serde(serialize_with = "serialize_fork_epoch")]
+    #[serde(deserialize_with = "deserialize_fork_epoch")]
+    pub heze_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2235,7 +2254,7 @@ fn default_electra_fork_version() -> [u8; 4] {
     [0xff, 0xff, 0xff, 0xff]
 }
 
-fn default_eip7805_fork_version() -> [u8; 4] {
+fn default_heze_fork_version() -> [u8; 4] {
     // This value shouldn't be used.
     [0xff, 0xff, 0xff, 0xff]
 }
@@ -2633,14 +2652,14 @@ impl Config {
                 .fulu_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
-            eip7805_fork_version: spec.eip7805_fork_version,
-            eip7805_fork_epoch: spec
-                .eip7805_fork_epoch
-                .map(|epoch| MaybeQuoted { value: epoch }),
-
             gloas_fork_version: spec.gloas_fork_version,
             gloas_fork_epoch: spec
                 .gloas_fork_epoch
+                .map(|epoch| MaybeQuoted { value: epoch }),
+
+            heze_fork_version: spec.heze_fork_version,
+            heze_fork_epoch: spec
+                .heze_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
             seconds_per_slot: Some(MaybeQuoted {
@@ -2761,12 +2780,12 @@ impl Config {
             deneb_fork_version,
             electra_fork_epoch,
             electra_fork_version,
-            eip7805_fork_version,
-            eip7805_fork_epoch,
             fulu_fork_epoch,
             fulu_fork_version,
             gloas_fork_version,
             gloas_fork_epoch,
+            heze_fork_version,
+            heze_fork_epoch,
             seconds_per_slot,
             slot_duration_ms,
             seconds_per_eth1_block,
@@ -2861,12 +2880,12 @@ impl Config {
             deneb_fork_version,
             electra_fork_epoch: electra_fork_epoch.map(|q| q.value),
             electra_fork_version,
-            eip7805_fork_version,
-            eip7805_fork_epoch: eip7805_fork_epoch.map(|q| q.value),
             fulu_fork_epoch: fulu_fork_epoch.map(|q| q.value),
             fulu_fork_version,
             gloas_fork_version,
             gloas_fork_epoch: gloas_fork_epoch.map(|q| q.value),
+            heze_fork_version,
+            heze_fork_epoch: heze_fork_epoch.map(|q| q.value),
             seconds_per_slot: seconds_per_slot
                 .map(|q| q.value)
                 .or_else(|| slot_duration_ms.and_then(|q| q.value.checked_div(1000)))?,
@@ -3842,8 +3861,6 @@ mod yaml_tests {
     /// list as new forks are added.
     const UPSTREAM_KEYS_NOT_IN_LIGHTHOUSE: &[&str] = &[
         // Forks not yet implemented
-        "HEZE_FORK_VERSION",
-        "HEZE_FORK_EPOCH",
         "EIP7928_FORK_VERSION",
         "EIP7928_FORK_EPOCH",
         // Gloas params not yet in Config

@@ -16,7 +16,7 @@ use types::*;
 ///
 /// This can be deleted once schema versions prior to V22 are no longer supported.
 #[superstruct(
-    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Eip7805, Fulu),
+    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Heze, Fulu),
     variant_attributes(derive(Debug, PartialEq, Clone, Encode, Decode))
 )]
 #[derive(Debug, PartialEq, Clone, Encode)]
@@ -68,9 +68,9 @@ where
     pub current_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Eip7805, Fulu))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Heze, Fulu))]
     pub previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Eip7805, Fulu))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Heze, Fulu))]
     pub current_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
 
     // Finality
@@ -80,13 +80,13 @@ where
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Eip7805, Fulu))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Heze, Fulu))]
     pub inactivity_scores: List<u64, E::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Eip7805, Fulu))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Heze, Fulu))]
     pub current_sync_committee: Arc<SyncCommittee<E>>,
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Eip7805, Fulu))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Heze, Fulu))]
     pub next_sync_committee: Arc<SyncCommittee<E>>,
 
     // Execution
@@ -111,10 +111,10 @@ where
     )]
     pub latest_execution_payload_header: ExecutionPayloadHeaderElectra<E>,
     #[superstruct(
-        only(Eip7805),
-        partial_getter(rename = "latest_execution_payload_header_eip7805")
+        only(Heze),
+        partial_getter(rename = "latest_execution_payload_header_heze")
     )]
-    pub latest_execution_payload_header: ExecutionPayloadHeaderEip7805<E>,
+    pub latest_execution_payload_header: ExecutionPayloadHeaderHeze<E>,
     #[superstruct(
         only(Fulu),
         partial_getter(rename = "latest_execution_payload_header_fulu")
@@ -122,35 +122,35 @@ where
     pub latest_execution_payload_header: ExecutionPayloadHeaderFulu<E>,
 
     // Capella
-    #[superstruct(only(Capella, Deneb, Electra, Eip7805, Fulu))]
+    #[superstruct(only(Capella, Deneb, Electra, Heze, Fulu))]
     pub next_withdrawal_index: u64,
-    #[superstruct(only(Capella, Deneb, Electra, Eip7805, Fulu))]
+    #[superstruct(only(Capella, Deneb, Electra, Heze, Fulu))]
     pub next_withdrawal_validator_index: u64,
 
     #[ssz(skip_serializing, skip_deserializing)]
-    #[superstruct(only(Capella, Deneb, Electra, Eip7805, Fulu))]
+    #[superstruct(only(Capella, Deneb, Electra, Heze, Fulu))]
     pub historical_summaries: Option<List<HistoricalSummary, E::HistoricalRootsLimit>>,
 
     // Electra
-    #[superstruct(only(Electra, Eip7805, Fulu))]
+    #[superstruct(only(Electra, Heze, Fulu))]
     pub deposit_requests_start_index: u64,
-    #[superstruct(only(Electra, Eip7805, Fulu))]
+    #[superstruct(only(Electra, Heze, Fulu))]
     pub deposit_balance_to_consume: u64,
-    #[superstruct(only(Electra, Eip7805, Fulu))]
+    #[superstruct(only(Electra, Heze, Fulu))]
     pub exit_balance_to_consume: u64,
-    #[superstruct(only(Electra, Eip7805, Fulu))]
+    #[superstruct(only(Electra, Heze, Fulu))]
     pub earliest_exit_epoch: Epoch,
-    #[superstruct(only(Electra, Eip7805, Fulu))]
+    #[superstruct(only(Electra, Heze, Fulu))]
     pub consolidation_balance_to_consume: u64,
-    #[superstruct(only(Electra, Eip7805, Fulu))]
+    #[superstruct(only(Electra, Heze, Fulu))]
     pub earliest_consolidation_epoch: Epoch,
 
-    #[superstruct(only(Electra, Eip7805, Fulu))]
+    #[superstruct(only(Electra, Heze, Fulu))]
     pub pending_deposits: List<PendingDeposit, E::PendingDepositsLimit>,
-    #[superstruct(only(Electra, Eip7805, Fulu))]
+    #[superstruct(only(Electra, Heze, Fulu))]
     pub pending_partial_withdrawals:
         List<PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
-    #[superstruct(only(Electra, Eip7805, Fulu))]
+    #[superstruct(only(Electra, Heze, Fulu))]
     pub pending_consolidations: List<PendingConsolidation, E::PendingConsolidationsLimit>,
 }
 
@@ -428,10 +428,10 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                 ],
                 [historical_summaries]
             ),
-            PartialBeaconState::Eip7805(inner) => impl_try_into_beacon_state!(
+            PartialBeaconState::Heze(inner) => impl_try_into_beacon_state!(
                 inner,
-                Eip7805,
-                BeaconStateEip7805,
+                Heze,
+                BeaconStateHeze,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,

@@ -5,8 +5,8 @@ use ssz_types::FixedVector;
 use tree_hash::Hash256;
 use typenum::Unsigned;
 use types::{
-    BeaconBlockBody, BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyEip7805,
-    BeaconBlockBodyElectra, BeaconBlockBodyFulu, BeaconBlockBodyGloas, BeaconState, FullPayload,
+    BeaconBlockBody, BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra,
+    BeaconBlockBodyFulu, BeaconBlockBodyGloas, BeaconBlockBodyHeze, BeaconState, FullPayload,
     light_client,
 };
 
@@ -172,8 +172,8 @@ impl<E: EthSpec> LoadCase for KzgInclusionMerkleProofValidity<E> {
                 ssz_decode_file::<BeaconBlockBodyElectra<E>>(&path.join("object.ssz_snappy"))?
                     .into()
             }
-            ForkName::Eip7805 => {
-                ssz_decode_file::<BeaconBlockBodyEip7805<E>>(&path.join("object.ssz_snappy"))?
+            ForkName::Heze => {
+                ssz_decode_file::<BeaconBlockBodyHeze<E>>(&path.join("object.ssz_snappy"))?
                     .into()
             }
             ForkName::Fulu => {
@@ -181,6 +181,9 @@ impl<E: EthSpec> LoadCase for KzgInclusionMerkleProofValidity<E> {
             }
             ForkName::Gloas => {
                 ssz_decode_file::<BeaconBlockBodyGloas<E>>(&path.join("object.ssz_snappy"))?.into()
+            }
+            ForkName::Heze => {
+                ssz_decode_file::<BeaconBlockBodyHeze<E>>(&path.join("object.ssz_snappy"))?.into()
             }
         };
         let merkle_proof = yaml_decode_file(&path.join("proof.yaml"))?;
@@ -297,8 +300,8 @@ impl<E: EthSpec> LoadCase for BeaconBlockBodyMerkleProofValidity<E> {
                 ssz_decode_file::<BeaconBlockBodyElectra<E>>(&path.join("object.ssz_snappy"))?
                     .into()
             }
-            ForkName::Eip7805 => {
-                ssz_decode_file::<BeaconBlockBodyEip7805<E>>(&path.join("object.ssz_snappy"))?
+            ForkName::Heze => {
+                ssz_decode_file::<BeaconBlockBodyHeze<E>>(&path.join("object.ssz_snappy"))?
                     .into()
             }
             ForkName::Fulu => {
@@ -306,6 +309,9 @@ impl<E: EthSpec> LoadCase for BeaconBlockBodyMerkleProofValidity<E> {
             }
             ForkName::Gloas => {
                 ssz_decode_file::<BeaconBlockBodyGloas<E>>(&path.join("object.ssz_snappy"))?.into()
+            }
+            ForkName::Heze => {
+                ssz_decode_file::<BeaconBlockBodyHeze<E>>(&path.join("object.ssz_snappy"))?.into()
             }
         };
         let merkle_proof = yaml_decode_file(&path.join("proof.yaml"))?;

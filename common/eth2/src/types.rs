@@ -1044,6 +1044,7 @@ impl SseDataColumnSidecar {
         let kzg_commitments: Vec<KzgCommitment> = match data_column_sidecar {
             DataColumnSidecar::Fulu(dc) => dc.kzg_commitments.to_vec(),
             DataColumnSidecar::Gloas(_) => vec![],
+            DataColumnSidecar::Heze(_) => vec![],
         };
         let versioned_hashes = kzg_commitments
             .iter()
@@ -1209,8 +1210,8 @@ impl<'de> ContextDeserialize<'de, ForkName> for SsePayloadAttributes {
             ForkName::Deneb
             | ForkName::Electra
             | ForkName::Fulu
-            | ForkName::Eip7805
-            | ForkName::Gloas => {
+            | ForkName::Gloas
+            | ForkName::Heze => {
                 Self::V3(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
         })
@@ -2587,13 +2588,14 @@ mod test {
             ExecutionPayload::Electra(ExecutionPayloadElectra::<MainnetEthSpec>::random_for_test(
                 rng,
             )),
-            ExecutionPayload::Eip7805(ExecutionPayloadEip7805::<MainnetEthSpec>::random_for_test(
+            ExecutionPayload::Heze(ExecutionPayloadHeze::<MainnetEthSpec>::random_for_test(
                 rng,
             )),
             ExecutionPayload::Fulu(ExecutionPayloadFulu::<MainnetEthSpec>::random_for_test(rng)),
             ExecutionPayload::Gloas(ExecutionPayloadGloas::<MainnetEthSpec>::random_for_test(
                 rng,
             )),
+            ExecutionPayload::Heze(ExecutionPayloadHeze::<MainnetEthSpec>::random_for_test(rng)),
         ];
         let merged_forks = &ForkName::list_all()[2..];
         assert_eq!(
@@ -2639,8 +2641,8 @@ mod test {
             },
             {
                 let execution_payload =
-                    ExecutionPayload::Eip7805(
-                        ExecutionPayloadEip7805::<MainnetEthSpec>::random_for_test(rng),
+                    ExecutionPayload::Heze(
+                        ExecutionPayloadHeze::<MainnetEthSpec>::random_for_test(rng),
                     );
                 let blobs_bundle = BlobsBundle::random_for_test(rng);
                 ExecutionPayloadAndBlobs {
@@ -2663,6 +2665,17 @@ mod test {
                 let execution_payload =
                     ExecutionPayload::Gloas(
                         ExecutionPayloadGloas::<MainnetEthSpec>::random_for_test(rng),
+                    );
+                let blobs_bundle = BlobsBundle::random_for_test(rng);
+                ExecutionPayloadAndBlobs {
+                    execution_payload,
+                    blobs_bundle,
+                }
+            },
+            {
+                let execution_payload =
+                    ExecutionPayload::Heze(
+                        ExecutionPayloadHeze::<MainnetEthSpec>::random_for_test(rng),
                     );
                 let blobs_bundle = BlobsBundle::random_for_test(rng);
                 ExecutionPayloadAndBlobs {

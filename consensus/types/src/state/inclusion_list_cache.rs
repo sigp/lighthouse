@@ -102,7 +102,7 @@ impl<E: EthSpec> InclusionListCache<E> {
             .iter()
             .cloned()
             .collect::<Vec<_>>();
-        // TODO(eip7805) should return an error instead of None?
+        // TODO(heze) should return an error instead of None?
         il.try_into().ok()
     }
 }

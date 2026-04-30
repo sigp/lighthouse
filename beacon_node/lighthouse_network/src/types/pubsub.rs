@@ -13,8 +13,8 @@ use types::{
     PartialDataColumnSidecar, PayloadAttestationMessage, ProposerSlashing, SignedAggregateAndProof,
     SignedAggregateAndProofBase, SignedAggregateAndProofElectra, SignedBeaconBlock,
     SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
-    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockEip7805,
-    SignedBeaconBlockElectra, SignedBeaconBlockFulu, SignedBeaconBlockGloas,
+    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
+    SignedBeaconBlockFulu, SignedBeaconBlockGloas, SignedBeaconBlockHeze,
     SignedBlsToExecutionChange, SignedContributionAndProof, SignedExecutionPayloadBid,
     SignedExecutionPayloadEnvelope, SignedInclusionList, SignedProposerPreferences,
     SignedVoluntaryExit, SingleAttestation, SubnetId, SyncCommitteeMessage, SyncSubnetId,
@@ -256,12 +256,16 @@ impl<E: EthSpec> PubsubMessage<E> {
                                 SignedBeaconBlockFulu::from_ssz_bytes(data)
                                     .map_err(|e| format!("{:?}", e))?,
                             ),
-                            Some(ForkName::Eip7805) => SignedBeaconBlock::<E>::Eip7805(
-                                SignedBeaconBlockEip7805::from_ssz_bytes(data)
+                            Some(ForkName::Heze) => SignedBeaconBlock::<E>::Heze(
+                                SignedBeaconBlockHeze::from_ssz_bytes(data)
                                     .map_err(|e| format!("{:?}", e))?,
                             ),
                             Some(ForkName::Gloas) => SignedBeaconBlock::<E>::Gloas(
                                 SignedBeaconBlockGloas::from_ssz_bytes(data)
+                                    .map_err(|e| format!("{:?}", e))?,
+                            ),
+                            Some(ForkName::Heze) => SignedBeaconBlock::<E>::Heze(
+                                SignedBeaconBlockHeze::from_ssz_bytes(data)
                                     .map_err(|e| format!("{:?}", e))?,
                             ),
                             None => {

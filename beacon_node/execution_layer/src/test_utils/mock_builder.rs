@@ -30,7 +30,7 @@ use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
 use types::ExecutionBlockHash;
 use types::builder::{
-    BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidEip7805,
+    BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidHeze,
     BuilderBidElectra, BuilderBidFulu, SignedBuilderBid,
 };
 use types::{
@@ -114,7 +114,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Electra(header) => {
                 header.fee_recipient = fee_recipient;
             }
-            ExecutionPayloadHeaderRefMut::Eip7805(header) => {
+            ExecutionPayloadHeaderRefMut::Heze(header) => {
                 header.fee_recipient = fee_recipient;
             }
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
@@ -137,7 +137,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Electra(header) => {
                 header.gas_limit = gas_limit;
             }
-            ExecutionPayloadHeaderRefMut::Eip7805(header) => {
+            ExecutionPayloadHeaderRefMut::Heze(header) => {
                 header.gas_limit = gas_limit;
             }
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
@@ -164,7 +164,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Electra(header) => {
                 header.parent_hash = ExecutionBlockHash::from_root(parent_hash);
             }
-            ExecutionPayloadHeaderRefMut::Eip7805(header) => {
+            ExecutionPayloadHeaderRefMut::Heze(header) => {
                 header.parent_hash = ExecutionBlockHash::from_root(parent_hash);
             }
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
@@ -187,7 +187,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Electra(header) => {
                 header.prev_randao = prev_randao;
             }
-            ExecutionPayloadHeaderRefMut::Eip7805(header) => {
+            ExecutionPayloadHeaderRefMut::Heze(header) => {
                 header.prev_randao = prev_randao;
             }
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
@@ -210,7 +210,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Electra(header) => {
                 header.block_number = block_number;
             }
-            ExecutionPayloadHeaderRefMut::Eip7805(header) => {
+            ExecutionPayloadHeaderRefMut::Heze(header) => {
                 header.block_number = block_number;
             }
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
@@ -233,7 +233,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Electra(header) => {
                 header.timestamp = timestamp;
             }
-            ExecutionPayloadHeaderRefMut::Eip7805(header) => {
+            ExecutionPayloadHeaderRefMut::Heze(header) => {
                 header.timestamp = timestamp;
             }
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
@@ -256,7 +256,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Electra(header) => {
                 header.withdrawals_root = withdrawals_root;
             }
-            ExecutionPayloadHeaderRefMut::Eip7805(header) => {
+            ExecutionPayloadHeaderRefMut::Heze(header) => {
                 header.withdrawals_root = withdrawals_root;
             }
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
@@ -291,7 +291,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
                 header.extra_data = extra_data;
                 header.block_hash = ExecutionBlockHash::from_root(header.tree_hash_root());
             }
-            ExecutionPayloadHeaderRefMut::Eip7805(header) => {
+            ExecutionPayloadHeaderRefMut::Heze(header) => {
                 header.extra_data = extra_data;
                 header.block_hash = ExecutionBlockHash::from_root(header.tree_hash_root());
             }
@@ -493,14 +493,15 @@ impl<E: EthSpec> MockBuilder<E> {
             SignedBlindedBeaconBlock::Electra(block) => {
                 block.message.body.execution_payload.tree_hash_root()
             }
-            SignedBlindedBeaconBlock::Eip7805(block) => {
-                block.message.body.execution_payload.tree_hash_root()
-            }
             SignedBlindedBeaconBlock::Fulu(block) => {
                 block.message.body.execution_payload.tree_hash_root()
             }
             SignedBlindedBeaconBlock::Gloas(_) => {
                 // TODO(EIP7732) Check if this is how we want to do error handling for gloas
+                return Err("invalid fork".to_string());
+            }
+            SignedBlindedBeaconBlock::Heze(_) => {
+                // TODO(EIP7732) Check if this is how we want to do error handling for heze
                 return Err("invalid fork".to_string());
             }
         };
@@ -621,6 +622,10 @@ impl<E: EthSpec> MockBuilder<E> {
                         // TODO(EIP7732) Check if this is how we want to do error handling for gloas
                         return Err("invalid fork".to_string());
                     }
+                    ForkName::Heze => {
+                        // TODO(EIP7732) Check if this is how we want to do error handling for heze
+                        return Err("invalid fork".to_string());
+                    }
                     ForkName::Fulu => BuilderBid::Fulu(BuilderBidFulu {
                         header: payload
                             .as_fulu()
@@ -633,9 +638,9 @@ impl<E: EthSpec> MockBuilder<E> {
                         pubkey: self.builder_sk.public_key().compress(),
                         execution_requests: maybe_requests.unwrap_or_default(),
                     }),
-                    ForkName::Eip7805 => BuilderBid::Eip7805(BuilderBidEip7805 {
+                    ForkName::Heze => BuilderBid::Heze(BuilderBidHeze {
                         header: payload
-                            .as_eip7805()
+                            .as_heze()
                             .map_err(|_| "incorrect payload variant".to_string())?
                             .into(),
                         blob_kzg_commitments: maybe_blobs_bundle
@@ -944,17 +949,15 @@ impl<E: EthSpec> MockBuilder<E> {
                 None,
                 None,
             ),
-            ForkName::Deneb | ForkName::Electra | ForkName::Fulu | ForkName::Eip7805 => {
-                PayloadAttributes::new(
-                    timestamp,
-                    *prev_randao,
-                    fee_recipient,
-                    expected_withdrawals,
-                    Some(head_block_root),
-                    None,
-                )
-            }
-            ForkName::Gloas => PayloadAttributes::new(
+            ForkName::Deneb | ForkName::Electra | ForkName::Fulu => PayloadAttributes::new(
+                timestamp,
+                *prev_randao,
+                fee_recipient,
+                expected_withdrawals,
+                Some(head_block_root),
+                None,
+            ),
+            ForkName::Gloas | ForkName::Heze => PayloadAttributes::new(
                 timestamp,
                 *prev_randao,
                 fee_recipient,

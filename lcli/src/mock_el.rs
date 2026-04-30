@@ -18,9 +18,9 @@ pub fn run<E: EthSpec>(mut env: Environment<E>, matches: &ArgMatches) -> Result<
     let shanghai_time = parse_required(matches, "shanghai-time")?;
     let cancun_time = parse_optional(matches, "cancun-time")?;
     let prague_time = parse_optional(matches, "prague-time")?;
-    let eip7805_time = parse_optional(matches, "eip7805-time")?;
     let osaka_time = parse_optional(matches, "osaka-time")?;
     let amsterdam_time = parse_optional(matches, "amsterdam-time")?;
+    let heze_time: Option<u64> = parse_optional(matches, "heze-time")?;
 
     let handle = env.core_context().executor.handle().unwrap();
 
@@ -48,11 +48,11 @@ pub fn run<E: EthSpec>(mut env: Environment<E>, matches: &ArgMatches) -> Result<
         },
         jwt_key,
         shanghai_time: Some(shanghai_time),
-        eip7805_time,
         cancun_time,
         prague_time,
         osaka_time,
         amsterdam_time,
+        heze_time,
     };
     let kzg = None;
     let server: MockServer<E> = MockServer::new_with_config(&handle, config, kzg);

@@ -303,15 +303,15 @@ impl ElectraPreset {
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
-pub struct Eip7805Preset {
+pub struct HezePreset {
     #[serde(with = "serde_utils::quoted_u32")]
     pub domain_inclusion_list_committee: u32,
     #[serde(with = "serde_utils::quoted_u64")]
     pub inclusion_list_committee_size: u64,
 }
 
-impl Eip7805Preset {
-    pub fn from_chain_spec(spec: &ChainSpec) -> Self {
+impl HezePreset {
+    pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
             domain_inclusion_list_committee: spec.domain_inclusion_list_committee,
             inclusion_list_committee_size: spec.inclusion_list_committee_size,
@@ -374,6 +374,7 @@ impl GloasPreset {
     }
 }
 
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -419,8 +420,8 @@ mod test {
         let electra: ElectraPreset = preset_from_file(&preset_name, "electra.yaml");
         assert_eq!(electra, ElectraPreset::from_chain_spec::<E>(&spec));
 
-        let eip7805: Eip7805Preset = preset_from_file(&preset_name, "eip7805.yaml");
-        assert_eq!(eip7805, Eip7805Preset::from_chain_spec(&spec));
+        let heze: HezePreset = preset_from_file(&preset_name, "heze.yaml");
+        assert_eq!(heze, HezePreset::from_chain_spec(&spec));
 
         let fulu: FuluPreset = preset_from_file(&preset_name, "fulu.yaml");
         assert_eq!(fulu, FuluPreset::from_chain_spec::<E>(&spec));

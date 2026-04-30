@@ -1,39 +1,37 @@
 use std::mem;
-use types::{BeaconState, BeaconStateEip7805, BeaconStateError as Error, ChainSpec, EthSpec, Fork};
+use types::{BeaconState, BeaconStateError as Error, BeaconStateHeze, ChainSpec, EthSpec, Fork};
 
-/// Transform a `Electra` state into an `Eip7805s` state.
-pub fn upgrade_to_eip7805<E: EthSpec>(
+/// Transform a `Gloas` state into a `Heze` state.
+pub fn upgrade_to_heze<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let _epoch = pre_state.current_epoch();
-
-    let post = upgrade_state_to_eip7805(pre_state, spec)?;
+    let post = upgrade_state_to_heze(pre_state, spec)?;
 
     *pre_state = post;
 
     Ok(())
 }
 
-pub fn upgrade_state_to_eip7805<E: EthSpec>(
+pub fn upgrade_state_to_heze<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<E>, Error> {
     let epoch = pre_state.current_epoch();
-    let pre = pre_state.as_fulu_mut()?;
+    let pre = pre_state.as_gloas_mut()?;
     // Where possible, use something like `mem::take` to move fields from behind the &mut
     // reference. For other fields that don't have a good default value, use `clone`.
     //
     // Fixed size vectors get cloned because replacing them would require the same size
     // allocation as cloning.
-    let post = BeaconState::Eip7805(BeaconStateEip7805 {
+    let post = BeaconState::Heze(BeaconStateHeze {
         // Versioning
         genesis_time: pre.genesis_time,
         genesis_validators_root: pre.genesis_validators_root,
         slot: pre.slot,
         fork: Fork {
             previous_version: pre.fork.current_version,
-            current_version: spec.eip7805_fork_version,
+            current_version: spec.heze_fork_version,
             epoch,
         },
         // History
@@ -52,7 +50,7 @@ pub fn upgrade_state_to_eip7805<E: EthSpec>(
         randao_mixes: pre.randao_mixes.clone(),
         // Slashings
         slashings: pre.slashings.clone(),
-        // `Participation
+        // Participation
         previous_epoch_participation: mem::take(&mut pre.previous_epoch_participation),
         current_epoch_participation: mem::take(&mut pre.current_epoch_participation),
         // Finality
@@ -65,8 +63,8 @@ pub fn upgrade_state_to_eip7805<E: EthSpec>(
         // Sync committees
         current_sync_committee: pre.current_sync_committee.clone(),
         next_sync_committee: pre.next_sync_committee.clone(),
-        // Execution
-        latest_execution_payload_header: pre.latest_execution_payload_header.upgrade_to_eip7805(),
+        // Execution Bid
+        latest_execution_payload_bid: pre.latest_execution_payload_bid.clone(),
         // Capella
         next_withdrawal_index: pre.next_withdrawal_index,
         next_withdrawal_validator_index: pre.next_withdrawal_validator_index,
@@ -81,6 +79,16 @@ pub fn upgrade_state_to_eip7805<E: EthSpec>(
         pending_deposits: pre.pending_deposits.clone(),
         pending_partial_withdrawals: pre.pending_partial_withdrawals.clone(),
         pending_consolidations: pre.pending_consolidations.clone(),
+        proposer_lookahead: mem::take(&mut pre.proposer_lookahead),
+        // Gloas
+        builders: mem::take(&mut pre.builders),
+        next_withdrawal_builder_index: pre.next_withdrawal_builder_index,
+        execution_payload_availability: pre.execution_payload_availability.clone(),
+        builder_pending_payments: pre.builder_pending_payments.clone(),
+        builder_pending_withdrawals: mem::take(&mut pre.builder_pending_withdrawals),
+        latest_block_hash: pre.latest_block_hash,
+        payload_expected_withdrawals: mem::take(&mut pre.payload_expected_withdrawals),
+        ptc_window: pre.ptc_window.clone(),
         // Caches
         total_active_balance: pre.total_active_balance,
         progressive_balances_cache: mem::take(&mut pre.progressive_balances_cache),
@@ -89,7 +97,7 @@ pub fn upgrade_state_to_eip7805<E: EthSpec>(
         exit_cache: mem::take(&mut pre.exit_cache),
         slashings_cache: mem::take(&mut pre.slashings_cache),
         epoch_cache: mem::take(&mut pre.epoch_cache),
-        proposer_lookahead: pre.proposer_lookahead.clone(),
     });
+
     Ok(post)
 }

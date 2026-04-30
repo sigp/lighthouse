@@ -19,14 +19,14 @@ pub use eth1_data::Eth1Data;
 pub use execution_block_header::{EncodableExecutionBlockHeader, ExecutionBlockHeader};
 pub use execution_payload::{
     ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadEip7805, ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas,
+    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadHeze,
     ExecutionPayloadRef, Transaction, Transactions,
 };
 pub use execution_payload_bid::ExecutionPayloadBid;
 pub use execution_payload_envelope::ExecutionPayloadEnvelope;
 pub use execution_payload_header::{
     ExecutionPayloadHeader, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
-    ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderEip7805, ExecutionPayloadHeaderElectra,
+    ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderHeze, ExecutionPayloadHeaderElectra,
     ExecutionPayloadHeaderFulu, ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
 };
 pub use execution_requests::{
@@ -37,9 +37,9 @@ pub use inclusion_list::{
 };
 pub use payload::{
     AbstractExecPayload, BlindedPayload, BlindedPayloadBellatrix, BlindedPayloadCapella,
-    BlindedPayloadDeneb, BlindedPayloadEip7805, BlindedPayloadElectra, BlindedPayloadFulu,
+    BlindedPayloadDeneb, BlindedPayloadHeze, BlindedPayloadElectra, BlindedPayloadFulu,
     BlindedPayloadRef, BlockProductionVersion, BlockType, ExecPayload, FullPayload,
-    FullPayloadBellatrix, FullPayloadCapella, FullPayloadDeneb, FullPayloadEip7805,
+    FullPayloadBellatrix, FullPayloadCapella, FullPayloadDeneb, FullPayloadHeze,
     FullPayloadElectra, FullPayloadFulu, FullPayloadRef, OwnedExecPayload,
 };
 pub use signed_bls_to_execution_change::SignedBlsToExecutionChange;

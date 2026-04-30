@@ -924,12 +924,12 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
-    // TODO(EIP7805) fix new payload if needed
-    pub async fn new_payload_v4_eip7805<E: EthSpec>(
+    // TODO(HEZE) fix new payload if needed
+    pub async fn new_payload_v4_heze<E: EthSpec>(
         &self,
-        new_payload_request_eip7805: NewPayloadRequestEip7805<'_, E>,
+        new_payload_request_heze: NewPayloadRequestHeze<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
-        let il_transactions: Vec<String> = new_payload_request_eip7805
+        let il_transactions: Vec<String> = new_payload_request_heze
             .il_transactions
             .into_iter()
             .map(|tx| {
@@ -939,21 +939,21 @@ impl HttpJsonRpc {
             .collect();
 
         let params = json!([
-            JsonExecutionPayload::Eip7805(
-                new_payload_request_eip7805
+            JsonExecutionPayload::Heze(
+                new_payload_request_heze
                     .execution_payload
                     .clone()
                     .try_into()?
             ),
-            new_payload_request_eip7805.versioned_hashes,
-            new_payload_request_eip7805.parent_beacon_block_root,
-            new_payload_request_eip7805
+            new_payload_request_heze.versioned_hashes,
+            new_payload_request_heze.parent_beacon_block_root,
+            new_payload_request_heze
                 .execution_requests
                 .get_execution_requests_list(),
             il_transactions
         ]);
 
-        // TODO(eip7805) should be v5 i think
+        // TODO(heze) should be v5 i think
         let response: JsonPayloadStatusV1 = self
             .rpc_request(
                 ENGINE_NEW_PAYLOAD_V4,
@@ -979,6 +979,35 @@ impl HttpJsonRpc {
             new_payload_request_gloas.versioned_hashes,
             new_payload_request_gloas.parent_beacon_block_root,
             new_payload_request_gloas
+                .execution_requests
+                .get_execution_requests_list(),
+        ]);
+
+        let response: JsonPayloadStatusV1 = self
+            .rpc_request(
+                ENGINE_NEW_PAYLOAD_V5,
+                params,
+                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
+    pub async fn new_payload_v5_heze<E: EthSpec>(
+        &self,
+        new_payload_request_heze: NewPayloadRequestHeze<'_, E>,
+    ) -> Result<PayloadStatusV1, Error> {
+        let params = json!([
+            JsonExecutionPayload::Heze(
+                new_payload_request_heze
+                    .execution_payload
+                    .clone()
+                    .try_into()?
+            ),
+            new_payload_request_heze.versioned_hashes,
+            new_payload_request_heze.parent_beacon_block_root,
+            new_payload_request_heze
                 .execution_requests
                 .get_execution_requests_list(),
         ]);
@@ -1103,8 +1132,8 @@ impl HttpJsonRpc {
                     .try_into()
                     .map_err(Error::BadResponse)
             }
-            ForkName::Eip7805 => {
-                let response: JsonGetPayloadResponseEip7805<E> = self
+            ForkName::Heze => {
+                let response: JsonGetPayloadResponseHeze<E> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V4,
                         params,
@@ -1112,7 +1141,7 @@ impl HttpJsonRpc {
                     )
                     .await?;
 
-                JsonGetPayloadResponse::Eip7805(response)
+                JsonGetPayloadResponse::Heze(response)
                     .try_into()
                     .map_err(Error::BadResponse)
             }
@@ -1143,15 +1172,15 @@ impl HttpJsonRpc {
                     .try_into()
                     .map_err(Error::BadResponse)
             }
-            ForkName::Eip7805 => {
-                let response: JsonGetPayloadResponseEip7805<E> = self
+            ForkName::Heze => {
+                let response: JsonGetPayloadResponseHeze<E> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V5,
                         params,
                         ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
                     )
                     .await?;
-                JsonGetPayloadResponse::Eip7805(response)
+                JsonGetPayloadResponse::Heze(response)
                     .try_into()
                     .map_err(Error::BadResponse)
             }
@@ -1179,6 +1208,18 @@ impl HttpJsonRpc {
                     )
                     .await?;
                 JsonGetPayloadResponse::Gloas(response)
+                    .try_into()
+                    .map_err(Error::BadResponse)
+            }
+            ForkName::Heze => {
+                let response: JsonGetPayloadResponseHeze<E> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V6,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+                JsonGetPayloadResponse::Heze(response)
                     .try_into()
                     .map_err(Error::BadResponse)
             }
@@ -1500,10 +1541,10 @@ impl HttpJsonRpc {
                     Err(Error::RequiredMethodUnsupported("engine_newPayloadV4"))
                 }
             }
-            // TODO(EIP7805) engine capabilties should be v5?
-            NewPayloadRequest::Eip7805(new_payload_request_eip7805) => {
+            // TODO(HEZE) engine capabilties should be v5?
+            NewPayloadRequest::Heze(new_payload_request_heze) => {
                 if engine_capabilities.new_payload_v4 {
-                    self.new_payload_v4_eip7805(new_payload_request_eip7805)
+                    self.new_payload_v4_heze(new_payload_request_heze)
                         .await
                 } else {
                     Err(Error::RequiredMethodUnsupported("engine_newPayloadV4"))
@@ -1512,6 +1553,13 @@ impl HttpJsonRpc {
             NewPayloadRequest::Gloas(new_payload_request_gloas) => {
                 if engine_capabilities.new_payload_v5 {
                     self.new_payload_v5_gloas(new_payload_request_gloas).await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV5"))
+                }
+            }
+            NewPayloadRequest::Heze(new_payload_request_heze) => {
+                if engine_capabilities.new_payload_v5 {
+                    self.new_payload_v5_heze(new_payload_request_heze).await
                 } else {
                     Err(Error::RequiredMethodUnsupported("engine_newPayloadV5"))
                 }
@@ -1551,7 +1599,7 @@ impl HttpJsonRpc {
                     Err(Error::RequiredMethodUnsupported("engine_getPayloadv4"))
                 }
             }
-            ForkName::Eip7805 => {
+            ForkName::Heze => {
                 if engine_capabilities.get_payload_v4 {
                     self.get_payload_v4(fork_name, payload_id).await
                 } else {
@@ -1566,6 +1614,13 @@ impl HttpJsonRpc {
                 }
             }
             ForkName::Gloas => {
+                if engine_capabilities.get_payload_v6 {
+                    self.get_payload_v6(fork_name, payload_id).await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_getPayloadV6"))
+                }
+            }
+            ForkName::Heze => {
                 if engine_capabilities.get_payload_v6 {
                     self.get_payload_v6(fork_name, payload_id).await
                 } else {

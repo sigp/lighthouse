@@ -417,6 +417,8 @@ mod ssz_static {
             .run();
         SszStaticHandler::<BeaconBlockBodyGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only()
             .run();
+        SszStaticHandler::<BeaconBlockBodyHeze<MinimalEthSpec>, MinimalEthSpec>::heze_only().run();
+        SszStaticHandler::<BeaconBlockBodyHeze<MainnetEthSpec>, MainnetEthSpec>::heze_only().run();
     }
 
     // Altair and later
@@ -648,6 +650,8 @@ mod ssz_static {
             .run();
         SszStaticHandler::<ExecutionPayloadGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only()
             .run();
+        SszStaticHandler::<ExecutionPayloadHeze<MinimalEthSpec>, MinimalEthSpec>::heze_only().run();
+        SszStaticHandler::<ExecutionPayloadHeze<MainnetEthSpec>, MainnetEthSpec>::heze_only().run();
     }
 
     #[test]
@@ -733,6 +737,10 @@ mod ssz_static {
         SszStaticHandler::<DataColumnSidecarGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_only()
             .run();
         SszStaticHandler::<DataColumnSidecarGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only()
+            .run();
+        SszStaticHandler::<DataColumnSidecarHeze<MinimalEthSpec>, MinimalEthSpec>::heze_only()
+            .run();
+        SszStaticHandler::<DataColumnSidecarHeze<MainnetEthSpec>, MainnetEthSpec>::heze_only()
             .run();
     }
 

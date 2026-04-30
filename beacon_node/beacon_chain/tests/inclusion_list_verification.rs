@@ -19,15 +19,15 @@ static KEYPAIRS: LazyLock<Vec<Keypair>> =
 
 pub type E = MainnetEthSpec;
 
-/// Returns a beacon chain harness for the eip7805 fork
-fn get_harness_eip7805(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
+/// Returns a beacon chain harness for the heze fork
+fn get_harness_heze(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let mut spec = E::default_spec();
     spec.altair_fork_epoch = Some(Epoch::new(0));
     spec.bellatrix_fork_epoch = Some(Epoch::new(0));
     spec.capella_fork_epoch = Some(Epoch::new(0));
     spec.deneb_fork_epoch = Some(Epoch::new(0));
     spec.electra_fork_epoch = Some(Epoch::new(0));
-    spec.eip7805_fork_epoch = Some(Epoch::new(0));
+    spec.heze_fork_epoch = Some(Epoch::new(0));
     let spec = Arc::new(spec);
 
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
@@ -140,7 +140,7 @@ struct InclusionListGossipTester {
 
 impl InclusionListGossipTester {
     pub async fn new() -> Self {
-        let harness = get_harness_eip7805(VALIDATOR_COUNT);
+        let harness = get_harness_heze(VALIDATOR_COUNT);
 
         // Extend the chain out a few epochs so we have some chain depth to play with.
         harness

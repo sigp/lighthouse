@@ -37,9 +37,9 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         shanghai_time: Option<u64>,
         cancun_time: Option<u64>,
         prague_time: Option<u64>,
-        eip7805_time: Option<u64>,
         osaka_time: Option<u64>,
         amsterdam_time: Option<u64>,
+        heze_time: Option<u64>,
         jwt_key: Option<JwtKey>,
         spec: Arc<ChainSpec>,
         kzg: Option<Arc<Kzg>>,
@@ -53,9 +53,9 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             shanghai_time,
             cancun_time,
             prague_time,
-            eip7805_time,
             osaka_time,
             amsterdam_time,
+            heze_time,
             kzg,
         );
 

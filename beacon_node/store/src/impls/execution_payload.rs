@@ -2,7 +2,7 @@ use crate::{DBColumn, Error, StoreItem};
 use ssz::{Decode, Encode};
 use types::{
     EthSpec, ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella,
-    ExecutionPayloadDeneb, ExecutionPayloadEip7805, ExecutionPayloadElectra, ExecutionPayloadFulu,
+    ExecutionPayloadDeneb, ExecutionPayloadHeze, ExecutionPayloadElectra, ExecutionPayloadFulu,
     ExecutionPayloadGloas,
 };
 
@@ -28,7 +28,7 @@ impl_store_item!(ExecutionPayloadCapella);
 impl_store_item!(ExecutionPayloadDeneb);
 impl_store_item!(ExecutionPayloadElectra);
 impl_store_item!(ExecutionPayloadFulu);
-impl_store_item!(ExecutionPayloadEip7805);
+impl_store_item!(ExecutionPayloadHeze);
 impl_store_item!(ExecutionPayloadGloas);
 
 /// This fork-agnostic implementation should be only used for writing.
@@ -49,8 +49,8 @@ impl<E: EthSpec> StoreItem for ExecutionPayload<E> {
             return Ok(Self::Gloas(payload));
         }
 
-        if let Ok(payload) = ExecutionPayloadEip7805::from_ssz_bytes(bytes) {
-            return Ok(Self::Eip7805(payload));
+        if let Ok(payload) = ExecutionPayloadHeze::from_ssz_bytes(bytes) {
+            return Ok(Self::Heze(payload));
         }
 
         if let Ok(payload) = ExecutionPayloadFulu::from_ssz_bytes(bytes) {

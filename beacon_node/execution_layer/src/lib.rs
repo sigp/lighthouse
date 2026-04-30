@@ -45,6 +45,7 @@ use tokio_stream::wrappers::WatchStream;
 use tracing::{Instrument, debug, debug_span, error, info, instrument, warn};
 use tree_hash::TreeHash;
 use types::ExecutionPayloadGloas;
+use types::ExecutionPayloadHeze;
 use types::builder::BuilderBid;
 use types::execution::BlockProductionVersion;
 use types::kzg_ext::KzgCommitments;
@@ -54,7 +55,7 @@ use types::{
 };
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
-    ExecutionPayloadCapella, ExecutionPayloadEip7805, ExecutionPayloadElectra,
+    ExecutionPayloadCapella, ExecutionPayloadElectra,
     ExecutionPayloadFulu, FullPayload, ProposerPreparationData, Slot,
 };
 
@@ -119,8 +120,8 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
                 blobs_and_proofs: None,
                 requests: Some(builder_bid.execution_requests),
             },
-            BuilderBid::Eip7805(builder_bid) => BlockProposalContents::PayloadAndBlobs {
-                payload: ExecutionPayloadHeader::Eip7805(builder_bid.header).into(),
+            BuilderBid::Heze(builder_bid) => BlockProposalContents::PayloadAndBlobs {
+                payload: ExecutionPayloadHeader::Heze(builder_bid.header).into(),
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
                 blobs_and_proofs: None,
@@ -233,6 +234,26 @@ impl<E: EthSpec> From<GetPayloadResponseGloas<E>> for BlockProposalContentsGloas
             blobs_and_proofs: (response.blobs_bundle.blobs, response.blobs_bundle.proofs),
             execution_requests: response.requests,
             should_override_builder: response.should_override_builder,
+        }
+    }
+}
+
+pub struct BlockProposalContentsHeze<E: EthSpec> {
+    pub payload: ExecutionPayloadHeze<E>,
+    pub payload_value: Uint256,
+    pub blob_kzg_commitments: KzgCommitments<E>,
+    pub blobs_and_proofs: (BlobsList<E>, KzgProofs<E>),
+    pub execution_requests: ExecutionRequests<E>,
+}
+
+impl<E: EthSpec> From<GetPayloadResponseHeze<E>> for BlockProposalContentsHeze<E> {
+    fn from(response: GetPayloadResponseHeze<E>) -> Self {
+        Self {
+            payload: response.execution_payload,
+            payload_value: response.block_value,
+            blob_kzg_commitments: response.blobs_bundle.commitments,
+            blobs_and_proofs: (response.blobs_bundle.blobs, response.blobs_bundle.proofs),
+            execution_requests: response.requests,
         }
     }
 }
@@ -933,6 +954,44 @@ impl<E: EthSpec> ExecutionLayer<E> {
         let GetPayloadResponse::Gloas(payload_response) = payload_response else {
             return Err(Error::Unexpected(
                 "get_payload_gloas should always return a gloas `GetPayloadResponse` variant"
+                    .to_owned(),
+            ));
+        };
+        metrics::inc_counter_vec(
+            &metrics::EXECUTION_LAYER_GET_PAYLOAD_OUTCOME,
+            &[metrics::SUCCESS],
+        );
+        metrics::inc_counter_vec(
+            &metrics::EXECUTION_LAYER_GET_PAYLOAD_SOURCE,
+            &[metrics::LOCAL],
+        );
+
+        Ok(payload_response.into())
+    }
+
+    /// Maps to the `engine_getPayload` JSON-RPC call for post-Heze payload construction.
+    ///
+    /// However, it will attempt to call `self.prepare_payload` if it cannot find an existing
+    /// payload id for the given parameters.
+    ///
+    /// ## Fallback Behavior
+    ///
+    /// The result will be returned from the first node that returns successfully. No more nodes
+    /// will be contacted.
+    #[instrument(level = "debug", skip_all)]
+    pub async fn get_payload_heze(
+        &self,
+        payload_parameters: PayloadParameters<'_>,
+    ) -> Result<BlockProposalContentsHeze<E>, Error> {
+        let payload_response_type = self.get_full_payload_caching(payload_parameters).await?;
+        let GetPayloadResponseType::Full(payload_response) = payload_response_type else {
+            return Err(Error::Unexpected(
+                "get_payload_heze should never return a blinded payload".to_owned(),
+            ));
+        };
+        let GetPayloadResponse::Heze(payload_response) = payload_response else {
+            return Err(Error::Unexpected(
+                "get_payload_heze should always return a heze `GetPayloadResponse` variant"
                     .to_owned(),
             ));
         };
@@ -1702,12 +1761,15 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 ForkName::Capella => ExecutionPayloadCapella::default().into(),
                 ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
                 ForkName::Electra => ExecutionPayloadElectra::default().into(),
-                ForkName::Eip7805 => ExecutionPayloadEip7805::default().into(),
+                ForkName::Heze => ExecutionPayloadHeze::default().into(),
                 ForkName::Fulu => ExecutionPayloadFulu::default().into(),
                 ForkName::Base | ForkName::Altair => {
                     return Err(Error::InvalidForkForPayload);
                 }
                 ForkName::Gloas => {
+                    return Err(Error::InvalidForkForPayload);
+                }
+                ForkName::Heze => {
                     return Err(Error::InvalidForkForPayload);
                 }
             };

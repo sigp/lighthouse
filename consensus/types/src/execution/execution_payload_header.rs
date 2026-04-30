@@ -14,7 +14,7 @@ use crate::{
     core::{Address, EthSpec, ExecutionBlockHash, Hash256, Uint256},
     execution::{
         ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-        ExecutionPayloadEip7805, ExecutionPayloadElectra, ExecutionPayloadFulu,
+        ExecutionPayloadHeze, ExecutionPayloadElectra, ExecutionPayloadFulu,
         ExecutionPayloadRef, Transactions,
     },
     fork::ForkName,
@@ -24,7 +24,7 @@ use crate::{
 };
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Eip7805, Fulu),
+    variants(Bellatrix, Capella, Deneb, Electra, Heze, Fulu),
     variant_attributes(
         derive(
             Default,
@@ -106,12 +106,12 @@ pub struct ExecutionPayloadHeader<E: EthSpec> {
     pub block_hash: ExecutionBlockHash,
     #[superstruct(getter(copy))]
     pub transactions_root: Hash256,
-    #[superstruct(only(Capella, Deneb, Electra, Eip7805, Fulu), partial_getter(copy))]
+    #[superstruct(only(Capella, Deneb, Electra, Heze, Fulu), partial_getter(copy))]
     pub withdrawals_root: Hash256,
-    #[superstruct(only(Deneb, Electra, Eip7805, Fulu), partial_getter(copy))]
+    #[superstruct(only(Deneb, Electra, Heze, Fulu), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub blob_gas_used: u64,
-    #[superstruct(only(Deneb, Electra, Eip7805, Fulu), partial_getter(copy))]
+    #[superstruct(only(Deneb, Electra, Heze, Fulu), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub excess_blob_gas: u64,
 }
@@ -136,11 +136,8 @@ impl<E: EthSpec> ExecutionPayloadHeader<E> {
             ForkName::Electra => {
                 ExecutionPayloadHeaderElectra::from_ssz_bytes(bytes).map(Self::Electra)
             }
-            ForkName::Eip7805 => {
-                ExecutionPayloadHeaderEip7805::from_ssz_bytes(bytes).map(Self::Eip7805)
-            }
             ForkName::Fulu => ExecutionPayloadHeaderFulu::from_ssz_bytes(bytes).map(Self::Fulu),
-            ForkName::Gloas => Err(ssz::DecodeError::BytesInvalid(format!(
+            ForkName::Gloas | ForkName::Heze => Err(ssz::DecodeError::BytesInvalid(format!(
                 "unsupported fork for ExecutionPayloadHeader: {fork_name}",
             ))),
         }
@@ -149,7 +146,10 @@ impl<E: EthSpec> ExecutionPayloadHeader<E> {
     #[allow(clippy::arithmetic_side_effects)]
     pub fn ssz_max_var_len_for_fork(fork_name: ForkName) -> usize {
         // TODO(newfork): Add a new case here if there are new variable fields
-        if fork_name.gloas_enabled() {
+        if fork_name.heze_enabled() {
+            // TODO(Heze): check this
+            0
+        } else if fork_name.gloas_enabled() {
             // TODO(EIP7732): check this
             0
         } else if fork_name.bellatrix_enabled() {
@@ -166,7 +166,7 @@ impl<E: EthSpec> ExecutionPayloadHeader<E> {
             ExecutionPayloadHeader::Capella(_) => ForkName::Capella,
             ExecutionPayloadHeader::Deneb(_) => ForkName::Deneb,
             ExecutionPayloadHeader::Electra(_) => ForkName::Electra,
-            ExecutionPayloadHeader::Eip7805(_) => ForkName::Eip7805,
+            ExecutionPayloadHeader::Heze(_) => ForkName::Heze,
             ExecutionPayloadHeader::Fulu(_) => ForkName::Fulu,
         }
     }
@@ -252,8 +252,8 @@ impl<E: EthSpec> ExecutionPayloadHeaderDeneb<E> {
 }
 
 impl<E: EthSpec> ExecutionPayloadHeaderFulu<E> {
-    pub fn upgrade_to_eip7805(&self) -> ExecutionPayloadHeaderEip7805<E> {
-        ExecutionPayloadHeaderEip7805 {
+    pub fn upgrade_to_heze(&self) -> ExecutionPayloadHeaderHeze<E> {
+        ExecutionPayloadHeaderHeze {
             parent_hash: self.parent_hash,
             fee_recipient: self.fee_recipient,
             state_root: self.state_root,
@@ -390,8 +390,8 @@ impl<'a, E: EthSpec> From<&'a ExecutionPayloadElectra<E>> for ExecutionPayloadHe
     }
 }
 
-impl<'a, E: EthSpec> From<&'a ExecutionPayloadEip7805<E>> for ExecutionPayloadHeaderEip7805<E> {
-    fn from(payload: &'a ExecutionPayloadEip7805<E>) -> Self {
+impl<'a, E: EthSpec> From<&'a ExecutionPayloadHeze<E>> for ExecutionPayloadHeaderHeze<E> {
+    fn from(payload: &'a ExecutionPayloadHeze<E>) -> Self {
         Self {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -464,7 +464,7 @@ impl<'a, E: EthSpec> From<&'a Self> for ExecutionPayloadHeaderElectra<E> {
     }
 }
 
-impl<'a, E: EthSpec> From<&'a Self> for ExecutionPayloadHeaderEip7805<E> {
+impl<'a, E: EthSpec> From<&'a Self> for ExecutionPayloadHeaderHeze<E> {
     fn from(payload: &'a Self) -> Self {
         payload.clone()
     }
@@ -534,7 +534,7 @@ impl<E: EthSpec> ExecutionPayloadHeaderRefMut<'_, E> {
             ExecutionPayloadHeaderRefMut::Electra(mut_ref) => {
                 *mut_ref = header.try_into()?;
             }
-            ExecutionPayloadHeaderRefMut::Eip7805(mut_ref) => {
+            ExecutionPayloadHeaderRefMut::Heze(mut_ref) => {
                 *mut_ref = header.try_into()?;
             }
             ExecutionPayloadHeaderRefMut::Fulu(mut_ref) => {
@@ -557,11 +557,11 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderEl
     }
 }
 
-impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderEip7805<E> {
+impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderHeze<E> {
     type Error = BeaconStateError;
     fn try_from(header: ExecutionPayloadHeader<E>) -> Result<Self, Self::Error> {
         match header {
-            ExecutionPayloadHeader::Eip7805(execution_payload_header) => {
+            ExecutionPayloadHeader::Heze(execution_payload_header) => {
                 Ok(execution_payload_header)
             }
             _ => Err(BeaconStateError::IncorrectStateVariant),
@@ -603,14 +603,11 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for ExecutionPayloadHead
             ForkName::Electra => {
                 Self::Electra(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
-            ForkName::Eip7805 => {
-                Self::Eip7805(Deserialize::deserialize(deserializer).map_err(convert_err)?)
-            }
             ForkName::Fulu => {
                 Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
 
-            ForkName::Base | ForkName::Altair | ForkName::Gloas => {
+            ForkName::Base | ForkName::Altair | ForkName::Gloas | ForkName::Heze => {
                 return Err(serde::de::Error::custom(format!(
                     "ExecutionPayloadHeader failed to deserialize: unsupported fork '{}'",
                     context

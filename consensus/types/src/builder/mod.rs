@@ -6,7 +6,7 @@ mod proposer_preferences;
 
 pub use builder::{Builder, BuilderIndex};
 pub use builder_bid::{
-    BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidEip7805,
+    BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidHeze,
     BuilderBidElectra, BuilderBidFulu, SignedBuilderBid,
 };
 pub use builder_pending_payment::BuilderPendingPayment;

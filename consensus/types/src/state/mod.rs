@@ -17,8 +17,8 @@ pub use activation_queue::ActivationQueue;
 pub use balance::Balance;
 pub use beacon_state::{
     BeaconState, BeaconStateAltair, BeaconStateBase, BeaconStateBellatrix, BeaconStateCapella,
-    BeaconStateDeneb, BeaconStateEip7805, BeaconStateElectra, BeaconStateError, BeaconStateFulu,
-    BeaconStateGloas, BeaconStateHash, BeaconStateRef, CACHED_EPOCHS, DEFAULT_PRE_ELECTRA_WS_PERIOD,
+    BeaconStateDeneb, BeaconStateElectra, BeaconStateError, BeaconStateFulu, BeaconStateGloas,
+    BeaconStateHash, BeaconStateHeze, BeaconStateRef, CACHED_EPOCHS, DEFAULT_PRE_ELECTRA_WS_PERIOD,
     Validators,
 };
 pub use committee_cache::{

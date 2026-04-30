@@ -3,7 +3,10 @@ use crate::block_verification_types::{AsBlock, AvailableBlockData, LookupBlock, 
 use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::graffiti_calculator::GraffitiSettings;
-use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sidecars_gloas};
+use crate::kzg_utils::{
+    build_data_column_sidecars_fulu, build_data_column_sidecars_gloas,
+    build_data_column_sidecars_heze,
+};
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::{BeaconBlockResponseWrapper, CustodyContext, get_block_root};
@@ -557,8 +560,8 @@ where
                 genesis_time
                     + spec.get_slot_duration().as_secs() * E::slots_per_epoch() * epoch.as_u64()
             });
-        mock.server.execution_block_generator().eip7805_time =
-            spec.eip7805_fork_epoch.map(|epoch| {
+        mock.server.execution_block_generator().heze_time =
+            spec.heze_fork_epoch.map(|epoch| {
                 genesis_time + spec.get_slot_duration().as_secs() * E::slots_per_epoch() * epoch.as_u64()
             });
         mock.server.execution_block_generator().osaka_time = spec.fulu_fork_epoch.map(|epoch| {
@@ -695,7 +698,7 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
         HARNESS_GENESIS_TIME
             + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()
     });
-    let eip7805_time = spec.eip7805_fork_epoch.map(|epoch| {
+    let heze_time = spec.heze_fork_epoch.map(|epoch| {
         HARNESS_GENESIS_TIME + spec.get_slot_duration().as_secs() * E::slots_per_epoch() * epoch.as_u64()
     });
     let osaka_time = spec.fulu_fork_epoch.map(|epoch| {
@@ -703,6 +706,10 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
             + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()
     });
     let amsterdam_time = spec.gloas_fork_epoch.map(|epoch| {
+        HARNESS_GENESIS_TIME
+            + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()
+    });
+    let heze_time = spec.heze_fork_epoch.map(|epoch| {
         HARNESS_GENESIS_TIME
             + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()
     });
@@ -714,9 +721,9 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
         shanghai_time,
         cancun_time,
         prague_time,
-        eip7805_time,
         osaka_time,
         amsterdam_time,
+        heze_time,
         Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
         spec,
         Some(kzg),
@@ -3823,10 +3830,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
         SignedBeaconBlock::Fulu(SignedBeaconBlockFulu {
             ref mut message, ..
         }) => add_blob_transactions!(message, FullPayloadFulu<E>, num_blobs, rng, fork_name),
-        SignedBeaconBlock::Eip7805(SignedBeaconBlockEip7805 {
-            ref mut message, ..
-        }) => add_blob_transactions!(message, FullPayloadEip7805<E>, num_blobs, rng, fork_name),
-        // TODO(EIP-7732) Add `SignedBeaconBlock::Gloas` variant
+        // TODO(EIP-7732) Add `SignedBeaconBlock::Gloas` and `SignedBeaconBlock::Heze` variants
         _ => return (block, blob_sidecars),
     };
 
@@ -3876,7 +3880,51 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
 ) -> DataColumnSidecarList<E> {
     // Load the precomputed column sidecar to avoid computing them for every block in the tests.
     // Then repeat the cells and proofs for every blob
-    if block.fork_name_unchecked().gloas_enabled() {
+    if block.fork_name_unchecked().heze_enabled() {
+        let kzg_commitments = &block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .expect("Heze block should have a payload bid")
+            .message
+            .blob_kzg_commitments;
+        if kzg_commitments.is_empty() {
+            return vec![];
+        }
+        let num_blobs = kzg_commitments.len();
+        let signed_block_header = block.signed_block_header();
+        let template_data_columns =
+            RuntimeVariableList::<DataColumnSidecarHeze<E>>::from_ssz_bytes(
+                TEST_DATA_COLUMN_SIDECARS_SSZ,
+                E::number_of_columns(),
+            )
+            .unwrap();
+
+        let (cells, proofs) = template_data_columns
+            .into_iter()
+            .map(|sidecar| {
+                let DataColumnSidecarHeze {
+                    column, kzg_proofs, ..
+                } = sidecar;
+                // There's only one cell per column for a single blob
+                let cell_bytes: Vec<u8> = column.into_iter().next().unwrap().into();
+                let kzg_cell = cell_bytes.try_into().unwrap();
+                let kzg_proof = kzg_proofs.into_iter().next().unwrap();
+                (kzg_cell, kzg_proof)
+            })
+            .collect::<(Vec<_>, Vec<_>)>();
+
+        let blob_cells_and_proofs_vec =
+            vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); num_blobs];
+
+        build_data_column_sidecars_heze(
+            signed_block_header.message.tree_hash_root(),
+            signed_block_header.message.slot,
+            blob_cells_and_proofs_vec,
+            spec,
+        )
+        .unwrap()
+    } else if block.fork_name_unchecked().gloas_enabled() {
         let kzg_commitments = &block
             .message()
             .body()

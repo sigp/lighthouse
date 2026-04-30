@@ -12,7 +12,7 @@ use crate::{
     core::{ChainSpec, EthSpec, SignedRoot, Uint256},
     execution::{
         ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
-        ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderEip7805, ExecutionPayloadHeaderElectra,
+        ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderHeze, ExecutionPayloadHeaderElectra,
         ExecutionPayloadHeaderFulu, ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
         ExecutionRequests,
     },
@@ -22,7 +22,7 @@ use crate::{
 };
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Eip7805, Fulu),
+    variants(Bellatrix, Capella, Deneb, Electra, Heze, Fulu),
     variant_attributes(
         derive(
             PartialEq,
@@ -53,13 +53,13 @@ pub struct BuilderBid<E: EthSpec> {
     pub header: ExecutionPayloadHeaderDeneb<E>,
     #[superstruct(only(Electra), partial_getter(rename = "header_electra"))]
     pub header: ExecutionPayloadHeaderElectra<E>,
-    #[superstruct(only(Eip7805), partial_getter(rename = "header_eip7805"))]
-    pub header: ExecutionPayloadHeaderEip7805<E>,
+    #[superstruct(only(Heze), partial_getter(rename = "header_heze"))]
+    pub header: ExecutionPayloadHeaderHeze<E>,
     #[superstruct(only(Fulu), partial_getter(rename = "header_fulu"))]
     pub header: ExecutionPayloadHeaderFulu<E>,
-    #[superstruct(only(Deneb, Electra, Eip7805, Fulu))]
+    #[superstruct(only(Deneb, Electra, Heze, Fulu))]
     pub blob_kzg_commitments: KzgCommitments<E>,
-    #[superstruct(only(Electra, Eip7805, Fulu))]
+    #[superstruct(only(Electra, Heze, Fulu))]
     pub execution_requests: ExecutionRequests<E>,
     #[serde(with = "serde_utils::quoted_u256")]
     pub value: Uint256,
@@ -103,7 +103,7 @@ impl<E: EthSpec> ForkVersionDecode for BuilderBid<E> {
             ForkName::Capella => BuilderBid::Capella(BuilderBidCapella::from_ssz_bytes(bytes)?),
             ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb::from_ssz_bytes(bytes)?),
             ForkName::Electra => BuilderBid::Electra(BuilderBidElectra::from_ssz_bytes(bytes)?),
-            ForkName::Eip7805 => BuilderBid::Eip7805(BuilderBidEip7805::from_ssz_bytes(bytes)?),
+            ForkName::Heze => BuilderBid::Heze(BuilderBidHeze::from_ssz_bytes(bytes)?),
             ForkName::Fulu => BuilderBid::Fulu(BuilderBidFulu::from_ssz_bytes(bytes)?),
         };
         Ok(builder_bid)
@@ -157,11 +157,11 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for BuilderBid<E> {
             ForkName::Electra => {
                 Self::Electra(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
-            ForkName::Eip7805 => {
-                Self::Eip7805(Deserialize::deserialize(deserializer).map_err(convert_err)?)
-            }
             ForkName::Fulu => {
                 Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Heze => {
+                Self::Heze(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
             ForkName::Base | ForkName::Altair | ForkName::Gloas => {
                 return Err(serde::de::Error::custom(format!(

@@ -183,7 +183,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     type MaxBuildersPerWithdrawalsSweep: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     /*
-     * New in Eip7805
+     * New in Heze
      */
     type InclusionListCommitteeSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxTransactionsPerInclusionList: Unsigned + Clone + Sync + Send + Debug + PartialEq;

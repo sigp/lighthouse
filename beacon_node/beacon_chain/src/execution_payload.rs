@@ -122,7 +122,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
             );
             inclusion_list_transactions
         } else {
-            // TODO(eip7805) what should be done here in terms of error handling
+            // TODO(heze) what should be done here in terms of error handling
             VariableList::new(vec![])
                 .map_err(|_| BlockError::InternalError("Cant create empty IL".to_string()))?
         };

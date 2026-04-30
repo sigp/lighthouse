@@ -26,7 +26,7 @@ pub use types::{
 };
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadEip7805, ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas,
+    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadHeze,
     ExecutionRequests, KzgProofs,
 };
 use types::{GRAFFITI_BYTES_LEN, Graffiti};
@@ -38,8 +38,8 @@ mod new_payload_request;
 
 pub use new_payload_request::{
     NewPayloadRequest, NewPayloadRequestBellatrix, NewPayloadRequestCapella,
-    NewPayloadRequestDeneb, NewPayloadRequestEip7805, NewPayloadRequestElectra,
-    NewPayloadRequestFulu, NewPayloadRequestGloas,
+    NewPayloadRequestDeneb, NewPayloadRequestElectra, NewPayloadRequestFulu,
+    NewPayloadRequestGloas, NewPayloadRequestHeze,
 };
 
 pub const LATEST_TAG: &str = "latest";
@@ -300,7 +300,7 @@ pub struct ProposeBlindedBlockResponse {
 }
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Eip7805, Gloas),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze),
     variant_attributes(derive(Clone, Debug, PartialEq),),
     map_into(ExecutionPayload),
     map_ref_into(ExecutionPayloadRef),
@@ -320,18 +320,18 @@ pub struct GetPayloadResponse<E: EthSpec> {
     pub execution_payload: ExecutionPayloadDeneb<E>,
     #[superstruct(only(Electra), partial_getter(rename = "execution_payload_electra"))]
     pub execution_payload: ExecutionPayloadElectra<E>,
-    #[superstruct(only(Eip7805), partial_getter(rename = "execution_payload_eip7805"))]
-    pub execution_payload: ExecutionPayloadEip7805<E>,
     #[superstruct(only(Fulu), partial_getter(rename = "execution_payload_fulu"))]
     pub execution_payload: ExecutionPayloadFulu<E>,
     #[superstruct(only(Gloas), partial_getter(rename = "execution_payload_gloas"))]
     pub execution_payload: ExecutionPayloadGloas<E>,
+    #[superstruct(only(Heze), partial_getter(rename = "execution_payload_heze"))]
+    pub execution_payload: ExecutionPayloadHeze<E>,
     pub block_value: Uint256,
-    #[superstruct(only(Deneb, Electra, Fulu, Eip7805, Gloas))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     pub blobs_bundle: BlobsBundle<E>,
-    #[superstruct(only(Deneb, Electra, Fulu, Eip7805, Gloas), partial_getter(copy))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze), partial_getter(copy))]
     pub should_override_builder: bool,
-    #[superstruct(only(Electra, Fulu, Eip7805, Gloas))]
+    #[superstruct(only(Electra, Fulu, Gloas, Heze))]
     pub requests: ExecutionRequests<E>,
 }
 
@@ -399,12 +399,6 @@ impl<E: EthSpec> From<GetPayloadResponse<E>>
                 Some(inner.blobs_bundle),
                 Some(inner.requests),
             ),
-            GetPayloadResponse::Eip7805(inner) => (
-                ExecutionPayload::Eip7805(inner.execution_payload),
-                inner.block_value,
-                Some(inner.blobs_bundle),
-                Some(inner.requests),
-            ),
             GetPayloadResponse::Fulu(inner) => (
                 ExecutionPayload::Fulu(inner.execution_payload),
                 inner.block_value,
@@ -413,6 +407,12 @@ impl<E: EthSpec> From<GetPayloadResponse<E>>
             ),
             GetPayloadResponse::Gloas(inner) => (
                 ExecutionPayload::Gloas(inner.execution_payload),
+                inner.block_value,
+                Some(inner.blobs_bundle),
+                Some(inner.requests),
+            ),
+            GetPayloadResponse::Heze(inner) => (
+                ExecutionPayload::Heze(inner.execution_payload),
                 inner.block_value,
                 Some(inner.blobs_bundle),
                 Some(inner.requests),
@@ -550,9 +550,9 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                     ))
                 }
             }
-            ExecutionPayloadHeader::Eip7805(header) => {
+            ExecutionPayloadHeader::Heze(header) => {
                 if let Some(withdrawals) = self.withdrawals {
-                    Ok(ExecutionPayload::Eip7805(ExecutionPayloadEip7805 {
+                    Ok(ExecutionPayload::Heze(ExecutionPayloadHeze {
                         parent_hash: header.parent_hash,
                         fee_recipient: header.fee_recipient,
                         state_root: header.state_root,
@@ -570,6 +570,9 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                         withdrawals,
                         blob_gas_used: header.blob_gas_used,
                         excess_blob_gas: header.excess_blob_gas,
+                        // TODO(heze): block_access_list and slot_number are not available in ExecutionPayloadBodyV1
+                        block_access_list: Default::default(),
+                        slot_number: Default::default(),
                     }))
                 } else {
                     Err(format!(

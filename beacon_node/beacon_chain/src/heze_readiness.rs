@@ -10,16 +10,16 @@ use std::fmt;
 use std::time::Duration;
 use types::*;
 
-/// The time before the eip7805 fork when we will start issuing warnings about preparation.
+/// The time before the heze fork when we will start issuing warnings about preparation.
 use super::bellatrix_readiness::SECONDS_IN_A_WEEK;
-pub const EIP7805_READINESS_PREPARATION_SECONDS: u64 = SECONDS_IN_A_WEEK * 2;
+pub const HEZE_READINESS_PREPARATION_SECONDS: u64 = SECONDS_IN_A_WEEK * 2;
 pub const ENGINE_CAPABILITIES_REFRESH_INTERVAL: u64 = 300;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[serde(tag = "type")]
-pub enum Eip7805Readiness {
-    /// The execution engine is eip7805-enabled (as far as we can tell)
+pub enum HezeReadiness {
+    /// The execution engine is heze-enabled (as far as we can tell)
     Ready,
     /// We are connected to an execution engine which doesn't support the V4 engine api methods
     V4MethodsNotSupported { error: String },
@@ -30,26 +30,26 @@ pub enum Eip7805Readiness {
     NoExecutionEndpoint,
 }
 
-impl fmt::Display for Eip7805Readiness {
+impl fmt::Display for HezeReadiness {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Eip7805Readiness::Ready => {
-                write!(f, "This node appears ready for Eip7805.")
+            HezeReadiness::Ready => {
+                write!(f, "This node appears ready for Heze.")
             }
-            Eip7805Readiness::ExchangeCapabilitiesFailed { error } => write!(
+            HezeReadiness::ExchangeCapabilitiesFailed { error } => write!(
                 f,
                 "Could not exchange capabilities with the \
                     execution endpoint: {}",
                 error
             ),
-            Eip7805Readiness::NoExecutionEndpoint => write!(
+            HezeReadiness::NoExecutionEndpoint => write!(
                 f,
                 "The --execution-endpoint flag is not specified, this is a \
                     requirement post-merge"
             ),
-            Eip7805Readiness::V4MethodsNotSupported { error } => write!(
+            HezeReadiness::V4MethodsNotSupported { error } => write!(
                 f,
-                "Execution endpoint does not support eip7805 methods: {}",
+                "Execution endpoint does not support heze methods: {}",
                 error
             ),
         }
@@ -57,23 +57,23 @@ impl fmt::Display for Eip7805Readiness {
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    /// Returns `true` if eip7805 epoch is set and Eip7805 fork has occurred or will
-    /// occur within `EIP7805_READINESS_PREPARATION_SECONDS`
-    pub fn is_time_to_prepare_for_eip7805(&self, current_slot: Slot) -> bool {
-        if let Some(eip7805_epoch) = self.spec.eip7805_fork_epoch {
-            let eip7805_slot = eip7805_epoch.start_slot(T::EthSpec::slots_per_epoch());
-            let eip7805_readiness_preparation_slots =
-                EIP7805_READINESS_PREPARATION_SECONDS / self.spec.seconds_per_slot;
-            // Return `true` if eip7805 has happened or is within the preparation time.
-            current_slot + eip7805_readiness_preparation_slots > eip7805_slot
+    /// Returns `true` if heze epoch is set and Heze fork has occurred or will
+    /// occur within `HEZE_READINESS_PREPARATION_SECONDS`
+    pub fn is_time_to_prepare_for_heze(&self, current_slot: Slot) -> bool {
+        if let Some(heze_epoch) = self.spec.heze_fork_epoch {
+            let heze_slot = heze_epoch.start_slot(T::EthSpec::slots_per_epoch());
+            let heze_readiness_preparation_slots =
+                HEZE_READINESS_PREPARATION_SECONDS / self.spec.seconds_per_slot;
+            // Return `true` if heze has happened or is within the preparation time.
+            current_slot + heze_readiness_preparation_slots > heze_slot
         } else {
             // The Electra fork epoch has not been defined yet, no need to prepare.
             false
         }
     }
 
-    /// Attempts to connect to the EL and confirm that it is ready for eip7805.
-    pub async fn check_eip7805_readiness(&self) -> Eip7805Readiness {
+    /// Attempts to connect to the EL and confirm that it is ready for heze.
+    pub async fn check_heze_readiness(&self) -> HezeReadiness {
         if let Some(el) = self.execution_layer.as_ref() {
             match el
                 .get_engine_capabilities(Some(Duration::from_secs(
@@ -83,7 +83,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             {
                 Err(e) => {
                     // The EL was either unreachable or responded with an error
-                    Eip7805Readiness::ExchangeCapabilitiesFailed {
+                    HezeReadiness::ExchangeCapabilitiesFailed {
                         error: format!("{:?}", e),
                     }
                 }
@@ -107,16 +107,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     }
 
                     if all_good {
-                        Eip7805Readiness::Ready
+                        HezeReadiness::Ready
                     } else {
-                        Eip7805Readiness::V4MethodsNotSupported {
+                        HezeReadiness::V4MethodsNotSupported {
                             error: missing_methods,
                         }
                     }
                 }
             }
         } else {
-            Eip7805Readiness::NoExecutionEndpoint
+            HezeReadiness::NoExecutionEndpoint
         }
     }
 }

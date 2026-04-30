@@ -109,7 +109,7 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
                 sync_aggregate,
                 signature_slot,
             }),
-            ForkName::Electra | ForkName::Eip7805 => {
+            ForkName::Electra | ForkName::Heze => {
                 Self::Electra(LightClientOptimisticUpdateElectra {
                     attested_header: LightClientHeaderElectra::block_to_light_client_header(
                         attested_block,
@@ -126,6 +126,7 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
                 signature_slot,
             }),
             ForkName::Gloas => return Err(LightClientError::GloasNotImplemented),
+            ForkName::Heze => return Err(LightClientError::HezeNotImplemented),
             ForkName::Base => return Err(LightClientError::AltairForkNotActive),
         };
 
@@ -177,12 +178,12 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
             ForkName::Deneb => {
                 Self::Deneb(LightClientOptimisticUpdateDeneb::from_ssz_bytes(bytes)?)
             }
-            ForkName::Electra | ForkName::Eip7805 => {
+            ForkName::Electra | ForkName::Heze => {
                 Self::Electra(LightClientOptimisticUpdateElectra::from_ssz_bytes(bytes)?)
             }
             ForkName::Fulu => Self::Fulu(LightClientOptimisticUpdateFulu::from_ssz_bytes(bytes)?),
             // TODO(gloas): implement Gloas light client
-            ForkName::Base | ForkName::Gloas => {
+            ForkName::Base | ForkName::Gloas | ForkName::Heze => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientOptimisticUpdate decoding for {fork_name} not implemented"
                 )));
@@ -201,12 +202,12 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
             }
             ForkName::Capella => <LightClientOptimisticUpdateCapella<E> as Encode>::ssz_fixed_len(),
             ForkName::Deneb => <LightClientOptimisticUpdateDeneb<E> as Encode>::ssz_fixed_len(),
-            ForkName::Electra | ForkName::Eip7805 => {
+            ForkName::Electra | ForkName::Heze => {
                 <LightClientOptimisticUpdateElectra<E> as Encode>::ssz_fixed_len()
             }
             ForkName::Fulu => <LightClientOptimisticUpdateFulu<E> as Encode>::ssz_fixed_len(),
             // TODO(gloas): implement Gloas light client
-            ForkName::Gloas => 0,
+            ForkName::Gloas | ForkName::Heze => 0,
         };
         fixed_len + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
     }
@@ -252,13 +253,13 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientOptimisti
             ForkName::Deneb => {
                 Self::Deneb(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
-            ForkName::Electra | ForkName::Eip7805 => {
+            ForkName::Electra | ForkName::Heze => {
                 Self::Electra(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
             ForkName::Fulu => {
                 Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
-            ForkName::Gloas => {
+            ForkName::Gloas | ForkName::Heze => {
                 // TODO(EIP-7732): check if this is correct
                 return Err(serde::de::Error::custom(format!(
                     "LightClientBootstrap failed to deserialize: unsupported fork '{}'",

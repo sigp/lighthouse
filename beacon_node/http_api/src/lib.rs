@@ -2621,7 +2621,7 @@ pub fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
     );
 
-    // TODO(eip7805) update endpoint def
+    // TODO(heze) update endpoint def
     // POST validator/duties/inclusion_list/{epoch}
     let post_validator_duties_inclusion_list = eth_v1
         .clone()
@@ -2659,7 +2659,7 @@ pub fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
     );
 
-    // TODO(EIP7805) update endpoint definition format
+    // TODO(HEZE) update endpoint definition format
     // GET validator/inclusion_list?slot
     let get_validator_inclusion_list = eth_v1
         .clone()

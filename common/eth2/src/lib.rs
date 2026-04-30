@@ -146,7 +146,7 @@ impl Timeouts {
             sync_committee_contribution: base_timeout
                 / HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT,
             sync_duties: base_timeout / HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT,
-            // TODO(EIP7805) check timeouts
+            // TODO(HEZE) check timeouts
             inclusion_list_duties: base_timeout,
             inclusion_list: base_timeout,
             sync_aggregators: base_timeout / HTTP_SYNC_AGGREGATOR_TIMEOUT_QUOTIENT,

@@ -320,7 +320,9 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
                 })
             }
             // TODO(gloas) support gloas data column variant
-            DataColumnSidecar::Gloas(_) => Err(GossipDataColumnError::InvalidVariant),
+            DataColumnSidecar::Gloas(_) | DataColumnSidecar::Heze(_) => {
+                Err(GossipDataColumnError::InvalidVariant)
+            }
         }
     }
 
@@ -1129,7 +1131,9 @@ fn verify_data_column_sidecar<E: EthSpec>(
     // TODO(gloas): implement Gloas verification that takes kzg_commitments from block as parameter
     let commitments_len = match data_column {
         DataColumnSidecar::Fulu(dc) => dc.kzg_commitments.len(),
-        DataColumnSidecar::Gloas(_) => return Err(GossipDataColumnError::InvalidVariant),
+        DataColumnSidecar::Gloas(_) | DataColumnSidecar::Heze(_) => {
+            return Err(GossipDataColumnError::InvalidVariant);
+        }
     };
 
     if commitments_len == 0 {
@@ -1564,8 +1568,8 @@ mod test {
         if !spec.is_fulu_scheduled() {
             return;
         }
-        // Gloas is not supported yet.
-        if spec.is_gloas_scheduled() {
+        // Gloas and Heze are not supported yet.
+        if spec.is_gloas_scheduled() || spec.is_heze_scheduled() {
             return;
         }
 

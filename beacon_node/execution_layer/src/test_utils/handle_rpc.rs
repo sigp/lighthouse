@@ -127,9 +127,16 @@ pub async fn handle_rpc<E: EthSpec>(
                             .map(|jep| JsonExecutionPayload::Electra(jep))
                     })
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
-                ENGINE_NEW_PAYLOAD_V5 => get_param::<JsonExecutionPayloadGloas<E>>(params, 0)
-                    .map(|jep| JsonExecutionPayload::Gloas(jep))
-                    .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
+                ENGINE_NEW_PAYLOAD_V5 => {
+                    // Try Heze first, fall back to Gloas
+                    get_param::<JsonExecutionPayloadHeze<E>>(params, 0)
+                        .map(|jep| JsonExecutionPayload::Heze(jep))
+                        .or_else(|_| {
+                            get_param::<JsonExecutionPayloadGloas<E>>(params, 0)
+                                .map(|jep| JsonExecutionPayload::Gloas(jep))
+                        })
+                        .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
+                }
                 _ => unreachable!(),
             };
 
@@ -193,7 +200,7 @@ pub async fn handle_rpc<E: EthSpec>(
                         ));
                     }
                 }
-                ForkName::Electra | ForkName::Fulu | ForkName::Eip7805 | ForkName::Gloas => {
+                ForkName::Electra | ForkName::Fulu | ForkName::Heze | ForkName::Gloas => {
                     if method == ENGINE_NEW_PAYLOAD_V1
                         || method == ENGINE_NEW_PAYLOAD_V2
                         || method == ENGINE_NEW_PAYLOAD_V3
@@ -235,6 +242,14 @@ pub async fn handle_rpc<E: EthSpec>(
                     if method != ENGINE_NEW_PAYLOAD_V5 {
                         return Err((
                             format!("{} called after Gloas fork!", method),
+                            GENERIC_ERROR_CODE,
+                        ));
+                    }
+                }
+                ForkName::Heze => {
+                    if method != ENGINE_NEW_PAYLOAD_V5 {
+                        return Err((
+                            format!("{} called after Heze fork!", method),
                             GENERIC_ERROR_CODE,
                         ));
                     }
@@ -377,6 +392,24 @@ pub async fn handle_rpc<E: EthSpec>(
                 ));
             }
 
+            // validate method called correctly according to heze fork time
+            if ctx
+                .execution_block_generator
+                .read()
+                .get_fork_at_timestamp(response.timestamp())
+                == ForkName::Heze
+                && (method == ENGINE_GET_PAYLOAD_V1
+                    || method == ENGINE_GET_PAYLOAD_V2
+                    || method == ENGINE_GET_PAYLOAD_V3
+                    || method == ENGINE_GET_PAYLOAD_V4
+                    || method == ENGINE_GET_PAYLOAD_V5)
+            {
+                return Err((
+                    format!("{} called after Heze fork!", method),
+                    FORK_REQUEST_MISMATCH_ERROR_CODE,
+                ));
+            }
+
             match method {
                 ENGINE_GET_PAYLOAD_V1 => Ok(serde_json::to_value(
                     JsonExecutionPayload::try_from(response).unwrap(),
@@ -466,8 +499,8 @@ pub async fn handle_rpc<E: EthSpec>(
                             })
                             .unwrap()
                         }
-                        JsonExecutionPayload::Eip7805(execution_payload) => {
-                            serde_json::to_value(JsonGetPayloadResponseEip7805 {
+                        JsonExecutionPayload::Heze(execution_payload) => {
+                            serde_json::to_value(JsonGetPayloadResponseHeze {
                                 execution_payload,
                                 block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
                                 blobs_bundle: maybe_blobs
@@ -488,6 +521,23 @@ pub async fn handle_rpc<E: EthSpec>(
                     Ok(match JsonExecutionPayload::try_from(response).unwrap() {
                         JsonExecutionPayload::Gloas(execution_payload) => {
                             serde_json::to_value(JsonGetPayloadResponseGloas {
+                                execution_payload,
+                                block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
+                                blobs_bundle: maybe_blobs
+                                    .ok_or((
+                                        "No blobs returned despite V6 Payload".to_string(),
+                                        GENERIC_ERROR_CODE,
+                                    ))?
+                                    .into(),
+                                should_override_builder: false,
+                                execution_requests: maybe_execution_requests
+                                    .unwrap_or_default()
+                                    .into(),
+                            })
+                            .unwrap()
+                        }
+                        JsonExecutionPayload::Heze(execution_payload) => {
+                            serde_json::to_value(JsonGetPayloadResponseHeze {
                                 execution_payload,
                                 block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
                                 blobs_bundle: maybe_blobs
@@ -649,7 +699,7 @@ pub async fn handle_rpc<E: EthSpec>(
                     ForkName::Deneb
                     | ForkName::Electra
                     | ForkName::Fulu
-                    | ForkName::Eip7805
+                    | ForkName::Heze
                     | ForkName::Gloas => {
                         if method == ENGINE_FORKCHOICE_UPDATED_V1 {
                             return Err((
@@ -668,6 +718,14 @@ pub async fn handle_rpc<E: EthSpec>(
                         if method != ENGINE_FORKCHOICE_UPDATED_V4 {
                             return Err((
                                 format!("{} called after Gloas fork! Use V4.", method),
+                                FORK_REQUEST_MISMATCH_ERROR_CODE,
+                            ));
+                        }
+                    }
+                    ForkName::Heze => {
+                        if method != ENGINE_FORKCHOICE_UPDATED_V4 {
+                            return Err((
+                                format!("{} called after Heze fork! Use V4.", method),
                                 FORK_REQUEST_MISMATCH_ERROR_CODE,
                             ));
                         }
