@@ -2307,7 +2307,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
         // Retrieve the inclusion list from the execution layer.
         let inclusion_list = execution_layer
-            .get_inclusion_list(parent_hash.0)
+            .get_inclusion_list()
             .await
             .map_err(|e| Error::ExecutionLayerGetInclusionListFailed(Box::new(e)))?;
 

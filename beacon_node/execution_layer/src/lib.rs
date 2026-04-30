@@ -2006,18 +2006,18 @@ impl<E: EthSpec> ExecutionLayer<E> {
         }
     }
 
-    pub async fn get_inclusion_list(&self, parent_hash: Hash256) -> Result<Transactions<E>, Error> {
-        debug!(%parent_hash, "Requesting inclusion list from EL");
+    pub async fn get_inclusion_list(&self) -> Result<Transactions<E>, Error> {
+        debug!("Requesting inclusion list from EL");
         let raw_transactions = self
             .engine()
             .api
-            .get_inclusion_list::<E>(parent_hash)
+            .get_inclusion_list::<E>()
             .await?;
 
         let mut transactions = vec![];
 
         let Some(raw_transactions) = raw_transactions else {
-            debug!(%parent_hash, "The EL sent an empty inclusion list");
+            debug!("The EL sent an empty inclusion list");
             return Ok(transactions.try_into()?);
         };
         for raw_tx in raw_transactions {

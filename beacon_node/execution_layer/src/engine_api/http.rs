@@ -758,9 +758,8 @@ impl HttpJsonRpc {
 
     pub async fn get_inclusion_list<E: EthSpec>(
         &self,
-        parent_hash: Hash256,
     ) -> Result<Option<Vec<String>>, Error> {
-        let params = json!([parent_hash]);
+        let params = json!([]);
 
         self.rpc_request(
             ENGINE_GET_INCLUSION_LIST_V1,
