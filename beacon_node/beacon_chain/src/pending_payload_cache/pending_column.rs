@@ -36,24 +36,22 @@ impl<E: EthSpec> PendingColumn<E> {
         self.cells.len() == blob_count && self.cells.iter().all(|cell| cell.is_some())
     }
 
-    pub fn try_to_sidecar(
+    /// Build a `DataColumnSidecar` from the cached cells.
+    ///
+    /// Caller MUST have checked `is_complete(blob_count)` first; this returns `Err` only on the
+    /// (currently theoretically impossible) `VariableList` size-bound failures, which we surface
+    /// as a typed error so the caller can log/metric it instead of silently producing nothing.
+    pub fn to_sidecar(
         &self,
         index: ColumnIndex,
         slot: Slot,
         beacon_block_root: Hash256,
-        blob_count: usize,
-    ) -> Option<Arc<DataColumnSidecar<E>>> {
-        if self.cells.len() != blob_count {
-            return None;
-        }
-
-        let mut column = Vec::with_capacity(blob_count);
+    ) -> Result<Arc<DataColumnSidecar<E>>, PendingColumnError> {
+        let mut column = Vec::with_capacity(self.cells.len());
         let mut kzg_proofs = Vec::with_capacity(self.cells.len());
 
         for cell in self.cells.iter() {
-            let Some((cell, proof)) = cell else {
-                return None;
-            };
+            let (cell, proof) = cell.as_ref().ok_or(PendingColumnError::IncompleteColumn)?;
             // TODO(gloas): we likely want to go and arc all cells
             column.push(cell.clone());
             kzg_proofs.push(*proof);
@@ -61,13 +59,24 @@ impl<E: EthSpec> PendingColumn<E> {
 
         // TODO(gloas): this hard-codes the Gloas sidecar variant. Pass the fork in once
         // post-Gloas variants are introduced (or move construction to a fork-aware helper).
-        Some(Arc::new(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
+        Ok(Arc::new(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
             index,
-            // TODO(gloas): this should not error, but we need to catch it
-            column: VariableList::try_from(column).ok()?,
-            kzg_proofs: VariableList::try_from(kzg_proofs).ok()?,
+            column: VariableList::try_from(column)
+                .map_err(|_| PendingColumnError::ColumnSizeExceedsBound)?,
+            kzg_proofs: VariableList::try_from(kzg_proofs)
+                .map_err(|_| PendingColumnError::ProofsSizeExceedsBound)?,
             slot,
             beacon_block_root,
         })))
     }
+}
+
+/// Errors returned by [`PendingColumn::to_sidecar`]. `IncompleteColumn` should never fire if the
+/// caller checks [`PendingColumn::is_complete`] first; the size-bound variants reflect spec-bound
+/// invariants and should never fire in practice.
+#[derive(Debug, Clone)]
+pub enum PendingColumnError {
+    IncompleteColumn,
+    ColumnSizeExceedsBound,
+    ProofsSizeExceedsBound,
 }
