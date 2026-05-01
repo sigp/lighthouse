@@ -1,5 +1,5 @@
 //! This module builds out the data availability cache for Gloas. When a beacon block is received
-//! over gossip/p2p we insert its payload into this cache, keyed by block root. As soon as the bid
+//! over gossip/p2p we insert its bid into this cache, keyed by block root. As soon as the bid
 //! is received we can begin using it to verify data columns.
 //!
 //! When a payload envelope is received over gossip/p2p we first insert it as a pre-executed envelope. A separate
