@@ -23,14 +23,6 @@ use types::{
 four_byte_option_impl!(four_byte_option_usize, usize);
 four_byte_option_impl!(four_byte_option_checkpoint, Checkpoint);
 
-fn all_true_bitvector<N: typenum::Unsigned + Clone>() -> BitVector<N> {
-    let mut bv = BitVector::new();
-    for i in 0..bv.len() {
-        let _ = bv.set(i, true);
-    }
-    bv
-}
-
 /// Defines an operation which may invalidate the `execution_status` of some nodes.
 #[derive(Clone, Debug)]
 pub enum InvalidationOperation {
@@ -568,10 +560,8 @@ impl ProtoArray {
                         ProtoNode::V29(v29) => {
                             // Both parent and child are Gloas blocks. The parent is full if the
                             // block hash in the parent node matches the parent block hash in the
-                            // child bid and the parent block isn't the genesis block.
-                            if v29.execution_payload_block_hash != ExecutionBlockHash::zero()
-                                && execution_payload_parent_hash == v29.execution_payload_block_hash
-                            {
+                            // child bid.
+                            if execution_payload_parent_hash == v29.execution_payload_block_hash {
                                 PayloadStatus::Full
                             } else {
                                 PayloadStatus::Empty
@@ -613,18 +603,8 @@ impl ProtoArray {
                 full_payload_weight: 0,
                 execution_payload_block_hash,
                 execution_payload_parent_hash,
-                // Per spec `get_forkchoice_store`: the anchor block's PTC votes are
-                // initialized to all-True.
-                payload_timeliness_votes: if is_anchor {
-                    all_true_bitvector()
-                } else {
-                    BitVector::default()
-                },
-                payload_data_availability_votes: if is_anchor {
-                    all_true_bitvector()
-                } else {
-                    BitVector::default()
-                },
+                payload_timeliness_votes: BitVector::default(),
+                payload_data_availability_votes: BitVector::default(),
                 payload_received: false,
                 proposer_index,
                 // Spec: `record_block_timeliness` + `get_forkchoice_store`.

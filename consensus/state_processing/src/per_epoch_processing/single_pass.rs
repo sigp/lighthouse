@@ -962,7 +962,11 @@ fn compute_exit_epoch_and_update_churn(
         spec.compute_activation_exit_epoch(state_ctxt.current_epoch)?,
     );
 
-    let per_epoch_churn = get_activation_exit_churn_limit(state_ctxt, spec)?;
+    let per_epoch_churn = if state_ctxt.fork_name.gloas_enabled() {
+        get_balance_churn_limit(state_ctxt, spec)?
+    } else {
+        get_activation_exit_churn_limit(state_ctxt, spec)?
+    };
     // New epoch for exits
     let mut exit_balance_to_consume = if *earliest_exit_epoch_state < earliest_exit_epoch {
         per_epoch_churn
@@ -991,17 +995,27 @@ fn get_activation_exit_churn_limit(
     state_ctxt: &StateContext,
     spec: &ChainSpec,
 ) -> Result<u64, Error> {
+    let max_limit = if state_ctxt.fork_name.gloas_enabled() {
+        spec.max_per_epoch_activation_churn_limit_gloas
+    } else {
+        spec.max_per_epoch_activation_exit_churn_limit
+    };
     Ok(std::cmp::min(
-        spec.max_per_epoch_activation_exit_churn_limit,
+        max_limit,
         get_balance_churn_limit(state_ctxt, spec)?,
     ))
 }
 
 fn get_balance_churn_limit(state_ctxt: &StateContext, spec: &ChainSpec) -> Result<u64, Error> {
     let total_active_balance = state_ctxt.total_active_balance;
+    let quotient = if state_ctxt.fork_name.gloas_enabled() {
+        spec.churn_limit_quotient_gloas
+    } else {
+        spec.churn_limit_quotient
+    };
     let churn = std::cmp::max(
         spec.min_per_epoch_churn_limit_electra,
-        total_active_balance.safe_div(spec.churn_limit_quotient)?,
+        total_active_balance.safe_div(quotient)?,
     );
 
     Ok(churn.safe_sub(churn.safe_rem(spec.effective_balance_increment)?)?)
