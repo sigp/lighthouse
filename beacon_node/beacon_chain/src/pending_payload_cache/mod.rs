@@ -487,7 +487,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
             return ReconstructColumnsDecision::No("block already imported");
         };
 
-        let epoch = pending_components.epoch();
+        let epoch = pending_components.bid.epoch();
 
         let total_column_count = T::EthSpec::number_of_columns();
         let sampling_column_count = self
@@ -524,7 +524,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         let mut write_lock = self.availability_cache.write();
         let mut keys_to_remove = vec![];
         for (key, value) in write_lock.iter() {
-            if value.epoch() < cutoff_epoch {
+            if value.bid.epoch() < cutoff_epoch {
                 keys_to_remove.push(*key);
             }
         }

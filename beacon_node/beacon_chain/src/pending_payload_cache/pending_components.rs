@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
 use types::DataColumnSidecar;
 use types::{
-    AbstractExecPayload, BeaconStateError, ColumnIndex, Epoch, EthSpec, Hash256, SignedBeaconBlock,
+    AbstractExecPayload, BeaconStateError, ColumnIndex, EthSpec, Hash256, SignedBeaconBlock,
     SignedExecutionPayloadBid,
 };
 
@@ -185,11 +185,6 @@ impl<E: EthSpec> PendingComponents<E> {
             reconstruction_started: false,
             span,
         }
-    }
-
-    /// Returns the epoch of the bid or first data column, if available.
-    pub fn epoch(&self) -> Epoch {
-        self.bid.message.slot.epoch(E::slots_per_epoch())
     }
 
     pub fn status_str(&self, num_expected_columns: usize) -> String {

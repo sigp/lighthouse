@@ -3352,7 +3352,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         self.emit_sse_data_column_sidecar_events(
-            slot,
             &block_root,
             data_columns.iter().map(|column| column.as_data_column()),
         );
@@ -3430,7 +3429,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
 
             self.emit_sse_data_column_sidecar_events(
-                slot,
                 &block_root,
                 merge_result
                     .full_columns
@@ -3536,7 +3534,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             EngineGetBlobsOutput::CustodyColumns(columns) => {
                 self.emit_sse_data_column_sidecar_events(
-                    slot,
                     &block_root,
                     columns.iter().map(|column| column.as_data_column()),
                 );
@@ -3570,7 +3567,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     fn emit_sse_data_column_sidecar_events<'a, I>(
         self: &Arc<Self>,
-        slot: Slot,
         block_root: &Hash256,
         data_columns_iter: I,
     ) where
@@ -3579,6 +3575,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(event_handler) = self.event_handler.as_ref()
             && event_handler.has_data_column_sidecar_subscribers()
         {
+            let mut data_columns_iter = data_columns_iter.peekable();
+            let Some(slot) = data_columns_iter.peek().map(|col| col.slot()) else {
+                return;
+            };
             let imported_data_columns = self
                 .cached_data_column_indexes(block_root, slot)
                 .unwrap_or_default();
@@ -3643,7 +3643,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         self.emit_sse_data_column_sidecar_events(
-            slot,
             &block_root,
             custody_columns.iter().map(|column| column.as_ref()),
         );
