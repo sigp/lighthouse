@@ -81,11 +81,10 @@ impl<E: EthSpec> PendingComponents<E> {
     ) -> Result<(), AvailabilityCheckError> {
         for data_column in kzg_verified_data_columns {
             let data_column = data_column.as_data_column();
-            let num_blobs_expected = self.num_blobs_expected();
             let col = self
                 .verified_data_columns
                 .entry(*data_column.index())
-                .or_insert_with(|| PendingColumn::new_with_capacity(num_blobs_expected));
+                .or_default();
             for (cell_idx, (cell, proof)) in data_column
                 .column()
                 .iter()

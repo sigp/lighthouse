@@ -15,10 +15,6 @@ impl<E: EthSpec> Default for PendingColumn<E> {
 }
 
 impl<E: EthSpec> PendingColumn<E> {
-    pub fn new_with_capacity(_blobs: usize) -> Self {
-        Self { cells: Vec::new() }
-    }
-
     pub fn insert(&mut self, index: usize, cell: &Cell<E>, proof: &KzgProof) {
         if let Some(existing_cell) = self.cells.get_mut(index)
             && existing_cell.is_none()
