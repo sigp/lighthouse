@@ -3820,9 +3820,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let block = execution_pending.block.block_cloned();
             if block.fork_name_unchecked().gloas_enabled() {
                 let bid = signed_payload_bid_from_block(block.as_ref())?;
-                chain
-                    .pending_payload_cache
-                    .init_pending_bid(block_root, bid);
+                chain.pending_payload_cache.insert_bid(block_root, bid);
             }
 
             publish_fn()?;

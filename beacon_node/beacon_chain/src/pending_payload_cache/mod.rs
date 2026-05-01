@@ -54,7 +54,8 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tracing::{Span, debug, error, instrument, trace};
 use types::{
-    ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256, PartialDataColumnSidecarRef
+    ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
+    PartialDataColumnSidecarRef,
 };
 
 mod pending_column;
@@ -230,11 +231,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     }
 
     /// Inserts a bid into the pending payload cache.
-    pub fn insert_bid(
-        &self,
-        block_root: Hash256,
-        bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>,
-    ) {
+    pub fn insert_bid(&self, block_root: Hash256, bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>) {
         let mut write_lock = self.availability_cache.write();
         write_lock.get_or_insert_mut(block_root, || PendingComponents::new(block_root, bid));
     }
@@ -756,7 +753,7 @@ mod data_availability_checker_tests {
             generate_rand_block_and_data_columns::<E>(ForkName::Gloas, num_blobs, &mut rng, spec);
         let block_root = block.canonical_root();
         let bid = signed_payload_bid_from_block(&block).expect("should get payload bid");
-        cache.init_pending_bid(block_root, bid.clone());
+        cache.insert_bid(block_root, bid.clone());
         (bid, block_root, data_columns)
     }
 

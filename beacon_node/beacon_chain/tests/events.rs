@@ -92,7 +92,7 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
             harness
                 .chain
                 .pending_payload_cache
-                .init_pending_bid(random_sidecar.beacon_block_root, Arc::new(bid));
+                .insert_bid(random_sidecar.beacon_block_root, Arc::new(bid));
 
             DataColumnSidecar::Gloas(random_sidecar)
         } else {

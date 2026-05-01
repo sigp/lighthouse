@@ -1334,7 +1334,7 @@ pub(crate) fn load_gloas_payload_bid<T: BeaconChainTypes>(
 
     chain
         .pending_payload_cache
-        .init_pending_bid(block_root, bid.clone());
+        .insert_bid(block_root, bid.clone());
 
     Ok(Some(bid))
 }
