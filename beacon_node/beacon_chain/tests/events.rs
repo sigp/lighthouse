@@ -1,6 +1,5 @@
 use beacon_chain::blob_verification::GossipVerifiedBlob;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
-use beacon_chain::pending_payload_cache::PendingPayloadBid;
 use beacon_chain::test_utils::{
     BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
 };
@@ -12,8 +11,8 @@ use types::data::FixedBlobSidecarList;
 use types::test_utils::TestRandom;
 use types::{
     BlobSidecar, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas, Domain, EthSpec,
-    KzgCommitments, MinimalEthSpec, PayloadAttestationData, PayloadAttestationMessage, SignedRoot,
-    Slot,
+    MinimalEthSpec, PayloadAttestationData, PayloadAttestationMessage, SignedExecutionPayloadBid,
+    SignedRoot, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -88,13 +87,12 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
             random_sidecar.index = harness.chain.sampling_columns_for_epoch(epoch)[0];
 
             // For gloas, the bid must be known, e.g. in the pending payload cache
-            harness.chain.pending_payload_cache.init_pending_bid(
-                random_sidecar.beacon_block_root,
-                PendingPayloadBid {
-                    slot: Slot::new(10),
-                    blob_kzg_commitments: KzgCommitments::<E>::empty(),
-                },
-            );
+            let mut bid = SignedExecutionPayloadBid::<E>::empty();
+            bid.message.slot = Slot::new(10);
+            harness
+                .chain
+                .pending_payload_cache
+                .init_pending_bid(random_sidecar.beacon_block_root, Arc::new(bid));
 
             DataColumnSidecar::Gloas(random_sidecar)
         } else {

@@ -9,7 +9,7 @@ use crate::kzg_utils::{
 use crate::observed_data_sidecars::{
     Error as ObservedDataSidecarsError, ObservationKey, ObservationStrategy, Observe,
 };
-use crate::pending_payload_cache::PendingPayloadBid;
+use crate::pending_payload_cache::signed_payload_bid_from_block;
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, metrics};
 use educe::Educe;
 use fork_choice::ProtoBlock;
@@ -32,7 +32,7 @@ use types::data::{
 use types::{
     BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas,
     DataColumnSubnetId, EthSpec, Hash256, KzgCommitment, PartialDataColumnSidecarRef,
-    SignedBeaconBlockHeader, Slot,
+    SignedBeaconBlockHeader, SignedExecutionPayloadBid, Slot,
 };
 
 /// An error occurred while validating a gossip data column.
@@ -373,15 +373,15 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
                 )?;
             }
             DataColumnSidecar::Gloas(_) => {
-                let kzg_commitments = load_gloas_payload_bid(column_sidecar.block_root(), chain)?
-                    .ok_or(GossipDataColumnError::BlockRootUnknown {
+                let bid = load_gloas_payload_bid(column_sidecar.block_root(), chain)?.ok_or(
+                    GossipDataColumnError::BlockRootUnknown {
                         block_root: column_sidecar.block_root(),
                         slot: column_sidecar.slot(),
-                    })?
-                    .blob_kzg_commitments;
+                    },
+                )?;
                 verify_data_column_sidecar_with_commitments_len(
                     &column_sidecar,
-                    kzg_commitments.len(),
+                    bid.message.blob_kzg_commitments.len(),
                     &chain.spec,
                 )?;
             }
@@ -1091,12 +1091,13 @@ pub fn validate_data_column_sidecar_for_gossip_gloas<
     verify_slot_greater_than_latest_finalized_slot(chain, column_slot)?;
     verify_is_unknown_sidecar(chain, &data_column)?;
 
-    let kzg_commitments = load_gloas_payload_bid(data_column.block_root(), chain)?
-        .ok_or(GossipDataColumnError::BlockRootUnknown {
+    let bid = load_gloas_payload_bid(data_column.block_root(), chain)?.ok_or(
+        GossipDataColumnError::BlockRootUnknown {
             block_root: data_column.block_root(),
             slot: column_slot,
-        })?
-        .blob_kzg_commitments;
+        },
+    )?;
+    let kzg_commitments = &bid.message.blob_kzg_commitments;
     verify_data_column_sidecar_with_commitments_len(
         &data_column,
         kzg_commitments.len(),
@@ -1306,13 +1307,13 @@ fn verify_data_column_sidecar_with_commitments_len<E: EthSpec>(
 pub(crate) fn load_gloas_payload_bid<T: BeaconChainTypes>(
     block_root: Hash256,
     chain: &BeaconChain<T>,
-) -> Result<Option<PendingPayloadBid<T::EthSpec>>, BeaconChainError> {
+) -> Result<Option<Arc<SignedExecutionPayloadBid<T::EthSpec>>>, BeaconChainError> {
     if let Some(bid) = chain.pending_payload_cache.get_bid(&block_root) {
         return Ok(Some(bid));
     }
 
     let bid = if let Some(block) = chain.early_attester_cache.get_block(block_root) {
-        PendingPayloadBid::from_block(block.as_ref()).map_err(BeaconChainError::BeaconStateError)?
+        signed_payload_bid_from_block(block.as_ref()).map_err(BeaconChainError::BeaconStateError)?
     } else {
         match chain
             .store
@@ -1320,10 +1321,10 @@ pub(crate) fn load_gloas_payload_bid<T: BeaconChainTypes>(
             .map_err(BeaconChainError::DBError)?
         {
             Some(DatabaseBlock::Full(block)) => {
-                PendingPayloadBid::from_block(&block).map_err(BeaconChainError::BeaconStateError)?
+                signed_payload_bid_from_block(&block).map_err(BeaconChainError::BeaconStateError)?
             }
             Some(DatabaseBlock::Blinded(block)) => {
-                PendingPayloadBid::from_block(&block).map_err(BeaconChainError::BeaconStateError)?
+                signed_payload_bid_from_block(&block).map_err(BeaconChainError::BeaconStateError)?
             }
             None => {
                 return Ok(None);
