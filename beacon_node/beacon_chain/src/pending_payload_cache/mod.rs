@@ -9,33 +9,6 @@
 //!
 //! Note that the block must have arrived before the envelope for the envelope to pass upstream verification checks and reach this cache.
 //! However data columns can potentially arrive before the block.
-//!
-//!
-//! SignedBeaconBlock
-//!          |
-//!          | -> SignedExecutionPayloadBid
-//!
-//!
-//! DataColumnSidecarList
-//!          |
-//!          | -> Perform data column verification against `SignedExecutionPayloadBid`
-//!          │           │
-//!          │           ▼
-//!          | -> KzgVerifiedCustodyDataColumn
-//!
-//!
-//! SignedExecutionPayloadEnvelope
-//!          │
-//!          | -> CachedPayloadEnvelope::PreExecution
-//!          │           │
-//!          │           ▼
-//!          | -> AvailabilityPendingExecutedEnvelope
-//!          │           │
-//!          │           ▼
-//!          │ -> CachedPayloadEnvelope::Executed
-//!          │           │
-//!          │           ▼
-//!          | -> AvailableExecutedEnvelope  (all columns present, payload executed against the EL, ready to import)
 
 use crate::data_availability_checker::{AvailabilityCheckError, MissingCellsError};
 use crate::payload_envelope_verification::{
