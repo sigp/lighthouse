@@ -10,26 +10,23 @@ use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
 use types::DataColumnSidecar;
 use types::{
-    AbstractExecPayload, BeaconStateError, ColumnIndex, Epoch, EthSpec, Hash256, KzgCommitments,
-    SignedBeaconBlock, Slot,
+    AbstractExecPayload, BeaconStateError, ColumnIndex, Epoch, EthSpec, Hash256, SignedBeaconBlock,
+    SignedExecutionPayloadBid,
 };
 
-#[derive(Clone)]
-pub struct PendingPayloadBid<E: EthSpec> {
-    pub slot: Slot,
-    pub blob_kzg_commitments: KzgCommitments<E>,
-}
-
-impl<E: EthSpec> PendingPayloadBid<E> {
-    pub fn from_block<Payload: AbstractExecPayload<E>>(
-        block: &SignedBeaconBlock<E, Payload>,
-    ) -> Result<Self, BeaconStateError> {
-        let signed_bid = block.message().body().signed_execution_payload_bid()?;
-        Ok(Self {
-            slot: block.slot(),
-            blob_kzg_commitments: signed_bid.message.blob_kzg_commitments.clone(),
-        })
-    }
+/// Extract the signed execution payload bid from a Gloas block as a shareable `Arc`.
+///
+/// Returns `Err` if the block is not a Gloas block.
+pub fn signed_payload_bid_from_block<E: EthSpec, P: AbstractExecPayload<E>>(
+    block: &SignedBeaconBlock<E, P>,
+) -> Result<Arc<SignedExecutionPayloadBid<E>>, BeaconStateError> {
+    Ok(Arc::new(
+        block
+            .message()
+            .body()
+            .signed_execution_payload_bid()?
+            .clone(),
+    ))
 }
 
 /// This represents the components of a payload pending data availability.
@@ -37,7 +34,8 @@ impl<E: EthSpec> PendingPayloadBid<E> {
 /// The columns are all gossip and kzg verified.
 /// The payload is considered "available" when all required columns are received.
 pub struct PendingComponents<E: EthSpec> {
-    pub bid: PendingPayloadBid<E>,
+    pub block_root: Hash256,
+    pub bid: Arc<SignedExecutionPayloadBid<E>>,
     /// a cached post executed payload envelope
     pub envelope: Option<AvailabilityPendingExecutedEnvelope<E>>,
     pub verified_data_columns: HashMap<ColumnIndex, PendingColumn<E>>,
@@ -47,18 +45,18 @@ pub struct PendingComponents<E: EthSpec> {
 
 impl<E: EthSpec> PendingComponents<E> {
     pub fn num_blobs_expected(&self) -> usize {
-        self.bid.blob_kzg_commitments.len()
+        self.bid.message.blob_kzg_commitments.len()
     }
 
     /// Returns the completed custody columns
-    pub fn get_cached_data_columns(&self, block_root: Hash256) -> Vec<Arc<DataColumnSidecar<E>>> {
+    pub fn get_cached_data_columns(&self) -> Vec<Arc<DataColumnSidecar<E>>> {
         self.verified_data_columns
             .iter()
             .filter_map(|(col_idx, col)| {
                 col.try_to_sidecar(
                     *col_idx,
-                    self.bid.slot,
-                    block_root,
+                    self.bid.message.slot,
+                    self.block_root,
                     self.num_blobs_expected(),
                 )
             })
@@ -77,17 +75,16 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Merges a given set of data columns into the cache.
-    pub(crate) fn merge_data_columns<I: IntoIterator<Item = KzgVerifiedCustodyDataColumn<E>>>(
+    pub(crate) fn merge_data_columns(
         &mut self,
-        kzg_verified_data_columns: I,
+        kzg_verified_data_columns: &[KzgVerifiedCustodyDataColumn<E>],
     ) -> Result<(), AvailabilityCheckError> {
-        let num_blobs_expected = self.num_blobs_expected();
         for data_column in kzg_verified_data_columns {
             let data_column = data_column.as_data_column();
             let col = self
                 .verified_data_columns
                 .entry(*data_column.index())
-                .or_insert_with(|| PendingColumn::new_with_capacity(num_blobs_expected));
+                .or_default();
             for (cell_idx, (cell, proof)) in data_column
                 .column()
                 .iter()
@@ -121,7 +118,6 @@ impl<E: EthSpec> PendingComponents<E> {
     /// Returns `Some` if the envelope and all required data columns have been received.
     pub fn make_available(
         &self,
-        block_hash: Hash256,
         num_expected_columns: usize,
     ) -> Result<Option<AvailableExecutedEnvelope<E>>, AvailabilityCheckError> {
         // Check if the payload has been received and executed
@@ -154,17 +150,7 @@ impl<E: EthSpec> PendingComponents<E> {
                         debug!("All data columns received, data is available");
                     });
 
-                    self.verified_data_columns
-                        .iter()
-                        .filter_map(|(col_idx, col)| {
-                            col.try_to_sidecar(
-                                *col_idx,
-                                self.bid.slot,
-                                block_hash,
-                                self.num_blobs_expected(),
-                            )
-                        })
-                        .collect()
+                    self.get_cached_data_columns()
                 }
                 Ordering::Less => {
                     // Not enough data columns received yet
@@ -187,11 +173,12 @@ impl<E: EthSpec> PendingComponents<E> {
         }))
     }
 
-    /// Returns an empty `PendingComponents` object with the given block root.
-    pub fn empty(block_root: Hash256, bid: PendingPayloadBid<E>) -> Self {
+    /// Constructs a fresh `PendingComponents` with no envelope and no columns yet.
+    pub fn new(block_root: Hash256, bid: Arc<SignedExecutionPayloadBid<E>>) -> Self {
         let span = debug_span!(parent: None, "lh_pending_components", %block_root);
         let _guard = span.clone().entered();
         Self {
+            block_root,
             bid,
             envelope: None,
             verified_data_columns: HashMap::new(),
@@ -202,7 +189,7 @@ impl<E: EthSpec> PendingComponents<E> {
 
     /// Returns the epoch of the bid or first data column, if available.
     pub fn epoch(&self) -> Epoch {
-        self.bid.slot.epoch(E::slots_per_epoch())
+        self.bid.message.slot.epoch(E::slots_per_epoch())
     }
 
     pub fn status_str(&self, num_expected_columns: usize) -> String {

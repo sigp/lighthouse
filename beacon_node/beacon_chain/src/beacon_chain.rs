@@ -70,7 +70,8 @@ use crate::payload_envelope_streamer::{EnvelopeRequestSource, launch_payload_env
 use crate::pending_payload_cache::PendingPayloadCache;
 use crate::pending_payload_cache::{
     Availability as PayloadAvailability,
-    DataColumnReconstructionResult as DataColumnReconstructionResultGloas, PendingPayloadBid,
+    DataColumnReconstructionResult as DataColumnReconstructionResultGloas,
+    signed_payload_bid_from_block,
 };
 use crate::pending_payload_envelopes::PendingPayloadEnvelopes;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
@@ -3431,7 +3432,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .put_kzg_verified_custody_data_columns(
                         block_root,
                         bid,
-                        merge_result.full_columns.clone(),
+                        &merge_result.full_columns,
                     )
                     .map_err(BlockError::from)?;
                 self.process_payload_availability(slot, availability, || Ok(()))
@@ -3818,7 +3819,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let block = execution_pending.block.block_cloned();
             if block.fork_name_unchecked().gloas_enabled() {
-                let bid = PendingPayloadBid::from_block(block.as_ref())?;
+                let bid = signed_payload_bid_from_block(block.as_ref())?;
                 chain
                     .pending_payload_cache
                     .init_pending_bid(block_root, bid);
@@ -4107,7 +4108,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .ok_or(BlockError::EnvelopeBlockRootUnknown { block_root })?;
                     let availability = self
                         .pending_payload_cache
-                        .put_kzg_verified_custody_data_columns(block_root, bid, data_columns)
+                        .put_kzg_verified_custody_data_columns(block_root, bid, &data_columns)
                         .map_err(BlockError::from)?;
                     Ok(self
                         .process_payload_availability(slot, availability, || Ok(()))
