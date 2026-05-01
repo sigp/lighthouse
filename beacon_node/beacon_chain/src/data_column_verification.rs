@@ -3,8 +3,8 @@ use crate::block_verification::{
 };
 use crate::data_availability_checker::MissingCellsError;
 use crate::kzg_utils::{
-    reconstruct_data_columns, validate_full_data_columns,
-    validate_full_data_columns_with_commitments, validate_partial_data_columns,
+    reconstruct_data_columns, validate_data_columns_with_commitments, validate_full_data_columns,
+    validate_partial_data_columns,
 };
 use crate::observed_data_sidecars::{
     Error as ObservedDataSidecarsError, ObservationKey, ObservationStrategy, Observe,
@@ -490,7 +490,7 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
         kzg: &Kzg,
     ) -> Result<Vec<Self>, (Option<ColumnIndex>, KzgError)> {
         let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_BATCH_TIMES);
-        validate_full_data_columns_with_commitments(kzg, data_columns.iter(), kzg_commitments)?;
+        validate_data_columns_with_commitments(kzg, data_columns.iter(), kzg_commitments)?;
         Ok(data_columns
             .into_iter()
             .map(|column| Self {

@@ -33,7 +33,7 @@ use crate::data_column_verification::{
     GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn,
     verify_kzg_for_data_column_list,
 };
-use crate::kzg_utils::validate_full_data_columns_with_commitments;
+use crate::kzg_utils::validate_data_columns_with_commitments;
 use crate::metrics::{
     KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS, KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES,
 };
@@ -699,7 +699,7 @@ fn verify_columns_against_block<E: EthSpec>(
                     "Gloas block missing signed_execution_payload_bid".to_string(),
                 )
             })?;
-        validate_full_data_columns_with_commitments(kzg, columns.iter(), commitments.as_ref())
+        validate_data_columns_with_commitments(kzg, columns.iter(), commitments.as_ref())
             .map_err(AvailabilityCheckError::InvalidColumn)
     } else {
         verify_kzg_for_data_column_list(columns.iter(), kzg)

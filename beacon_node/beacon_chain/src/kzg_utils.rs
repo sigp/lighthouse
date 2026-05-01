@@ -115,7 +115,7 @@ pub fn validate_full_data_columns<'a, E: EthSpec>(
 ///
 /// Gloas sidecars do not carry commitments. Their commitments come from the block's
 /// `ExecutionPayloadBid`.
-pub fn validate_full_data_columns_with_commitments<'a, E: EthSpec>(
+pub fn validate_data_columns_with_commitments<'a, E: EthSpec>(
     kzg: &Kzg,
     data_column_iter: impl Iterator<Item = &'a Arc<DataColumnSidecar<E>>>,
     kzg_commitments: &[KzgCommitment],
