@@ -416,11 +416,24 @@ where
 
         let (execution_status, execution_payload_parent_hash, execution_payload_block_hash) =
             if let Ok(signed_bid) = anchor_block.message().body().signed_execution_payload_bid() {
-                // Gloas: execution status is irrelevant post-Gloas; payload validation
-                // is decoupled from beacon blocks.
+                // At Gloas genesis the block bid is empty (all zeros) per spec, but the
+                // state holds the EL genesis hash in `latest_block_hash`. Use it so the
+                // first forkchoice update sends a valid head to the EL.
+                let parent_hash = if anchor_block.slot() == spec.genesis_slot
+                    && anchor_state.slot() == spec.genesis_slot
+                    && signed_bid.message().parent_block_hash().into_root().is_zero()
+                    && signed_bid.message().block_hash().into_root().is_zero()
+                {
+                    *anchor_state
+                        .latest_block_hash()
+                        .map_err(Error::BeaconStateError)?
+                } else {
+                    signed_bid.message().parent_block_hash()
+                };
+
                 (
                     ExecutionStatus::irrelevant(),
-                    Some(signed_bid.message().parent_block_hash()),
+                    Some(parent_hash),
                     Some(signed_bid.message().block_hash()),
                 )
             } else if let Ok(execution_payload) = anchor_block.message().execution_payload() {
