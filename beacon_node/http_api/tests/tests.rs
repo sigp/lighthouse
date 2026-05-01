@@ -4667,7 +4667,8 @@ impl ApiTester {
             .client
             .get_validator_payload_attestation_data_ssz(slot)
             .await
-            .unwrap();
+            .unwrap()
+            .expect("expected SSZ payload attestation data for slot with block");
 
         assert_eq!(ssz_result, expected);
 

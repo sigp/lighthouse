@@ -3015,10 +3015,11 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET validator/payload_attestation_data/{slot}` in SSZ format
+    /// Returns `None` if no block has been received for the requested slot (404).
     pub async fn get_validator_payload_attestation_data_ssz(
         &self,
         slot: Slot,
-    ) -> Result<PayloadAttestationData, Error> {
+    ) -> Result<Option<PayloadAttestationData>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -3031,9 +3032,9 @@ impl BeaconNodeHttpClient {
             .get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.payload_attestation)
             .await?;
 
-        let response_bytes = opt_response.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))?;
-
-        PayloadAttestationData::from_ssz_bytes(&response_bytes).map_err(Error::InvalidSsz)
+        opt_response
+            .map(|bytes| PayloadAttestationData::from_ssz_bytes(&bytes).map_err(Error::InvalidSsz))
+            .transpose()
     }
 
     /// `GET v1/validator/aggregate_attestation?slot,attestation_data_root`
