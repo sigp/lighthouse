@@ -1779,6 +1779,13 @@ pub static BLOBS_FROM_EL_ERROR_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::n
     )
 });
 
+pub static HAS_BLOBS_FROM_EL_MISS_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_has_blobs_from_el_miss_total",
+        "Number of empty or unsupported engine_hasBlobs responses from the execution layer",
+    )
+});
+
 pub static BLOBS_FROM_EL_EXPECTED: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram_with_buckets(
         "beacon_blobs_from_el_expected",

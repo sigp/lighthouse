@@ -155,6 +155,7 @@ pub enum Error {
     ZeroLengthTransaction,
     PayloadBodiesByRangeNotSupported,
     GetBlobsNotSupported,
+    HasBlobsNotSupported,
     InvalidJWTSecret(String),
     InvalidForkForPayload,
     InvalidPayloadBody(String),
@@ -1753,6 +1754,20 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 .map_err(Error::EngineError)
         } else {
             Err(Error::GetBlobsNotSupported)
+        }
+    }
+
+    pub async fn has_blobs(&self, query: Vec<Hash256>) -> Result<Option<Vec<bool>>, Error> {
+        let capabilities = self.get_engine_capabilities(None).await?;
+
+        if capabilities.has_blobs {
+            self.engine()
+                .request(|engine| async move { engine.api.has_blobs(query).await })
+                .await
+                .map_err(Box::new)
+                .map_err(Error::EngineError)
+        } else {
+            Err(Error::HasBlobsNotSupported)
         }
     }
 
