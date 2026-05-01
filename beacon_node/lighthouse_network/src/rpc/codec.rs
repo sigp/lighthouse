@@ -949,26 +949,36 @@ fn handle_rpc_response<E: EthSpec>(
             )),
         },
         SupportedProtocol::BlocksByHeadV1 => match fork_name {
-            Some(fork_name) if fork_name.fulu_enabled() => match fork_name {
-                ForkName::Fulu => Ok(Some(RpcSuccessResponse::BlocksByHead(Arc::new(
-                    SignedBeaconBlock::Fulu(SignedBeaconBlockFulu::from_ssz_bytes(decoded_buffer)?),
-                )))),
-                ForkName::Gloas => Ok(Some(RpcSuccessResponse::BlocksByHead(Arc::new(
-                    SignedBeaconBlock::Gloas(SignedBeaconBlockGloas::from_ssz_bytes(
-                        decoded_buffer,
-                    )?),
-                )))),
-                // `fulu_enabled()` returns true only for Fulu and later forks; the matches
-                // above cover those exhaustively.
-                _ => Err(RPCError::ErrorResponse(
-                    RpcErrorResponse::InvalidRequest,
-                    "Unexpected fork variant for blocks by head".to_string(),
-                )),
-            },
-            Some(_) => Err(RPCError::ErrorResponse(
-                RpcErrorResponse::InvalidRequest,
-                "Invalid fork name for blocks by head".to_string(),
-            )),
+            Some(ForkName::Base) => Ok(Some(RpcSuccessResponse::BlocksByHead(Arc::new(
+                SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
+            )))),
+            Some(ForkName::Altair) => Ok(Some(RpcSuccessResponse::BlocksByHead(Arc::new(
+                SignedBeaconBlock::Altair(SignedBeaconBlockAltair::from_ssz_bytes(decoded_buffer)?),
+            )))),
+            Some(ForkName::Bellatrix) => Ok(Some(RpcSuccessResponse::BlocksByHead(Arc::new(
+                SignedBeaconBlock::Bellatrix(SignedBeaconBlockBellatrix::from_ssz_bytes(
+                    decoded_buffer,
+                )?),
+            )))),
+            Some(ForkName::Capella) => Ok(Some(RpcSuccessResponse::BlocksByHead(Arc::new(
+                SignedBeaconBlock::Capella(SignedBeaconBlockCapella::from_ssz_bytes(
+                    decoded_buffer,
+                )?),
+            )))),
+            Some(ForkName::Deneb) => Ok(Some(RpcSuccessResponse::BlocksByHead(Arc::new(
+                SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb::from_ssz_bytes(decoded_buffer)?),
+            )))),
+            Some(ForkName::Electra) => Ok(Some(RpcSuccessResponse::BlocksByHead(Arc::new(
+                SignedBeaconBlock::Electra(SignedBeaconBlockElectra::from_ssz_bytes(
+                    decoded_buffer,
+                )?),
+            )))),
+            Some(ForkName::Fulu) => Ok(Some(RpcSuccessResponse::BlocksByHead(Arc::new(
+                SignedBeaconBlock::Fulu(SignedBeaconBlockFulu::from_ssz_bytes(decoded_buffer)?),
+            )))),
+            Some(ForkName::Gloas) => Ok(Some(RpcSuccessResponse::BlocksByHead(Arc::new(
+                SignedBeaconBlock::Gloas(SignedBeaconBlockGloas::from_ssz_bytes(decoded_buffer)?),
+            )))),
             None => Err(RPCError::ErrorResponse(
                 RpcErrorResponse::InvalidRequest,
                 format!(
@@ -1902,6 +1912,31 @@ mod tests {
             ),
             Ok(Some(RpcSuccessResponse::Status(status_message_v2())))
         );
+    }
+
+    // BlocksByHead is introduced in Fulu but the response is just `SignedBeaconBlock`,
+    // so the codec must accept blocks of any fork variant — the chain a Fulu peer walks
+    // back may straddle the Fulu boundary and include pre-Fulu canonical blocks.
+    #[test]
+    fn test_blocks_by_head_decodes_all_forks() {
+        let chain_spec = spec_with_all_forks_enabled();
+        for (block, fork) in [
+            (empty_base_block(&chain_spec), ForkName::Base),
+            (altair_block(&chain_spec), ForkName::Altair),
+            (bellatrix_block_small(&chain_spec), ForkName::Bellatrix),
+        ] {
+            let block_arc = Arc::new(block);
+            assert_eq!(
+                encode_then_decode_response(
+                    SupportedProtocol::BlocksByHeadV1,
+                    RpcResponse::Success(RpcSuccessResponse::BlocksByHead(block_arc.clone())),
+                    fork,
+                    &chain_spec,
+                ),
+                Ok(Some(RpcSuccessResponse::BlocksByHead(block_arc))),
+                "BlocksByHeadV1 must round-trip a {fork} block"
+            );
+        }
     }
 
     // Test RPCResponse encoding/decoding for V2 messages
