@@ -1208,6 +1208,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    pub fn cached_data_column_indexes(
+        &self,
+        block_root: &Hash256,
+        slot: Slot,
+    ) -> Option<Vec<ColumnIndex>> {
+        if self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(slot)
+            .gloas_enabled()
+        {
+            self.pending_payload_cache
+                .cached_data_column_indexes(block_root)
+        } else {
+            self.data_availability_checker
+                .cached_data_column_indexes(block_root)
+        }
+    }
+
     /// Returns the block at the given root, if any.
     ///
     /// ## Errors
@@ -3561,18 +3579,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(event_handler) = self.event_handler.as_ref()
             && event_handler.has_data_column_sidecar_subscribers()
         {
-            let imported_data_columns = if self
-                .spec
-                .fork_name_at_slot::<T::EthSpec>(slot)
-                .gloas_enabled()
-            {
-                self.pending_payload_cache
-                    .cached_data_column_indexes(block_root)
-            } else {
-                self.data_availability_checker
-                    .cached_data_column_indexes(block_root)
-            }
-            .unwrap_or_default();
+            let imported_data_columns = self
+                .cached_data_column_indexes(block_root, slot)
+                .unwrap_or_default();
             let new_data_columns =
                 data_columns_iter.filter(|b| !imported_data_columns.contains(b.index()));
 
