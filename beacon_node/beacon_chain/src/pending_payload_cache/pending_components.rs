@@ -78,7 +78,7 @@ impl<E: EthSpec> PendingComponents<E> {
     pub(crate) fn merge_data_columns(
         &mut self,
         kzg_verified_data_columns: &[KzgVerifiedCustodyDataColumn<E>],
-    ) -> Result<(), AvailabilityCheckError> {
+    ) {
         let num_blobs_expected = self.num_blobs_expected();
         for data_column in kzg_verified_data_columns {
             let data_column = data_column.as_data_column();
@@ -98,8 +98,6 @@ impl<E: EthSpec> PendingComponents<E> {
                 col.insert(cell_idx, cell, proof);
             }
         }
-
-        Ok(())
     }
 
     // TODO(gloas): merge partial columns
@@ -115,7 +113,7 @@ impl<E: EthSpec> PendingComponents<E> {
     pub fn num_completed_columns(&self) -> usize {
         self.verified_data_columns
             .values()
-            .filter_map(|col| col.is_complete(self.num_blobs_expected()).then_some(()))
+            .filter(|col| col.is_complete(self.num_blobs_expected()))
             .count()
     }
 

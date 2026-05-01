@@ -59,6 +59,8 @@ impl<E: EthSpec> PendingColumn<E> {
             kzg_proofs.push(*proof);
         }
 
+        // TODO(gloas): this hard-codes the Gloas sidecar variant. Pass the fork in once
+        // post-Gloas variants are introduced (or move construction to a fork-aware helper).
         Some(Arc::new(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
             index,
             // TODO(gloas): this should not error, but we need to catch it

@@ -185,7 +185,6 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         let pending_components =
             self.get_pending_components(beacon_block_root, bid, |pending_components| {
                 pending_components.insert_executed_payload_envelope(executed_envelope);
-                Ok(())
             })?;
 
         let num_expected_columns = self
@@ -423,14 +422,14 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         update_fn: F,
     ) -> Result<MappedRwLockReadGuard<'_, PendingComponents<T::EthSpec>>, AvailabilityCheckError>
     where
-        F: FnOnce(&mut PendingComponents<T::EthSpec>) -> Result<(), AvailabilityCheckError>,
+        F: FnOnce(&mut PendingComponents<T::EthSpec>),
     {
         let mut write_lock = self.availability_cache.write();
 
         {
             let pending_components = write_lock
                 .get_or_insert_mut(block_root, || PendingComponents::new(block_root, bid));
-            update_fn(pending_components)?
+            update_fn(pending_components)
         }
 
         RwLockReadGuard::try_map(RwLockWriteGuard::downgrade(write_lock), |cache| {
@@ -623,15 +622,7 @@ mod data_availability_checker_tests {
     const RNG_SEED: u64 = 0xDEADBEEF;
 
     fn gloas_spec<E: EthSpec>() -> Arc<ChainSpec> {
-        let mut spec = E::default_spec();
-        spec.altair_fork_epoch = Some(Epoch::new(0));
-        spec.bellatrix_fork_epoch = Some(Epoch::new(0));
-        spec.capella_fork_epoch = Some(Epoch::new(0));
-        spec.deneb_fork_epoch = Some(Epoch::new(0));
-        spec.electra_fork_epoch = Some(Epoch::new(0));
-        spec.fulu_fork_epoch = Some(Epoch::new(0));
-        spec.gloas_fork_epoch = Some(Epoch::new(0));
-        Arc::new(spec)
+        Arc::new(ForkName::Gloas.make_genesis_spec(E::default_spec()))
     }
 
     fn get_store_with_spec<E: EthSpec>(

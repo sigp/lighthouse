@@ -728,14 +728,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         ..
                     } => {
                         debug!(
-                            action = "requesting block",
+                            action = "ignoring",
                             %unknown_block_root,
                             "Unknown block root for column"
                         );
-                        self.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
-                            peer_id,
-                            unknown_block_root,
-                        ));
+                        // TODO(gloas): wire this into proper lookup sync. Sending
+                        // `UnknownBlockHashFromAttestation` here is a Fulu-shaped fallback that
+                        // mixes column processing with the attestation lookup path and is not
+                        // the right primitive for Gloas column lookups.
                         self.propagate_validation_result(
                             message_id,
                             peer_id,
