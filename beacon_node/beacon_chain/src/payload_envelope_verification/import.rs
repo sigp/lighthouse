@@ -163,7 +163,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let slot = envelope.envelope.slot();
         let block_root = envelope.block_root;
         let bid = load_gloas_payload_bid(block_root, self)?
-            .ok_or(BlockError::EnvelopeBlockRootUnknown { block_root })?;
+            .ok_or(BlockError::EnvelopeBlockRootUnknown(block_root))?;
         let availability = self
             .pending_payload_cache
             .put_executed_payload_envelope(bid, envelope)?;
@@ -253,7 +253,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // been imported. We don't want to repeat work importing a block that is already imported.
         let fork_choice_reader = self.canonical_head.fork_choice_upgradable_read_lock();
         if !fork_choice_reader.contains_block(&block_root) {
-            return Err(BlockError::EnvelopeBlockRootUnknown { block_root });
+            return Err(BlockError::EnvelopeBlockRootUnknown(block_root));
         }
 
         // TODO(gloas) add defensive check to see if payload envelope is already in fork choice

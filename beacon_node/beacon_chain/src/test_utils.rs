@@ -2832,11 +2832,42 @@ where
             .await
             .expect("newPayload should succeed");
 
-        // Store the envelope.
+        // Store the envelope and the data columns derived from the block.
+        //
+        // Production stores columns inside `import_available_execution_payload_envelope` after
+        // the cache is satisfied. The harness sidesteps that flow but must still persist columns
+        // or the `DataColumnMissing` invariant fires for any block with `num_expected_blobs > 0`.
+        let block = self
+            .chain
+            .store
+            .get_blinded_block(&block_root)
+            .expect("should read block from store")
+            .expect("block should exist in store");
+        let mut ops = vec![];
+        let block_with_full_payload = self
+            .chain
+            .store
+            .make_full_block(&block_root, block.clone())
+            .expect("should reconstruct full block");
+        let columns =
+            generate_data_column_sidecars_from_block(&block_with_full_payload, &self.spec);
+        if !columns.is_empty()
+            && let Some(store_op) = self.chain.get_blobs_or_columns_store_op(
+                block_root,
+                block.slot(),
+                AvailableBlockData::DataColumns(columns),
+            )
+        {
+            ops.push(store_op);
+        }
+        ops.push(store::StoreOp::PutPayloadEnvelope(
+            block_root,
+            std::sync::Arc::new(signed_envelope),
+        ));
         self.chain
             .store
-            .put_payload_envelope(&block_root, &signed_envelope)
-            .expect("should store envelope");
+            .do_atomically_with_block_and_blobs_cache(ops)
+            .expect("should persist envelope and columns");
 
         // Update fork choice so it knows the payload was received.
         self.chain
@@ -2857,11 +2888,10 @@ where
         block: Arc<SignedBeaconBlock<E>>,
     ) -> RangeSyncBlock<E> {
         let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
-        let has_blobs = block
-            .message()
-            .body()
-            .blob_kzg_commitments()
-            .is_ok_and(|c| !c.is_empty());
+        // For Gloas, kzg commitments live in the bid (`signed_execution_payload_bid`), so the
+        // body's `blob_kzg_commitments()` accessor returns Err. `num_expected_blobs` already
+        // handles both shapes.
+        let has_blobs = block.num_expected_blobs() > 0;
         if !has_blobs {
             return RangeSyncBlock::new(
                 block,

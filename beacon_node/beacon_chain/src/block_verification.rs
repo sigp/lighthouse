@@ -287,7 +287,7 @@ pub enum BlockError {
     /// https://github.com/sigp/lighthouse/issues/4546
     AvailabilityCheck(AvailabilityCheckError),
     /// The payload envelope's block root is unknown.
-    EnvelopeBlockRootUnknown { block_root: Hash256 },
+    EnvelopeBlockRootUnknown(Hash256),
     /// Optimistic sync is not supported for Gloas payload envelopes.
     OptimisticSyncNotSupported { block_root: Hash256 },
     /// A Blob with a slot after PeerDAS is received and is not required to be imported.
