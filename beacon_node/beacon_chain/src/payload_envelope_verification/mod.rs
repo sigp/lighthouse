@@ -42,22 +42,21 @@ pub use execution_pending_envelope::ExecutionPendingEnvelope;
 
 #[derive(Debug)]
 pub struct AvailableEnvelope<E: EthSpec> {
-    pub execution_block_hash: ExecutionBlockHash,
-    pub envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+    envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
     pub columns: DataColumnSidecarList<E>,
+    // TODO(gloas) this field is unread, do we need it?
+    #[expect(dead_code)]
     /// Timestamp at which this envelope first became available (UNIX timestamp, time since 1970).
-    pub columns_available_timestamp: Option<std::time::Duration>,
+    columns_available_timestamp: Option<std::time::Duration>,
 }
 
 impl<E: EthSpec> AvailableEnvelope<E> {
     pub fn new(
-        execution_block_hash: ExecutionBlockHash,
         envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
         columns: DataColumnSidecarList<E>,
         columns_available_timestamp: Option<std::time::Duration>,
     ) -> Self {
         Self {
-            execution_block_hash,
             envelope,
             columns,
             columns_available_timestamp,

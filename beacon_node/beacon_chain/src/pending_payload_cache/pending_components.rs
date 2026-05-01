@@ -159,12 +159,7 @@ impl<E: EthSpec> PendingComponents<E> {
             }
         };
 
-        let available_envelope = AvailableEnvelope {
-            execution_block_hash: envelope.block_hash(),
-            envelope: envelope.clone(),
-            columns,
-            columns_available_timestamp: None,
-        };
+        let available_envelope = AvailableEnvelope::new(envelope.clone(), columns, None);
 
         Ok(Some(AvailableExecutedEnvelope {
             envelope: available_envelope,
