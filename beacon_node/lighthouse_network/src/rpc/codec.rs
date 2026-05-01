@@ -18,7 +18,7 @@ use tokio_util::codec::{Decoder, Encoder};
 use types::SignedExecutionPayloadEnvelope;
 use types::{
     BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EthSpec, ForkContext,
-    ForkName, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
+    ForkName, ForkVersionDecode, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock, SignedBeaconBlockAltair,
     SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
     SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockFulu,
@@ -949,35 +949,8 @@ fn handle_rpc_response<E: EthSpec>(
             )),
         },
         SupportedProtocol::BlocksByHeadV1 => match fork_name {
-            Some(ForkName::Base) => Ok(Some(RpcSuccessResponse::BlocksByHead(Arc::new(
-                SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
-            )))),
-            Some(ForkName::Altair) => Ok(Some(RpcSuccessResponse::BlocksByHead(Arc::new(
-                SignedBeaconBlock::Altair(SignedBeaconBlockAltair::from_ssz_bytes(decoded_buffer)?),
-            )))),
-            Some(ForkName::Bellatrix) => Ok(Some(RpcSuccessResponse::BlocksByHead(Arc::new(
-                SignedBeaconBlock::Bellatrix(SignedBeaconBlockBellatrix::from_ssz_bytes(
-                    decoded_buffer,
-                )?),
-            )))),
-            Some(ForkName::Capella) => Ok(Some(RpcSuccessResponse::BlocksByHead(Arc::new(
-                SignedBeaconBlock::Capella(SignedBeaconBlockCapella::from_ssz_bytes(
-                    decoded_buffer,
-                )?),
-            )))),
-            Some(ForkName::Deneb) => Ok(Some(RpcSuccessResponse::BlocksByHead(Arc::new(
-                SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb::from_ssz_bytes(decoded_buffer)?),
-            )))),
-            Some(ForkName::Electra) => Ok(Some(RpcSuccessResponse::BlocksByHead(Arc::new(
-                SignedBeaconBlock::Electra(SignedBeaconBlockElectra::from_ssz_bytes(
-                    decoded_buffer,
-                )?),
-            )))),
-            Some(ForkName::Fulu) => Ok(Some(RpcSuccessResponse::BlocksByHead(Arc::new(
-                SignedBeaconBlock::Fulu(SignedBeaconBlockFulu::from_ssz_bytes(decoded_buffer)?),
-            )))),
-            Some(ForkName::Gloas) => Ok(Some(RpcSuccessResponse::BlocksByHead(Arc::new(
-                SignedBeaconBlock::Gloas(SignedBeaconBlockGloas::from_ssz_bytes(decoded_buffer)?),
+            Some(fork_name) => Ok(Some(RpcSuccessResponse::BlocksByHead(Arc::new(
+                SignedBeaconBlock::from_ssz_bytes_by_fork(decoded_buffer, fork_name)?,
             )))),
             None => Err(RPCError::ErrorResponse(
                 RpcErrorResponse::InvalidRequest,
