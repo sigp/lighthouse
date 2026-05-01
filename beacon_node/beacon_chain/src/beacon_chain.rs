@@ -3453,7 +3453,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         &merge_result.full_columns,
                     )
                     .map_err(BlockError::from)?;
-                self.process_payload_availability(slot, availability, || Ok(()))
+                self.process_payload_envelope_availability(slot, availability, || Ok(()))
                     .await?
             } else {
                 let availability = self
@@ -3702,7 +3702,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     };
 
                     Ok(self
-                        .process_payload_availability(slot, availability, || Ok(()))
+                        .process_payload_envelope_availability(slot, availability, || Ok(()))
                         .await
                         .map(|status| Some((status, data_columns_to_publish)))?)
                 }
@@ -4011,7 +4011,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .pending_payload_cache
                 .put_gossip_verified_data_columns(block_root, bid, data_columns)?;
             Ok(self
-                .process_payload_availability(slot, availability, publish_fn)
+                .process_payload_envelope_availability(slot, availability, publish_fn)
                 .await?)
         } else {
             let availability = self
@@ -4118,7 +4118,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .put_kzg_verified_custody_data_columns(block_root, bid, &data_columns)
                         .map_err(BlockError::from)?;
                     Ok(self
-                        .process_payload_availability(slot, availability, || Ok(()))
+                        .process_payload_envelope_availability(slot, availability, || Ok(()))
                         .await?)
                 } else {
                     let availability = self
@@ -4162,7 +4162,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .put_rpc_custody_columns(block_root, bid, custody_columns)
                 .map_err(BlockError::from)?;
             Ok(self
-                .process_payload_availability(slot, availability, || Ok(()))
+                .process_payload_envelope_availability(slot, availability, || Ok(()))
                 .await?)
         } else {
             let availability = self
@@ -4229,7 +4229,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    async fn process_payload_availability(
+    pub(crate) async fn process_payload_envelope_availability(
         self: &Arc<Self>,
         slot: Slot,
         availability: PayloadAvailability<T::EthSpec>,

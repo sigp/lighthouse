@@ -6,14 +6,13 @@ use fork_choice::PayloadVerificationStatus;
 use slot_clock::SlotClock;
 use store::StoreOp;
 use tracing::{debug, error, info, info_span, instrument, warn};
-use types::{BlockImportSource, Hash256, SignedExecutionPayloadEnvelope, Slot};
+use types::{BlockImportSource, Hash256, SignedExecutionPayloadEnvelope};
 
 use super::{
     AvailableEnvelope, AvailableExecutedEnvelope, EnvelopeError,
     gossip_verified_envelope::GossipVerifiedEnvelope,
 };
 use crate::data_column_verification::load_gloas_payload_bid;
-use crate::pending_payload_cache::Availability as PayloadAvailability;
 use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
     NotifyExecutionLayer,
@@ -153,28 +152,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
                 Err(other)
             }
-        }
-    }
-
-    /// Imports a fully available payload envelope. Otherwise, returns `AvailabilityProcessingStatus::MissingComponents`
-    ///
-    /// An error is returned if the enveope was unable to be imported. It may be partially imported
-    /// (i.e., this function is not atomic).
-    async fn process_payload_envelope_availability(
-        self: &Arc<Self>,
-        slot: Slot,
-        availability: PayloadAvailability<T::EthSpec>,
-        publish_fn: impl FnOnce() -> Result<(), BlockError>,
-    ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        match availability {
-            PayloadAvailability::Available(available_envelope) => {
-                publish_fn()?;
-                self.import_available_execution_payload_envelope(available_envelope)
-                    .await
-            }
-            PayloadAvailability::MissingComponents(block_root) => Ok(
-                AvailabilityProcessingStatus::MissingComponents(slot, block_root),
-            ),
         }
     }
 
