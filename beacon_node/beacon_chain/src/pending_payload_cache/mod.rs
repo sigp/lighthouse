@@ -14,18 +14,16 @@ use crate::data_availability_checker::{AvailabilityCheckError, MissingCellsError
 use crate::payload_envelope_verification::{
     AvailabilityPendingExecutedEnvelope, AvailableExecutedEnvelope,
 };
-use crate::{BeaconChain, BeaconChainTypes, CustodyContext, metrics};
+use crate::{BeaconChainTypes, CustodyContext, metrics};
 use kzg::Kzg;
 use lru::LruCache;
 use parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Debug;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use task_executor::TaskExecutor;
-use tracing::{Span, debug, error, instrument, trace};
+use tracing::{Span, debug, error, instrument};
 use types::{
     ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
     PartialDataColumnSidecarRef,
@@ -510,85 +508,6 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
 /// Helper struct to group data availability checker metrics.
 pub struct DataAvailabilityCheckerMetrics {
     pub block_cache_size: usize,
-}
-
-pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
-    executor: TaskExecutor,
-    chain: Arc<BeaconChain<T>>,
-) {
-    if chain.spec.gloas_fork_epoch.is_some() {
-        let da_checker = chain.pending_payload_cache.clone();
-        executor.spawn(
-            async move { availability_cache_maintenance_service(chain, da_checker).await },
-            "availability_cache_service",
-        );
-    } else {
-        trace!("Gloas fork not configured, not starting availability cache maintenance service");
-    }
-}
-
-async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
-    chain: Arc<BeaconChain<T>>,
-    da_checker: Arc<PendingPayloadCache<T>>,
-) {
-    let epoch_duration = chain.slot_clock.slot_duration() * T::EthSpec::slots_per_epoch() as u32;
-    loop {
-        match chain
-            .slot_clock
-            .duration_to_next_epoch(T::EthSpec::slots_per_epoch())
-        {
-            Some(duration) => {
-                // this service should run 3/4 of the way through the epoch
-                let additional_delay = (epoch_duration * 3) / 4;
-                tokio::time::sleep(duration + additional_delay).await;
-
-                let Some(gloas_fork_epoch) = chain.spec.gloas_fork_epoch else {
-                    // shutdown service if gloas fork epoch not set
-                    break;
-                };
-
-                debug!("Availability cache maintenance service firing");
-                let Some(current_epoch) = chain
-                    .slot_clock
-                    .now()
-                    .map(|slot| slot.epoch(T::EthSpec::slots_per_epoch()))
-                else {
-                    continue;
-                };
-
-                if current_epoch < gloas_fork_epoch {
-                    // we are not in gloas yet
-                    continue;
-                }
-
-                let finalized_epoch = chain
-                    .canonical_head
-                    .fork_choice_read_lock()
-                    .finalized_checkpoint()
-                    .epoch;
-
-                let Some(min_epochs_for_blobs) = chain
-                    .spec
-                    .min_epoch_data_availability_boundary(current_epoch)
-                else {
-                    // Shutdown service if deneb fork epoch not set.
-                    break;
-                };
-
-                // any data belonging to an epoch before this should be pruned
-                let cutoff_epoch = std::cmp::max(finalized_epoch + 1, min_epochs_for_blobs);
-
-                if let Err(e) = da_checker.do_maintenance(cutoff_epoch) {
-                    error!(error = ?e,"Failed to maintain availability cache");
-                }
-            }
-            None => {
-                error!("Failed to read slot clock");
-                // If we can't read the slot clock, just wait another slot.
-                tokio::time::sleep(chain.slot_clock.slot_duration()).await;
-            }
-        };
-    }
 }
 
 #[cfg(test)]
