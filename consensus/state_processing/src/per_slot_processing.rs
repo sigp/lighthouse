@@ -96,15 +96,10 @@ pub fn per_slot_processing<E: EthSpec>(
         if spec.fulu_fork_epoch == Some(state.current_epoch()) {
             upgrade_to_fulu(state, spec)?;
         }
-        // Heze.
-        if spec.heze_fork_epoch == Some(state.current_epoch()) {
-            upgrade_to_heze(state, spec)?;
-        }
         // Gloas.
         if spec.gloas_fork_epoch == Some(state.current_epoch()) {
             upgrade_to_gloas(state, spec)?;
         }
-
         // Heze.
         if spec.heze_fork_epoch == Some(state.current_epoch()) {
             upgrade_to_heze(state, spec)?;

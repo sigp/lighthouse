@@ -1021,9 +1021,20 @@ impl<E: EthSpec> BeaconState<E> {
         }
 
         let committee_size = E::InclusionListCommitteeSize::to_usize();
+        let num_indices = indices.len();
+        // num_indices > 0 is guaranteed by the is_empty() check above
         let il_committee: Vec<u64> = (0..committee_size)
-            .map(|i| indices[i % indices.len()] as u64)
-            .collect();
+            .map(|i| {
+                let idx = i
+                    .safe_rem(num_indices)
+                    .map_err(|_| BeaconStateError::InsufficientValidators)?;
+                indices
+                    .get(idx)
+                    .copied()
+                    .map(|v| v as u64)
+                    .ok_or(BeaconStateError::InsufficientValidators)
+            })
+            .collect::<Result<Vec<u64>, BeaconStateError>>()?;
 
         Ok(InclusionListCommittee::<E>::from(il_committee.try_into()?))
     }

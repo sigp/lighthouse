@@ -927,47 +927,6 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
-    // TODO(HEZE) fix new payload if needed
-    pub async fn new_payload_v4_heze<E: EthSpec>(
-        &self,
-        new_payload_request_heze: NewPayloadRequestHeze<'_, E>,
-    ) -> Result<PayloadStatusV1, Error> {
-        let il_transactions: Vec<String> = new_payload_request_heze
-            .il_transactions
-            .into_iter()
-            .map(|tx| {
-                let bytes: Vec<u8> = tx.into();
-                format!("0x{}", hex::encode(bytes))
-            })
-            .collect();
-
-        let params = json!([
-            JsonExecutionPayload::Heze(
-                new_payload_request_heze
-                    .execution_payload
-                    .clone()
-                    .try_into()?
-            ),
-            new_payload_request_heze.versioned_hashes,
-            new_payload_request_heze.parent_beacon_block_root,
-            new_payload_request_heze
-                .execution_requests
-                .get_execution_requests_list(),
-            il_transactions
-        ]);
-
-        // TODO(heze) should be v5 i think
-        let response: JsonPayloadStatusV1 = self
-            .rpc_request(
-                ENGINE_NEW_PAYLOAD_V4,
-                params,
-                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
-            )
-            .await?;
-
-        Ok(response.into())
-    }
-
     pub async fn new_payload_v5_gloas<E: EthSpec>(
         &self,
         new_payload_request_gloas: NewPayloadRequestGloas<'_, E>,
@@ -1001,6 +960,15 @@ impl HttpJsonRpc {
         &self,
         new_payload_request_heze: NewPayloadRequestHeze<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
+        let il_transactions: Vec<String> = new_payload_request_heze
+            .il_transactions
+            .iter()
+            .map(|tx| {
+                let bytes: Vec<u8> = tx.clone().into();
+                format!("0x{}", hex::encode(bytes))
+            })
+            .collect();
+
         let params = json!([
             JsonExecutionPayload::Heze(
                 new_payload_request_heze
@@ -1013,6 +981,7 @@ impl HttpJsonRpc {
             new_payload_request_heze
                 .execution_requests
                 .get_execution_requests_list(),
+            il_transactions
         ]);
 
         let response: JsonPayloadStatusV1 = self
