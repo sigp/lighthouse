@@ -1096,6 +1096,12 @@ pub fn validate_data_column_sidecar_for_gossip_gloas<
             slot: column_slot,
         },
     )?;
+    if bid.message.slot != column_slot {
+        return Err(GossipDataColumnError::BlockSlotMismatch {
+            block_slot: bid.message.slot,
+            data_column_slot: column_slot,
+        });
+    }
     let kzg_commitments = &bid.message.blob_kzg_commitments;
     verify_data_column_sidecar_with_commitments_len(
         &data_column,

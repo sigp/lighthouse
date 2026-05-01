@@ -7,7 +7,7 @@ use crate::pending_payload_cache::pending_column::PendingColumn;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{Span, debug, debug_span};
+use tracing::{Span, debug, debug_span, error};
 use types::DataColumnSidecar;
 use types::{ColumnIndex, EthSpec, Hash256, SignedExecutionPayloadBid};
 
@@ -30,18 +30,31 @@ impl<E: EthSpec> PendingComponents<E> {
         self.bid.message.blob_kzg_commitments.len()
     }
 
-    /// Returns the completed custody columns
+    /// Returns the completed custody columns.
+    ///
+    /// Skips columns that are not yet complete and logs an error if a complete column fails to
+    /// build (a spec-bound invariant would have to be violated; should never happen in practice).
     pub fn get_cached_data_columns(&self) -> Vec<Arc<DataColumnSidecar<E>>> {
+        let blob_count = self.num_blobs_expected();
+        let slot = self.bid.message.slot;
+        let block_root = self.block_root;
         self.verified_data_columns
             .iter()
-            .filter_map(|(col_idx, col)| {
-                col.try_to_sidecar(
-                    *col_idx,
-                    self.bid.message.slot,
-                    self.block_root,
-                    self.num_blobs_expected(),
-                )
-            })
+            .filter(|(_, col)| col.is_complete(blob_count))
+            .filter_map(
+                |(col_idx, col)| match col.to_sidecar(*col_idx, slot, block_root) {
+                    Ok(sidecar) => Some(sidecar),
+                    Err(e) => {
+                        error!(
+                            ?e,
+                            column_index = %col_idx,
+                            ?block_root,
+                            "Failed to build sidecar for complete column"
+                        );
+                        None
+                    }
+                },
+            )
             .collect()
     }
 
@@ -60,7 +73,7 @@ impl<E: EthSpec> PendingComponents<E> {
     pub(crate) fn merge_data_columns(
         &mut self,
         kzg_verified_data_columns: &[KzgVerifiedCustodyDataColumn<E>],
-    ) -> Result<(), AvailabilityCheckError> {
+    ) {
         let num_blobs_expected = self.num_blobs_expected();
         for data_column in kzg_verified_data_columns {
             let data_column = data_column.as_data_column();
@@ -80,8 +93,6 @@ impl<E: EthSpec> PendingComponents<E> {
                 col.insert(cell_idx, cell, proof);
             }
         }
-
-        Ok(())
     }
 
     // TODO(gloas): merge partial columns
@@ -97,7 +108,7 @@ impl<E: EthSpec> PendingComponents<E> {
     pub fn num_completed_columns(&self) -> usize {
         self.verified_data_columns
             .values()
-            .filter_map(|col| col.is_complete(self.num_blobs_expected()).then_some(()))
+            .filter(|col| col.is_complete(self.num_blobs_expected()))
             .count()
     }
 

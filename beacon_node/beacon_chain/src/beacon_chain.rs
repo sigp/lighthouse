@@ -1186,9 +1186,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         indices: &[ColumnIndex],
     ) -> Result<DataColumnSidecarList<T::EthSpec>, Error> {
         let all_cached_columns_opt = self
-            .pending_payload_cache
+            .data_availability_checker
             .get_data_columns(block_root)
-            .or_else(|| self.data_availability_checker.get_data_columns(block_root))
+            .or_else(|| self.pending_payload_cache.get_data_columns(block_root))
             .or_else(|| self.early_attester_cache.get_data_columns(block_root));
 
         if let Some(mut all_cached_columns) = all_cached_columns_opt {

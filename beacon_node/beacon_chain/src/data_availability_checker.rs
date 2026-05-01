@@ -21,7 +21,7 @@ use tracing::{debug, error, instrument};
 use types::data::{BlobIdentifier, FixedBlobSidecarList, PartialDataColumn};
 use types::{
     BlobSidecar, BlobSidecarList, BlockImportSource, ChainSpec, DataColumnSidecar,
-    DataColumnSidecarList, Epoch, EthSpec, ForkName, Hash256, PartialDataColumnSidecarError,
+    DataColumnSidecarList, Epoch, EthSpec, Hash256, PartialDataColumnSidecarError,
     PartialDataColumnSidecarRef, SignedBeaconBlock, Slot, new_non_zero_usize,
 };
 
@@ -906,7 +906,7 @@ impl<E: EthSpec> AvailableBlock<E> {
         match &block_data {
             AvailableBlockData::NoData => {
                 // For Gloas, DA is checked for the PayloadEnvelope, not for the block.
-                if block.fork_name_unchecked() < ForkName::Gloas {
+                if !block.fork_name_unchecked().gloas_enabled() {
                     if columns_required {
                         return Err(AvailabilityCheckError::MissingCustodyColumns);
                     } else if blobs_required {

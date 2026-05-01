@@ -906,6 +906,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         );
                     }
                     DataColumnSidecar::Gloas(_) => {
+                        // TODO(gloas): proper lookup sync for Gloas. Routing into
+                        // `handle_unknown_block_root` here mixes column processing with the
+                        // single-block-lookup path; the Gloas column-arrives-before-block
+                        // case wants its own queue/wakeup.
                         debug!(%block_root, "Received unknown block data column message");
                         self.handle_unknown_block_root(peer_id, block_root);
                     }
