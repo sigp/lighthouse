@@ -1126,7 +1126,7 @@ impl<E: EthSpec> std::fmt::Display for RequestType<E> {
             RequestType::Goodbye(reason) => write!(f, "Goodbye: {}", reason),
             RequestType::BlocksByRange(req) => write!(f, "Blocks by range: {}", req),
             RequestType::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
-            RequestType::BlocksByHead(req) => write!(f, "{}", req),
+            RequestType::BlocksByHead(req) => write!(f, "Blocks by head: {}", req),
             RequestType::PayloadEnvelopesByRange(req) => {
                 write!(f, "Payload envelopes by range: {:?}", req)
             }
