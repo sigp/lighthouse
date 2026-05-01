@@ -2864,3 +2864,21 @@ fn invalid_block_roots_default_mainnet() {
             assert!(config.chain.invalid_block_roots.is_empty());
         })
 }
+
+#[test]
+fn partial_columns() {
+    CommandLineTest::new()
+        .flag("enable-partial-columns", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_partial_columns);
+            assert!(config.chain.enable_partial_columns);
+        });
+    // And disabled by default:
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.network.enable_partial_columns);
+            assert!(!config.chain.enable_partial_columns);
+        })
+}

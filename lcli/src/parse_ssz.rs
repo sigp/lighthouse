@@ -141,7 +141,7 @@ fn decode_and_print<T: Serialize>(
         OutputFormat::Yaml => {
             println!(
                 "{}",
-                serde_yaml::to_string(&item)
+                yaml_serde::to_string(&item)
                     .map_err(|e| format!("Unable to write object to YAML: {e:?}"))?
             );
         }

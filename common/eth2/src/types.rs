@@ -770,6 +770,14 @@ pub enum GraffitiPolicy {
     AppendClientVersions,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PtcDuty {
+    pub pubkey: PublicKeyBytes,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub validator_index: u64,
+    pub slot: Slot,
+}
+
 #[derive(Clone, Deserialize)]
 pub struct ValidatorBlocksQuery {
     pub randao_reveal: SignatureBytes,
@@ -1071,6 +1079,31 @@ pub struct BlockGossip {
     pub block: Hash256,
 }
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub struct SseExecutionPayload {
+    pub slot: Slot,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub builder_index: u64,
+    pub block_hash: ExecutionBlockHash,
+    pub block_root: Hash256,
+    pub execution_optimistic: bool,
+}
+
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub struct SseExecutionPayloadGossip {
+    pub slot: Slot,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub builder_index: u64,
+    pub block_hash: ExecutionBlockHash,
+    pub block_root: Hash256,
+}
+
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub struct SseExecutionPayloadAvailable {
+    pub slot: Slot,
+    pub block_root: Hash256,
+}
+
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct SseChainReorg {
     pub slot: Slot,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -1134,6 +1167,8 @@ pub struct SseExtendedPayloadAttributesGeneric<T> {
 
 pub type SseExtendedPayloadAttributes = SseExtendedPayloadAttributesGeneric<SsePayloadAttributes>;
 pub type VersionedSsePayloadAttributes = ForkVersionedResponse<SseExtendedPayloadAttributes>;
+pub type VersionedSseExecutionPayloadBid<E> = ForkVersionedResponse<SignedExecutionPayloadBid<E>>;
+pub type VersionedSsePayloadAttestationMessage = ForkVersionedResponse<PayloadAttestationMessage>;
 
 impl<'de> ContextDeserialize<'de, ForkName> for SsePayloadAttributes {
     fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
@@ -1210,6 +1245,11 @@ pub enum EventKind<E: EthSpec> {
     AttesterSlashing(Box<AttesterSlashing<E>>),
     BlsToExecutionChange(Box<SignedBlsToExecutionChange>),
     BlockGossip(Box<BlockGossip>),
+    ExecutionPayload(SseExecutionPayload),
+    ExecutionPayloadGossip(SseExecutionPayloadGossip),
+    ExecutionPayloadAvailable(SseExecutionPayloadAvailable),
+    ExecutionPayloadBid(Box<VersionedSseExecutionPayloadBid<E>>),
+    PayloadAttestationMessage(Box<VersionedSsePayloadAttestationMessage>),
 }
 
 impl<E: EthSpec> EventKind<E> {
@@ -1233,6 +1273,11 @@ impl<E: EthSpec> EventKind<E> {
             EventKind::AttesterSlashing(_) => "attester_slashing",
             EventKind::BlsToExecutionChange(_) => "bls_to_execution_change",
             EventKind::BlockGossip(_) => "block_gossip",
+            EventKind::ExecutionPayload(_) => "execution_payload",
+            EventKind::ExecutionPayloadGossip(_) => "execution_payload_gossip",
+            EventKind::ExecutionPayloadAvailable(_) => "execution_payload_available",
+            EventKind::ExecutionPayloadBid(_) => "execution_payload_bid",
+            EventKind::PayloadAttestationMessage(_) => "payload_attestation_message",
         }
     }
 
@@ -1322,6 +1367,40 @@ impl<E: EthSpec> EventKind<E> {
             "block_gossip" => Ok(EventKind::BlockGossip(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Block Gossip: {:?}", e)),
             )?)),
+            "execution_payload" => Ok(EventKind::ExecutionPayload(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Execution Payload: {:?}", e))
+                })?,
+            )),
+            "execution_payload_gossip" => Ok(EventKind::ExecutionPayloadGossip(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!(
+                        "Execution Payload Gossip: {:?}",
+                        e
+                    ))
+                })?,
+            )),
+            "execution_payload_available" => Ok(EventKind::ExecutionPayloadAvailable(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!(
+                        "Execution Payload Available: {:?}",
+                        e
+                    ))
+                })?,
+            )),
+            "execution_payload_bid" => Ok(EventKind::ExecutionPayloadBid(Box::new(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Execution Payload Bid: {:?}", e))
+                })?,
+            ))),
+            "payload_attestation_message" => Ok(EventKind::PayloadAttestationMessage(Box::new(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!(
+                        "Payload Attestation Message: {:?}",
+                        e
+                    ))
+                })?,
+            ))),
             _ => Err(ServerError::InvalidServerSentEvent(
                 "Could not parse event tag".to_string(),
             )),
@@ -1357,6 +1436,11 @@ pub enum EventTopic {
     ProposerSlashing,
     BlsToExecutionChange,
     BlockGossip,
+    ExecutionPayload,
+    ExecutionPayloadGossip,
+    ExecutionPayloadAvailable,
+    ExecutionPayloadBid,
+    PayloadAttestationMessage,
 }
 
 impl FromStr for EventTopic {
@@ -1382,6 +1466,11 @@ impl FromStr for EventTopic {
             "proposer_slashing" => Ok(EventTopic::ProposerSlashing),
             "bls_to_execution_change" => Ok(EventTopic::BlsToExecutionChange),
             "block_gossip" => Ok(EventTopic::BlockGossip),
+            "execution_payload" => Ok(EventTopic::ExecutionPayload),
+            "execution_payload_gossip" => Ok(EventTopic::ExecutionPayloadGossip),
+            "execution_payload_available" => Ok(EventTopic::ExecutionPayloadAvailable),
+            "execution_payload_bid" => Ok(EventTopic::ExecutionPayloadBid),
+            "payload_attestation_message" => Ok(EventTopic::PayloadAttestationMessage),
             _ => Err("event topic cannot be parsed.".to_string()),
         }
     }
@@ -1408,6 +1497,15 @@ impl fmt::Display for EventTopic {
             EventTopic::ProposerSlashing => write!(f, "proposer_slashing"),
             EventTopic::BlsToExecutionChange => write!(f, "bls_to_execution_change"),
             EventTopic::BlockGossip => write!(f, "block_gossip"),
+            EventTopic::ExecutionPayload => write!(f, "execution_payload"),
+            EventTopic::ExecutionPayloadGossip => write!(f, "execution_payload_gossip"),
+            EventTopic::ExecutionPayloadAvailable => {
+                write!(f, "execution_payload_available")
+            }
+            EventTopic::ExecutionPayloadBid => write!(f, "execution_payload_bid"),
+            EventTopic::PayloadAttestationMessage => {
+                write!(f, "payload_attestation_message")
+            }
         }
     }
 }
@@ -1785,7 +1883,9 @@ impl<E: EthSpec> FullBlockContents<E> {
 
     /// SSZ decode with fork variant passed in explicitly.
     pub fn from_ssz_bytes_for_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
-        if fork_name.deneb_enabled() {
+        // TODO(gloas): revisit when produceBlockV4 PR is finalised
+        // https://github.com/ethereum/beacon-APIs/pull/580
+        if fork_name.deneb_enabled() && !fork_name.gloas_enabled() {
             let mut builder = ssz::SszDecoderBuilder::new(bytes);
 
             builder.register_anonymous_variable_length_item()?;
@@ -1841,7 +1941,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for FullBlockContents<E>
     where
         D: Deserializer<'de>,
     {
-        if context.deneb_enabled() {
+        if context.deneb_enabled() && !context.gloas_enabled() {
             Ok(FullBlockContents::BlockContents(
                 BlockContents::context_deserialize::<D>(deserializer, context)?,
             ))
@@ -1952,15 +2052,19 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for PublishBlockRequest<
         let value =
             serde_json::Value::deserialize(deserializer).map_err(serde::de::Error::custom)?;
 
-        SignedBlockContents::<E>::context_deserialize(&value, context)
-            .map(PublishBlockRequest::BlockContents)
-            .or_else(|_| {
-                Arc::<SignedBeaconBlock<E>>::context_deserialize(&value, context)
-                    .map(PublishBlockRequest::Block)
-            })
-            .map_err(|_| {
-                serde::de::Error::custom("could not match any variant of PublishBlockRequest")
-            })
+        let res = if context.gloas_enabled() {
+            Arc::<SignedBeaconBlock<E>>::context_deserialize(&value, context)
+                .map(PublishBlockRequest::Block)
+        } else {
+            SignedBlockContents::<E>::context_deserialize(&value, context)
+                .map(PublishBlockRequest::BlockContents)
+                .or_else(|_| {
+                    Arc::<SignedBeaconBlock<E>>::context_deserialize(&value, context)
+                        .map(PublishBlockRequest::Block)
+                })
+        };
+
+        res.map_err(|_| serde::de::Error::custom("failed to deserialize into PublishBlockRequest"))
     }
 }
 
@@ -2026,7 +2130,10 @@ impl<E: EthSpec> PublishBlockRequest<E> {
 impl<E: EthSpec> TryFrom<Arc<SignedBeaconBlock<E>>> for PublishBlockRequest<E> {
     type Error = &'static str;
     fn try_from(block: Arc<SignedBeaconBlock<E>>) -> Result<Self, Self::Error> {
-        if block.message().fork_name_unchecked().deneb_enabled() {
+        let fork = block.message().fork_name_unchecked();
+        // Gloas blocks don't carry blobs (execution data comes via envelopes),
+        // so they can be published as block-only requests like pre-Deneb blocks.
+        if fork.deneb_enabled() && !fork.gloas_enabled() {
             Err("post-Deneb block contents cannot be fully constructed from just the signed block")
         } else {
             Ok(PublishBlockRequest::Block(block))
@@ -2395,7 +2502,7 @@ mod test {
         for fork_name in ForkName::list_all() {
             let signed_beacon_block =
                 map_fork_name!(fork_name, SignedBeaconBlock, <_>::random_for_test(rng));
-            let request = if fork_name.deneb_enabled() {
+            let request = if fork_name.deneb_enabled() && !fork_name.gloas_enabled() {
                 let kzg_proofs = KzgProofs::<MainnetEthSpec>::random_for_test(rng);
                 let blobs = BlobsList::<MainnetEthSpec>::random_for_test(rng);
                 let block_contents = SignedBlockContents {

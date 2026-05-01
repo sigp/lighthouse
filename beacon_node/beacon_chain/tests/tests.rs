@@ -115,7 +115,18 @@ fn massive_skips() {
 
     assert!(state.slot() > 1, "the state should skip at least one slot");
 
-    if state.fork_name_unchecked().fulu_enabled() {
+    if state.fork_name_unchecked().gloas_enabled() {
+        // Gloas uses compute_balance_weighted_selection for proposer selection, which
+        // returns InvalidIndicesCount (not InsufficientValidators) when the active
+        // validator set is empty.
+        assert_eq!(
+            error,
+            SlotProcessingError::EpochProcessingError(EpochProcessingError::BeaconStateError(
+                BeaconStateError::InvalidIndicesCount
+            )),
+            "should return error indicating that validators have been slashed out"
+        )
+    } else if state.fork_name_unchecked().fulu_enabled() {
         // post-fulu this is done in per_epoch_processing
         assert_eq!(
             error,
@@ -590,7 +601,10 @@ async fn unaggregated_attestations_added_to_fork_choice_some_none() {
 
         if slot <= num_blocks_produced && slot != 0 {
             assert_eq!(
-                latest_message.unwrap().1,
+                latest_message
+                    .expect("latest message should be present")
+                    .slot
+                    .epoch(MinimalEthSpec::slots_per_epoch()),
                 slot.epoch(MinimalEthSpec::slots_per_epoch()),
                 "Latest message epoch for {} should be equal to epoch {}.",
                 validator,
@@ -700,10 +714,12 @@ async fn unaggregated_attestations_added_to_fork_choice_all_updated() {
     let validator_slots: Vec<(&usize, Slot)> = validators.iter().zip(slots).collect();
 
     for (validator, slot) in validator_slots {
-        let latest_message = fork_choice.latest_message(*validator);
+        let latest_message = fork_choice
+            .latest_message(*validator)
+            .expect("latest message should be present");
 
         assert_eq!(
-            latest_message.unwrap().1,
+            latest_message.slot.epoch(MinimalEthSpec::slots_per_epoch()),
             slot.epoch(MinimalEthSpec::slots_per_epoch()),
             "Latest message slot should be equal to attester duty."
         );
@@ -714,8 +730,7 @@ async fn unaggregated_attestations_added_to_fork_choice_all_updated() {
                 .expect("Should get block root at slot");
 
             assert_eq!(
-                latest_message.unwrap().0,
-                *block_root,
+                latest_message.root, *block_root,
                 "Latest message block root should be equal to block at slot."
             );
         }
@@ -1002,9 +1017,12 @@ async fn pseudo_finalize_test_generic(
     };
 
     // pseudo finalize
+    // Post-Gloas the finalized state must be Pending (the block's state_root), not Full
+    // (the envelope's state_root), because the payload of the finalized block is not finalized.
+    let finalized_state_root = head.beacon_block.message().state_root();
     harness
         .chain
-        .manually_finalize_state(head.beacon_state_root(), checkpoint)
+        .manually_finalize_state(finalized_state_root, checkpoint)
         .unwrap();
 
     let split = harness.chain.store.get_split_info();

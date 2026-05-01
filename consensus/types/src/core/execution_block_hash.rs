@@ -5,7 +5,10 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
 
-use crate::{core::Hash256, test_utils::TestRandom};
+use crate::{
+    core::{Hash256, Hash256Ext},
+    test_utils::TestRandom,
+};
 
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Default, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Hash)]
@@ -15,6 +18,12 @@ pub struct ExecutionBlockHash(#[serde(with = "serde_utils::b256_hex")] pub Hash2
 impl fmt::Debug for ExecutionBlockHash {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         std::fmt::Debug::fmt(&self.0, f)
+    }
+}
+
+impl fmt::Display for ExecutionBlockHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.0.short().fmt(f)
     }
 }
 
@@ -99,12 +108,6 @@ impl std::str::FromStr for ExecutionBlockHash {
         Hash256::from_str(s)
             .map(Self)
             .map_err(|e| format!("{:?}", e))
-    }
-}
-
-impl fmt::Display for ExecutionBlockHash {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
     }
 }
 

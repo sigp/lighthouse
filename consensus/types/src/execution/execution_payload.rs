@@ -10,7 +10,7 @@ use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    core::{Address, EthSpec, ExecutionBlockHash, Hash256},
+    core::{Address, EthSpec, ExecutionBlockHash, Hash256, Slot},
     fork::{ForkName, ForkVersionDecode},
     state::BeaconStateError,
     test_utils::TestRandom,
@@ -109,6 +109,12 @@ pub struct ExecutionPayload<E: EthSpec> {
     #[superstruct(only(Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub excess_blob_gas: u64,
+    /// EIP-7928: Block access list
+    #[superstruct(only(Gloas))]
+    #[serde(with = "ssz_types::serde_utils::hex_var_list")]
+    pub block_access_list: VariableList<u8, E::MaxBytesPerTransaction>,
+    #[superstruct(only(Gloas), partial_getter(copy))]
+    pub slot_number: Slot,
 }
 
 impl<'a, E: EthSpec> ExecutionPayloadRef<'a, E> {

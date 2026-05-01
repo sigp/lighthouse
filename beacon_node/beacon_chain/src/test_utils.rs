@@ -86,6 +86,8 @@ pub const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
 // `beacon_node/execution_layer/src/test_utils/fixtures/mainnet/test_blobs_bundle.ssz`
 pub const TEST_DATA_COLUMN_SIDECARS_SSZ: &[u8] =
     include_bytes!("test_utils/fixtures/test_data_column_sidecars.ssz");
+pub const TEST_DATA_COLUMN_SIDECARS_GLOAS_SSZ: &[u8] =
+    include_bytes!("test_utils/fixtures/test_data_column_sidecars_gloas.ssz");
 
 // Default target aggregators to set during testing, this ensures an aggregator at each slot.
 //
@@ -223,7 +225,7 @@ pub fn test_da_checker<E: EthSpec>(
     let slot_clock = TestingSlotClock::new(
         Slot::new(0),
         Duration::from_secs(0),
-        Duration::from_secs(spec.seconds_per_slot),
+        spec.get_slot_duration(),
     );
     let kzg = get_kzg(&spec);
     let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
@@ -239,6 +241,7 @@ pub fn test_da_checker<E: EthSpec>(
         kzg,
         custody_context,
         spec,
+        true,
     )
     .expect("should initialise data availability checker")
 }
@@ -770,6 +773,36 @@ where
             .execution_block_generator()
     }
 
+    /// Create a switch-to-compounding `ConsolidationRequest` for the given validator.
+    ///
+    /// Panics if the validator doesn't exist, doesn't have eth1 withdrawal credentials,
+    /// or doesn't have an execution withdrawal address.
+    pub fn make_switch_to_compounding_request(
+        &self,
+        validator_index: usize,
+    ) -> ConsolidationRequest {
+        let head = self.chain.canonical_head.cached_head();
+        let head_state = &head.snapshot.beacon_state;
+        let validator = head_state
+            .get_validator(validator_index)
+            .expect("validator should exist");
+
+        assert!(
+            validator.has_eth1_withdrawal_credential(&self.spec),
+            "validator {validator_index} should have eth1 withdrawal credentials"
+        );
+
+        let source_address = validator
+            .get_execution_withdrawal_address(&self.spec)
+            .expect("validator should have execution withdrawal address");
+
+        ConsolidationRequest {
+            source_address,
+            source_pubkey: validator.pubkey,
+            target_pubkey: validator.pubkey,
+        }
+    }
+
     pub fn set_mock_builder(
         &mut self,
         beacon_url: SensitiveUrl,
@@ -984,6 +1017,28 @@ where
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
+        // For Gloas, blinded and full blocks are structurally identical (no payload in body).
+        // Produce via the Gloas path and convert to blinded.
+        if self.spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
+            let (block_contents, _envelope, pending_state) =
+                Box::pin(self.make_block_with_envelope(state, slot)).await;
+            let (signed_block, _blobs) = block_contents;
+            let signed_blinded = signed_block.clone_as_blinded();
+            let (mut blinded_block, _signature) = signed_blinded.deconstruct();
+            block_modifier(&mut blinded_block);
+            let proposer_index = pending_state
+                .get_beacon_proposer_index(slot, &self.spec)
+                .unwrap();
+            // Re-sign after modification.
+            let signed_blinded = blinded_block.sign(
+                &self.validator_keypairs[proposer_index].sk,
+                &pending_state.fork(),
+                pending_state.genesis_validators_root(),
+                &self.spec,
+            );
+            return (signed_blinded, pending_state);
+        }
+
         complete_state_advance(&mut state, None, slot, &self.spec)
             .expect("should be able to advance state to slot");
 
@@ -1043,6 +1098,13 @@ where
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
+        // For Gloas forks, delegate to make_block_with_envelope and discard the envelope.
+        if self.spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
+            let (block_contents, _envelope, state) =
+                Box::pin(self.make_block_with_envelope(state, slot)).await;
+            return (block_contents, state);
+        }
+
         complete_state_advance(&mut state, None, slot, &self.spec)
             .expect("should be able to advance state to slot");
 
@@ -1095,7 +1157,7 @@ where
     }
 
     /// Returns a newly created block, signed by the proposer for the given slot,
-    /// along with the execution payload envelope (for Gloas) and the pending state.
+    /// along with the execution payload envelope (for Gloas) and the post-block state.
     ///
     /// For pre-Gloas forks, the envelope is `None` and this behaves like `make_block`.
     pub async fn make_block_with_envelope(
@@ -1124,23 +1186,37 @@ where
                 GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
             let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
-            let (block, pending_state, _consensus_block_value) = self
+            // Load the parent's payload envelope and status from the cached head.
+            // TODO(gloas): we may want to pass these as arguments to support cases where we build
+            // on alternate chains to the head.
+            let (parent_payload_status, parent_envelope) = {
+                let head = self.chain.canonical_head.cached_head();
+                (
+                    head.head_payload_status(),
+                    head.snapshot.execution_envelope.clone(),
+                )
+            };
+
+            let (block, post_block_state, _consensus_block_value) = self
                 .chain
                 .produce_block_on_state_gloas(
                     state,
                     None,
+                    parent_payload_status,
+                    parent_envelope,
                     slot,
                     randao_reveal,
                     graffiti_settings,
                     ProduceBlockVerification::VerifyRandao,
+                    None,
                 )
                 .await
                 .unwrap();
 
             let signed_block = Arc::new(block.sign(
                 &self.validator_keypairs[proposer_index].sk,
-                &pending_state.fork(),
-                pending_state.genesis_validators_root(),
+                &post_block_state.fork(),
+                post_block_state.genesis_validators_root(),
                 &self.spec,
             ));
 
@@ -1155,8 +1231,8 @@ where
                     let domain = self.spec.get_domain(
                         epoch,
                         Domain::BeaconBuilder,
-                        &pending_state.fork(),
-                        pending_state.genesis_validators_root(),
+                        &post_block_state.fork(),
+                        post_block_state.genesis_validators_root(),
                     );
                     let message = envelope.signing_root(domain);
                     let signature = self.validator_keypairs[proposer_index].sk.sign(message);
@@ -1167,7 +1243,7 @@ where
                 });
 
             let block_contents: SignedBlockContentsTuple<E> = (signed_block, None);
-            (block_contents, signed_envelope, pending_state)
+            (block_contents, signed_envelope, post_block_state)
         } else {
             let (block_contents, state) = self.make_block(state, slot).await;
             (block_contents, None, state)
@@ -1183,6 +1259,21 @@ where
     ) -> (SignedBlockContentsTuple<E>, BeaconState<E>) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
+
+        // For Gloas forks, delegate to make_block_with_envelope which uses the
+        // Gloas-specific block production path, and return the pre-state.
+        if self.spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
+            let pre_state = {
+                let mut s = state.clone();
+                complete_state_advance(&mut s, None, slot, &self.spec)
+                    .expect("should be able to advance state to slot");
+                s.build_caches(&self.spec).expect("should build caches");
+                s
+            };
+            let (block_contents, _envelope, _state) =
+                Box::pin(self.make_block_with_envelope(state, slot)).await;
+            return (block_contents, pre_state);
+        }
 
         complete_state_advance(&mut state, None, slot, &self.spec)
             .expect("should be able to advance state to slot");
@@ -1400,6 +1491,7 @@ where
                 epoch,
                 root: target_root,
             },
+            false,
             &self.spec,
         )?;
 
@@ -1509,6 +1601,7 @@ where
                 epoch,
                 root: target_root,
             },
+            false,
             &self.spec,
         )?)
     }
@@ -2681,32 +2774,27 @@ where
         Ok(block_hash)
     }
 
-    /// Process an execution payload envelope for a Gloas block.
+    /// Verify and process (with fork choice) an execution payload envelope for a Gloas block.
     pub async fn process_envelope(
         &self,
         block_root: Hash256,
         signed_envelope: SignedExecutionPayloadEnvelope<E>,
-        pending_state: &mut BeaconState<E>,
-    ) -> Hash256 {
-        let state_root = signed_envelope.message.state_root;
+        state: &BeaconState<E>,
+        block_state_root: Hash256,
+    ) {
         debug!(
-            slot = %signed_envelope.message.slot,
-            ?state_root,
+            slot = %signed_envelope.slot(),
             "Processing execution payload envelope"
         );
-        let block_state_root = pending_state
-            .update_tree_hash_cache()
-            .expect("should compute pending state root");
 
-        state_processing::envelope_processing::process_execution_payload_envelope(
-            pending_state,
-            Some(block_state_root),
+        state_processing::envelope_processing::verify_execution_payload_envelope(
+            state,
             &signed_envelope,
             state_processing::VerifySignatures::True,
-            state_processing::envelope_processing::VerifyStateRoot::True,
+            block_state_root,
             &self.spec,
         )
-        .expect("should process envelope");
+        .expect("should verify envelope");
 
         // Notify the EL of the new payload so forkchoiceUpdated can reference it.
         let block = self
@@ -2747,16 +2835,18 @@ where
         // Store the envelope.
         self.chain
             .store
-            .put_payload_envelope(&block_root, signed_envelope)
+            .put_payload_envelope(&block_root, &signed_envelope)
             .expect("should store envelope");
 
-        // Store the Full state.
+        // Update fork choice so it knows the payload was received.
         self.chain
-            .store
-            .put_state(&state_root, pending_state)
-            .expect("should store full state");
+            .canonical_head
+            .fork_choice_write_lock()
+            .on_valid_payload_envelope_received(block_root)
+            .expect("should update fork choice with envelope");
 
-        state_root
+        // Run fork choice because the envelope could become the head.
+        self.chain.recompute_head_at_current_slot().await;
     }
 
     /// Builds a `RangeSyncBlock` from a `SignedBeaconBlock` and blobs or data columns retrieved from
@@ -2970,7 +3060,8 @@ where
         BlockError,
     > {
         self.set_current_slot(slot);
-        let (block_contents, new_state) = self.make_block(state, slot).await;
+        let (block_contents, opt_envelope, new_state) =
+            self.make_block_with_envelope(state, slot).await;
 
         let block_hash = self
             .process_block(
@@ -2979,6 +3070,12 @@ where
                 block_contents.clone(),
             )
             .await?;
+
+        if let Some(envelope) = opt_envelope {
+            let block_state_root = block_contents.0.state_root();
+            self.process_envelope(block_hash.into(), envelope, &new_state, block_state_root)
+                .await;
+        }
         Ok((block_hash, block_contents, new_state))
     }
 
@@ -3694,11 +3791,8 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
         blobs,
     } = bundle;
 
-    for (index, ((blob, kzg_commitment), kzg_proof)) in blobs
-        .into_iter()
-        .zip(commitments.into_iter())
-        .zip(proofs.into_iter())
-        .enumerate()
+    for (index, ((blob, kzg_commitment), kzg_proof)) in
+        blobs.into_iter().zip(commitments).zip(proofs).enumerate()
     {
         blob_sidecars.push(BlobSidecar {
             index: index as u64,
@@ -3735,24 +3829,24 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
     block: &SignedBeaconBlock<E>,
     spec: &ChainSpec,
 ) -> DataColumnSidecarList<E> {
-    let kzg_commitments = block.message().body().blob_kzg_commitments().unwrap();
-    if kzg_commitments.is_empty() {
-        return vec![];
-    }
-
-    let kzg_commitments_inclusion_proof = block
-        .message()
-        .body()
-        .kzg_commitments_merkle_proof()
-        .unwrap();
-    let signed_block_header = block.signed_block_header();
-
     // Load the precomputed column sidecar to avoid computing them for every block in the tests.
     // Then repeat the cells and proofs for every blob
     if block.fork_name_unchecked().gloas_enabled() {
+        let kzg_commitments = &block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .expect("Gloas block should have a payload bid")
+            .message
+            .blob_kzg_commitments;
+        if kzg_commitments.is_empty() {
+            return vec![];
+        }
+        let num_blobs = kzg_commitments.len();
+        let signed_block_header = block.signed_block_header();
         let template_data_columns =
             RuntimeVariableList::<DataColumnSidecarGloas<E>>::from_ssz_bytes(
-                TEST_DATA_COLUMN_SIDECARS_SSZ,
+                TEST_DATA_COLUMN_SIDECARS_GLOAS_SSZ,
                 E::number_of_columns(),
             )
             .unwrap();
@@ -3772,7 +3866,7 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
             .collect::<(Vec<_>, Vec<_>)>();
 
         let blob_cells_and_proofs_vec =
-            vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); kzg_commitments.len()];
+            vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); num_blobs];
 
         build_data_column_sidecars_gloas(
             signed_block_header.message.tree_hash_root(),
@@ -3782,6 +3876,18 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
         )
         .unwrap()
     } else {
+        let kzg_commitments = block.message().body().blob_kzg_commitments().unwrap();
+        if kzg_commitments.is_empty() {
+            return vec![];
+        }
+
+        let kzg_commitments_inclusion_proof = block
+            .message()
+            .body()
+            .kzg_commitments_merkle_proof()
+            .unwrap();
+        let signed_block_header = block.signed_block_header();
+
         // load the precomputed column sidecar to avoid computing them for every block in the tests.
         let template_data_columns =
             RuntimeVariableList::<DataColumnSidecarFulu<E>>::from_ssz_bytes(
