@@ -47,8 +47,8 @@ use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
 use types::data::CustodyIndex;
 use types::{
-    BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList, Epoch, EthSpec,
-    Hash256, SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList,
+    Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -1187,8 +1187,20 @@ fn make_genesis_block<E: EthSpec>(
     genesis_state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<SignedBeaconBlock<E>, String> {
+    // For Gloas, genesis_block() populates the bid in the block body. However, if
+    // the genesis state was produced by an external tool (e.g. ethereum-genesis-generator),
+    // its latest_block_header.body_root may correspond to an empty block. In that case,
+    // use an empty block so the stored block root matches what fork choice derives from
+    // the state's latest_block_header.
     let mut block = genesis_block(genesis_state, spec)
         .map_err(|e| format!("Error building genesis block: {:?}", e))?;
+
+    let state_body_root = genesis_state.latest_block_header().body_root;
+    if state_body_root != block.body_root()
+        && state_body_root == BeaconBlock::<E>::empty(spec).body_root()
+    {
+        block = BeaconBlock::empty(spec);
+    }
 
     *block.state_root_mut() = genesis_state
         .update_tree_hash_cache()
