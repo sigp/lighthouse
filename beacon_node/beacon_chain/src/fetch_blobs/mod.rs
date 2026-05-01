@@ -50,7 +50,7 @@ pub enum EngineGetBlobsOutput<T: BeaconChainTypes> {
 pub enum FetchEngineBlobError {
     BeaconStateError(BeaconStateError),
     BeaconChainError(Box<BeaconChainError>),
-    BlobProcessingError(BlockError),
+    BlobProcessingError(Box<BlockError>),
     BlobSidecarError(BlobSidecarError),
     DataColumnSidecarError(DataColumnSidecarError),
     ExecutionLayerMissing,
@@ -445,7 +445,7 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
 
                 // Only consider columns that are not already known to data availability.
                 if let Some(known_columns) =
-                    chain_adapter_cloned.cached_data_column_indexes(&block_root)
+                    chain_adapter_cloned.cached_data_column_indexes(&block_root, header.slot())
                 {
                     custody_columns.retain(|col| !known_columns.contains(&col.index()));
                     if custody_columns.is_empty() {

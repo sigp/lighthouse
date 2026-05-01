@@ -1,5 +1,5 @@
 use beacon_chain::{
-    AvailabilityProcessingStatus, BlockError, attestation_verification::Error as AttnError,
+    AvailabilityProcessingStatus, attestation_verification::Error as AttnError,
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
     light_client_optimistic_update_verification::Error as LightClientOptimisticUpdateError,
     sync_committee_verification::Error as SyncCommitteeError,
@@ -733,7 +733,7 @@ pub fn register_sync_committee_error(error: &SyncCommitteeError) {
 }
 
 pub(crate) fn register_process_result_metrics(
-    result: &std::result::Result<AvailabilityProcessingStatus, BlockError>,
+    result: &std::result::Result<AvailabilityProcessingStatus, impl AsRef<str>>,
     source: BlockSource,
     block_component: &'static str,
 ) {

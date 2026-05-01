@@ -905,9 +905,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             }),
                         );
                     }
-                    // TODO(gloas) support gloas data column variant
                     DataColumnSidecar::Gloas(_) => {
-                        error!("Gloas variant not yet supported")
+                        // TODO(gloas): proper lookup sync for Gloas. Routing into
+                        // `handle_unknown_block_root` here mixes column processing with the
+                        // single-block-lookup path; the Gloas column-arrives-before-block
+                        // case wants its own queue/wakeup.
+                        debug!(%block_root, "Received unknown block data column message");
+                        self.handle_unknown_block_root(peer_id, block_root);
                     }
                 }
             }

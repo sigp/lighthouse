@@ -48,6 +48,7 @@ pub mod payload_attestation_verification;
 pub mod payload_bid_verification;
 pub mod payload_envelope_streamer;
 pub mod payload_envelope_verification;
+pub mod pending_payload_cache;
 pub mod pending_payload_envelopes;
 pub mod persisted_beacon_chain;
 pub mod persisted_custody;

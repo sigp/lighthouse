@@ -111,6 +111,57 @@ pub fn validate_full_data_columns<'a, E: EthSpec>(
     kzg.verify_cell_proof_batch(&cells, &proofs, column_indices, &commitments)
 }
 
+/// Validate a batch of full `DataColumnSidecar`s against commitments supplied out-of-band.
+///
+/// Gloas sidecars do not carry commitments. Their commitments come from the block's
+/// `ExecutionPayloadBid`.
+pub fn validate_data_columns_with_commitments<'a, E: EthSpec>(
+    kzg: &Kzg,
+    data_column_iter: impl Iterator<Item = &'a Arc<DataColumnSidecar<E>>>,
+    kzg_commitments: &[KzgCommitment],
+) -> Result<(), (Option<u64>, KzgError)> {
+    let mut cells = Vec::new();
+    let mut proofs = Vec::new();
+    let mut column_indices = Vec::new();
+    let mut commitments = Vec::new();
+
+    for data_column in data_column_iter {
+        let col_index = *data_column.index();
+
+        if data_column.column().is_empty() {
+            return Err((Some(col_index), KzgError::KzgVerificationFailed));
+        }
+
+        for cell in data_column.column() {
+            cells.push(ssz_cell_to_crypto_cell::<E>(cell).map_err(|e| (Some(col_index), e))?);
+            column_indices.push(col_index);
+        }
+
+        for &proof in data_column.kzg_proofs() {
+            proofs.push(proof.0);
+        }
+
+        for &commitment in kzg_commitments {
+            commitments.push(commitment.0);
+        }
+
+        let expected_len = column_indices.len();
+
+        // We make this check at each iteration so that the error is attributable to a specific column.
+        if cells.len() != expected_len
+            || proofs.len() != expected_len
+            || commitments.len() != expected_len
+        {
+            return Err((
+                Some(col_index),
+                KzgError::InconsistentArrayLength("Invalid data column".to_string()),
+            ));
+        }
+    }
+
+    kzg.verify_cell_proof_batch(&cells, &proofs, column_indices, &commitments)
+}
+
 /// Validate a batch of partial `VerifiablePartialDataColumn`s.
 ///
 /// Partial columns may have missing cells, indicated by a bitmap. We only verify present cells.
@@ -625,12 +676,19 @@ pub fn reconstruct_blobs<E: EthSpec>(
     let blob_indices: Vec<usize> = match blob_indices_opt {
         Some(indices) => indices.into_iter().map(|i| i as usize).collect(),
         None => {
-            // TODO(gloas): support blob reconstruction for Gloas
-            // https://github.com/sigp/lighthouse/issues/7413
-            let num_of_blobs = first_data_column
-                .kzg_commitments()
-                .map_err(|_| "Gloas blob reconstruction not yet supported".to_string())?
-                .len();
+            // Fulu columns carry commitments inline; Gloas columns don't, so fall back to
+            // the block's payload bid commitments.
+            let num_of_blobs = match first_data_column.kzg_commitments() {
+                Ok(commitments) => commitments.len(),
+                Err(_) => signed_block
+                    .message()
+                    .body()
+                    .signed_execution_payload_bid()
+                    .map(|bid| bid.message.blob_kzg_commitments.len())
+                    .map_err(|_| {
+                        "Gloas blob reconstruction: block missing payload bid".to_string()
+                    })?,
+            };
             (0..num_of_blobs).collect()
         }
     };

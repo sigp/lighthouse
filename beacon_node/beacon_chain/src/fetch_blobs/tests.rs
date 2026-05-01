@@ -199,7 +199,7 @@ mod get_blobs_v2 {
             .returning(|_| None);
         mock_adapter
             .expect_cached_data_column_indexes()
-            .returning(|_| None);
+            .returning(|_, _| None);
         mock_process_engine_blobs_result(
             &mut mock_adapter,
             Ok(AvailabilityProcessingStatus::Imported(block_root)),

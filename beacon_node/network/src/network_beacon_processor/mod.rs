@@ -980,9 +980,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Fetch blobs completed without import"
                 );
             }
-            Err(FetchEngineBlobError::BlobProcessingError(BlockError::DuplicateFullyImported(
-                ..,
-            ))) => {
+            Err(FetchEngineBlobError::BlobProcessingError(e))
+                if matches!(*e, BlockError::DuplicateFullyImported(..)) =>
+            {
                 debug!(
                     %block_root,
                     "Fetch blobs duplicate import"
@@ -998,6 +998,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
 
         // Publish partial columns without eager send
+        // TODO(gloas): implement publish partial columns without eager send
         if let Some(assembler) = self.chain.data_availability_checker.partial_assembler() {
             let columns = assembler.get_partials_and_mark_as_local_fetched(block_root, &header);
             if !columns.is_empty() {
@@ -1018,8 +1019,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Attempts to reconstruct all data columns if the conditions checked in
     /// [`DataAvailabilityCheckerInner::check_and_set_reconstruction_started`] are satisfied.
     #[instrument(level = "debug", skip_all, fields(?block_root))]
-    async fn attempt_data_column_reconstruction(self: &Arc<Self>, block_root: Hash256) {
-        let result = self.chain.reconstruct_data_columns(block_root).await;
+    async fn attempt_data_column_reconstruction(self: &Arc<Self>, slot: Slot, block_root: Hash256) {
+        let result = self.chain.reconstruct_data_columns(slot, block_root).await;
 
         match result {
             Ok(Some((availability_processing_status, data_columns_to_publish))) => {

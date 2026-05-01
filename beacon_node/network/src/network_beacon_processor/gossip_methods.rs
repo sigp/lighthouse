@@ -698,15 +698,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(err) => {
                 match err {
-                    GossipDataColumnError::InvalidVariant => {
-                        // TODO(gloas) we should probably penalize the peer here
-                        debug!(
-                            %slot,
-                            %block_root,
-                            %index,
-                            "Invalid gossip data column variant."
-                        )
-                    }
                     GossipDataColumnError::PriorKnownUnpublished => {
                         debug!(
                             %slot,
@@ -732,6 +723,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             column_sidecar,
                         ));
                     }
+                    GossipDataColumnError::BlockRootUnknown {
+                        block_root: unknown_block_root,
+                        ..
+                    } => {
+                        debug!(
+                            action = "ignoring",
+                            %unknown_block_root,
+                            "Unknown block root for column"
+                        );
+                        // TODO(gloas): wire this into proper lookup sync. Sending
+                        // `UnknownBlockHashFromAttestation` here is a Fulu-shaped fallback that
+                        // mixes column processing with the attestation lookup path and is not
+                        // the right primitive for Gloas column lookups.
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
                     GossipDataColumnError::PubkeyCacheTimeout
                     | GossipDataColumnError::BeaconChainError(_) => {
                         crit!(
@@ -739,10 +749,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "Internal error when verifying column sidecar"
                         )
                     }
-                    GossipDataColumnError::ProposalSignatureInvalid
+                    GossipDataColumnError::InvalidVariant
+                    | GossipDataColumnError::ProposalSignatureInvalid
                     | GossipDataColumnError::UnknownValidator(_)
                     | GossipDataColumnError::ProposerIndexMismatch { .. }
                     | GossipDataColumnError::IsNotLaterThanParent { .. }
+                    | GossipDataColumnError::BlockSlotMismatch { .. }
                     | GossipDataColumnError::InvalidSubnetId { .. }
                     | GossipDataColumnError::InvalidInclusionProof
                     | GossipDataColumnError::InvalidKzgProof { .. }
@@ -904,14 +916,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         match err {
             GossipPartialDataColumnError::GossipDataColumnError(err) => match err {
-                GossipDataColumnError::InvalidVariant => {
-                    // TODO(gloas) we should probably penalize the peer here
-                    debug!(
-                        %block_root,
-                        %index,
-                        "Invalid gossip partial data column variant."
-                    )
-                }
                 GossipDataColumnError::PriorKnownUnpublished => {
                     debug!(
                         %block_root,
@@ -933,6 +937,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         slot,
                     });
                 }
+                GossipDataColumnError::BlockRootUnknown {
+                    block_root: unknown_block_root,
+                    ..
+                } => {
+                    debug!(
+                        action = "requesting block",
+                        %unknown_block_root,
+                        "Unknown block root for partial column"
+                    );
+                    self.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
+                        peer_id,
+                        unknown_block_root,
+                    ));
+                }
                 GossipDataColumnError::PubkeyCacheTimeout
                 | GossipDataColumnError::BeaconChainError(_) => {
                     crit!(
@@ -940,10 +958,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "Internal error when verifying partial column sidecar"
                     )
                 }
-                GossipDataColumnError::ProposalSignatureInvalid
+                GossipDataColumnError::InvalidVariant
+                | GossipDataColumnError::ProposalSignatureInvalid
                 | GossipDataColumnError::UnknownValidator(_)
                 | GossipDataColumnError::ProposerIndexMismatch { .. }
                 | GossipDataColumnError::IsNotLaterThanParent { .. }
+                | GossipDataColumnError::BlockSlotMismatch { .. }
                 | GossipDataColumnError::InvalidSubnetId { .. }
                 | GossipDataColumnError::InvalidInclusionProof
                 | GossipDataColumnError::InvalidKzgProof { .. }
@@ -1323,6 +1343,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let data_column_slot = verified_data_column.slot();
         let data_column_index = verified_data_column.index();
 
+        // TODO(gloas): implement partial messages
         if let DataColumnSidecar::Fulu(col) = verified_data_column.as_data_column()
             && self
                 .chain
@@ -1353,7 +1374,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .await;
         register_process_result_metrics(&result, metrics::BlockSource::Gossip, "data_column");
 
-        match &result {
+        match result {
             Ok(availability) => match availability {
                 AvailabilityProcessingStatus::Imported(block_root) => {
                     debug!(
@@ -1366,6 +1387,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         &metrics::BEACON_BLOB_DELAY_FULL_VERIFICATION,
                         processing_start_time.elapsed().as_millis() as i64,
                     );
+
+                    // If a block is in the da_checker, sync maybe awaiting for an event when block is finally
+                    // imported. A block can become imported both after processing a block or data column. If
+                    // importing a block results in `Imported`, notify. Do not notify of data column errors.
+                    self.send_sync_message(SyncMessage::GossipBlockProcessResult {
+                        block_root,
+                        imported: true,
+                    });
                 }
                 AvailabilityProcessingStatus::MissingComponents(slot, block_root) => {
                     trace!(
@@ -1375,7 +1404,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "Processed data column, waiting for other components"
                     );
 
-                    self.check_reconstruction_trigger(*slot, block_root).await;
+                    self.check_reconstruction_trigger(slot, &block_root).await;
                 }
             },
             Err(BlockError::DuplicateFullyImported(_)) => {
@@ -1398,16 +1427,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "bad_gossip_data_column_ssz",
                 );
             }
-        }
-
-        // If a block is in the da_checker, sync maybe awaiting for an event when block is finally
-        // imported. A block can become imported both after processing a block or data column. If a
-        // importing a block results in `Imported`, notify. Do not notify of data column errors.
-        if matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))) {
-            self.send_sync_message(SyncMessage::GossipBlockProcessResult {
-                block_root,
-                imported: true,
-            });
         }
     }
 
@@ -1575,7 +1594,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             slot,
                             process_fn: Box::pin(async move {
                                 cloned_self
-                                    .attempt_data_column_reconstruction(block_root)
+                                    .attempt_data_column_reconstruction(slot, block_root)
                                     .await;
                             }),
                         },
@@ -1827,7 +1846,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 return None;
             }
             // BlobNotRequired is unreachable. Only constructed in `process_gossip_blob`
-            Err(e @ BlockError::InternalError(_)) | Err(e @ BlockError::BlobNotRequired(_)) => {
+            Err(e @ BlockError::InternalError(_))
+            | Err(e @ BlockError::BlobNotRequired(_))
+            | Err(e @ BlockError::EnvelopeBlockRootUnknown(_))
+            | Err(e @ BlockError::OptimisticSyncNotSupported { .. }) => {
                 error!(error = %e, "Internal block gossip validation error");
                 return None;
             }
@@ -3814,8 +3836,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | EnvelopeError::UnknownValidator { .. }
                     | EnvelopeError::IncorrectBlockProposer { .. }
                     | EnvelopeError::ExecutionPayloadError(_)
-                    | EnvelopeError::EnvelopeProcessingError(_)
-                    | EnvelopeError::BlockError(_) => {
+                    | EnvelopeError::EnvelopeProcessingError(_) => {
                         self.propagate_validation_result(
                             message_id,
                             peer_id,
@@ -3895,11 +3916,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
 
                     EnvelopeError::PriorToFinalization { .. }
-                    | EnvelopeError::OptimisticSyncNotSupported { .. }
                     | EnvelopeError::BeaconChainError(_)
                     | EnvelopeError::BeaconStateError(_)
-                    | EnvelopeError::BlockProcessingError(_)
-                    | EnvelopeError::InternalError(_) => {
+                    | EnvelopeError::ImportError(_) => {
                         self.propagate_validation_result(
                             message_id,
                             peer_id,
@@ -3990,7 +4009,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | EnvelopeError::BlockHashMismatch { .. }
                 | EnvelopeError::UnknownValidator { .. }
                 | EnvelopeError::IncorrectBlockProposer { .. }
-                | EnvelopeError::ExecutionPayloadError(_) => {
+                | EnvelopeError::ExecutionPayloadError(_)
+                | EnvelopeError::EnvelopeProcessingError(_) => {
                     self.gossip_penalize_peer(
                         peer_id,
                         PeerAction::LowToleranceError,
@@ -3998,22 +4018,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     );
                 }
 
-                EnvelopeError::EnvelopeProcessingError(_)
-                | EnvelopeError::BlockError(_)
-                | EnvelopeError::BlockRootUnknown { .. } => {
-                    self.gossip_penalize_peer(
-                        peer_id,
-                        PeerAction::LowToleranceError,
-                        "gossip_envelope_processing_error",
-                    );
-                }
-
-                EnvelopeError::PriorToFinalization { .. }
-                | EnvelopeError::OptimisticSyncNotSupported { .. }
+                EnvelopeError::BlockRootUnknown { .. }
+                | EnvelopeError::PriorToFinalization { .. }
                 | EnvelopeError::BeaconChainError(_)
                 | EnvelopeError::BeaconStateError(_)
-                | EnvelopeError::BlockProcessingError(_)
-                | EnvelopeError::InternalError(_) => {}
+                | EnvelopeError::ImportError(_) => {}
             },
         }
     }
