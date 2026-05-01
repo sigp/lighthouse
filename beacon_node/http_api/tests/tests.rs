@@ -2912,17 +2912,11 @@ impl ApiTester {
             .proposer_lookahead()
             .expect("should get proposer_lookahead");
 
-        // Pick a future slot in the current epoch.
+        // Pick a future slot in the next epoch to ensure it's always valid.
         let slots_per_epoch = E::slots_per_epoch() as usize;
-        let current_epoch_start = head_slot
-            .epoch(E::slots_per_epoch())
-            .start_slot(E::slots_per_epoch());
-        let proposal_slot = current_epoch_start + Slot::new((slot_offset % slots_per_epoch) as u64);
-        let proposal_slot = if proposal_slot <= head_slot {
-            proposal_slot + Slot::new(1)
-        } else {
-            proposal_slot
-        };
+        let next_epoch = head_slot.epoch(E::slots_per_epoch()) + 1;
+        let next_epoch_start = next_epoch.start_slot(E::slots_per_epoch());
+        let proposal_slot = next_epoch_start + Slot::new((slot_offset % slots_per_epoch) as u64);
 
         let slot_index = proposal_slot.as_usize() % slots_per_epoch;
         let validator_index = *proposer_lookahead
@@ -2930,6 +2924,7 @@ impl ApiTester {
             .expect("slot index should be in lookahead") as usize;
 
         let preferences = ProposerPreferences {
+            dependent_root: Hash256::ZERO,
             proposal_slot,
             validator_index: validator_index as u64,
             fee_recipient: Address::repeat_byte(0xaa),
@@ -2954,6 +2949,9 @@ impl ApiTester {
         }
     }
 
+    // Each sub-test uses a unique slot_offset (1-5) because the gossip cache deduplicates on
+    // (slot, dependent_root, validator_index). Reusing an offset from an earlier test would hit
+    // "already seen" instead of testing the intended condition.
     pub async fn test_post_validator_proposer_preferences_valid(mut self) -> Self {
         let signed = self.make_valid_signed_proposer_preferences(1);
         let fork_name = self
@@ -2982,7 +2980,7 @@ impl ApiTester {
             .fork_name_at_slot::<E>(signed.message.proposal_slot);
 
         self.client
-            .post_validator_proposer_preferences_ssz(&[signed], fork_name)
+            .post_validator_proposer_preferences_ssz(&vec![signed], fork_name)
             .await
             .unwrap();
 
@@ -2995,7 +2993,7 @@ impl ApiTester {
     }
 
     pub async fn test_post_validator_proposer_preferences_invalid_sig(self) -> Self {
-        let mut signed = self.make_valid_signed_proposer_preferences(1);
+        let mut signed = self.make_valid_signed_proposer_preferences(3);
         signed.signature = Signature::empty();
         let fork_name = self
             .chain
@@ -3013,7 +3011,7 @@ impl ApiTester {
     }
 
     pub async fn test_post_validator_proposer_preferences_invalid_sig_ssz(self) -> Self {
-        let mut signed = self.make_valid_signed_proposer_preferences(1);
+        let mut signed = self.make_valid_signed_proposer_preferences(4);
         signed.signature = Signature::empty();
         let fork_name = self
             .chain
@@ -3022,7 +3020,7 @@ impl ApiTester {
 
         let result = self
             .client
-            .post_validator_proposer_preferences_ssz(&[signed], fork_name)
+            .post_validator_proposer_preferences_ssz(&vec![signed], fork_name)
             .await;
 
         assert!(
@@ -3034,7 +3032,7 @@ impl ApiTester {
     }
 
     pub async fn test_post_validator_proposer_preferences_duplicate(mut self) -> Self {
-        let signed = self.make_valid_signed_proposer_preferences(1);
+        let signed = self.make_valid_signed_proposer_preferences(5);
         let fork_name = self
             .chain
             .spec
@@ -9363,7 +9361,7 @@ async fn post_validator_proposer_preferences() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
-    ApiTester::new()
+    ApiTester::new_with_hard_forks()
         .await
         .test_post_validator_proposer_preferences_valid()
         .await

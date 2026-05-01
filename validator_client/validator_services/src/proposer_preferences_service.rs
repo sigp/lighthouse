@@ -104,23 +104,22 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
     }
 
     async fn publish_proposer_preferences(&self, current_epoch: Epoch, fork_name: ForkName) {
-        // Collect all data needed while holding the lock, then drop it before any awaits.
-        let preferences_to_sign: Vec<_> = {
+        let (dependent_root, duties) = {
             let proposers = self.duties_service.proposers.read();
-            let Some((_, duties)) = proposers.get(&current_epoch) else {
-                return;
-            };
+            match proposers.get(&current_epoch) {
+                Some((root, duties)) => (*root, duties.clone()),
+                None => return,
+            }
+        };
 
+        let preferences_to_sign: Vec<_> = {
             let mut result = vec![];
-            for duty in duties {
+            for duty in &duties {
                 let Some(proposal_data) = self.validator_store.proposal_data(&duty.pubkey) else {
                     warn!(
                         validator = ?duty.pubkey,
                         "Missing proposal data for proposer preferences"
                     );
-                    continue;
-                };
-                let Some(validator_index) = proposal_data.validator_index else {
                     continue;
                 };
                 let Some(fee_recipient) = proposal_data.fee_recipient else {
@@ -133,8 +132,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
                 result.push((
                     duty.pubkey,
                     ProposerPreferences {
+                        dependent_root,
                         proposal_slot: duty.slot,
-                        validator_index,
+                        validator_index: duty.validator_index,
                         fee_recipient,
                         gas_limit: proposal_data.gas_limit,
                     },
@@ -176,38 +176,30 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
         }
 
         let count = signed.len();
+        let signed = Arc::new(signed);
         let result = self
             .beacon_nodes
             .first_success(|beacon_node| {
                 let signed = signed.clone();
                 async move {
-                    beacon_node
+                    match beacon_node
                         .post_validator_proposer_preferences_ssz(&signed, fork_name)
                         .await
-                        .map_err(|e| format!("Failed to publish proposer preferences (SSZ): {e:?}"))
-                }
-            })
-            .await;
-
-        let result = match result {
-            Ok(()) => Ok(()),
-            Err(_) => {
-                debug!(%current_epoch, "SSZ publish failed, falling back to JSON");
-                self.beacon_nodes
-                    .first_success(|beacon_node| {
-                        let signed = signed.clone();
-                        async move {
+                    {
+                        Ok(()) => Ok(()),
+                        Err(ssz_err) => {
+                            debug!(error = ?ssz_err, "SSZ publish failed, falling back to JSON");
                             beacon_node
                                 .post_validator_proposer_preferences(&signed, fork_name)
                                 .await
                                 .map_err(|e| {
-                                    format!("Failed to publish proposer preferences (JSON): {e:?}")
+                                    format!("Failed to publish proposer preferences: {e:?}")
                                 })
                         }
-                    })
-                    .await
-            }
-        };
+                    }
+                }
+            })
+            .await;
 
         match result {
             Ok(()) => {

@@ -23,7 +23,7 @@ use lighthouse_network::PubsubMessage;
 use network::{NetworkMessage, ValidatorSubscriptionMessage};
 use reqwest::StatusCode;
 use slot_clock::SlotClock;
-use ssz::{Decode, Encode};
+use ssz::Decode;
 use std::sync::Arc;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio::sync::oneshot;
@@ -1171,8 +1171,9 @@ pub fn post_validator_proposer_preferences<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
-                task_spawner.blocking_json_task(Priority::P0, move || {
-                    publish_proposer_preferences(&chain, &network_tx, preferences)
+                task_spawner.blocking_response_task(Priority::P0, move || {
+                    publish_proposer_preferences(&chain, &network_tx, preferences)?;
+                    Ok(warp::reply())
                 })
             },
         )
@@ -1201,26 +1202,13 @@ pub fn post_validator_proposer_preferences_ssz<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
-                task_spawner.blocking_json_task(Priority::P0, move || {
-                    let item_len = <SignedProposerPreferences as Encode>::ssz_fixed_len();
-                    if !body_bytes.len().is_multiple_of(item_len) {
-                        return Err(warp_utils::reject::custom_bad_request(format!(
-                            "SSZ body length {} is not a multiple of SignedProposerPreferences size {}",
-                            body_bytes.len(),
-                            item_len,
-                        )));
-                    }
-                    let preferences: Vec<SignedProposerPreferences> = body_bytes
-                        .chunks(item_len)
-                        .map(|chunk| {
-                            SignedProposerPreferences::from_ssz_bytes(chunk).map_err(|e| {
-                                warp_utils::reject::custom_bad_request(format!(
-                                    "invalid SSZ: {e:?}"
-                                ))
-                            })
-                        })
-                        .collect::<Result<_, _>>()?;
-                    publish_proposer_preferences(&chain, &network_tx, preferences)
+                task_spawner.blocking_response_task(Priority::P0, move || {
+                    let preferences = Vec::<SignedProposerPreferences>::from_ssz_bytes(&body_bytes)
+                        .map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
+                        })?;
+                    publish_proposer_preferences(&chain, &network_tx, preferences)?;
+                    Ok(warp::reply())
                 })
             },
         )
@@ -1236,11 +1224,12 @@ fn publish_proposer_preferences<T: BeaconChainTypes>(
     let mut num_already_known = 0;
 
     for (index, preferences) in preferences_list.into_iter().enumerate() {
-        match chain.verify_proposer_preferences_for_gossip(Arc::new(preferences.clone())) {
-            Ok(_verified) => {
+        let validator_index = preferences.message.validator_index;
+        match chain.verify_proposer_preferences_for_gossip(Arc::new(preferences)) {
+            Ok(verified) => {
                 crate::utils::publish_pubsub_message(
                     network_tx,
-                    PubsubMessage::ProposerPreferences(Box::new(preferences)),
+                    PubsubMessage::ProposerPreferences(verified.signed_preferences),
                 )?;
             }
             Err(ProposerPreferencesError::AlreadySeen { .. }) => {
@@ -1249,7 +1238,7 @@ fn publish_proposer_preferences<T: BeaconChainTypes>(
             Err(e) => {
                 error!(
                     error = ?e,
-                    request_index = index,
+                    %validator_index,
                     "Failure verifying proposer preferences for gossip"
                 );
                 failures.push(Failure::new(index, format!("{e:?}")));

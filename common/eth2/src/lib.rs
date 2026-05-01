@@ -1871,7 +1871,7 @@ impl BeaconNodeHttpClient {
     /// `POST validator/proposer_preferences` (SSZ)
     pub async fn post_validator_proposer_preferences_ssz(
         &self,
-        signed_preferences: &[SignedProposerPreferences],
+        signed_preferences: &Vec<SignedProposerPreferences>,
         fork_name: ForkName,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
@@ -1881,10 +1881,7 @@ impl BeaconNodeHttpClient {
             .push("validator")
             .push("proposer_preferences");
 
-        let ssz_body: Vec<u8> = signed_preferences
-            .iter()
-            .flat_map(|p| p.as_ssz_bytes())
-            .collect();
+        let ssz_body = signed_preferences.as_ssz_bytes();
 
         self.post_generic_with_consensus_version_and_ssz_body(path, ssz_body, None, fork_name)
             .await?;
