@@ -8467,7 +8467,7 @@ async fn get_validator_payload_attestation_data_no_block() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
-    ApiTester::new()
+    ApiTester::new_with_hard_forks()
         .await
         .test_get_validator_payload_attestation_data_no_block()
         .await;
