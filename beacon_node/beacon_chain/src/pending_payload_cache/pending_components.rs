@@ -9,25 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
 use types::DataColumnSidecar;
-use types::{
-    AbstractExecPayload, BeaconStateError, ColumnIndex, EthSpec, Hash256, SignedBeaconBlock,
-    SignedExecutionPayloadBid,
-};
-
-/// Extract the signed execution payload bid from a Gloas block as a shareable `Arc`.
-///
-/// Returns `Err` if the block is not a Gloas block.
-pub fn signed_payload_bid_from_block<E: EthSpec, P: AbstractExecPayload<E>>(
-    block: &SignedBeaconBlock<E, P>,
-) -> Result<Arc<SignedExecutionPayloadBid<E>>, BeaconStateError> {
-    Ok(Arc::new(
-        block
-            .message()
-            .body()
-            .signed_execution_payload_bid()?
-            .clone(),
-    ))
-}
+use types::{ColumnIndex, EthSpec, Hash256, SignedExecutionPayloadBid};
 
 /// This represents the components of a payload pending data availability.
 ///

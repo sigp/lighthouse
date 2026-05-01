@@ -41,7 +41,6 @@ use crate::metrics::{
     KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS, KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES,
 };
 use crate::observed_data_sidecars::ObservationStrategy;
-pub use pending_components::signed_payload_bid_from_block;
 use pending_components::{PendingComponents, ReconstructColumnsDecision};
 use types::SignedExecutionPayloadBid;
 use types::new_non_zero_usize;
@@ -725,7 +724,14 @@ mod data_availability_checker_tests {
         let (block, data_columns) =
             generate_rand_block_and_data_columns::<E>(ForkName::Gloas, num_blobs, &mut rng, spec);
         let block_root = block.canonical_root();
-        let bid = signed_payload_bid_from_block(&block).expect("should get payload bid");
+        let bid = Arc::new(
+            block
+                .message()
+                .body()
+                .signed_execution_payload_bid()
+                .expect("should get payload bid")
+                .clone(),
+        );
         cache.insert_bid(block_root, bid.clone());
         (bid, block_root, data_columns)
     }

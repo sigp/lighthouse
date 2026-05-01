@@ -71,7 +71,6 @@ use crate::pending_payload_cache::PendingPayloadCache;
 use crate::pending_payload_cache::{
     Availability as PayloadAvailability,
     DataColumnReconstructionResult as DataColumnReconstructionResultGloas,
-    signed_payload_bid_from_block,
 };
 use crate::pending_payload_envelopes::PendingPayloadEnvelopes;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
@@ -3835,7 +3834,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let block = execution_pending.block.block_cloned();
             if block.fork_name_unchecked().gloas_enabled() {
-                let bid = signed_payload_bid_from_block(block.as_ref())?;
+                let bid = Arc::new(
+                    block
+                        .message()
+                        .body()
+                        .signed_execution_payload_bid()?
+                        .clone(),
+                );
                 chain.pending_payload_cache.insert_bid(block_root, bid);
             }
 

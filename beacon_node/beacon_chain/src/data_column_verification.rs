@@ -9,7 +9,6 @@ use crate::kzg_utils::{
 use crate::observed_data_sidecars::{
     Error as ObservedDataSidecarsError, ObservationKey, ObservationStrategy, Observe,
 };
-use crate::pending_payload_cache::signed_payload_bid_from_block;
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, metrics};
 use educe::Educe;
 use fork_choice::ProtoBlock;
@@ -1313,19 +1312,36 @@ pub(crate) fn load_gloas_payload_bid<T: BeaconChainTypes>(
     }
 
     let bid = if let Some(block) = chain.early_attester_cache.get_block(block_root) {
-        signed_payload_bid_from_block(block.as_ref()).map_err(BeaconChainError::BeaconStateError)?
+        Arc::new(
+            block
+                .message()
+                .body()
+                .signed_execution_payload_bid()
+                .map_err(BeaconChainError::BeaconStateError)?
+                .clone(),
+        )
     } else {
         match chain
             .store
             .try_get_full_block(&block_root)
             .map_err(BeaconChainError::DBError)?
         {
-            Some(DatabaseBlock::Full(block)) => {
-                signed_payload_bid_from_block(&block).map_err(BeaconChainError::BeaconStateError)?
-            }
-            Some(DatabaseBlock::Blinded(block)) => {
-                signed_payload_bid_from_block(&block).map_err(BeaconChainError::BeaconStateError)?
-            }
+            Some(DatabaseBlock::Full(block)) => Arc::new(
+                block
+                    .message()
+                    .body()
+                    .signed_execution_payload_bid()
+                    .map_err(BeaconChainError::BeaconStateError)?
+                    .clone(),
+            ),
+            Some(DatabaseBlock::Blinded(block)) => Arc::new(
+                block
+                    .message()
+                    .body()
+                    .signed_execution_payload_bid()
+                    .map_err(BeaconChainError::BeaconStateError)?
+                    .clone(),
+            ),
             None => {
                 return Ok(None);
             }
