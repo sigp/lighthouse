@@ -19,6 +19,7 @@
 //! ```
 
 use state_processing::envelope_processing::EnvelopeProcessingError;
+use std::marker::PhantomData;
 use std::sync::Arc;
 use store::Error as DBError;
 use strum::AsRefStr;
@@ -40,7 +41,15 @@ mod payload_notifier;
 
 pub use execution_pending_envelope::ExecutionPendingEnvelope;
 
-#[derive(Debug)]
+// TODO(gloas): could remove this type completely, or remove the generic
+#[derive(Debug, PartialEq)]
+pub struct EnvelopeImportData<E: EthSpec> {
+    pub block_root: Hash256,
+    _phantom: PhantomData<E>,
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct AvailableEnvelope<E: EthSpec> {
     envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
     pub columns: DataColumnSidecarList<E>,
