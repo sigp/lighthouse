@@ -392,4 +392,56 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             ));
         }
     }
+
+    /// Import an execution payload envelope received via range sync.
+    ///
+    /// This is a simplified import path that trusts the envelope since it was fetched alongside
+    /// a valid block during range sync. It stores the envelope to the database and marks it as
+    /// received in fork choice.
+    pub fn import_envelope_from_range_sync(
+        &self,
+        envelope: AvailableEnvelope<T::EthSpec>,
+        block_root: Hash256,
+    ) -> Result<(), BlockError> {
+        let fork_choice_reader = self.canonical_head.fork_choice_upgradable_read_lock();
+        if !fork_choice_reader.contains_block(&block_root) {
+            return Err(BlockError::EnvelopeBlockRootUnknown(block_root));
+        }
+
+        let mut fork_choice = parking_lot::RwLockUpgradableReadGuard::upgrade(fork_choice_reader);
+
+        fork_choice
+            .on_valid_payload_envelope_received(block_root)
+            .map_err(|e| BlockError::InternalError(format!("{e:?}")))?;
+
+        let (signed_envelope, columns) = envelope.deconstruct();
+
+        let mut ops = vec![];
+
+        if let Some(blobs_or_columns_store_op) = self.get_blobs_or_columns_store_op(
+            block_root,
+            signed_envelope.slot(),
+            AvailableBlockData::DataColumns(columns),
+        ) {
+            ops.push(blobs_or_columns_store_op);
+        }
+
+        ops.push(StoreOp::PutPayloadEnvelope(
+            block_root,
+            signed_envelope,
+        ));
+
+        drop(fork_choice);
+
+        if let Err(e) = self.store.do_atomically_with_block_and_blobs_cache(ops) {
+            error!(
+                msg = "Failed to store range sync envelope",
+                error = ?e,
+                "Database write failed!"
+            );
+            return Err(e.into());
+        }
+
+        Ok(())
+    }
 }

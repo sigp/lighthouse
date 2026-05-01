@@ -2019,10 +2019,20 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
         // If the parent's execution payload envelope hasn't arrived yet,
         // return an unknown parent error so the block gets sent to the
         // reprocess queue.
+        //
+        // Skip this check if the parent is at or before the finalized slot (e.g. after
+        // checkpoint sync the finalized block won't have a stored envelope).
+        let finalized_slot = chain
+            .canonical_head
+            .cached_head()
+            .finalized_checkpoint()
+            .epoch
+            .start_slot(T::EthSpec::slots_per_epoch());
         if chain
             .spec
             .fork_name_at_slot::<T::EthSpec>(parent_block.slot())
             .gloas_enabled()
+            && parent_block.slot() > finalized_slot
         {
             let _envelope = chain
                 .store

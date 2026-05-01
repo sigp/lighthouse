@@ -3185,11 +3185,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
 
             // Import the blocks into the chain.
-            for (signature_verified_block, _envelope) in signature_verified_blocks {
+            for (signature_verified_block, envelope) in signature_verified_blocks {
                 let block_slot = signature_verified_block.slot();
+                let block_root = signature_verified_block.block_root();
                 match self
                     .process_block(
-                        signature_verified_block.block_root(),
+                        block_root,
                         signature_verified_block,
                         notify_execution_layer,
                         BlockImportSource::RangeSync,
@@ -3200,6 +3201,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     Ok(status) => {
                         match status {
                             AvailabilityProcessingStatus::Imported(block_root) => {
+                                // Import the envelope if one was provided (Gloas+).
+                                if let Some(envelope) = envelope
+                                    && let Err(e) = self.import_envelope_from_range_sync(
+                                        *envelope, block_root,
+                                    )
+                                {
+                                    return ChainSegmentResult::Failed {
+                                        imported_blocks,
+                                        error: e,
+                                    };
+                                }
                                 // The block was imported successfully.
                                 imported_blocks.push((block_root, block_slot));
                             }
