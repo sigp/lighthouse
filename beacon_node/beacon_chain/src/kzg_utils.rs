@@ -676,12 +676,19 @@ pub fn reconstruct_blobs<E: EthSpec>(
     let blob_indices: Vec<usize> = match blob_indices_opt {
         Some(indices) => indices.into_iter().map(|i| i as usize).collect(),
         None => {
-            // TODO(gloas): support blob reconstruction for Gloas
-            // https://github.com/sigp/lighthouse/issues/7413
-            let num_of_blobs = first_data_column
-                .kzg_commitments()
-                .map_err(|_| "Gloas blob reconstruction not yet supported".to_string())?
-                .len();
+            // Fulu columns carry commitments inline; Gloas columns don't, so fall back to
+            // the block's payload bid commitments.
+            let num_of_blobs = match first_data_column.kzg_commitments() {
+                Ok(commitments) => commitments.len(),
+                Err(_) => signed_block
+                    .message()
+                    .body()
+                    .signed_execution_payload_bid()
+                    .map(|bid| bid.message.blob_kzg_commitments.len())
+                    .map_err(|_| {
+                        "Gloas blob reconstruction: block missing payload bid".to_string()
+                    })?,
+            };
             (0..num_of_blobs).collect()
         }
     };

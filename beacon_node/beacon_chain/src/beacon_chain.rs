@@ -1331,6 +1331,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(None);
         };
 
+        // Gloas removes the standalone `BlobSidecar` shape — KZG commitments live in the bid and
+        // there's no signed-block-header / inclusion-proof to populate a `BlobSidecar` from. The
+        // canonical data is the column sidecar set on disk; callers needing data for a Gloas
+        // block should consume columns directly via `get_data_columns`.
+        if block.fork_name_unchecked().gloas_enabled() {
+            return Ok(None);
+        }
+
         if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
             let fork_name = self.spec.fork_name_at_epoch(block.epoch());
             if let Some(columns) = self.store.get_data_columns(block_root, fork_name)? {
@@ -3442,7 +3450,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .gloas_enabled()
             {
                 let bid = load_gloas_payload_bid(block_root, self)?
-                    .ok_or(BlockError::EnvelopeBlockRootUnknown { block_root })?;
+                    .ok_or(BlockError::EnvelopeBlockRootUnknown(block_root))?;
                 let availability = self
                     .pending_payload_cache
                     .put_kzg_verified_custody_data_columns(
@@ -3680,7 +3688,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if is_gloas {
             let bid = load_gloas_payload_bid(block_root, self)?
-                .ok_or(BlockError::EnvelopeBlockRootUnknown { block_root })?;
+                .ok_or(BlockError::EnvelopeBlockRootUnknown(block_root))?;
             let pending_payload_cache = self.pending_payload_cache.clone();
             let result = self
                 .task_executor
@@ -4005,7 +4013,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .gloas_enabled()
         {
             let bid = load_gloas_payload_bid(block_root, self)?
-                .ok_or(BlockError::EnvelopeBlockRootUnknown { block_root })?;
+                .ok_or(BlockError::EnvelopeBlockRootUnknown(block_root))?;
             let availability = self
                 .pending_payload_cache
                 .put_gossip_verified_data_columns(block_root, bid, data_columns)?;
@@ -4111,7 +4119,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .gloas_enabled()
                 {
                     let bid = load_gloas_payload_bid(block_root, self)?
-                        .ok_or(BlockError::EnvelopeBlockRootUnknown { block_root })?;
+                        .ok_or(BlockError::EnvelopeBlockRootUnknown(block_root))?;
                     let availability = self
                         .pending_payload_cache
                         .put_kzg_verified_custody_data_columns(block_root, bid, &data_columns)
@@ -4155,7 +4163,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .gloas_enabled()
         {
             let bid = load_gloas_payload_bid(block_root, self)?
-                .ok_or(BlockError::EnvelopeBlockRootUnknown { block_root })?;
+                .ok_or(BlockError::EnvelopeBlockRootUnknown(block_root))?;
             let availability = self
                 .pending_payload_cache
                 .put_rpc_custody_columns(block_root, bid, custody_columns)
@@ -7750,7 +7758,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )
     }
 
-    pub(crate) fn get_blobs_or_columns_store_op(
+    pub fn get_blobs_or_columns_store_op(
         &self,
         block_root: Hash256,
         block_slot: Slot,

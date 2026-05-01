@@ -1848,7 +1848,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             // BlobNotRequired is unreachable. Only constructed in `process_gossip_blob`
             Err(e @ BlockError::InternalError(_))
             | Err(e @ BlockError::BlobNotRequired(_))
-            | Err(e @ BlockError::EnvelopeBlockRootUnknown { .. })
+            | Err(e @ BlockError::EnvelopeBlockRootUnknown(_))
             | Err(e @ BlockError::OptimisticSyncNotSupported { .. }) => {
                 error!(error = %e, "Internal block gossip validation error");
                 return None;

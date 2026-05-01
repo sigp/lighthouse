@@ -79,12 +79,16 @@ impl<E: EthSpec> PendingComponents<E> {
         &mut self,
         kzg_verified_data_columns: &[KzgVerifiedCustodyDataColumn<E>],
     ) -> Result<(), AvailabilityCheckError> {
+        let num_blobs_expected = self.num_blobs_expected();
         for data_column in kzg_verified_data_columns {
             let data_column = data_column.as_data_column();
+            // The Vec-backed `PendingColumn` keys cells by index, so we have to allocate up to
+            // `num_blobs_expected` entries before inserting; otherwise `cells.get_mut(idx)` returns
+            // None and the insert is a no-op.
             let col = self
                 .verified_data_columns
                 .entry(*data_column.index())
-                .or_default();
+                .or_insert_with(|| PendingColumn::new_with_capacity(num_blobs_expected));
             for (cell_idx, (cell, proof)) in data_column
                 .column()
                 .iter()
