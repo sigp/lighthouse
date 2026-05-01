@@ -3,7 +3,7 @@
 //! is received we can begin using it to verify data columns.
 //!
 //! When a payload envelope is received over gossip/p2p we first insert it as a pre-executed envelope. A separate
-//! thread eventually executes the payload envelope against the EL. Assuming the payload is executed succesfully
+//! thread eventually executes the payload envelope against the EL. Assuming the payload is executed successfully
 //! the envelope is updated in the cache from `PreExecuted` -> `Executed`. Once all required custody columns
 //! have been kzg verified and the envelope has been executed we can import the envelope into fork choice and store it to disk.
 //!
@@ -54,8 +54,7 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tracing::{Span, debug, error, instrument, trace};
 use types::{
-    ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
-    PartialDataColumnSidecarRef,
+    ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, ExecutionPayloadBid, Hash256, PartialDataColumnSidecarRef
 };
 
 mod pending_column;
@@ -94,7 +93,6 @@ impl<E: EthSpec> Debug for Availability<E> {
             Self::MissingComponents(block_root) => {
                 write!(f, "MissingComponents({})", block_root)
             }
-            // TODO(gloas) fix success case
             Self::Available(envelope) => {
                 write!(f, "Available({:?})", envelope.block_root)
             }
@@ -212,7 +210,9 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
                 Ok(())
             })?;
 
-        let num_expected_columns = self.get_num_expected_columns(epoch);
+        let num_expected_columns = self
+            .custody_context
+            .num_of_data_columns_to_sample(epoch, &self.spec);
 
         pending_components.span.in_scope(|| {
             debug!(
@@ -226,7 +226,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     }
 
     /// Initialize pending components for a block's Gloas bid.
-    pub fn init_pending_bid(&self, block_root: Hash256, bid: PendingPayloadBid<T::EthSpec>) {
+    pub fn insert_bid(&self, block_root: Hash256, bid: ExecutionPayloadBid<T::EthSpec>) {
         let mut write_lock = self.availability_cache.write();
         write_lock.get_or_insert_mut(block_root, || PendingComponents::empty(block_root, bid));
     }
@@ -295,7 +295,9 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
                 pending_components.merge_data_columns(kzg_verified_data_columns)
             })?;
 
-        let num_expected_columns = self.get_num_expected_columns(pending_components.epoch());
+        let num_expected_columns = self
+            .custody_context
+            .num_of_data_columns_to_sample(epoch, &self.spec);
 
         pending_components.span.in_scope(|| {
             debug!(
@@ -510,11 +512,6 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
             pending_components_mut.verified_data_columns = HashMap::new();
             pending_components_mut.reconstruction_started = false;
         }
-    }
-
-    fn get_num_expected_columns(&self, epoch: Epoch) -> usize {
-        self.custody_context
-            .num_of_data_columns_to_sample(epoch, &self.spec)
     }
 
     /// Maintain the cache by removing entries older than the cutoff epoch.
