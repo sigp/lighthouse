@@ -88,7 +88,6 @@ mod tests {
                     validator_index,
                     fee_recipient: Address::ZERO,
                     gas_limit: 30_000_000,
-                    ..ProposerPreferences::default()
                 },
                 signature: Signature::empty(),
             }),

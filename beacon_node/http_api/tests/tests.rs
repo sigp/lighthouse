@@ -2913,14 +2913,15 @@ impl ApiTester {
             .expect("should get proposer_lookahead");
 
         // Pick a future slot in the next epoch to ensure it's always valid.
+        // The lookahead covers 2 epochs: index = epoch_offset * slots_per_epoch + slot_in_epoch.
         let slots_per_epoch = E::slots_per_epoch() as usize;
         let next_epoch = head_slot.epoch(E::slots_per_epoch()) + 1;
         let next_epoch_start = next_epoch.start_slot(E::slots_per_epoch());
         let proposal_slot = next_epoch_start + Slot::new((slot_offset % slots_per_epoch) as u64);
 
-        let slot_index = proposal_slot.as_usize() % slots_per_epoch;
+        let lookahead_index = slots_per_epoch + (slot_offset % slots_per_epoch);
         let validator_index = *proposer_lookahead
-            .get(slot_index)
+            .get(lookahead_index)
             .expect("slot index should be in lookahead") as usize;
 
         let preferences = ProposerPreferences {
