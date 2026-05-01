@@ -1017,6 +1017,28 @@ where
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
+        // For Gloas, blinded and full blocks are structurally identical (no payload in body).
+        // Produce via the Gloas path and convert to blinded.
+        if self.spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
+            let (block_contents, _envelope, pending_state) =
+                Box::pin(self.make_block_with_envelope(state, slot)).await;
+            let (signed_block, _blobs) = block_contents;
+            let signed_blinded = signed_block.clone_as_blinded();
+            let (mut blinded_block, _signature) = signed_blinded.deconstruct();
+            block_modifier(&mut blinded_block);
+            let proposer_index = pending_state
+                .get_beacon_proposer_index(slot, &self.spec)
+                .unwrap();
+            // Re-sign after modification.
+            let signed_blinded = blinded_block.sign(
+                &self.validator_keypairs[proposer_index].sk,
+                &pending_state.fork(),
+                pending_state.genesis_validators_root(),
+                &self.spec,
+            );
+            return (signed_blinded, pending_state);
+        }
+
         complete_state_advance(&mut state, None, slot, &self.spec)
             .expect("should be able to advance state to slot");
 
@@ -1237,6 +1259,21 @@ where
     ) -> (SignedBlockContentsTuple<E>, BeaconState<E>) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
+
+        // For Gloas forks, delegate to make_block_with_envelope which uses the
+        // Gloas-specific block production path, and return the pre-state.
+        if self.spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
+            let pre_state = {
+                let mut s = state.clone();
+                complete_state_advance(&mut s, None, slot, &self.spec)
+                    .expect("should be able to advance state to slot");
+                s.build_caches(&self.spec).expect("should build caches");
+                s
+            };
+            let (block_contents, _envelope, _state) =
+                Box::pin(self.make_block_with_envelope(state, slot)).await;
+            return (block_contents, pre_state);
+        }
 
         complete_state_advance(&mut state, None, slot, &self.spec)
             .expect("should be able to advance state to slot");
