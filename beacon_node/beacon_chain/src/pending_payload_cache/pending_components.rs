@@ -4,7 +4,7 @@ use crate::data_availability_checker::AvailabilityCheckError;
 use crate::data_column_verification::{
     KzgVerifiedCustodyDataColumn, KzgVerifiedCustodyPartialDataColumnGloas, KzgVerifiedDataColumn,
 };
-use crate::partial_data_column_assembler::{PartialMergeResult, UpdatedPartials};
+use crate::partial_data_column_assembler::{LocalFetchState, PartialMergeResult, UpdatedPartials};
 use crate::payload_envelope_verification::AvailabilityPendingExecutedEnvelope;
 use crate::payload_envelope_verification::AvailableEnvelope;
 use crate::payload_envelope_verification::AvailableExecutedEnvelope;
@@ -193,7 +193,12 @@ impl<E: EthSpec> PendingComponents<E> {
 
         PartialMergeResult {
             added_cells: outcome.added_cells,
-            local_fetch_settled: self.local_fetch_settled || disable_get_blobs,
+            // `engine_hasBlobs` is not wired up for Gloas partials, so there is no `Fetching` state.
+            local_fetch_state: if self.local_fetch_settled || disable_get_blobs {
+                LocalFetchState::Fetched
+            } else {
+                LocalFetchState::Unfetched
+            },
             full_columns,
             updated_partials: UpdatedPartials::Gloas(updated_partials),
         }

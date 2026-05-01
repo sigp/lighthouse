@@ -6,6 +6,7 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::error;
+use types::CellBitmap;
 use types::core::{Epoch, EthSpec, Hash256};
 use types::data::{ColumnIndex, PartialDataColumnGloas, PartialDataColumnHeader};
 
@@ -21,9 +22,16 @@ pub struct PartialDataColumnAssembler<E: EthSpec> {
 /// Tracks partial columns being assembled for a single block
 struct PartialAssembly<E: EthSpec> {
     header: Arc<PartialDataColumnHeader<E>>,
-    has_local_blobs: bool,
+    local_blobs: LocalFetchState<E>,
     /// Map of column_index -> partial column being assembled
     columns: HashMap<ColumnIndex, AssemblyColumn<E>>,
+}
+
+#[derive(Debug, Clone)]
+pub enum LocalFetchState<E: EthSpec> {
+    Unfetched,
+    Fetching(CellBitmap<E>),
+    Fetched,
 }
 
 #[derive(Clone, Debug)]
@@ -54,8 +62,9 @@ impl<E: EthSpec> UpdatedPartials<E> {
 pub struct PartialMergeResult<E: EthSpec> {
     /// How many cells were added to the store
     pub added_cells: usize,
-    /// True once the local `getBlobs` attempt has settled: it succeeded, failed, or is disabled.
-    pub local_fetch_settled: bool,
+    /// State of the local `getBlobs` fetch: not known yet, in flight with the EL's blob
+    /// availability known, or settled (it succeeded, failed, or is disabled).
+    pub local_fetch_state: LocalFetchState<E>,
     /// Merge that completed the column
     pub full_columns: Vec<KzgVerifiedCustodyDataColumn<E>>,
     /// The updated partials for publishing.
@@ -81,7 +90,11 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
 
         let assembly = PartialAssembly {
             header,
-            has_local_blobs: self.disable_get_blobs,
+            local_blobs: if self.disable_get_blobs {
+                LocalFetchState::Fetched
+            } else {
+                LocalFetchState::Unfetched
+            },
             columns: HashMap::new(),
         };
 
@@ -103,7 +116,11 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
             .entry(block_root)
             .or_insert_with(|| PartialAssembly {
                 header: header.clone(),
-                has_local_blobs: self.disable_get_blobs,
+                local_blobs: if self.disable_get_blobs {
+                    LocalFetchState::Fetched
+                } else {
+                    LocalFetchState::Unfetched
+                },
                 columns: HashMap::new(),
             });
 
@@ -161,7 +178,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
 
         Some(PartialMergeResult {
             added_cells,
-            local_fetch_settled: assembly.has_local_blobs,
+            local_fetch_state: assembly.local_blobs.clone(),
             full_columns,
             updated_partials: UpdatedPartials::Fulu(updated_partials),
         })
@@ -187,7 +204,11 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
                     signed_block_header: fulu.signed_block_header.clone(),
                     kzg_commitments_inclusion_proof: fulu.kzg_commitments_inclusion_proof.clone(),
                 }),
-                has_local_blobs: self.disable_get_blobs,
+                local_blobs: if self.disable_get_blobs {
+                    LocalFetchState::Fetched
+                } else {
+                    LocalFetchState::Unfetched
+                },
                 columns: Default::default(),
             });
         let prev = assembly
@@ -220,6 +241,29 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
             .cloned()
     }
 
+    pub fn set_fetching_cells(
+        &self,
+        block_root: Hash256,
+        header: &Arc<PartialDataColumnHeader<E>>,
+        cell_bitmap: CellBitmap<E>,
+    ) {
+        let mut assemblies = self.assemblies.write();
+        if let Some(assembly) = assemblies.get_mut(&block_root) {
+            if matches!(assembly.local_blobs, LocalFetchState::Unfetched) {
+                assembly.local_blobs = LocalFetchState::Fetching(cell_bitmap);
+            }
+        } else {
+            assemblies.insert(
+                block_root,
+                PartialAssembly {
+                    header: header.clone(),
+                    local_blobs: LocalFetchState::Fetching(cell_bitmap),
+                    columns: Default::default(),
+                },
+            );
+        }
+    }
+
     /// Get all current columns for a block (complete *and* incomplete) for publishing after
     /// fetching local blobs.
     ///
@@ -235,11 +279,11 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
             .entry(block_root)
             .or_insert_with(|| PartialAssembly {
                 header: header.clone(),
-                has_local_blobs: true,
+                local_blobs: LocalFetchState::Fetched,
                 columns: Default::default(),
             });
 
-        assembly.has_local_blobs = true;
+        assembly.local_blobs = LocalFetchState::Fetched;
 
         assembly.columns.values().cloned().collect()
     }

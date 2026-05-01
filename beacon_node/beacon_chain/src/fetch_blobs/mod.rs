@@ -34,7 +34,7 @@ use mockall_double::double;
 use ssz_types::{ProgressiveVariableList, VariableList};
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::sync::Arc;
-use tracing::{debug, instrument, warn};
+use tracing::{debug, error, instrument, warn};
 use types::data::{
     BlobSidecarError, CellBitmap, ColumnIndex, DataColumnSidecarError, PartialDataColumn,
     PartialDataColumnFulu, PartialDataColumnGloas, PartialDataColumnHeader,
@@ -184,6 +184,65 @@ async fn fetch_and_process_engine_blobs_inner<T: BeaconChainTypes>(
             "fetch blobs v1 no longer supported".to_owned(),
         ))
     }
+}
+
+#[instrument(skip_all)]
+pub async fn fetch_engine_blob_availability<T: BeaconChainTypes>(
+    chain: Arc<BeaconChain<T>>,
+    header: Arc<PartialDataColumnHeader<T::EthSpec>>,
+) -> Result<Option<CellBitmap<T::EthSpec>>, FetchEngineBlobError> {
+    fetch_engine_blob_availability_inner(FetchBlobsBeaconAdapter::new(chain), header).await
+}
+
+async fn fetch_engine_blob_availability_inner<T: BeaconChainTypes>(
+    chain_adapter: FetchBlobsBeaconAdapter<T>,
+    header: Arc<PartialDataColumnHeader<T::EthSpec>>,
+) -> Result<Option<CellBitmap<T::EthSpec>>, FetchEngineBlobError> {
+    let versioned_hashes = header
+        .kzg_commitments
+        .iter()
+        .map(kzg_commitment_to_versioned_hash)
+        .collect::<Vec<_>>();
+    if versioned_hashes.is_empty() {
+        debug!("Fetch blobs not triggered - none required");
+        return Ok(None);
+    };
+    let num_expected_blobs = versioned_hashes.len();
+
+    if !chain_adapter.supports_has_blobs().await? {
+        return Ok(None);
+    }
+    debug!(num_expected_blobs, "Fetching blob availability from the EL");
+
+    let blobs = chain_adapter.has_blobs(versioned_hashes).await?;
+
+    let Some(blobs) = blobs else {
+        debug!(num_expected_blobs, "engine_hasBlobs returned null");
+        inc_counter(&metrics::HAS_BLOBS_FROM_EL_MISS_TOTAL);
+        return Ok(None);
+    };
+
+    if num_expected_blobs != blobs.len() {
+        error!(
+            num_expected_blobs,
+            len = blobs.len(),
+            "engine_hasBlobs: Blob len mismatch"
+        );
+        return Ok(None);
+    }
+
+    let mut bitmap = CellBitmap::<T::EthSpec>::with_capacity(num_expected_blobs).map_err(|_| {
+        FetchEngineBlobError::InternalError(
+            "num_expected_blobs is bounded by MaxBlobCommitmentsPerBlock".to_string(),
+        )
+    })?;
+    for (idx, present) in blobs.into_iter().enumerate() {
+        bitmap.set(idx, present).map_err(|_| {
+            FetchEngineBlobError::InternalError("idx is bounded by bitmap.len()".to_string())
+        })?
+    }
+
+    Ok(Some(bitmap))
 }
 
 #[instrument(skip_all, level = "debug")]

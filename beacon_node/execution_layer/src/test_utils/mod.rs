@@ -65,6 +65,8 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     get_blobs_v3: false,
     get_blobs_v4: true,
     get_inclusion_list_v1: true,
+    // Likewise there is no `engine_hasBlobs` handler in the mock server.
+    has_blobs: false,
 };
 
 pub static DEFAULT_CLIENT_VERSION: LazyLock<JsonClientVersionV1> =

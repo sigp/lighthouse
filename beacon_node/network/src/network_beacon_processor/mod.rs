@@ -6,6 +6,7 @@ use beacon_chain::data_column_verification::{
 };
 use beacon_chain::fetch_blobs::{
     FetchEngineBlobError, PartialHeaderOrBid, fetch_and_process_engine_blobs,
+    fetch_engine_blob_availability,
 };
 use beacon_chain::partial_data_column_assembler::AssemblyColumn;
 use beacon_chain::payload_envelope_verification::EnvelopeSource;
@@ -1017,52 +1018,122 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         };
 
-        match fetch_and_process_engine_blobs(
-            self.chain.clone(),
-            block_root,
-            header_or_bid,
-            custody_columns,
-            publish_fn,
-        )
-        .await
-        {
-            Ok(Some(availability)) => match availability {
-                AvailabilityProcessingStatus::Imported(slot, block_root) => {
-                    debug!(
-                        result = "imported block and custody columns",
-                        %block_root,
-                        "Block components retrieved from EL"
-                    );
-                    self.chain.recompute_head_at_current_slot().await;
-                    self.notify_import_after_column(slot, block_root, source);
+        // `engine_hasBlobs` is only wired up for the Fulu partial assembler. Gloas partials are
+        // tracked by the pending payload cache, so the bid path goes straight to `getBlobs`.
+        let skip_fetch = if let (Some(assembler), PartialHeaderOrBid::PartialHeader(header)) = (
+            self.chain.data_availability_checker.partial_assembler(),
+            &header_or_bid,
+        ) {
+            match fetch_engine_blob_availability(self.chain.clone(), header.clone()).await {
+                Ok(Some(bitmap)) => {
+                    if !bitmap.is_zero() {
+                        debug!(%block_root, %bitmap, "EL blobs available");
+                        let request_cells = bitmap.not();
+                        if !request_cells.is_zero() {
+                            let messages = custody_columns
+                                .iter()
+                                .map(|col_idx| {
+                                    let column = Arc::new(PartialDataColumnFulu {
+                                        block_root,
+                                        index: *col_idx,
+                                        sidecar: PartialDataColumnSidecarFulu {
+                                            cells_present_bitmap: bitmap.clone_zeroed(),
+                                            column: VariableList::empty(),
+                                            kzg_proofs: VariableList::empty(),
+                                            header: None.into(),
+                                        },
+                                    });
+                                    PubsubPartialMessage::DataColumnFulu {
+                                        column,
+                                        header: header.clone(),
+                                        request_cells: request_cells.clone(),
+                                    }
+                                })
+                                .collect();
+                            assembler.set_fetching_cells(block_root, header, bitmap);
+                            self.send_network_message(NetworkMessage::PublishPartialColumns {
+                                messages,
+                            });
+                        } else {
+                            debug!(%block_root, "EL has all blobs; not publishing empty partials");
+                            assembler.set_fetching_cells(block_root, header, bitmap);
+                        }
+                        false
+                    } else {
+                        debug!(%block_root, "No EL blobs available");
+                        true
+                    }
                 }
-                AvailabilityProcessingStatus::MissingComponents(_, _) => {
+                Ok(None) => {
                     debug!(
                         %block_root,
-                        "Still missing blobs after engine blobs processed successfully"
+                        "No EL blob availability available"
+                    );
+                    // Opposed to a response containing an all-zero bitmap, we are unsure about
+                    // the availability of the EL blobs, so we must fetch them.
+                    false
+                }
+                Err(e) => {
+                    error!(
+                        error = ?e,
+                        %block_root,
+                        "Error fetching blob availablility from EL"
+                    );
+                    false
+                }
+            }
+        } else {
+            false
+        };
+
+        if !skip_fetch {
+            match fetch_and_process_engine_blobs(
+                self.chain.clone(),
+                block_root,
+                header_or_bid,
+                custody_columns,
+                publish_fn,
+            )
+            .await
+            {
+                Ok(Some(availability)) => match availability {
+                    AvailabilityProcessingStatus::Imported(slot, block_root) => {
+                        debug!(
+                            result = "imported block and custody columns",
+                            %block_root,
+                            "Block components retrieved from EL"
+                        );
+                        self.chain.recompute_head_at_current_slot().await;
+                        self.notify_import_after_column(slot, block_root, source);
+                    }
+                    AvailabilityProcessingStatus::MissingComponents(_, _) => {
+                        debug!(
+                            %block_root,
+                            "Still missing blobs after engine blobs processed successfully"
+                        );
+                    }
+                },
+                Ok(None) => {
+                    debug!(
+                        %block_root,
+                        "Fetch blobs completed without import"
                     );
                 }
-            },
-            Ok(None) => {
-                debug!(
-                    %block_root,
-                    "Fetch blobs completed without import"
-                );
-            }
-            Err(FetchEngineBlobError::BlobProcessingError(BlockError::DuplicateFullyImported(
-                ..,
-            ))) => {
-                debug!(
-                    %block_root,
-                    "Fetch blobs duplicate import"
-                );
-            }
-            Err(e) => {
-                error!(
-                    error = ?e,
-                    %block_root,
-                    "Error fetching or processing blobs from EL"
-                );
+                Err(FetchEngineBlobError::BlobProcessingError(
+                    BlockError::DuplicateFullyImported(..),
+                )) => {
+                    debug!(
+                        %block_root,
+                        "Fetch blobs duplicate import"
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        error = ?e,
+                        %block_root,
+                        "Error fetching or processing blobs from EL"
+                    );
+                }
             }
         }
     }
