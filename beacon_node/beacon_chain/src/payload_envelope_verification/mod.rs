@@ -44,23 +44,14 @@ pub use execution_pending_envelope::ExecutionPendingEnvelope;
 pub struct AvailableEnvelope<E: EthSpec> {
     envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
     pub columns: DataColumnSidecarList<E>,
-    // TODO(gloas) this field is unread, do we need it?
-    #[expect(dead_code)]
-    /// Timestamp at which this envelope first became available (UNIX timestamp, time since 1970).
-    columns_available_timestamp: Option<std::time::Duration>,
 }
 
 impl<E: EthSpec> AvailableEnvelope<E> {
     pub fn new(
         envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
         columns: DataColumnSidecarList<E>,
-        columns_available_timestamp: Option<std::time::Duration>,
     ) -> Self {
-        Self {
-            envelope,
-            columns,
-            columns_available_timestamp,
-        }
+        Self { envelope, columns }
     }
 
     pub fn message(&self) -> &ExecutionPayloadEnvelope<E> {

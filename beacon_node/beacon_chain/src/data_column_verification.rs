@@ -1309,6 +1309,14 @@ fn verify_data_column_sidecar_with_commitments_len<E: EthSpec>(
     Ok(())
 }
 
+/// Loads the Gloas payload bid for `block_root` from the `pending_payload_cache`, the
+/// `early_attester_cache`, or the on-disk store (in that order).
+///
+/// TODO(gloas): the store fallback is a synchronous disk read and several callers run inside
+/// `async` gossip / RPC validation paths. Move the disk path off the async runtime (e.g. behind
+/// `spawn_blocking`) — or restructure callers to fetch the bid before entering async — once the
+/// gossip pipeline is reworked for Gloas. The cache and early-attester paths are short
+/// in-memory locks and acceptable as-is.
 pub(crate) fn load_gloas_payload_bid<T: BeaconChainTypes>(
     block_root: Hash256,
     chain: &BeaconChain<T>,
