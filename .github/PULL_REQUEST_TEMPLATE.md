@@ -15,25 +15,12 @@ or information useful for reviewers.
 
 <!--
 We ask every contributor to disclose AI assistance. This is not a filter — AI-assisted PRs
-are welcome. We just need to know what was generated so reviewers can calibrate, and we need
-you to vouch for the code you're submitting. Please do not delete this section; CI will fail.
+are welcome. We just need to know what was used and you need to vouch for what you submit.
+Please do not delete this section; CI will fail.
 -->
 
-**1. Was AI used to produce any code, tests, or commit messages in this PR?** _(tick exactly one)_
+**Tools used** _(required — write `none` if no AI was used)_: _e.g. none / Claude Code / Copilot / Cursor / ChatGPT_
 
-- [ ] No
-- [ ] Yes, for boilerplate or scaffolding only (renames, trivial refactors, doc edits, generated test fixtures)
-- [ ] Yes, including non-trivial logic (algorithm, control flow, consensus-relevant code, networking, crypto)
+**Attestation** _(required)_:
 
-**2. Author attestation** _(required)_
-
-- [ ] I have read every line of the diff, understand what it does, and can explain it in review.
-
-**3. Tools used** _(required, free-text — write `none` if no AI was used)_
-
-**Tools used**: _e.g. none / Claude Code / Copilot / Cursor / ChatGPT_
-
-<!--
-If you ticked "non-trivial logic", please also note in "Additional Info" which areas were
-AI-assisted and what you did to validate them (tests added, specs cross-checked, etc.).
--->
+- [ ] I have read every line of this diff, understand what it does, and can explain it in review.
