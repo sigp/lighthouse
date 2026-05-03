@@ -253,13 +253,20 @@ impl HDiff {
             .in_scope(|| BytesDiff::compute(&source.state, &target.state))?;
         let balances_diff = debug_span!("balances_diff_compute")
             .in_scope(|| CompressedU64Diff::compute(&source.balances, &target.balances, config))?;
-        let inactivity_scores_diff = debug_span!("inactivity_scores_diff_compute").in_scope(|| {
-            CompressedU64Diff::compute(&source.inactivity_scores, &target.inactivity_scores, config)
+        let inactivity_scores_diff =
+            debug_span!("inactivity_scores_diff_compute").in_scope(|| {
+                CompressedU64Diff::compute(
+                    &source.inactivity_scores,
+                    &target.inactivity_scores,
+                    config,
+                )
+            })?;
+        let validators_diff = debug_span!("validators_diff_compute").in_scope(|| {
+            ValidatorsDiff::compute::<E>(&source.validators, &target.validators, config)
         })?;
-        let validators_diff = debug_span!("validators_diff_compute")
-            .in_scope(|| ValidatorsDiff::compute::<E>(&source.validators, &target.validators, config))?;
-        let historical_roots = debug_span!("historical_roots_compute")
-            .in_scope(|| AppendOnlyDiff::compute(&source.historical_roots, &target.historical_roots))?;
+        let historical_roots = debug_span!("historical_roots_compute").in_scope(|| {
+            AppendOnlyDiff::compute(&source.historical_roots, &target.historical_roots)
+        })?;
         let historical_summaries = debug_span!("historical_summaries_compute").in_scope(|| {
             AppendOnlyDiff::compute(&source.historical_summaries, &target.historical_summaries)
         })?;
@@ -462,9 +469,10 @@ impl CompressedU64Diff {
             // Sparse: only update non-zero diffs using copy-on-write.
             for (i, diff) in diffs.iter().enumerate().take(num_existing) {
                 if *diff != 0
-                    && let Some(x) = xs.get_mut(i) {
-                        *x = x.wrapping_add(*diff);
-                    }
+                    && let Some(x) = xs.get_mut(i)
+                {
+                    *x = x.wrapping_add(*diff);
+                }
             }
             for diff in &diffs[num_existing..] {
                 xs.push(*diff).map_err(Error::Milhouse)?;
