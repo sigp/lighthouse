@@ -1,0 +1,63 @@
+name: pr-ai-disclosure
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  check-disclosure:
+    runs-on: ubuntu-latest
+    name: Check AI disclosure section
+    # Skip for Dependabot / bots and for PRs that opt out via label.
+    if: >-
+      github.event.pull_request.user.type != 'Bot' &&
+      !contains(github.event.pull_request.labels.*.name, 'skip-ai-disclosure')
+    steps:
+      - name: Validate PR body contains AI disclosure
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${PR_BODY:-}" ]; then
+            echo "::error::PR description is empty. Please use the PR template, including the 'AI Assistance Disclosure' section."
+            exit 1
+          fi
+
+          # Normalize: drop CRs, strip HTML comments (template hints).
+          body="$(printf '%s' "$PR_BODY" | tr -d '\r' | perl -0777 -pe 's/<!--.*?-->//gs')"
+
+          fail() { echo "::error::$1"; exit 1; }
+
+          # 1. Section header must exist.
+          grep -qE '^##[[:space:]]+AI Assistance Disclosure[[:space:]]*$' <<<"$body" \
+            || fail "Missing '## AI Assistance Disclosure' section. Copy it from .github/PULL_REQUEST_TEMPLATE.md."
+
+          # Extract the section body (until next '## ' or EOF).
+          section="$(awk '
+            /^##[[:space:]]+AI Assistance Disclosure[[:space:]]*$/ {flag=1; next}
+            /^##[[:space:]]+/ {flag=0}
+            flag {print}
+          ' <<<"$body")"
+
+          # 2. Q1: Was AI used? Exactly one of the three options must be checked.
+          q1_checked=$(grep -cE '^[[:space:]]*-[[:space:]]*\[[xX]\][[:space:]]*(No|Yes, for boilerplate or scaffolding only|Yes, including non-trivial logic)\b' <<<"$section" || true)
+          [ "$q1_checked" -eq 1 ] \
+            || fail "Question 1 (AI usage): tick exactly one of {No | Yes, boilerplate only | Yes, non-trivial logic}. Found $q1_checked."
+
+          # 3. Q2: Reviewed-and-understand attestation must be checked.
+          grep -qE '^[[:space:]]*-[[:space:]]*\[[xX]\][[:space:]]*I have read every line' <<<"$section" \
+            || fail "Question 2: you must tick the 'I have read every line ... and can explain it' attestation."
+
+          # 4. Q3: Tools used — free-text line must be filled (non-placeholder).
+          tools_line="$(grep -E '^[[:space:]]*\*\*Tools used\*\*:' <<<"$section" | head -n1 || true)"
+          tools_value="${tools_line#*:}"
+          tools_value="$(echo "$tools_value" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+          if [ -z "$tools_value" ] || [ "$tools_value" = "_e.g. none / Claude Code / Copilot / Cursor / ChatGPT_" ]; then
+            fail "Question 3: fill in '**Tools used**:' with the assistants you used (or 'none')."
+          fi
+
+          echo "AI disclosure section looks good."
