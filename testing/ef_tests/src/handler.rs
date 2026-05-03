@@ -982,6 +982,30 @@ impl<E: EthSpec + TypeName> Handler for ComputeColumnsForCustodyGroupHandler<E> 
 
 #[derive(Educe)]
 #[educe(Default)]
+pub struct GossipValidationHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for GossipValidationHandler<E> {
+    type Case = cases::GossipValidation<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "networking"
+    }
+
+    fn handler_name(&self) -> String {
+        "gossip_validation".into()
+    }
+
+    fn use_rayon() -> bool {
+        false
+    }
+}
+
+#[derive(Educe)]
+#[educe(Default)]
 pub struct KZGComputeCellsHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGComputeCellsHandler<E> {

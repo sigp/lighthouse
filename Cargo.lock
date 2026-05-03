@@ -2851,6 +2851,7 @@ dependencies = [
  "kzg",
  "logging",
  "milhouse",
+ "operation_pool",
  "rayon",
  "serde",
  "serde_json",

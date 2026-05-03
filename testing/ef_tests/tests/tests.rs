@@ -1183,3 +1183,10 @@ fn compute_columns_for_custody_group() {
     ComputeColumnsForCustodyGroupHandler::<MainnetEthSpec>::default().run();
     ComputeColumnsForCustodyGroupHandler::<MinimalEthSpec>::default().run();
 }
+
+#[test]
+#[cfg(not(feature = "fake_crypto"))]
+fn gossip_validation() {
+    GossipValidationHandler::<MainnetEthSpec>::default().run();
+    GossipValidationHandler::<MinimalEthSpec>::default().run();
+}
