@@ -511,23 +511,20 @@ pub struct DataAvailabilityCheckerMetrics {
 }
 
 #[cfg(test)]
+#[cfg(test)]
 mod data_availability_checker_tests {
     use super::*;
 
     use crate::block_verification::PayloadVerificationOutcome;
+    use crate::custody_context::NodeCustodyType;
     use crate::test_utils::{
-        NumBlobs, generate_data_column_indices_rand_order, generate_rand_block_and_data_columns,
-    };
-    use crate::{
-        custody_context::NodeCustodyType,
-        test_utils::{BeaconChainHarness, DiskHarnessType},
+        DiskHarnessType, NumBlobs, generate_data_column_indices_rand_order,
+        generate_rand_block_and_data_columns, get_kzg,
     };
     use fork_choice::PayloadVerificationStatus;
     use logging::create_test_tracing_subscriber;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
-    use store::{HotColdDB, StoreConfig, database::interface::BeaconNodeBackend};
-    use tempfile::{TempDir, tempdir};
     use types::{
         ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, ForkName,
         MinimalEthSpec, SignedExecutionPayloadEnvelope,
@@ -536,83 +533,110 @@ mod data_availability_checker_tests {
     type E = MinimalEthSpec;
     type T = DiskHarnessType<E>;
 
-    const LOW_VALIDATOR_COUNT: usize = 32;
     const RNG_SEED: u64 = 0xDEADBEEF;
+    const NUM_BLOBS: usize = 1;
 
-    fn gloas_spec<E: EthSpec>() -> Arc<ChainSpec> {
-        Arc::new(ForkName::Gloas.make_genesis_spec(E::default_spec()))
+    /// Stand up a cache + a 1-blob Gloas block for the given custody type. The bid is registered
+    /// in the cache; `custody` is pre-filtered to the sampling subset.
+    fn setup(node_custody: NodeCustodyType) -> Setup {
+        setup_with(node_custody, NumBlobs::Number(NUM_BLOBS))
     }
 
-    fn get_store_with_spec<E: EthSpec>(
-        db_path: &TempDir,
-        spec: Arc<ChainSpec>,
-    ) -> Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>> {
-        let hot_path = db_path.path().join("hot_db");
-        let cold_path = db_path.path().join("cold_db");
-        let blobs_path = db_path.path().join("blobs_db");
-        let config = StoreConfig::default();
-
-        HotColdDB::open(
-            &hot_path,
-            &cold_path,
-            &blobs_path,
-            |_, _, _| Ok(()),
-            config,
-            spec,
-        )
-        .expect("disk store should initialize")
+    fn setup_zero_blob(node_custody: NodeCustodyType) -> Setup {
+        setup_with(node_custody, NumBlobs::Number(0))
     }
 
-    async fn get_gloas_chain<E: EthSpec>(
-        db_path: &TempDir,
-    ) -> BeaconChainHarness<DiskHarnessType<E>> {
-        let spec = gloas_spec::<E>();
-
-        let chain_store = get_store_with_spec::<E>(db_path, spec.clone());
-        let validators_keypairs =
-            types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
-        BeaconChainHarness::builder(E::default())
-            .spec(spec.clone())
-            .keypairs(validators_keypairs)
-            .fresh_disk_store(chain_store)
-            .mock_execution_layer()
-            .build()
-    }
-
-    async fn setup() -> (BeaconChainHarness<T>, Arc<PendingPayloadCache<T>>, TempDir) {
+    fn setup_with(node_custody: NodeCustodyType, num_blobs: NumBlobs) -> Setup {
         create_test_tracing_subscriber();
-        let chain_db_path = tempdir().expect("should get temp dir");
-        let harness = get_gloas_chain::<E>(&chain_db_path).await;
-        let spec = harness.spec.clone();
+        let spec = Arc::new(ForkName::Gloas.make_genesis_spec(E::default_spec()));
+        let kzg = get_kzg(&spec);
         let custody_context = Arc::new(CustodyContext::<E>::new(
-            NodeCustodyType::Fullnode,
+            node_custody,
             generate_data_column_indices_rand_order::<E>(),
             &spec,
         ));
-
         let cache = Arc::new(
-            PendingPayloadCache::<T>::new(harness.chain.kzg.clone(), custody_context, spec.clone())
-                .expect("should create cache"),
+            PendingPayloadCache::<T>::new(kzg, custody_context, spec.clone())
+                .expect("create cache"),
         );
-        (harness, cache, chain_db_path)
+
+        let mut rng = StdRng::seed_from_u64(RNG_SEED);
+        let (block, columns) =
+            generate_rand_block_and_data_columns::<E>(ForkName::Gloas, num_blobs, &mut rng, &spec);
+        let block_root = block.canonical_root();
+        let bid = Arc::new(
+            block
+                .message()
+                .body()
+                .signed_execution_payload_bid()
+                .expect("Gloas block has bid")
+                .clone(),
+        );
+        cache.insert_bid(block_root, bid.clone());
+
+        let epoch = bid.message.slot.epoch(E::slots_per_epoch());
+        let sampling = cache
+            .custody_context()
+            .sampling_columns_for_epoch(epoch, &cache.spec);
+        let custody = columns
+            .into_iter()
+            .filter(|c| sampling.contains(c.index()))
+            .collect();
+
+        Setup {
+            cache,
+            bid,
+            block_root,
+            custody,
+        }
     }
 
-    fn make_test_signed_envelope(block_root: Hash256) -> Arc<SignedExecutionPayloadEnvelope<E>> {
-        Arc::new(SignedExecutionPayloadEnvelope {
-            message: ExecutionPayloadEnvelope {
-                payload: ExecutionPayloadGloas::default(),
-                execution_requests: ExecutionRequests::default(),
-                builder_index: 0,
-                beacon_block_root: block_root,
-                parent_beacon_block_root: Hash256::random(),
-            },
-            signature: bls::Signature::infinity().expect("should create infinity sig"),
-        })
+    struct Setup {
+        cache: Arc<PendingPayloadCache<T>>,
+        bid: Arc<SignedExecutionPayloadBid<E>>,
+        block_root: Hash256,
+        custody: DataColumnSidecarList<E>,
     }
 
-    fn make_test_executed_envelope(block_root: Hash256) -> AvailabilityPendingExecutedEnvelope<E> {
+    impl Setup {
+        fn put_envelope(&self) -> Availability<E> {
+            self.cache
+                .put_executed_payload_envelope(self.bid.clone(), executed_envelope(self.block_root))
+                .expect("put envelope")
+        }
+
+        fn put_columns(&self, columns: DataColumnSidecarList<E>) -> Availability<E> {
+            self.cache
+                .put_rpc_custody_columns(self.block_root, self.bid.clone(), columns)
+                .expect("put columns")
+        }
+
+        fn reconstruct(&self) -> Result<DataColumnReconstructionResult<E>, AvailabilityCheckError> {
+            self.cache
+                .reconstruct_data_columns(&self.block_root, self.bid.clone())
+        }
+
+        fn cached_indexes(&self) -> Vec<ColumnIndex> {
+            self.cache
+                .cached_data_column_indexes(&self.block_root)
+                .expect("entry")
+        }
+    }
+
+    /// Hand-rolled executed envelope with bypassed verification; the cache only inspects
+    /// `beacon_block_root` and the verification outcome, never the signature or payload.
+    fn executed_envelope(block_root: Hash256) -> AvailabilityPendingExecutedEnvelope<E> {
         AvailabilityPendingExecutedEnvelope {
-            envelope: make_test_signed_envelope(block_root),
+            envelope: Arc::new(SignedExecutionPayloadEnvelope {
+                message: ExecutionPayloadEnvelope {
+                    payload: ExecutionPayloadGloas::default(),
+                    execution_requests: ExecutionRequests::default(),
+                    builder_index: 0,
+                    beacon_block_root: block_root,
+                    parent_beacon_block_root: Hash256::random(),
+                },
+                signature: bls::Signature::infinity().expect("infinity sig"),
+            }),
             block_root,
             payload_verification_outcome: PayloadVerificationOutcome {
                 payload_verification_status: PayloadVerificationStatus::Verified,
@@ -620,191 +644,164 @@ mod data_availability_checker_tests {
         }
     }
 
-    fn init_block(
-        cache: &PendingPayloadCache<T>,
-        spec: &ChainSpec,
-        num_blobs: NumBlobs,
-        seed: u64,
-    ) -> (
-        Arc<SignedExecutionPayloadBid<E>>,
-        Hash256,
-        DataColumnSidecarList<E>,
-    ) {
-        let mut rng = StdRng::seed_from_u64(seed);
-        let (block, data_columns) =
-            generate_rand_block_and_data_columns::<E>(ForkName::Gloas, num_blobs, &mut rng, spec);
-        let block_root = block.canonical_root();
-        let bid = Arc::new(
-            block
-                .message()
-                .body()
-                .signed_execution_payload_bid()
-                .expect("should get payload bid")
-                .clone(),
+    #[track_caller]
+    fn assert_missing(availability: Availability<E>) {
+        assert!(
+            matches!(availability, Availability::MissingComponents(_)),
+            "expected MissingComponents, got {availability:?}",
         );
-        cache.insert_bid(block_root, bid.clone());
-        (bid, block_root, data_columns)
     }
 
-    #[tokio::test]
-    async fn caches_and_deduplicates_columns() {
-        let (harness, cache, _path) = setup().await;
-        let (bid, block_root, data_columns) =
-            init_block(&cache, &harness.spec, NumBlobs::Number(1), RNG_SEED);
-        let epoch = bid.message.slot.epoch(E::slots_per_epoch());
-        let sampling_cols = cache
-            .custody_context()
-            .sampling_columns_for_epoch(epoch, &harness.spec);
-        let column = data_columns
-            .iter()
-            .find(|c| sampling_cols.contains(c.index()))
-            .cloned()
-            .expect("should have a sampling column");
-        let column_index = *column.index();
-
-        for _ in 0..2 {
-            cache
-                .put_rpc_custody_columns(block_root, bid.clone(), vec![column.clone()])
-                .expect("should put column");
+    #[track_caller]
+    fn assert_available(availability: Availability<E>) -> Box<AvailableExecutedEnvelope<E>> {
+        match availability {
+            Availability::Available(env) => env,
+            other => panic!("expected Available, got {other:?}"),
         }
-
-        assert_eq!(
-            cache.cached_data_column_indexes(&block_root),
-            Some(vec![column_index])
-        );
-        assert_eq!(
-            cache.get_data_columns(block_root).map(|cols| cols.len()),
-            Some(1)
-        );
-        assert_eq!(cache.block_cache_size(), 1);
     }
 
+    // ─── Tier 1: real-path availability flows ───────────────────────────────
+
+    /// Envelope first → MissingComponents. Then all sampling columns → Available.
     #[tokio::test]
-    async fn requires_columns_and_executed_envelope() {
-        let (harness, cache, _path) = setup().await;
-        let (bid, block_root, data_columns) =
-            init_block(&cache, &harness.spec, NumBlobs::Number(1), RNG_SEED);
-
-        let epoch = bid.message.slot.epoch(E::slots_per_epoch());
-        let num_sampling_columns = cache
-            .custody_context()
-            .sampling_columns_for_epoch(epoch, &harness.spec)
-            .len();
-
-        let result = cache
-            .put_rpc_custody_columns(block_root, bid.clone(), data_columns)
-            .expect("should put columns");
-        assert!(matches!(result, Availability::MissingComponents(_)));
-
-        let result = cache
-            .put_executed_payload_envelope(bid, make_test_executed_envelope(block_root))
-            .expect("should put executed envelope");
-        let Availability::Available(envelope) = result else {
-            panic!("expected available envelope");
-        };
-        assert_eq!(envelope.block_root, block_root);
-        assert_eq!(envelope.envelope.columns.len(), num_sampling_columns);
+    async fn availability_arrives_envelope_first() {
+        let s = setup(NodeCustodyType::Fullnode);
+        assert_missing(s.put_envelope());
+        let envelope = assert_available(s.put_columns(s.custody.clone()));
+        assert_eq!(envelope.block_root, s.block_root);
+        assert_eq!(envelope.envelope.columns.len(), s.custody.len());
     }
 
+    /// Columns first → MissingComponents. Then envelope → Available.
     #[tokio::test]
-    async fn zero_blob_envelope_is_available_without_columns() {
-        let (harness, cache, _path) = setup().await;
-        let (bid, block_root, _columns) =
-            init_block(&cache, &harness.spec, NumBlobs::Number(0), RNG_SEED);
+    async fn availability_arrives_columns_first() {
+        let s = setup(NodeCustodyType::Fullnode);
+        assert_missing(s.put_columns(s.custody.clone()));
+        let envelope = assert_available(s.put_envelope());
+        assert_eq!(envelope.block_root, s.block_root);
+        assert_eq!(envelope.envelope.columns.len(), s.custody.len());
+    }
 
-        let result = cache
-            .put_executed_payload_envelope(bid, make_test_executed_envelope(block_root))
-            .expect("should put executed envelope");
-        let Availability::Available(envelope) = result else {
-            panic!("zero-blob block should be available");
-        };
+    /// N-1 columns + envelope is still MissingComponents; the Nth column flips to Available.
+    /// Guards the strict count comparison in `make_available`.
+    #[tokio::test]
+    async fn partial_columns_then_complete() {
+        let mut s = setup(NodeCustodyType::Fullnode);
+        assert!(s.custody.len() >= 2, "needs at least 2 sampling columns");
+        let last = s.custody.pop().expect("non-empty custody");
+
+        s.put_envelope();
+        assert_missing(s.put_columns(s.custody.clone()));
+        assert_available(s.put_columns(vec![last]));
+    }
+
+    /// Zero-blob block + envelope → Available. Guards the `num_blobs_expected == 0` early-return
+    /// in `make_available`.
+    #[tokio::test]
+    async fn zero_blob_envelope_immediately_available() {
+        let s = setup_zero_blob(NodeCustodyType::Fullnode);
+        let envelope = assert_available(s.put_envelope());
         assert!(envelope.envelope.columns.is_empty());
     }
 
+    /// Receiving the same column twice keeps a single cache entry. Guards `PendingColumn::insert`
+    /// staying only-if-empty under repeated arrivals.
     #[tokio::test]
-    async fn partial_columns_wait_for_missing_columns() {
-        let (harness, cache, _path) = setup().await;
-        let (bid, block_root, data_columns) =
-            init_block(&cache, &harness.spec, NumBlobs::Number(1), RNG_SEED);
+    async fn dedups_repeated_column_inserts() {
+        let s = setup(NodeCustodyType::Fullnode);
+        let column = s.custody.first().cloned().expect("sampling column");
+        let column_index = *column.index();
+        s.put_columns(vec![column.clone()]);
+        s.put_columns(vec![column]);
 
-        cache
-            .put_executed_payload_envelope(bid.clone(), make_test_executed_envelope(block_root))
-            .expect("should put executed envelope");
-
-        let columns = data_columns.into_iter().take(1).collect();
-        let result = cache
-            .put_rpc_custody_columns(block_root, bid, columns)
-            .expect("should put columns");
-        assert!(matches!(result, Availability::MissingComponents(_)));
-    }
-
-    #[tokio::test]
-    async fn reconstruction_failure_clears_columns() {
-        let (harness, cache, _path) = setup().await;
-        let (bid, block_root, data_columns) =
-            init_block(&cache, &harness.spec, NumBlobs::Number(1), RNG_SEED);
-
-        let epoch = bid.message.slot.epoch(E::slots_per_epoch());
-        let sampling_cols = cache
-            .custody_context()
-            .sampling_columns_for_epoch(epoch, &harness.spec);
-        let columns: Vec<_> = data_columns
-            .into_iter()
-            .filter(|c| sampling_cols.contains(c.index()))
-            .take(5)
-            .collect();
-        let num_columns = columns.len();
-
-        cache
-            .put_rpc_custody_columns(block_root, bid, columns)
-            .expect("should put columns");
+        assert_eq!(s.cached_indexes(), vec![column_index]);
         assert_eq!(
-            cache
-                .cached_data_column_indexes(&block_root)
-                .map(|indices| indices.len()),
-            Some(num_columns)
+            s.cache.get_data_columns(s.block_root).map(|c| c.len()),
+            Some(1),
         );
-
-        cache.handle_reconstruction_failure(&block_root);
-        assert_eq!(cache.cached_data_column_indexes(&block_root), Some(vec![]));
     }
 
+    // ─── Tier 2: reconstruction state machine ───────────────────────────────
+    //
+    // Reconstruction only triggers when `total/2 ≤ received < sampling_count`. Fullnode's small
+    // sampling count never satisfies this, so these tests use `Supernode`.
+
+    /// Fewer than `number_of_columns / 2` columns received → reconstruction is `NotStarted`.
     #[tokio::test]
-    async fn lru_eviction_keeps_cache_bounded() {
-        let (harness, cache, _path) = setup().await;
-        let mut roots = Vec::new();
-
-        for i in 0..33 {
-            let (bid, block_root, data_columns) =
-                init_block(&cache, &harness.spec, NumBlobs::Number(1), RNG_SEED + i);
-            let column = data_columns.first().cloned().expect("should have column");
-            roots.push(block_root);
-            cache
-                .put_rpc_custody_columns(block_root, bid, vec![column])
-                .expect("should put columns");
-        }
-
-        assert_eq!(cache.block_cache_size(), 32);
-        assert!(cache.get_data_columns(roots[0]).is_none());
-        assert!(cache.get_data_columns(*roots.last().unwrap()).is_some());
+    async fn reconstruction_below_threshold_is_not_started() {
+        let s = setup(NodeCustodyType::Supernode);
+        let half = E::number_of_columns() / 2;
+        s.put_columns(s.custody.iter().take(half - 1).cloned().collect());
+        assert!(matches!(
+            s.reconstruct().expect("reconstruct call"),
+            DataColumnReconstructionResult::NotStarted("not enough columns")
+        ));
     }
 
+    /// All sampling columns received → reconstruction unnecessary, returns `NotStarted`.
     #[tokio::test]
-    async fn maintenance_prunes_old_entries() {
-        let (harness, cache, _path) = setup().await;
-        let (bid, block_root, data_columns) =
-            init_block(&cache, &harness.spec, NumBlobs::Number(1), RNG_SEED);
-        let block_epoch = bid.message.slot.epoch(E::slots_per_epoch());
-        let column = data_columns.first().cloned().expect("should have column");
+    async fn reconstruction_already_complete_is_not_started() {
+        let s = setup(NodeCustodyType::Supernode);
+        s.put_columns(s.custody.clone());
+        assert!(matches!(
+            s.reconstruct().expect("reconstruct call"),
+            DataColumnReconstructionResult::NotStarted("all sampling columns received")
+        ));
+    }
 
-        cache
-            .put_rpc_custody_columns(block_root, bid, vec![column])
-            .expect("should put columns");
+    // TODO(gloas): once Gloas data column reconstruction lands, add a test that feeds the
+    // threshold of columns + the envelope and asserts:
+    //   - `reconstruct_data_columns` returns `Success`,
+    //   - missing custody columns are filled in,
+    //   - the entry flips to `Availability::Available`.
+    // Today the underlying KZG path returns
+    // `InconsistentArrayLength("Gloas data column reconstruction not yet supported")`, so the
+    // success path can't be exercised. The error-path test below covers the Err branch we DO
+    // produce in the meantime.
 
-        assert_eq!(cache.block_cache_size(), 1);
-        cache
-            .do_maintenance(block_epoch + 1)
-            .expect("maintenance should succeed");
-        assert_eq!(cache.block_cache_size(), 0);
+    /// When `reconstruct_data_columns` fails (today: any Gloas reconstruction attempt; later: any
+    /// real KZG error), the entry's columns are cleared and `reconstruction_started` is reset so
+    /// peers can refetch.
+    #[tokio::test]
+    async fn reconstruction_failure_resets_state() {
+        let s = setup(NodeCustodyType::Supernode);
+        let half = E::number_of_columns() / 2;
+        s.put_columns(s.custody.iter().take(half).cloned().collect());
+        assert!(!s.cached_indexes().is_empty(), "setup must store columns");
+
+        let err = s
+            .reconstruct()
+            .expect_err("Gloas reconstruction must error");
+        assert!(matches!(
+            err,
+            AvailabilityCheckError::ReconstructColumnsError(_)
+        ));
+        assert!(s.cached_indexes().is_empty(), "columns should be cleared");
+        assert!(matches!(
+            s.reconstruct().expect("reconstruct call"),
+            DataColumnReconstructionResult::NotStarted(_)
+        ));
+    }
+
+    // ─── Tier 3: invariants ─────────────────────────────────────────────────
+
+    /// `get_data_columns` and `cached_data_column_indexes` must agree on which columns are
+    /// complete. Drift between these two would corrupt the DB on import.
+    #[tokio::test]
+    async fn cached_columns_match_completed_indexes() {
+        let mut s = setup(NodeCustodyType::Fullnode);
+        let last = s.custody.pop().expect("non-empty custody");
+
+        let assert_lengths_match = |s: &Setup| {
+            let indexes_len = s.cached_indexes().len();
+            let sidecars_len = s.cache.get_data_columns(s.block_root).expect("entry").len();
+            assert_eq!(indexes_len, sidecars_len);
+        };
+
+        s.put_columns(s.custody.clone());
+        assert_lengths_match(&s);
+
+        s.put_columns(vec![last]);
+        assert_lengths_match(&s);
     }
 }
