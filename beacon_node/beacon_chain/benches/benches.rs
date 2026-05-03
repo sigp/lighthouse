@@ -53,6 +53,13 @@ fn all_benches(c: &mut Criterion) {
         )
         .unwrap();
 
+        let kzg_commitments = signed_block
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .unwrap()
+            .clone();
+
         let spec = spec.clone();
 
         c.bench_function(&format!("reconstruct_{}", blob_count), |b| {
@@ -60,6 +67,7 @@ fn all_benches(c: &mut Criterion) {
                 black_box(reconstruct_data_columns(
                     &kzg,
                     column_sidecars.iter().as_slice()[0..column_sidecars.len() / 2].to_vec(),
+                    &kzg_commitments,
                     spec.as_ref(),
                 ))
             })

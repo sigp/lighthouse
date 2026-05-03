@@ -309,6 +309,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         let all_data_columns = KzgVerifiedCustodyDataColumn::reconstruct_columns(
             &self.kzg,
             verified_data_columns,
+            bid.message.blob_kzg_commitments.as_ref(),
             &self.spec,
         )
         .map_err(|e| {
@@ -749,38 +750,24 @@ mod data_availability_checker_tests {
         ));
     }
 
-    // TODO(gloas): once Gloas data column reconstruction lands, add a test that feeds the
-    // threshold of columns + the envelope and asserts:
-    //   - `reconstruct_data_columns` returns `Success`,
-    //   - missing custody columns are filled in,
-    //   - the entry flips to `Availability::Available`.
-    // Today the underlying KZG path returns
-    // `InconsistentArrayLength("Gloas data column reconstruction not yet supported")`, so the
-    // success path can't be exercised. The error-path test below covers the Err branch we DO
-    // produce in the meantime.
-
-    /// When `reconstruct_data_columns` fails (today: any Gloas reconstruction attempt; later: any
-    /// real KZG error), the entry's columns are cleared and `reconstruction_started` is reset so
-    /// peers can refetch.
+    /// Envelope + 50% of sampling columns → reconstruction recovers the rest, the entry flips
+    /// to `Available`, and the cache holds every sampling column.
     #[tokio::test]
-    async fn reconstruction_failure_resets_state() {
+    async fn reconstruction_success_fills_missing_columns() {
         let s = setup(NodeCustodyType::Supernode);
-        let half = E::number_of_columns() / 2;
+        s.put_envelope();
+        let sampling_count = s.custody.len();
+        let half = sampling_count / 2;
         s.put_columns(s.custody.iter().take(half).cloned().collect());
-        assert!(!s.cached_indexes().is_empty(), "setup must store columns");
+        assert_eq!(s.cached_indexes().len(), half);
 
-        let err = s
-            .reconstruct()
-            .expect_err("Gloas reconstruction must error");
-        assert!(matches!(
-            err,
-            AvailabilityCheckError::ReconstructColumnsError(_)
-        ));
-        assert!(s.cached_indexes().is_empty(), "columns should be cleared");
-        assert!(matches!(
-            s.reconstruct().expect("reconstruct call"),
-            DataColumnReconstructionResult::NotStarted(_)
-        ));
+        let result = s.reconstruct().expect("reconstruction must succeed");
+        let (availability, _recovered) = match result {
+            DataColumnReconstructionResult::Success(inner) => inner,
+            other => panic!("expected Success, got {other:?}"),
+        };
+        assert_available(availability);
+        assert_eq!(s.cached_indexes().len(), sampling_count);
     }
 
     // ─── Tier 3: invariants ─────────────────────────────────────────────────

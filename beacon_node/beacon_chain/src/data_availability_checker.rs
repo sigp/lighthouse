@@ -604,12 +604,21 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         metrics::inc_counter(&KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS);
         let timer = metrics::start_timer(&metrics::DATA_AVAILABILITY_RECONSTRUCTION_TIME);
 
+        let columns: Vec<_> = verified_data_columns
+            .into_iter()
+            .map(|c| c.into_inner())
+            .collect();
+        // Fulu columns carry their commitments; reconstruction needs the count to drive the
+        // per-blob recovery loop.
+        let kzg_commitments = columns
+            .first()
+            .and_then(|c| c.kzg_commitments().ok().cloned())
+            .unwrap_or_default();
+
         let all_data_columns = KzgVerifiedCustodyDataColumn::reconstruct_columns(
             &self.kzg,
-            verified_data_columns
-                .into_iter()
-                .map(|c| c.into_inner())
-                .collect(),
+            columns,
+            &kzg_commitments,
             &self.spec,
         )
         .map_err(|e| {
