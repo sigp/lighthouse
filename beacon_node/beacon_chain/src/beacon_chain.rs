@@ -3076,7 +3076,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // In the case of (2), skipping the block is valid since we should never import it.
                 // However, we will potentially get a `ParentUnknown` on a later block. The sync
                 // protocol will need to ensure this is handled gracefully.
-                Err(BlockError::WouldRevertFinalizedSlot { .. }) => continue,
+                Err(BlockError::WouldRevertFinalizedSlot { .. }) => {
+                    // For Gloas blocks, persist the envelope even though we're skipping
+                    // the block. This is needed after checkpoint sync: the checkpoint
+                    // block's envelope must be in the store so that `load_parent` can
+                    // verify it when importing the first post-checkpoint block.
+                    if let RangeSyncBlock::Gloas {
+                        envelope: Some(ref available_envelope),
+                        ..
+                    } = block
+                    {
+                        let (signed_envelope, _columns) = available_envelope.clone().deconstruct();
+                        if let Err(e) = self
+                            .store
+                            .put_payload_envelope(&block_root, &signed_envelope)
+                        {
+                            return Err(Box::new(ChainSegmentResult::Failed {
+                                imported_blocks,
+                                error: BlockError::BeaconChainError(Box::new(e.into())),
+                            }));
+                        }
+                    }
+                    continue;
+                }
                 // The block has a known parent that does not descend from the finalized block.
                 // There is no need to process this block or any children.
                 Err(BlockError::NotFinalizedDescendant { block_parent_root }) => {
