@@ -333,8 +333,12 @@ pub fn get_validator_payload_attestation_data<T: BeaconChainTypes>(
                     let payload_attestation_data = chain
                         .produce_payload_attestation_data(slot)
                         .map_err(|e| match e {
-                            BeaconChainError::InvalidSlot(_)
-                            | BeaconChainError::NoBlockForSlot(_) => {
+                            BeaconChainError::NoBlockForSlot(_) => {
+                                warp_utils::reject::block_not_found(format!(
+                                    "No block received for slot {slot}"
+                                ))
+                            }
+                            BeaconChainError::InvalidSlot(_) => {
                                 warp_utils::reject::custom_bad_request(format!(
                                     "Unable to produce payload attestation data: {e:?}"
                                 ))
