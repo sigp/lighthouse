@@ -104,7 +104,8 @@ pub async fn handle_rpc<E: EthSpec>(
         | ENGINE_NEW_PAYLOAD_V2
         | ENGINE_NEW_PAYLOAD_V3
         | ENGINE_NEW_PAYLOAD_V4
-        | ENGINE_NEW_PAYLOAD_V5 => {
+        | ENGINE_NEW_PAYLOAD_V5
+        | ENGINE_NEW_PAYLOAD_V6 => {
             let request = match method {
                 ENGINE_NEW_PAYLOAD_V1 => JsonExecutionPayload::Bellatrix(
                     get_param::<JsonExecutionPayloadBellatrix<E>>(params, 0)
@@ -128,13 +129,13 @@ pub async fn handle_rpc<E: EthSpec>(
                     })
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
                 ENGINE_NEW_PAYLOAD_V5 => {
-                    // Try Heze first, fall back to Gloas
+                    get_param::<JsonExecutionPayloadGloas<E>>(params, 0)
+                        .map(|jep| JsonExecutionPayload::Gloas(jep))
+                        .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
+                }
+                ENGINE_NEW_PAYLOAD_V6 => {
                     get_param::<JsonExecutionPayloadHeze<E>>(params, 0)
                         .map(|jep| JsonExecutionPayload::Heze(jep))
-                        .or_else(|_| {
-                            get_param::<JsonExecutionPayloadGloas<E>>(params, 0)
-                                .map(|jep| JsonExecutionPayload::Gloas(jep))
-                        })
                         .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
                 }
                 _ => unreachable!(),

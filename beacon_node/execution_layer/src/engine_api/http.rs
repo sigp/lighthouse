@@ -36,6 +36,7 @@ pub const ENGINE_NEW_PAYLOAD_V2: &str = "engine_newPayloadV2";
 pub const ENGINE_NEW_PAYLOAD_V3: &str = "engine_newPayloadV3";
 pub const ENGINE_NEW_PAYLOAD_V4: &str = "engine_newPayloadV4";
 pub const ENGINE_NEW_PAYLOAD_V5: &str = "engine_newPayloadV5";
+pub const ENGINE_NEW_PAYLOAD_V6: &str = "engine_newPayloadV6";
 pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
@@ -86,6 +87,7 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_NEW_PAYLOAD_V3,
     ENGINE_NEW_PAYLOAD_V4,
     ENGINE_NEW_PAYLOAD_V5,
+    ENGINE_NEW_PAYLOAD_V6,
     ENGINE_GET_PAYLOAD_V1,
     ENGINE_GET_PAYLOAD_V2,
     ENGINE_GET_PAYLOAD_V3,
@@ -995,6 +997,45 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
+    pub async fn new_payload_v6_heze<E: EthSpec>(
+        &self,
+        new_payload_request_heze: NewPayloadRequestHeze<'_, E>,
+    ) -> Result<PayloadStatusV1, Error> {
+        let il_transactions: Vec<String> = new_payload_request_heze
+            .il_transactions
+            .iter()
+            .map(|tx| {
+                let bytes: Vec<u8> = tx.clone().into();
+                format!("0x{}", hex::encode(bytes))
+            })
+            .collect();
+
+        let params = json!([
+            JsonExecutionPayload::Heze(
+                new_payload_request_heze
+                    .execution_payload
+                    .clone()
+                    .try_into()?
+            ),
+            new_payload_request_heze.versioned_hashes,
+            new_payload_request_heze.parent_beacon_block_root,
+            new_payload_request_heze
+                .execution_requests
+                .get_execution_requests_list(),
+            il_transactions
+        ]);
+
+        let response: JsonPayloadStatusV1 = self
+            .rpc_request(
+                ENGINE_NEW_PAYLOAD_V6,
+                params,
+                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
     pub async fn get_payload_v1<E: EthSpec>(
         &self,
         payload_id: PayloadId,
@@ -1396,6 +1437,7 @@ impl HttpJsonRpc {
             new_payload_v3: capabilities.contains(ENGINE_NEW_PAYLOAD_V3),
             new_payload_v4: capabilities.contains(ENGINE_NEW_PAYLOAD_V4),
             new_payload_v5: capabilities.contains(ENGINE_NEW_PAYLOAD_V5),
+            new_payload_v6: capabilities.contains(ENGINE_NEW_PAYLOAD_V6),
             forkchoice_updated_v1: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V1),
             forkchoice_updated_v2: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V2),
             forkchoice_updated_v3: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V3),
@@ -1565,10 +1607,10 @@ impl HttpJsonRpc {
                 }
             }
             NewPayloadRequest::Heze(new_payload_request_heze) => {
-                if engine_capabilities.new_payload_v5 {
-                    self.new_payload_v5_heze(new_payload_request_heze).await
+                if engine_capabilities.new_payload_v6 {
+                    self.new_payload_v6_heze(new_payload_request_heze).await
                 } else {
-                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV5"))
+                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV6"))
                 }
             }
         }
