@@ -48,9 +48,10 @@ use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::ApplicationDomain;
 use types::{
-    Domain, EthSpec, ExecutionBlockHash, Hash256, MainnetEthSpec, RelativeEpoch, SelectionProof,
-    SignedExecutionPayloadEnvelope, SignedRoot, SingleAttestation, Slot,
-    attestation::AttestationBase, consts::gloas::BUILDER_INDEX_SELF_BUILD,
+    Address, Domain, EthSpec, ExecutionBlockHash, Hash256, MainnetEthSpec, ProposerPreferences,
+    RelativeEpoch, SelectionProof, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
+    SignedRoot, SingleAttestation, Slot, attestation::AttestationBase,
+    consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
 type E = MainnetEthSpec;
@@ -2894,6 +2895,162 @@ impl ApiTester {
             pool_count_before + 1,
             "payload attestation should be added to op pool"
         );
+
+        self
+    }
+
+    fn make_valid_signed_proposer_preferences(
+        &self,
+        slot_offset: usize,
+    ) -> SignedProposerPreferences {
+        let head = self.chain.head_snapshot();
+        let head_slot = head.beacon_block.slot();
+        let head_state = &head.beacon_state;
+        let genesis_validators_root = self.chain.genesis_validators_root;
+
+        let proposer_lookahead = head_state
+            .proposer_lookahead()
+            .expect("should get proposer_lookahead");
+
+        // Pick a future slot in the next epoch to ensure it's always valid.
+        // The lookahead covers 2 epochs: index = epoch_offset * slots_per_epoch + slot_in_epoch.
+        let slots_per_epoch = E::slots_per_epoch() as usize;
+        let next_epoch = head_slot.epoch(E::slots_per_epoch()) + 1;
+        let next_epoch_start = next_epoch.start_slot(E::slots_per_epoch());
+        let proposal_slot = next_epoch_start + Slot::new((slot_offset % slots_per_epoch) as u64);
+
+        let lookahead_index = slots_per_epoch + (slot_offset % slots_per_epoch);
+        let validator_index = *proposer_lookahead
+            .get(lookahead_index)
+            .expect("slot index should be in lookahead") as usize;
+
+        let preferences = ProposerPreferences {
+            dependent_root: Hash256::ZERO,
+            proposal_slot,
+            validator_index: validator_index as u64,
+            fee_recipient: Address::repeat_byte(0xaa),
+            gas_limit: 30_000_000,
+        };
+
+        let epoch = proposal_slot.epoch(E::slots_per_epoch());
+        let fork = head_state.fork();
+        let domain = self.chain.spec.get_domain(
+            epoch,
+            Domain::ProposerPreferences,
+            &fork,
+            genesis_validators_root,
+        );
+        let signing_root = preferences.signing_root(domain);
+        let sk = &self.validator_keypairs()[validator_index].sk;
+        let signature = sk.sign(signing_root);
+
+        SignedProposerPreferences {
+            message: preferences,
+            signature,
+        }
+    }
+
+    // Each sub-test uses a unique slot_offset (1-5) because the gossip cache deduplicates on
+    // (slot, dependent_root, validator_index). Reusing an offset from an earlier test would hit
+    // "already seen" instead of testing the intended condition.
+    pub async fn test_post_validator_proposer_preferences_valid(mut self) -> Self {
+        let signed = self.make_valid_signed_proposer_preferences(1);
+        let fork_name = self
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(signed.message.proposal_slot);
+
+        self.client
+            .post_validator_proposer_preferences(&[signed], fork_name)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid proposer preferences should be sent to network"
+        );
+
+        self
+    }
+
+    pub async fn test_post_validator_proposer_preferences_valid_ssz(mut self) -> Self {
+        let signed = self.make_valid_signed_proposer_preferences(2);
+        let fork_name = self
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(signed.message.proposal_slot);
+
+        self.client
+            .post_validator_proposer_preferences_ssz(&vec![signed], fork_name)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid proposer preferences (SSZ) should be sent to network"
+        );
+
+        self
+    }
+
+    pub async fn test_post_validator_proposer_preferences_invalid_sig(self) -> Self {
+        let mut signed = self.make_valid_signed_proposer_preferences(3);
+        signed.signature = Signature::empty();
+        let fork_name = self
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(signed.message.proposal_slot);
+
+        let result = self
+            .client
+            .post_validator_proposer_preferences(&[signed], fork_name)
+            .await;
+
+        assert!(result.is_err(), "invalid signature should be rejected");
+
+        self
+    }
+
+    pub async fn test_post_validator_proposer_preferences_invalid_sig_ssz(self) -> Self {
+        let mut signed = self.make_valid_signed_proposer_preferences(4);
+        signed.signature = Signature::empty();
+        let fork_name = self
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(signed.message.proposal_slot);
+
+        let result = self
+            .client
+            .post_validator_proposer_preferences_ssz(&vec![signed], fork_name)
+            .await;
+
+        assert!(
+            result.is_err(),
+            "invalid signature should be rejected via SSZ route"
+        );
+
+        self
+    }
+
+    pub async fn test_post_validator_proposer_preferences_duplicate(mut self) -> Self {
+        let signed = self.make_valid_signed_proposer_preferences(5);
+        let fork_name = self
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(signed.message.proposal_slot);
+
+        // First submission should succeed.
+        self.client
+            .post_validator_proposer_preferences(std::slice::from_ref(&signed), fork_name)
+            .await
+            .unwrap();
+        self.network_rx.network_recv.recv().await;
+
+        // Second submission of the same preferences should return 200 (already known, not an error).
+        self.client
+            .post_validator_proposer_preferences(&[signed], fork_name)
+            .await
+            .unwrap();
 
         self
     }
@@ -9197,5 +9354,24 @@ async fn get_validator_blocks_v3_http_api_path() {
     ApiTester::new()
         .await
         .get_validator_blocks_v3_path_graffiti_policy()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_validator_proposer_preferences() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_post_validator_proposer_preferences_valid()
+        .await
+        .test_post_validator_proposer_preferences_valid_ssz()
+        .await
+        .test_post_validator_proposer_preferences_invalid_sig()
+        .await
+        .test_post_validator_proposer_preferences_invalid_sig_ssz()
+        .await
+        .test_post_validator_proposer_preferences_duplicate()
         .await;
 }
