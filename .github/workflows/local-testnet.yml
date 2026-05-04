@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   dockerfile-ubuntu:
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -31,7 +31,7 @@ jobs:
           retention-days: 3
 
   run-local-testnet:
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
     needs: dockerfile-ubuntu
     steps:
       - uses: actions/checkout@v5
@@ -173,7 +173,7 @@ jobs:
   # Tests checkpoint syncing to a live network (current fork) and a running devnet (usually next scheduled fork)
   checkpoint-sync-test:
     name: checkpoint-sync-test-${{ matrix.network }}
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
     needs: dockerfile-ubuntu
     if: contains(github.event.pull_request.labels.*.name, 'syncing')
     continue-on-error: true
@@ -216,7 +216,7 @@ jobs:
   # Test syncing from genesis on a local testnet. Aims to cover forward syncing both short and long distances.
   genesis-sync-test:
     name: genesis-sync-test-${{ matrix.fork }}-${{ matrix.offline_secs }}s
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
     needs: dockerfile-ubuntu
     strategy:
       matrix:
@@ -259,7 +259,7 @@ jobs:
   # a PR is safe to merge. New jobs should be added here.
   local-testnet-success:
     name: local-testnet-success
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
     needs: [
       'dockerfile-ubuntu',
       'run-local-testnet',

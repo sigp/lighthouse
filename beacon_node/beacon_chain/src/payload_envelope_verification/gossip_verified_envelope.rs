@@ -339,6 +339,7 @@ mod tests {
             execution_requests: ExecutionRequests::default(),
             builder_index,
             beacon_block_root: Hash256::ZERO,
+            parent_beacon_block_root: Hash256::ZERO,
         }
     }
 

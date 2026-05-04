@@ -213,7 +213,7 @@ test-beacon-chain-%:
 	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p beacon_chain --no-fail-fast
 
 # Run the tests in the `http_api` crate for recent forks.
-test-http-api: $(patsubst %,test-http-api-%,$(RECENT_FORKS_BEFORE_GLOAS))
+test-http-api: $(patsubst %,test-http-api-%,$(RECENT_FORKS))
 
 test-http-api-%:
 	env FORK_NAME=$* cargo nextest run --release --features "beacon_chain/fork_from_env" -p http_api
@@ -330,7 +330,7 @@ install-audit:
 	cargo install --force cargo-audit
 
 audit-CI:
-	cargo audit --ignore RUSTSEC-2026-0049 --ignore RUSTSEC-2026-0098 --ignore RUSTSEC-2026-0099 --ignore RUSTSEC-2026-0104
+	cargo audit --ignore RUSTSEC-2026-0049 --ignore RUSTSEC-2026-0098 --ignore RUSTSEC-2026-0099 --ignore RUSTSEC-2026-0104 --ignore RUSTSEC-2026-0118 --ignore RUSTSEC-2026-0119
 
 # Runs cargo deny (check for banned crates, duplicate versions, and source restrictions)
 deny: install-deny deny-CI

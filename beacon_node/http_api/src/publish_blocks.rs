@@ -385,7 +385,7 @@ fn build_data_columns<T: BeaconChainTypes>(
     Ok(gossip_verified_data_columns)
 }
 
-fn publish_column_sidecars<T: BeaconChainTypes>(
+pub(crate) fn publish_column_sidecars<T: BeaconChainTypes>(
     sender_clone: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     data_column_sidecars: &[GossipVerifiedDataColumn<T>],
     chain: &BeaconChain<T>,

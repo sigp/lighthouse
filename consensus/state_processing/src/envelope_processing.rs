@@ -26,6 +26,12 @@ pub enum EnvelopeProcessingError {
         envelope_root: Hash256,
         block_header_root: Hash256,
     },
+    /// Envelope's `parent_beacon_block_root` doesn't match the parent root of the latest
+    /// block header.
+    ParentBeaconBlockRootMismatch {
+        envelope: Hash256,
+        state: Hash256,
+    },
     /// Envelope doesn't match latest beacon block slot
     SlotMismatch {
         envelope_slot: Slot,
@@ -124,6 +130,13 @@ pub fn verify_execution_payload_envelope<E: EthSpec>(
         EnvelopeProcessingError::LatestBlockHeaderMismatch {
             envelope_root: envelope.beacon_block_root,
             block_header_root: latest_block_header_root,
+        }
+    );
+    envelope_verify!(
+        envelope.parent_beacon_block_root == state.latest_block_header().parent_root,
+        EnvelopeProcessingError::ParentBeaconBlockRootMismatch {
+            envelope: envelope.parent_beacon_block_root,
+            state: state.latest_block_header().parent_root,
         }
     );
     envelope_verify!(

@@ -2762,29 +2762,55 @@ impl<E: EthSpec> BeaconState<E> {
     /// Return the churn limit for the current epoch.
     pub fn get_balance_churn_limit(&self, spec: &ChainSpec) -> Result<u64, BeaconStateError> {
         let total_active_balance = self.get_total_active_balance()?;
+        let quotient = if self.fork_name_unchecked().gloas_enabled() {
+            spec.churn_limit_quotient_gloas
+        } else {
+            spec.churn_limit_quotient
+        };
         let churn = std::cmp::max(
             spec.min_per_epoch_churn_limit_electra,
-            total_active_balance.safe_div(spec.churn_limit_quotient)?,
+            total_active_balance.safe_div(quotient)?,
         );
 
         Ok(churn.safe_sub(churn.safe_rem(spec.effective_balance_increment)?)?)
     }
 
     /// Return the churn limit for the current epoch dedicated to activations and exits.
+    ///
+    /// From Gloas onwards this is the activation-only churn limit (EIP-8061); exits use
+    /// [`Self::get_exit_churn_limit`].
     pub fn get_activation_exit_churn_limit(
         &self,
         spec: &ChainSpec,
     ) -> Result<u64, BeaconStateError> {
+        let max_limit = if self.fork_name_unchecked().gloas_enabled() {
+            spec.max_per_epoch_activation_churn_limit_gloas
+        } else {
+            spec.max_per_epoch_activation_exit_churn_limit
+        };
         Ok(std::cmp::min(
-            spec.max_per_epoch_activation_exit_churn_limit,
+            max_limit,
             self.get_balance_churn_limit(spec)?,
         ))
     }
 
+    /// Return the Gloas (EIP-8061) exit churn limit for the current epoch.
+    ///
+    /// Unlike [`Self::get_activation_exit_churn_limit`], this is uncapped.
+    pub fn get_exit_churn_limit(&self, spec: &ChainSpec) -> Result<u64, BeaconStateError> {
+        self.get_balance_churn_limit(spec)
+    }
+
     pub fn get_consolidation_churn_limit(&self, spec: &ChainSpec) -> Result<u64, BeaconStateError> {
-        self.get_balance_churn_limit(spec)?
-            .safe_sub(self.get_activation_exit_churn_limit(spec)?)
-            .map_err(Into::into)
+        if self.fork_name_unchecked().gloas_enabled() {
+            let total_active_balance = self.get_total_active_balance()?;
+            let churn = total_active_balance.safe_div(spec.consolidation_churn_limit_quotient)?;
+            Ok(churn.safe_sub(churn.safe_rem(spec.effective_balance_increment)?)?)
+        } else {
+            self.get_balance_churn_limit(spec)?
+                .safe_sub(self.get_activation_exit_churn_limit(spec)?)
+                .map_err(Into::into)
+        }
     }
 
     pub fn get_pending_balance_to_withdraw(
@@ -2879,7 +2905,11 @@ impl<E: EthSpec> BeaconState<E> {
             self.compute_activation_exit_epoch(self.current_epoch(), spec)?,
         );
 
-        let per_epoch_churn = self.get_activation_exit_churn_limit(spec)?;
+        let per_epoch_churn = if self.fork_name_unchecked().gloas_enabled() {
+            self.get_exit_churn_limit(spec)?
+        } else {
+            self.get_activation_exit_churn_limit(spec)?
+        };
         // New epoch for exits
         let mut exit_balance_to_consume = if self.earliest_exit_epoch()? < earliest_exit_epoch {
             per_epoch_churn
@@ -3103,7 +3133,19 @@ impl<E: EthSpec> BeaconState<E> {
         let total_active_balance = self.get_total_active_balance()?;
         let fork_name = self.fork_name_unchecked();
 
-        if fork_name.electra_enabled() {
+        if fork_name.gloas_enabled() {
+            // [Modified in Gloas:EIP8061]
+            let exit_churn = self.get_exit_churn_limit(spec)?;
+            let activation_churn = self.get_activation_exit_churn_limit(spec)?;
+            let consolidation_churn = self.get_consolidation_churn_limit(spec)?;
+            compute_weak_subjectivity_period_gloas(
+                total_active_balance,
+                exit_churn,
+                activation_churn,
+                consolidation_churn,
+                spec,
+            )
+        } else if fork_name.electra_enabled() {
             let balance_churn_limit = self.get_balance_churn_limit(spec)?;
             compute_weak_subjectivity_period_electra(
                 total_active_balance,
@@ -3594,6 +3636,30 @@ pub fn compute_weak_subjectivity_period_electra(
     let epochs_for_validator_set_churn = SAFETY_DECAY
         .safe_mul(total_active_balance)?
         .safe_div(balance_churn_limit.safe_mul(200)?)?;
+    let ws_period = spec
+        .min_validator_withdrawability_delay
+        .safe_add(epochs_for_validator_set_churn)?;
+
+    Ok(ws_period)
+}
+
+/// Spec: https://github.com/ethereum/consensus-specs/blob/v1.7.0-alpha.6/specs/gloas/weak-subjectivity.md
+pub fn compute_weak_subjectivity_period_gloas(
+    total_active_balance: u64,
+    exit_churn_limit: u64,
+    activation_churn_limit: u64,
+    consolidation_churn_limit: u64,
+    spec: &ChainSpec,
+) -> Result<Epoch, BeaconStateError> {
+    // delta = 2 * exit_churn // 3 + activation_churn // 3 + consolidation_churn
+    let delta = exit_churn_limit
+        .safe_mul(2)?
+        .safe_div(3)?
+        .safe_add(activation_churn_limit.safe_div(3)?)?
+        .safe_add(consolidation_churn_limit)?;
+    let epochs_for_validator_set_churn = SAFETY_DECAY
+        .safe_mul(total_active_balance)?
+        .safe_div(delta.safe_mul(200)?)?;
     let ws_period = spec
         .min_validator_withdrawability_delay
         .safe_add(epochs_for_validator_set_churn)?;
