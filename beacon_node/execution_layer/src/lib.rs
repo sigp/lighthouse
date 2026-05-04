@@ -205,6 +205,7 @@ pub struct BlockProposalContentsGloas<E: EthSpec> {
     pub blob_kzg_commitments: KzgCommitments<E>,
     pub blobs_and_proofs: (BlobsList<E>, KzgProofs<E>),
     pub execution_requests: ExecutionRequests<E>,
+    pub should_override_builder: bool,
 }
 
 impl<E: EthSpec> From<GetPayloadResponseGloas<E>> for BlockProposalContentsGloas<E> {
@@ -215,6 +216,7 @@ impl<E: EthSpec> From<GetPayloadResponseGloas<E>> for BlockProposalContentsGloas
             blob_kzg_commitments: response.blobs_bundle.commitments,
             blobs_and_proofs: (response.blobs_bundle.blobs, response.blobs_bundle.proofs),
             execution_requests: response.requests,
+            should_override_builder: response.should_override_builder,
         }
     }
 }

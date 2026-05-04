@@ -572,7 +572,7 @@ impl EthSpec for MinimalEthSpec {
     type NumberOfColumns = U128;
     type ProposerLookaheadSlots = U16; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
     type BuilderPendingPaymentsLimit = U16; // 2 * SLOTS_PER_EPOCH = 2 * 8 = 16
-    type PTCSize = U2;
+    type PTCSize = U16;
     type PtcWindowLength = U24; // (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH
     type MaxBuildersPerWithdrawalsSweep = U16;
 

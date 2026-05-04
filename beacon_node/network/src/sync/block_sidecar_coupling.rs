@@ -1279,6 +1279,7 @@ mod tests {
             execution_requests: ExecutionRequests::default(),
             builder_index: 0,
             beacon_block_root: Hash256::from(rng.random::<[u8; 32]>()),
+            parent_beacon_block_root: Hash256::repeat_byte(0),
         };
         Arc::new(SignedExecutionPayloadEnvelope {
             message: envelope,
