@@ -1732,7 +1732,7 @@ impl ChainSpec {
             /*
              * Heze hard fork params
              */
-            heze_fork_version: [0x08, 0x00, 0x00, 0x64],
+            heze_fork_version: [0xff, 0xff, 0xff, 0xff],
             heze_fork_epoch: None,
 
             /*
