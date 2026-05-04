@@ -526,15 +526,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        proposer_preferences: Box<SignedProposerPreferences>,
+        proposer_preferences: Arc<SignedProposerPreferences>,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = move || {
-            processor.process_gossip_proposer_preferences(
-                message_id,
-                peer_id,
-                Arc::new(*proposer_preferences),
-            )
+            processor.process_gossip_proposer_preferences(message_id, peer_id, proposer_preferences)
         };
 
         self.try_send(BeaconWorkEvent {

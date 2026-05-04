@@ -8,10 +8,10 @@ use std::sync::Arc;
 use types::{
     Address, Attestation, AttestationError, BlindedBeaconBlock, Epoch, EthSpec,
     ExecutionPayloadEnvelope, Graffiti, Hash256, PayloadAttestationData, PayloadAttestationMessage,
-    SelectionProof, SignedAggregateAndProof, SignedBlindedBeaconBlock, SignedContributionAndProof,
-    SignedExecutionPayloadEnvelope, SignedValidatorRegistrationData, Slot,
-    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
-    ValidatorRegistrationData,
+    ProposerPreferences, SelectionProof, SignedAggregateAndProof, SignedBlindedBeaconBlock,
+    SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
+    SignedValidatorRegistrationData, Slot, SyncCommitteeContribution, SyncCommitteeMessage,
+    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -212,6 +212,13 @@ pub trait ValidatorStore: Send + Sync {
         validator_pubkey: PublicKeyBytes,
         data: PayloadAttestationData,
     ) -> impl Future<Output = Result<PayloadAttestationMessage, Error<Self::Error>>> + Send;
+
+    /// Sign a `ProposerPreferences` message.
+    fn sign_proposer_preferences(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        preferences: ProposerPreferences,
+    ) -> impl Future<Output = Result<SignedProposerPreferences, Error<Self::Error>>> + Send;
 
     /// Returns `ProposalData` for the provided `pubkey` if it exists in `InitializedValidators`.
     /// `ProposalData` fields include defaulting logic described in `get_fee_recipient_defaulting`,
