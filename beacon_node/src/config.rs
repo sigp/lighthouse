@@ -25,6 +25,7 @@ use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, warn};
 use types::graffiti::GraffitiString;
@@ -43,7 +44,7 @@ pub fn get_config<E: EthSpec>(
     cli_args: &ArgMatches,
     context: &RuntimeContext<E>,
 ) -> Result<ClientConfig, String> {
-    let spec = &context.eth2_config.spec;
+    let mut spec = context.eth2_config.spec.clone();
 
     let mut client_config = ClientConfig::default();
 
@@ -740,6 +741,8 @@ pub fn get_config<E: EthSpec>(
     }
 
     if cli_args.get_flag("disable-proposer-reorgs") {
+        Arc::make_mut(&mut spec).reorg_head_weight_threshold = None;
+        Arc::make_mut(&mut spec).reorg_parent_weight_threshold = None;
     } else {
         if let Some(disallowed_offsets_str) =
             clap_utils::parse_optional::<String>(cli_args, "proposer-reorg-disallowed-offsets")?

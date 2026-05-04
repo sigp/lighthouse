@@ -1316,14 +1316,38 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("proposer-reorg-threshold")
+            .long("proposer-reorg-threshold")
+                .action(ArgAction::Set)
+                .value_name("PERCENT")
+                .help("DEPRECATED. This flag has no effect.")
+                .conflicts_with("disable-proposer-reorgs")
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("proposer-reorg-parent-threshold")
+                .long("proposer-reorg-parent-threshold")
+                .value_name("PERCENT")
+                .help("DEPRECATED. This flag has no effect.")
+                .conflicts_with("disable-proposer-reorgs")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("proposer-reorg-epochs-since-finalization")
+                .long("proposer-reorg-epochs-since-finalization")
+                .action(ArgAction::Set)
+                .value_name("EPOCHS")
+                .help("DEPRECATED. This flag has no effect.")
+                .conflicts_with("disable-proposer-reorgs")
+                .display_order(0)
+        )
+        .arg(
             Arg::new("proposer-reorg-cutoff")
                 .long("proposer-reorg-cutoff")
                 .value_name("MILLISECONDS")
                 .action(ArgAction::Set)
-                .help("Maximum delay after the start of the slot at which to propose a reorging \
-                       block. Lower values can prevent failed reorgs by ensuring the block has \
-                       ample time to propagate and be processed by the network. The default is \
-                       1/12th of a slot (1 second on mainnet)")
+                .help("DEPRECATED. This flag has no effect.")
                 .conflicts_with("disable-proposer-reorgs")
                 .display_order(0)
         )

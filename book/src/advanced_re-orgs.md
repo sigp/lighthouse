@@ -15,11 +15,6 @@ There are three flags which control the re-orging behaviour:
 
 * `--disable-proposer-reorgs`: turn re-orging off (it's on by default).
   meaning re-orgs will only be attempted when the chain is finalizing optimally.
-* `--proposer-reorg-cutoff T`: only attempt to re-org late blocks when the proposal is being made
-  before T milliseconds into the slot. Delays between the validator client and the beacon node can
-  cause some blocks to be requested later than the start of the slot, which makes them more likely
-  to fail. The default cutoff is 1000ms on mainnet, which gives blocks 3000ms to be signed and
-  propagated before the attestation deadline at 4000ms.
 * `--proposer-reorg-disallowed-offsets N1,N2,N3...`: Prohibit Lighthouse from attempting to reorg at
   specific offsets in each epoch. A disallowed offset `N` prevents reorging blocks from being
   proposed at any `slot` such that `slot % SLOTS_PER_EPOCH == N`. The value to this flag is a
