@@ -103,6 +103,15 @@ fn default_mock_execution_config<E: EthSpec>(
         )
     }
 
+    if let Some(gloas_fork_epoch) = spec.gloas_fork_epoch {
+        mock_execution_config.amsterdam_time = Some(
+            genesis_time
+                + (spec.get_slot_duration().as_secs())
+                    * E::slots_per_epoch()
+                    * gloas_fork_epoch.as_u64(),
+        )
+    }
+
     mock_execution_config
 }
 
