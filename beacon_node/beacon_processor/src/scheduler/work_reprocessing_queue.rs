@@ -79,6 +79,9 @@ const MAXIMUM_QUEUED_ATTESTATIONS: usize = 16_384;
 /// How many light client updates we keep before new ones get dropped.
 const MAXIMUM_QUEUED_LIGHT_CLIENT_UPDATES: usize = 128;
 
+/// How many recently imported block roots to remember for race-free attestation reprocessing.
+const MAXIMUM_RECENTLY_IMPORTED_BLOCK_ROOTS: usize = 16_384;
+
 // Process backfill batch 50%, 60%, 80% through each slot.
 //
 // Note: use caution to set these fractions in a way that won't cause panic-y
@@ -240,6 +243,8 @@ enum InboundEvent {
     ReadyBackfillSync(QueuedBackfillBatch),
     /// A column reconstruction that was queued is ready for processing.
     ReadyColumnReconstruction(QueuedColumnReconstruction),
+    /// A recently imported block root should be forgotten.
+    ForgetImportedBlockRoot(Hash256),
     /// A message sent to the `ReprocessQueue`
     Msg(ReprocessQueueMessage),
 }
@@ -280,6 +285,9 @@ struct ReprocessQueue<S> {
     queued_lc_updates: FnvHashMap<usize, (QueuedLightClientUpdate, DelayKey)>,
     /// Light Client Updates per parent_root.
     awaiting_lc_updates_per_parent_root: HashMap<Hash256, Vec<QueuedLightClientUpdateId>>,
+    /// Recently imported block roots retained briefly to close the race between `BlockImported`
+    /// and later-arriving unknown-block attestations.
+    recently_imported_block_roots: HashMap<Hash256, DelayKey>,
     /// Column reconstruction per block root. `None` means reconstruction was already dispatched.
     queued_column_reconstructions: HashMap<Hash256, Option<DelayKey>>,
     /// Queued backfill batches
@@ -294,6 +302,7 @@ struct ReprocessQueue<S> {
     rpc_block_debounce: TimeLatch,
     attestation_delay_debounce: TimeLatch,
     lc_update_delay_debounce: TimeLatch,
+    recently_imported_block_roots_delay_queue: DelayQueue<Hash256>,
     next_backfill_batch_event: Option<Pin<Box<tokio::time::Sleep>>>,
     slot_clock: Arc<S>,
 }
@@ -375,6 +384,18 @@ impl<S: SlotClock> Stream for ReprocessQueue<S> {
             }
             // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
             // will continue to get this result until something else is added into the queue.
+            Poll::Ready(None) | Poll::Pending => (),
+        }
+
+        match self
+            .recently_imported_block_roots_delay_queue
+            .poll_expired(cx)
+        {
+            Poll::Ready(Some(block_root)) => {
+                return Poll::Ready(Some(InboundEvent::ForgetImportedBlockRoot(
+                    block_root.into_inner(),
+                )));
+            }
             Poll::Ready(None) | Poll::Pending => (),
         }
 
@@ -462,6 +483,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
             queued_unaggregates: FnvHashMap::default(),
             awaiting_attestations_per_root: HashMap::new(),
             awaiting_lc_updates_per_parent_root: HashMap::new(),
+            recently_imported_block_roots: HashMap::new(),
             queued_backfill_batches: Vec::new(),
             queued_column_reconstructions: HashMap::new(),
             next_attestation: 0,
@@ -471,9 +493,26 @@ impl<S: SlotClock> ReprocessQueue<S> {
             rpc_block_debounce: TimeLatch::default(),
             attestation_delay_debounce: TimeLatch::default(),
             lc_update_delay_debounce: TimeLatch::default(),
+            recently_imported_block_roots_delay_queue: DelayQueue::new(),
             next_backfill_batch_event: None,
             slot_clock,
         }
+    }
+
+    fn remember_imported_block_root(&mut self, block_root: Hash256) {
+        if let Some(delay_key) = self.recently_imported_block_roots.remove(&block_root) {
+            self.recently_imported_block_roots_delay_queue
+                .remove(&delay_key);
+        } else if self.recently_imported_block_roots.len() >= MAXIMUM_RECENTLY_IMPORTED_BLOCK_ROOTS
+        {
+            return;
+        }
+
+        let delay_key = self
+            .recently_imported_block_roots_delay_queue
+            .insert(block_root, QUEUED_ATTESTATION_DELAY);
+        self.recently_imported_block_roots
+            .insert(block_root, delay_key);
     }
 
     fn handle_message(&mut self, msg: InboundEvent) {
@@ -625,6 +664,24 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 }
             }
             InboundEvent::Msg(UnknownBlockAggregate(queued_aggregate)) => {
+                if self
+                    .recently_imported_block_roots
+                    .contains_key(queued_aggregate.beacon_block_root())
+                    && self.ready_work_tx.capacity() > 0
+                {
+                    metrics::inc_counter(
+                        &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_ATTESTATIONS,
+                    );
+                    if self
+                        .ready_work_tx
+                        .try_send(ReadyWork::Aggregate(queued_aggregate))
+                        .is_err()
+                    {
+                        error!("Failed to send recently imported aggregate for reprocessing");
+                    }
+                    return;
+                }
+
                 if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
                     if self.attestation_delay_debounce.elapsed() {
                         error!(
@@ -657,6 +714,24 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 self.next_attestation += 1;
             }
             InboundEvent::Msg(UnknownBlockUnaggregate(queued_unaggregate)) => {
+                if self
+                    .recently_imported_block_roots
+                    .contains_key(queued_unaggregate.beacon_block_root())
+                    && self.ready_work_tx.capacity() > 0
+                {
+                    metrics::inc_counter(
+                        &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_ATTESTATIONS,
+                    );
+                    if self
+                        .ready_work_tx
+                        .try_send(ReadyWork::Unaggregate(queued_unaggregate))
+                        .is_err()
+                    {
+                        error!("Failed to send recently imported attestation for reprocessing");
+                    }
+                    return;
+                }
+
                 if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
                     if self.attestation_delay_debounce.elapsed() {
                         error!(
@@ -728,6 +803,8 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 block_root,
                 parent_root,
             }) => {
+                self.remember_imported_block_root(block_root);
+
                 // Unqueue the envelope we have for this root, if any.
                 if let Some((envelope, delay_key)) =
                     self.awaiting_envelopes_per_root.remove(&block_root)
@@ -800,6 +877,9 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         );
                     }
                 }
+            }
+            InboundEvent::ForgetImportedBlockRoot(block_root) => {
+                self.recently_imported_block_roots.remove(&block_root);
             }
             InboundEvent::Msg(NewLightClientOptimisticUpdate { parent_root }) => {
                 // Unqueue the light client optimistic updates we have for this root, if any.
@@ -1309,6 +1389,111 @@ mod tests {
 
         // The entry for the block root should be gone.
         assert!(queue.awaiting_attestations_per_root.is_empty());
+    }
+
+    enum TestQueuedAttestation {
+        Aggregate,
+        Unaggregate,
+    }
+
+    async fn assert_recently_imported_block_reprocesses_late_attestation_immediately(
+        attestation: TestQueuedAttestation,
+    ) {
+        create_test_tracing_subscriber();
+
+        let config = BeaconProcessorConfig::default();
+        let (ready_work_tx, mut ready_work_rx) =
+            mpsc::channel::<ReadyWork>(config.max_scheduled_work_queue_len);
+        let (_, reprocess_work_rx) =
+            mpsc::channel::<ReprocessQueueMessage>(config.max_scheduled_work_queue_len);
+        let slot_clock = Arc::new(testing_slot_clock(12));
+        let mut queue = ReprocessQueue::new(ready_work_tx, reprocess_work_rx, slot_clock);
+
+        let beacon_block_root = Hash256::repeat_byte(0xaf);
+        let parent_root = Hash256::repeat_byte(0xab);
+
+        queue.handle_message(InboundEvent::Msg(ReprocessQueueMessage::BlockImported {
+            block_root: beacon_block_root,
+            parent_root,
+        }));
+
+        let expected_ready_work = match attestation {
+            TestQueuedAttestation::Aggregate => {
+                queue.handle_message(InboundEvent::Msg(
+                    ReprocessQueueMessage::UnknownBlockAggregate(QueuedAggregate {
+                        beacon_block_root,
+                        process_fn: Box::new(|| {}),
+                    }),
+                ));
+                |ready_work| matches!(ready_work, ReadyWork::Aggregate(_))
+            }
+            TestQueuedAttestation::Unaggregate => {
+                queue.handle_message(InboundEvent::Msg(
+                    ReprocessQueueMessage::UnknownBlockUnaggregate(QueuedUnaggregate {
+                        beacon_block_root,
+                        process_fn: Box::new(|| {}),
+                    }),
+                ));
+                |ready_work| matches!(ready_work, ReadyWork::Unaggregate(_))
+            }
+        };
+
+        let ready_work = ready_work_rx.try_recv().unwrap();
+        assert!(expected_ready_work(ready_work));
+        assert!(queue.awaiting_attestations_per_root.is_empty());
+        assert_eq!(queue.attestations_delay_queue.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn recently_imported_block_reprocesses_late_aggregate_immediately() {
+        assert_recently_imported_block_reprocesses_late_attestation_immediately(
+            TestQueuedAttestation::Aggregate,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn recently_imported_block_reprocesses_late_unaggregate_immediately() {
+        assert_recently_imported_block_reprocesses_late_attestation_immediately(
+            TestQueuedAttestation::Unaggregate,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn recently_imported_block_queue_falls_back_to_delay_when_ready_work_is_full() {
+        create_test_tracing_subscriber();
+
+        let config = BeaconProcessorConfig::default();
+        let (ready_work_tx, _ready_work_rx) = mpsc::channel::<ReadyWork>(1);
+        let (_, reprocess_work_rx) =
+            mpsc::channel::<ReprocessQueueMessage>(config.max_scheduled_work_queue_len);
+        let slot_clock = Arc::new(testing_slot_clock(12));
+        let mut queue = ReprocessQueue::new(ready_work_tx.clone(), reprocess_work_rx, slot_clock);
+
+        ready_work_tx
+            .try_send(ReadyWork::IgnoredRpcBlock(IgnoredRpcBlock {
+                process_fn: Box::new(|| {}),
+            }))
+            .unwrap();
+
+        let beacon_block_root = Hash256::repeat_byte(0xaf);
+        let parent_root = Hash256::repeat_byte(0xab);
+
+        queue.handle_message(InboundEvent::Msg(ReprocessQueueMessage::BlockImported {
+            block_root: beacon_block_root,
+            parent_root,
+        }));
+
+        queue.handle_message(InboundEvent::Msg(
+            ReprocessQueueMessage::UnknownBlockUnaggregate(QueuedUnaggregate {
+                beacon_block_root,
+                process_fn: Box::new(|| {}),
+            }),
+        ));
+
+        assert_eq!(queue.awaiting_attestations_per_root.len(), 1);
+        assert_eq!(queue.attestations_delay_queue.len(), 1);
     }
 
     // This is a regression test for a memory leak in `awaiting_lc_updates_per_parent_root`.
