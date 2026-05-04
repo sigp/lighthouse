@@ -3172,11 +3172,41 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
 
             // Import the blocks into the chain.
-            for (signature_verified_block, _envelope) in signature_verified_blocks {
+            for (signature_verified_block, envelope) in signature_verified_blocks {
+                let block_root = signature_verified_block.block_root();
                 let block_slot = signature_verified_block.slot();
+
+                // For Gloas blocks, persist the envelope and notify fork choice
+                // before importing the block. The next block's `load_parent` will
+                // check for this envelope in the store.
+                if let Some(available_envelope) = envelope {
+                    let (signed_envelope, _columns) = available_envelope.deconstruct();
+                    if let Err(e) = self
+                        .store
+                        .put_payload_envelope(&block_root, &signed_envelope)
+                    {
+                        return ChainSegmentResult::Failed {
+                            imported_blocks,
+                            error: BlockError::BeaconChainError(Box::new(e.into())),
+                        };
+                    }
+                    if let Err(e) = self
+                        .canonical_head
+                        .fork_choice_write_lock()
+                        .on_valid_payload_envelope_received(block_root)
+                    {
+                        return ChainSegmentResult::Failed {
+                            imported_blocks,
+                            error: BlockError::BeaconChainError(Box::new(
+                                BeaconChainError::ForkChoiceError(e),
+                            )),
+                        };
+                    }
+                }
+
                 match self
                     .process_block(
-                        signature_verified_block.block_root(),
+                        block_root,
                         signature_verified_block,
                         notify_execution_layer,
                         BlockImportSource::RangeSync,
