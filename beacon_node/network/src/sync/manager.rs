@@ -134,6 +134,14 @@ pub enum SyncMessage<E: EthSpec> {
         seen_timestamp: Duration,
     },
 
+    /// A payload envelope has been received from the RPC.
+    RpcPayloadEnvelope {
+        sync_request_id: SyncRequestId,
+        peer_id: PeerId,
+        payload_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+        seen_timestamp: Duration,
+    },
+
     /// A block with an unknown parent has been received.
     UnknownParentBlock(PeerId, Arc<SignedBeaconBlock<E>>, Hash256),
 
@@ -853,6 +861,17 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             } => {
                 self.rpc_data_column_received(sync_request_id, peer_id, data_column, seen_timestamp)
             }
+            SyncMessage::RpcPayloadEnvelope {
+                sync_request_id,
+                peer_id,
+                payload_envelope,
+                seen_timestamp,
+            } => self.rpc_payload_envelope_received(
+                sync_request_id,
+                peer_id,
+                payload_envelope,
+                seen_timestamp,
+            ),
             SyncMessage::UnknownParentBlock(peer_id, block, block_root) => {
                 let block_slot = block.slot();
                 let parent_root = block.parent_root();
@@ -1234,6 +1253,34 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
             _ => {
                 crit!(%peer_id, "bad request id for data_column");
+            }
+        }
+    }
+
+    fn rpc_payload_envelope_received(
+        &mut self,
+        sync_request_id: SyncRequestId,
+        peer_id: PeerId,
+        payload_envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+        seen_timestamp: Duration,
+    ) {
+        match sync_request_id {
+            SyncRequestId::SinglePayloadEnvelope { id } => {
+                self.on_single_envelope_response(
+                    id,
+                    peer_id,
+                    RpcEvent::from_chunk(payload_envelope, seen_timestamp),
+                );
+            }
+            SyncRequestId::PayloadEnvelopesByRange(req_id) => {
+                self.on_payload_envelopes_by_range_response(
+                    req_id,
+                    peer_id,
+                    RpcEvent::from_chunk(payload_envelope, seen_timestamp),
+                );
+            }
+            _ => {
+                crit!(%peer_id, "bad request id for payload_envelope");
             }
         }
     }
