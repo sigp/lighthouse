@@ -11,6 +11,7 @@ use state_processing::per_epoch_processing::capella::process_historical_summarie
 use state_processing::per_epoch_processing::effective_balance_updates::{
     process_effective_balance_updates, process_effective_balance_updates_slow,
 };
+use state_processing::per_epoch_processing::process_epoch;
 use state_processing::per_epoch_processing::single_pass::{
     SinglePassConfig, process_epoch_single_pass, process_proposer_lookahead, process_ptc_window,
 };
@@ -37,6 +38,8 @@ pub struct EpochProcessing<E: EthSpec, T: EpochTransition<E>> {
     pub metadata: Metadata,
     pub pre: BeaconState<E>,
     pub post: Option<BeaconState<E>>,
+    pub pre_epoch: Option<BeaconState<E>>,
+    pub post_epoch: Option<BeaconState<E>>,
     #[serde(skip_deserializing)]
     _phantom: PhantomData<T>,
 }
@@ -357,11 +360,26 @@ impl<E: EthSpec, T: EpochTransition<E>> LoadCase for EpochProcessing<E, T> {
             None
         };
 
+        let pre_epoch_file = path.join("pre_epoch.ssz_snappy");
+        let pre_epoch = if pre_epoch_file.is_file() {
+            Some(ssz_decode_state(&pre_epoch_file, spec)?)
+        } else {
+            None
+        };
+        let post_epoch_file = path.join("post_epoch.ssz_snappy");
+        let post_epoch = if post_epoch_file.is_file() {
+            Some(ssz_decode_state(&post_epoch_file, spec)?)
+        } else {
+            None
+        };
+
         Ok(Self {
             path: path.into(),
             metadata,
             pre,
             post,
+            pre_epoch,
+            post_epoch,
             _phantom: PhantomData,
         })
     }
@@ -432,6 +450,21 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
 
         let mut result = T::run(&mut state, spec).map(|_| state);
 
-        compare_beacon_state_results_without_caches(&mut result, &mut expected)
+        compare_beacon_state_results_without_caches(&mut result, &mut expected)?;
+
+        if let Some(pre_epoch_state) = &self.pre_epoch {
+            let mut pre_epoch_state = pre_epoch_state.clone();
+            pre_epoch_state.build_all_committee_caches(spec).unwrap();
+
+            let mut expected_epoch = self.post_epoch.clone();
+            if let Some(post_state) = expected_epoch.as_mut() {
+                post_state.build_all_committee_caches(spec).unwrap();
+            }
+            
+            let mut result = process_epoch(&mut pre_epoch_state, spec).map(|_| pre_epoch_state);
+            compare_beacon_state_results_without_caches(&mut result, &mut expected_epoch)?;
+        }
+
+        Ok(())
     }
 }
