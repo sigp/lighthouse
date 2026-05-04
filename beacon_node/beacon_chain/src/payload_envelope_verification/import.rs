@@ -1,12 +1,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use eth2::types::{EventKind, SseExecutionPayload};
+use eth2::types::{EventKind, SseExecutionPayload, SseExecutionPayloadAvailable};
 use fork_choice::PayloadVerificationStatus;
 use slot_clock::SlotClock;
 use store::StoreOp;
 use tracing::{debug, error, info, info_span, instrument, warn};
-use types::{BeaconState, BlockImportSource, Hash256, SignedExecutionPayloadEnvelope};
+use types::{BlockImportSource, Hash256, SignedExecutionPayloadEnvelope};
 
 use super::{
     AvailableEnvelope, AvailableExecutedEnvelope, EnvelopeError, EnvelopeImportData,
@@ -182,6 +182,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             signed_envelope,
             import_data,
             payload_verification_outcome,
+            self.spec.clone(),
         ))
     }
 
@@ -198,7 +199,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let EnvelopeImportData {
             block_root,
-            post_state,
+            _phantom,
         } = import_data;
 
         let block_root = {
@@ -208,7 +209,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     chain.import_execution_payload_envelope(
                         envelope,
                         block_root,
-                        *post_state,
                         payload_verification_outcome.payload_verification_status,
                     )
                 },
@@ -231,7 +231,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         signed_envelope: AvailableEnvelope<T::EthSpec>,
         block_root: Hash256,
-        state: BeaconState<T::EthSpec>,
         payload_verification_status: PayloadVerificationStatus,
     ) -> Result<Hash256, EnvelopeError> {
         // Everything in this initial section is on the hot path for processing the envelope.
@@ -284,10 +283,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ops.push(StoreOp::PutPayloadEnvelope(
             block_root,
             signed_envelope.clone(),
-        ));
-        ops.push(StoreOp::PutState(
-            signed_envelope.message.state_root,
-            &state,
         ));
 
         let db_span = info_span!("persist_payloads_and_blobs").entered();
@@ -365,9 +360,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 builder_index: signed_envelope.message.builder_index,
                 block_hash: signed_envelope.block_hash(),
                 block_root,
-                state_root: signed_envelope.message.state_root,
                 execution_optimistic: payload_verification_status.is_optimistic(),
             }));
+        }
+
+        // TODO(gloas): once the DA checker handles envelopes, this event should also be
+        // emitted from the DA resolution path (similar to `process_availability` for blocks).
+        if let Some(event_handler) = self.event_handler.as_ref()
+            && event_handler.has_execution_payload_available_subscribers()
+        {
+            event_handler.register(EventKind::ExecutionPayloadAvailable(
+                SseExecutionPayloadAvailable {
+                    slot: envelope_slot,
+                    block_root,
+                },
+            ));
         }
     }
 }

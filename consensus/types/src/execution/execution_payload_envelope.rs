@@ -20,8 +20,7 @@ pub struct ExecutionPayloadEnvelope<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub builder_index: u64,
     pub beacon_block_root: Hash256,
-    pub slot: Slot,
-    pub state_root: Hash256,
+    pub parent_beacon_block_root: Hash256,
 }
 
 impl<E: EthSpec> ExecutionPayloadEnvelope<E> {
@@ -32,8 +31,7 @@ impl<E: EthSpec> ExecutionPayloadEnvelope<E> {
             execution_requests: ExecutionRequests::default(),
             builder_index: 0,
             beacon_block_root: Hash256::zero(),
-            slot: Slot::new(0),
-            state_root: Hash256::zero(),
+            parent_beacon_block_root: Hash256::zero(),
         }
     }
 
@@ -59,6 +57,10 @@ impl<E: EthSpec> ExecutionPayloadEnvelope<E> {
                 * <crate::WithdrawalRequest as SszEncode>::ssz_fixed_len())
             + (E::max_consolidation_requests_per_payload()
                 * <crate::ConsolidationRequest as SszEncode>::ssz_fixed_len())
+    }
+
+    pub fn slot(&self) -> Slot {
+        self.payload.slot_number
     }
 }
 

@@ -1,7 +1,8 @@
 use crate::fetch_blobs::{EngineGetBlobsOutput, FetchEngineBlobError};
 use crate::observed_data_sidecars::ObservationKey;
+use crate::partial_data_column_assembler::PartialDataColumnAssembler;
 use crate::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes};
-use execution_layer::json_structures::{BlobAndProofV1, BlobAndProofV2};
+use execution_layer::json_structures::{BlobAndProofV1, BlobAndProofV2, BlobAndProofV3};
 use kzg::Kzg;
 #[cfg(test)]
 use mockall::automock;
@@ -35,6 +36,13 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
         &self.chain.task_executor
     }
 
+    pub(crate) fn partial_assembler(&self) -> Option<Arc<PartialDataColumnAssembler<T::EthSpec>>> {
+        self.chain
+            .data_availability_checker
+            .partial_assembler()
+            .cloned()
+    }
+
     pub(crate) async fn get_blobs_v1(
         &self,
         versioned_hashes: Vec<Hash256>,
@@ -63,6 +71,22 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
 
         execution_layer
             .get_blobs_v2(versioned_hashes)
+            .await
+            .map_err(FetchEngineBlobError::RequestFailed)
+    }
+
+    pub(crate) async fn get_blobs_v3(
+        &self,
+        versioned_hashes: Vec<Hash256>,
+    ) -> Result<Option<Vec<BlobAndProofV3<T::EthSpec>>>, FetchEngineBlobError> {
+        let execution_layer = self
+            .chain
+            .execution_layer
+            .as_ref()
+            .ok_or(FetchEngineBlobError::ExecutionLayerMissing)?;
+
+        execution_layer
+            .get_blobs_v3(versioned_hashes)
             .await
             .map_err(FetchEngineBlobError::RequestFailed)
     }
@@ -118,5 +142,19 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
             .canonical_head
             .fork_choice_read_lock()
             .contains_block(block_root)
+    }
+
+    pub(crate) async fn supports_get_blobs_v3(&self) -> Result<bool, FetchEngineBlobError> {
+        let execution_layer = self
+            .chain
+            .execution_layer
+            .as_ref()
+            .ok_or(FetchEngineBlobError::ExecutionLayerMissing)?;
+
+        execution_layer
+            .get_engine_capabilities(None)
+            .await
+            .map_err(FetchEngineBlobError::RequestFailed)
+            .map(|caps| caps.get_blobs_v3)
     }
 }

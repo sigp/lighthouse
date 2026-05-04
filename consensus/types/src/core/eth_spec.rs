@@ -448,6 +448,11 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     fn payload_timely_threshold() -> usize {
         Self::PTCSize::to_usize() / 2
     }
+
+    /// Returns the `DATA_AVAILABILITY_TIMELY_THRESHOLD` constant (PTC_SIZE / 2).
+    fn data_availability_timely_threshold() -> usize {
+        Self::PTCSize::to_usize() / 2
+    }
 }
 
 /// Macro to inherit some type values from another EthSpec.
@@ -567,7 +572,7 @@ impl EthSpec for MinimalEthSpec {
     type NumberOfColumns = U128;
     type ProposerLookaheadSlots = U16; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
     type BuilderPendingPaymentsLimit = U16; // 2 * SLOTS_PER_EPOCH = 2 * 8 = 16
-    type PTCSize = U2;
+    type PTCSize = U16;
     type PtcWindowLength = U24; // (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH
     type MaxBuildersPerWithdrawalsSweep = U16;
 

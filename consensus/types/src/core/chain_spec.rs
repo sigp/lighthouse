@@ -152,6 +152,7 @@ pub struct ChainSpec {
     pub proposer_score_boost: Option<u64>,
     pub reorg_head_weight_threshold: Option<u64>,
     pub reorg_parent_weight_threshold: Option<u64>,
+    pub reorg_max_epochs_since_finalization: Option<u64>,
 
     /*
      * Eth1
@@ -250,6 +251,9 @@ pub struct ChainSpec {
     pub builder_payment_threshold_numerator: u64,
     pub builder_payment_threshold_denominator: u64,
     pub min_builder_withdrawability_delay: Epoch,
+    pub churn_limit_quotient_gloas: u64,
+    pub consolidation_churn_limit_quotient: u64,
+    pub max_per_epoch_activation_churn_limit_gloas: u64,
 
     /*
      * Networking
@@ -1149,6 +1153,7 @@ impl ChainSpec {
             proposer_score_boost: Some(40),
             reorg_head_weight_threshold: Some(20),
             reorg_parent_weight_threshold: Some(160),
+            reorg_max_epochs_since_finalization: Some(2),
 
             /*
              * Eth1
@@ -1266,6 +1271,14 @@ impl ChainSpec {
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
             min_builder_withdrawability_delay: Epoch::new(64),
+            churn_limit_quotient_gloas: option_wrapper(|| u64::checked_pow(2, 15))
+                .expect("calculation does not overflow"),
+            consolidation_churn_limit_quotient: option_wrapper(|| u64::checked_pow(2, 16))
+                .expect("calculation does not overflow"),
+            max_per_epoch_activation_churn_limit_gloas: option_wrapper(|| {
+                u64::checked_pow(2, 8)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
             max_request_payloads: 128,
 
             /*
@@ -1412,6 +1425,14 @@ impl ChainSpec {
             gloas_fork_version: [0x07, 0x00, 0x00, 0x01],
             gloas_fork_epoch: None,
             min_builder_withdrawability_delay: Epoch::new(2),
+            churn_limit_quotient_gloas: option_wrapper(|| u64::checked_pow(2, 4))
+                .expect("calculation does not overflow"),
+            consolidation_churn_limit_quotient: option_wrapper(|| u64::checked_pow(2, 5))
+                .expect("calculation does not overflow"),
+            max_per_epoch_activation_churn_limit_gloas: option_wrapper(|| {
+                u64::checked_pow(2, 7)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
 
             /*
              * Derived time values (set by `compute_derived_values()`)
@@ -1554,6 +1575,7 @@ impl ChainSpec {
             proposer_score_boost: Some(40),
             reorg_head_weight_threshold: Some(20),
             reorg_parent_weight_threshold: Some(160),
+            reorg_max_epochs_since_finalization: Some(2),
 
             /*
              * Eth1
@@ -1672,6 +1694,14 @@ impl ChainSpec {
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
             min_builder_withdrawability_delay: Epoch::new(64),
+            churn_limit_quotient_gloas: option_wrapper(|| u64::checked_pow(2, 15))
+                .expect("calculation does not overflow"),
+            consolidation_churn_limit_quotient: option_wrapper(|| u64::checked_pow(2, 16))
+                .expect("calculation does not overflow"),
+            max_per_epoch_activation_churn_limit_gloas: option_wrapper(|| {
+                u64::checked_pow(2, 8)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
             max_request_payloads: 128,
 
             /*
@@ -1786,7 +1816,7 @@ impl<'de> Deserialize<'de> for BlobSchedule {
 impl BlobSchedule {
     pub fn new(mut vec: Vec<BlobParameters>) -> Self {
         // reverse sort by epoch
-        vec.sort_by(|a, b| b.epoch.cmp(&a.epoch));
+        vec.sort_by_key(|b| std::cmp::Reverse(b.epoch));
         Self {
             schedule: vec,
             skip_serializing: false,
@@ -1983,6 +2013,13 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     proposer_score_boost: Option<MaybeQuoted<u64>>,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reorg_head_weight_threshold: Option<MaybeQuoted<u64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reorg_parent_weight_threshold: Option<MaybeQuoted<u64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reorg_max_epochs_since_finalization: Option<MaybeQuoted<u64>>,
+
     #[serde(with = "serde_utils::quoted_u64")]
     deposit_chain_id: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -2115,6 +2152,16 @@ pub struct Config {
     #[serde(default = "default_min_builder_withdrawability_delay")]
     #[serde(with = "serde_utils::quoted_u64")]
     min_builder_withdrawability_delay: u64,
+
+    #[serde(default = "default_churn_limit_quotient_gloas")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    churn_limit_quotient_gloas: u64,
+    #[serde(default = "default_consolidation_churn_limit_quotient")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    consolidation_churn_limit_quotient: u64,
+    #[serde(default = "default_max_per_epoch_activation_churn_limit_gloas")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_per_epoch_activation_churn_limit_gloas: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -2352,6 +2399,18 @@ const fn default_min_builder_withdrawability_delay() -> u64 {
     64
 }
 
+const fn default_churn_limit_quotient_gloas() -> u64 {
+    32_768
+}
+
+const fn default_consolidation_churn_limit_quotient() -> u64 {
+    65_536
+}
+
+const fn default_max_per_epoch_activation_churn_limit_gloas() -> u64 {
+    256_000_000_000
+}
+
 fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
     let max_request_blocks = max_request_blocks as usize;
     RuntimeVariableList::<Hash256>::new(
@@ -2545,6 +2604,15 @@ impl Config {
             max_per_epoch_activation_churn_limit: spec.max_per_epoch_activation_churn_limit,
 
             proposer_score_boost: spec.proposer_score_boost.map(|value| MaybeQuoted { value }),
+            reorg_head_weight_threshold: spec
+                .reorg_head_weight_threshold
+                .map(|value| MaybeQuoted { value }),
+            reorg_parent_weight_threshold: spec
+                .reorg_parent_weight_threshold
+                .map(|value| MaybeQuoted { value }),
+            reorg_max_epochs_since_finalization: spec
+                .reorg_max_epochs_since_finalization
+                .map(|value| MaybeQuoted { value }),
 
             deposit_chain_id: spec.deposit_chain_id,
             deposit_network_id: spec.deposit_network_id,
@@ -2594,6 +2662,11 @@ impl Config {
             contribution_due_bps: spec.contribution_due_bps,
 
             min_builder_withdrawability_delay: spec.min_builder_withdrawability_delay.as_u64(),
+
+            churn_limit_quotient_gloas: spec.churn_limit_quotient_gloas,
+            consolidation_churn_limit_quotient: spec.consolidation_churn_limit_quotient,
+            max_per_epoch_activation_churn_limit_gloas: spec
+                .max_per_epoch_activation_churn_limit_gloas,
         }
     }
 
@@ -2647,6 +2720,9 @@ impl Config {
             max_per_epoch_activation_churn_limit,
             churn_limit_quotient,
             proposer_score_boost,
+            reorg_head_weight_threshold,
+            reorg_parent_weight_threshold,
+            reorg_max_epochs_since_finalization,
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,
@@ -2688,6 +2764,9 @@ impl Config {
             sync_message_due_bps,
             contribution_due_bps,
             min_builder_withdrawability_delay,
+            churn_limit_quotient_gloas,
+            consolidation_churn_limit_quotient,
+            max_per_epoch_activation_churn_limit_gloas,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -2743,6 +2822,10 @@ impl Config {
             max_per_epoch_activation_churn_limit,
             churn_limit_quotient,
             proposer_score_boost: proposer_score_boost.map(|q| q.value),
+            reorg_head_weight_threshold: reorg_head_weight_threshold.map(|q| q.value),
+            reorg_parent_weight_threshold: reorg_parent_weight_threshold.map(|q| q.value),
+            reorg_max_epochs_since_finalization: reorg_max_epochs_since_finalization
+                .map(|q| q.value),
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,
@@ -2790,6 +2873,10 @@ impl Config {
             contribution_due_bps,
 
             min_builder_withdrawability_delay: Epoch::new(min_builder_withdrawability_delay),
+
+            churn_limit_quotient_gloas,
+            consolidation_churn_limit_quotient,
+            max_per_epoch_activation_churn_limit_gloas,
 
             ..chain_spec.clone()
         };
@@ -3692,14 +3779,8 @@ mod yaml_tests {
         "SYNC_MESSAGE_DUE_BPS_GLOAS",
         "CONTRIBUTION_DUE_BPS_GLOAS",
         "MAX_REQUEST_PAYLOADS",
-        // Gloas fork choice params not yet in Config
-        "REORG_HEAD_WEIGHT_THRESHOLD",
-        "REORG_PARENT_WEIGHT_THRESHOLD",
-        "REORG_MAX_EPOCHS_SINCE_FINALIZATION",
         // Heze networking
-        "VIEW_FREEZE_CUTOFF_BPS",
-        "INCLUSION_LIST_SUBMISSION_DUE_BPS",
-        "PROPOSER_INCLUSION_LIST_CUTOFF_BPS",
+        "INCLUSION_LIST_DUE_BPS",
         "MAX_REQUEST_INCLUSION_LIST",
         "MAX_BYTES_PER_INCLUSION_LIST",
     ];

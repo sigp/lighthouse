@@ -12,3 +12,4 @@ beacon_node/http_api/src/block_rewards.rs
 common/eth2/src/lighthouse/attestation_performance.rs
 common/eth2/src/lighthouse/block_packing_efficiency.rs
 common/eth2/src/lighthouse/block_rewards.rs
+consensus/types/src/execution/state_payload_status.rs

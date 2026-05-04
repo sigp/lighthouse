@@ -20,7 +20,6 @@ use tree_hash::TreeHash;
 use types::data::BlobIdentifier;
 use types::{
     BeaconStateError, BlobSidecar, Epoch, EthSpec, Hash256, SignedBeaconBlockHeader, Slot,
-    StatePayloadStatus,
 };
 
 /// An error occurred while validating a gossip blob.
@@ -513,12 +512,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrat
             // status is sufficient.
             chain
                 .store
-                .get_advanced_hot_state(
-                    block_parent_root,
-                    StatePayloadStatus::Pending,
-                    blob_slot,
-                    parent_block.state_root,
-                )
+                .get_advanced_hot_state(block_parent_root, blob_slot, parent_block.state_root)
                 .map_err(|e| GossipBlobError::BeaconChainError(Box::new(e.into())))?
                 .ok_or_else(|| {
                     GossipBlobError::BeaconChainError(Box::new(BeaconChainError::DBInconsistent(

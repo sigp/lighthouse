@@ -28,6 +28,7 @@ pub fn cli_app() -> Command {
                     "The path to search for validator directories. \
                     Defaults to ~/.lighthouse/{network}/validators",
                 )
+                .global(true)
                 .action(ArgAction::Set)
                 .conflicts_with("datadir"),
         )

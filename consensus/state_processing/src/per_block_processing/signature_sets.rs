@@ -2,6 +2,7 @@
 //! validated individually, or alongside in others in a potentially cheaper bulk operation.
 //!
 //! This module exposes one function to extract each type of `SignatureSet` from a `BeaconBlock`.
+use super::builder::{convert_validator_index_to_builder_index, is_builder_index};
 use bls::{AggregateSignature, PublicKey, PublicKeyBytes, Signature, SignatureSet};
 use ssz::DecodeError;
 use std::borrow::Cow;
@@ -12,9 +13,9 @@ use types::{
     BuilderIndex, ChainSpec, DepositData, Domain, Epoch, EthSpec, Fork, Hash256, InconsistentFork,
     IndexedAttestation, IndexedAttestationRef, IndexedPayloadAttestation, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedExecutionPayloadBid, SignedRoot,
-    SignedVoluntaryExit, SigningData, Slot, SyncAggregate, SyncAggregatorSelectionData,
-    consts::gloas::BUILDER_INDEX_SELF_BUILD,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedExecutionPayloadBid,
+    SignedProposerPreferences, SignedRoot, SignedVoluntaryExit, SigningData, Slot, SyncAggregate,
+    SyncAggregatorSelectionData, consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -389,6 +390,37 @@ where
     Ok(SignatureSet::multiple_pubkeys(signature, pubkeys, message))
 }
 
+pub fn proposer_preferences_signature_set<'a, E, F>(
+    state: &'a BeaconState<E>,
+    get_pubkey: F,
+    signed_proposer_preferences: &'a SignedProposerPreferences,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet<'a>>
+where
+    E: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+{
+    let preferences = &signed_proposer_preferences.message;
+    let validator_index = preferences.validator_index as usize;
+
+    let proposal_epoch = preferences.proposal_slot.epoch(E::slots_per_epoch());
+    let proposal_fork = spec.fork_at_epoch(proposal_epoch);
+    let domain = spec.get_domain(
+        proposal_epoch,
+        Domain::ProposerPreferences,
+        &proposal_fork,
+        state.genesis_validators_root(),
+    );
+
+    let message = preferences.signing_root(domain);
+
+    Ok(SignatureSet::single_pubkey(
+        &signed_proposer_preferences.signature,
+        get_pubkey(validator_index).ok_or(Error::ValidatorUnknown(validator_index as u64))?,
+        message,
+    ))
+}
+
 pub fn execution_payload_bid_signature_set<'a, E, F>(
     state: &'a BeaconState<E>,
     get_builder_pubkey: F,
@@ -407,10 +439,16 @@ where
         // See `process_execution_payload_bid`.
         return Ok(None);
     }
+
+    let bid_epoch = signed_execution_payload_bid
+        .message
+        .slot
+        .epoch(E::slots_per_epoch());
+    let bid_fork = spec.fork_at_epoch(bid_epoch);
     let domain = spec.get_domain(
-        state.current_epoch(),
+        bid_epoch,
         Domain::BeaconBuilder,
-        &state.fork(),
+        &bid_fork,
         state.genesis_validators_root(),
     );
 
@@ -466,7 +504,7 @@ pub fn deposit_pubkey_signature_message(
 }
 
 /// Returns a signature set that is valid if the `SignedVoluntaryExit` was signed by the indicated
-/// validator.
+/// validator (or builder, in the case of a builder exit).
 pub fn exit_signature_set<'a, E, F>(
     state: &'a BeaconState<E>,
     get_pubkey: F,
@@ -478,7 +516,18 @@ where
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
     let exit = &signed_exit.message;
-    let proposer_index = exit.validator_index as usize;
+    let validator_index = exit.validator_index;
+
+    let is_builder_exit =
+        state.fork_name_unchecked().gloas_enabled() && is_builder_index(validator_index);
+
+    let pubkey = if is_builder_exit {
+        let builder_index = convert_validator_index_to_builder_index(validator_index);
+        get_builder_pubkey_from_state(state, builder_index)
+            .ok_or(Error::ValidatorUnknown(validator_index))?
+    } else {
+        get_pubkey(validator_index as usize).ok_or(Error::ValidatorUnknown(validator_index))?
+    };
 
     let domain = if state.fork_name_unchecked().deneb_enabled() {
         // EIP-7044
@@ -500,7 +549,7 @@ where
 
     Ok(SignatureSet::single_pubkey(
         &signed_exit.signature,
-        get_pubkey(proposer_index).ok_or(Error::ValidatorUnknown(proposer_index as u64))?,
+        pubkey,
         message,
     ))
 }
