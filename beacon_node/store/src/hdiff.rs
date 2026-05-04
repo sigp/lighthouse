@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::cmp::Ordering;
-use std::marker::PhantomData;
 use std::ops::RangeInclusive;
 use std::str::FromStr;
 use std::sync::LazyLock;
@@ -97,14 +96,13 @@ pub enum StorageStrategy {
 
 /// Hierarchical diff output and working buffer.
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct HDiffBuffer<E: EthSpec> {
+pub struct HDiffBuffer {
     state: Vec<u8>,
     balances: Vec<u64>,
     inactivity_scores: Vec<u64>,
     validators: Vec<Validator>,
     historical_roots: Vec<Hash256>,
     historical_summaries: Vec<HistoricalSummary>,
-    _phantom: PhantomData<E>,
 }
 
 /// Hierarchical state diff.
@@ -172,8 +170,8 @@ pub struct AppendOnlyDiff<T: Encode + Decode> {
     values: Vec<T>,
 }
 
-impl<E: EthSpec> HDiffBuffer<E> {
-    pub fn from_state(mut beacon_state: BeaconState<E>) -> Self {
+impl HDiffBuffer {
+    pub fn from_state<E: EthSpec>(mut beacon_state: BeaconState<E>) -> Self {
         let _t = metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_FROM_STATE_TIME);
         // Set state.balances to empty list, and then serialize state as ssz
         let balances_list = std::mem::take(beacon_state.balances_mut());
@@ -207,11 +205,10 @@ impl<E: EthSpec> HDiffBuffer<E> {
             validators,
             historical_roots,
             historical_summaries,
-            _phantom: PhantomData,
         }
     }
 
-    pub fn as_state(&self, spec: &ChainSpec) -> Result<BeaconState<E>, Error> {
+    pub fn as_state<E: EthSpec>(&self, spec: &ChainSpec) -> Result<BeaconState<E>, Error> {
         let _t = metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_INTO_STATE_TIME);
         let mut state =
             BeaconState::from_ssz_bytes(&self.state, spec).map_err(Error::InvalidSszState)?;
@@ -250,9 +247,9 @@ impl<E: EthSpec> HDiffBuffer<E> {
 }
 
 impl HDiff {
-    pub fn compute<E: EthSpec>(
-        source: &HDiffBuffer<E>,
-        target: &HDiffBuffer<E>,
+    pub fn compute(
+        source: &HDiffBuffer,
+        target: &HDiffBuffer,
         config: &StoreConfig,
     ) -> Result<Self, Error> {
         let state_diff = debug_span!("state_diff_compute")
@@ -267,9 +264,8 @@ impl HDiff {
                     config,
                 )
             })?;
-        let validators_diff = debug_span!("validators_diff_compute").in_scope(|| {
-            ValidatorsDiff::compute(&source.validators, &target.validators, config)
-        })?;
+        let validators_diff = debug_span!("validators_diff_compute")
+            .in_scope(|| ValidatorsDiff::compute(&source.validators, &target.validators, config))?;
         let historical_roots = debug_span!("historical_roots_compute").in_scope(|| {
             AppendOnlyDiff::compute(&source.historical_roots, &target.historical_roots)
         })?;
@@ -287,11 +283,7 @@ impl HDiff {
         }))
     }
 
-    pub fn apply<E: EthSpec>(
-        &self,
-        source: &mut HDiffBuffer<E>,
-        config: &StoreConfig,
-    ) -> Result<(), Error> {
+    pub fn apply(&self, source: &mut HDiffBuffer, config: &StoreConfig) -> Result<(), Error> {
         let source_state = std::mem::take(&mut source.state);
         debug_span!("state_diff_apply")
             .in_scope(|| self.state_diff().apply(&source_state, &mut source.state))?;
@@ -304,10 +296,8 @@ impl HDiff {
                 .apply(&mut source.inactivity_scores, config)
         })?;
 
-        debug_span!("validators_diff_apply").in_scope(|| {
-            self.validators_diff()
-                .apply(&mut source.validators, config)
-        })?;
+        debug_span!("validators_diff_apply")
+            .in_scope(|| self.validators_diff().apply(&mut source.validators, config))?;
 
         debug_span!("historical_roots_apply")
             .in_scope(|| self.historical_roots().apply(&mut source.historical_roots));
@@ -837,9 +827,6 @@ impl StorageStrategy {
 mod tests {
     use super::*;
     use rand::{Rng, SeedableRng, rng, rngs::SmallRng};
-    use types::MainnetEthSpec;
-
-    type E = MainnetEthSpec;
 
     #[test]
     fn default_storage_strategy() {
@@ -998,23 +985,21 @@ mod tests {
         let pre_historical_summaries = vec![HistoricalSummary::default()];
         let post_historical_summaries = pre_historical_summaries.clone();
 
-        let pre_buffer = HDiffBuffer::<E> {
+        let pre_buffer = HDiffBuffer {
             state: vec![0, 1, 2, 3, 3, 2, 1, 0],
             balances: pre_balances,
             inactivity_scores: pre_inactivity_scores,
             validators: pre_validators,
             historical_roots: pre_historical_roots,
             historical_summaries: pre_historical_summaries,
-            _phantom: PhantomData,
         };
-        let post_buffer = HDiffBuffer::<E> {
+        let post_buffer = HDiffBuffer {
             state: vec![0, 1, 3, 2, 2, 3, 1, 1],
             balances: post_balances,
             inactivity_scores: post_inactivity_scores,
             validators: post_validators,
             historical_roots: post_historical_roots,
             historical_summaries: post_historical_summaries,
-            _phantom: PhantomData,
         };
 
         let config = StoreConfig::default();
