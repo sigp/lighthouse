@@ -1878,7 +1878,9 @@ impl<E: EthSpec> FullBlockContents<E> {
 
     /// SSZ decode with fork variant passed in explicitly.
     pub fn from_ssz_bytes_for_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
-        if fork_name.deneb_enabled() {
+        // TODO(gloas): revisit when produceBlockV4 PR is finalised
+        // https://github.com/ethereum/beacon-APIs/pull/580
+        if fork_name.deneb_enabled() && !fork_name.gloas_enabled() {
             let mut builder = ssz::SszDecoderBuilder::new(bytes);
 
             builder.register_anonymous_variable_length_item()?;
@@ -1934,7 +1936,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for FullBlockContents<E>
     where
         D: Deserializer<'de>,
     {
-        if context.deneb_enabled() {
+        if context.deneb_enabled() && !context.gloas_enabled() {
             Ok(FullBlockContents::BlockContents(
                 BlockContents::context_deserialize::<D>(deserializer, context)?,
             ))
@@ -2045,15 +2047,19 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for PublishBlockRequest<
         let value =
             serde_json::Value::deserialize(deserializer).map_err(serde::de::Error::custom)?;
 
-        SignedBlockContents::<E>::context_deserialize(&value, context)
-            .map(PublishBlockRequest::BlockContents)
-            .or_else(|_| {
-                Arc::<SignedBeaconBlock<E>>::context_deserialize(&value, context)
-                    .map(PublishBlockRequest::Block)
-            })
-            .map_err(|_| {
-                serde::de::Error::custom("could not match any variant of PublishBlockRequest")
-            })
+        let res = if context.gloas_enabled() {
+            Arc::<SignedBeaconBlock<E>>::context_deserialize(&value, context)
+                .map(PublishBlockRequest::Block)
+        } else {
+            SignedBlockContents::<E>::context_deserialize(&value, context)
+                .map(PublishBlockRequest::BlockContents)
+                .or_else(|_| {
+                    Arc::<SignedBeaconBlock<E>>::context_deserialize(&value, context)
+                        .map(PublishBlockRequest::Block)
+                })
+        };
+
+        res.map_err(|_| serde::de::Error::custom("failed to deserialize into PublishBlockRequest"))
     }
 }
 
@@ -2119,7 +2125,10 @@ impl<E: EthSpec> PublishBlockRequest<E> {
 impl<E: EthSpec> TryFrom<Arc<SignedBeaconBlock<E>>> for PublishBlockRequest<E> {
     type Error = &'static str;
     fn try_from(block: Arc<SignedBeaconBlock<E>>) -> Result<Self, Self::Error> {
-        if block.message().fork_name_unchecked().deneb_enabled() {
+        let fork = block.message().fork_name_unchecked();
+        // Gloas blocks don't carry blobs (execution data comes via envelopes),
+        // so they can be published as block-only requests like pre-Deneb blocks.
+        if fork.deneb_enabled() && !fork.gloas_enabled() {
             Err("post-Deneb block contents cannot be fully constructed from just the signed block")
         } else {
             Ok(PublishBlockRequest::Block(block))
@@ -2491,7 +2500,7 @@ mod test {
                 SignedBeaconBlock,
                 <_>::arbitrary(&mut u).unwrap()
             );
-            let request = if fork_name.deneb_enabled() {
+            let request = if fork_name.deneb_enabled() && !fork_name.gloas_enabled() {
                 let kzg_proofs = KzgProofs::<MainnetEthSpec>::arbitrary(&mut u).unwrap();
                 let blobs = BlobsList::<MainnetEthSpec>::arbitrary(&mut u).unwrap();
                 let block_contents = SignedBlockContents {

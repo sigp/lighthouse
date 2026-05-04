@@ -4,7 +4,7 @@ use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
 
-use crate::core::Hash256;
+use crate::core::{Hash256, Hash256Ext};
 
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Default, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Hash)]
@@ -19,13 +19,7 @@ impl fmt::Debug for ExecutionBlockHash {
 
 impl fmt::Display for ExecutionBlockHash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let hash = format!("{}", self.0);
-        write!(
-            f,
-            "{}…{}",
-            &hash[..6],
-            &hash[hash.len().saturating_sub(4)..]
-        )
+        self.0.short().fmt(f)
     }
 }
 

@@ -564,9 +564,9 @@ where
         // For Gloas blocks, `execution_status` is Irrelevant (no embedded payload).
         // If the payload envelope was received (Full), use the bid's block_hash as the
         // execution chain head. Otherwise fall back to the parent hash (Pending) or None.
-        // TODO(gloas): this is a bit messy, and we probably need a similar treatment for
-        // justified/finalized
-        // Can fix as part of: https://github.com/sigp/lighthouse/issues/8957
+        // For justified/finalized hashes we always use the bid's parent_block_hash, since the
+        // payload from the justified/finalized block is not itself justified/finalized due to
+        // being applied immediately prior to the next block.
         let head_hash = self.get_block(&head_root).and_then(|b| {
             b.execution_status
                 .block_hash()
@@ -579,12 +579,16 @@ where
         });
         let justified_root = self.justified_checkpoint().root;
         let finalized_root = self.finalized_checkpoint().root;
-        let justified_hash = self
-            .get_block(&justified_root)
-            .and_then(|b| b.execution_status.block_hash());
-        let finalized_hash = self
-            .get_block(&finalized_root)
-            .and_then(|b| b.execution_status.block_hash());
+        let justified_hash = self.get_block(&justified_root).and_then(|b| {
+            b.execution_status
+                .block_hash()
+                .or(b.execution_payload_parent_hash)
+        });
+        let finalized_hash = self.get_block(&finalized_root).and_then(|b| {
+            b.execution_status
+                .block_hash()
+                .or(b.execution_payload_parent_hash)
+        });
         self.forkchoice_update_parameters = ForkchoiceUpdateParameters {
             head_root,
             head_hash,
@@ -756,6 +760,7 @@ where
         block_delay: Duration,
         state: &BeaconState<E>,
         payload_verification_status: PayloadVerificationStatus,
+        canonical_head_proposer_index: u64,
         spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_ON_BLOCK_TIMES);
@@ -820,16 +825,18 @@ where
 
         let attestation_threshold = spec.get_attestation_due::<E>(block.slot());
 
-        // Add proposer score boost if the block is timely.
-        // TODO(gloas): the spec's `update_proposer_boost_root` additionally checks that
-        // `block.proposer_index == get_beacon_proposer_index(head_state)` — i.e. that
-        // the block's proposer matches the expected proposer on the canonical chain.
-        // This requires calling `get_head` and advancing the head state to the current
-        // slot, which is expensive. Implement once we have a cached proposer index.
+        // Add proposer score boost if the block is the first timely block for this slot and its
+        // proposer matches the expected proposer on the canonical chain (per spec
+        // `update_proposer_boost_root`, introduced in v1.7.0-alpha.5).
         let is_before_attesting_interval = block_delay < attestation_threshold;
 
         let is_first_block = self.fc_store.proposer_boost_root().is_zero();
-        if current_slot == block.slot() && is_before_attesting_interval && is_first_block {
+        let is_canonical_proposer = block.proposer_index() == canonical_head_proposer_index;
+        if current_slot == block.slot()
+            && is_before_attesting_interval
+            && is_first_block
+            && is_canonical_proposer
+        {
             self.fc_store.set_proposer_boost_root(block_root);
         }
 
@@ -1351,7 +1358,7 @@ where
         let ptc_indices: Vec<usize> = attestation
             .attesting_indices
             .iter()
-            .filter_map(|vi| ptc.iter().position(|&p| p == *vi as usize))
+            .filter_map(|validator_index| ptc.iter().position(|&p| p == *validator_index as usize))
             .collect();
 
         // Check that all the attesters are in the PTC

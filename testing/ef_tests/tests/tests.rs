@@ -143,6 +143,12 @@ fn operations_bls_to_execution_change() {
 }
 
 #[test]
+fn operations_voluntary_exit_churn() {
+    OperationsHandler::<MinimalEthSpec, VoluntaryExitChurn>::default().run();
+    OperationsHandler::<MainnetEthSpec, VoluntaryExitChurn>::default().run();
+}
+
+#[test]
 fn sanity_blocks() {
     SanityBlocksHandler::<MinimalEthSpec>::default().run();
     SanityBlocksHandler::<MainnetEthSpec>::default().run();
@@ -285,8 +291,19 @@ mod ssz_static {
     ssz_static_test!(eth1_data, Eth1Data);
     ssz_static_test!(fork, Fork);
     ssz_static_test!(fork_data, ForkData);
-    ssz_static_test!(historical_batch, HistoricalBatch<_>);
-    ssz_static_test!(pending_attestation, PendingAttestation<_>);
+    // `HistoricalBatch` was removed in Capella, so test vectors only exist for Base,
+    // Altair and Bellatrix.
+    #[test]
+    fn historical_batch() {
+        SszStaticHandler::<HistoricalBatch<MinimalEthSpec>, MinimalEthSpec>::pre_capella().run();
+        SszStaticHandler::<HistoricalBatch<MainnetEthSpec>, MainnetEthSpec>::pre_capella().run();
+    }
+    // `PendingAttestation` was removed in Altair, so test vectors only exist for Base.
+    #[test]
+    fn pending_attestation() {
+        SszStaticHandler::<PendingAttestation<MinimalEthSpec>, MinimalEthSpec>::base_only().run();
+        SszStaticHandler::<PendingAttestation<MainnetEthSpec>, MainnetEthSpec>::base_only().run();
+    }
     ssz_static_test!(proposer_slashing, ProposerSlashing);
     ssz_static_test!(
         signed_beacon_block,
@@ -897,6 +914,12 @@ fn epoch_processing_eth1_data_reset() {
 fn epoch_processing_pending_balance_deposits() {
     EpochProcessingHandler::<MinimalEthSpec, PendingBalanceDeposits>::default().run();
     EpochProcessingHandler::<MainnetEthSpec, PendingBalanceDeposits>::default().run();
+}
+
+#[test]
+fn epoch_processing_pending_deposits_churn() {
+    EpochProcessingHandler::<MinimalEthSpec, PendingDepositsChurn>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, PendingDepositsChurn>::default().run();
 }
 
 #[test]

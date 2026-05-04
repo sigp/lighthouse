@@ -494,7 +494,7 @@ fn publish_blob_sidecars<T: BeaconChainTypes>(
         .map_err(|_| BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish)))
 }
 
-fn publish_column_sidecars<T: BeaconChainTypes>(
+pub(crate) fn publish_column_sidecars<T: BeaconChainTypes>(
     sender_clone: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     data_column_sidecars: &[GossipVerifiedDataColumn<T>],
     chain: &BeaconChain<T>,
