@@ -411,15 +411,18 @@ impl CompressedU64Diff {
             return Err(Error::DiffDeletionsNotSupported);
         }
 
-        let uncompressed_bytes: Vec<u8> = ys
+        let mut ys_iter = ys.iter();
+
+        let mut uncompressed_bytes: Vec<u8> = xs
             .iter()
-            .enumerate()
-            .flat_map(|(i, y)| {
-                // Diff from 0 if the entry is new.
-                let x = xs.get(i).copied().unwrap_or(0);
-                y.wrapping_sub(x).to_be_bytes()
-            })
+            .zip(&mut ys_iter)
+            .flat_map(|(x, y)| y.wrapping_sub(*x).to_be_bytes())
             .collect();
+
+        // Include remaining entries of `ys` that do not exist in `xs`, diffed from 0.
+        for y in ys_iter {
+            uncompressed_bytes.extend_from_slice(&y.to_be_bytes());
+        }
 
         Ok(CompressedU64Diff {
             bytes: config
