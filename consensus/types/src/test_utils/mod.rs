@@ -3,7 +3,7 @@
 #[macro_use]
 mod macros;
 mod generate_deterministic_keypairs;
-#[cfg(all(test, feature = "arbitrary"))]
+#[cfg(test)]
 mod generate_random_block_and_blobs;
 
 pub use generate_deterministic_keypairs::generate_deterministic_keypair;

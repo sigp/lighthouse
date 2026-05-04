@@ -70,7 +70,7 @@ pub fn generate_blobs<E: EthSpec>(n_blobs: usize) -> Result<BlobsBundle<E>, Stri
     Ok((commitments, proofs, blobs))
 }
 
-#[cfg(all(test, feature = "arbitrary"))]
+#[cfg(test)]
 mod test {
     use super::*;
     use ssz_types::FixedVector;

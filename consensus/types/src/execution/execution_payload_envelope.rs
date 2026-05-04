@@ -69,7 +69,7 @@ impl<E: EthSpec> ExecutionPayloadEnvelope<E> {
 
 impl<E: EthSpec> SignedRoot for ExecutionPayloadEnvelope<E> {}
 
-#[cfg(all(test, feature = "arbitrary"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::MainnetEthSpec;

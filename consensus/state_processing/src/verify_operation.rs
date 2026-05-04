@@ -419,7 +419,7 @@ impl TransformPersist for SignedBlsToExecutionChange {
     }
 }
 
-#[cfg(all(test, not(debug_assertions), feature = "arbitrary"))]
+#[cfg(all(test, not(debug_assertions)))]
 mod test {
     use super::*;
     use types::MainnetEthSpec;

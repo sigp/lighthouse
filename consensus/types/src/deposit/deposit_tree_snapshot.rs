@@ -77,7 +77,7 @@ impl DepositTreeSnapshot {
     }
 }
 
-#[cfg(all(test, feature = "arbitrary"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     ssz_tests!(DepositTreeSnapshot);

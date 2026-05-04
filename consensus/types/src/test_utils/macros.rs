@@ -1,4 +1,4 @@
-#![cfg(all(test, feature = "arbitrary"))]
+#![cfg(test)]
 
 #[macro_export]
 macro_rules! ssz_and_tree_hash_tests {

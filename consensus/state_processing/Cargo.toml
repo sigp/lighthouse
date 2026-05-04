@@ -44,4 +44,5 @@ types = { workspace = true }
 
 [dev-dependencies]
 beacon_chain = { workspace = true }
+state_processing = { path = ".", features = ["arbitrary"] }
 tokio = { workspace = true }
