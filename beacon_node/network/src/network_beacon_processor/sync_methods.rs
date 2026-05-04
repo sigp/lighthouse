@@ -864,6 +864,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     peer_action: Some(PeerAction::LowToleranceError),
                 })
             }
+            BlockError::ParentEnvelopeUnknown { parent_root } => {
+                Err(ChainSegmentFailed {
+                    message: format!(
+                        "Block's parent envelope has not been received: {}",
+                        parent_root
+                    ),
+                    // Don't penalize the peer, the envelope may arrive later.
+                    peer_action: None,
+                })
+            }
             BlockError::DuplicateFullyImported(_)
             | BlockError::DuplicateImportStatusUnknown(..) => {
                 // This can happen for many reasons. Head sync's can download multiples and parent

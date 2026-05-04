@@ -2017,10 +2017,11 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
         // If the parent's execution payload envelope hasn't arrived yet,
         // return an unknown parent error so the block gets sent to the
         // reprocess queue.
-        if chain
-            .spec
-            .fork_name_at_slot::<T::EthSpec>(parent_block.slot())
-            .gloas_enabled()
+        if parent_block.slot() != 0
+            && chain
+                .spec
+                .fork_name_at_slot::<T::EthSpec>(parent_block.slot())
+                .gloas_enabled()
         {
             let _envelope = chain
                 .store
