@@ -51,6 +51,7 @@ pub enum SignableMessage<'a, E: EthSpec, Payload: AbstractExecPayload<E> = FullP
     VoluntaryExit(&'a VoluntaryExit),
     ExecutionPayloadEnvelope(&'a ExecutionPayloadEnvelope<E>),
     PayloadAttestationData(&'a PayloadAttestationData),
+    ProposerPreferences(&'a ProposerPreferences),
 }
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignableMessage<'_, E, Payload> {
@@ -74,6 +75,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignableMessage<'_, E, Payload
             SignableMessage::VoluntaryExit(exit) => exit.signing_root(domain),
             SignableMessage::ExecutionPayloadEnvelope(e) => e.signing_root(domain),
             SignableMessage::PayloadAttestationData(d) => d.signing_root(domain),
+            SignableMessage::ProposerPreferences(p) => p.signing_root(domain),
         }
     }
 }
@@ -242,6 +244,9 @@ impl SigningMethod {
                     }
                     SignableMessage::PayloadAttestationData(d) => {
                         Web3SignerObject::PayloadAttestationData(d)
+                    }
+                    SignableMessage::ProposerPreferences(p) => {
+                        Web3SignerObject::ProposerPreferences(p)
                     }
                 };
 
