@@ -46,7 +46,7 @@ use ssz::{Decode, Encode};
 use std::fmt;
 use std::future::Future;
 use std::time::Duration;
-use types::{PayloadAttestationData, PayloadAttestationMessage};
+use types::{PayloadAttestationData, PayloadAttestationMessage, SignedProposerPreferences};
 
 pub const V1: EndpointVersion = EndpointVersion(1);
 pub const V2: EndpointVersion = EndpointVersion(2);
@@ -1845,6 +1845,46 @@ impl BeaconNodeHttpClient {
             .push("bls_to_execution_changes");
 
         self.post(path, &address_changes).await?;
+
+        Ok(())
+    }
+
+    /// `POST validator/proposer_preferences`
+    pub async fn post_validator_proposer_preferences(
+        &self,
+        signed_preferences: &[SignedProposerPreferences],
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("proposer_preferences");
+
+        self.post_generic_with_consensus_version(path, &signed_preferences, None, fork_name)
+            .await?;
+
+        Ok(())
+    }
+
+    /// `POST validator/proposer_preferences` (SSZ)
+    pub async fn post_validator_proposer_preferences_ssz(
+        &self,
+        signed_preferences: &Vec<SignedProposerPreferences>,
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("proposer_preferences");
+
+        let ssz_body = signed_preferences.as_ssz_bytes();
+
+        self.post_generic_with_consensus_version_and_ssz_body(path, ssz_body, None, fork_name)
+            .await?;
 
         Ok(())
     }

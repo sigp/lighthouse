@@ -97,15 +97,18 @@ jobs:
     name: release-tests-ubuntu
     needs: [check-labels]
     if: needs.check-labels.outputs.skip_ci != 'true'
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
     steps:
     - uses: actions/checkout@v5
     # Set Java version to 21. (required since Web3Signer 24.12.0).
-    - uses: actions/setup-java@v4
+    # On sigp/lighthouse, Java 21 is baked into the snapshot.
+    - if: github.repository != 'sigp/lighthouse'
+      uses: actions/setup-java@v4
       with:
         distribution: 'temurin'
         java-version: '21'
-    - name: Get latest version of stable Rust
+    - if: github.repository != 'sigp/lighthouse'
+      name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
@@ -113,6 +116,10 @@ jobs:
           bins: cargo-nextest
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - if: github.repository == 'sigp/lighthouse'
+      uses: Swatinem/rust-cache@v2
+      with:
+          cache-provider: warpbuild
     - name: Run tests in release
       run: make test-release
     - name: Show cache stats
@@ -123,34 +130,44 @@ jobs:
     name: beacon-chain-tests
     needs: [check-labels]
     if: needs.check-labels.outputs.skip_ci != 'true'
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v5
-    - name: Get latest version of stable Rust
+    - if: github.repository != 'sigp/lighthouse'
+      name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
           cache-target: release
           bins: cargo-nextest
+    - if: github.repository == 'sigp/lighthouse'
+      uses: Swatinem/rust-cache@v2
+      with:
+          cache-provider: warpbuild
     - name: Run beacon_chain tests for all known forks
       run: make test-beacon-chain
   http-api-tests:
     name: http-api-tests
     needs: [check-labels]
     if: needs.check-labels.outputs.skip_ci != 'true'
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v5
-    - name: Get latest version of stable Rust
+    - if: github.repository != 'sigp/lighthouse'
+      name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
           cache-target: release
           bins: cargo-nextest
+    - if: github.repository == 'sigp/lighthouse'
+      uses: Swatinem/rust-cache@v2
+      with:
+          cache-provider: warpbuild
     - name: Run http_api tests for all recent forks
       run: make test-http-api
   op-pool-tests:
@@ -220,16 +237,21 @@ jobs:
     name: debug-tests-ubuntu
     needs: [check-labels]
     if: needs.check-labels.outputs.skip_ci != 'true'
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v5
-    - name: Get latest version of stable Rust
+    - if: github.repository != 'sigp/lighthouse'
+      name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
           bins: cargo-nextest
+    - if: github.repository == 'sigp/lighthouse'
+      uses: Swatinem/rust-cache@v2
+      with:
+          cache-provider: warpbuild
     - name: Run tests in debug
       run: make test-debug
   state-transition-vectors-ubuntu:
@@ -250,17 +272,22 @@ jobs:
     name: ef-tests-ubuntu
     needs: [check-labels]
     if: needs.check-labels.outputs.skip_ci != 'true'
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v5
-    - name: Get latest version of stable Rust
+    - if: github.repository != 'sigp/lighthouse'
+      name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
           cache-target: release
           bins: cargo-nextest
+    - if: github.repository == 'sigp/lighthouse'
+      uses: Swatinem/rust-cache@v2
+      with:
+          cache-provider: warpbuild
     - name: Run consensus-spec-tests with blst and fake_crypto
       run: make test-ef
   basic-simulator-ubuntu:
@@ -311,14 +338,14 @@ jobs:
     name: execution-engine-integration-ubuntu
     needs: [check-labels]
     if: needs.check-labels.outputs.skip_ci != 'true'
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
     steps:
     - uses: actions/checkout@v5
-    - name: Get latest version of stable Rust
+    - if: github.repository != 'sigp/lighthouse'
+      name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
-          cache-target: release
           cache: false
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
