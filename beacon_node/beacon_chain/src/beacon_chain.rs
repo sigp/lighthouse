@@ -3254,9 +3254,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             AvailabilityProcessingStatus::Imported(block_root) => {
                                 // Import the envelope if one was provided (Gloas+).
                                 if let Some(envelope) = envelope
-                                    && let Err(e) = self.import_envelope_from_range_sync(
-                                        *envelope, block_root,
-                                    )
+                                    && let Err(e) =
+                                        self.import_envelope_from_range_sync(*envelope, block_root)
                                 {
                                     return ChainSegmentResult::Failed {
                                         imported_blocks,

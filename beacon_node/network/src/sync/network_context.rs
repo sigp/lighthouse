@@ -40,7 +40,8 @@ pub use requests::LookupVerifyError;
 use requests::{
     ActiveRequests, BlobsByRangeRequestItems, BlobsByRootRequestItems, BlocksByRangeRequestItems,
     BlocksByRootRequestItems, DataColumnsByRangeRequestItems, DataColumnsByRootRequestItems,
-    PayloadEnvelopesByRangeRequestItems,
+    PayloadEnvelopesByRangeRequestItems, PayloadEnvelopesByRootRequestItems,
+    PayloadEnvelopesByRootSingleRequest,
 };
 #[cfg(test)]
 use slot_clock::SlotClock;
@@ -222,6 +223,9 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
         PayloadEnvelopesByRangeRequestId,
         PayloadEnvelopesByRangeRequestItems<T::EthSpec>,
     >,
+    /// A mapping of active PayloadEnvelopesByRoot requests
+    payload_envelopes_by_root_requests:
+        ActiveRequests<SingleLookupReqId, PayloadEnvelopesByRootRequestItems<T::EthSpec>>,
     /// Mapping of active custody column requests for a block root
     custody_by_root_requests: FnvHashMap<CustodyRequester, ActiveCustodyRequest<T>>,
 
@@ -312,6 +316,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             blobs_by_range_requests: ActiveRequests::new("blobs_by_range"),
             data_columns_by_range_requests: ActiveRequests::new("data_columns_by_range"),
             payload_envelopes_by_range_requests: ActiveRequests::new("payload_envelopes_by_range"),
+            payload_envelopes_by_root_requests: ActiveRequests::new("payload_envelopes_by_root"),
             custody_by_root_requests: <_>::default(),
             components_by_range_requests: FnvHashMap::default(),
             custody_backfill_data_column_batch_requests: FnvHashMap::default(),
@@ -341,6 +346,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             blobs_by_range_requests,
             data_columns_by_range_requests,
             payload_envelopes_by_range_requests,
+            payload_envelopes_by_root_requests,
             // custody_by_root_requests is a meta request of data_columns_by_root_requests
             custody_by_root_requests: _,
             // components_by_range_requests is a meta request of various _by_range requests
@@ -380,6 +386,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .active_requests_of_peer(peer_id)
             .into_iter()
             .map(|req_id| SyncRequestId::PayloadEnvelopesByRange(*req_id));
+        let envelope_by_root_ids = payload_envelopes_by_root_requests
+            .active_requests_of_peer(peer_id)
+            .into_iter()
+            .map(|id| SyncRequestId::SinglePayloadEnvelope { id: *id });
         blocks_by_root_ids
             .chain(blobs_by_root_ids)
             .chain(data_column_by_root_ids)
@@ -387,6 +397,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .chain(blobs_by_range_ids)
             .chain(data_column_by_range_ids)
             .chain(payload_envelope_by_range_ids)
+            .chain(envelope_by_root_ids)
             .collect()
     }
 
@@ -444,6 +455,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             blobs_by_range_requests,
             data_columns_by_range_requests,
             payload_envelopes_by_range_requests,
+            payload_envelopes_by_root_requests,
             // custody_by_root_requests is a meta request of data_columns_by_root_requests
             custody_by_root_requests: _,
             // components_by_range_requests is a meta request of various _by_range requests
@@ -467,6 +479,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .chain(blobs_by_range_requests.iter_request_peers())
             .chain(data_columns_by_range_requests.iter_request_peers())
             .chain(payload_envelopes_by_range_requests.iter_request_peers())
+            .chain(payload_envelopes_by_root_requests.iter_request_peers())
         {
             *active_request_count_by_peer.entry(peer_id).or_default() += 1;
         }
@@ -979,6 +992,74 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // block and the peer must have it.
             true,
             BlocksByRootRequestItems::new(request),
+            request_span,
+        );
+
+        Ok(LookupRequestResult::RequestSent(id.req_id))
+    }
+
+    /// Request a payload envelope for `block_root` from a peer.
+    pub fn envelope_lookup_request(
+        &mut self,
+        lookup_id: SingleLookupId,
+        lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
+        block_root: Hash256,
+    ) -> Result<LookupRequestResult, RpcRequestSendError> {
+        let active_request_count_by_peer = self.active_request_count_by_peer();
+        let Some(peer_id) = lookup_peers
+            .read()
+            .iter()
+            .map(|peer| {
+                (
+                    active_request_count_by_peer.get(peer).copied().unwrap_or(0),
+                    rand::random::<u32>(),
+                    peer,
+                )
+            })
+            .min()
+            .map(|(_, _, peer)| *peer)
+        else {
+            return Ok(LookupRequestResult::Pending("no peers"));
+        };
+
+        let id = SingleLookupReqId {
+            lookup_id,
+            req_id: self.next_id(),
+        };
+
+        let request = PayloadEnvelopesByRootSingleRequest(block_root);
+
+        let network_request = RequestType::PayloadEnvelopesByRoot(
+            request
+                .into_request(&self.fork_context)
+                .map_err(RpcRequestSendError::InternalError)?,
+        );
+        self.network_send
+            .send(NetworkMessage::SendRequest {
+                peer_id,
+                request: network_request,
+                app_request_id: AppRequestId::Sync(SyncRequestId::SinglePayloadEnvelope { id }),
+            })
+            .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
+
+        debug!(
+            method = "PayloadEnvelopesByRoot",
+            ?block_root,
+            peer = %peer_id,
+            %id,
+            "Sync RPC request sent"
+        );
+
+        let request_span = debug_span!(
+            parent: Span::current(),
+            "lh_outgoing_envelope_by_root_request",
+            %block_root,
+        );
+        self.payload_envelopes_by_root_requests.insert(
+            id,
+            peer_id,
+            true,
+            PayloadEnvelopesByRootRequestItems::new(request),
             request_span,
         );
 
@@ -1557,6 +1638,27 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.on_rpc_response_result(resp, peer_id)
     }
 
+    pub(crate) fn on_single_envelope_response(
+        &mut self,
+        id: SingleLookupReqId,
+        peer_id: PeerId,
+        rpc_event: RpcEvent<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+    ) -> Option<RpcResponseResult<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>> {
+        let resp = self
+            .payload_envelopes_by_root_requests
+            .on_response(id, rpc_event);
+        let resp = resp.map(|res| {
+            res.and_then(|(mut envelopes, seen_timestamp)| {
+                match envelopes.pop() {
+                    Some(envelope) => Ok((envelope, seen_timestamp)),
+                    // Should never happen, request items enforces at least 1 chunk.
+                    None => Err(LookupVerifyError::NotEnoughResponsesReturned { actual: 0 }.into()),
+                }
+            })
+        });
+        self.on_rpc_response_result(resp, peer_id)
+    }
+
     pub(crate) fn on_single_blob_response(
         &mut self,
         id: SingleLookupReqId,
@@ -1727,6 +1829,33 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 error!(
                     error = ?e,
                     "Failed to send sync block to processor"
+                );
+                SendErrorProcessor::SendError
+            })
+    }
+
+    pub fn send_envelope_for_processing(
+        &self,
+        id: Id,
+        envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        seen_timestamp: Duration,
+        block_root: Hash256,
+    ) -> Result<(), SendErrorProcessor> {
+        let beacon_processor = self
+            .beacon_processor_if_enabled()
+            .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;
+
+        debug!(?block_root, ?id, "Sending payload envelope for processing");
+        beacon_processor
+            .send_rpc_payload_envelope(
+                envelope,
+                seen_timestamp,
+                BlockProcessType::SinglePayloadEnvelope { id, block_root },
+            )
+            .map_err(|e| {
+                error!(
+                    error = ?e,
+                    "Failed to send sync envelope to processor"
                 );
                 SendErrorProcessor::SendError
             })
@@ -1913,6 +2042,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             (
                 "payload_envelopes_by_range",
                 self.payload_envelopes_by_range_requests.len(),
+            ),
+            (
+                "payload_envelopes_by_root",
+                self.payload_envelopes_by_root_requests.len(),
             ),
             ("custody_by_root", self.custody_by_root_requests.len()),
             (

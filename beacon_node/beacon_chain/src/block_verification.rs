@@ -325,7 +325,7 @@ pub enum BlockError {
         bid_parent_root: Hash256,
         block_parent_root: Hash256,
     },
-    /// The child block is known but its parent execution payload envelope has not been received yet.
+    /// The block is known but its parent execution payload envelope has not been received yet.
     ///
     /// ## Peer scoring
     ///
@@ -521,9 +521,13 @@ impl From<EnvelopeError> for BlockError {
             // Internal errors: not the peer's fault
             EnvelopeError::BeaconChainError(_)
             | EnvelopeError::BeaconStateError(_)
+            | EnvelopeError::BlockProcessingError(_)
             | EnvelopeError::EnvelopeProcessingError(_)
             | EnvelopeError::ExecutionPayloadError(_)
-            | EnvelopeError::ImportError(_) => false,
+            | EnvelopeError::ImportError(_)
+            | EnvelopeError::BlockError(_)
+            | EnvelopeError::InternalError(_)
+            | EnvelopeError::OptimisticSyncNotSupported { .. } => false,
         };
         BlockError::PayloadEnvelopeError {
             e: Box::new(e),
@@ -966,12 +970,26 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             });
         }
 
-        // TODO(gloas) The following validation can only be completed once fork choice has been implemented:
-        // The block's parent execution payload (defined by bid.parent_block_hash) has been seen
-        // (via gossip or non-gossip sources) (a client MAY queue blocks for processing
-        // once the parent payload is retrieved). If execution_payload verification of block's execution
-        // payload parent by an execution node is complete, verify the block's execution payload
-        // parent (defined by bid.parent_block_hash) passes all validation.
+        // Check that we've received the parent envelope. If not, issue a single envelope
+        // lookup for the parent and queue this block in the reprocess queue.
+        //
+        // The anchor block (proto-array root) is implicitly considered to have its payload
+        // received: there is no envelope to fetch for the anchor (per spec, the anchor is
+        // never added to `store.payloads`), and the anchor is trusted by definition.
+        let parent_is_gloas = chain
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(parent_block.slot)
+            .gloas_enabled();
+        let parent_is_anchor = parent_block.parent_root.is_none();
+
+        if parent_is_gloas
+            && !parent_is_anchor
+            && !fork_choice_read_lock.is_payload_received(&block.message().parent_root())
+        {
+            return Err(BlockError::ParentEnvelopeUnknown {
+                parent_root: block.message().parent_root(),
+            });
+        }
 
         drop(fork_choice_read_lock);
 
@@ -2045,7 +2063,6 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
         // Retrieve any state that is advanced through to at most `block.slot()`: this is
         // particularly important if `block` descends from the finalized/split block, but at a slot
         // prior to the finalized slot (which is invalid and inaccessible in our DB schema).
-        //
         let (parent_state_root, state) = chain
             .store
             .get_advanced_hot_state(root, block.slot(), parent_block.state_root())?

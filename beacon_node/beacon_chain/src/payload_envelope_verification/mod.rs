@@ -18,6 +18,7 @@
 //!
 //! ```
 
+use state_processing::BlockProcessingError;
 use state_processing::envelope_processing::EnvelopeProcessingError;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -107,13 +108,33 @@ pub struct EnvelopeProcessingSnapshot<E: EthSpec> {
     pub beacon_block_root: Hash256,
 }
 
-/// A payload ernvelope that has completed all envelope procesing checks, verification
+/// A payload envelope that has completed all envelope processing checks, verification
 /// by an EL client but does not have all requisite columns to get imported into
 /// fork choice.
 pub struct AvailabilityPendingExecutedEnvelope<E: EthSpec> {
     pub envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
     pub block_root: Hash256,
     pub payload_verification_outcome: PayloadVerificationOutcome,
+}
+
+/// A payload envelope that has gone through processing checks and execution by an EL client.
+/// This envelope hasn't necessarily completed data availability checks.
+///
+///
+/// It contains 2 variants:
+/// 1. `Available`: This envelope has been executed and also contains all data to consider it
+///    fully available.
+/// 2. `AvailabilityPending`: This envelope hasn't received all required blobs to consider it
+///    fully available. The envelope is still imported (fork-choice marks the block's payload
+///    as received and the envelope is persisted); column persistence is handled separately
+///    via gossip / engineGetBlobs as columns arrive.
+pub enum ExecutedEnvelope<E: EthSpec> {
+    Available(AvailableExecutedEnvelope<E>),
+    AvailabilityPending {
+        signed_envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+        import_data: EnvelopeImportData<E>,
+        payload_verification_outcome: PayloadVerificationOutcome,
+    },
 }
 
 impl<E: EthSpec> AvailabilityPendingExecutedEnvelope<E> {
@@ -190,6 +211,14 @@ pub enum EnvelopeError {
     ExecutionPayloadError(ExecutionPayloadError),
     /// An error from importing the envelope.
     ImportError(BlockError),
+    /// A block processing error.
+    BlockProcessingError(BlockProcessingError),
+    /// A block error.
+    BlockError(BlockError),
+    /// An internal error.
+    InternalError(String),
+    /// Optimistic sync is not supported.
+    OptimisticSyncNotSupported { block_root: Hash256 },
 }
 
 impl std::fmt::Display for EnvelopeError {

@@ -9,6 +9,7 @@ use crate::{
     sync::{SyncMessage, manager::BlockProcessType},
 };
 use beacon_chain::block_verification_types::LookupBlock;
+use beacon_chain::chain_config::ChainConfig;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::kzg_utils::blobs_to_data_column_sidecars;
@@ -134,7 +135,10 @@ impl TestRig {
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .node_custody_type(NodeCustodyType::Fullnode)
-            .chain_config(<_>::default())
+            .chain_config(ChainConfig {
+                disable_get_blobs: true,
+                ..ChainConfig::default()
+            })
             .build();
 
         harness.advance_slot();
@@ -169,7 +173,10 @@ impl TestRig {
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .node_custody_type(node_custody_type)
-            .chain_config(<_>::default())
+            .chain_config(ChainConfig {
+                disable_get_blobs: true,
+                ..ChainConfig::default()
+            })
             .build();
 
         harness.advance_slot();
@@ -1001,14 +1008,30 @@ async fn data_column_reconstruction_at_deadline() {
         rig.enqueue_gossip_data_columns(i);
     }
 
-    // Expect all gossip events + reconstruction
-    let mut expected_events: Vec<WorkType> = (0..min_columns_for_reconstruction)
-        .map(|_| WorkType::GossipDataColumnSidecar)
-        .collect();
-    expected_events.push(WorkType::ColumnReconstruction);
-
-    rig.assert_event_journal_contains_ordered(&expected_events)
-        .await;
+    // Drain the journal until we've seen all gossip events plus at least one
+    // reconstruction. Under real crypto the reprocess queue can dispatch the
+    // reconstruction work item more than once (the second is a no-op via
+    // `reconstruction_started`), so we don't pin the count — we just require >= 1.
+    let gsc: &str = WorkType::GossipDataColumnSidecar.into();
+    let cr: &str = WorkType::ColumnReconstruction.into();
+    let (mut gossip_seen, mut recon_seen) = (0usize, 0usize);
+    let drain = async {
+        while let Some(event) = rig.work_journal_rx.recv().await {
+            if event == gsc {
+                gossip_seen += 1;
+            } else if event == cr {
+                recon_seen += 1;
+            }
+            if gossip_seen == min_columns_for_reconstruction && recon_seen >= 1 {
+                break;
+            }
+        }
+    };
+    if tokio::time::timeout(STANDARD_TIMEOUT, drain).await.is_err() {
+        panic!("timeout: gossip_seen={gossip_seen}, recon_seen={recon_seen}");
+    }
+    assert_eq!(gossip_seen, min_columns_for_reconstruction);
+    assert!(recon_seen >= 1);
 }
 
 // Test the column reconstruction is delayed for columns that arrive for a previous slot.
