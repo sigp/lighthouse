@@ -14,7 +14,6 @@ attestations and transactions that can be included.
 There are three flags which control the re-orging behaviour:
 
 * `--disable-proposer-reorgs`: turn re-orging off (it's on by default).
-  meaning re-orgs will only be attempted when the chain is finalizing optimally.
 * `--proposer-reorg-disallowed-offsets N1,N2,N3...`: Prohibit Lighthouse from attempting to reorg at
   specific offsets in each epoch. A disallowed offset `N` prevents reorging blocks from being
   proposed at any `slot` such that `slot % SLOTS_PER_EPOCH == N`. The value to this flag is a

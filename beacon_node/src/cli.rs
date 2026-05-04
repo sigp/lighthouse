@@ -1317,7 +1317,7 @@ pub fn cli_app() -> Command {
         )
         .arg(
             Arg::new("proposer-reorg-threshold")
-            .long("proposer-reorg-threshold")
+                .long("proposer-reorg-threshold")
                 .action(ArgAction::Set)
                 .value_name("PERCENT")
                 .help("DEPRECATED. This flag has no effect.")
