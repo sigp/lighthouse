@@ -662,6 +662,7 @@ impl ValidatorsDiff {
             }
         }
 
+        xs.apply_updates().map_err(Error::Milhouse)?;
         xs.bulk_update(updates).map_err(Error::Milhouse)?;
 
         Ok(())
