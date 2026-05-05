@@ -57,10 +57,11 @@ pub fn process_rewards_and_penalties<E: EthSpec>(
     validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
+    println!("testing for rewards and penalties before");
     if state.current_epoch() == E::genesis_epoch() {
         return Ok(());
     }
-
+    println!("testing for rewards and penalties");
     // Guard against an out-of-bounds during the validator balance update.
     if validator_statuses.statuses.len() != state.balances().len()
         || validator_statuses.statuses.len() != state.validators().len()

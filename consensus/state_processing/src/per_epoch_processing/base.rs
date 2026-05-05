@@ -33,43 +33,43 @@ pub fn process_epoch<E: EthSpec>(
     // E.g., attestation in the previous epoch, attested to the head, etc.
     let mut validator_statuses = ValidatorStatuses::new(state, spec)?;
     validator_statuses.process_attestations(state)?;
-
+    println!("after process_attestations");
     // Justification and finalization.
     let justification_and_finalization_state =
         process_justification_and_finalization(state, &validator_statuses.total_balances, spec)?;
     justification_and_finalization_state.apply_changes_to_state(state);
-
+    println!("after process_justification_and_finalization");
     // Rewards and Penalties.
     process_rewards_and_penalties(state, &validator_statuses, spec)?;
-
+    println!("after process_rewards_and_penalties");
     // Registry Updates.
     process_registry_updates(state, spec)?;
-
+    println!("after process_registry_updates");
     // Slashings.
     process_slashings(
         state,
         validator_statuses.total_balances.current_epoch(),
         spec,
     )?;
-
+    println!("after process_slashings");
     // Reset eth1 data votes.
     process_eth1_data_reset(state)?;
-
+    println!("after process_eth1_data_reset");
     // Update effective balances with hysteresis (lag).
     process_effective_balance_updates(state, spec)?;
-
+    println!("after process_effective_balance_updates");
     // Reset slashings
     process_slashings_reset(state)?;
-
+    println!("after process_slashings_reset");
     // Set randao mix
     process_randao_mixes_reset(state)?;
-
+    println!("after process_randao_mixes_reset");
     // Set historical root accumulator
     process_historical_roots_update(state)?;
-
+    println!("after process_historical_roots_update");
     // Rotate current/previous epoch attestations
     process_participation_record_updates(state)?;
-
+    println!("after process_participation_record_updates");
     // Rotate the epoch caches to suit the epoch transition.
     state.advance_caches()?;
 
