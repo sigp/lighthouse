@@ -30,23 +30,19 @@ pub fn run<E: EthSpec>(
     let state_bytes = read_file(&state_path)?;
     let hdiff_bytes = read_file(&hdiff_path)?;
 
-    with_timing(|| run_inner::<E>(spec, state_bytes, hdiff_bytes))
+    let state = BeaconState::<E>::from_ssz_bytes(&state_bytes, spec)
+        .map_err(|e| format!("Failed to decode BeaconState: {:?}", e))?;
+    let hdiff = HDiff::from_ssz_bytes(&hdiff_bytes)
+        .map_err(|e| format!("Failed to decode HDiff: {:?}", e))?;
+
+    with_timing(|| run_inner::<E>(spec, state, hdiff))
 }
 
 fn run_inner<E: EthSpec>(
     spec: &ChainSpec,
-    state_bytes: Vec<u8>,
-    hdiff_bytes: Vec<u8>,
+    state: BeaconState<E>,
+    hdiff: HDiff,
 ) -> Result<(), String> {
-    let state = debug_span!("state_ssz_decode").in_scope(|| {
-        BeaconState::<E>::from_ssz_bytes(&state_bytes, spec)
-            .map_err(|e| format!("Failed to decode BeaconState: {:?}", e))
-    })?;
-
-    let hdiff = debug_span!("hdiff_ssz_decode").in_scope(|| {
-        HDiff::from_ssz_bytes(&hdiff_bytes).map_err(|e| format!("Failed to decode HDiff: {:?}", e))
-    })?;
-
     let mut buffer =
         debug_span!("state_to_hdiff_buffer").in_scope(|| HDiffBuffer::from_state(state));
 

@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use store::config::StoreConfig;
 use store::hdiff::{HDiff, HDiffBuffer};
 use tracing::{debug_span, info};
-use types::{BeaconState, ChainSpec, EthSpec};
+use types::{BeaconState, EthSpec};
 
 pub fn run<E: EthSpec>(
     network_config: Eth2NetworkConfig,
@@ -26,25 +26,19 @@ pub fn run<E: EthSpec>(
     let source_bytes = read_file(&source_path)?;
     let target_bytes = read_file(&target_path)?;
 
-    with_timing(|| run_inner::<E>(spec, source_bytes, target_bytes, output_path))
+    let source_state = BeaconState::<E>::from_ssz_bytes(&source_bytes, spec)
+        .map_err(|e| format!("Failed to decode source BeaconState: {:?}", e))?;
+    let target_state = BeaconState::<E>::from_ssz_bytes(&target_bytes, spec)
+        .map_err(|e| format!("Failed to decode target BeaconState: {:?}", e))?;
+
+    with_timing(|| run_inner::<E>(source_state, target_state, output_path))
 }
 
 fn run_inner<E: EthSpec>(
-    spec: &ChainSpec,
-    source_bytes: Vec<u8>,
-    target_bytes: Vec<u8>,
+    source_state: BeaconState<E>,
+    target_state: BeaconState<E>,
     output_path: PathBuf,
 ) -> Result<(), String> {
-    let source_state = debug_span!("source_state_ssz_decode").in_scope(|| {
-        BeaconState::<E>::from_ssz_bytes(&source_bytes, spec)
-            .map_err(|e| format!("Failed to decode source BeaconState: {:?}", e))
-    })?;
-
-    let target_state = debug_span!("target_state_ssz_decode").in_scope(|| {
-        BeaconState::<E>::from_ssz_bytes(&target_bytes, spec)
-            .map_err(|e| format!("Failed to decode target BeaconState: {:?}", e))
-    })?;
-
     let source_buffer = debug_span!("source_state_to_hdiff_buffer")
         .in_scope(|| HDiffBuffer::from_state(source_state));
 
