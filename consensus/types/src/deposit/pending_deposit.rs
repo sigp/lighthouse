@@ -2,19 +2,15 @@ use bls::{PublicKeyBytes, SignatureBytes};
 use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 use crate::{
     core::{Hash256, Slot},
     fork::ForkName,
-    test_utils::TestRandom,
 };
 
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[derive(
-    Debug, PartialEq, Hash, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
-)]
+#[derive(Debug, PartialEq, Hash, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[context_deserialize(ForkName)]
 pub struct PendingDeposit {
     pub pubkey: PublicKeyBytes,

@@ -7,7 +7,6 @@ use ssz::Decode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::FixedVector;
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 use crate::{
@@ -19,23 +18,12 @@ use crate::{
     },
     fork::ForkName,
     light_client::{ExecutionPayloadProofLen, LightClientError, consts::EXECUTION_PAYLOAD_INDEX},
-    test_utils::TestRandom,
 };
 
 #[superstruct(
     variants(Altair, Capella, Deneb, Electra, Fulu,),
     variant_attributes(
-        derive(
-            Debug,
-            Clone,
-            Serialize,
-            Deserialize,
-            Educe,
-            Decode,
-            Encode,
-            TestRandom,
-            TreeHash,
-        ),
+        derive(Debug, Clone, Serialize, Deserialize, Educe, Decode, Encode, TreeHash,),
         educe(PartialEq),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         cfg_attr(

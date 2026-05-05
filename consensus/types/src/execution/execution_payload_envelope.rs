@@ -1,5 +1,4 @@
 use crate::execution::{ExecutionPayloadGloas, ExecutionRequests};
-use crate::test_utils::TestRandom;
 use crate::{EthSpec, ForkName, Hash256, SignedRoot, Slot};
 use context_deserialize::context_deserialize;
 use educe::Educe;
@@ -7,10 +6,14 @@ use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
 use ssz::{BYTES_PER_LENGTH_OFFSET, Encode as SszEncode};
 use ssz_derive::{Decode, Encode};
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-#[derive(Debug, Clone, Serialize, Encode, Decode, Deserialize, TestRandom, TreeHash, Educe)]
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
+)]
+#[derive(Debug, Clone, Serialize, Encode, Decode, Deserialize, TreeHash, Educe)]
 #[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[context_deserialize(ForkName)]
 #[serde(bound = "E: EthSpec")]

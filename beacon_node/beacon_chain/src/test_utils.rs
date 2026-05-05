@@ -20,6 +20,8 @@ pub use crate::{
     sync_committee_verification::Error as SyncCommitteeError,
     validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig},
 };
+#[cfg(feature = "arbitrary")]
+use arbitrary::Arbitrary;
 use bls::get_withdrawal_credentials;
 use bls::{
     AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey, Signature, SignatureBytes,
@@ -73,7 +75,6 @@ use typenum::U4294967296;
 use types::attestation::IndexedAttestationBase;
 use types::data::CustodyIndex;
 use types::execution::BlockProductionVersion;
-use types::test_utils::TestRandom;
 pub use types::test_utils::generate_deterministic_keypairs;
 use types::*;
 
@@ -96,7 +97,9 @@ pub const TEST_DATA_COLUMN_SIDECARS_GLOAS_SSZ: &[u8] =
 pub const DEFAULT_TARGET_AGGREGATORS: u64 = u64::MAX;
 
 // Minimum and maximum number of blobs to generate in each slot when using the `NumBlobs::Random` option (default).
+#[cfg(feature = "arbitrary")]
 const DEFAULT_MIN_BLOBS: usize = 1;
+#[cfg(feature = "arbitrary")]
 const DEFAULT_MAX_BLOBS: usize = 2;
 
 static KZG: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
@@ -3741,10 +3744,11 @@ pub enum NumBlobs {
     None,
 }
 
+#[cfg(feature = "arbitrary")]
 macro_rules! add_blob_transactions {
-    ($message:expr, $payload_type:ty, $num_blobs:expr, $rng:expr, $fork_name:expr) => {{
+    ($message:expr, $payload_type:ty, $num_blobs:expr, $u:expr, $fork_name:expr) => {{
         let num_blobs = match $num_blobs {
-            NumBlobs::Random => $rng.random_range(DEFAULT_MIN_BLOBS..=DEFAULT_MAX_BLOBS),
+            NumBlobs::Random => $u.int_in_range(DEFAULT_MIN_BLOBS..=DEFAULT_MAX_BLOBS)?,
             NumBlobs::Number(n) => n,
             NumBlobs::None => 0,
         };
@@ -3761,28 +3765,30 @@ macro_rules! add_blob_transactions {
     }};
 }
 
+#[cfg(feature = "arbitrary")]
+#[allow(clippy::type_complexity)]
 pub fn generate_rand_block_and_blobs<E: EthSpec>(
     fork_name: ForkName,
     num_blobs: NumBlobs,
-    rng: &mut impl Rng,
-) -> (SignedBeaconBlock<E, FullPayload<E>>, Vec<BlobSidecar<E>>) {
-    let inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(rng));
+    u: &mut arbitrary::Unstructured,
+) -> arbitrary::Result<(SignedBeaconBlock<E, FullPayload<E>>, Vec<BlobSidecar<E>>)> {
+    let inner = map_fork_name!(fork_name, BeaconBlock, <_>::arbitrary(&mut *u)?);
 
-    let mut block = SignedBeaconBlock::from_block(inner, Signature::random_for_test(rng));
+    let mut block = SignedBeaconBlock::from_block(inner, Signature::arbitrary(&mut *u)?);
     let mut blob_sidecars = vec![];
 
     let bundle = match block {
         SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb {
             ref mut message, ..
-        }) => add_blob_transactions!(message, FullPayloadDeneb<E>, num_blobs, rng, fork_name),
+        }) => add_blob_transactions!(message, FullPayloadDeneb<E>, num_blobs, u, fork_name),
         SignedBeaconBlock::Electra(SignedBeaconBlockElectra {
             ref mut message, ..
-        }) => add_blob_transactions!(message, FullPayloadElectra<E>, num_blobs, rng, fork_name),
+        }) => add_blob_transactions!(message, FullPayloadElectra<E>, num_blobs, u, fork_name),
         SignedBeaconBlock::Fulu(SignedBeaconBlockFulu {
             ref mut message, ..
-        }) => add_blob_transactions!(message, FullPayloadFulu<E>, num_blobs, rng, fork_name),
+        }) => add_blob_transactions!(message, FullPayloadFulu<E>, num_blobs, u, fork_name),
         // TODO(EIP-7732) Add `SignedBeaconBlock::Gloas` variant
-        _ => return (block, blob_sidecars),
+        _ => return Ok((block, blob_sidecars)),
     };
 
     let eth2::types::BlobsBundle {
@@ -3807,21 +3813,23 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
                 .unwrap(),
         });
     }
-    (block, blob_sidecars)
+    Ok((block, blob_sidecars))
 }
 
+#[cfg(feature = "arbitrary")]
+#[allow(clippy::type_complexity)]
 pub fn generate_rand_block_and_data_columns<E: EthSpec>(
     fork_name: ForkName,
     num_blobs: NumBlobs,
-    rng: &mut impl Rng,
+    u: &mut arbitrary::Unstructured,
     spec: &ChainSpec,
-) -> (
+) -> arbitrary::Result<(
     SignedBeaconBlock<E, FullPayload<E>>,
     DataColumnSidecarList<E>,
-) {
-    let (block, _blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, rng);
+)> {
+    let (block, _blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, u)?;
     let data_columns = generate_data_column_sidecars_from_block(&block, spec);
-    (block, data_columns)
+    Ok((block, data_columns))
 }
 
 /// Generate data column sidecars from pre-computed cells and proofs.

@@ -85,8 +85,8 @@ jobs:
             while IFS= read -r file || [ -n "$file" ]; do
               # Skip comments and empty lines
               [[ "$file" =~ ^#.*$ || -z "$file" ]] && continue
-              if [ -f "$file" ]; then
-                echo "::error::Forbidden file exists: $file"
+              if [ -e "$file" ]; then
+                echo "::error::Forbidden file or directory exists: $file"
                 status=1
               fi
             done < .github/forbidden-files.txt

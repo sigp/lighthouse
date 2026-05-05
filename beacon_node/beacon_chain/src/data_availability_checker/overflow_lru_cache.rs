@@ -1077,13 +1077,11 @@ mod pending_components_tests {
     use crate::PayloadVerificationOutcome;
     use crate::block_verification_types::BlockImportData;
     use crate::test_utils::{NumBlobs, generate_rand_block_and_blobs, test_spec};
+    use arbitrary::Arbitrary;
     use fixed_bytes::FixedBytesExtended;
     use fork_choice::PayloadVerificationStatus;
     use kzg::KzgCommitment;
-    use rand::SeedableRng;
-    use rand::rngs::StdRng;
     use state_processing::ConsensusContext;
-    use types::test_utils::TestRandom;
     use types::{BeaconState, ForkName, MainnetEthSpec, SignedBeaconBlock, Slot};
 
     type E = MainnetEthSpec;
@@ -1096,10 +1094,10 @@ mod pending_components_tests {
     );
 
     pub fn pre_setup() -> Setup<E> {
-        let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
+        let mut u = types::test_utils::test_unstructured();
         let spec = test_spec::<E>();
         let (block, blobs_vec) =
-            generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Random, &mut rng);
+            generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Random, &mut u).unwrap();
         let max_len = spec.max_blobs_per_block(block.epoch()) as usize;
         let mut blobs: RuntimeFixedVector<Option<Arc<BlobSidecar<E>>>> =
             RuntimeFixedVector::default(max_len);
@@ -1115,7 +1113,7 @@ mod pending_components_tests {
         for (index, blob) in blobs.iter().enumerate() {
             if let Some(invalid_blob) = blob {
                 let mut blob_copy = invalid_blob.as_ref().clone();
-                blob_copy.kzg_commitment = KzgCommitment::random_for_test(&mut rng);
+                blob_copy.kzg_commitment = KzgCommitment::arbitrary(&mut u).unwrap();
                 *invalid_blobs.get_mut(index).unwrap() = Some(Arc::new(blob_copy));
             }
         }

@@ -1,16 +1,12 @@
 use crate::kzg_ext::KzgCommitments;
-use crate::test_utils::TestRandom;
 use crate::{Address, EthSpec, ExecutionBlockHash, ForkName, Hash256, SignedRoot, Slot};
 use context_deserialize::context_deserialize;
 use educe::Educe;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-#[derive(
-    Default, Debug, Clone, Serialize, Encode, Decode, Deserialize, TreeHash, Educe, TestRandom,
-)]
+#[derive(Default, Debug, Clone, Serialize, Encode, Decode, Deserialize, TreeHash, Educe)]
 #[cfg_attr(
     feature = "arbitrary",
     derive(arbitrary::Arbitrary),
