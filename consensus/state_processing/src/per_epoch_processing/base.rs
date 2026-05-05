@@ -20,6 +20,7 @@ pub fn process_epoch<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<EpochProcessingSummary<E>, Error> {
+    println!("base process epoch");
     // Ensure the committee caches are built.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
