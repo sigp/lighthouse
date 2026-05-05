@@ -2,11 +2,10 @@ use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::FixedVector;
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 use typenum::U33;
 
-use crate::{core::Hash256, deposit::DepositData, fork::ForkName, test_utils::TestRandom};
+use crate::{core::Hash256, deposit::DepositData, fork::ForkName};
 
 pub const DEPOSIT_TREE_DEPTH: usize = 32;
 
@@ -14,9 +13,7 @@ pub const DEPOSIT_TREE_DEPTH: usize = 32;
 ///
 /// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[derive(
-    Debug, PartialEq, Hash, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
-)]
+#[derive(Debug, PartialEq, Hash, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[context_deserialize(ForkName)]
 pub struct Deposit {
     pub proof: FixedVector<Hash256, U33>,

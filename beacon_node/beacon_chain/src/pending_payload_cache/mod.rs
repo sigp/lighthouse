@@ -524,8 +524,7 @@ mod data_availability_checker_tests {
     };
     use fork_choice::PayloadVerificationStatus;
     use logging::create_test_tracing_subscriber;
-    use rand::SeedableRng;
-    use rand::rngs::StdRng;
+    use types::test_utils::test_unstructured;
     use types::{
         ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, ForkName,
         MinimalEthSpec, SignedExecutionPayloadEnvelope,
@@ -534,7 +533,6 @@ mod data_availability_checker_tests {
     type E = MinimalEthSpec;
     type T = DiskHarnessType<E>;
 
-    const RNG_SEED: u64 = 0xDEADBEEF;
     const NUM_BLOBS: usize = 1;
 
     /// Stand up a cache + a 1-blob Gloas block for the given custody type. The bid is registered
@@ -561,9 +559,10 @@ mod data_availability_checker_tests {
                 .expect("create cache"),
         );
 
-        let mut rng = StdRng::seed_from_u64(RNG_SEED);
+        let mut u = test_unstructured();
         let (block, columns) =
-            generate_rand_block_and_data_columns::<E>(ForkName::Gloas, num_blobs, &mut rng, &spec);
+            generate_rand_block_and_data_columns::<E>(ForkName::Gloas, num_blobs, &mut u, &spec)
+                .expect("generate test block");
         let block_root = block.canonical_root();
         let bid = Arc::new(
             block

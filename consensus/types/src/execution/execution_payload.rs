@@ -6,14 +6,12 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 use crate::{
     core::{Address, EthSpec, ExecutionBlockHash, Hash256, Slot},
     fork::{ForkName, ForkVersionDecode},
     state::BeaconStateError,
-    test_utils::TestRandom,
     withdrawal::Withdrawals,
 };
 
@@ -35,7 +33,6 @@ pub type Transactions<E> = VariableList<
             Encode,
             Decode,
             TreeHash,
-            TestRandom,
             Educe,
         ),
         context_deserialize(ForkName),

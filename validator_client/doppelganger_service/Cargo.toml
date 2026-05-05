@@ -19,5 +19,7 @@ types = { workspace = true }
 validator_store = { workspace = true }
 
 [dev-dependencies]
+arbitrary = { workspace = true }
 futures = { workspace = true }
 logging = { workspace = true }
+types = { workspace = true, features = ["arbitrary"] }

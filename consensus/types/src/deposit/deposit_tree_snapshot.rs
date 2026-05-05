@@ -3,11 +3,10 @@ use fixed_bytes::FixedBytesExtended;
 use int_to_bytes::int_to_bytes32;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use test_random_derive::TestRandom;
 
-use crate::{core::Hash256, deposit::DEPOSIT_TREE_DEPTH, test_utils::TestRandom};
+use crate::{core::Hash256, deposit::DEPOSIT_TREE_DEPTH};
 
-#[derive(Encode, Decode, Deserialize, Serialize, Clone, Debug, PartialEq, TestRandom)]
+#[derive(Encode, Decode, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct FinalizedExecutionBlock {
     pub deposit_root: Hash256,
     pub deposit_count: u64,
@@ -26,7 +25,8 @@ impl From<&DepositTreeSnapshot> for FinalizedExecutionBlock {
     }
 }
 
-#[derive(Encode, Decode, Deserialize, Serialize, Clone, Debug, PartialEq, TestRandom)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Encode, Decode, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct DepositTreeSnapshot {
     pub finalized: Vec<Hash256>,
     pub deposit_root: Hash256,

@@ -6,10 +6,9 @@ use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::FixedVector;
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-use crate::{core::EthSpec, fork::ForkName, sync_committee::SyncSubnetId, test_utils::TestRandom};
+use crate::{core::EthSpec, fork::ForkName, sync_committee::SyncSubnetId};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -32,7 +31,7 @@ impl From<ArithError> for Error {
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[serde(bound = "E: EthSpec")]
 #[context_deserialize(ForkName)]
 pub struct SyncCommittee<E: EthSpec> {

@@ -3,7 +3,6 @@ use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 use crate::{
@@ -12,7 +11,6 @@ use crate::{
     },
     core::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot},
     fork::{Fork, ForkName},
-    test_utils::TestRandom,
 };
 
 #[superstruct(
@@ -26,7 +24,6 @@ use crate::{
             Deserialize,
             Encode,
             Decode,
-            TestRandom,
             TreeHash,
         ),
         context_deserialize(ForkName),

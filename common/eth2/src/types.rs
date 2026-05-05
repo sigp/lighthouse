@@ -26,11 +26,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use superstruct::superstruct;
 
-#[cfg(test)]
-use test_random_derive::TestRandom;
-#[cfg(test)]
-use types::test_utils::TestRandom;
-
 // TODO(mac): Temporary module and re-export hack to expose old `consensus/types` via `eth2/types`.
 pub use crate::beacon_response::*;
 pub mod beacon_response {
@@ -2364,7 +2359,7 @@ pub enum ContentType {
     Ssz,
 }
 
-#[cfg_attr(test, derive(TestRandom))]
+#[cfg_attr(test, derive(arbitrary::Arbitrary))]
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, Encode, Decode)]
 #[serde(bound = "E: EthSpec")]
 pub struct BlobsBundle<E: EthSpec> {
@@ -2470,7 +2465,7 @@ pub struct BlobWrapper<E: EthSpec> {
 mod test {
     use std::fmt::Debug;
 
-    use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use arbitrary::Arbitrary;
 
     use super::*;
 
@@ -2498,13 +2493,16 @@ mod test {
             assert_eq!(request, deserialized_request);
         };
 
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
         for fork_name in ForkName::list_all() {
-            let signed_beacon_block =
-                map_fork_name!(fork_name, SignedBeaconBlock, <_>::random_for_test(rng));
+            let signed_beacon_block = map_fork_name!(
+                fork_name,
+                SignedBeaconBlock,
+                <_>::arbitrary(&mut u).unwrap()
+            );
             let request = if fork_name.deneb_enabled() && !fork_name.gloas_enabled() {
-                let kzg_proofs = KzgProofs::<MainnetEthSpec>::random_for_test(rng);
-                let blobs = BlobsList::<MainnetEthSpec>::random_for_test(rng);
+                let kzg_proofs = KzgProofs::<MainnetEthSpec>::arbitrary(&mut u).unwrap();
+                let blobs = BlobsList::<MainnetEthSpec>::arbitrary(&mut u).unwrap();
                 let block_contents = SignedBlockContents {
                     signed_block: Arc::new(signed_beacon_block),
                     kzg_proofs,
@@ -2532,12 +2530,15 @@ mod test {
         };
 
         let mut fork_name = ForkName::Deneb;
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
         loop {
-            let signed_beacon_block =
-                map_fork_name!(fork_name, SignedBeaconBlock, <_>::random_for_test(rng));
-            let kzg_proofs = KzgProofs::<MainnetEthSpec>::random_for_test(rng);
-            let blobs = BlobsList::<MainnetEthSpec>::random_for_test(rng);
+            let signed_beacon_block = map_fork_name!(
+                fork_name,
+                SignedBeaconBlock,
+                <_>::arbitrary(&mut u).unwrap()
+            );
+            let kzg_proofs = KzgProofs::<MainnetEthSpec>::arbitrary(&mut u).unwrap();
+            let blobs = BlobsList::<MainnetEthSpec>::arbitrary(&mut u).unwrap();
             let block_contents = SignedBlockContents {
                 signed_block: Arc::new(signed_beacon_block),
                 kzg_proofs,
@@ -2555,25 +2556,27 @@ mod test {
 
     #[test]
     fn test_execution_payload_execution_payload_deserialize_by_fork() {
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
 
         let payloads = [
             ExecutionPayload::Bellatrix(
-                ExecutionPayloadBellatrix::<MainnetEthSpec>::random_for_test(rng),
+                ExecutionPayloadBellatrix::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
             ),
-            ExecutionPayload::Capella(ExecutionPayloadCapella::<MainnetEthSpec>::random_for_test(
-                rng,
-            )),
-            ExecutionPayload::Deneb(ExecutionPayloadDeneb::<MainnetEthSpec>::random_for_test(
-                rng,
-            )),
-            ExecutionPayload::Electra(ExecutionPayloadElectra::<MainnetEthSpec>::random_for_test(
-                rng,
-            )),
-            ExecutionPayload::Fulu(ExecutionPayloadFulu::<MainnetEthSpec>::random_for_test(rng)),
-            ExecutionPayload::Gloas(ExecutionPayloadGloas::<MainnetEthSpec>::random_for_test(
-                rng,
-            )),
+            ExecutionPayload::Capella(
+                ExecutionPayloadCapella::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
+            ),
+            ExecutionPayload::Deneb(
+                ExecutionPayloadDeneb::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
+            ),
+            ExecutionPayload::Electra(
+                ExecutionPayloadElectra::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
+            ),
+            ExecutionPayload::Fulu(
+                ExecutionPayloadFulu::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
+            ),
+            ExecutionPayload::Gloas(
+                ExecutionPayloadGloas::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
+            ),
         ];
         let merged_forks = &ForkName::list_all()[2..];
         assert_eq!(
@@ -2592,48 +2595,44 @@ mod test {
 
     #[test]
     fn test_execution_payload_and_blobs_deserialize_by_fork() {
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
 
         let payloads = [
             {
-                let execution_payload =
-                    ExecutionPayload::Deneb(
-                        ExecutionPayloadDeneb::<MainnetEthSpec>::random_for_test(rng),
-                    );
-                let blobs_bundle = BlobsBundle::random_for_test(rng);
+                let execution_payload = ExecutionPayload::Deneb(
+                    ExecutionPayloadDeneb::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
+                );
+                let blobs_bundle = BlobsBundle::<MainnetEthSpec>::arbitrary(&mut u).unwrap();
                 ExecutionPayloadAndBlobs {
                     execution_payload,
                     blobs_bundle,
                 }
             },
             {
-                let execution_payload =
-                    ExecutionPayload::Electra(
-                        ExecutionPayloadElectra::<MainnetEthSpec>::random_for_test(rng),
-                    );
-                let blobs_bundle = BlobsBundle::random_for_test(rng);
+                let execution_payload = ExecutionPayload::Electra(
+                    ExecutionPayloadElectra::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
+                );
+                let blobs_bundle = BlobsBundle::<MainnetEthSpec>::arbitrary(&mut u).unwrap();
                 ExecutionPayloadAndBlobs {
                     execution_payload,
                     blobs_bundle,
                 }
             },
             {
-                let execution_payload =
-                    ExecutionPayload::Fulu(
-                        ExecutionPayloadFulu::<MainnetEthSpec>::random_for_test(rng),
-                    );
-                let blobs_bundle = BlobsBundle::random_for_test(rng);
+                let execution_payload = ExecutionPayload::Fulu(
+                    ExecutionPayloadFulu::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
+                );
+                let blobs_bundle = BlobsBundle::<MainnetEthSpec>::arbitrary(&mut u).unwrap();
                 ExecutionPayloadAndBlobs {
                     execution_payload,
                     blobs_bundle,
                 }
             },
             {
-                let execution_payload =
-                    ExecutionPayload::Gloas(
-                        ExecutionPayloadGloas::<MainnetEthSpec>::random_for_test(rng),
-                    );
-                let blobs_bundle = BlobsBundle::random_for_test(rng);
+                let execution_payload = ExecutionPayload::Gloas(
+                    ExecutionPayloadGloas::<MainnetEthSpec>::arbitrary(&mut u).unwrap(),
+                );
+                let blobs_bundle = BlobsBundle::<MainnetEthSpec>::arbitrary(&mut u).unwrap();
                 ExecutionPayloadAndBlobs {
                     execution_payload,
                     blobs_bundle,
