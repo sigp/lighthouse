@@ -709,7 +709,7 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
         spec: &ChainSpec,
     ) -> Result<Vec<KzgVerifiedCustodyDataColumn<E>>, KzgError> {
         let all_data_columns =
-            reconstruct_data_columns(kzg, partial_set_of_columns.to_vec(), kzg_commitments, spec)?;
+            reconstruct_data_columns(kzg, partial_set_of_columns, kzg_commitments, spec)?;
 
         let seen_timestamp = timestamp_now();
 
