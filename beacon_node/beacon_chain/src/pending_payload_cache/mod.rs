@@ -200,6 +200,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     }
 
     /// Inserts a bid into the pending payload cache.
+    /// This will silently drop the bid if a bid for this block root already exists in the cache.
     pub fn insert_bid(&self, block_root: Hash256, bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>) {
         let mut write_lock = self.availability_cache.write();
         write_lock.get_or_insert_mut(block_root, || PendingComponents::new(block_root, bid));

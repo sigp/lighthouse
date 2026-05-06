@@ -613,7 +613,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         let kzg_commitments = columns
             .first()
             .and_then(|c| c.kzg_commitments().ok().cloned())
-            .unwrap_or_default();
+            .ok_or(AvailabilityCheckError::InvalidVariant)?;
 
         let all_data_columns = KzgVerifiedCustodyDataColumn::reconstruct_columns(
             &self.kzg,
