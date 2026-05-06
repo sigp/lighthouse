@@ -4,7 +4,7 @@ use ::fork_choice::{PayloadVerificationStatus, ProposerHeadError};
 use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
 use beacon_chain::blob_verification::GossipBlobError;
 use beacon_chain::block_verification_types::LookupBlock;
-use beacon_chain::chain_config::{DisallowedReOrgOffsets, ReOrgThreshold};
+use beacon_chain::chain_config::DisallowedReOrgOffsets;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::{
@@ -19,6 +19,7 @@ use beacon_chain::{
 use execution_layer::{
     PayloadStatusV1, PayloadStatusV1Status, json_structures::JsonPayloadStatusV1Status,
 };
+use proto_array::ReOrgThreshold;
 use serde::Deserialize;
 use ssz_derive::Decode;
 use state_processing::VerifySignatures;

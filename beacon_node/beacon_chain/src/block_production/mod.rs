@@ -4,7 +4,6 @@ use fork_choice::PayloadStatus;
 use proto_array::{ProposerHeadError, ReOrgThreshold};
 use slot_clock::SlotClock;
 use tracing::{debug, error, info, instrument, warn};
-use types::consts::bellatrix::BASIS_POINTS;
 use types::{BeaconState, Epoch, Hash256, SignedExecutionPayloadEnvelope, Slot};
 
 use crate::{
@@ -201,11 +200,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // 1. It seems we have time to propagate and still receive the proposer boost.
         // 2. The current head block was seen late.
         // 3. The `get_proposer_head` conditions from fork choice pass.
-        let slot_duration_millis = self.spec.get_slot_duration().as_millis() as u64;
-        let re_org_cutoff_millis = slot_duration_millis
-            .saturating_mul(self.spec.proposer_reorg_cutoff_bps)
-            .saturating_div(BASIS_POINTS);
-        let re_org_cutoff_duration = Duration::from_millis(re_org_cutoff_millis);
+        let re_org_cutoff_duration = self
+            .spec
+            .compute_slot_component_duration(self.spec.proposer_reorg_cutoff_bps)
+            .ok()?;
 
         let proposing_on_time = slot_delay < re_org_cutoff_duration;
         if !proposing_on_time {

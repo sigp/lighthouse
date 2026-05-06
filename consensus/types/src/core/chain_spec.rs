@@ -918,7 +918,7 @@ impl ChainSpec {
     }
 
     /// Calculate the duration into a slot for a given slot component
-    fn compute_slot_component_duration(
+    pub fn compute_slot_component_duration(
         &self,
         component_basis_points: u64,
     ) -> Result<Duration, ArithError> {

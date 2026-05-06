@@ -142,7 +142,6 @@ use task_executor::{RayonPoolType, ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tracing::{debug, debug_span, error, info, info_span, instrument, trace, warn};
 use tree_hash::TreeHash;
-use types::consts::bellatrix::BASIS_POINTS;
 use types::data::{ColumnIndex, FixedBlobSidecarList};
 use types::execution::BlockProductionVersion;
 use types::*;
@@ -5155,12 +5154,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .and_then(|slot_start| {
                     let now = self.slot_clock.now_duration()?;
                     let slot_delay = now.saturating_sub(slot_start);
-
-                    let slot_duration_millis = self.spec.get_slot_duration().as_millis() as u64;
-                    let re_org_cutoff_millis = slot_duration_millis
-                        .saturating_mul(self.spec.proposer_reorg_cutoff_bps)
-                        .saturating_div(BASIS_POINTS);
-                    let re_org_cutoff_duration = Duration::from_millis(re_org_cutoff_millis);
+                    let re_org_cutoff_duration = self
+                        .spec
+                        .compute_slot_component_duration(self.spec.proposer_reorg_cutoff_bps)
+                        .ok()?;
 
                     Some(slot_delay <= re_org_cutoff_duration)
                 })

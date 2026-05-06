@@ -1,5 +1,5 @@
 use crate::custody_context::NodeCustodyType;
-pub use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
+pub use proto_array::DisallowedReOrgOffsets;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::{collections::HashSet, sync::LazyLock, time::Duration};
