@@ -2242,7 +2242,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .clone()
             .ok_or(Error::ExecutionLayerMissing)?;
 
-        // Load the cached head and the associated block hash and slot.
+        // Load the cached head and the associated execution block hash.
+        //
+        // Use head_hash() which correctly handles ePBS: in Gloas/Heze the execution
+        // payload is in the envelope (not the beacon block), so head_hash() pulls
+        // the block_hash from fork choice which tracks envelope imports.
         //
         // Use a blocking task since blocking the core executor on the canonical head read lock can
         // block the core tokio executor.
@@ -2252,17 +2256,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 move || {
                     let cached_head = chain.canonical_head.cached_head();
                     let head_slot = cached_head.head_slot();
-                    // let head_hash = cached_head.head_hash();
-                    if let Ok(execution_payload) = cached_head
-                        .snapshot
-                        .beacon_block
-                        .message()
-                        .execution_payload()
-                    {
-                        (head_slot, Some(execution_payload.parent_hash()))
-                    } else {
-                        (head_slot, None)
-                    }
+                    let head_hash = cached_head.head_hash();
+                    (head_slot, head_hash)
                 },
                 "produce_inclusion_list_head_read",
             )
@@ -2307,7 +2302,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
         // Retrieve the inclusion list from the execution layer.
         let inclusion_list = execution_layer
-            .get_inclusion_list()
+            .get_inclusion_list(parent_hash)
             .await
             .map_err(|e| Error::ExecutionLayerGetInclusionListFailed(Box::new(e)))?;
 
