@@ -2006,9 +2006,9 @@ impl<E: EthSpec> ExecutionLayer<E> {
         }
     }
 
-    pub async fn get_inclusion_list(&self) -> Result<Transactions<E>, Error> {
+    pub async fn get_inclusion_list(&self, parent_hash: ExecutionBlockHash) -> Result<Transactions<E>, Error> {
         debug!("Requesting inclusion list from EL");
-        let raw_transactions = self.engine().api.get_inclusion_list::<E>().await?;
+        let raw_transactions = self.engine().api.get_inclusion_list::<E>(parent_hash).await?;
 
         let mut transactions = vec![];
 

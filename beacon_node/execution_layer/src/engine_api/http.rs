@@ -758,8 +758,8 @@ impl HttpJsonRpc {
 
     pub async fn update_payload_with_inclusion_list<E: EthSpec>(&self) {}
 
-    pub async fn get_inclusion_list<E: EthSpec>(&self) -> Result<Option<Vec<String>>, Error> {
-        let params = json!([]);
+    pub async fn get_inclusion_list<E: EthSpec>(&self, parent_hash: ExecutionBlockHash) -> Result<Option<Vec<String>>, Error> {
+        let params = json!([parent_hash]);
 
         self.rpc_request(
             ENGINE_GET_INCLUSION_LIST_V1,
@@ -921,6 +921,48 @@ impl HttpJsonRpc {
         let response: JsonPayloadStatusV1 = self
             .rpc_request(
                 ENGINE_NEW_PAYLOAD_V4,
+                params,
+                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
+    /// Calls engine_newPayloadV6 with a Gloas-shaped payload.
+    /// Gloas and Heze have identical payload wire formats; only the version number differs.
+    /// Used when a Heze-fork ePBS envelope arrives but the payload type is still Gloas.
+    pub async fn new_payload_v6_from_gloas<E: EthSpec>(
+        &self,
+        new_payload_request_gloas: NewPayloadRequestGloas<'_, E>,
+    ) -> Result<PayloadStatusV1, Error> {
+        let il_transactions: Vec<String> = new_payload_request_gloas
+            .il_transactions
+            .iter()
+            .map(|tx| {
+                let bytes: Vec<u8> = tx.clone().into();
+                format!("0x{}", hex::encode(bytes))
+            })
+            .collect();
+
+        let params = json!([
+            JsonExecutionPayload::Gloas(
+                new_payload_request_gloas
+                    .execution_payload
+                    .clone()
+                    .try_into()?
+            ),
+            new_payload_request_gloas.versioned_hashes,
+            new_payload_request_gloas.parent_beacon_block_root,
+            new_payload_request_gloas
+                .execution_requests
+                .get_execution_requests_list(),
+            il_transactions
+        ]);
+
+        let response: JsonPayloadStatusV1 = self
+            .rpc_request(
+                ENGINE_NEW_PAYLOAD_V6,
                 params,
                 ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
             )
@@ -1600,7 +1642,11 @@ impl HttpJsonRpc {
                 }
             }
             NewPayloadRequest::Gloas(new_payload_request_gloas) => {
-                if engine_capabilities.new_payload_v5 {
+                if new_payload_request_gloas.is_heze_fork {
+                    // Force V6 for Heze blocks — Besu supports it but capability
+                    // detection may not pick it up from exchangeCapabilities.
+                    self.new_payload_v6_from_gloas(new_payload_request_gloas).await
+                } else if engine_capabilities.new_payload_v5 {
                     self.new_payload_v5_gloas(new_payload_request_gloas).await
                 } else {
                     Err(Error::RequiredMethodUnsupported("engine_newPayloadV5"))
@@ -1609,6 +1655,8 @@ impl HttpJsonRpc {
             NewPayloadRequest::Heze(new_payload_request_heze) => {
                 if engine_capabilities.new_payload_v6 {
                     self.new_payload_v6_heze(new_payload_request_heze).await
+                } else if engine_capabilities.new_payload_v5 {
+                    self.new_payload_v5_heze(new_payload_request_heze).await
                 } else {
                     Err(Error::RequiredMethodUnsupported("engine_newPayloadV6"))
                 }
