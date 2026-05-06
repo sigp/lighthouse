@@ -2900,6 +2900,7 @@ where
             parent_beacon_block_root: block.message().parent_root(),
             execution_requests: &signed_envelope.message.execution_requests,
             il_transactions: Default::default(),
+            is_heze_fork: false,
         });
 
         self.chain

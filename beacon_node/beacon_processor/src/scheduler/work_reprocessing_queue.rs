@@ -101,6 +101,8 @@ pub const RECONSTRUCTION_DEADLINE: (u64, u64) = (1, 4);
 pub enum ReprocessQueueMessage {
     /// A block that has been received early and we should queue for later processing.
     EarlyBlock(QueuedGossipBlock),
+    /// An execution payload envelope that arrived before its slot and should be queued for later processing.
+    EarlyEnvelope(QueuedGossipEnvelope),
     /// An execution payload envelope that references a block not yet in fork choice.
     UnknownBlockForEnvelope(QueuedGossipEnvelope),
     /// A gossip block for hash `X` is being imported, we should queue the rpc block for the same
@@ -227,6 +229,8 @@ impl<E: EthSpec> From<QueuedBackfillBatch> for WorkEvent<E> {
 enum InboundEvent {
     /// A gossip block that was queued for later processing and is ready for import.
     ReadyGossipBlock(QueuedGossipBlock),
+    /// An early envelope that has been queued until its slot arrives and is now ready for import.
+    ReadyEarlyEnvelope(QueuedGossipEnvelope),
     /// An envelope whose block has been imported and is now ready for processing.
     ReadyEnvelope(Hash256),
     /// A rpc block that was queued because the same gossip block was being imported
@@ -254,6 +258,8 @@ struct ReprocessQueue<S> {
     /* Queues */
     /// Queue to manage scheduled early blocks.
     gossip_block_delay_queue: DelayQueue<QueuedGossipBlock>,
+    /// Queue to manage early envelopes (arrived before their slot).
+    early_envelope_delay_queue: DelayQueue<QueuedGossipEnvelope>,
     /// Queue to manage envelope timeouts (keyed by block root).
     envelope_delay_queue: DelayQueue<Hash256>,
     /// Queue to manage scheduled early blocks.
@@ -290,6 +296,7 @@ struct ReprocessQueue<S> {
     next_attestation: usize,
     next_lc_update: usize,
     early_block_debounce: TimeLatch,
+    early_envelope_debounce: TimeLatch,
     envelope_delay_debounce: TimeLatch,
     rpc_block_debounce: TimeLatch,
     attestation_delay_debounce: TimeLatch,
@@ -337,6 +344,15 @@ impl<S: SlotClock> Stream for ReprocessQueue<S> {
             }
             // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
             // will continue to get this result until something else is added into the queue.
+            Poll::Ready(None) | Poll::Pending => (),
+        }
+
+        match self.early_envelope_delay_queue.poll_expired(cx) {
+            Poll::Ready(Some(queued_envelope)) => {
+                return Poll::Ready(Some(InboundEvent::ReadyEarlyEnvelope(
+                    queued_envelope.into_inner(),
+                )));
+            }
             Poll::Ready(None) | Poll::Pending => (),
         }
 
@@ -450,6 +466,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
             work_reprocessing_rx,
             ready_work_tx,
             gossip_block_delay_queue: DelayQueue::new(),
+            early_envelope_delay_queue: DelayQueue::new(),
             envelope_delay_queue: DelayQueue::new(),
             rpc_block_delay_queue: DelayQueue::new(),
             attestations_delay_queue: DelayQueue::new(),
@@ -467,6 +484,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
             next_attestation: 0,
             next_lc_update: 0,
             early_block_debounce: TimeLatch::default(),
+            early_envelope_debounce: TimeLatch::default(),
             envelope_delay_debounce: TimeLatch::default(),
             rpc_block_debounce: TimeLatch::default(),
             attestation_delay_debounce: TimeLatch::default(),
@@ -530,6 +548,33 @@ impl<S: SlotClock> ReprocessQueue<S> {
                             .is_err()
                     {
                         error!("Failed to send block");
+                    }
+                }
+            }
+            // An envelope that arrived before its slot. Queue it until the appropriate slot arrives.
+            InboundEvent::Msg(EarlyEnvelope(early_envelope)) => {
+                let envelope_slot = early_envelope.beacon_block_slot;
+                let block_root = early_envelope.beacon_block_root;
+
+                if let Some(duration_till_slot) = self.slot_clock.duration_to_slot(envelope_slot) {
+                    self.early_envelope_delay_queue.insert(
+                        early_envelope,
+                        duration_till_slot + ADDITIONAL_QUEUED_BLOCK_DELAY,
+                    );
+                } else {
+                    // Slot has already arrived; dispatch immediately if possible.
+                    if let Some(now) = self.slot_clock.now()
+                        && envelope_slot <= now
+                    {
+                        if self
+                            .ready_work_tx
+                            .try_send(ReadyWork::Envelope(early_envelope))
+                            .is_err()
+                        {
+                            error!(?block_root, "Failed to send early envelope for immediate processing");
+                        }
+                    } else {
+                        debug!(?block_root, %envelope_slot, "Dropping early envelope, cannot determine slot timing");
                     }
                 }
             }
@@ -898,6 +943,17 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     .is_err()
                 {
                     error!("Failed to pop queued block");
+                }
+            }
+            // An early envelope whose slot has now arrived; dispatch for processing.
+            InboundEvent::ReadyEarlyEnvelope(ready_envelope) => {
+                let block_root = ready_envelope.beacon_block_root;
+                if self
+                    .ready_work_tx
+                    .try_send(ReadyWork::Envelope(ready_envelope))
+                    .is_err()
+                {
+                    error!(?block_root, "Failed to send early envelope after slot arrived");
                 }
             }
             // An envelope's timeout has expired. Send it for processing regardless of

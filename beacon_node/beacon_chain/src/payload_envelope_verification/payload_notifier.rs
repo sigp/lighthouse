@@ -3,8 +3,8 @@ use std::sync::Arc;
 use execution_layer::{NewPayloadRequest, NewPayloadRequestGloas};
 use fork_choice::PayloadVerificationStatus;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
-use tracing::warn;
-use types::{SignedBeaconBlock, SignedExecutionPayloadEnvelope};
+use tracing::{info, warn};
+use types::{BeaconBlockRef, SignedBeaconBlock, SignedExecutionPayloadEnvelope};
 
 use crate::{
     BeaconChain, BeaconChainTypes, BlockError, NotifyExecutionLayer,
@@ -86,12 +86,25 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
             .map(kzg_commitment_to_versioned_hash)
             .collect();
 
+        // Heze and Gloas share identical payload wire formats; only the engine API
+        // method version differs (V6 for Heze, V5 for Gloas). Set is_heze_fork so
+        // the dispatch in http.rs calls engine_newPayloadV6 for Heze blocks.
+        let block_fork = block.message().fork_name_unchecked();
+        let is_heze_fork = matches!(block.message(), BeaconBlockRef::Heze(_));
+        info!(
+            ?block_fork,
+            is_heze_fork,
+            slot = ?envelope.message.slot(),
+            "[FOCIL DEBUG] build_new_payload_request fork check"
+        );
+
         Ok(NewPayloadRequest::Gloas(NewPayloadRequestGloas {
             execution_payload: &envelope.message.payload,
             versioned_hashes,
             parent_beacon_block_root: envelope.message.parent_beacon_block_root,
             execution_requests: &envelope.message.execution_requests,
             il_transactions: Default::default(),
+            is_heze_fork,
         }))
     }
 }

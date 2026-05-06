@@ -54,6 +54,10 @@ pub struct NewPayloadRequest<'block, E: EthSpec> {
     pub execution_requests: &'block ExecutionRequests<E>,
     #[superstruct(only(Heze, Gloas))]
     pub il_transactions: Transactions<E>,
+    /// When true, this Gloas-shaped request must use engine_newPayloadV6 (Heze fork).
+    /// Gloas and Heze have identical payload wire formats; only the method version differs.
+    #[superstruct(only(Gloas))]
+    pub is_heze_fork: bool,
 }
 
 impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
