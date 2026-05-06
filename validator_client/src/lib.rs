@@ -14,7 +14,7 @@ use tokio::sync::Mutex;
 use account_utils::validator_definitions::ValidatorDefinitions;
 use beacon_node_fallback::{
     BeaconNodeFallback, CandidateBeaconNode, beacon_head_monitor::HeadEvent,
-    start_fallback_updater_service,
+    payload_envelope_monitor::PayloadEnvelopeEvent, start_fallback_updater_service,
 };
 use clap::ArgMatches;
 use doppelganger_service::DoppelgangerService;
@@ -418,6 +418,13 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             None
         };
 
+        // Create the payload envelope monitor channel for the inclusion list service.
+        // This allows the IL service to fire early when a payload envelope is available.
+        let (payload_envelope_tx, payload_envelope_rx) =
+            mpsc::channel::<PayloadEnvelopeEvent>(MAX_HEAD_EVENT_QUEUE_LEN);
+        beacon_nodes.set_payload_envelope_send(Arc::new(payload_envelope_tx));
+        let payload_envelope_rx = Some(Mutex::new(payload_envelope_rx));
+
         let beacon_nodes = Arc::new(beacon_nodes);
         start_fallback_updater_service::<_, E>(context.executor.clone(), beacon_nodes.clone())?;
 
@@ -564,6 +571,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .beacon_nodes(beacon_nodes.clone())
             .executor(context.executor.clone())
             .chain_spec(context.eth2_config.spec.clone())
+            .payload_envelope_rx(payload_envelope_rx)
             // TODO(focil) make config driven
             .disable(false)
             .build()?;

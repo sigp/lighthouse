@@ -1,11 +1,14 @@
 use crate::duties_service::DutiesService;
-use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
+use beacon_node_fallback::{
+    ApiTopic, BeaconNodeFallback, payload_envelope_monitor::PayloadEnvelopeEvent,
+};
 use futures::future::join_all;
 use logging::crit;
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
+use tokio::sync::{Mutex, mpsc};
 use tokio::time::{Duration, sleep};
 use tracing::{debug, error, info, trace, warn};
 use types::{ChainSpec, EthSpec, InclusionList, InclusionListDuty, Slot, Transactions};
@@ -20,6 +23,7 @@ pub struct InclusionListServiceBuilder<S: ValidatorStore, T: SlotClock + 'static
     beacon_nodes: Option<Arc<BeaconNodeFallback<T>>>,
     executor: Option<TaskExecutor>,
     chain_spec: Option<Arc<ChainSpec>>,
+    payload_envelope_rx: Option<Mutex<mpsc::Receiver<PayloadEnvelopeEvent>>>,
     disable: bool,
 }
 
@@ -32,6 +36,7 @@ impl<S: ValidatorStore, T: SlotClock + 'static> InclusionListServiceBuilder<S, T
             beacon_nodes: None,
             executor: None,
             chain_spec: None,
+            payload_envelope_rx: None,
             disable: true,
         }
     }
@@ -66,6 +71,14 @@ impl<S: ValidatorStore, T: SlotClock + 'static> InclusionListServiceBuilder<S, T
         self
     }
 
+    pub fn payload_envelope_rx(
+        mut self,
+        payload_envelope_rx: Option<Mutex<mpsc::Receiver<PayloadEnvelopeEvent>>>,
+    ) -> Self {
+        self.payload_envelope_rx = payload_envelope_rx;
+        self
+    }
+
     pub fn disable(mut self, disable: bool) -> Self {
         self.disable = disable;
         self
@@ -92,6 +105,7 @@ impl<S: ValidatorStore, T: SlotClock + 'static> InclusionListServiceBuilder<S, T
                 chain_spec: self
                     .chain_spec
                     .ok_or("Cannot build AttestationService without chain_spec")?,
+                payload_envelope_rx: self.payload_envelope_rx,
                 disable: self.disable,
             }),
         })
@@ -108,6 +122,7 @@ pub struct Inner<S, T> {
     // TODO(focil)
     #[allow(dead_code)]
     chain_spec: Arc<ChainSpec>,
+    payload_envelope_rx: Option<Mutex<mpsc::Receiver<PayloadEnvelopeEvent>>>,
     #[allow(dead_code)]
     disable: bool,
 }
@@ -157,7 +172,22 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> InclusionListService<S
                     // Wait until the start of the next slot, then sleep to
                     // inclusion_list_due_bps fraction into that slot.
                     let il_offset = slot_duration * il_due_fraction / 10000;
-                    sleep(duration_to_next_slot + il_offset).await;
+
+                    // Compute the target slot (the slot we'll be in after waiting)
+                    let target_slot = self
+                        .slot_clock
+                        .now()
+                        .map(|s| s + 1)
+                        .unwrap_or_default();
+
+                    // Race: wait for either the IL deadline or a payload envelope event
+                    // for the target slot.
+                    self.wait_for_il_trigger(
+                        duration_to_next_slot + il_offset,
+                        target_slot,
+                    )
+                    .await;
+
                     if let Err(e) = self.spawn_inclusion_list_task(slot_duration, &chain_spec) {
                         crit!(
                             error = ?e,
@@ -177,6 +207,63 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> InclusionListService<S
 
         executor.spawn(interval_fut, "inclusion_list_service");
         Ok(())
+    }
+
+    /// Waits for either the IL deadline timeout or a payload envelope event for the target slot.
+    /// If no payload_envelope_rx is configured, falls back to just sleeping the full duration.
+    async fn wait_for_il_trigger(&self, timeout_duration: Duration, target_slot: Slot) {
+        let Some(receiver) = &self.payload_envelope_rx else {
+            // No payload envelope monitor configured, just sleep
+            sleep(timeout_duration).await;
+            return;
+        };
+
+        let mut rx_guard = receiver.lock().await;
+
+        // Use select! to race between the timeout and receiving a payload envelope event
+        // for the target slot.
+        let deadline = sleep(timeout_duration);
+        tokio::pin!(deadline);
+
+        loop {
+            tokio::select! {
+                _ = &mut deadline => {
+                    debug!(
+                        slot = %target_slot,
+                        "IL deadline reached without payload envelope event"
+                    );
+                    return;
+                }
+                event = rx_guard.recv() => {
+                    match event {
+                        Some(envelope_event) => {
+                            if envelope_event.slot == target_slot {
+                                debug!(
+                                    slot = %target_slot,
+                                    block_root = ?envelope_event.block_root,
+                                    "Payload envelope received for target slot, triggering IL production"
+                                );
+                                return;
+                            } else {
+                                // Stale event for a different slot, keep waiting
+                                debug!(
+                                    event_slot = %envelope_event.slot,
+                                    target_slot = %target_slot,
+                                    "Ignoring payload envelope event for non-target slot"
+                                );
+                                continue;
+                            }
+                        }
+                        None => {
+                            // Channel closed, fall back to deadline
+                            warn!("Payload envelope channel closed, falling back to deadline");
+                            deadline.await;
+                            return;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Spawn a task that downloads, signs and uploads the inclusion lists to the beacon node.

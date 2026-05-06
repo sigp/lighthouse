@@ -4,8 +4,12 @@
 
 pub mod beacon_head_monitor;
 pub mod beacon_node_health;
+pub mod payload_envelope_monitor;
 
 use beacon_head_monitor::{BeaconHeadCache, HeadEvent, poll_head_event_from_beacon_nodes};
+use payload_envelope_monitor::{
+    PayloadEnvelopeEvent, poll_payload_envelope_event_from_beacon_nodes,
+};
 use beacon_node_health::{
     BeaconNodeHealth, BeaconNodeSyncDistanceTiers, ExecutionEngineHealth, IsOptimistic,
     SyncDistanceTier, check_node_health,
@@ -97,6 +101,35 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
         };
 
         executor.spawn(head_monitor_future, "head_monitoring");
+    }
+
+    // Start the payload envelope monitoring service if configured.
+    let beacon_nodes_ref2 = beacon_nodes.clone();
+    if beacon_nodes_ref2.payload_envelope_send.is_some() {
+        let payload_envelope_future = async move {
+            loop {
+                if let Err(error) =
+                    poll_payload_envelope_event_from_beacon_nodes::<E, T>(
+                        beacon_nodes_ref2.clone(),
+                    )
+                    .await
+                {
+                    warn!(
+                        error,
+                        "Payload envelope service failed, retrying next slot"
+                    );
+
+                    let sleep_time = beacon_nodes_ref2
+                        .slot_clock
+                        .as_ref()
+                        .and_then(|slot_clock| slot_clock.duration_to_next_slot())
+                        .unwrap_or_else(|| beacon_nodes_ref2.spec.get_slot_duration());
+                    sleep(sleep_time).await
+                }
+            }
+        };
+
+        executor.spawn(payload_envelope_future, "payload_envelope_monitoring");
     }
 
     let future = async move {
@@ -423,6 +456,7 @@ pub struct BeaconNodeFallback<T> {
     slot_clock: Option<T>,
     beacon_head_cache: Option<Arc<BeaconHeadCache>>,
     head_monitor_send: Option<Arc<mpsc::Sender<HeadEvent>>>,
+    pub payload_envelope_send: Option<Arc<mpsc::Sender<PayloadEnvelopeEvent>>>,
     broadcast_topics: Vec<ApiTopic>,
     spec: Arc<ChainSpec>,
 }
@@ -441,6 +475,7 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
             slot_clock: None,
             beacon_head_cache: None,
             head_monitor_send: None,
+            payload_envelope_send: None,
             broadcast_topics,
             spec,
         }
@@ -462,6 +497,15 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
     pub fn set_head_send(&mut self, head_monitor_send: Arc<mpsc::Sender<HeadEvent>>) {
         self.head_monitor_send = Some(head_monitor_send);
         self.beacon_head_cache = Some(Arc::new(BeaconHeadCache::new()));
+    }
+
+    /// Sets the payload envelope monitor channel that streams `ExecutionPayloadAvailable`
+    /// events from all the beacon nodes that the validator client is connected to.
+    pub fn set_payload_envelope_send(
+        &mut self,
+        payload_envelope_send: Arc<mpsc::Sender<PayloadEnvelopeEvent>>,
+    ) {
+        self.payload_envelope_send = Some(payload_envelope_send);
     }
 
     /// The count of candidates, regardless of their state.
