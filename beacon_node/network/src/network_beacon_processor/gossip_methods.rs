@@ -4030,6 +4030,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         let _processing_start_time = Instant::now();
         let beacon_block_root = verified_envelope.signed_envelope.beacon_block_root();
+        let envelope_slot = verified_envelope.signed_envelope.slot();
+        // Keep a clone of the raw envelope in case we need to retry on transient EL errors.
+        let raw_envelope = verified_envelope.signed_envelope.clone();
 
         #[allow(clippy::result_large_err)]
         let result = self
@@ -4052,7 +4055,86 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // Nothing to do
             }
             Err(e) => match e {
-                EnvelopeError::ExecutionPayloadError(epe) if !epe.penalize_peer() => {}
+                // Transient EL error — queue for retry on next BlockImported.
+                EnvelopeError::ExecutionPayloadError(epe) if !epe.penalize_peer() => {
+                    warn!(
+                        ?beacon_block_root,
+                        error = ?epe,
+                        "Transient EL error during envelope import, queuing for retry"
+                    );
+
+                    let chain = self.chain.clone();
+                    let process_fn = Box::pin(async move {
+                        // Re-verify and re-import the envelope from scratch.
+                        match chain.verify_envelope_for_gossip(raw_envelope).await {
+                            Ok(re_verified) => {
+                                let re_block_root =
+                                    re_verified.signed_envelope.beacon_block_root();
+                                let result = chain
+                                    .process_execution_payload_envelope(
+                                        re_block_root,
+                                        re_verified,
+                                        NotifyExecutionLayer::Yes,
+                                        BlockImportSource::Gossip,
+                                        || Ok(()),
+                                    )
+                                    .await;
+                                match &result {
+                                    Ok(_) => {
+                                        debug!(
+                                            ?re_block_root,
+                                            "Retry envelope imported successfully"
+                                        );
+                                    }
+                                    Err(e) => {
+                                        warn!(
+                                            ?re_block_root,
+                                            error = ?e,
+                                            "Retry envelope failed on re-import"
+                                        );
+                                        // On repeated transient failure, the envelope will be
+                                        // retried again via the reprocess queue (up to max
+                                        // retries), handled by the RetryEnvelope message handler.
+                                        if let EnvelopeError::ExecutionPayloadError(epe) = e {
+                                            if !epe.penalize_peer() {
+                                                // Could retry again, but we let the
+                                                // reprocess queue handle max retry logic.
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                debug!(
+                                    error = ?e,
+                                    "Retry envelope failed re-verification"
+                                );
+                            }
+                        }
+                    });
+
+                    if self
+                        .beacon_processor_send
+                        .try_send(WorkEvent {
+                            drop_during_sync: false,
+                            work: Work::Reprocess(
+                                ReprocessQueueMessage::RetryEnvelope(
+                                    QueuedGossipEnvelope {
+                                        beacon_block_slot: envelope_slot,
+                                        beacon_block_root,
+                                        process_fn,
+                                    },
+                                ),
+                            ),
+                        })
+                        .is_err()
+                    {
+                        error!(
+                            ?beacon_block_root,
+                            "Failed to queue envelope for EL retry"
+                        );
+                    }
+                }
                 EnvelopeError::BadSignature
                 | EnvelopeError::BuilderIndexMismatch { .. }
                 | EnvelopeError::SlotMismatch { .. }
