@@ -192,7 +192,7 @@ impl SigningMethod {
                 // threads. In future we could consider using 90-100% in the VC, seeing as we have
                 // very little other work to do aside from signing.
                 let signature = executor
-                    .spawn_blocking_with_rayon_async(RayonPoolType::HighPriority, move || {
+                    .spawn_blocking_with_rayon_async(Some(RayonPoolType::HighPriority), move || {
                         voting_keypair.sk.sign(signing_root)
                     })
                     .await

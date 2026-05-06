@@ -3619,7 +3619,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let result = self
             .task_executor
-            .spawn_blocking_with_rayon_async(RayonPoolType::HighPriority, move || {
+            .spawn_blocking_with_rayon_async(Some(RayonPoolType::HighPriority), move || {
                 data_availability_checker.reconstruct_data_columns(&block_root)
             })
             .await

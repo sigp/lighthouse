@@ -659,10 +659,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             &metrics::BEACON_DATA_COLUMN_GOSSIP_SLOT_START_DELAY_TIME,
             delay,
         );
-        match self
-            .chain
-            .verify_data_column_sidecar_for_gossip(column_sidecar.clone(), subnet_id)
-        {
+        let Ok(verification_result) = self
+            .executor
+            .spawn_blocking_with_rayon_async(None, {
+                let chain = self.chain.clone();
+                let column_sidecar = column_sidecar.clone();
+                move || chain.verify_data_column_sidecar_for_gossip(column_sidecar, subnet_id)
+            })
+            .await
+        else {
+            warn!(%slot, %block_root, %index, "KZG verification task failed");
+            return;
+        };
+        match verification_result {
             Ok(gossip_verified_data_column) => {
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_GOSSIP_DATA_COLUMN_SIDECAR_VERIFIED_TOTAL,
@@ -825,9 +834,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let block_root = column.block_root;
         let index = column.index;
 
-        let result = self
-            .chain
-            .verify_partial_data_column_sidecar_for_gossip(column, seen_duration);
+        let Ok(result) = self
+            .executor
+            .spawn_blocking_with_rayon_async(None, {
+                let chain = self.chain.clone();
+                move || chain.verify_partial_data_column_sidecar_for_gossip(column, seen_duration)
+            })
+            .await
+        else {
+            warn!(%block_root, %index, "KZG verification task failed");
+            return;
+        };
 
         let header = match result {
             PartialColumnVerificationResult::Ok { header, column } => {

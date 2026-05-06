@@ -238,24 +238,33 @@ impl TaskExecutor {
     }
 
     /// Spawns a blocking computation on a rayon thread pool and awaits the result.
+    /// If `rayon_pool_type` is `None`, uses the global rayon pool.
     pub async fn spawn_blocking_with_rayon_async<F, R>(
         &self,
-        rayon_pool_type: RayonPoolType,
+        rayon_pool_type: Option<RayonPoolType>,
         task: F,
     ) -> Result<R, tokio::sync::oneshot::error::RecvError>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let thread_pool = self.rayon_pool_provider.get_thread_pool(rayon_pool_type);
         let (tx, rx) = tokio::sync::oneshot::channel();
         let span = Span::current();
 
-        thread_pool.spawn(move || {
+        let work = move || {
             let _guard = span.enter();
             let result = task();
             let _ = tx.send(result);
-        });
+        };
+
+        match rayon_pool_type {
+            Some(pool_type) => {
+                self.rayon_pool_provider
+                    .get_thread_pool(pool_type)
+                    .spawn(work);
+            }
+            None => rayon::spawn(work),
+        }
 
         rx.await
     }
