@@ -564,9 +564,9 @@ where
         // For Gloas blocks, `execution_status` is Irrelevant (no embedded payload).
         // If the payload envelope was received (Full), use the bid's block_hash as the
         // execution chain head. Otherwise fall back to the parent hash (Pending) or None.
-        // TODO(gloas): this is a bit messy, and we probably need a similar treatment for
-        // justified/finalized
-        // Can fix as part of: https://github.com/sigp/lighthouse/issues/8957
+        // For justified/finalized hashes we always use the bid's parent_block_hash, since the
+        // payload from the justified/finalized block is not itself justified/finalized due to
+        // being applied immediately prior to the next block.
         let head_hash = self.get_block(&head_root).and_then(|b| {
             b.execution_status
                 .block_hash()
@@ -579,12 +579,16 @@ where
         });
         let justified_root = self.justified_checkpoint().root;
         let finalized_root = self.finalized_checkpoint().root;
-        let justified_hash = self
-            .get_block(&justified_root)
-            .and_then(|b| b.execution_status.block_hash());
-        let finalized_hash = self
-            .get_block(&finalized_root)
-            .and_then(|b| b.execution_status.block_hash());
+        let justified_hash = self.get_block(&justified_root).and_then(|b| {
+            b.execution_status
+                .block_hash()
+                .or(b.execution_payload_parent_hash)
+        });
+        let finalized_hash = self.get_block(&finalized_root).and_then(|b| {
+            b.execution_status
+                .block_hash()
+                .or(b.execution_payload_parent_hash)
+        });
         self.forkchoice_update_parameters = ForkchoiceUpdateParameters {
             head_root,
             head_hash,

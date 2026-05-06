@@ -12,7 +12,6 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::Error as SszError;
 use ssz_types::{FixedVector, VariableList};
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
@@ -26,7 +25,6 @@ use crate::{
     fork::ForkName,
     kzg_ext::{KzgCommitments, KzgError},
     state::BeaconStateError,
-    test_utils::TestRandom,
 };
 
 pub type ColumnIndex = u64;
@@ -53,7 +51,6 @@ pub type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
             Deserialize,
             Decode,
             Encode,
-            TestRandom,
             Educe,
             TreeHash,
         ),

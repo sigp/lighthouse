@@ -51,7 +51,7 @@ pub enum PubsubMessage<E: EthSpec> {
     /// Gossipsub message providing notification of a signed execution payload bid.
     ExecutionPayloadBid(Box<SignedExecutionPayloadBid<E>>),
     /// Gossipsub message providing notification of signed proposer preferences.
-    ProposerPreferences(Box<SignedProposerPreferences>),
+    ProposerPreferences(Arc<SignedProposerPreferences>),
     /// Gossipsub message providing notification of a light client finality update.
     LightClientFinalityUpdate(Box<LightClientFinalityUpdate<E>>),
     /// Gossipsub message providing notification of a light client optimistic update.
@@ -388,7 +388,7 @@ impl<E: EthSpec> PubsubMessage<E> {
                     GossipKind::ProposerPreferences => {
                         let proposer_preferences = SignedProposerPreferences::from_ssz_bytes(data)
                             .map_err(|e| format!("{:?}", e))?;
-                        Ok(PubsubMessage::ProposerPreferences(Box::new(
+                        Ok(PubsubMessage::ProposerPreferences(Arc::new(
                             proposer_preferences,
                         )))
                     }

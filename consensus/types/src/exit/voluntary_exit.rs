@@ -2,23 +2,19 @@ use bls::SecretKey;
 use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 use crate::{
     core::{ChainSpec, Domain, Epoch, Hash256, SignedRoot},
     exit::SignedVoluntaryExit,
     fork::ForkName,
-    test_utils::TestRandom,
 };
 
 /// An exit voluntarily submitted a validator who wishes to withdraw.
 ///
 /// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[derive(
-    Debug, PartialEq, Hash, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
-)]
+#[derive(Debug, PartialEq, Hash, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[context_deserialize(ForkName)]
 pub struct VoluntaryExit {
     /// Earliest epoch when voluntary exit can be processed.

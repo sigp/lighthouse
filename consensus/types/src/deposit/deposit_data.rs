@@ -2,23 +2,19 @@ use bls::{PublicKeyBytes, SecretKey, SignatureBytes};
 use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 use crate::{
     core::{ChainSpec, Hash256, SignedRoot},
     deposit::DepositMessage,
     fork::ForkName,
-    test_utils::TestRandom,
 };
 
 /// The data supplied by the user to the deposit contract.
 ///
 /// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[derive(
-    Debug, PartialEq, Hash, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
-)]
+#[derive(Debug, PartialEq, Hash, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[context_deserialize(ForkName)]
 pub struct DepositData {
     pub pubkey: PublicKeyBytes,
