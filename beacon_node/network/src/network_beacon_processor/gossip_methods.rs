@@ -815,6 +815,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             MessageAcceptance::Ignore,
                         );
                     }
+                    GossipDataColumnError::InternalError(err) => {
+                        error!(
+                            error = ?err,
+                            %block_root,
+                            %index,
+                            "Internal error while processing data columns"
+                        );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
                 }
             }
         }
@@ -1013,6 +1026,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "gossip_partial_data_column_high",
                     );
                 }
+                GossipDataColumnError::InternalError(err) => {
+                    error!(
+                        error = ?err,
+                        %block_root,
+                        %index,
+                        "Internal error while handling partial data column verification"
+                    );
+                }
             },
             GossipPartialDataColumnError::MissingHeader => {
                 metrics::inc_counter(
@@ -1072,7 +1093,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "gossip_partial_data_column_low",
                 );
             }
-            GossipPartialDataColumnError::InternalError(_) => {
+            GossipPartialDataColumnError::InternalError(err) => {
                 error!(
                     error = ?err,
                     %block_root,

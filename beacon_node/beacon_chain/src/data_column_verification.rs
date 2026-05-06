@@ -221,6 +221,12 @@ pub enum GossipDataColumnError {
         max_blobs_per_block: usize,
         commitments_len: usize,
     },
+
+    /// An internal error occurred.
+    ///
+    /// ## Peer scoring
+    /// This is an internal issue, the peer isn't at fault.
+    InternalError(String),
 }
 
 impl From<BeaconChainError> for GossipDataColumnError {
@@ -1018,7 +1024,10 @@ pub fn validate_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes, O: Obse
             MissingCellsError::MismatchesCachedColumn => {
                 GossipDataColumnError::MismatchesCachedColumn
             }
-            MissingCellsError::UnexpectedError(_) => todo!("handle unexpected error"),
+            MissingCellsError::UnexpectedError(e) => GossipDataColumnError::InternalError(format!(
+                "An unexpected error occurred while validating fulu data columns. {:?}",
+                e
+            )),
         })?
     else {
         // Observe this data column so we don't process it again.
@@ -1390,7 +1399,10 @@ fn missing_cells_for_column_sidecar<'a, T: BeaconChainTypes>(
 
     result.map_err(|err| match err {
         MissingCellsError::MismatchesCachedColumn => GossipDataColumnError::MismatchesCachedColumn,
-        MissingCellsError::UnexpectedError(_) => todo!("handle unexpected error"),
+        MissingCellsError::UnexpectedError(e) => GossipDataColumnError::InternalError(format!(
+            "An unexpected error occurred while calculating missing partial cells {:?}",
+            e
+        )),
     })
 }
 
