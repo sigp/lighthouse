@@ -49,7 +49,7 @@ use types::new_non_zero_usize;
 ///
 /// `PendingComponents` are now never removed from the cache manually and are only removed via LRU
 /// eviction to prevent race conditions (#7961), so we expect this cache to be full all the time.
-const OVERFLOW_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
+const AVAILABILITY_CACHE_CAPACITY: NonZeroUsize = new_non_zero_usize(32);
 
 /// This type is returned after adding a bid / column to the `DataAvailabilityChecker`.
 ///
@@ -105,7 +105,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         Ok(Self {
-            availability_cache: RwLock::new(LruCache::new(OVERFLOW_LRU_CAPACITY_NON_ZERO)),
+            availability_cache: RwLock::new(LruCache::new(AVAILABILITY_CACHE_CAPACITY)),
             kzg,
             custody_context,
             spec,
