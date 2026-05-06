@@ -89,7 +89,7 @@ pub struct EnvelopeProcessingSnapshot<E: EthSpec> {
     pub beacon_block_root: Hash256,
 }
 
-/// A payload ernvelope that has completed all envelope procesing checks, verification
+/// A payload envelope that has completed all envelope processing checks, verification
 /// by an EL client but does not have all requisite columns to get imported into
 /// fork choice.
 pub struct AvailabilityPendingExecutedEnvelope<E: EthSpec> {
