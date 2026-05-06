@@ -143,7 +143,7 @@ impl<C> CompletedTest<C> {
     pub fn with_config_and_dir<F: Fn(&C, &TempDir)>(self, func: F) {
         func(&self.config, &self.dir);
     }
-    
+
     pub fn with_config_and_spec<E: EthSpec, F: Fn(&C, ChainSpec)>(self, func: F) {
         let spec = ChainSpec::from_config::<E>(&self.chain_config).unwrap();
         func(&self.config, spec);
