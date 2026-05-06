@@ -2013,10 +2013,13 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     proposer_score_boost: Option<MaybeQuoted<u64>>,
 
+    #[serde(default = "default_reorg_head_weight_threshold")]
     #[serde(with = "serde_utils::quoted_u64")]
     reorg_head_weight_threshold: u64,
+    #[serde(default = "default_reorg_parent_weight_threshold")]
     #[serde(with = "serde_utils::quoted_u64")]
     reorg_parent_weight_threshold: u64,
+    #[serde(default = "default_reorg_max_epochs_since_finalization")]
     #[serde(with = "serde_utils::quoted_u64")]
     reorg_max_epochs_since_finalization: u64,
 
@@ -2409,6 +2412,18 @@ const fn default_consolidation_churn_limit_quotient() -> u64 {
 
 const fn default_max_per_epoch_activation_churn_limit_gloas() -> u64 {
     256_000_000_000
+}
+
+const fn default_reorg_head_weight_threshold() -> u64 {
+    20
+}
+
+const fn default_reorg_parent_weight_threshold() -> u64 {
+    160
+}
+
+const fn default_reorg_max_epochs_since_finalization() -> u64 {
+    2
 }
 
 fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
