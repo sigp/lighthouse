@@ -7,9 +7,6 @@ pub mod beacon_node_health;
 pub mod payload_envelope_monitor;
 
 use beacon_head_monitor::{BeaconHeadCache, HeadEvent, poll_head_event_from_beacon_nodes};
-use payload_envelope_monitor::{
-    PayloadEnvelopeEvent, poll_payload_envelope_event_from_beacon_nodes,
-};
 use beacon_node_health::{
     BeaconNodeHealth, BeaconNodeSyncDistanceTiers, ExecutionEngineHealth, IsOptimistic,
     SyncDistanceTier, check_node_health,
@@ -17,6 +14,9 @@ use beacon_node_health::{
 use clap::ValueEnum;
 use eth2::{BeaconNodeHttpClient, Timeouts};
 use futures::future;
+use payload_envelope_monitor::{
+    PayloadEnvelopeEvent, poll_payload_envelope_event_from_beacon_nodes,
+};
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize, Serializer, ser::SerializeStruct};
 use slot_clock::SlotClock;
@@ -109,15 +109,10 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
         let payload_envelope_future = async move {
             loop {
                 if let Err(error) =
-                    poll_payload_envelope_event_from_beacon_nodes::<E, T>(
-                        beacon_nodes_ref2.clone(),
-                    )
-                    .await
+                    poll_payload_envelope_event_from_beacon_nodes::<E, T>(beacon_nodes_ref2.clone())
+                        .await
                 {
-                    warn!(
-                        error,
-                        "Payload envelope service failed, retrying next slot"
-                    );
+                    warn!(error, "Payload envelope service failed, retrying next slot");
 
                     let sleep_time = beacon_nodes_ref2
                         .slot_clock

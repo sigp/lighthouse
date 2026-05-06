@@ -84,7 +84,8 @@ pub async fn poll_payload_envelope_event_from_beacon_nodes<E: EthSpec, T: SlotCl
             Ok(event) => {
                 warn!(
                     event_kind = event.topic_name(),
-                    candidate_index, "Received unexpected event from BN in payload envelope monitor"
+                    candidate_index,
+                    "Received unexpected event from BN in payload envelope monitor"
                 );
                 continue;
             }

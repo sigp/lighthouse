@@ -4068,8 +4068,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         // Re-verify and re-import the envelope from scratch.
                         match chain.verify_envelope_for_gossip(raw_envelope).await {
                             Ok(re_verified) => {
-                                let re_block_root =
-                                    re_verified.signed_envelope.beacon_block_root();
+                                let re_block_root = re_verified.signed_envelope.beacon_block_root();
                                 let result = chain
                                     .process_execution_payload_envelope(
                                         re_block_root,
@@ -4117,22 +4116,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         .beacon_processor_send
                         .try_send(WorkEvent {
                             drop_during_sync: false,
-                            work: Work::Reprocess(
-                                ReprocessQueueMessage::RetryEnvelope(
-                                    QueuedGossipEnvelope {
-                                        beacon_block_slot: envelope_slot,
-                                        beacon_block_root,
-                                        process_fn,
-                                    },
-                                ),
-                            ),
+                            work: Work::Reprocess(ReprocessQueueMessage::RetryEnvelope(
+                                QueuedGossipEnvelope {
+                                    beacon_block_slot: envelope_slot,
+                                    beacon_block_root,
+                                    process_fn,
+                                },
+                            )),
                         })
                         .is_err()
                     {
-                        error!(
-                            ?beacon_block_root,
-                            "Failed to queue envelope for EL retry"
-                        );
+                        error!(?beacon_block_root, "Failed to queue envelope for EL retry");
                     }
                 }
                 EnvelopeError::BadSignature

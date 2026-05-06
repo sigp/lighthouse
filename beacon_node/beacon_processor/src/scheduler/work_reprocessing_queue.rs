@@ -312,6 +312,7 @@ struct ReprocessQueue<S> {
     next_attestation: usize,
     next_lc_update: usize,
     early_block_debounce: TimeLatch,
+    #[allow(dead_code)]
     early_envelope_debounce: TimeLatch,
     envelope_delay_debounce: TimeLatch,
     rpc_block_debounce: TimeLatch,
@@ -598,7 +599,10 @@ impl<S: SlotClock> ReprocessQueue<S> {
                             .try_send(ReadyWork::Envelope(early_envelope))
                             .is_err()
                         {
-                            error!(?block_root, "Failed to send early envelope for immediate processing");
+                            error!(
+                                ?block_root,
+                                "Failed to send early envelope for immediate processing"
+                            );
                         }
                     } else {
                         debug!(?block_root, %envelope_slot, "Dropping early envelope, cannot determine slot timing");
@@ -661,15 +665,14 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 // Check if we already have a retry pending for this root.
                 if let Some((_existing, _delay_key, count)) =
                     self.retry_envelopes_per_root.get(&block_root)
+                    && *count >= MAX_ENVELOPE_RETRIES
                 {
-                    if *count >= MAX_ENVELOPE_RETRIES {
-                        warn!(
-                            ?block_root,
-                            retries = *count,
-                            "Envelope exceeded max retries for transient EL error, dropping"
-                        );
-                        return;
-                    }
+                    warn!(
+                        ?block_root,
+                        retries = *count,
+                        "Envelope exceeded max retries for transient EL error, dropping"
+                    );
+                    return;
                 }
 
                 // Determine retry count from any prior attempt.
@@ -874,8 +877,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     self.retry_envelope_delay_queue.remove(&delay_key);
                     debug!(
                         ?block_root,
-                        retry_count,
-                        "Dispatching retry envelope after BlockImported"
+                        retry_count, "Dispatching retry envelope after BlockImported"
                     );
                     if self
                         .ready_work_tx
@@ -1052,7 +1054,10 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     .try_send(ReadyWork::Envelope(ready_envelope))
                     .is_err()
                 {
-                    error!(?block_root, "Failed to send early envelope after slot arrived");
+                    error!(
+                        ?block_root,
+                        "Failed to send early envelope after slot arrived"
+                    );
                 }
             }
             // An envelope's timeout has expired. Send it for processing regardless of
@@ -1214,8 +1219,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 {
                     debug!(
                         ?block_root,
-                        retry_count,
-                        "Retry envelope fallback timeout expired, dispatching"
+                        retry_count, "Retry envelope fallback timeout expired, dispatching"
                     );
                     if self
                         .ready_work_tx

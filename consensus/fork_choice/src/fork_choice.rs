@@ -421,7 +421,11 @@ where
                 // first forkchoice update sends a valid head to the EL.
                 let parent_hash = if anchor_block.slot() == spec.genesis_slot
                     && anchor_state.slot() == spec.genesis_slot
-                    && signed_bid.message().parent_block_hash().into_root().is_zero()
+                    && signed_bid
+                        .message()
+                        .parent_block_hash()
+                        .into_root()
+                        .is_zero()
                     && signed_bid.message().block_hash().into_root().is_zero()
                 {
                     *anchor_state

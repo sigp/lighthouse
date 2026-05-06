@@ -174,19 +174,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> InclusionListService<S
                     let il_offset = slot_duration * il_due_fraction / 10000;
 
                     // Compute the target slot (the slot we'll be in after waiting)
-                    let target_slot = self
-                        .slot_clock
-                        .now()
-                        .map(|s| s + 1)
-                        .unwrap_or_default();
+                    let target_slot = self.slot_clock.now().map(|s| s + 1).unwrap_or_default();
 
                     // Race: wait for either the IL deadline or a payload envelope event
                     // for the target slot.
-                    self.wait_for_il_trigger(
-                        duration_to_next_slot + il_offset,
-                        target_slot,
-                    )
-                    .await;
+                    self.wait_for_il_trigger(duration_to_next_slot + il_offset, target_slot)
+                        .await;
 
                     if let Err(e) = self.spawn_inclusion_list_task(slot_duration, &chain_spec) {
                         crit!(

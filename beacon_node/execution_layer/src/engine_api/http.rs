@@ -758,7 +758,10 @@ impl HttpJsonRpc {
 
     pub async fn update_payload_with_inclusion_list<E: EthSpec>(&self) {}
 
-    pub async fn get_inclusion_list<E: EthSpec>(&self, parent_hash: ExecutionBlockHash) -> Result<Option<Vec<String>>, Error> {
+    pub async fn get_inclusion_list<E: EthSpec>(
+        &self,
+        parent_hash: ExecutionBlockHash,
+    ) -> Result<Option<Vec<String>>, Error> {
         let params = json!([parent_hash]);
 
         self.rpc_request(
@@ -1645,7 +1648,8 @@ impl HttpJsonRpc {
                 if new_payload_request_gloas.is_heze_fork {
                     // Force V6 for Heze blocks — Besu supports it but capability
                     // detection may not pick it up from exchangeCapabilities.
-                    self.new_payload_v6_from_gloas(new_payload_request_gloas).await
+                    self.new_payload_v6_from_gloas(new_payload_request_gloas)
+                        .await
                 } else if engine_capabilities.new_payload_v5 {
                     self.new_payload_v5_gloas(new_payload_request_gloas).await
                 } else {
