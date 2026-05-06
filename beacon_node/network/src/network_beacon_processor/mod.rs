@@ -976,9 +976,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Fetch blobs completed without import"
                 );
             }
-            Err(FetchEngineBlobError::BlobProcessingError(e))
-                if matches!(*e, BlockError::DuplicateFullyImported(..)) =>
-            {
+            Err(FetchEngineBlobError::BlobProcessingError(BlockError::DuplicateFullyImported(
+                ..,
+            ))) => {
                 debug!(
                     %block_root,
                     "Fetch blobs duplicate import"

@@ -50,7 +50,7 @@ pub enum EngineGetBlobsOutput<T: BeaconChainTypes> {
 pub enum FetchEngineBlobError {
     BeaconStateError(BeaconStateError),
     BeaconChainError(Box<BeaconChainError>),
-    BlobProcessingError(Box<BlockError>),
+    BlobProcessingError(BlockError),
     BlobSidecarError(BlobSidecarError),
     DataColumnSidecarError(DataColumnSidecarError),
     ExecutionLayerMissing,
