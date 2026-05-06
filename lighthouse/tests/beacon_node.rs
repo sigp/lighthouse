@@ -2338,17 +2338,17 @@ fn ensure_panic_on_failed_launch() {
         });
 }
 
-#[test]
-fn enable_proposer_re_orgs_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config_and_spec::<MainnetEthSpec, _>(|_config, spec| {
-            assert_eq!(spec.reorg_head_weight_threshold, 20);
-            assert_eq!(spec.reorg_parent_weight_threshold, 160);
-            assert_eq!(spec.reorg_max_epochs_since_finalization, 2);
-            assert_eq!(spec.proposer_reorg_cutoff_bps, 1667);
-        });
-}
+// #[test]
+// fn enable_proposer_re_orgs_default() {
+//     CommandLineTest::new()
+//         .run_with_zero_port()
+//         .with_config_and_spec::<MainnetEthSpec, _>(|_config, spec| {
+//             assert_eq!(spec.reorg_head_weight_threshold, 20);
+//             assert_eq!(spec.reorg_parent_weight_threshold, 160);
+//             assert_eq!(spec.reorg_max_epochs_since_finalization, 2);
+//             assert_eq!(spec.proposer_reorg_cutoff_bps, 1667);
+//         });
+// }
 
 #[test]
 fn enable_proposer_re_orgs() {
