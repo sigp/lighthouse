@@ -175,16 +175,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         head_slot: Slot,
         canonical_head: Hash256,
     ) -> Option<(BeaconState<T::EthSpec>, Hash256)> {
-        let re_org_head_threshold = self.spec.reorg_head_weight_threshold.map(ReOrgThreshold)?;
-        let re_org_parent_threshold = self
-            .spec
-            .reorg_parent_weight_threshold
-            .map(ReOrgThreshold)?;
-        let re_org_max_epochs_since_finalization = self
-            .spec
-            .reorg_max_epochs_since_finalization
-            .map(Epoch::new)
-            .unwrap_or(Epoch::new(2));
+        let re_org_head_threshold = ReOrgThreshold(self.spec.reorg_head_weight_threshold);
+        let re_org_parent_threshold = ReOrgThreshold(self.spec.reorg_parent_weight_threshold);
+        let re_org_max_epochs_since_finalization =
+            Epoch::new(self.spec.reorg_max_epochs_since_finalization);
 
         if self.spec.proposer_score_boost.is_none() {
             warn!(

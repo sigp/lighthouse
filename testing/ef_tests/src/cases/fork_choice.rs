@@ -968,19 +968,10 @@ impl<E: EthSpec> Tester<E> {
         let proposer_head_result = fc.get_proposer_head(
             slot,
             canonical_head,
-            self.spec
-                .reorg_head_weight_threshold
-                .map(ReOrgThreshold)
-                .unwrap(),
-            self.spec
-                .reorg_parent_weight_threshold
-                .map(ReOrgThreshold)
-                .unwrap(),
+            ReOrgThreshold(self.spec.reorg_head_weight_threshold),
+            ReOrgThreshold(self.spec.reorg_parent_weight_threshold),
             &DisallowedReOrgOffsets::default(),
-            self.spec
-                .reorg_max_epochs_since_finalization
-                .map(Epoch::new)
-                .unwrap(),
+            Epoch::new(self.spec.reorg_max_epochs_since_finalization),
         );
         let proposer_head = match proposer_head_result {
             Ok(head) => head.parent_node.root(),

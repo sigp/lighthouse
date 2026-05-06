@@ -5113,23 +5113,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_OVERRIDE_FCU_TIMES);
 
         // Never override if proposer re-orgs are disabled.
-        let re_org_head_threshold = self
-            .spec
-            .reorg_head_weight_threshold
-            .map(ReOrgThreshold)
-            .ok_or(Box::new(DoNotReOrg::ReOrgsDisabled.into()))?;
+        if self.config.disable_proposer_reorg {
+            return Err(Box::new(DoNotReOrg::ReOrgsDisabled.into()));
+        };
 
-        let re_org_parent_threshold = self
-            .spec
-            .reorg_parent_weight_threshold
-            .map(ReOrgThreshold)
-            .ok_or(Box::new(DoNotReOrg::ReOrgsDisabled.into()))?;
-
-        let re_org_max_epochs_since_finalization = self
-            .spec
-            .reorg_max_epochs_since_finalization
-            .map(Epoch::new)
-            .unwrap_or(Epoch::new(2));
+        let re_org_head_threshold = ReOrgThreshold(self.spec.reorg_head_weight_threshold);
+        let re_org_parent_threshold = ReOrgThreshold(self.spec.reorg_parent_weight_threshold);
+        let re_org_max_epochs_since_finalization =
+            Epoch::new(self.spec.reorg_max_epochs_since_finalization);
 
         let head_block_root = canonical_forkchoice_params.head_root;
 
@@ -5155,6 +5146,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If a re-orging proposal isn't made by the `re_org_cutoff` then we give up
         // and allow the fork choice update for the canonical head through so that we may attest
         // correctly.
+
         let current_slot_ok = if head_slot == fork_choice_slot {
             true
         } else if re_org_block_slot == fork_choice_slot {

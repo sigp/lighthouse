@@ -112,6 +112,8 @@ pub struct ChainConfig {
     pub enable_partial_columns: bool,
     /// The node's custody type, determining how many data columns to custody and sample.
     pub node_custody_type: NodeCustodyType,
+    /// Disable proposer re-org
+    pub disable_proposer_reorg: bool,
 }
 
 impl Default for ChainConfig {
@@ -151,6 +153,7 @@ impl Default for ChainConfig {
             disable_get_blobs: false,
             enable_partial_columns: false,
             node_custody_type: NodeCustodyType::Fullnode,
+            disable_proposer_reorg: false,
         }
     }
 }
