@@ -398,6 +398,11 @@ pub async fn proposer_boost_re_org_test(
     // `Eth-Execution-Payload-Blinded` header for Gloas block production responses.
     let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
 
+    assert_eq!(spec.reorg_head_weight_threshold, 20);
+    assert_eq!(spec.reorg_parent_weight_threshold, 160);
+    assert_eq!(spec.reorg_max_epochs_since_finalization, 2);
+    assert_eq!(spec.proposer_reorg_cutoff_bps, 1667);
+
     // Ensure there are enough validators to have `attesters_per_slot`.
     let attesters_per_slot = 10;
     let validator_count = E::slots_per_epoch() as usize * attesters_per_slot;
