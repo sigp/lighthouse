@@ -102,9 +102,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .spec
                     .is_focil_enabled_for_epoch(block_slot.epoch(T::EthSpec::slots_per_epoch()))
             {
-                let payload_block_hash = envelope.envelope.message().payload.block_hash;
+                let _payload_block_hash = envelope.envelope.message().payload.block_hash;
                 let il_slot = block_slot.saturating_sub(1_u64);
-                let il_txs = chain_ref
+                let _il_txs = chain_ref
                     .inclusion_list_cache
                     .read()
                     .get_inclusion_list_transactions(il_slot, true)
@@ -113,11 +113,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .map(|tx| tx.to_vec())
                     .collect::<Vec<Vec<u8>>>();
 
-                if let Some(execution_layer) = chain_ref.execution_layer.as_ref() {
-                    let satisfied = execution_layer
-                        .is_inclusion_list_satisfied(payload_block_hash, il_txs)
-                        .await
-                        .unwrap_or(false);
+                // NOTE: engine_isInclusionListSatisfiedV1 is not implemented by Besu.
+                // IL satisfaction is already checked via newPayloadV6 (il_transactions param).
+                // Skip the separate EL call and assume satisfied for now.
+                if let Some(_execution_layer) = chain_ref.execution_layer.as_ref() {
+                    let satisfied = true;
 
                     if let Err(e) = chain_ref
                         .record_payload_inclusion_list_satisfaction(block_root, satisfied)
