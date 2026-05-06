@@ -329,7 +329,7 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
         subnet_id: DataColumnSubnetId,
         chain: &BeaconChain<T>,
     ) -> Result<Self, GossipDataColumnError> {
-        match column_sidecar.as_ref() {
+        let data_column = match column_sidecar.as_ref() {
             DataColumnSidecar::Fulu(column_sidecar_fulu) => {
                 let header = &column_sidecar_fulu.signed_block_header;
                 // We only process slashing info if the gossip verification failed
@@ -344,23 +344,18 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
                         chain,
                         BlockSlashInfo::from_early_error_data_column(header.clone(), e),
                     )
-                })?;
+                })?
             }
-            DataColumnSidecar::Gloas(_) => {
-                validate_data_column_sidecar_for_gossip_gloas::<T, O>(
-                    column_sidecar.clone(),
-                    subnet_id,
-                    chain,
-                )?;
-            }
-        }
+            DataColumnSidecar::Gloas(_) => validate_data_column_sidecar_for_gossip_gloas::<T, O>(
+                column_sidecar.clone(),
+                subnet_id,
+                chain,
+            )?,
+        };
 
         Ok(GossipVerifiedDataColumn {
             block_root: column_sidecar.block_root(),
-            data_column: KzgVerifiedDataColumn {
-                data: column_sidecar,
-                seen_timestamp: chain.slot_clock.now_duration().unwrap_or_default(),
-            },
+            data_column,
             _phantom: PhantomData,
         })
     }
@@ -994,7 +989,7 @@ pub fn validate_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes, O: Obse
     data_column: Arc<DataColumnSidecar<T::EthSpec>>,
     subnet: DataColumnSubnetId,
     chain: &BeaconChain<T>,
-) -> Result<(), GossipDataColumnError> {
+) -> Result<KzgVerifiedDataColumn<T::EthSpec>, GossipDataColumnError> {
     let DataColumnSidecar::Fulu(data_column_fulu) = data_column.as_ref() else {
         return Err(GossipDataColumnError::InvalidVariant);
     };
@@ -1046,7 +1041,7 @@ pub fn validate_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes, O: Obse
     verify_slot_higher_than_parent(&parent_block, column_slot)?;
     verify_proposer_and_signature(&data_column_fulu.signed_block_header, &parent_block, chain)?;
 
-    verify_kzg_for_data_column(
+    let kzg_verified = verify_kzg_for_data_column(
         data_column.clone(),
         cells_to_kzg_verify,
         &chain.kzg,
@@ -1068,7 +1063,7 @@ pub fn validate_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes, O: Obse
         observe_gossip_data_column(&data_column, chain)?;
     }
 
-    Ok(())
+    Ok(kzg_verified)
 }
 
 #[instrument(
@@ -1083,7 +1078,7 @@ pub fn validate_data_column_sidecar_for_gossip_gloas<
     data_column: Arc<DataColumnSidecar<T::EthSpec>>,
     subnet: DataColumnSubnetId,
     chain: &BeaconChain<T>,
-) -> Result<(), GossipDataColumnError> {
+) -> Result<KzgVerifiedDataColumn<T::EthSpec>, GossipDataColumnError> {
     let DataColumnSidecar::Gloas(_) = data_column.as_ref() else {
         return Err(GossipDataColumnError::InvalidVariant);
     };
@@ -1129,7 +1124,7 @@ pub fn validate_data_column_sidecar_for_gossip_gloas<
 
     let kzg = &chain.kzg;
     let seen_timestamp = chain.slot_clock.now_duration().unwrap_or_default();
-    verify_kzg_for_data_column_with_commitments(
+    let kzg_verified = verify_kzg_for_data_column_with_commitments(
         data_column.clone(),
         cells_to_kzg_verify,
         kzg_commitments.as_ref(),
@@ -1142,7 +1137,7 @@ pub fn validate_data_column_sidecar_for_gossip_gloas<
         observe_gossip_data_column(&data_column, chain)?;
     }
 
-    Ok(())
+    Ok(kzg_verified)
 }
 
 #[instrument(skip_all, level = "debug")]
