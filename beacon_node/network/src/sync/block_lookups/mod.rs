@@ -662,12 +662,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         "Envelope processed, transitioning to custody column lookup"
                     );
                     let lookup_result = lookup.continue_requests(cx);
-                    self.on_lookup_result(
-                        id,
-                        lookup_result,
-                        "envelope_to_custody_transition",
-                        cx,
-                    );
+                    self.on_lookup_result(id, lookup_result, "envelope_to_custody_transition", cx);
                     return;
                 }
 
