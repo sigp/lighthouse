@@ -383,6 +383,19 @@ impl EraFileDir {
             .get_block_root(last_block_slot)
             .map_err(|e| format!("failed to read head block root: {e:?}"))?;
 
+        // Update the anchor in memory first so `hot_storage_strategy` treats `head_slot` as the
+        // hierarchy start when storing the head state below; the kv-op is included in the
+        // atomic batch at the end of this function for crash-consistent persistence.
+        let old_anchor = store.get_anchor_info();
+        let mut new_anchor = old_anchor.clone();
+        new_anchor.anchor_slot = head_slot;
+        new_anchor.state_lower_limit = Slot::new(0);
+        new_anchor.state_upper_limit = Slot::new(0);
+        new_anchor.oldest_block_slot = Slot::new(0);
+        let anchor_op = store
+            .compare_and_set_anchor_info(old_anchor, new_anchor)
+            .map_err(|e| format!("failed to update anchor: {e:?}"))?;
+
         // Set split at the ERA boundary (in memory; persisted atomically below)
         store.set_split(head_slot, head_state_root, head_block_root);
 
@@ -434,19 +447,7 @@ impl EraFileDir {
 
         // Persist anchor, split, and fork choice atomically to avoid inconsistent
         // on-disk state if the process crashes mid-write.
-        let old_anchor = store.get_anchor_info();
-        let mut new_anchor = old_anchor.clone();
-        new_anchor.anchor_slot = head_slot;
-        new_anchor.state_lower_limit = Slot::new(0);
-        new_anchor.state_upper_limit = Slot::new(0);
-        new_anchor.oldest_block_slot = Slot::new(0);
-
-        let mut batch = vec![];
-        batch.push(
-            store
-                .compare_and_set_anchor_info(old_anchor, new_anchor)
-                .map_err(|e| format!("failed to update anchor: {e:?}"))?,
-        );
+        let mut batch = vec![anchor_op];
         batch.push(store.store_split_in_batch());
         let persisted_fork_choice = PersistedForkChoice {
             fork_choice: fork_choice.to_persisted(),
