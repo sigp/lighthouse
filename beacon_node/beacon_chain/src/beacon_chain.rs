@@ -3060,7 +3060,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 //
                 // Note that `check_block_relevancy` is incapable of returning
                 // `DuplicateImportStatusUnknown` so we don't need to handle that case here.
-                Err(BlockError::DuplicateFullyImported(_)) => continue,
+                Err(BlockError::DuplicateFullyImported(_)) => {
+                    debug!(
+                        block_root = %block_root,
+                        slot = %block.slot(),
+                        "Skipping DuplicateFullyImported block in chain segment",
+                    );
+                    // For Gloas blocks, persist the envelope even though we're
+                    // skipping the block. After checkpoint sync, blocks between
+                    // the finalized checkpoint and the head are already in fork
+                    // choice but their envelopes aren't in the store.
+                    if let RangeSyncBlock::Gloas {
+                        envelope: Some(ref available_envelope),
+                        ..
+                    } = block
+                    {
+                        let (signed_envelope, _columns) = available_envelope.clone().deconstruct();
+                        if let Err(e) = self
+                            .store
+                            .put_payload_envelope(&block_root, &signed_envelope)
+                        {
+                            return Err(Box::new(ChainSegmentResult::Failed {
+                                imported_blocks,
+                                error: BlockError::BeaconChainError(Box::new(e.into())),
+                            }));
+                        }
+                    }
+                    continue;
+                }
                 // If the block is the genesis block, simply ignore this block.
                 Err(BlockError::GenesisBlock) => continue,
                 // If the block is is for a finalized slot, simply ignore this block.
@@ -3077,6 +3104,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // However, we will potentially get a `ParentUnknown` on a later block. The sync
                 // protocol will need to ensure this is handled gracefully.
                 Err(BlockError::WouldRevertFinalizedSlot { .. }) => {
+                    debug!(
+                        block_root = %block_root,
+                        slot = %block.slot(),
+                        "Skipping WouldRevertFinalizedSlot block in chain segment",
+                    );
                     // For Gloas blocks, persist the envelope even though we're skipping
                     // the block. This is needed after checkpoint sync: the checkpoint
                     // block's envelope must be in the store so that `load_parent` can

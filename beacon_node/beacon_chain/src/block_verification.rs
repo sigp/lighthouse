@@ -2054,10 +2054,25 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
             .gloas_enabled()
             && parent_block.slot() > finalized_slot
         {
-            let _envelope = chain
-                .store
-                .get_payload_envelope(&root)?
-                .ok_or(BlockError::ParentEnvelopeUnknown { parent_root: root })?;
+            let in_store = chain.store.get_payload_envelope(&root)?.is_some();
+            if !in_store {
+                // If the parent is already in fork choice it was previously imported.
+                // Its envelope may not be in the store if PayloadEnvelopesByRange
+                // didn't return it, but the block itself is valid and trusted.
+                let in_fork_choice = chain
+                    .canonical_head
+                    .fork_choice_read_lock()
+                    .contains_block(&root);
+                if !in_fork_choice {
+                    debug!(
+                        parent_root = %root,
+                        parent_slot = %parent_block.slot(),
+                        %finalized_slot,
+                        "load_parent: parent envelope not in store and not in fork choice",
+                    );
+                    return Err(BlockError::ParentEnvelopeUnknown { parent_root: root });
+                }
+            }
         }
 
         // Load the parent block's state from the database, returning an error if it is not found.
