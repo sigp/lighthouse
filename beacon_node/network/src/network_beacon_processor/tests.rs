@@ -9,6 +9,7 @@ use crate::{
     sync::{SyncMessage, manager::BlockProcessType},
 };
 use beacon_chain::block_verification_types::LookupBlock;
+use beacon_chain::chain_config::ChainConfig;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::data_column_verification::validate_data_column_sidecar_for_gossip_fulu;
 use beacon_chain::kzg_utils::blobs_to_data_column_sidecars;
@@ -105,6 +106,7 @@ impl TestRig {
             chain_length,
             BeaconProcessorConfig::default(),
             NodeCustodyType::Fullnode,
+            <_>::default(),
             spec,
         )
         .await
@@ -118,6 +120,7 @@ impl TestRig {
             chain_length,
             BeaconProcessorConfig::default(),
             NodeCustodyType::Supernode,
+            <_>::default(),
             spec,
         )
         .await
@@ -160,6 +163,7 @@ impl TestRig {
         chain_length: u64,
         beacon_processor_config: BeaconProcessorConfig,
         node_custody_type: NodeCustodyType,
+        chain_config: ChainConfig,
         spec: ChainSpec,
     ) -> Self {
         let spec = Arc::new(spec);
@@ -169,7 +173,7 @@ impl TestRig {
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .node_custody_type(node_custody_type)
-            .chain_config(<_>::default())
+            .chain_config(chain_config)
             .build();
 
         harness.advance_slot();
@@ -1687,6 +1691,7 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
         SMALL_CHAIN,
         beacon_processor_config,
         NodeCustodyType::Fullnode,
+        <_>::default(),
         test_spec::<E>(),
     )
     .await;
@@ -1773,6 +1778,7 @@ async fn test_blobs_by_range_spans_fulu_fork() {
         62,
         BeaconProcessorConfig::default(),
         NodeCustodyType::Fullnode,
+        <_>::default(),
         spec,
     )
     .await;
@@ -1933,11 +1939,27 @@ async fn test_blobs_by_root_post_fulu_should_return_empty() {
 /// Ensure that data column processing that results in block import sends a sync notification
 #[tokio::test]
 async fn test_data_column_import_notifies_sync() {
-    if test_spec::<E>().fulu_fork_epoch.is_none() {
+    let spec = test_spec::<E>();
+    if spec.fulu_fork_epoch.is_none() {
         return;
     }
 
-    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    // Disable EL blob fetching so data columns are ALWAYS the ones to trigger block import.
+    let mut spec = spec;
+    spec.shard_committee_period = 2;
+    let chain_config = ChainConfig {
+        disable_get_blobs: true,
+        ..Default::default()
+    };
+
+    let mut rig = TestRig::new_parametric(
+        SMALL_CHAIN,
+        BeaconProcessorConfig::default(),
+        NodeCustodyType::Fullnode,
+        chain_config,
+        spec,
+    )
+    .await;
     let block_root = rig.next_block.canonical_root();
 
     // Enqueue the block first to prepare for data column processing
