@@ -555,13 +555,10 @@ pub fn process_parent_execution_payload<E: EthSpec, Payload: AbstractExecPayload
         .signed_execution_payload_bid()?
         .message
         .parent_block_hash;
-    let parent_bid = state.latest_execution_payload_bid()?.clone();
+    let parent_bid = state.latest_execution_payload_bid()?;
     let requests = block.body().parent_execution_requests()?;
 
-    let is_genesis_block = parent_bid.block_hash == ExecutionBlockHash::zero();
-    let is_parent_block_empty = bid_parent_block_hash != parent_bid.block_hash;
-
-    if is_genesis_block || is_parent_block_empty {
+    if bid_parent_block_hash != parent_bid.block_hash {
         // Parent was EMPTY -- no execution requests expected
         block_verify!(
             *requests == ExecutionRequests::default(),
@@ -580,7 +577,7 @@ pub fn process_parent_execution_payload<E: EthSpec, Payload: AbstractExecPayload
         }
     );
 
-    apply_parent_execution_payload(state, &parent_bid, requests, spec)
+    apply_parent_execution_payload(state, requests, spec)
 }
 
 /// Apply the parent execution payload's deferred effects to the state.
@@ -591,10 +588,10 @@ pub fn process_parent_execution_payload<E: EthSpec, Payload: AbstractExecPayload
 /// 3. Updates `execution_payload_availability` and `latest_block_hash`
 pub fn apply_parent_execution_payload<E: EthSpec>(
     state: &mut BeaconState<E>,
-    parent_bid: &ExecutionPayloadBid<E>,
     requests: &ExecutionRequests<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    let parent_bid = state.latest_execution_payload_bid()?.clone();
     let parent_slot = parent_bid.slot;
     let parent_epoch = parent_slot.epoch(E::slots_per_epoch());
 

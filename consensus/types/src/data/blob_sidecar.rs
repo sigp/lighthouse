@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, RuntimeFixedVector, RuntimeVariableList, VariableList};
-use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
@@ -19,13 +18,12 @@ use crate::{
     block::{
         BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, SignedBeaconBlock, SignedBeaconBlockHeader,
     },
+    complete_kzg_commitment_merkle_proof,
     core::{ChainSpec, Epoch, EthSpec, Hash256, Slot},
-    data::Blob,
-    execution::AbstractExecPayload,
+    data::{Blob, PartialDataColumnHeader},
     fork::ForkName,
     kzg_ext::KzgProofs,
     state::BeaconStateError,
-    test_utils::TestRandom,
 };
 
 /// Container of the data that identifies an individual blob.
@@ -55,7 +53,7 @@ impl Ord for BlobIdentifier {
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Educe)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, Educe)]
 #[context_deserialize(ForkName)]
 #[serde(bound = "E: EthSpec")]
 #[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]
@@ -140,33 +138,29 @@ impl<E: EthSpec> BlobSidecar<E> {
         })
     }
 
-    pub fn new_with_existing_proof<Payload: AbstractExecPayload<E>>(
+    pub fn new_with_existing_proof<T: TryInto<PartialDataColumnHeader<E>>>(
         index: usize,
         blob: Blob<E>,
-        signed_block: &SignedBeaconBlock<E, Payload>,
-        signed_block_header: SignedBeaconBlockHeader,
-        kzg_commitments_inclusion_proof: &[Hash256],
+        header: T,
         kzg_proof: KzgProof,
     ) -> Result<Self, BlobSidecarError> {
-        let expected_kzg_commitments = signed_block
-            .message()
-            .body()
-            .blob_kzg_commitments()
-            .map_err(|_e| BlobSidecarError::PreDeneb)?;
-        let kzg_commitment = *expected_kzg_commitments
+        let header = header.try_into().map_err(|_| BlobSidecarError::PreDeneb)?;
+        let kzg_commitment = *header
+            .kzg_commitments
             .get(index)
             .ok_or(BlobSidecarError::MissingKzgCommitment)?;
-        let kzg_commitment_inclusion_proof = signed_block
-            .message()
-            .body()
-            .complete_kzg_commitment_merkle_proof(index, kzg_commitments_inclusion_proof)?;
+        let kzg_commitment_inclusion_proof = complete_kzg_commitment_merkle_proof::<E>(
+            &header.kzg_commitments,
+            index,
+            &header.kzg_commitments_inclusion_proof,
+        )?;
 
         Ok(Self {
             index: index as u64,
             blob,
             kzg_commitment,
             kzg_proof,
-            signed_block_header,
+            signed_block_header: header.signed_block_header,
             kzg_commitment_inclusion_proof,
         })
     }

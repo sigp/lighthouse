@@ -340,6 +340,10 @@ impl<T, E> SszStaticHandler<T, E> {
     pub fn pre_electra() -> Self {
         Self::for_forks(ForkName::list_all()[0..5].to_vec())
     }
+
+    pub fn pre_capella() -> Self {
+        Self::for_forks(ForkName::list_all()[0..3].to_vec())
+    }
 }
 
 /// Handler for SSZ types that implement `CachedTreeHash`.

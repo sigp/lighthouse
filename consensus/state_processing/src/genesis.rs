@@ -175,13 +175,11 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         bid.parent_block_hash = el_genesis_hash;
         bid.block_hash = ExecutionBlockHash::default();
 
-        // Update latest_block_header to reflect the Gloas genesis block body which contains
-        // the EL genesis hash in the signed_execution_payload_bid. This is needed because
-        // BeaconState::new() created the header from BeaconBlock::empty() which has zero bid
-        // fields, but the spec requires the genesis block's bid to contain the EL block hash
-        // and the tree hash root of empty ExecutionRequests.
-        let block = genesis_block(&state, spec)?;
-        state.latest_block_header_mut().body_root = block.body_root();
+        // Update the `latest_block_header.body_root` so that it matches the body of the
+        // Gloas genesis block, which embeds `state.latest_execution_payload_bid` in its
+        // `signed_execution_payload_bid` field (see `genesis_block`).
+        let genesis_body_root = genesis_block(&state, spec)?.body_root();
+        state.latest_block_header_mut().body_root = genesis_body_root;
     }
 
     // Now that we have our validators, initialize the caches (including the committees)
@@ -193,24 +191,23 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
     Ok(state)
 }
 
-/// Create an unsigned genesis `BeaconBlock` whose body matches the genesis state.
+/// Create an unsigned genesis `BeaconBlock`.
 ///
-/// For Gloas, the block's `signed_execution_payload_bid` is populated from the state's
-/// `latest_execution_payload_bid` so that the body root is consistent with
-/// `state.latest_block_header.body_root`.
+/// Per spec, the genesis block body is empty (all default fields) except for Gloas,
+/// where `body.signed_execution_payload_bid.message` is initialised from
+/// `state.latest_execution_payload_bid` so that the first post-genesis proposer can
+/// build on the correct execution layer head.
 ///
-/// The returned block has `state_root == Hash256::ZERO`; callers that need the real
-/// state root should set it themselves.
+/// `state.latest_block_header.body_root` is set from this same block's body, so the
+/// two must stay in sync.
 pub fn genesis_block<E: EthSpec>(
-    genesis_state: &BeaconState<E>,
+    state: &BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<BeaconBlock<E>, BeaconStateError> {
     let mut block = BeaconBlock::empty(spec);
-    if let Ok(block) = block.as_gloas_mut() {
-        let state_bid = genesis_state.latest_execution_payload_bid()?;
-        let bid = &mut block.body.signed_execution_payload_bid.message;
-        bid.block_hash = state_bid.block_hash;
-        bid.execution_requests_root = state_bid.execution_requests_root;
+    if let BeaconBlock::Gloas(ref mut gloas_block) = block {
+        let bid = state.latest_execution_payload_bid()?.clone();
+        gloas_block.body.signed_execution_payload_bid.message = bid;
     }
     Ok(block)
 }

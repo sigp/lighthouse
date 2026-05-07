@@ -18,7 +18,7 @@ use tokio_util::codec::{Decoder, Encoder};
 use types::SignedExecutionPayloadEnvelope;
 use types::{
     BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EthSpec, ForkContext,
-    ForkName, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
+    ForkName, ForkVersionDecode, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock, SignedBeaconBlockAltair,
     SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
     SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockFulu,
@@ -77,6 +77,7 @@ impl<E: EthSpec> SSZSnappyInboundCodec<E> {
                 },
                 RpcSuccessResponse::BlocksByRange(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
+                RpcSuccessResponse::BlocksByHead(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::PayloadEnvelopesByRange(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::PayloadEnvelopesByRoot(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::BlobsByRange(res) => res.as_ssz_bytes(),
@@ -359,6 +360,7 @@ impl<E: EthSpec> Encoder<RequestType<E>> for SSZSnappyOutboundCodec<E> {
                 BlocksByRootRequest::V1(req) => req.block_roots.as_ssz_bytes(),
                 BlocksByRootRequest::V2(req) => req.block_roots.as_ssz_bytes(),
             },
+            RequestType::BlocksByHead(req) => req.as_ssz_bytes(),
             RequestType::PayloadEnvelopesByRange(req) => req.as_ssz_bytes(),
             RequestType::PayloadEnvelopesByRoot(req) => req.beacon_block_roots.as_ssz_bytes(),
             RequestType::BlobsByRange(req) => req.as_ssz_bytes(),
@@ -552,6 +554,9 @@ fn handle_rpc_request<E: EthSpec>(
                     spec.max_request_blocks(current_fork),
                 )?,
             }),
+        ))),
+        SupportedProtocol::BlocksByHeadV1 => Ok(Some(RequestType::BlocksByHead(
+            BlocksByHeadRequest::from_ssz_bytes(decoded_buffer)?,
         ))),
         SupportedProtocol::PayloadEnvelopesByRangeV1 => {
             Ok(Some(RequestType::PayloadEnvelopesByRange(
@@ -943,6 +948,18 @@ fn handle_rpc_response<E: EthSpec>(
                 ),
             )),
         },
+        SupportedProtocol::BlocksByHeadV1 => match fork_name {
+            Some(fork_name) => Ok(Some(RpcSuccessResponse::BlocksByHead(Arc::new(
+                SignedBeaconBlock::from_ssz_bytes_by_fork(decoded_buffer, fork_name)?,
+            )))),
+            None => Err(RPCError::ErrorResponse(
+                RpcErrorResponse::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
     }
 }
 
@@ -1318,6 +1335,9 @@ mod tests {
             }
             RequestType::BlocksByRoot(bbroot) => {
                 assert_eq!(decoded, RequestType::BlocksByRoot(bbroot))
+            }
+            RequestType::BlocksByHead(bbhead) => {
+                assert_eq!(decoded, RequestType::BlocksByHead(bbhead))
             }
             RequestType::BlobsByRange(blbrange) => {
                 assert_eq!(decoded, RequestType::BlobsByRange(blbrange))
@@ -1867,6 +1887,31 @@ mod tests {
         );
     }
 
+    // BlocksByHead is introduced in Fulu but the response is just `SignedBeaconBlock`,
+    // so the codec must accept blocks of any fork variant — the chain a Fulu peer walks
+    // back may straddle the Fulu boundary and include pre-Fulu canonical blocks.
+    #[test]
+    fn test_blocks_by_head_decodes_all_forks() {
+        let chain_spec = spec_with_all_forks_enabled();
+        for (block, fork) in [
+            (empty_base_block(&chain_spec), ForkName::Base),
+            (altair_block(&chain_spec), ForkName::Altair),
+            (bellatrix_block_small(&chain_spec), ForkName::Bellatrix),
+        ] {
+            let block_arc = Arc::new(block);
+            assert_eq!(
+                encode_then_decode_response(
+                    SupportedProtocol::BlocksByHeadV1,
+                    RpcResponse::Success(RpcSuccessResponse::BlocksByHead(block_arc.clone())),
+                    fork,
+                    &chain_spec,
+                ),
+                Ok(Some(RpcSuccessResponse::BlocksByHead(block_arc))),
+                "BlocksByHeadV1 must round-trip a {fork} block"
+            );
+        }
+    }
+
     // Test RPCResponse encoding/decoding for V2 messages
     #[test]
     fn test_context_bytes_v2() {
@@ -2063,6 +2108,10 @@ mod tests {
             RequestType::BlobsByRange(blbrange_request()),
             RequestType::DataColumnsByRange(dcbrange_request()),
             RequestType::MetaData(MetadataRequest::new_v2()),
+            RequestType::BlocksByHead(BlocksByHeadRequest {
+                beacon_root: Hash256::zero(),
+                count: 32,
+            }),
         ];
         for req in requests.iter() {
             for fork_name in ForkName::list_all() {

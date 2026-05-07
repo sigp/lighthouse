@@ -42,7 +42,6 @@ members = [
     "common/system_health",
     "common/target_check",
     "common/task_executor",
-    "common/test_random_derive",
     "common/tracing_samplers",
     "common/validator_dir",
     "common/warp_utils",
@@ -200,6 +199,7 @@ proto_array = { path = "consensus/proto_array" }
 quote = "1"
 r2d2 = "0.8"
 rand = "0.9.0"
+rand_xorshift = "0.4.0"
 rayon = "1.7"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "stream", "rustls-tls"] }
@@ -276,6 +276,3 @@ debug = true
 [patch.crates-io]
 quick-protobuf = { git = "https://github.com/sigp/quick-protobuf.git", rev = "87c4ccb9bb2af494de375f5f6c62850badd26304" }
 
-[patch."https://github.com/libp2p/rust-libp2p.git"]
-libp2p = { git = "https://github.com/sigp/rust-libp2p.git", rev = "defcaf1a78cf5b70a723b3fee0e0be051c1dbd88" }
-libp2p-mplex = { git = "https://github.com/sigp/rust-libp2p.git", rev = "defcaf1a78cf5b70a723b3fee0e0be051c1dbd88" }

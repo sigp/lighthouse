@@ -5,8 +5,7 @@ This file provides guidance for AI assistants (Claude Code, Codex, etc.) working
 ## CRITICAL - Always Follow
 
 After completing ANY code changes:
-1. **MUST** run `cargo fmt --all && make lint-fix` to format and fix linting issues
-2. **MUST** run `cargo check` to verify compilation before considering task complete
+1. **MUST** run `cargo check` to verify compilation before considering task complete
 
 Run `make install-hooks` if you have not already to install git hooks. Never skip git hooks. If cargo is not available install the toolchain.
 

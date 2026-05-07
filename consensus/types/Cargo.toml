@@ -45,7 +45,7 @@ metastruct = "0.1.0"
 milhouse = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
-rand_xorshift = "0.4.0"
+rand_xorshift = { workspace = true }
 rayon = { workspace = true }
 regex = { workspace = true }
 rpds = { workspace = true }
@@ -58,7 +58,6 @@ ssz_types = { workspace = true }
 superstruct = { workspace = true }
 swap_or_not_shuffle = { workspace = true }
 tempfile = { workspace = true }
-test_random_derive = { path = "../../common/test_random_derive" }
 tracing = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
@@ -71,6 +70,7 @@ criterion = { workspace = true }
 paste = { workspace = true }
 state_processing = { workspace = true }
 tokio = { workspace = true }
+types = { path = ".", features = ["arbitrary"] }
 
 [lints.clippy]
 module_inception = "allow"

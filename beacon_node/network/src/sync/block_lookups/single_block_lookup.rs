@@ -579,7 +579,9 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     pub fn add_child_components(&mut self, block_component: BlockComponent<T::EthSpec>) -> bool {
         match block_component {
             BlockComponent::Block(block) => self.block_request.insert_verified_response(block),
-            BlockComponent::Blob(_) | BlockComponent::DataColumn(_) => {
+            BlockComponent::Blob(_)
+            | BlockComponent::DataColumn(_)
+            | BlockComponent::PartialDataColumn(_) => {
                 // For now ignore single blobs and columns, as the blob request state assumes all
                 // blobs are attributed to the same peer = the peer serving the remaining blobs.
                 false

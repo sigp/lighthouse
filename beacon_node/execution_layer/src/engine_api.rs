@@ -596,6 +596,7 @@ pub struct EngineCapabilities {
     pub get_client_version_v1: bool,
     pub get_blobs_v1: bool,
     pub get_blobs_v2: bool,
+    pub get_blobs_v3: bool,
 }
 
 impl EngineCapabilities {

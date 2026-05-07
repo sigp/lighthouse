@@ -1,7 +1,7 @@
 use super::*;
 use alloy_rlp::RlpEncodable;
 use serde::{Deserialize, Serialize};
-use ssz::{Decode, TryFromIter};
+use ssz::{Decode, Encode, TryFromIter};
 use ssz_types::{FixedVector, VariableList, typenum::Unsigned};
 use strum::EnumString;
 use superstruct::superstruct;
@@ -481,6 +481,34 @@ pub enum RequestsError {
 #[serde(transparent)]
 pub struct JsonExecutionRequests(pub Vec<String>);
 
+impl<E: EthSpec> From<ExecutionRequests<E>> for JsonExecutionRequests {
+    fn from(requests: ExecutionRequests<E>) -> Self {
+        let mut result = Vec::new();
+        if !requests.deposits.is_empty() {
+            result.push(format!(
+                "0x{:02x}{}",
+                RequestType::Deposit.to_u8(),
+                hex::encode(requests.deposits.as_ssz_bytes())
+            ));
+        }
+        if !requests.withdrawals.is_empty() {
+            result.push(format!(
+                "0x{:02x}{}",
+                RequestType::Withdrawal.to_u8(),
+                hex::encode(requests.withdrawals.as_ssz_bytes())
+            ));
+        }
+        if !requests.consolidations.is_empty() {
+            result.push(format!(
+                "0x{:02x}{}",
+                RequestType::Consolidation.to_u8(),
+                hex::encode(requests.consolidations.as_ssz_bytes())
+            ));
+        }
+        JsonExecutionRequests(result)
+    }
+}
+
 impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequests<E> {
     type Error = RequestsError;
 
@@ -863,6 +891,9 @@ pub struct BlobAndProof<E: EthSpec> {
     #[superstruct(only(V2))]
     pub proofs: KzgProofs<E>,
 }
+
+/// A BlobAndProofV3 is just a BlobAndProofV2 that may also be `null` if unknown by the EL.
+pub type BlobAndProofV3<E> = Option<BlobAndProofV2<E>>;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

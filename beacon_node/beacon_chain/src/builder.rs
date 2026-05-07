@@ -930,6 +930,7 @@ where
             CanonicalHead::new(fork_choice, Arc::new(head_snapshot), head_payload_status);
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
         let complete_blob_backfill = self.chain_config.complete_blob_backfill;
+        let enable_partial_columns = self.chain_config.enable_partial_columns;
 
         // Calculate the weak subjectivity point in which to backfill blocks to.
         let genesis_backfill_slot = if self.chain_config.genesis_backfill {
@@ -1014,6 +1015,7 @@ where
             observed_aggregators: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
             observed_sync_aggregators: <_>::default(),
+            observed_payload_attesters: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
             observed_block_producers: <_>::default(),
             observed_column_sidecars: RwLock::new(ObservedDataSidecars::new(self.spec.clone())),
@@ -1063,6 +1065,7 @@ where
                     self.kzg.clone(),
                     Arc::new(custody_context),
                     self.spec,
+                    enable_partial_columns,
                 )
                 .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),

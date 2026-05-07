@@ -53,6 +53,15 @@ pub struct WithdrawalsPayload<E: EthSpec> {
     payload: Option<ExecutionPayload<E>>,
 }
 
+/// Newtype for testing voluntary exit churn (Gloas+).
+///
+/// The test case applies the same `process_voluntary_exit` operation as the regular
+/// `voluntary_exit` test, but under the `voluntary_exit_churn` handler directory.
+#[derive(Debug, Clone)]
+pub struct VoluntaryExitChurn {
+    exit: SignedVoluntaryExit,
+}
+
 /// Newtype for testing execution payload bids.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExecutionPayloadBidBlock<E: EthSpec> {
@@ -259,6 +268,40 @@ impl<E: EthSpec> Operation<E> for SignedVoluntaryExit {
         process_exits(
             state,
             std::slice::from_ref(self),
+            VerifySignatures::True,
+            spec,
+        )
+    }
+}
+
+impl<E: EthSpec> Operation<E> for VoluntaryExitChurn {
+    type Error = BlockProcessingError;
+
+    fn handler_name() -> String {
+        "voluntary_exit_churn".into()
+    }
+
+    fn filename() -> String {
+        "voluntary_exit.ssz_snappy".into()
+    }
+
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        fork_name.gloas_enabled()
+    }
+
+    fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file(path).map(|exit| VoluntaryExitChurn { exit })
+    }
+
+    fn apply_to(
+        &self,
+        state: &mut BeaconState<E>,
+        spec: &ChainSpec,
+        _: &Operations<E, Self>,
+    ) -> Result<(), BlockProcessingError> {
+        process_exits(
+            state,
+            std::slice::from_ref(&self.exit),
             VerifySignatures::True,
             spec,
         )

@@ -101,7 +101,7 @@ pub enum ExecutionStatus {
 }
 
 /// Represents the status of an execution payload post-Gloas.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
 #[ssz(enum_behaviour = "tag")]
 #[repr(u8)]
 pub enum PayloadStatus {
@@ -1051,6 +1051,24 @@ impl ProtoArrayForkChoice {
         self.get_proto_node(block_root)
             .and_then(|node| node.payload_received().ok())
             .unwrap_or(false)
+    }
+
+    /// Returns the canonical payload status of a block, matching the decision
+    /// `get_head` would make between `(root, FULL)` and `(root, EMPTY)`.
+    pub fn get_canonical_payload_status<E: EthSpec>(
+        &self,
+        block_root: &Hash256,
+        current_slot: Slot,
+        proposer_boost_root: Hash256,
+        spec: &ChainSpec,
+    ) -> Result<PayloadStatus, Error> {
+        self.proto_array.get_canonical_payload_status::<E>(
+            *block_root,
+            current_slot,
+            proposer_boost_root,
+            &self.balances,
+            spec,
+        )
     }
 
     /// Returns the weight of a given block.

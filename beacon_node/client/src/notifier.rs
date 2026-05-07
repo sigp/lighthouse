@@ -360,7 +360,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 let block_info = if current_slot > head_slot {
                     "   …  empty".to_string()
                 } else {
-                    head_root.to_string()
+                    head_root.short().to_string()
                 };
 
                 let block_hash = match beacon_chain.canonical_head.head_execution_status() {
@@ -393,7 +393,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 info!(
                     peers = peer_count_pretty(connected_peer_count),
                     exec_hash = block_hash,
-                    finalized_root = %finalized_checkpoint.root,
+                    finalized_root = %finalized_checkpoint.root.short(),
                     finalized_epoch = %finalized_checkpoint.epoch,
                     epoch = %current_epoch,
                     block = block_info,
@@ -404,7 +404,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 metrics::set_gauge(&metrics::IS_SYNCED, 0);
                 info!(
                     peers = peer_count_pretty(connected_peer_count),
-                    finalized_root = %finalized_checkpoint.root,
+                    finalized_root = %finalized_checkpoint.root.short(),
                     finalized_epoch = %finalized_checkpoint.epoch,
                     %head_slot,
                     %current_slot,

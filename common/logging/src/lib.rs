@@ -42,16 +42,15 @@ impl TimeLatch {
 
 /// Return a tracing subscriber suitable for test usage.
 ///
-/// By default no logs will be printed, but they can be enabled via
-/// the `test_logger` feature.  This feature can be enabled for any
-/// dependent crate by passing `--features logging/test_logger`, e.g.
+/// By default no logs will be printed, logs will be printed by using --nocapture. Example:
 /// ```bash
-/// cargo test -p beacon_chain --features logging/test_logger
+/// cargo test --release  -p beacon_chain -- --nocapture
 /// ```
 pub fn create_test_tracing_subscriber() {
-    if cfg!(feature = "test_logger") {
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::try_new("debug").unwrap())
-            .try_init();
-    }
+    let _ = tracing_subscriber::fmt()
+        .with_test_writer()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug")),
+        )
+        .try_init();
 }

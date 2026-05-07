@@ -2,7 +2,9 @@
 
 use beacon_chain::attestation_simulator::produce_unaggregated_attestation;
 use beacon_chain::custody_context::NodeCustodyType;
-use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
+use beacon_chain::test_utils::{
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, fork_name_from_env,
+};
 use beacon_chain::validator_monitor::UNAGGREGATED_ATTESTATION_LAG_SLOTS;
 use beacon_chain::{StateSkipConfig, WhenSlotSkipped, metrics};
 use bls::{AggregateSignature, Keypair};
@@ -206,7 +208,15 @@ async fn produces_attestations() {
                 &AggregateSignature::infinity(),
                 "bad signature"
             );
-            assert_eq!(data.index, index, "bad index");
+            if harness
+                .spec
+                .fork_name_at_slot::<MainnetEthSpec>(data.slot)
+                .gloas_enabled()
+            {
+                assert!(data.index <= 1, "invalid index");
+            } else {
+                assert_eq!(data.index, index, "bad index");
+            }
             assert_eq!(data.slot, slot, "bad slot");
             assert_eq!(data.beacon_block_root, block_root, "bad block root");
             assert_eq!(
@@ -226,27 +236,35 @@ async fn produces_attestations() {
                 .build_range_sync_block_from_store_blobs(Some(block_root), Arc::new(block.clone()));
             let available_block = range_sync_block.into_available_block();
 
-            let early_attestation = {
-                let proto_block = chain
-                    .canonical_head
-                    .fork_choice_read_lock()
-                    .get_block(&block_root)
-                    .unwrap();
-                chain
-                    .early_attester_cache
-                    .add_head_block(block_root, &available_block, proto_block, &state)
-                    .unwrap();
-                chain
-                    .early_attester_cache
-                    .try_attest(slot, index, &chain.spec)
-                    .unwrap()
-                    .unwrap()
-            };
+            // For Gloas non-same-slot attestations, the early attester cache returns None.
+            let is_same_slot_attestation = slot == block_slot;
+            let is_gloas = harness
+                .spec
+                .fork_name_at_slot::<MainnetEthSpec>(slot)
+                .gloas_enabled();
+            if !is_gloas || is_same_slot_attestation {
+                let early_attestation = {
+                    let proto_block = chain
+                        .canonical_head
+                        .fork_choice_read_lock()
+                        .get_block(&block_root)
+                        .unwrap();
+                    chain
+                        .early_attester_cache
+                        .add_head_block(block_root, &available_block, proto_block, &state)
+                        .unwrap();
+                    chain
+                        .early_attester_cache
+                        .try_attest(slot, index, &chain.spec)
+                        .unwrap()
+                        .unwrap()
+                };
 
-            assert_eq!(
-                attestation, early_attestation,
-                "early attester cache inconsistent"
-            );
+                assert_eq!(
+                    attestation, early_attestation,
+                    "early attester cache inconsistent"
+                );
+            }
         }
     }
 }
@@ -312,4 +330,121 @@ async fn early_attester_cache_old_request() {
         .unwrap()
         .unwrap();
     assert_eq!(attested_block.slot(), attest_slot);
+}
+
+/// Verify that `produce_unaggregated_attestation` sets `data.index = 1` (payload_present)
+/// when a gloas validator attests to a prior slot whose block+envelope have been received.
+///
+/// Setup: build a chain at gloas genesis, produce a block with envelope at slot N,
+/// then advance the clock to slot N+1 without producing a block (skipped slot).
+/// Attesting at slot N+1 should target the block at slot N with payload_present = true.
+#[tokio::test]
+async fn gloas_attestation_index_payload_present() {
+    if fork_name_from_env().is_some_and(|f| !f.gloas_enabled()) {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .default_spec()
+        .keypairs(KEYPAIRS[..].to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    let chain = &harness.chain;
+
+    // Build a few blocks so the chain is established (slots 1..=3).
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            3,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let head = chain.head_snapshot();
+    assert_eq!(head.beacon_block.slot(), Slot::new(3));
+
+    // Advance clock to slot 4 without producing a block (skipped slot).
+    harness.advance_slot();
+    let attest_slot = chain.slot().unwrap();
+    assert_eq!(attest_slot, Slot::new(4));
+
+    // Attest at slot 4 — this should target the block at slot 3 whose payload was received.
+    let attestation = chain
+        .produce_unaggregated_attestation(attest_slot, 0)
+        .expect("should produce attestation");
+
+    assert_eq!(attestation.data().slot, attest_slot);
+    assert_eq!(
+        attestation.data().index,
+        1,
+        "gloas attestation to prior slot with payload should have index=1 (payload_present)"
+    );
+}
+
+/// Verify that `produce_unaggregated_attestation` sets `data.index = 0` (payload NOT present)
+/// when a gloas validator attests to a prior slot whose block was imported but whose
+/// payload envelope was never received.
+///
+/// Setup: build a chain at gloas genesis through slot 2, then at slot 3 import only the
+/// beacon block (no envelope), advance to slot 4 (skipped), and attest.
+#[tokio::test]
+async fn gloas_attestation_index_payload_absent() {
+    if fork_name_from_env().is_some_and(|f| !f.gloas_enabled()) {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .default_spec()
+        .keypairs(KEYPAIRS[..].to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    let chain = &harness.chain;
+
+    // Build slots 1..=2 normally (with envelopes).
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    assert_eq!(chain.head_snapshot().beacon_block.slot(), Slot::new(2));
+
+    // Slot 3: produce and import the beacon block but do NOT process the envelope.
+    harness.advance_slot();
+    let state = harness.get_current_state();
+    let (block_contents, _envelope, _new_state) =
+        harness.make_block_with_envelope(state, Slot::new(3)).await;
+
+    let block_root = block_contents.0.canonical_root();
+    harness
+        .process_block(Slot::new(3), block_root, block_contents)
+        .await
+        .expect("block should import without envelope");
+
+    assert_eq!(chain.head_snapshot().beacon_block.slot(), Slot::new(3));
+
+    // Advance clock to slot 4 without producing a block (skipped slot).
+    harness.advance_slot();
+    let attest_slot = chain.slot().unwrap();
+    assert_eq!(attest_slot, Slot::new(4));
+
+    // Attest at slot 4 — targets slot 3 whose payload was NOT received.
+    let attestation = chain
+        .produce_unaggregated_attestation(attest_slot, 0)
+        .expect("should produce attestation");
+
+    assert_eq!(attestation.data().slot, attest_slot);
+    assert_eq!(
+        attestation.data().index,
+        0,
+        "gloas attestation to prior slot without payload should have index=0 (payload_absent)"
+    );
 }

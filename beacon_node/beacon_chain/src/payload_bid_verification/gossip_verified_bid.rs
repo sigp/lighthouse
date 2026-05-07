@@ -6,6 +6,7 @@ use crate::{
     proposer_preferences_verification::proposer_preference_cache::GossipVerifiedProposerPreferenceCache,
 };
 use educe::Educe;
+use eth2::types::{EventKind, ForkVersionedResponse};
 use slot_clock::SlotClock;
 use state_processing::signature_sets::{
     execution_payload_bid_signature_set, get_builder_pubkey_from_state,
@@ -233,6 +234,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     %parent_block_root,
                     "Successfully verified gossip payload bid"
                 );
+
+                if let Some(event_handler) = self.event_handler.as_ref()
+                    && event_handler.has_execution_payload_bid_subscribers()
+                {
+                    event_handler.register(EventKind::ExecutionPayloadBid(Box::new(
+                        ForkVersionedResponse {
+                            version: self.spec.fork_name_at_slot::<T::EthSpec>(slot),
+                            metadata: Default::default(),
+                            data: (*verified.signed_bid).clone(),
+                        },
+                    )));
+                }
+
                 Ok(verified)
             }
             Err(e) => {
