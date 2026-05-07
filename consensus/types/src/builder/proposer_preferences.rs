@@ -16,7 +16,7 @@ use tree_hash_derive::TreeHash;
 #[context_deserialize(ForkName)]
 // https://github.com/ethereum/consensus-specs/blob/master/specs/gloas/p2p-interface.md#new-proposerpreferences
 pub struct ProposerPreferences {
-    pub checkpoint_root: Hash256,
+    pub dependent_root: Hash256,
     pub proposal_slot: Slot,
     pub validator_index: u64,
     pub fee_recipient: Address,
