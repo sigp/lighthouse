@@ -43,7 +43,7 @@ pub fn get_config<E: EthSpec>(
     cli_args: &ArgMatches,
     context: &RuntimeContext<E>,
 ) -> Result<ClientConfig, String> {
-    let spec = context.eth2_config.spec.clone();
+    let spec = &context.eth2_config.spec;
 
     let mut client_config = ClientConfig::default();
 

@@ -5145,7 +5145,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If a re-orging proposal isn't made by the `re_org_cutoff` then we give up
         // and allow the fork choice update for the canonical head through so that we may attest
         // correctly.
-
         let current_slot_ok = if head_slot == fork_choice_slot {
             true
         } else if re_org_block_slot == fork_choice_slot {
