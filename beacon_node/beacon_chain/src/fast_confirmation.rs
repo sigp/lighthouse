@@ -1725,9 +1725,13 @@ pub fn is_full_validator_set_covered<E: EthSpec>(start_slot: Slot, end_slot: Slo
 }
 
 /// Spec: `adjust_committee_weight_estimate_to_ensure_safety`.
+///
+/// Spec uses ceiling division: `(estimate + 999) // 1000`. The function exists to
+/// conservatively over-estimate committee weight; flooring would under-estimate and
+/// weaken the safety threshold.
 pub fn adjust_committee_weight_estimate_to_ensure_safety(estimate: u64) -> u64 {
-    (estimate / 1000)
-        .saturating_mul(1000u64.saturating_add(COMMITTEE_WEIGHT_ESTIMATION_ADJUSTMENT_FACTOR))
+    let ceil = estimate.saturating_add(999) / 1000;
+    ceil.saturating_mul(1000u64.saturating_add(COMMITTEE_WEIGHT_ESTIMATION_ADJUSTMENT_FACTOR))
 }
 
 /// Spec: `estimate_committee_weight_between_slots`.
@@ -1836,13 +1840,20 @@ mod tests {
 
     #[test]
     fn test_adjustment_factor() {
-        // 1000 -> 1000/1000 * 1005 = 1005
+        // Ceiling division: ceil(1000/1000) * 1005 = 1 * 1005 = 1005
         assert_eq!(
             adjust_committee_weight_estimate_to_ensure_safety(1000),
             1005
         );
-        // 999 -> 0 * 1005 = 0 (integer division)
-        assert_eq!(adjust_committee_weight_estimate_to_ensure_safety(999), 0);
+        // Ceiling division: ceil(999/1000) * 1005 = 1 * 1005 = 1005 (NOT 0)
+        assert_eq!(adjust_committee_weight_estimate_to_ensure_safety(999), 1005);
+        // Ceiling division: ceil(1500/1000) * 1005 = 2 * 1005 = 2010
+        assert_eq!(
+            adjust_committee_weight_estimate_to_ensure_safety(1500),
+            2010
+        );
+        // Edge case: 0 -> ceil(0/1000) = 0
+        assert_eq!(adjust_committee_weight_estimate_to_ensure_safety(0), 0);
     }
 
     mod slot_assignments {
