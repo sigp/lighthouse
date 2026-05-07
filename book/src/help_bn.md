@@ -501,6 +501,9 @@ Flags:
           Enable the Fast Confirmation Rule (FCR). When enabled, FCR provides
           faster block confirmation (~12s) by computing a confirmed root that is
           fed into the execution layer's safe_block_hash.
+      --enable-partial-columns
+          Enable partial messages for data columns. This can reduce the amount
+          of data sent over the network.
       --enable-private-discovery
           Lighthouse by default does not discover private IP addresses. Set this
           flag to enable connection attempts to local addresses.

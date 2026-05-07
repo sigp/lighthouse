@@ -1,21 +1,18 @@
-use crate::test_utils::TestRandom;
-use crate::{Address, ForkName, SignedRoot, Slot};
+use crate::{Address, ForkName, Hash256, SignedRoot, Slot};
 use bls::Signature;
 use context_deserialize::context_deserialize;
 use educe::Educe;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-#[derive(
-    Default, Debug, Clone, Serialize, Encode, Decode, Deserialize, TreeHash, Educe, TestRandom,
-)]
+#[derive(Default, Debug, Clone, Serialize, Encode, Decode, Deserialize, TreeHash, Educe)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[educe(PartialEq, Hash)]
 #[context_deserialize(ForkName)]
 // https://github.com/ethereum/consensus-specs/blob/master/specs/gloas/p2p-interface.md#new-proposerpreferences
 pub struct ProposerPreferences {
+    pub dependent_root: Hash256,
     pub proposal_slot: Slot,
     pub validator_index: u64,
     pub fee_recipient: Address,
@@ -24,7 +21,7 @@ pub struct ProposerPreferences {
 
 impl SignedRoot for ProposerPreferences {}
 
-#[derive(TestRandom, TreeHash, Debug, Clone, Encode, Decode, Serialize, Deserialize, Educe)]
+#[derive(TreeHash, Debug, Clone, Encode, Decode, Serialize, Deserialize, Educe)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[educe(PartialEq, Hash)]
 #[context_deserialize(ForkName)]

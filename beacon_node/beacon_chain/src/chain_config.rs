@@ -121,6 +121,8 @@ pub struct ChainConfig {
     pub ignore_ws_check: bool,
     /// Disable the getBlobs optimisation to fetch blobs from the EL mempool.
     pub disable_get_blobs: bool,
+    /// Whether to enable partial data column support.
+    pub enable_partial_columns: bool,
     /// The node's custody type, determining how many data columns to custody and sample.
     pub node_custody_type: NodeCustodyType,
     /// Enable the Fast Confirmation Rule (FCR) which feeds `confirmed_root` into the
@@ -167,6 +169,7 @@ impl Default for ChainConfig {
             invalid_block_roots: HashSet::new(),
             ignore_ws_check: false,
             disable_get_blobs: false,
+            enable_partial_columns: false,
             node_custody_type: NodeCustodyType::Fullnode,
             enable_fast_confirmation: false,
         }

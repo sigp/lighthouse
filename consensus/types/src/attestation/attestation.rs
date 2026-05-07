@@ -10,7 +10,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{BitList, BitVector};
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 use crate::{
@@ -20,7 +19,6 @@ use crate::{
     },
     core::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot, Slot, SlotData},
     fork::{Fork, ForkName},
-    test_utils::TestRandom,
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -49,7 +47,6 @@ impl From<ssz_types::Error> for Error {
             Deserialize,
             Decode,
             Encode,
-            TestRandom,
             Educe,
             TreeHash,
         ),
@@ -102,6 +99,7 @@ impl<E: EthSpec> Hash for Attestation<E> {
 
 impl<E: EthSpec> Attestation<E> {
     /// Produces an attestation with empty signature.
+    #[allow(clippy::too_many_arguments)]
     pub fn empty_for_signing(
         committee_index: u64,
         committee_length: usize,
@@ -109,6 +107,7 @@ impl<E: EthSpec> Attestation<E> {
         beacon_block_root: Hash256,
         source: Checkpoint,
         target: Checkpoint,
+        payload_present: bool,
         spec: &ChainSpec,
     ) -> Result<Self, Error> {
         if spec.fork_name_at_slot::<E>(slot).electra_enabled() {
@@ -116,12 +115,19 @@ impl<E: EthSpec> Attestation<E> {
             committee_bits
                 .set(committee_index as usize, true)
                 .map_err(|_| Error::InvalidCommitteeIndex)?;
+            // Gloas attestation data index now indicates payload presence.
+            // Pre-gloas index is always 0.
+            let index = if spec.fork_name_at_slot::<E>(slot).gloas_enabled() && payload_present {
+                1u64
+            } else {
+                0u64
+            };
             Ok(Attestation::Electra(AttestationElectra {
                 aggregation_bits: BitList::with_capacity(committee_length)
                     .map_err(|_| Error::InvalidCommitteeLength)?,
                 data: AttestationData {
                     slot,
-                    index: 0u64,
+                    index,
                     beacon_block_root,
                     source,
                     target,
@@ -605,7 +611,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for Vec<Attestation<E>> 
 */
 
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Clone, Serialize, Deserialize, Decode, Encode, TestRandom, TreeHash, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Decode, Encode, TreeHash, PartialEq)]
 #[context_deserialize(ForkName)]
 pub struct SingleAttestation {
     #[serde(with = "serde_utils::quoted_u64")]

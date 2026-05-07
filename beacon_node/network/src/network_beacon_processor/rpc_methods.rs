@@ -7,8 +7,8 @@ use beacon_chain::payload_envelope_streamer::EnvelopeRequestSource;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, BlockProcessStatus, WhenSlotSkipped};
 use itertools::{Itertools, process_results};
 use lighthouse_network::rpc::methods::{
-    BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
-    PayloadEnvelopesByRangeRequest, PayloadEnvelopesByRootRequest,
+    BlobsByRangeRequest, BlobsByRootRequest, BlocksByHeadRequest, DataColumnsByRangeRequest,
+    DataColumnsByRootRequest, PayloadEnvelopesByRangeRequest, PayloadEnvelopesByRootRequest,
 };
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, ReportSource, Response, SyncInfo};
@@ -254,6 +254,266 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         log_results(peer_id, requested_blocks, send_block_count);
 
         Ok(())
+    }
+
+    /// Handle a `BeaconBlocksByHead` request from the peer.
+    ///
+    /// Walks the parent chain of `request.beacon_root` (inclusive) and emits up to
+    /// `min(request.count, MAX_REQUEST_BLOCKS_DENEB)` blocks in descending slot order.
+    /// See consensus-specs PR 5181.
+    #[instrument(
+        name = "lh_handle_blocks_by_head_request",
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(peer_id = %peer_id, client = tracing::field::Empty)
+    )]
+    pub async fn handle_blocks_by_head_request(
+        self: Arc<Self>,
+        peer_id: PeerId,
+        inbound_request_id: InboundRequestId,
+        request: BlocksByHeadRequest,
+    ) {
+        let client = self.network_globals.client(&peer_id);
+        Span::current().record("client", field::display(client.kind));
+
+        self.terminate_response_stream(
+            peer_id,
+            inbound_request_id,
+            self.clone()
+                .handle_blocks_by_head_request_inner(peer_id, inbound_request_id, request)
+                .await,
+            Response::BlocksByHead,
+        );
+    }
+
+    async fn handle_blocks_by_head_request_inner(
+        self: Arc<Self>,
+        peer_id: PeerId,
+        inbound_request_id: InboundRequestId,
+        request: BlocksByHeadRequest,
+    ) -> Result<(), (RpcErrorResponse, &'static str)> {
+        let spec = &self.chain.spec;
+        // Cap the response at MAX_REQUEST_BLOCKS_DENEB regardless of what the peer asked for,
+        // matching the spec.
+        let max_request_blocks = spec.max_request_blocks(types::ForkName::Deneb) as u64;
+        let cap = request.count.min(max_request_blocks);
+        let beacon_root = request.beacon_root;
+
+        debug!(
+            %peer_id,
+            beacon_root = ?beacon_root,
+            count = request.count,
+            cap,
+            "Received BlocksByHead Request"
+        );
+
+        if cap == 0 {
+            return Ok(());
+        }
+
+        // Walk the parent chain on a blocking thread because `get_blinded_block` hits the store
+        // synchronously and we may walk up to MAX_REQUEST_BLOCKS_DENEB ancestors.
+        let network_beacon_processor = self.clone();
+        let block_roots = self
+            .executor
+            .spawn_blocking_handle(
+                move || network_beacon_processor.get_block_roots_ancestor_of_head(beacon_root, cap),
+                "get_block_roots_ancestor_of_head",
+            )
+            .ok_or((RpcErrorResponse::ServerError, "shutting down"))?
+            .await
+            .map_err(|_| (RpcErrorResponse::ServerError, "tokio join"))??;
+
+        let requested_blocks = block_roots.len();
+
+        let log_results = |peer_id, blocks_sent| {
+            debug!(
+                %peer_id,
+                requested = requested_blocks,
+                returned = blocks_sent,
+                "BlocksByHead outgoing response processed"
+            );
+        };
+
+        let mut block_stream = match self.chain.get_blocks(block_roots) {
+            Ok(block_stream) => block_stream,
+            Err(e) => {
+                error!(error = ?e, "Error getting block stream");
+                return Err((RpcErrorResponse::ServerError, "Iterator error"));
+            }
+        };
+
+        // Fetching blocks is async because it may have to hit the execution layer for payloads.
+        let mut blocks_sent = 0;
+        while let Some((root, result)) = block_stream.next().await {
+            match result.as_ref() {
+                Ok(Some(block)) => {
+                    blocks_sent += 1;
+                    self.send_network_message(NetworkMessage::SendResponse {
+                        peer_id,
+                        inbound_request_id,
+                        response: Response::BlocksByHead(Some(block.clone())),
+                    });
+                }
+                Ok(None) => {
+                    error!(
+                        %peer_id,
+                        request_root = ?root,
+                        "Block in the chain is not in the store"
+                    );
+                    log_results(peer_id, blocks_sent);
+                    return Err((RpcErrorResponse::ServerError, "Database inconsistency"));
+                }
+                Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
+                    debug!(
+                        block_root = ?root,
+                        reason = "execution layer not synced",
+                        "Failed to fetch execution payload for blocks by head request"
+                    );
+                    log_results(peer_id, blocks_sent);
+                    return Err((
+                        RpcErrorResponse::ResourceUnavailable,
+                        "Execution layer not synced",
+                    ));
+                }
+                Err(e) => {
+                    if matches!(
+                        e,
+                        BeaconChainError::ExecutionLayerErrorPayloadReconstruction(_block_hash, boxed_error)
+                        if matches!(**boxed_error, execution_layer::Error::EngineError(_))
+                    ) {
+                        warn!(
+                            info = "this may occur occasionally when the EE is busy",
+                            block_root = ?root,
+                            error = ?e,
+                            "Error rebuilding payload for peer"
+                        );
+                    } else {
+                        error!(
+                            block_root = ?root,
+                            error = ?e,
+                            "Error fetching block for peer"
+                        );
+                    }
+                    log_results(peer_id, blocks_sent);
+                    return Err((RpcErrorResponse::ServerError, "Failed fetching blocks"));
+                }
+            }
+        }
+
+        log_results(peer_id, blocks_sent);
+        Ok(())
+    }
+
+    /// Walks the parent chain of `head_root` (inclusive) and returns up to `count` block roots
+    /// in descending slot order. Synchronous so it can be run on a blocking thread.
+    ///
+    /// Two regimes are handled:
+    /// 1. Above finalization → fork-choice's in-memory proto-array supplies the roots
+    ///    (zero DB reads).
+    /// 2. At or below finalization → the freezer DB's `BeaconBlockRoots` column (the
+    ///    canonical slot→root index for finalized blocks, populated for
+    ///    `[oldest_block_slot, split.slot)` with skip slots reusing the prior block's
+    ///    root) supplies the roots. The head state is never consulted: its 8192-slot
+    ///    `block_roots` bucket would silently truncate deep walks and is the wrong
+    ///    source of truth for canonical history below finalization.
+    ///
+    /// Returns `ResourceUnavailable` if `head_root` is not known to the node.
+    fn get_block_roots_ancestor_of_head(
+        &self,
+        head_root: Hash256,
+        count: u64,
+    ) -> Result<Vec<Hash256>, (RpcErrorResponse, &'static str)> {
+        if count == 0 {
+            return Ok(vec![]);
+        }
+
+        // 1. Walk ancestors in proto-array (in-memory, zero DB reads). Track the
+        //    deepest slot we collected — that's where the freezer walk picks up.
+        let mut roots: Vec<Hash256> = Vec::with_capacity(count as usize);
+        let mut deepest_slot: Option<Slot> = None;
+        {
+            let fork_choice = self.chain.canonical_head.fork_choice_read_lock();
+            for (root, slot) in fork_choice
+                .proto_array()
+                .iter_block_roots(&head_root)
+                .take(count as usize)
+            {
+                roots.push(root);
+                deepest_slot = Some(slot);
+            }
+        }
+
+        let store = &self.chain.store;
+
+        // 2. Fallback: `head_root` is at or below finalization (proto-array doesn't
+        //    track it). Look up its slot in the store, then verify it is the canonical
+        //    block at that slot via the freezer index — a non-canonical hot-DB block at
+        //    slot < split.slot can shadow the finalized chain. If the freezer
+        //    disagrees (or doesn't have that slot), serve just the single block we
+        //    found, satisfying the spec's "MUST return at least one block if you have
+        //    it" clause.
+        let mut current_slot = if let Some(slot) = deepest_slot {
+            slot
+        } else {
+            let block = self
+                .chain
+                .get_blinded_block(&head_root)
+                .map_err(|e| {
+                    error!(error = ?e, "Error reading blinded block for BlocksByHead beacon_root");
+                    (RpcErrorResponse::ServerError, "Database error")
+                })?
+                .ok_or((RpcErrorResponse::ResourceUnavailable, "Unknown beacon_root"))?;
+            let block_slot = block.slot();
+            roots.push(head_root);
+
+            match store.get_cold_block_root(block_slot) {
+                Ok(Some(r)) if r == head_root => {} // canonical, OK to walk back
+                Ok(_) => return Ok(roots),
+                Err(e) => {
+                    error!(error = ?e, "Error reading freezer block_root for BlocksByHead");
+                    return Err((RpcErrorResponse::ServerError, "Database error"));
+                }
+            }
+
+            block_slot
+        };
+
+        if (roots.len() as u64) >= count {
+            return Ok(roots);
+        }
+
+        // 3. Spillover via the freezer DB's `BeaconBlockRoots` index (the canonical
+        //    slot→root mapping for finalized blocks). Skip slots reuse the prior
+        //    block's root; dedup on insert.
+        let oldest_block_slot = store.get_oldest_block_slot();
+        let mut last_root = roots.last().copied();
+        while (roots.len() as u64) < count && current_slot > oldest_block_slot {
+            current_slot = match current_slot.as_u64().checked_sub(1) {
+                Some(s) => Slot::from(s),
+                None => break,
+            };
+            match store.get_cold_block_root(current_slot) {
+                Ok(Some(root)) => {
+                    if Some(root) != last_root {
+                        roots.push(root);
+                        last_root = Some(root);
+                    }
+                }
+                Ok(None) => {
+                    // Hole in the freezer index (e.g. before `oldest_block_slot` on a
+                    // checkpoint-synced node). Stop walking.
+                    break;
+                }
+                Err(e) => {
+                    error!(error = ?e, "Error walking freezer block_roots");
+                    return Err((RpcErrorResponse::ServerError, "Database error"));
+                }
+            }
+        }
+
+        Ok(roots)
     }
 
     /// Handle a `ExecutionPayloadEnvelopesByRoot` request from the peer.

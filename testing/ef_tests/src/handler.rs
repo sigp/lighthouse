@@ -340,6 +340,10 @@ impl<T, E> SszStaticHandler<T, E> {
     pub fn pre_electra() -> Self {
         Self::for_forks(ForkName::list_all()[0..5].to_vec())
     }
+
+    pub fn pre_capella() -> Self {
+        Self::for_forks(ForkName::list_all()[0..3].to_vec())
+    }
 }
 
 /// Handler for SSZ types that implement `CachedTreeHash`.
@@ -723,8 +727,12 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
             return false;
         }
 
-        // on_execution_payload tests exist only for Gloas.
-        if self.handler_name == "on_execution_payload" && !fork_name.gloas_enabled() {
+        // on_execution_payload_envelope and get_parent_payload_status tests exist only for
+        // Gloas and later.
+        if (self.handler_name == "on_execution_payload_envelope"
+            || self.handler_name == "get_parent_payload_status")
+            && !fork_name.gloas_enabled()
+        {
             return false;
         }
 

@@ -392,6 +392,7 @@ pub enum Work<E: EthSpec> {
     GossipBlock(AsyncFn),
     GossipBlobSidecar(AsyncFn),
     GossipDataColumnSidecar(AsyncFn),
+    GossipPartialDataColumnSidecar(AsyncFn),
     DelayedImportBlock {
         beacon_block_slot: Slot,
         beacon_block_root: Hash256,
@@ -430,6 +431,7 @@ pub enum Work<E: EthSpec> {
     Status(BlockingFn),
     BlocksByRangeRequest(AsyncFn),
     BlocksByRootsRequest(AsyncFn),
+    BlocksByHeadRequest(AsyncFn),
     PayloadEnvelopesByRangeRequest(AsyncFn),
     PayloadEnvelopesByRootRequest(AsyncFn),
     BlobsByRangeRequest(BlockingFn),
@@ -470,6 +472,7 @@ pub enum WorkType {
     GossipBlock,
     GossipBlobSidecar,
     GossipDataColumnSidecar,
+    GossipPartialDataColumnSidecar,
     DelayedImportBlock,
     DelayedImportEnvelope,
     GossipVoluntaryExit,
@@ -489,6 +492,7 @@ pub enum WorkType {
     Status,
     BlocksByRangeRequest,
     BlocksByRootsRequest,
+    BlocksByHeadRequest,
     PayloadEnvelopesByRangeRequest,
     PayloadEnvelopesByRootRequest,
     BlobsByRangeRequest,
@@ -524,6 +528,7 @@ impl<E: EthSpec> Work<E> {
             Work::GossipBlock(_) => WorkType::GossipBlock,
             Work::GossipBlobSidecar(_) => WorkType::GossipBlobSidecar,
             Work::GossipDataColumnSidecar(_) => WorkType::GossipDataColumnSidecar,
+            Work::GossipPartialDataColumnSidecar(_) => WorkType::GossipPartialDataColumnSidecar,
             Work::DelayedImportBlock { .. } => WorkType::DelayedImportBlock,
             Work::DelayedImportEnvelope { .. } => WorkType::DelayedImportEnvelope,
             Work::GossipVoluntaryExit(_) => WorkType::GossipVoluntaryExit,
@@ -550,6 +555,7 @@ impl<E: EthSpec> Work<E> {
             Work::Status(_) => WorkType::Status,
             Work::BlocksByRangeRequest(_) => WorkType::BlocksByRangeRequest,
             Work::BlocksByRootsRequest(_) => WorkType::BlocksByRootsRequest,
+            Work::BlocksByHeadRequest(_) => WorkType::BlocksByHeadRequest,
             Work::PayloadEnvelopesByRangeRequest(_) => WorkType::PayloadEnvelopesByRangeRequest,
             Work::PayloadEnvelopesByRootRequest(_) => WorkType::PayloadEnvelopesByRootRequest,
             Work::BlobsByRangeRequest(_) => WorkType::BlobsByRangeRequest,
@@ -836,6 +842,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Some(item)
                         } else if let Some(item) = work_queues.gossip_data_column_queue.pop() {
                             Some(item)
+                        } else if let Some(item) =
+                            work_queues.gossip_partial_data_column_queue.pop()
+                        {
+                            Some(item)
                         } else if let Some(item) = work_queues.column_reconstruction_queue.pop() {
                             Some(item)
                         // Check the priority 0 API requests after blocks and blobs, but before attestations.
@@ -993,6 +1003,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Some(item)
                         } else if let Some(item) = work_queues.block_broots_queue.pop() {
                             Some(item)
+                        } else if let Some(item) = work_queues.block_bhead_queue.pop() {
+                            Some(item)
                         } else if let Some(item) = work_queues.blob_brange_queue.pop() {
                             Some(item)
                         } else if let Some(item) = work_queues.blob_broots_queue.pop() {
@@ -1146,6 +1158,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::GossipDataColumnSidecar { .. } => {
                                 work_queues.gossip_data_column_queue.push(work, work_id)
                             }
+                            Work::GossipPartialDataColumnSidecar { .. } => work_queues
+                                .gossip_partial_data_column_queue
+                                .push(work, work_id),
                             Work::DelayedImportBlock { .. } => {
                                 work_queues.delayed_block_queue.push(work, work_id)
                             }
@@ -1195,6 +1210,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             }
                             Work::BlocksByRootsRequest { .. } => {
                                 work_queues.block_broots_queue.push(work, work_id)
+                            }
+                            Work::BlocksByHeadRequest { .. } => {
+                                work_queues.block_bhead_queue.push(work, work_id)
                             }
                             Work::PayloadEnvelopesByRangeRequest { .. } => work_queues
                                 .payload_envelopes_brange_queue
@@ -1284,6 +1302,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::GossipDataColumnSidecar => {
                             work_queues.gossip_data_column_queue.len()
                         }
+                        WorkType::GossipPartialDataColumnSidecar => {
+                            work_queues.gossip_partial_data_column_queue.len()
+                        }
                         WorkType::DelayedImportBlock => work_queues.delayed_block_queue.len(),
                         WorkType::DelayedImportEnvelope => work_queues.delayed_envelope_queue.len(),
                         WorkType::GossipVoluntaryExit => {
@@ -1318,6 +1339,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::Status => work_queues.status_queue.len(),
                         WorkType::BlocksByRangeRequest => work_queues.block_brange_queue.len(),
                         WorkType::BlocksByRootsRequest => work_queues.block_broots_queue.len(),
+                        WorkType::BlocksByHeadRequest => work_queues.block_bhead_queue.len(),
                         WorkType::PayloadEnvelopesByRangeRequest => {
                             work_queues.payload_envelopes_brange_queue.len()
                         }
@@ -1506,6 +1528,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             Work::GossipBlock(work)
             | Work::GossipBlobSidecar(work)
             | Work::GossipDataColumnSidecar(work)
+            | Work::GossipPartialDataColumnSidecar(work)
             | Work::GossipExecutionPayload(work) => task_spawner.spawn_async(async move {
                 work.await;
             }),
@@ -1517,6 +1540,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             }
             Work::BlocksByRangeRequest(work)
             | Work::BlocksByRootsRequest(work)
+            | Work::BlocksByHeadRequest(work)
             | Work::PayloadEnvelopesByRangeRequest(work)
             | Work::PayloadEnvelopesByRootRequest(work) => task_spawner.spawn_async(work),
             Work::ChainSegmentBackfill(process_fn) => {

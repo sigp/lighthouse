@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 use crate::{
@@ -14,7 +13,6 @@ use crate::{
     core::{EthSpec, Hash256},
     deposit::DepositRequest,
     fork::ForkName,
-    test_utils::TestRandom,
     withdrawal::WithdrawalRequest,
 };
 
@@ -30,9 +28,7 @@ pub type ConsolidationRequests<E> =
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(
-    Debug, Educe, Default, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
-)]
+#[derive(Debug, Educe, Default, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[serde(bound = "E: EthSpec")]
 #[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]
 #[context_deserialize(ForkName)]
