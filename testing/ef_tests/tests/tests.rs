@@ -1041,18 +1041,10 @@ fn fork_choice_deposit_with_reorg() {
 
 #[test]
 fn fast_confirmation() {
-    // Discover handlers dynamically from the test vectors directory.
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("consensus-spec-tests/tests/minimal/fulu/fast_confirmation");
-    if !base.is_dir() {
-        eprintln!(
-            "Skipping fast_confirmation: test vectors not found at {}",
-            base.display()
-        );
-        return;
-    }
     let mut handlers: Vec<String> = std::fs::read_dir(&base)
-        .expect("read fast_confirmation dir")
+        .unwrap_or_else(|e| panic!("read {}: {e:?}", base.display()))
         .filter_map(|e| {
             let e = e.ok()?;
             e.file_type()

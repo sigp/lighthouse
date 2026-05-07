@@ -779,59 +779,6 @@ impl<E: EthSpec + TypeName> Handler for FastConfirmationHandler<E> {
         // TODO(gloas): remove once we have Gloas fast confirmation tests
         vec![ForkName::Gloas]
     }
-
-    // TODO(fast-confirmation): remove this override once consensus-spec-tests includes
-    // fast_confirmation test vectors. Until then, skip gracefully instead of panicking
-    // when the directory does not exist.
-    fn run_for_fork(&self, fork_name: ForkName) {
-        let fork_name_str = fork_name.to_string();
-
-        let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("consensus-spec-tests")
-            .join("tests")
-            .join(Self::config_name())
-            .join(&fork_name_str)
-            .join(Self::runner_name())
-            .join(self.handler_name());
-
-        if !handler_path.is_dir() {
-            eprintln!(
-                "Skipping fast_confirmation tests for {}/{}: test vectors not found at {}",
-                fork_name_str,
-                self.handler_name(),
-                handler_path.display()
-            );
-            return;
-        }
-
-        let as_directory = |entry: Result<DirEntry, std::io::Error>| -> Option<DirEntry> {
-            entry
-                .ok()
-                .filter(|e| e.file_type().map(|ty| ty.is_dir()).unwrap())
-        };
-
-        let test_cases = fs::read_dir(&handler_path)
-            .unwrap_or_else(|e| panic!("handler dir {} exists: {:?}", handler_path.display(), e))
-            .filter_map(as_directory)
-            .flat_map(|suite| fs::read_dir(suite.path()).expect("suite dir exists"))
-            .filter_map(as_directory)
-            .map(|test_case_dir| {
-                let path = test_case_dir.path();
-                let case = Self::Case::load_from_dir(&path, fork_name).expect("test should load");
-                (path, case)
-            })
-            .collect();
-
-        let results = Cases { test_cases }.test_results(fork_name, Self::rayon_enabled());
-
-        let name = format!(
-            "{}/{}/{}",
-            fork_name_str,
-            Self::runner_name(),
-            self.handler_name()
-        );
-        crate::results::assert_tests_pass(&name, &handler_path, &results);
-    }
 }
 
 #[derive(Educe)]
