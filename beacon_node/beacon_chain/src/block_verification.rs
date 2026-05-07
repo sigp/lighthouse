@@ -960,16 +960,17 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         let (parent_block, block) =
             verify_parent_block_is_known::<T>(&fork_choice_read_lock, block)?;
 
+        let Ok(bid) = block.message().body().signed_execution_payload_bid() else {
+            return Err(BlockError::InternalError("Invalid variant".to_string()));
+        };
+
         // [New in Gloas]: Verify bid.parent_block_root matches block.parent_root.
-        if let Ok(bid) = block.message().body().signed_execution_payload_bid()
-            && bid.message.parent_block_root != block.message().parent_root()
-        {
+        if bid.message.parent_block_root != block.message().parent_root() {
             return Err(BlockError::BidParentRootMismatch {
                 bid_parent_root: bid.message.parent_block_root,
                 block_parent_root: block.message().parent_root(),
             });
         }
-
         // Check that we've received the parent envelope. If not, issue a single envelope
         // lookup for the parent and queue this block in the reprocess queue.
         //
@@ -985,6 +986,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         if parent_is_gloas
             && !parent_is_anchor
             && !fork_choice_read_lock.is_payload_received(&block.message().parent_root())
+            && Some(bid.message.parent_block_hash) != parent_block.execution_payload_block_hash
         {
             return Err(BlockError::ParentEnvelopeUnknown {
                 parent_root: block.message().parent_root(),
