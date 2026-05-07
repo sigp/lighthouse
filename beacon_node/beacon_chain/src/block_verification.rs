@@ -2054,10 +2054,15 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
             .gloas_enabled()
             && parent_block.slot() > finalized_slot
         {
-            let _envelope = chain
-                .store
-                .get_payload_envelope(&root)?
-                .ok_or(BlockError::ParentEnvelopeUnknown { parent_root: root })?;
+            if chain.store.get_payload_envelope(&root)?.is_none() {
+                debug!(
+                    parent_root = %root,
+                    parent_slot = %parent_block.slot(),
+                    %finalized_slot,
+                    "load_parent: parent envelope not in store",
+                );
+                return Err(BlockError::ParentEnvelopeUnknown { parent_root: root });
+            }
         }
 
         // Load the parent block's state from the database, returning an error if it is not found.
