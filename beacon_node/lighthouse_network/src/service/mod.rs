@@ -1691,6 +1691,14 @@ impl<E: EthSpec> Network<E> {
                             request_type,
                         })
                     }
+                    RequestType::BlocksByHead(_) => {
+                        metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_head"]);
+                        Some(NetworkEvent::RequestReceived {
+                            peer_id,
+                            inbound_request_id,
+                            request_type,
+                        })
+                    }
                     RequestType::PayloadEnvelopesByRange(_) => {
                         metrics::inc_counter_vec(
                             &metrics::TOTAL_RPC_REQUESTS,
@@ -1827,6 +1835,9 @@ impl<E: EthSpec> Network<E> {
                     RpcSuccessResponse::BlocksByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRoot(Some(resp)))
                     }
+                    RpcSuccessResponse::BlocksByHead(resp) => {
+                        self.build_response(id, peer_id, Response::BlocksByHead(Some(resp)))
+                    }
                     RpcSuccessResponse::PayloadEnvelopesByRange(resp) => self.build_response(
                         id,
                         peer_id,
@@ -1871,6 +1882,7 @@ impl<E: EthSpec> Network<E> {
                 let response = match termination {
                     ResponseTermination::BlocksByRange => Response::BlocksByRange(None),
                     ResponseTermination::BlocksByRoot => Response::BlocksByRoot(None),
+                    ResponseTermination::BlocksByHead => Response::BlocksByHead(None),
                     ResponseTermination::PayloadEnvelopesByRange => {
                         Response::PayloadEnvelopesByRange(None)
                     }

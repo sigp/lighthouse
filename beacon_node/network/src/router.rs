@@ -243,6 +243,13 @@ impl<T: BeaconChainTypes> Router<T> {
                     request,
                 ),
             ),
+            RequestType::BlocksByHead(request) => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor.send_blocks_by_head_request(
+                    peer_id,
+                    inbound_request_id,
+                    request,
+                ),
+            ),
             RequestType::PayloadEnvelopesByRoot(request) => self
                 .handle_beacon_processor_send_result(
                     self.network_beacon_processor
@@ -345,6 +352,11 @@ impl<T: BeaconChainTypes> Router<T> {
             // responses once sync manager requests them.
             Response::PayloadEnvelopesByRoot(_) | Response::PayloadEnvelopesByRange(_) => {
                 debug!("Requesting envelopes by root and by range not supported yet");
+            }
+            // Lighthouse currently only serves BlocksByHead and does not issue it as a client,
+            // so receiving a response is unexpected. Drop it without crashing.
+            Response::BlocksByHead(_) => {
+                debug!("BlocksByHead response received but not requested by lighthouse");
             }
             // Light client responses should not be received
             Response::LightClientBootstrap(_)
