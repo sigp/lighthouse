@@ -760,11 +760,6 @@ impl<E: EthSpec> ForkChoiceComplianceHandler<E> {
             _phantom: PhantomData,
         }
     }
-
-    pub fn only_fork(mut self, fork: ForkName) -> Self {
-        self.only_fork = Some(fork);
-        self
-    }
 }
 
 impl<E: EthSpec + TypeName> Handler for ForkChoiceComplianceHandler<E> {
@@ -787,25 +782,7 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceComplianceHandler<E> {
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        // Compliance tests are only generated for fulu and gloas (post-Electra).
-        if !fork_name.fulu_enabled() {
-            return false;
-        }
-        // Gloas anchor states currently fail to initialise the test harness with
-        // "Head block not found in store" after the recent payload-envelope DB
-        // changes (see https://github.com/sigp/lighthouse/pull/8886). Skip gloas
-        // here until that path is fixed; fulu compliance still runs.
-        if fork_name.gloas_enabled() {
-            return false;
-        }
-        if let Some(only) = self.only_fork
-            && only != fork_name
-        {
-            return false;
-        }
-        // Compliance generators emit bogus BLS signatures (`bls_setting: 2`); SSZ-decoding
-        // them with real BLS yields BLST_BAD_ENCODING. They must run with `fake_crypto`.
-        cfg!(feature = "fake_crypto")
+        cfg!(feature = "fake_crypto") && fork_name.fulu_enabled()
     }
 
     fn disabled_forks(&self) -> Vec<ForkName> {
