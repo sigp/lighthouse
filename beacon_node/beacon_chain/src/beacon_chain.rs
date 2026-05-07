@@ -3257,18 +3257,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             error: BlockError::BeaconChainError(Box::new(e.into())),
                         };
                     }
-                    if let Err(e) = self
-                        .canonical_head
-                        .fork_choice_write_lock()
-                        .on_valid_payload_envelope_received(block_root)
-                    {
-                        return ChainSegmentResult::Failed {
-                            imported_blocks,
-                            error: BlockError::BeaconChainError(Box::new(
-                                BeaconChainError::ForkChoiceError(e),
-                            )),
-                        };
-                    }
+                    // Note: we do NOT call on_valid_payload_envelope_received here
+                    // because the block hasn't been added to fork choice yet (that
+                    // happens in process_block below). The fork choice update is
+                    // handled by import_envelope_from_range_sync after process_block.
                 }
 
                 match self

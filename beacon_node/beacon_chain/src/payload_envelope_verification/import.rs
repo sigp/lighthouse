@@ -192,13 +192,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(BeaconChainError::TokioJoin)?
             .ok_or(BeaconChainError::RuntimeShutdown)??;
 
-        // TODO(gloas): optimistic sync is not supported for Gloas, maybe we could re-add it
-        if payload_verification_outcome
-            .payload_verification_status
-            .is_optimistic()
-        {
-            return Err(BlockError::OptimisticSyncNotSupported { block_root });
-        }
+        // NOTE: We allow optimistic (SYNCING) payload verification status here.
+        // This can happen when the EL is still catching up (e.g., after range sync imports
+        // blocks that the EL hasn't validated yet). The envelope import will proceed and
+        // fork choice will mark the payload as received. If the payload is later found to
+        // be invalid, the normal invalidation mechanism will handle it.
 
         Ok(AvailabilityPendingExecutedEnvelope::new(
             signed_envelope,
