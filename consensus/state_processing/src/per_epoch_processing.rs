@@ -37,7 +37,7 @@ pub fn process_epoch<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<EpochProcessingSummary<E>, Error> {
     let _timer = metrics::start_timer(&metrics::PROCESS_EPOCH_TIME);
-    println!("running process_epoch function");
+
     // Verify that the `BeaconState` instantiation matches the fork at `state.slot()`.
     state
         .fork_name(spec)

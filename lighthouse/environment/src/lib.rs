@@ -421,13 +421,13 @@ impl<E: EthSpec> Environment<E> {
         let (ctrlc_send, ctrlc_oneshot) = oneshot::channel();
         let ctrlc_send_c = RefCell::new(Some(ctrlc_send));
         ctrlc::set_handler(move || {
-            if let Some(ctrlc_send) = ctrlc_send_c.try_borrow_mut().unwrap().take() {
-                if let Err(e) = ctrlc_send.send(()) {
-                    error!(
-                        error = ?e,
-                        "Error sending ctrl-c message"
-                    );
-                }
+            if let Some(ctrlc_send) = ctrlc_send_c.try_borrow_mut().unwrap().take()
+                && let Err(e) = ctrlc_send.send(())
+            {
+                error!(
+                    error = ?e,
+                    "Error sending ctrl-c message"
+                );
             }
         })
         .map_err(|e| format!("Could not set ctrlc handler: {:?}", e))?;
