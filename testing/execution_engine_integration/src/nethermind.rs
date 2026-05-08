@@ -69,6 +69,8 @@ impl NethermindEngine {
         manifest_dir
             .join("execution_clients")
             .join("nethermind")
+            .join("src")
+            .join("Nethermind")
             .join("artifacts")
             .join("bin")
             .join("Nethermind.Runner")
