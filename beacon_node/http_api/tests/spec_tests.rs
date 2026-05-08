@@ -17,6 +17,7 @@ use oas3::spec::{ObjectOrReference, ObjectSchema, Operation, Schema, SchemaType,
 use regex::RegexBuilder;
 use reqwest::Client;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::{
@@ -289,15 +290,41 @@ async fn populate_chain_data(harness: &BeaconChainHarness<EphemeralHarnessType<E
 
 // Extract the full ObjectSchema for each endpoint, the ObjectSchema contains all info that we need for the checks
 async fn extract_all_endpoints() -> ObjectSchemaByEndpoint {
-    // Obtain the complete Beacon APIs yaml file using the latest release version (not the dev version)
-    let yaml = reqwest::get(
-        "https://github.com/ethereum/beacon-APIs/releases/latest/download/beacon-node-oapi.yaml",
-    )
-    .await
-    .unwrap()
-    .text()
-    .await
-    .unwrap();
+    // Use the latest release version (not the dev version)
+    let url =
+        "https://github.com/ethereum/beacon-APIs/releases/latest/download/beacon-node-oapi.yaml";
+
+    let yaml = if std::env::var("CI").is_ok() {
+        println!("using CI branch to download the file");
+        // In CI, download with Github token to avoid rate limiting
+        let token = std::env::var("GITHUB_TOKEN").unwrap();
+        Client::new()
+            .get(url)
+            .header("Authorization", format!("Bearer {}", token))
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap()
+    } else {
+        // This branch is for running the test locally
+        println!("running locally");
+        let path =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/beacon-node-oapi.yaml");
+
+        if path.exists() {
+            // If the file exists, read it directly
+            println!("file exists");
+            std::fs::read_to_string(&path).unwrap()
+        } else {
+            // If the file doesn't exist, only we download from the url
+            println!("file does not exist, downloading");
+            let content = reqwest::get(url).await.unwrap().text().await.unwrap();
+            std::fs::write(&path, &content).unwrap();
+            content
+        }
+    };
 
     // Use the function from oas3 crate to parse the main yaml file
     let spec = oas3::from_yaml(yaml).unwrap();
