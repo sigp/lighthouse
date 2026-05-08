@@ -15,9 +15,9 @@ pub enum BeaconNodeBackend<E: EthSpec> {
     Redb(redb_impl::Redb<E>),
 }
 
-impl<E: EthSpec> ItemStore<E> for BeaconNodeBackend<E> {}
+impl<E: EthSpec> ItemStore for BeaconNodeBackend<E> {}
 
-impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
+impl<E: EthSpec> KeyValueStore for BeaconNodeBackend<E> {
     fn get_bytes(&self, column: DBColumn, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         match self {
             #[cfg(feature = "leveldb")]

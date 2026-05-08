@@ -25,7 +25,7 @@ impl<E: EthSpec> MemoryStore<E> {
     }
 }
 
-impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
+impl<E: EthSpec> KeyValueStore for MemoryStore<E> {
     /// Get the value of some key from the database. Returns `None` if the key does not exist.
     fn get_bytes(&self, col: DBColumn, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         let column_key = BytesKey::from_vec(get_key_for_col(col, key));
@@ -148,4 +148,4 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
     }
 }
 
-impl<E: EthSpec> ItemStore<E> for MemoryStore<E> {}
+impl<E: EthSpec> ItemStore for MemoryStore<E> {}

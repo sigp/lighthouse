@@ -399,8 +399,8 @@ impl<E: EthSpec> Builder<DiskHarnessType<E>> {
 impl<E, Hot, Cold> Builder<BaseHarnessType<E, Hot, Cold>>
 where
     E: EthSpec,
-    Hot: ItemStore<E>,
-    Cold: ItemStore<E>,
+    Hot: ItemStore,
+    Cold: ItemStore,
 {
     pub fn new(eth_spec_instance: E) -> Self {
         let runtime = TestRuntime::default();
@@ -760,8 +760,8 @@ pub type HarnessSyncContributions<E> = Vec<(
 impl<E, Hot, Cold> BeaconChainHarness<BaseHarnessType<E, Hot, Cold>>
 where
     E: EthSpec,
-    Hot: ItemStore<E>,
-    Cold: ItemStore<E>,
+    Hot: ItemStore,
+    Cold: ItemStore,
 {
     pub fn builder(eth_spec_instance: E) -> Builder<BaseHarnessType<E, Hot, Cold>> {
         create_test_tracing_subscriber();
