@@ -584,10 +584,10 @@ where
             b.execution_status
                 .block_hash()
                 .or(match head_payload_status {
-                    PayloadStatus::Full => b.execution_payload_block_hash,
-                    PayloadStatus::Pending | PayloadStatus::Empty => {
-                        b.execution_payload_parent_hash
+                    PayloadStatus::Full | PayloadStatus::Pending => {
+                        b.execution_payload_block_hash
                     }
+                    PayloadStatus::Empty => b.execution_payload_parent_hash,
                 })
         });
         let justified_root = self.justified_checkpoint().root;
