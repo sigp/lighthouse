@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - unstable
-      - stable
     tags:
       - v*
   workflow_dispatch: # allows manual triggering for testing purposes and skips publishing an image
@@ -25,9 +24,6 @@ jobs:
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             # It's a tag (e.g., v1.2.3)
             VERSION="${GITHUB_REF#refs/tags/}"
-          elif [[ "${{ github.ref }}" == refs/heads/stable ]]; then
-            # stable branch -> latest
-            VERSION="latest"
           elif [[ "${{ github.ref }}" == refs/heads/unstable ]]; then
             # unstable branch -> latest-unstable
             VERSION="latest-unstable"
@@ -174,3 +170,14 @@ jobs:
             ${IMAGE_NAME}:${VERSION}-arm64
 
           docker manifest push ${IMAGE_NAME}:${VERSION}
+
+          # For version tags, also create/update the latest tag to keep stable up to date
+          # Only create latest tag for proper release versions (e.g. v1.2.3, not v1.2.3-alpha)
+          if [[ "${GITHUB_REF}" == refs/tags/* ]] && [[ "${VERSION}" =~ ^v[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+            docker manifest create \
+              ${IMAGE_NAME}:latest \
+              ${IMAGE_NAME}:${VERSION}-amd64 \
+              ${IMAGE_NAME}:${VERSION}-arm64
+
+            docker manifest push ${IMAGE_NAME}:latest
+          fi

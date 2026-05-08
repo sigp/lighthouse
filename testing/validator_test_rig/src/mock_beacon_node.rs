@@ -1,7 +1,8 @@
 use eth2::types::{GenericResponse, SyncingData};
-use eth2::{BeaconNodeHttpClient, StatusCode, Timeouts};
+use eth2::{BeaconNodeHttpClient, Timeouts};
 use mockito::{Matcher, Mock, Server, ServerGuard};
 use regex::Regex;
+use reqwest::StatusCode;
 use sensitive_url::SensitiveUrl;
 use std::marker::PhantomData;
 use std::str::FromStr;

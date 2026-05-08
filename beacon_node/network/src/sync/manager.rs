@@ -49,7 +49,6 @@ use crate::sync::block_lookups::{
 use crate::sync::custody_backfill_sync::CustodyBackFillSync;
 use crate::sync::network_context::{PeerGroup, RpcResponseResult};
 use beacon_chain::block_verification_types::AsBlock;
-use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
 };
@@ -70,6 +69,7 @@ use slot_clock::SlotClock;
 use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
+use strum::IntoStaticStr;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace};
 use types::{
@@ -90,7 +90,7 @@ pub const SLOT_IMPORT_TOLERANCE: usize = 32;
 /// arbitrary number that covers a full slot, but allows recovery if sync get stuck for a few slots.
 const NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS: u64 = 30;
 
-#[derive(Debug)]
+#[derive(Debug, IntoStaticStr)]
 /// A message that can be sent to the sync manager thread.
 pub enum SyncMessage<E: EthSpec> {
     /// A useful peer has been discovered.
@@ -140,6 +140,14 @@ pub enum SyncMessage<E: EthSpec> {
 
     /// A data column with an unknown parent has been received.
     UnknownParentDataColumn(PeerId, Arc<DataColumnSidecar<E>>),
+
+    /// A partial data column with an unknown parent has been received.
+    UnknownParentPartialDataColumn {
+        peer_id: PeerId,
+        block_root: Hash256,
+        parent_root: Hash256,
+        slot: Slot,
+    },
 
     /// A peer has sent an attestation that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
@@ -323,17 +331,18 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     #[cfg(test)]
-    pub(crate) fn active_single_lookups(&self) -> Vec<super::block_lookups::BlockLookupSummary> {
-        self.block_lookups.active_single_lookups()
+    pub(crate) fn send_sync_message(&mut self, sync_message: SyncMessage<<T>::EthSpec>) {
+        self.network.send_sync_message(sync_message);
     }
 
     #[cfg(test)]
-    pub(crate) fn active_parent_lookups(&self) -> Vec<Vec<Hash256>> {
-        self.block_lookups
-            .active_parent_lookups()
-            .iter()
-            .map(|c| c.chain.clone())
-            .collect()
+    pub(crate) fn block_lookups(&self) -> &BlockLookups<T> {
+        &self.block_lookups
+    }
+
+    #[cfg(test)]
+    pub(crate) fn range_sync(&self) -> &RangeSync<T> {
+        &self.range_sync
     }
 
     #[cfg(test)]
@@ -512,16 +521,17 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// there is no way to guarantee that libp2p always emits a error along with
     /// the disconnect.
     fn peer_disconnect(&mut self, peer_id: &PeerId) {
-        // Inject a Disconnected error on all requests associated with the disconnected peer
-        // to retry all batches/lookups
-        for sync_request_id in self.network.peer_disconnected(peer_id) {
-            self.inject_error(*peer_id, sync_request_id, RPCError::Disconnected);
-        }
-
         // Remove peer from all data structures
         self.range_sync.peer_disconnect(&mut self.network, peer_id);
         let _ = self.backfill_sync.peer_disconnected(peer_id);
         self.block_lookups.peer_disconnected(peer_id);
+
+        // Inject a Disconnected error on all requests associated with the disconnected peer
+        // to retry all batches/lookups. Only after removing the peer from the data structures to
+        // avoid sending retry requests to the disconnecting peer.
+        for sync_request_id in self.network.peer_disconnected(peer_id) {
+            self.inject_error(*peer_id, sync_request_id, RPCError::Disconnected);
+        }
 
         // Regardless of the outcome, we update the sync status.
         self.update_sync_state();
@@ -784,6 +794,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 _ = register_metrics_interval.tick() => {
                     self.network.register_metrics();
+                    self.range_sync.register_metrics();
+                    self.backfill_sync.register_metrics();
+                    self.custody_backfill_sync.register_metrics();
                 }
                 _ = epoch_interval.tick() => {
                     self.update_sync_state();
@@ -845,7 +858,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     BlockComponent::Block(DownloadResult {
                         value: block.block_cloned(),
                         block_root,
-                        seen_timestamp: timestamp_now(),
+                        seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
                         peer_group: PeerGroup::from_single(peer_id),
                     }),
                 );
@@ -861,9 +874,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     parent_root,
                     blob_slot,
                     BlockComponent::Blob(DownloadResult {
-                        value: blob,
+                        value: parent_root,
                         block_root,
-                        seen_timestamp: timestamp_now(),
+                        seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
                         peer_group: PeerGroup::from_single(peer_id),
                     }),
                 );
@@ -871,17 +884,49 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncMessage::UnknownParentDataColumn(peer_id, data_column) => {
                 let data_column_slot = data_column.slot();
                 let block_root = data_column.block_root();
-                let parent_root = data_column.block_parent_root();
-                debug!(%block_root, %parent_root, "Received unknown parent data column message");
+                match data_column.as_ref() {
+                    DataColumnSidecar::Fulu(column) => {
+                        let parent_root = column.block_parent_root();
+                        debug!(%block_root, %parent_root, "Received unknown parent data column message");
+                        self.handle_unknown_parent(
+                            peer_id,
+                            block_root,
+                            parent_root,
+                            data_column_slot,
+                            BlockComponent::DataColumn(DownloadResult {
+                                value: parent_root,
+                                block_root,
+                                seen_timestamp: self
+                                    .chain
+                                    .slot_clock
+                                    .now_duration()
+                                    .unwrap_or_default(),
+                                peer_group: PeerGroup::from_single(peer_id),
+                            }),
+                        );
+                    }
+                    // TODO(gloas) support gloas data column variant
+                    DataColumnSidecar::Gloas(_) => {
+                        error!("Gloas variant not yet supported")
+                    }
+                }
+            }
+            SyncMessage::UnknownParentPartialDataColumn {
+                peer_id,
+                block_root,
+                parent_root,
+                slot,
+            } => {
+                debug!(%block_root, %parent_root, "Received unknown parent partial column message");
                 self.handle_unknown_parent(
                     peer_id,
                     block_root,
                     parent_root,
-                    data_column_slot,
-                    BlockComponent::DataColumn(DownloadResult {
-                        value: data_column,
+                    slot,
+                    BlockComponent::PartialDataColumn(DownloadResult {
+                        value: parent_root,
                         block_root,
-                        seen_timestamp: timestamp_now(),
+                        seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
                         peer_group: PeerGroup::from_single(peer_id),
                     }),
                 );

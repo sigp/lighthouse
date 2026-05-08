@@ -132,7 +132,6 @@ async fn get_block_from_source<T: EthSpec>(
 
         let (kzg_proofs, blobs): (Vec<_>, Vec<_>) = blobs_from_source
             .iter()
-            .cloned()
             .map(|sidecar| (sidecar.kzg_proof, sidecar.blob.clone()))
             .unzip();
 

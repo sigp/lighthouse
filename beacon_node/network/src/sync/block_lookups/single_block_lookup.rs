@@ -7,7 +7,6 @@ use crate::sync::network_context::{
 use beacon_chain::{BeaconChainTypes, BlockProcessStatus};
 use educe::Educe;
 use lighthouse_network::service::api_types::Id;
-use lighthouse_tracing::SPAN_SINGLE_BLOCK_LOOKUP;
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -16,7 +15,7 @@ use std::time::{Duration, Instant};
 use store::Hash256;
 use strum::IntoStaticStr;
 use tracing::{Span, debug_span};
-use types::blob_sidecar::FixedBlobSidecarList;
+use types::data::FixedBlobSidecarList;
 use types::{DataColumnSidecarList, EthSpec, SignedBeaconBlock, Slot};
 
 // Dedicated enum for LookupResult to force its usage
@@ -93,7 +92,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         awaiting_parent: Option<Hash256>,
     ) -> Self {
         let lookup_span = debug_span!(
-            SPAN_SINGLE_BLOCK_LOOKUP,
+            "lh_single_block_lookup",
             block_root = %requested_block_root,
             id = id,
         );
@@ -108,6 +107,12 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             created: Instant::now(),
             span: lookup_span,
         }
+    }
+
+    /// Reset the status of all internal requests
+    pub fn reset_requests(&mut self) {
+        self.block_request_state = BlockRequestState::new(self.block_root);
+        self.component_requests = ComponentRequests::WaitingForBlock;
     }
 
     /// Return the slot of this lookup's block if it's currently cached as `AwaitingProcessing`
@@ -151,7 +156,9 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 .block_request_state
                 .state
                 .insert_verified_response(block),
-            BlockComponent::Blob(_) | BlockComponent::DataColumn(_) => {
+            BlockComponent::Blob(_)
+            | BlockComponent::DataColumn(_)
+            | BlockComponent::PartialDataColumn(_) => {
                 // For now ignore single blobs and columns, as the blob request state assumes all blobs are
                 // attributed to the same peer = the peer serving the remaining blobs. Ignoring this
                 // block component has a minor effect, causing the node to re-request this blob

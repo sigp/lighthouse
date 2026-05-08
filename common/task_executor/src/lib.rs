@@ -6,7 +6,7 @@ use futures::channel::mpsc::Sender;
 use futures::prelude::*;
 use std::sync::{Arc, Weak};
 use tokio::runtime::{Handle, Runtime};
-use tracing::debug;
+use tracing::{Span, debug};
 
 use crate::rayon_pool_provider::RayonPoolProvider;
 pub use crate::rayon_pool_provider::RayonPoolType;
@@ -83,11 +83,6 @@ pub struct TaskExecutor {
     /// The task must provide a reason for shutting down.
     signal_tx: Sender<ShutdownReason>,
 
-    /// The name of the service for inclusion in the logger output.
-    // FIXME(sproul): delete?
-    #[allow(dead_code)]
-    service_name: String,
-
     rayon_pool_provider: Arc<RayonPoolProvider>,
 }
 
@@ -103,25 +98,12 @@ impl TaskExecutor {
         handle: T,
         exit: async_channel::Receiver<()>,
         signal_tx: Sender<ShutdownReason>,
-        service_name: String,
     ) -> Self {
         Self {
             handle_provider: handle.into(),
             exit,
             signal_tx,
-            service_name,
             rayon_pool_provider: Arc::new(RayonPoolProvider::default()),
-        }
-    }
-
-    /// Clones the task executor adding a service name.
-    pub fn clone_with_name(&self, service_name: String) -> Self {
-        TaskExecutor {
-            handle_provider: self.handle_provider.clone(),
-            exit: self.exit.clone(),
-            signal_tx: self.signal_tx.clone(),
-            service_name,
-            rayon_pool_provider: self.rayon_pool_provider.clone(),
         }
     }
 
@@ -243,9 +225,11 @@ impl TaskExecutor {
         F: FnOnce() + Send + 'static,
     {
         let thread_pool = self.rayon_pool_provider.get_thread_pool(rayon_pool_type);
+        let span = Span::current();
         self.spawn_blocking(
             move || {
                 thread_pool.install(|| {
+                    let _guard = span.enter();
                     task();
                 });
             },
@@ -265,8 +249,10 @@ impl TaskExecutor {
     {
         let thread_pool = self.rayon_pool_provider.get_thread_pool(rayon_pool_type);
         let (tx, rx) = tokio::sync::oneshot::channel();
+        let span = Span::current();
 
         thread_pool.spawn(move || {
+            let _guard = span.enter();
             let result = task();
             let _ = tx.send(result);
         });
@@ -338,8 +324,12 @@ impl TaskExecutor {
         let timer = metrics::start_timer_vec(&metrics::BLOCKING_TASKS_HISTOGRAM, &[name]);
         metrics::inc_gauge_vec(&metrics::BLOCKING_TASKS_COUNT, &[name]);
 
+        let span = Span::current();
         let join_handle = if let Some(handle) = self.handle() {
-            handle.spawn_blocking(task)
+            handle.spawn_blocking(move || {
+                let _guard = span.enter();
+                task()
+            })
         } else {
             debug!("Couldn't spawn task. Runtime shutting down");
             return None;

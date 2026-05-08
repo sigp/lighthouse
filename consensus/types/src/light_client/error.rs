@@ -14,6 +14,7 @@ pub enum LightClientError {
     InvalidFinalizedBlock,
     BeaconBlockBodyError,
     InconsistentFork,
+    GloasNotImplemented,
 }
 
 impl From<ssz_types::Error> for LightClientError {

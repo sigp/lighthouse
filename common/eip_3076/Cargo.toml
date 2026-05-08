@@ -6,7 +6,7 @@ edition = { workspace = true }
 
 [features]
 default = []
-arbitrary-fuzz = ["dep:arbitrary", "types/arbitrary"]
+arbitrary = ["dep:arbitrary", "types/arbitrary"]
 json = ["dep:serde_json"]
 
 [dependencies]

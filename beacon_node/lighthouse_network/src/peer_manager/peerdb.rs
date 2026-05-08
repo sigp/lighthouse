@@ -15,7 +15,7 @@ use std::{
 };
 use sync_status::SyncStatus;
 use tracing::{debug, error, trace, warn};
-use types::data_column_custody_group::compute_subnets_for_node;
+use types::data::compute_subnets_for_node;
 use types::{ChainSpec, DataColumnSubnetId, Epoch, EthSpec, Hash256, Slot};
 
 pub mod client;
@@ -259,10 +259,10 @@ impl<E: EthSpec> PeerDB<E> {
                 info.is_connected()
                     && match info.sync_status() {
                         SyncStatus::Synced { info } => {
-                            info.has_slot(epoch.end_slot(E::slots_per_epoch()))
+                            info.has_slot(epoch.start_slot(E::slots_per_epoch()))
                         }
                         SyncStatus::Advanced { info } => {
-                            info.has_slot(epoch.end_slot(E::slots_per_epoch()))
+                            info.has_slot(epoch.start_slot(E::slots_per_epoch()))
                         }
                         SyncStatus::IrrelevantPeer
                         | SyncStatus::Behind { .. }
@@ -332,7 +332,7 @@ impl<E: EthSpec> PeerDB<E> {
             info.is_connected()
                 && match info.sync_status() {
                     SyncStatus::Synced { info } | SyncStatus::Advanced { info } => {
-                        info.has_slot(epoch.end_slot(E::slots_per_epoch()))
+                        info.has_slot(epoch.start_slot(E::slots_per_epoch()))
                     }
                     SyncStatus::IrrelevantPeer
                     | SyncStatus::Behind { .. }

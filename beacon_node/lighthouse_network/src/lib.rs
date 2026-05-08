@@ -99,7 +99,7 @@ impl std::fmt::Display for ClearDialError<'_> {
 
 pub use crate::types::{
     Enr, EnrSyncCommitteeBitfield, GossipTopic, NetworkGlobals, PubsubMessage, Subnet,
-    SubnetDiscovery,
+    SubnetDiscovery, decode_partial,
 };
 
 pub use prometheus_client;
@@ -107,8 +107,8 @@ pub use prometheus_client;
 pub use config::Config as NetworkConfig;
 pub use discovery::Eth2Enr;
 pub use discv5;
-pub use gossipsub::{IdentTopic, MessageAcceptance, MessageId, Topic, TopicHash};
 pub use libp2p;
+pub use libp2p::gossipsub::{IdentTopic, MessageAcceptance, MessageId, Topic, TopicHash};
 pub use libp2p::{Multiaddr, identity, multiaddr};
 pub use libp2p::{PeerId, Swarm, core::ConnectedPoint};
 pub use peer_manager::{

@@ -3,22 +3,22 @@ use crate::metrics;
 use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::batch::BatchId;
 use crate::sync::batch::{
-    BatchConfig, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
+    BatchConfig, BatchInfo, BatchMetricsState, BatchOperationOutcome, BatchProcessingResult,
+    BatchState,
 };
 use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::network_context::{RangeRequestId, RpcRequestSendError, RpcResponseError};
 use crate::sync::{BatchProcessResult, network_context::SyncNetworkContext};
 use beacon_chain::BeaconChainTypes;
-use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::block_verification_types::RangeSyncBlock;
 use lighthouse_network::service::api_types::Id;
 use lighthouse_network::{PeerAction, PeerId};
-use lighthouse_tracing::SPAN_SYNCING_CHAIN;
 use logging::crit;
 use std::collections::{BTreeMap, HashSet, btree_map::Entry};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use strum::IntoStaticStr;
-use tracing::{Span, debug, instrument, warn};
+use tracing::{Span, debug, error, instrument, warn};
 use types::{ColumnIndex, Epoch, EthSpec, Hash256, Slot};
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of
@@ -40,7 +40,7 @@ const BATCH_BUFFER_SIZE: u8 = 5;
 /// and continued is now in an inconsistent state.
 pub type ProcessingResult = Result<KeepChain, RemoveChain>;
 
-type RpcBlocks<E> = Vec<RpcBlock<E>>;
+type RpcBlocks<E> = Vec<RangeSyncBlock<E>>;
 type RangeSyncBatchInfo<E> = BatchInfo<E, RangeSyncBatchConfig<E>, RpcBlocks<E>>;
 type RangeSyncBatches<E> = BTreeMap<BatchId, RangeSyncBatchInfo<E>>;
 
@@ -161,7 +161,7 @@ pub enum ChainSyncingState {
 impl<T: BeaconChainTypes> SyncingChain<T> {
     #[allow(clippy::too_many_arguments)]
     #[instrument(
-        name = SPAN_SYNCING_CHAIN,
+        name = "lh_syncing_chain",
         parent = None,
         level="debug",
         skip_all,
@@ -235,6 +235,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             .sum()
     }
 
+    /// Returns the number of batches in the given metrics state.
+    pub fn count_batches_in_state(&self, state: BatchMetricsState) -> usize {
+        self.batches
+            .values()
+            .filter(|b| b.state().metrics_state() == state)
+            .count()
+    }
+
     /// Removes a peer from the chain.
     /// If the peer has active batches, those are considered failed and re-requested.
     pub fn remove_peer(&mut self, peer_id: &PeerId) -> ProcessingResult {
@@ -265,7 +273,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         batch_id: BatchId,
         peer_id: &PeerId,
         request_id: Id,
-        blocks: Vec<RpcBlock<T::EthSpec>>,
+        blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) -> ProcessingResult {
         let _guard = self.span.clone().entered();
         // check if we have this batch
@@ -942,10 +950,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         }
                     }
                     CouplingError::BlobPeerFailure(msg) => {
-                        tracing::debug!(?batch_id, msg, "Blob peer failure");
+                        debug!(?batch_id, msg, "Blob peer failure");
                     }
                     CouplingError::InternalError(msg) => {
-                        tracing::error!(?batch_id, msg, "Block components coupling internal error");
+                        error!(?batch_id, msg, "Block components coupling internal error");
                     }
                 }
             }
@@ -1278,7 +1286,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             .iter()
             .filter(|&(_epoch, batch)| in_buffer(batch))
             .count()
-            > BATCH_BUFFER_SIZE as usize
+            >= BATCH_BUFFER_SIZE as usize
         {
             return None;
         }
@@ -1331,7 +1339,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .get(&(self.processing_target + batch_index as u64 * EPOCHS_PER_BATCH))
             {
                 visualization_string.push(batch.visualize());
-                if batch_index != BATCH_BUFFER_SIZE {
+                if batch_index < BATCH_BUFFER_SIZE - 1 {
                     // Add a comma in between elements
                     visualization_string.push(',');
                 }

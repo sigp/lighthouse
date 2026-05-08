@@ -7,7 +7,7 @@ use directory::{
     DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR, DEFAULT_VALIDATOR_DIR,
     get_network_dir,
 };
-use eth2::types::Graffiti;
+use eth2::types::{Graffiti, GraffitiPolicy};
 use graffiti_file::GraffitiFile;
 use initialized_validators::Config as InitializedValidatorsConfig;
 use lighthouse_validator_store::Config as ValidatorStoreConfig;
@@ -55,6 +55,8 @@ pub struct Config {
     pub graffiti: Option<Graffiti>,
     /// Graffiti file to load per validator graffitis.
     pub graffiti_file: Option<GraffitiFile>,
+    /// GraffitiPolicy to append client version info
+    pub graffiti_policy: Option<GraffitiPolicy>,
     /// Configuration for the HTTP REST API.
     pub http_api: validator_http_api::Config,
     /// Configuration for the HTTP REST API.
@@ -80,6 +82,8 @@ pub struct Config {
     pub broadcast_topics: Vec<ApiTopic>,
     /// Enables a service which attempts to measure latency between the VC and BNs.
     pub enable_latency_measurement_service: bool,
+    /// Enables the beacon head monitor that reacts to head updates from connected beacon nodes.
+    pub enable_beacon_head_monitor: bool,
     /// Defines the number of validators per `validator/register_validator` request sent to the BN.
     pub validator_registration_batch_size: usize,
     /// Whether we are running with distributed network support.
@@ -119,6 +123,7 @@ impl Default for Config {
             long_timeouts_multiplier: 1,
             graffiti: None,
             graffiti_file: None,
+            graffiti_policy: None,
             http_api: <_>::default(),
             http_metrics: <_>::default(),
             beacon_node_fallback: <_>::default(),
@@ -129,6 +134,7 @@ impl Default for Config {
             builder_registration_timestamp_override: None,
             broadcast_topics: vec![ApiTopic::Subscriptions],
             enable_latency_measurement_service: true,
+            enable_beacon_head_monitor: true,
             validator_registration_batch_size: 500,
             distributed: false,
             initialized_validators: <_>::default(),
@@ -232,6 +238,12 @@ impl Config {
                 config.graffiti = Some(graffiti.into());
             }
         }
+
+        config.graffiti_policy = if validator_client_config.graffiti_append {
+            Some(GraffitiPolicy::AppendClientVersions)
+        } else {
+            Some(GraffitiPolicy::PreserveUserGraffiti)
+        };
 
         if let Some(input_fee_recipient) = validator_client_config.suggested_fee_recipient {
             config.validator_store.fee_recipient = Some(input_fee_recipient);
@@ -368,6 +380,7 @@ impl Config {
         config.validator_store.builder_boost_factor = validator_client_config.builder_boost_factor;
         config.enable_latency_measurement_service =
             !validator_client_config.disable_latency_measurement_service;
+        config.enable_beacon_head_monitor = !validator_client_config.disable_beacon_head_monitor;
 
         config.validator_registration_batch_size =
             validator_client_config.validator_registration_batch_size;

@@ -8,33 +8,30 @@ use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::FixedVector;
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tracing::instrument;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
+    ExecutionBlockHash,
     block::{
         BLOB_KZG_COMMITMENTS_INDEX, BeaconBlock, BeaconBlockAltair, BeaconBlockBase,
         BeaconBlockBellatrix, BeaconBlockBodyBellatrix, BeaconBlockBodyCapella,
-        BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconBlockBodyFulu, BeaconBlockBodyGloas,
-        BeaconBlockCapella, BeaconBlockDeneb, BeaconBlockElectra, BeaconBlockFulu,
-        BeaconBlockGloas, BeaconBlockHeader, BeaconBlockRef, BeaconBlockRefMut,
-        SignedBeaconBlockHeader,
+        BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconBlockBodyFulu, BeaconBlockCapella,
+        BeaconBlockDeneb, BeaconBlockElectra, BeaconBlockFulu, BeaconBlockGloas, BeaconBlockHeader,
+        BeaconBlockRef, BeaconBlockRefMut, SignedBeaconBlockHeader,
     },
     core::{ChainSpec, Domain, Epoch, EthSpec, Hash256, SignedRoot, SigningData, Slot},
     execution::{
         AbstractExecPayload, BlindedPayload, BlindedPayloadBellatrix, BlindedPayloadCapella,
-        BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadFulu, BlindedPayloadGloas,
-        ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella,
-        ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
-        ExecutionPayloadGloas, FullPayload, FullPayloadBellatrix, FullPayloadCapella,
-        FullPayloadDeneb, FullPayloadElectra, FullPayloadFulu, FullPayloadGloas,
+        BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadFulu, ExecutionPayload,
+        ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
+        ExecutionPayloadElectra, ExecutionPayloadFulu, FullPayload, FullPayloadBellatrix,
+        FullPayloadCapella, FullPayloadDeneb, FullPayloadElectra, FullPayloadFulu,
     },
     fork::{Fork, ForkName, ForkVersionDecode, InconsistentFork, map_fork_name},
     kzg_ext::format_kzg_commitments,
     state::BeaconStateError,
-    test_utils::TestRandom,
 };
 
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
@@ -78,7 +75,6 @@ impl From<SignedBeaconBlockHash> for Hash256 {
             Decode,
             TreeHash,
             Educe,
-            TestRandom
         ),
         educe(PartialEq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec, Payload: AbstractExecPayload<E>"),
@@ -366,6 +362,42 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
         };
 
         format_kzg_commitments(commitments.as_ref())
+    }
+
+    /// Convenience accessor for the block's bid's `block_hash`.
+    ///
+    /// This method returns an error prior to Gloas.
+    pub fn payload_bid_block_hash(&self) -> Result<ExecutionBlockHash, BeaconStateError> {
+        self.message()
+            .body()
+            .signed_execution_payload_bid()
+            .map(|bid| bid.message.block_hash)
+    }
+
+    /// Convenience accessor for the block's bid's `parent_block_hash`.
+    ///
+    /// This method returns an error prior to Gloas.
+    pub fn payload_bid_parent_block_hash(&self) -> Result<ExecutionBlockHash, BeaconStateError> {
+        self.message()
+            .body()
+            .signed_execution_payload_bid()
+            .map(|bid| bid.message.parent_block_hash)
+    }
+
+    /// Check if the `parent_hash` in this block's `signed_payload_bid` matches `parent_block_hash`.
+    ///
+    /// This function is useful post-Gloas for determining if the parent block is full, *without*
+    /// necessarily needing access to a beacon state. The passed in `parent_block_hash` MUST be the
+    /// `block_hash` from the parent beacon block's bid. If the parent beacon state is available
+    /// this can alternatively be fetched from `state.latest_payload_bid`.
+    ///
+    /// This function returns `false` for all blocks prior to Gloas.
+    pub fn is_parent_block_full(&self, parent_block_hash: ExecutionBlockHash) -> bool {
+        let Ok(signed_payload_bid) = self.message().body().signed_execution_payload_bid() else {
+            // Prior to Gloas.
+            return false;
+        };
+        signed_payload_bid.message.parent_block_hash == parent_block_hash
     }
 }
 
@@ -675,59 +707,15 @@ impl<E: EthSpec> SignedBeaconBlockFulu<E, BlindedPayload<E>> {
     }
 }
 
-impl<E: EthSpec> SignedBeaconBlockGloas<E, BlindedPayload<E>> {
-    pub fn into_full_block(
-        self,
-        execution_payload: ExecutionPayloadGloas<E>,
-    ) -> SignedBeaconBlockGloas<E, FullPayload<E>> {
-        let SignedBeaconBlockGloas {
-            message:
-                BeaconBlockGloas {
-                    slot,
-                    proposer_index,
-                    parent_root,
-                    state_root,
-                    body:
-                        BeaconBlockBodyGloas {
-                            randao_reveal,
-                            eth1_data,
-                            graffiti,
-                            proposer_slashings,
-                            attester_slashings,
-                            attestations,
-                            deposits,
-                            voluntary_exits,
-                            sync_aggregate,
-                            execution_payload: BlindedPayloadGloas { .. },
-                            bls_to_execution_changes,
-                            blob_kzg_commitments,
-                            execution_requests,
-                        },
-                },
-            signature,
-        } = self;
+// We can convert gloas blocks without payloads into blocks "with" payloads.
+// TODO(EIP-7732) Look into whether we can remove this in the future since no blinded blocks post-gloas
+impl<E: EthSpec> From<SignedBeaconBlockGloas<E, BlindedPayload<E>>>
+    for SignedBeaconBlockGloas<E, FullPayload<E>>
+{
+    fn from(signed_block: SignedBeaconBlockGloas<E, BlindedPayload<E>>) -> Self {
+        let SignedBeaconBlockGloas { message, signature } = signed_block;
         SignedBeaconBlockGloas {
-            message: BeaconBlockGloas {
-                slot,
-                proposer_index,
-                parent_root,
-                state_root,
-                body: BeaconBlockBodyGloas {
-                    randao_reveal,
-                    eth1_data,
-                    graffiti,
-                    proposer_slashings,
-                    attester_slashings,
-                    attestations,
-                    deposits,
-                    voluntary_exits,
-                    sync_aggregate,
-                    execution_payload: FullPayloadGloas { execution_payload },
-                    bls_to_execution_changes,
-                    blob_kzg_commitments,
-                    execution_requests,
-                },
-            },
+            message: message.into(),
             signature,
         }
     }
@@ -756,9 +744,7 @@ impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
             (SignedBeaconBlock::Fulu(block), Some(ExecutionPayload::Fulu(payload))) => {
                 SignedBeaconBlock::Fulu(block.into_full_block(payload))
             }
-            (SignedBeaconBlock::Gloas(block), Some(ExecutionPayload::Gloas(payload))) => {
-                SignedBeaconBlock::Gloas(block.into_full_block(payload))
-            }
+            (SignedBeaconBlock::Gloas(block), _) => SignedBeaconBlock::Gloas(block.into()),
             // avoid wildcard matching forks so that compiler will
             // direct us here when a new fork has been added
             (SignedBeaconBlock::Bellatrix(_), _) => return None,
@@ -766,7 +752,7 @@ impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
             (SignedBeaconBlock::Deneb(_), _) => return None,
             (SignedBeaconBlock::Electra(_), _) => return None,
             (SignedBeaconBlock::Fulu(_), _) => return None,
-            (SignedBeaconBlock::Gloas(_), _) => return None,
+            // TODO(EIP-7732) Determine if need a match arm for gloas here
         };
         Some(full_block)
     }

@@ -1,4 +1,4 @@
-use eth2::StatusCode;
+use reqwest::StatusCode;
 use warp::Rejection;
 
 /// Convert from a "new" `http::StatusCode` to a `warp` compatible one.

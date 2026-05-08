@@ -7,17 +7,17 @@ use crate::per_block_processing::{
     verify_attester_slashing, verify_bls_to_execution_change, verify_exit,
     verify_proposer_slashing,
 };
+#[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
 use educe::Educe;
 use smallvec::{SmallVec, smallvec};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
-use test_random_derive::TestRandom;
 use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingOnDisk, AttesterSlashingRefOnDisk,
     BeaconState, ChainSpec, Epoch, EthSpec, Fork, ForkVersion, ProposerSlashing,
-    SignedBlsToExecutionChange, SignedVoluntaryExit, test_utils::TestRandom,
+    SignedBlsToExecutionChange, SignedVoluntaryExit,
 };
 
 const MAX_FORKS_VERIFIED_AGAINST: usize = 2;
@@ -39,13 +39,17 @@ pub trait TransformPersist {
 ///
 /// The inner `op` field is private, meaning instances of this type can only be constructed
 /// by calling `validate`.
-#[derive(Educe, Debug, Clone, Arbitrary)]
+#[derive(Educe, Debug, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
 #[educe(
     PartialEq,
     Eq,
     Hash(bound(T: TransformPersist + std::hash::Hash, E: EthSpec))
 )]
-#[arbitrary(bound = "T: TransformPersist + Arbitrary<'arbitrary>, E: EthSpec")]
+#[cfg_attr(
+    feature = "arbitrary",
+    arbitrary(bound = "T: TransformPersist + Arbitrary<'arbitrary>, E: EthSpec")
+)]
 pub struct SigVerifiedOp<T: TransformPersist, E: EthSpec> {
     op: T,
     verified_against: VerifiedAgainst,
@@ -133,7 +137,8 @@ struct SigVerifiedOpDecode<P: Decode> {
 ///
 /// We need to store multiple `ForkVersion`s because attester slashings contain two indexed
 /// attestations which may be signed using different versions.
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Encode, Decode, TestRandom, Arbitrary)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Encode, Decode)]
+#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
 pub struct VerifiedAgainst {
     fork_versions: SmallVec<[ForkVersion; MAX_FORKS_VERIFIED_AGAINST]>,
 }
@@ -417,20 +422,21 @@ impl TransformPersist for SignedBlsToExecutionChange {
 #[cfg(all(test, not(debug_assertions)))]
 mod test {
     use super::*;
-    use types::{
-        MainnetEthSpec,
-        test_utils::{SeedableRng, TestRandom, XorShiftRng},
-    };
+    use types::MainnetEthSpec;
 
     type E = MainnetEthSpec;
 
-    fn roundtrip_test<T: TestRandom + TransformPersist + PartialEq + std::fmt::Debug>() {
+    fn roundtrip_test<'a, T>()
+    where
+        T: arbitrary::Arbitrary<'a> + TransformPersist + PartialEq + std::fmt::Debug,
+    {
         let runs = 10;
-        let mut rng = XorShiftRng::seed_from_u64(0xff0af5a356af1123);
+        let mut u = types::test_utils::test_unstructured();
 
         for _ in 0..runs {
-            let op = T::random_for_test(&mut rng);
-            let verified_against = VerifiedAgainst::random_for_test(&mut rng);
+            let op = T::arbitrary(&mut u).expect("arbitrary op");
+            let verified_against =
+                VerifiedAgainst::arbitrary(&mut u).expect("arbitrary verified_against");
 
             let verified_op = SigVerifiedOp {
                 op,

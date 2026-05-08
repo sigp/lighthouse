@@ -117,7 +117,8 @@ async fn missed_blocks_across_epochs() {
 
 #[tokio::test]
 async fn missed_blocks_basic() {
-    let validator_count = 16;
+    // >= 32 validators required for Gloas genesis with MainnetEthSpec (32 slots/epoch).
+    let validator_count = 32;
 
     let slots_per_epoch = E::slots_per_epoch();
 

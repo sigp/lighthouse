@@ -152,6 +152,16 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
+        requires = "graffiti",
+        help = "When used, client version info will be prepended to user custom graffiti, with a space in between. \
+        This should only be used with a Lighthouse beacon node.",
+        display_order = 0,
+        help_heading = FLAG_HEADER
+    )]
+    pub graffiti_append: bool,
+
+    #[clap(
+        long,
         value_name = "GRAFFITI-FILE",
         conflicts_with = "graffiti",
         help = "Specify a graffiti file to load validator graffitis from.",
@@ -465,6 +475,17 @@ pub struct ValidatorClient {
         value_name = "SYNC_TOLERANCES"
     )]
     pub beacon_nodes_sync_tolerances: Vec<u64>,
+
+    #[clap(
+        long,
+        help = "Disable the beacon head monitor which tries to attest as soon as any of the \
+                configured beacon nodes sends a head event. Leaving the service enabled is \
+                recommended, but disabling it can lead to reduced bandwidth and more predictable \
+                usage of the primary beacon node (rather than the fastest BN).",
+        display_order = 0,
+        help_heading = FLAG_HEADER
+    )]
+    pub disable_beacon_head_monitor: bool,
 
     #[clap(
         long,

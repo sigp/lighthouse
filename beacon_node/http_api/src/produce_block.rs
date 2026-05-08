@@ -6,16 +6,16 @@ use crate::{
         add_ssz_content_type_header, beacon_response, inconsistent_fork_rejection,
     },
 };
+use beacon_chain::graffiti_calculator::GraffitiSettings;
 use beacon_chain::{
     BeaconBlockResponseWrapper, BeaconChain, BeaconChainTypes, ProduceBlockVerification,
 };
-use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{self as api_types, ProduceBlockV3Metadata, SkipRandaoVerification};
-use lighthouse_tracing::{SPAN_PRODUCE_BLOCK_V2, SPAN_PRODUCE_BLOCK_V3};
+use eth2::{beacon_response::ForkVersionedResponse, types::ProduceBlockV4Metadata};
 use ssz::Encode;
 use std::sync::Arc;
 use tracing::instrument;
-use types::{payload::BlockProductionVersion, *};
+use types::{execution::BlockProductionVersion, *};
 use warp::{
     Reply,
     hyper::{Body, Response},
@@ -44,7 +44,50 @@ pub fn get_randao_verification(
 }
 
 #[instrument(
-    name = SPAN_PRODUCE_BLOCK_V3,
+    name = "lh_produce_block_v4",
+    skip_all,
+    fields(%slot)
+)]
+pub async fn produce_block_v4<T: BeaconChainTypes>(
+    accept_header: Option<api_types::Accept>,
+    chain: Arc<BeaconChain<T>>,
+    slot: Slot,
+    query: api_types::ValidatorBlocksQuery,
+) -> Result<Response<Body>, warp::Rejection> {
+    let randao_reveal = query.randao_reveal.decompress().map_err(|e| {
+        warp_utils::reject::custom_bad_request(format!(
+            "randao reveal is not a valid BLS signature: {:?}",
+            e
+        ))
+    })?;
+
+    let randao_verification = get_randao_verification(&query, randao_reveal.is_infinity())?;
+    let builder_boost_factor = if query.builder_boost_factor == Some(DEFAULT_BOOST_FACTOR) {
+        None
+    } else {
+        query.builder_boost_factor
+    };
+
+    let graffiti_settings = GraffitiSettings::new(query.graffiti, query.graffiti_policy);
+
+    let (block, _block_state, consensus_block_value) = chain
+        .produce_block_with_verification_gloas(
+            randao_reveal,
+            slot,
+            graffiti_settings,
+            randao_verification,
+            builder_boost_factor,
+        )
+        .await
+        .map_err(|e| {
+            warp_utils::reject::custom_bad_request(format!("failed to fetch a block: {:?}", e))
+        })?;
+
+    build_response_v4::<T>(block, consensus_block_value, accept_header, &chain.spec)
+}
+
+#[instrument(
+    name = "lh_produce_block_v3",
     skip_all,
     fields(%slot)
 )]
@@ -68,11 +111,13 @@ pub async fn produce_block_v3<T: BeaconChainTypes>(
         query.builder_boost_factor
     };
 
+    let graffiti_settings = GraffitiSettings::new(query.graffiti, query.graffiti_policy);
+
     let block_response_type = chain
         .produce_block_with_verification(
             randao_reveal,
             slot,
-            query.graffiti,
+            graffiti_settings,
             randao_verification,
             builder_boost_factor,
             BlockProductionVersion::V3,
@@ -83,6 +128,45 @@ pub async fn produce_block_v3<T: BeaconChainTypes>(
         })?;
 
     build_response_v3(chain, block_response_type, accept_header)
+}
+
+pub fn build_response_v4<T: BeaconChainTypes>(
+    block: BeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
+    consensus_block_value: u64,
+    accept_header: Option<api_types::Accept>,
+    spec: &ChainSpec,
+) -> Result<Response<Body>, warp::Rejection> {
+    let fork_name = block
+        .to_ref()
+        .fork_name(spec)
+        .map_err(inconsistent_fork_rejection)?;
+    let consensus_block_value_wei =
+        Uint256::from(consensus_block_value) * Uint256::from(1_000_000_000u64);
+
+    let metadata = ProduceBlockV4Metadata {
+        consensus_version: fork_name,
+        consensus_block_value: consensus_block_value_wei,
+    };
+
+    match accept_header {
+        Some(api_types::Accept::Ssz) => Response::builder()
+            .status(200)
+            .body(block.as_ssz_bytes().into())
+            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+            .map(|res: Response<Body>| add_consensus_version_header(res, fork_name))
+            .map(|res| add_consensus_block_value_header(res, consensus_block_value_wei))
+            .map_err(|e| -> warp::Rejection {
+                warp_utils::reject::custom_server_error(format!("failed to create response: {}", e))
+            }),
+        _ => Ok(warp::reply::json(&ForkVersionedResponse {
+            version: fork_name,
+            metadata,
+            data: block,
+        })
+        .into_response())
+        .map(|res| add_consensus_version_header(res, fork_name))
+        .map(|res| add_consensus_block_value_header(res, consensus_block_value_wei)),
+    }
 }
 
 pub fn build_response_v3<T: BeaconChainTypes>(
@@ -148,11 +232,13 @@ pub async fn produce_blinded_block_v2<T: BeaconChainTypes>(
     })?;
 
     let randao_verification = get_randao_verification(&query, randao_reveal.is_infinity())?;
+    let graffiti_settings = GraffitiSettings::new(query.graffiti, query.graffiti_policy);
+
     let block_response_type = chain
         .produce_block_with_verification(
             randao_reveal,
             slot,
-            query.graffiti,
+            graffiti_settings,
             randao_verification,
             None,
             BlockProductionVersion::BlindedV2,
@@ -164,7 +250,7 @@ pub async fn produce_blinded_block_v2<T: BeaconChainTypes>(
 }
 
 #[instrument(
-    name = SPAN_PRODUCE_BLOCK_V2,
+    name = "lh_produce_block_v2",
     skip_all,
     fields(%slot)
 )]
@@ -182,12 +268,13 @@ pub async fn produce_block_v2<T: BeaconChainTypes>(
     })?;
 
     let randao_verification = get_randao_verification(&query, randao_reveal.is_infinity())?;
+    let graffiti_settings = GraffitiSettings::new(query.graffiti, query.graffiti_policy);
 
     let block_response_type = chain
         .produce_block_with_verification(
             randao_reveal,
             slot,
-            query.graffiti,
+            graffiti_settings,
             randao_verification,
             None,
             BlockProductionVersion::FullV2,

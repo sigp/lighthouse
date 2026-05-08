@@ -409,12 +409,6 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
         );
     }
 
-    // Apply the state to the attester cache, if the cache deems it interesting.
-    beacon_chain
-        .attester_cache
-        .maybe_cache_state(&state, head_block_root, &beacon_chain.spec)
-        .map_err(BeaconChainError::from)?;
-
     let final_slot = state.slot();
 
     // If we have moved into the next slot whilst processing the state then this function is going

@@ -11,7 +11,6 @@ Binaries are supplied for the following platforms:
 - `x86_64-unknown-linux-gnu`: AMD/Intel 64-bit processors (most desktops, laptops, servers)
 - `aarch64-unknown-linux-gnu`: 64-bit ARM processors (Raspberry Pi 4)
 - `aarch64-apple-darwin`: macOS with ARM chips
-- `x86_64-windows`: Windows with 64-bit processors
 
 ## Usage
 
@@ -32,5 +31,3 @@ a `x86_64` binary.
 
 1. Test the binary with `./lighthouse --version` (it should print the version).
 1. (Optional) Move the `lighthouse` binary to a location in your `PATH`, so the `lighthouse` command can be called from anywhere. For example, to copy `lighthouse` from the current directory to `usr/bin`, run `sudo cp lighthouse /usr/bin`.
-
-> Windows users will need to execute the commands in Step 2 from PowerShell.

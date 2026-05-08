@@ -4,11 +4,11 @@ use beacon_chain::{
     GossipVerifiedBlock, IntoGossipVerifiedBlock, WhenSlotSkipped,
     test_utils::{AttestationStrategy, BlockStrategy},
 };
-use eth2::reqwest::{Response, StatusCode};
 use eth2::types::{BroadcastValidation, PublishBlockRequest};
 use fixed_bytes::FixedBytesExtended;
 use http_api::test_utils::InteractiveTester;
 use http_api::{Config, ProvenancedBlock, publish_blinded_block, publish_block, reconstruct_block};
+use reqwest::{Response, StatusCode};
 use std::collections::HashSet;
 use std::sync::Arc;
 use types::{ColumnIndex, Epoch, EthSpec, ForkName, Hash256, MainnetEthSpec, Slot};
@@ -85,14 +85,18 @@ pub async fn gossip_invalid() {
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
+    // The error depends on whether blobs exist (which affects validation order):
+    // - Pre-Deneb (no blobs): block validation runs first -> NotFinalizedDescendant
+    // - Deneb/Electra (blobs): blob validation runs first -> ParentUnknown
+    // - Fulu+ (columns): block validation runs first -> NotFinalizedDescendant
     let pre_finalized_block_root = Hash256::zero();
-    let expected_error_msg = if tester.harness.spec.is_fulu_scheduled() {
+    let expected_error_msg = if tester.harness.spec.deneb_fork_epoch.is_none()
+        || tester.harness.spec.is_fulu_scheduled()
+    {
         format!(
             "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
         )
     } else {
-        // Since Deneb, the invalidity of the blobs will be detected prior to the invalidity of the
-        // block.
         format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}")
     };
 
@@ -283,13 +287,13 @@ pub async fn consensus_invalid() {
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
     let pre_finalized_block_root = Hash256::zero();
-    let expected_error_msg = if tester.harness.spec.is_fulu_scheduled() {
+    let expected_error_msg = if tester.harness.spec.deneb_fork_epoch.is_none()
+        || tester.harness.spec.is_fulu_scheduled()
+    {
         format!(
             "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
         )
     } else {
-        // Since Deneb, the invalidity of the blobs will be detected prior to the invalidity of the
-        // block.
         format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}")
     };
 
@@ -520,13 +524,13 @@ pub async fn equivocation_invalid() {
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
     let pre_finalized_block_root = Hash256::zero();
-    let expected_error_msg = if tester.harness.spec.is_fulu_scheduled() {
+    let expected_error_msg = if tester.harness.spec.deneb_fork_epoch.is_none()
+        || tester.harness.spec.is_fulu_scheduled()
+    {
         format!(
             "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
         )
     } else {
-        // Since Deneb, the invalidity of the blobs will be detected prior to the invalidity of the
-        // block.
         format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}")
     };
 
@@ -845,16 +849,17 @@ pub async fn blinded_gossip_invalid() {
     assert!(response.is_err());
 
     let error_response: eth2::Error = response.err().unwrap();
+    /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
     let pre_finalized_block_root = Hash256::zero();
-    let expected_error_msg = if tester.harness.spec.is_fulu_scheduled() {
+    let expected_error_msg = if tester.harness.spec.deneb_fork_epoch.is_none()
+        || tester.harness.spec.is_fulu_scheduled()
+    {
         format!(
             "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
         )
     } else {
-        // Since Deneb, the invalidity of the blobs will be detected prior to the invalidity of the
-        // block.
         format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}")
     };
 
@@ -904,7 +909,7 @@ pub async fn blinded_gossip_partial_pass() {
         .client
         .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
-    if tester.harness.spec.is_fulu_scheduled() {
+    if tester.harness.spec.is_fulu_scheduled() && !tester.harness.spec.is_gloas_scheduled() {
         let error_response = response.unwrap_err();
         // XXX: this should be a 400 but is a 500 due to the mock-builder being janky
         assert_eq!(
@@ -1062,7 +1067,7 @@ pub async fn blinded_consensus_invalid() {
     let error_response: eth2::Error = response.err().unwrap();
 
     /* mandated by Beacon API spec */
-    if tester.harness.spec.is_fulu_scheduled() {
+    if tester.harness.spec.is_fulu_scheduled() && !tester.harness.spec.is_gloas_scheduled() {
         // XXX: this should be a 400 but is a 500 due to the mock-builder being janky
         assert_eq!(
             error_response.status(),
@@ -1070,10 +1075,16 @@ pub async fn blinded_consensus_invalid() {
         );
     } else {
         assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-        assert_server_message_error(
-            error_response,
-            format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}"),
-        );
+        let expected_error_msg = if tester.harness.spec.deneb_fork_epoch.is_none()
+            || tester.harness.spec.is_fulu_scheduled()
+        {
+            format!(
+                "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
+            )
+        } else {
+            format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}")
+        };
+        assert_server_message_error(error_response, expected_error_msg);
     }
 }
 
@@ -1125,7 +1136,7 @@ pub async fn blinded_consensus_gossip() {
     let error_response: eth2::Error = response.err().unwrap();
 
     /* mandated by Beacon API spec */
-    if tester.harness.spec.is_fulu_scheduled() {
+    if tester.harness.spec.is_fulu_scheduled() && !tester.harness.spec.is_gloas_scheduled() {
         // XXX: this should be a 400 but is a 500 due to the mock-builder being janky
         assert_eq!(
             error_response.status(),
@@ -1246,17 +1257,23 @@ pub async fn blinded_equivocation_invalid() {
     let error_response: eth2::Error = response.err().unwrap();
 
     /* mandated by Beacon API spec */
-    if tester.harness.spec.is_fulu_scheduled() {
+    if tester.harness.spec.is_fulu_scheduled() && !tester.harness.spec.is_gloas_scheduled() {
         assert_eq!(
             error_response.status(),
             Some(StatusCode::INTERNAL_SERVER_ERROR)
         );
     } else {
         assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-        assert_server_message_error(
-            error_response,
-            format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}"),
-        );
+        let expected_error_msg = if tester.harness.spec.deneb_fork_epoch.is_none()
+            || tester.harness.spec.is_fulu_scheduled()
+        {
+            format!(
+                "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
+            )
+        } else {
+            format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}")
+        };
+        assert_server_message_error(error_response, expected_error_msg);
     }
 }
 
@@ -1328,7 +1345,7 @@ pub async fn blinded_equivocation_consensus_early_equivocation() {
 
     let error_response: eth2::Error = response.err().unwrap();
 
-    if tester.harness.spec.is_fulu_scheduled() {
+    if tester.harness.spec.is_fulu_scheduled() && !tester.harness.spec.is_gloas_scheduled() {
         assert_eq!(
             error_response.status(),
             Some(StatusCode::INTERNAL_SERVER_ERROR)
@@ -1386,7 +1403,7 @@ pub async fn blinded_equivocation_gossip() {
     let error_response: eth2::Error = response.err().unwrap();
 
     /* mandated by Beacon API spec */
-    if tester.harness.spec.is_fulu_scheduled() {
+    if tester.harness.spec.is_fulu_scheduled() && !tester.harness.spec.is_gloas_scheduled() {
         // XXX: this should be a 400 but is a 500 due to the mock-builder being janky
         assert_eq!(
             error_response.status(),
@@ -1569,7 +1586,8 @@ pub async fn block_seen_on_gossip_without_blobs_or_columns() {
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
     let state = tester.harness.get_current_state();
     let fork_name = state.fork_name(&tester.harness.spec).unwrap();
-    if !fork_name.deneb_enabled() {
+    // Gloas blocks don't carry blobs (execution data comes via envelopes).
+    if !fork_name.deneb_enabled() || fork_name.gloas_enabled() {
         return;
     }
 
@@ -1639,7 +1657,8 @@ pub async fn block_seen_on_gossip_with_some_blobs_or_columns() {
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
     let state = tester.harness.get_current_state();
     let fork_name = state.fork_name(&tester.harness.spec).unwrap();
-    if !fork_name.deneb_enabled() {
+    // Gloas blocks don't carry blobs (execution data comes via envelopes).
+    if !fork_name.deneb_enabled() || fork_name.gloas_enabled() {
         return;
     }
 
@@ -1732,7 +1751,8 @@ pub async fn blobs_or_columns_seen_on_gossip_without_block() {
     let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
     let state = tester.harness.get_current_state();
     let fork_name = state.fork_name(&tester.harness.spec).unwrap();
-    if !fork_name.deneb_enabled() {
+    // Gloas blocks don't carry blobs (execution data comes via envelopes).
+    if !fork_name.deneb_enabled() || fork_name.gloas_enabled() {
         return;
     }
 
@@ -1806,7 +1826,8 @@ async fn blobs_or_columns_seen_on_gossip_without_block_and_no_http_blobs_or_colu
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
     let state = tester.harness.get_current_state();
     let fork_name = state.fork_name(&tester.harness.spec).unwrap();
-    if !fork_name.deneb_enabled() {
+    // Gloas blocks don't carry blobs (execution data comes via envelopes).
+    if !fork_name.deneb_enabled() || fork_name.gloas_enabled() {
         return;
     }
 
@@ -1883,7 +1904,8 @@ async fn slashable_blobs_or_columns_seen_on_gossip_cause_failure() {
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
     let state = tester.harness.get_current_state();
     let fork_name = state.fork_name(&tester.harness.spec).unwrap();
-    if !fork_name.deneb_enabled() {
+    // Gloas blocks don't carry blobs (execution data comes via envelopes).
+    if !fork_name.deneb_enabled() || fork_name.gloas_enabled() {
         return;
     }
 
@@ -1957,6 +1979,15 @@ pub async fn duplicate_block_status_code() {
     let validator_count = 64;
     let num_initial: u64 = 31;
     let duplicate_block_status_code = StatusCode::IM_A_TEAPOT;
+
+    // Check if deneb is enabled, which is required for blobs.
+    // Gloas blocks don't carry blobs (execution data comes via envelopes).
+    let spec = test_spec::<E>();
+    let genesis_fork = spec.fork_name_at_slot::<E>(Slot::new(0));
+    if !genesis_fork.deneb_enabled() || genesis_fork.gloas_enabled() {
+        return;
+    }
+
     let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
         None,
         validator_count,

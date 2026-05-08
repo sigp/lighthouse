@@ -38,6 +38,17 @@ pub struct SlashingDatabase {
     conn_pool: Pool,
 }
 
+/// Whether to check slashability of a message.
+///
+/// The `No` variant MUST only be used if there is another source of slashing protection configured,
+/// e.g. web3signer's slashing protection.
+#[derive(Debug, Clone, Copy, Default)]
+pub enum CheckSlashability {
+    #[default]
+    Yes,
+    No,
+}
+
 impl SlashingDatabase {
     /// Open an existing database at the given `path`, or create one if none exists.
     pub fn open_or_create(path: &Path) -> Result<Self, NotSafe> {
@@ -183,7 +194,9 @@ impl SlashingDatabase {
         U: From<NotSafe>,
     {
         let mut conn = self.conn_pool.get().map_err(NotSafe::from)?;
-        let txn = conn.transaction().map_err(NotSafe::from)?;
+        let txn = conn
+            .transaction_with_behavior(TransactionBehavior::Exclusive)
+            .map_err(NotSafe::from)?;
         let value = f(&txn)?;
         txn.commit().map_err(NotSafe::from)?;
         Ok(value)
@@ -635,6 +648,43 @@ impl SlashingDatabase {
         self.check_block_proposal(&txn, validator_pubkey, slot, signing_root)
     }
 
+    #[instrument(name = "db_check_and_insert_attestations", level = "debug", skip_all)]
+    pub fn check_and_insert_attestations<'a>(
+        &self,
+        attestations: &'a [(
+            &'a AttestationData,
+            &'a PublicKeyBytes,
+            Hash256,
+            CheckSlashability,
+        )],
+    ) -> Result<Vec<Result<Safe, NotSafe>>, NotSafe> {
+        let mut conn = self.conn_pool.get()?;
+        let txn = conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
+
+        let mut results = Vec::with_capacity(attestations.len());
+        for (attestation, validator_pubkey, domain, check_slashability) in attestations {
+            match check_slashability {
+                CheckSlashability::No => {
+                    results.push(Ok(Safe::Valid));
+                }
+                CheckSlashability::Yes => {
+                    let attestation_signing_root = attestation.signing_root(*domain).into();
+                    results.push(self.check_and_insert_attestation_signing_root(
+                        validator_pubkey,
+                        attestation.source.epoch,
+                        attestation.target.epoch,
+                        attestation_signing_root,
+                        &txn,
+                    ));
+                }
+            }
+        }
+
+        txn.commit()?;
+
+        Ok(results)
+    }
+
     /// Check an attestation for slash safety, and if it is safe, record it in the database.
     ///
     /// The checking and inserting happen atomically and exclusively. We enforce exclusivity
@@ -647,6 +697,7 @@ impl SlashingDatabase {
         validator_pubkey: &PublicKeyBytes,
         attestation: &AttestationData,
         domain: Hash256,
+        txn: &Transaction,
     ) -> Result<Safe, NotSafe> {
         let attestation_signing_root = attestation.signing_root(domain).into();
         self.check_and_insert_attestation_signing_root(
@@ -654,6 +705,7 @@ impl SlashingDatabase {
             attestation.source.epoch,
             attestation.target.epoch,
             attestation_signing_root,
+            txn,
         )
     }
 
@@ -664,17 +716,15 @@ impl SlashingDatabase {
         att_source_epoch: Epoch,
         att_target_epoch: Epoch,
         att_signing_root: SigningRoot,
+        txn: &Transaction,
     ) -> Result<Safe, NotSafe> {
-        let mut conn = self.conn_pool.get()?;
-        let txn = conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
         let safe = self.check_and_insert_attestation_signing_root_txn(
             validator_pubkey,
             att_source_epoch,
             att_target_epoch,
             att_signing_root,
-            &txn,
+            txn,
         )?;
-        txn.commit()?;
         Ok(safe)
     }
 

@@ -7,9 +7,8 @@ use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
-use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
-use crate::kzg_utils::build_data_column_sidecars;
+use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sidecars_gloas};
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::observed_data_sidecars::ObservedDataSidecars;
@@ -24,7 +23,7 @@ use crate::{
 use bls::Signature;
 use execution_layer::ExecutionLayer;
 use fixed_bytes::FixedBytesExtended;
-use fork_choice::{ForkChoice, ResetPayloadStatuses};
+use fork_choice::{ForkChoice, PayloadStatus, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
 use kzg::Kzg;
 use logging::crit;
@@ -35,17 +34,20 @@ use rand::RngCore;
 use rayon::prelude::*;
 use slasher::Slasher;
 use slot_clock::{SlotClock, TestingSlotClock};
-use state_processing::{AllCaches, per_slot_processing};
+use state_processing::AllCaches;
+use state_processing::genesis::genesis_block;
+use state_processing::per_slot_processing;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
-use tracing::{debug, error, info};
-use types::data_column_custody_group::CustodyIndex;
+use tracing::{debug, error, info, warn};
+use tree_hash::TreeHash;
+use types::data::CustodyIndex;
 use types::{
-    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList,
-    Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
+    BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList, Epoch, EthSpec,
+    Hash256, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -321,7 +323,7 @@ where
             .clone()
             .ok_or("set_genesis_state requires a store")?;
 
-        let beacon_block = genesis_block(&mut beacon_state, &self.spec)?;
+        let beacon_block = make_genesis_block(&mut beacon_state, &self.spec)?;
 
         beacon_state
             .build_caches(&self.spec)
@@ -358,6 +360,7 @@ where
         Ok((
             BeaconSnapshot {
                 beacon_block_root,
+                execution_envelope: None,
                 beacon_block: Arc::new(beacon_block),
                 beacon_state,
             },
@@ -371,9 +374,9 @@ where
 
         // Initialize anchor info before attempting to write the genesis state.
         // Since v4.4.0 we will set the anchor with a dummy state upper limit in order to prevent
-        // historic states from being retained (unless `--reconstruct-historic-states` is set).
-        let retain_historic_states = self.chain_config.reconstruct_historic_states;
-        let genesis_beacon_block = genesis_block(&mut beacon_state, &self.spec)?;
+        // historic states from being retained (unless `--archive` is set).
+        let retain_historic_states = self.chain_config.archive;
+        let genesis_beacon_block = make_genesis_block(&mut beacon_state, &self.spec)?;
         self.pending_io_batch.push(
             store
                 .init_anchor_info(
@@ -528,7 +531,7 @@ where
         // case it will be stored in the hot DB. In this case, we need to ensure the store's anchor
         // is initialised prior to storing the state, as the anchor is required for working out
         // hdiff storage strategies.
-        let retain_historic_states = self.chain_config.reconstruct_historic_states;
+        let retain_historic_states = self.chain_config.archive;
         self.pending_io_batch.push(
             store
                 .init_anchor_info(
@@ -618,6 +621,7 @@ where
 
         let snapshot = BeaconSnapshot {
             beacon_block_root: weak_subj_block_root,
+            execution_envelope: None,
             beacon_block: Arc::new(weak_subj_block),
             beacon_state: weak_subj_state,
         };
@@ -773,57 +777,36 @@ where
             slot_clock.now().ok_or("Unable to read slot")?
         };
 
-        let initial_head_block_root = fork_choice
+        let (initial_head_block_root, head_payload_status) = fork_choice
             .get_head(current_slot, &self.spec)
             .map_err(|e| format!("Unable to get fork choice head: {:?}", e))?;
 
-        // Try to decode the head block according to the current fork, if that fails, try
-        // to backtrack to before the most recent fork.
-        let (head_block_root, head_block, head_reverted) =
-            match store.get_full_block(&initial_head_block_root) {
-                Ok(Some(block)) => (initial_head_block_root, block, false),
-                Ok(None) => return Err("Head block not found in store".into()),
-                Err(StoreError::SszDecodeError(_)) => {
-                    error!(
-                        message = "This node has likely missed a hard fork. \
-                        It will try to revert the invalid blocks and keep running, \
-                        but any stray blocks and states will not be deleted. \
-                        Long-term you should consider re-syncing this node.",
-                        "Error decoding head block"
-                    );
-                    let (block_root, block) = revert_to_fork_boundary(
-                        current_slot,
-                        initial_head_block_root,
-                        store.clone(),
-                        &self.spec,
-                    )?;
-
-                    (block_root, block, true)
-                }
-                Err(e) => return Err(descriptive_db_error("head block", &e)),
-            };
+        let head_block_root = initial_head_block_root;
+        let head_block = store
+            .get_full_block(&initial_head_block_root)
+            .map_err(|e| descriptive_db_error("head block", &e))?
+            .ok_or("Head block not found in store")?;
 
         let (_head_state_root, head_state) = store
             .get_advanced_hot_state(head_block_root, current_slot, head_block.state_root())
             .map_err(|e| descriptive_db_error("head state", &e))?
             .ok_or("Head state not found in store")?;
 
-        // If the head reverted then we need to reset fork choice using the new head's finalized
-        // checkpoint.
-        if head_reverted {
-            fork_choice = reset_fork_choice_to_finalization(
-                head_block_root,
-                &head_state,
-                store.clone(),
-                Some(current_slot),
-                &self.spec,
-            )?;
-        }
-
         let head_shuffling_ids = BlockShufflingIds::try_from_head(head_block_root, &head_state)?;
+
+        // Load the execution envelope from the store if the head has a Full payload.
+        let execution_envelope = if head_payload_status == PayloadStatus::Full {
+            store
+                .get_payload_envelope(&head_block_root)
+                .map_err(|e| format!("Error loading head execution envelope: {:?}", e))?
+                .map(Arc::new)
+        } else {
+            None
+        };
 
         let mut head_snapshot = BeaconSnapshot {
             beacon_block_root: head_block_root,
+            execution_envelope,
             beacon_block: Arc::new(head_block),
             beacon_state: head_state,
         };
@@ -845,6 +828,33 @@ where
                     {:?}",
                 fc_finalized, head_finalized
             ));
+        }
+
+        // Check if the head snapshot is within the weak subjectivity period
+        let head_state = &head_snapshot.beacon_state;
+        let Ok(ws_period) = head_state.compute_weak_subjectivity_period(&self.spec) else {
+            return Err(format!(
+                "Unable to compute the weak subjectivity period at the head snapshot slot: {:?}",
+                head_state.slot()
+            ));
+        };
+        if current_slot.epoch(E::slots_per_epoch())
+            > head_state.slot().epoch(E::slots_per_epoch()) + ws_period
+        {
+            if self.chain_config.ignore_ws_check {
+                warn!(
+                    head_slot=%head_state.slot(),
+                    %current_slot,
+                    "The current head state is outside the weak subjectivity period. You are currently running a node that is susceptible to long range attacks. \
+                    It is highly recommended to purge your db and checkpoint sync. For more information please \
+                    read this blog post: https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity"
+                )
+            }
+            return Err(
+                "The current head state is outside the weak subjectivity period. A node in this state is susceptible to long range attacks. You should purge your db and \
+                checkpoint sync. For more information please read this blog post: https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity \
+                If you understand the risks, it is possible to ignore this error with the --ignore-ws-check flag.".to_string()
+            );
         }
 
         let validator_pubkey_cache = self
@@ -916,9 +926,11 @@ where
 
         let genesis_validators_root = head_snapshot.beacon_state.genesis_validators_root();
         let genesis_time = head_snapshot.beacon_state.genesis_time();
-        let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot));
+        let canonical_head =
+            CanonicalHead::new(fork_choice, Arc::new(head_snapshot), head_payload_status);
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
         let complete_blob_backfill = self.chain_config.complete_blob_backfill;
+        let enable_partial_columns = self.chain_config.enable_partial_columns;
 
         // Calculate the weak subjectivity point in which to backfill blocks to.
         let genesis_backfill_slot = if self.chain_config.genesis_backfill {
@@ -1003,11 +1015,13 @@ where
             observed_aggregators: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
             observed_sync_aggregators: <_>::default(),
+            observed_payload_attesters: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
             observed_block_producers: <_>::default(),
             observed_column_sidecars: RwLock::new(ObservedDataSidecars::new(self.spec.clone())),
             observed_blob_sidecars: RwLock::new(ObservedDataSidecars::new(self.spec.clone())),
             observed_slashable: <_>::default(),
+            pending_payload_envelopes: <_>::default(),
             observed_voluntary_exits: <_>::default(),
             observed_proposer_slashings: <_>::default(),
             observed_attester_slashings: <_>::default(),
@@ -1027,9 +1041,9 @@ where
             )),
             beacon_proposer_cache,
             block_times_cache: <_>::default(),
+            envelope_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
             validator_pubkey_cache: RwLock::new(validator_pubkey_cache),
-            attester_cache: <_>::default(),
             early_attester_cache: <_>::default(),
             light_client_server_cache: LightClientServerCache::new(),
             light_client_server_tx: self.light_client_server_tx,
@@ -1049,27 +1063,19 @@ where
                     complete_blob_backfill,
                     slot_clock,
                     self.kzg.clone(),
-                    store,
                     Arc::new(custody_context),
                     self.spec,
+                    enable_partial_columns,
                 )
                 .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),
             kzg: self.kzg.clone(),
             rng: Arc::new(Mutex::new(rng)),
+            gossip_verified_payload_bid_cache: <_>::default(),
+            gossip_verified_proposer_preferences_cache: <_>::default(),
         };
 
         let head = beacon_chain.head_snapshot();
-
-        // Prime the attester cache with the head state.
-        beacon_chain
-            .attester_cache
-            .maybe_cache_state(
-                &head.beacon_state,
-                head.beacon_block_root,
-                &beacon_chain.spec,
-            )
-            .map_err(|e| format!("Failed to prime attester cache: {:?}", e))?;
 
         // Only perform the check if it was configured.
         if let Some(wss_checkpoint) = beacon_chain.config.weak_subjectivity_checkpoint
@@ -1099,6 +1105,11 @@ where
             let cgc_change_effective_slot =
                 cgc_changed.effective_epoch.start_slot(E::slots_per_epoch());
             beacon_chain.update_data_column_custody_info(Some(cgc_change_effective_slot));
+
+            // Persist change to disk.
+            beacon_chain
+                .persist_custody_context()
+                .map_err(|e| format!("Failed writing updated CGC: {e:?}"))?;
         }
 
         info!(
@@ -1109,9 +1120,7 @@ where
         );
 
         // Check for states to reconstruct (in the background).
-        if beacon_chain.config.reconstruct_historic_states
-            && beacon_chain.store.get_oldest_block_slot() == 0
-        {
+        if beacon_chain.config.archive && beacon_chain.store.get_oldest_block_slot() == 0 {
             beacon_chain.store_migrator.process_reconstruction();
         }
 
@@ -1164,17 +1173,19 @@ where
     }
 }
 
-fn genesis_block<E: EthSpec>(
+fn make_genesis_block<E: EthSpec>(
     genesis_state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<SignedBeaconBlock<E>, String> {
-    let mut genesis_block = BeaconBlock::empty(spec);
-    *genesis_block.state_root_mut() = genesis_state
+    let mut block = genesis_block(genesis_state, spec)
+        .map_err(|e| format!("Error building genesis block: {:?}", e))?;
+
+    *block.state_root_mut() = genesis_state
         .update_tree_hash_cache()
         .map_err(|e| format!("Error hashing genesis state: {:?}", e))?;
 
     Ok(SignedBeaconBlock::from_block(
-        genesis_block,
+        block,
         // Empty signature, which should NEVER be read. This isn't to-spec, but makes the genesis
         // block consistent with every other block.
         Signature::empty(),
@@ -1224,17 +1235,29 @@ fn build_data_columns_from_blobs<E: EthSpec>(
             .blob_kzg_commitments()
             .cloned()
             .map_err(|e| format!("Unexpected pre Deneb block: {e:?}"))?;
-        let kzg_commitments_inclusion_proof = beacon_block_body
-            .kzg_commitments_merkle_proof()
-            .map_err(|e| format!("Failed to compute kzg commitments merkle proof: {e:?}"))?;
-        build_data_column_sidecars(
-            kzg_commitments,
-            kzg_commitments_inclusion_proof,
-            block.signed_block_header(),
-            blob_cells_and_proofs_vec,
-            spec,
-        )
-        .map_err(|e| format!("Failed to compute weak subjectivity data_columns: {e:?}"))?
+
+        if block.fork_name_unchecked().gloas_enabled() {
+            build_data_column_sidecars_gloas(
+                block.message().tree_hash_root(),
+                block.slot(),
+                blob_cells_and_proofs_vec,
+                spec,
+            )
+            .map_err(|e| format!("Failed to compute weak subjectivity data_columns: {e:?}"))?
+        } else {
+            let kzg_commitments_inclusion_proof = beacon_block_body
+                .kzg_commitments_merkle_proof()
+                .map_err(|e| format!("Failed to compute kzg commitments merkle proof: {e:?}"))?;
+
+            build_data_column_sidecars_fulu(
+                kzg_commitments,
+                kzg_commitments_inclusion_proof,
+                block.signed_block_header(),
+                blob_cells_and_proofs_vec,
+                spec,
+            )
+            .map_err(|e| format!("Failed to compute weak subjectivity data_columns: {e:?}"))?
+        }
     };
     Ok(data_columns)
 }

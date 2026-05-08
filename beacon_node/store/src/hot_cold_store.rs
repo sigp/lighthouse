@@ -38,9 +38,9 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, debug_span, error, info, instrument, warn};
 use typenum::Unsigned;
-use types::data_column_sidecar::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList};
+use types::data::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList};
 use types::*;
 use zstd::{Decoder, Encoder};
 
@@ -114,7 +114,7 @@ impl<E: EthSpec> BlockCache<E> {
     pub fn put_data_column(&mut self, block_root: Hash256, data_column: Arc<DataColumnSidecar<E>>) {
         self.data_column_cache
             .get_or_insert_mut(block_root, Default::default)
-            .insert(data_column.index, data_column);
+            .insert(*data_column.index(), data_column);
     }
     pub fn put_data_column_custody_info(
         &mut self,
@@ -186,6 +186,7 @@ pub enum HotColdDBError {
     MissingHotHDiff(Hash256),
     MissingHDiff(Slot),
     MissingExecutionPayload(Hash256),
+    MissingExecutionPayloadEnvelope(Hash256),
     MissingFullBlockExecutionPayloadPruned(Hash256, Slot),
     MissingAnchorInfo,
     MissingFrozenBlockSlot(Hash256),
@@ -721,14 +722,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         })
     }
 
-    /// Fetch a block from the store, ignoring which fork variant it *should* be for.
-    pub fn get_block_any_variant<Payload: AbstractExecPayload<E>>(
-        &self,
-        block_root: &Hash256,
-    ) -> Result<Option<SignedBeaconBlock<E, Payload>>, Error> {
-        self.get_block_with(block_root, SignedBeaconBlock::any_from_ssz_bytes)
-    }
-
     /// Fetch a block from the store using a custom decode function.
     ///
     /// This is useful for e.g. ignoring the slot-indicated fork to forcefully load a block as if it
@@ -743,6 +736,32 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .map(|block_bytes| decoder(&block_bytes))
             .transpose()
             .map_err(|e| e.into())
+    }
+
+    pub fn get_payload_envelope(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<SignedExecutionPayloadEnvelope<E>>, Error> {
+        let key = block_root.as_slice();
+
+        match self
+            .hot_db
+            .get_bytes(SignedExecutionPayloadEnvelope::<E>::db_column(), key)?
+        {
+            Some(bytes) => {
+                let envelope = SignedExecutionPayloadEnvelope::from_ssz_bytes(&bytes)?;
+                Ok(Some(envelope))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Check if the payload envelope for a block exists on disk.
+    pub fn payload_envelope_exists(&self, block_root: &Hash256) -> Result<bool, Error> {
+        self.hot_db.key_exists(
+            SignedExecutionPayloadEnvelope::<E>::db_column(),
+            block_root.as_slice(),
+        )
     }
 
     /// Load the execution payload for a block from disk.
@@ -969,7 +988,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) {
         ops.push(KeyValueStoreOp::PutKeyValue(
             DBColumn::BeaconDataColumn,
-            get_data_column_key(block_root, &data_column.index),
+            get_data_column_key(block_root, data_column.index()),
             data_column.as_ssz_bytes(),
         ));
     }
@@ -1002,7 +1021,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         for data_column in data_columns {
             self.blobs_db.put_bytes(
                 DBColumn::BeaconDataColumn,
-                &get_data_column_key(block_root, &data_column.index),
+                &get_data_column_key(block_root, data_column.index()),
                 &data_column.as_ssz_bytes(),
             )?;
             self.block_cache
@@ -1021,10 +1040,37 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         for data_column in data_columns {
             ops.push(KeyValueStoreOp::PutKeyValue(
                 DBColumn::BeaconDataColumn,
-                get_data_column_key(block_root, &data_column.index),
+                get_data_column_key(block_root, data_column.index()),
                 data_column.as_ssz_bytes(),
             ));
         }
+    }
+
+    // TODO(gloas) we should store the execution payload separately like we do for blocks.
+    /// Prepare a signed execution payload envelope for storage in the database.
+    pub fn payload_envelope_as_kv_store_ops(
+        &self,
+        key: &Hash256,
+        payload: &SignedExecutionPayloadEnvelope<E>,
+        ops: &mut Vec<KeyValueStoreOp>,
+    ) {
+        ops.push(KeyValueStoreOp::PutKeyValue(
+            SignedExecutionPayloadEnvelope::<E>::db_column(),
+            key.as_slice().into(),
+            payload.as_ssz_bytes(),
+        ));
+    }
+
+    pub fn put_payload_envelope(
+        &self,
+        block_root: &Hash256,
+        payload_envelope: &SignedExecutionPayloadEnvelope<E>,
+    ) -> Result<(), Error> {
+        self.hot_db.put_bytes(
+            SignedExecutionPayloadEnvelope::<E>::db_column(),
+            block_root.as_slice(),
+            &payload_envelope.as_ssz_bytes(),
+        )
     }
 
     /// Store a state in the store.
@@ -1283,6 +1329,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     );
                 }
 
+                StoreOp::PutPayloadEnvelope(block_root, payload_envelope) => {
+                    self.payload_envelope_as_kv_store_ops(
+                        &block_root,
+                        &payload_envelope,
+                        &mut key_value_batch,
+                    );
+                }
+
                 StoreOp::PutStateSummary(state_root, summary) => {
                     key_value_batch.push(summary.as_kv_store_op(state_root));
                 }
@@ -1301,12 +1355,19 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     ));
                 }
 
-                StoreOp::DeleteDataColumns(block_root, column_indices) => {
+                StoreOp::DeleteDataColumns(block_root, column_indices, _) => {
                     for index in column_indices {
                         let key = get_data_column_key(&block_root, &index);
                         key_value_batch
                             .push(KeyValueStoreOp::DeleteKey(DBColumn::BeaconDataColumn, key));
                     }
+                }
+
+                StoreOp::DeletePayloadEnvelope(block_root) => {
+                    key_value_batch.push(KeyValueStoreOp::DeleteKey(
+                        SignedExecutionPayloadEnvelope::<E>::db_column(),
+                        block_root.as_slice().to_vec(),
+                    ))
                 }
 
                 StoreOp::DeleteState(state_root, slot) => {
@@ -1319,6 +1380,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     // NOTE: `hot_storage_strategy` can error if there are states in the database
                     // prior to the `anchor_slot`. This can happen if checkpoint sync has been
                     // botched and left some states in the database prior to completing.
+                    // Use `Pending` status here because snapshots and diffs are only stored for
+                    // `Pending` states.
                     if let Some(slot) = slot
                         && let Ok(strategy) = self.hot_storage_strategy(slot)
                     {
@@ -1415,10 +1478,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     }
                     true
                 }
-                StoreOp::DeleteDataColumns(block_root, indices) => {
+                StoreOp::DeleteDataColumns(block_root, indices, fork_name) => {
                     match indices
                         .iter()
-                        .map(|index| self.get_data_column(block_root, index))
+                        .map(|index| self.get_data_column(block_root, index, *fork_name))
                         .collect::<Result<Vec<_>, _>>()
                     {
                         Ok(data_column_sidecar_list_opt) => {
@@ -1450,14 +1513,24 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let blob_cache_ops = blobs_ops.clone();
         // Try to execute blobs store ops.
-        self.blobs_db
-            .do_atomically(self.convert_to_kv_batch(blobs_ops)?)?;
+        let kv_blob_ops = self.convert_to_kv_batch(blobs_ops)?;
+        {
+            let _span = debug_span!("write_blobs_db").entered();
+            self.blobs_db.do_atomically(kv_blob_ops)?;
+        }
 
         let hot_db_cache_ops = hot_db_ops.clone();
         // Try to execute hot db store ops.
-        let tx_res = match self.convert_to_kv_batch(hot_db_ops) {
-            Ok(kv_store_ops) => self.hot_db.do_atomically(kv_store_ops),
-            Err(e) => Err(e),
+        let tx_res = {
+            let _convert_span = debug_span!("convert_hot_db_ops").entered();
+            match self.convert_to_kv_batch(hot_db_ops) {
+                Ok(kv_store_ops) => {
+                    drop(_convert_span);
+                    let _span = debug_span!("write_hot_db").entered();
+                    self.hot_db.do_atomically(kv_store_ops)
+                }
+                Err(e) => Err(e),
+            }
         };
         // Rollback on failure
         if let Err(e) = tx_res {
@@ -1471,14 +1544,24 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 let reverse_op = match op {
                     StoreOp::PutBlobs(block_root, _) => StoreOp::DeleteBlobs(*block_root),
                     StoreOp::PutDataColumns(block_root, data_columns) => {
-                        let indices = data_columns.iter().map(|c| c.index).collect();
-                        StoreOp::DeleteDataColumns(*block_root, indices)
+                        let indices = data_columns.iter().map(|c| *c.index()).collect();
+
+                        match data_columns.first() {
+                            Some(column) => {
+                                let slot = column.slot();
+                                let fork_name = self.spec.fork_name_at_slot::<E>(slot);
+                                StoreOp::DeleteDataColumns(*block_root, indices, fork_name)
+                            }
+                            // It shouldn't be possible to reach this case. We're reverting
+                            // a `PutDataColumn` operation that attempted to write columns to the store.
+                            None => return Err(HotColdDBError::Rollback.into()),
+                        }
                     }
                     StoreOp::DeleteBlobs(_) => match blobs_to_delete.pop() {
                         Some((block_root, blobs)) => StoreOp::PutBlobs(block_root, blobs),
                         None => return Err(HotColdDBError::Rollback.into()),
                     },
-                    StoreOp::DeleteDataColumns(_, _) => match data_columns_to_delete.pop() {
+                    StoreOp::DeleteDataColumns(_, _, _) => match data_columns_to_delete.pop() {
                         Some((block_root, data_columns)) => {
                             StoreOp::PutDataColumns(block_root, data_columns)
                         }
@@ -1518,6 +1601,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
                     StoreOp::PutDataColumns(_, _) => (),
 
+                    StoreOp::PutPayloadEnvelope(_, _) => (),
+
                     StoreOp::PutState(_, _) => (),
 
                     StoreOp::PutStateSummary(_, _) => (),
@@ -1526,11 +1611,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         guard.delete_block(&block_root);
                     }
 
+                    StoreOp::DeletePayloadEnvelope(_) => (),
+
                     StoreOp::DeleteState(_, _) => (),
 
                     StoreOp::DeleteBlobs(_) => (),
 
-                    StoreOp::DeleteDataColumns(_, _) => (),
+                    StoreOp::DeleteDataColumns(_, _, _) => (),
 
                     StoreOp::DeleteExecutionPayload(_) => (),
 
@@ -1864,6 +1951,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             ..
         }) = self.load_hot_state_summary(state_root)?
         {
+            debug!(
+                %slot,
+                ?state_root,
+                "Loading hot state"
+            );
             let mut state = match self.hot_storage_strategy(slot)? {
                 strat @ StorageStrategy::Snapshot | strat @ StorageStrategy::DiffFrom(_) => {
                     let buffer_timer = metrics::start_timer_vec(
@@ -1967,6 +2059,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
             Ok(())
         };
+
+        debug!(
+            %slot,
+            blocks = ?blocks.iter().map(|block| block.slot()).collect::<Vec<_>>(),
+            "Replaying blocks"
+        );
 
         self.replay_blocks(
             base_state,
@@ -2274,7 +2372,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok(base_state);
         }
 
-        let blocks = self.load_cold_blocks(base_state.slot() + 1, slot)?;
+        let base_slot = base_state.slot();
+        let blocks = self.load_cold_blocks(base_slot + 1, slot)?;
 
         // Include state root for base state as it is required by block processing to not
         // have to hash the state.
@@ -2398,7 +2497,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         })?
     }
 
-    /// Load the blocks between `start_slot` and `end_slot` by backtracking from `end_block_hash`.
+    /// Load the blocks between `start_slot` and `end_slot` by backtracking from
+    /// `end_block_root`.
     ///
     /// Blocks are returned in slot-ascending order, suitable for replaying on a state with slot
     /// equal to `start_slot`, to reach a state with slot equal to `end_slot`.
@@ -2406,10 +2506,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         &self,
         start_slot: Slot,
         end_slot: Slot,
-        end_block_hash: Hash256,
-    ) -> Result<Vec<SignedBeaconBlock<E, BlindedPayload<E>>>, Error> {
+        end_block_root: Hash256,
+    ) -> Result<Vec<SignedBlindedBeaconBlock<E>>, Error> {
         let _t = metrics::start_timer(&metrics::STORE_BEACON_LOAD_HOT_BLOCKS_TIME);
-        let mut blocks = ParentRootBlockIterator::new(self, end_block_hash)
+        let mut blocks = ParentRootBlockIterator::new(self, end_block_root)
             .map(|result| result.map(|(_, block)| block))
             // Include the block at the end slot (if any), it needs to be
             // replayed in order to construct the canonical state at `end_slot`.
@@ -2446,7 +2546,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn replay_blocks(
         &self,
         state: BeaconState<E>,
-        blocks: Vec<SignedBeaconBlock<E, BlindedPayload<E>>>,
+        blocks: Vec<SignedBlindedBeaconBlock<E>>,
         target_slot: Slot,
         state_root_iter: Option<impl Iterator<Item = Result<(Hash256, Slot), Error>>>,
         pre_slot_hook: Option<PreSlotHook<E, Error>>,
@@ -2506,12 +2606,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn get_data_columns(
         &self,
         block_root: &Hash256,
+        fork_name: ForkName,
     ) -> Result<Option<DataColumnSidecarList<E>>, Error> {
         let column_indices = self.get_data_column_keys(*block_root)?;
 
         let columns: DataColumnSidecarList<E> = column_indices
             .into_iter()
-            .filter_map(|col_index| self.get_data_column(block_root, &col_index).transpose())
+            .filter_map(|col_index| {
+                self.get_data_column(block_root, &col_index, fork_name)
+                    .transpose()
+            })
             .collect::<Result<_, _>>()?;
 
         Ok((!columns.is_empty()).then_some(columns))
@@ -2585,6 +2689,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         &self,
         block_root: &Hash256,
         column_index: &ColumnIndex,
+        fork_name: ForkName,
     ) -> Result<Option<Arc<DataColumnSidecar<E>>>, Error> {
         // Check the cache.
         if let Some(data_column) = self
@@ -2601,7 +2706,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             &get_data_column_key(block_root, column_index),
         )? {
             Some(ref data_column_bytes) => {
-                let data_column = Arc::new(DataColumnSidecar::from_ssz_bytes(data_column_bytes)?);
+                let data_column = Arc::new(DataColumnSidecar::from_ssz_bytes_for_fork(
+                    data_column_bytes,
+                    fork_name,
+                )?);
                 self.block_cache.as_ref().inspect(|cache| {
                     cache
                         .lock()
@@ -2945,12 +3053,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             Some(mut split) => {
                 debug!(?split, "Loaded split partial");
                 // Load the hot state summary to get the block root.
-                let latest_block_root = self
-                    .load_block_root_from_summary_any_version(&split.state_root)
-                    .ok_or(HotColdDBError::MissingSplitState(
-                        split.state_root,
-                        split.slot,
-                    ))?;
+                let latest_block_root =
+                    self.load_block_root_from_summary(&split.state_root).ok_or(
+                        HotColdDBError::MissingSplitState(split.state_root, split.slot),
+                    )?;
                 split.block_root = latest_block_root;
                 Ok(Some(split))
             }
@@ -2981,27 +3087,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .map_err(|e| Error::LoadHotStateSummary(*state_root, e.into()))
     }
 
-    /// Load a hot state's summary in V22 format, given its root.
-    pub fn load_hot_state_summary_v22(
-        &self,
-        state_root: &Hash256,
-    ) -> Result<Option<HotStateSummaryV22>, Error> {
-        self.hot_db
-            .get(state_root)
-            .map_err(|e| Error::LoadHotStateSummary(*state_root, e.into()))
-    }
-
-    /// Load the latest block root for a hot state summary either in modern form, or V22 form.
-    ///
-    /// This function is required to open a V22 database for migration to V24, or vice versa.
-    pub fn load_block_root_from_summary_any_version(
-        &self,
-        state_root: &Hash256,
-    ) -> Option<Hash256> {
+    /// Load the latest block root for a hot state summary.
+    pub fn load_block_root_from_summary(&self, state_root: &Hash256) -> Option<Hash256> {
         if let Ok(Some(summary)) = self.load_hot_state_summary(state_root) {
-            return Some(summary.latest_block_root);
-        }
-        if let Ok(Some(summary)) = self.load_hot_state_summary_v22(state_root) {
             return Some(summary.latest_block_root);
         }
         None
@@ -3495,6 +3583,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
 ) -> Result<SplitChange, Error> {
     debug!(
         slot = %finalized_state.slot(),
+        state_root = ?finalized_state_root,
         "Freezer migration started"
     );
 
@@ -3918,7 +4007,7 @@ impl HotStateSummary {
             if slot == state.slot() {
                 Ok::<_, Error>(state_root)
             } else {
-                Ok(get_ancestor_state_root(store, state, slot).map_err(|e| {
+                Ok::<_, Error>(get_ancestor_state_root(store, state, slot).map_err(|e| {
                     Error::StateSummaryIteratorError {
                         error: e,
                         from_state_root: state_root,
@@ -3949,30 +4038,6 @@ impl HotStateSummary {
             diff_base_state,
             previous_state_root,
         })
-    }
-}
-
-/// Legacy hot state summary used in schema V22 and before.
-///
-/// This can be deleted when we remove V22 support.
-#[derive(Debug, Clone, Copy, Encode, Decode)]
-pub struct HotStateSummaryV22 {
-    pub slot: Slot,
-    pub latest_block_root: Hash256,
-    pub epoch_boundary_state_root: Hash256,
-}
-
-impl StoreItem for HotStateSummaryV22 {
-    fn db_column() -> DBColumn {
-        DBColumn::BeaconStateSummary
-    }
-
-    fn as_store_bytes(&self) -> Vec<u8> {
-        self.as_ssz_bytes()
-    }
-
-    fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        Ok(Self::from_ssz_bytes(bytes)?)
     }
 }
 

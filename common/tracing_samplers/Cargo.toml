@@ -1,0 +1,8 @@
+[package]
+name = "tracing_samplers"
+version = "0.1.0"
+edition = { workspace = true }
+
+[dependencies]
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }

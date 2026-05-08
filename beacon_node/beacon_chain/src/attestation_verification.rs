@@ -61,8 +61,9 @@ use tracing::{debug, error};
 use tree_hash::TreeHash;
 use types::{
     Attestation, AttestationData, AttestationRef, BeaconCommittee,
-    BeaconStateError::NoCommitteeFound, ChainSpec, CommitteeIndex, Epoch, EthSpec, Hash256,
-    IndexedAttestation, SelectionProof, SignedAggregateAndProof, SingleAttestation, Slot, SubnetId,
+    BeaconStateError::NoCommitteeFound, ChainSpec, CommitteeIndex, Epoch, EthSpec, ForkName,
+    Hash256, IndexedAttestation, SelectionProof, SignedAggregateAndProof, SingleAttestation, Slot,
+    SubnetId,
 };
 
 pub use batch::{batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations};
@@ -160,6 +161,12 @@ pub enum Error {
     ///
     /// The peer has sent an invalid message.
     CommitteeIndexNonZero(usize),
+    /// The validator index is set to an invalid value after Gloas.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
+    CommitteeIndexInvalid,
     /// The `attestation.data.beacon_block_root` block is unknown.
     ///
     /// ## Peer scoring
@@ -507,11 +514,6 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
         Self::verify_slashable(signed_aggregate, chain)
-            .inspect(|verified_aggregate| {
-                if let Some(slasher) = chain.slasher.as_ref() {
-                    slasher.accept_attestation(verified_aggregate.indexed_attestation.clone());
-                }
-            })
             .map_err(|slash_info| process_slash_info(slash_info, chain))
     }
 
@@ -550,8 +552,12 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         }
         .tree_hash_root();
 
+        let fork_name = chain
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(attestation.data().slot);
+
         // [New in Electra:EIP7549]
-        verify_committee_index(attestation)?;
+        verify_committee_index(attestation, fork_name)?;
 
         if chain
             .observed_attestations
@@ -594,6 +600,17 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
         let head_block = verify_head_block_is_known(chain, attestation.data(), None)?;
+
+        // [New in Gloas]: If the attested block is from the same slot as the attestation,
+        // index must be 0.
+        if fork_name.gloas_enabled()
+            && head_block.slot == attestation.data().slot
+            && attestation.data().index != 0
+        {
+            return Err(Error::CommitteeIndexNonZero(
+                attestation.data().index as usize,
+            ));
+        }
 
         // Check the attestation target root is consistent with the head root.
         //
@@ -871,7 +888,12 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         let fork_name = chain
             .spec
             .fork_name_at_slot::<T::EthSpec>(attestation.data.slot);
-        if fork_name.electra_enabled() {
+        if fork_name.gloas_enabled() {
+            // [New in Gloas]
+            if attestation.data.index >= 2 {
+                return Err(Error::CommitteeIndexInvalid);
+            }
+        } else if fork_name.electra_enabled() {
             // [New in Electra:EIP7549]
             if attestation.data.index != 0 {
                 return Err(Error::CommitteeIndexNonZero(
@@ -889,6 +911,17 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
             &attestation.data,
             chain.config.import_max_skip_slots,
         )?;
+
+        // [New in Gloas]: If the attested block is from the same slot as the attestation,
+        // index must be 0.
+        if fork_name.gloas_enabled()
+            && head_block.slot == attestation.data.slot
+            && attestation.data.index != 0
+        {
+            return Err(Error::CommitteeIndexNonZero(
+                attestation.data.index as usize,
+            ));
+        }
 
         // Check the attestation target root is consistent with the head root.
         verify_attestation_target_root::<T::EthSpec>(&head_block, &attestation.data)?;
@@ -933,11 +966,6 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
         Self::verify_slashable(attestation, subnet_id, chain)
-            .inspect(|verified_unaggregated| {
-                if let Some(slasher) = chain.slasher.as_ref() {
-                    slasher.accept_attestation(verified_unaggregated.indexed_attestation.clone());
-                }
-            })
             .map_err(|slash_info| process_slash_info(slash_info, chain))
     }
 
@@ -1404,7 +1432,10 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
 
 /// Verify that the `attestation` committee index is properly set for the attestation's fork.
 /// This function will only apply verification post-Electra.
-pub fn verify_committee_index<E: EthSpec>(attestation: AttestationRef<E>) -> Result<(), Error> {
+pub fn verify_committee_index<E: EthSpec>(
+    attestation: AttestationRef<E>,
+    fork_name: ForkName,
+) -> Result<(), Error> {
     if let Ok(committee_bits) = attestation.committee_bits() {
         // Check to ensure that the attestation is for a single committee.
         let num_committee_bits = get_committee_indices::<E>(committee_bits);
@@ -1414,11 +1445,18 @@ pub fn verify_committee_index<E: EthSpec>(attestation: AttestationRef<E>) -> Res
             ));
         }
 
-        // Ensure the attestation index is set to zero post Electra.
-        if attestation.data().index != 0 {
-            return Err(Error::CommitteeIndexNonZero(
-                attestation.data().index as usize,
-            ));
+        // Ensure the attestation index is valid for the fork.
+        let index = attestation.data().index;
+        if fork_name.gloas_enabled() {
+            // [New in Gloas]: index must be < 2.
+            if index >= 2 {
+                return Err(Error::CommitteeIndexInvalid);
+            }
+        } else {
+            // [New in Electra:EIP7549]: index must be 0.
+            if index != 0 {
+                return Err(Error::CommitteeIndexNonZero(index as usize));
+            }
         }
     }
     Ok(())

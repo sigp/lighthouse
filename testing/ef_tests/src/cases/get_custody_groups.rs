@@ -2,7 +2,7 @@ use super::*;
 use alloy_primitives::U256;
 use serde::Deserialize;
 use std::marker::PhantomData;
-use types::data_column_custody_group::get_custody_groups;
+use types::data::get_custody_groups;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(bound = "E: EthSpec", deny_unknown_fields)]

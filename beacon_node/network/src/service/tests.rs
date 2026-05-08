@@ -6,6 +6,7 @@ use beacon_chain::BeaconChainTypes;
 use beacon_chain::test_utils::BeaconChainHarness;
 use beacon_processor::{BeaconProcessorChannels, BeaconProcessorConfig};
 use futures::StreamExt;
+use libp2p::gossipsub;
 use lighthouse_network::identity::secp256k1;
 use lighthouse_network::types::{GossipEncoding, GossipKind};
 use lighthouse_network::{Enr, GossipTopic};
@@ -39,12 +40,7 @@ fn test_dht_persistence() {
 
     let (signal, exit) = async_channel::bounded(1);
     let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-    let executor = task_executor::TaskExecutor::new(
-        Arc::downgrade(&runtime),
-        exit,
-        shutdown_tx,
-        "test-dht-persistence".to_string(),
-    );
+    let executor = task_executor::TaskExecutor::new(Arc::downgrade(&runtime), exit, shutdown_tx);
 
     let mut config = NetworkConfig::default();
     config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, 21212, 21212, 21213);
@@ -115,12 +111,8 @@ fn test_removing_topic_weight_on_old_topics() {
     let (mut network_service, network_globals, _network_senders) = runtime.block_on(async {
         let (_, exit) = async_channel::bounded(1);
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-        let executor = task_executor::TaskExecutor::new(
-            Arc::downgrade(&runtime),
-            exit,
-            shutdown_tx,
-            "test-removing-topic-weight-on-old-topics".to_string(),
-        );
+        let executor =
+            task_executor::TaskExecutor::new(Arc::downgrade(&runtime), exit, shutdown_tx);
 
         let mut config = NetworkConfig::default();
         config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, 21214, 21214, 21215);

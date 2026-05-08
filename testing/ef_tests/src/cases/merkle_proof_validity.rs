@@ -6,7 +6,7 @@ use tree_hash::Hash256;
 use typenum::Unsigned;
 use types::{
     BeaconBlockBody, BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra,
-    BeaconBlockBodyFulu, BeaconBlockBodyGloas, BeaconState, FullPayload, light_client_update,
+    BeaconBlockBodyFulu, BeaconBlockBodyGloas, BeaconState, FullPayload, light_client,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -97,16 +97,16 @@ impl<E: EthSpec> Case for BeaconStateMerkleProofValidity<E> {
         state.update_tree_hash_cache().unwrap();
 
         let proof = match self.merkle_proof.leaf_index {
-            light_client_update::CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA
-            | light_client_update::CURRENT_SYNC_COMMITTEE_INDEX => {
+            light_client::consts::CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA
+            | light_client::consts::CURRENT_SYNC_COMMITTEE_INDEX => {
                 state.compute_current_sync_committee_proof()
             }
-            light_client_update::NEXT_SYNC_COMMITTEE_INDEX_ELECTRA
-            | light_client_update::NEXT_SYNC_COMMITTEE_INDEX => {
+            light_client::consts::NEXT_SYNC_COMMITTEE_INDEX_ELECTRA
+            | light_client::consts::NEXT_SYNC_COMMITTEE_INDEX => {
                 state.compute_next_sync_committee_proof()
             }
-            light_client_update::FINALIZED_ROOT_INDEX_ELECTRA
-            | light_client_update::FINALIZED_ROOT_INDEX => state.compute_finalized_root_proof(),
+            light_client::consts::FINALIZED_ROOT_INDEX_ELECTRA
+            | light_client::consts::FINALIZED_ROOT_INDEX => state.compute_finalized_root_proof(),
             _ => {
                 return Err(Error::FailedToParseTest(
                     "Could not retrieve merkle proof, invalid index".to_string(),

@@ -758,3 +758,21 @@ fn validator_proposer_nodes() {
             );
         });
 }
+
+// Head monitor is enabled by default.
+#[test]
+fn head_monitor_default() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert!(config.enable_beacon_head_monitor);
+    });
+}
+
+#[test]
+fn head_monitor_disabled() {
+    CommandLineTest::new()
+        .flag("disable-beacon-head-monitor", None)
+        .run()
+        .with_config(|config| {
+            assert!(!config.enable_beacon_head_monitor);
+        });
+}

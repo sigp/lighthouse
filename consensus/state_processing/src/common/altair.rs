@@ -28,7 +28,7 @@ pub fn get_base_reward(
     validator_effective_balance: u64,
     base_reward_per_increment: BaseRewardPerIncrement,
     spec: &ChainSpec,
-) -> Result<u64, Error> {
+) -> Result<u64, BeaconStateError> {
     validator_effective_balance
         .safe_div(spec.effective_balance_increment)?
         .safe_mul(base_reward_per_increment.as_u64())

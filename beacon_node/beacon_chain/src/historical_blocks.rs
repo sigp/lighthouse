@@ -12,7 +12,7 @@ use std::time::Duration;
 use store::metadata::DataColumnInfo;
 use store::{AnchorInfo, BlobInfo, DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
 use strum::IntoStaticStr;
-use tracing::{debug, instrument};
+use tracing::{debug, debug_span, instrument};
 use types::{Hash256, Slot};
 
 /// Use a longer timeout on the pubkey cache.
@@ -157,23 +157,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
 
             match &block_data {
-                AvailableBlockData::NoData => {}
-                AvailableBlockData::Blobs(..) => {
-                    new_oldest_blob_slot = Some(block.slot());
-                }
+                AvailableBlockData::NoData => (),
+                AvailableBlockData::Blobs(_) => new_oldest_blob_slot = Some(block.slot()),
                 AvailableBlockData::DataColumns(_) => {
-                    new_oldest_data_column_slot = Some(block.slot());
+                    new_oldest_data_column_slot = Some(block.slot())
                 }
             }
 
             // Store the blobs or data columns too
-            if let Some(op) = self
-                .get_blobs_or_columns_store_op(block_root, block.slot(), block_data)
-                .map_err(|e| {
-                    HistoricalBlockError::StoreError(StoreError::DBError {
-                        message: format!("get_blobs_or_columns_store_op error {e:?}"),
-                    })
-                })?
+            if let Some(op) =
+                self.get_blobs_or_columns_store_op(block_root, block.slot(), block_data)
             {
                 blob_batch.extend(self.store.convert_to_kv_batch(vec![op])?);
             }
@@ -258,9 +251,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Write the I/O batches to disk, writing the blocks themselves first, as it's better
         // for the hot DB to contain extra blocks than for the cold DB to point to blocks that
         // do not exist.
-        self.store.blobs_db.do_atomically(blob_batch)?;
-        self.store.hot_db.do_atomically(hot_batch)?;
-        self.store.cold_db.do_atomically(cold_batch)?;
+        {
+            let _span = debug_span!("backfill_write_blobs_db").entered();
+            self.store.blobs_db.do_atomically(blob_batch)?;
+        }
+        {
+            let _span = debug_span!("backfill_write_hot_db").entered();
+            self.store.hot_db.do_atomically(hot_batch)?;
+        }
+        {
+            let _span = debug_span!("backfill_write_cold_db").entered();
+            self.store.cold_db.do_atomically(cold_batch)?;
+        }
 
         let mut anchor_and_blob_batch = Vec::with_capacity(3);
 
@@ -307,10 +309,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If backfill has completed and the chain is configured to reconstruct historic states,
         // send a message to the background migrator instructing it to begin reconstruction.
         // This can only happen if we have backfilled all the way to genesis.
-        if backfill_complete
-            && self.genesis_backfill_slot == Slot::new(0)
-            && self.config.reconstruct_historic_states
-        {
+        if backfill_complete && self.genesis_backfill_slot == Slot::new(0) && self.config.archive {
             self.store_migrator.process_reconstruction();
         }
 

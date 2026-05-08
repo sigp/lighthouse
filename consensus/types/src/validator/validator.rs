@@ -3,7 +3,6 @@ use context_deserialize::context_deserialize;
 use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 use crate::{
@@ -11,16 +10,13 @@ use crate::{
     core::{Address, ChainSpec, Epoch, EthSpec, Hash256},
     fork::ForkName,
     state::BeaconState,
-    test_utils::TestRandom,
 };
 
 /// Information about a `BeaconChain` validator.
 ///
 /// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[derive(
-    Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[context_deserialize(ForkName)]
 pub struct Validator {
     pub pubkey: PublicKeyBytes,
@@ -316,6 +312,14 @@ pub fn is_compounding_withdrawal_credential(
         .as_slice()
         .first()
         .map(|prefix_byte| *prefix_byte == spec.compounding_withdrawal_prefix_byte)
+        .unwrap_or(false)
+}
+
+pub fn is_builder_withdrawal_credential(withdrawal_credentials: Hash256, spec: &ChainSpec) -> bool {
+    withdrawal_credentials
+        .as_slice()
+        .first()
+        .map(|prefix_byte| *prefix_byte == spec.builder_withdrawal_prefix_byte)
         .unwrap_or(false)
 }
 

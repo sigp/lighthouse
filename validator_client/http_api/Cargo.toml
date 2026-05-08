@@ -8,14 +8,17 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 name = "validator_http_api"
 path = "src/lib.rs"
 
+[features]
+testing = ["dep:deposit_contract", "dep:doppelganger_service", "dep:tempfile"]
+
 [dependencies]
 account_utils = { workspace = true }
 beacon_node_fallback = { workspace = true }
 bls = { workspace = true }
-deposit_contract = { workspace = true }
+deposit_contract = { workspace = true, optional = true }
 directory = { workspace = true }
 dirs = { workspace = true }
-doppelganger_service = { workspace = true }
+doppelganger_service = { workspace = true, optional = true }
 eth2 = { workspace = true, features = ["lighthouse"] }
 eth2_keystore = { workspace = true }
 ethereum_serde_utils = { workspace = true }
@@ -38,7 +41,7 @@ slot_clock = { workspace = true }
 sysinfo = { workspace = true }
 system_health = { workspace = true }
 task_executor = { workspace = true }
-tempfile = { workspace = true }
+tempfile = { workspace = true, optional = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tracing = { workspace = true }
@@ -53,7 +56,10 @@ warp_utils = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
+deposit_contract = { workspace = true }
+doppelganger_service = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
 rand = { workspace = true, features = ["small_rng"] }
 ssz_types = { workspace = true }
+tempfile = { workspace = true }

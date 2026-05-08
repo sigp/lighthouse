@@ -9,7 +9,7 @@ use store::DBColumn;
 use store::KeyValueStore;
 use tracing::debug;
 use tree_hash::TreeHash;
-use types::non_zero_usize::new_non_zero_usize;
+use types::new_non_zero_usize;
 use types::{
     BeaconBlockRef, BeaconState, ChainSpec, Checkpoint, EthSpec, ForkName, Hash256,
     LightClientBootstrap, LightClientFinalityUpdate, LightClientOptimisticUpdate,

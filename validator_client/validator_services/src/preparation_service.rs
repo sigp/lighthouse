@@ -8,7 +8,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
-use tokio::time::{Duration, sleep};
+use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 use types::{
     Address, ChainSpec, EthSpec, ProposerPreparationData, SignedValidatorRegistrationData,
@@ -174,7 +174,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
 
     /// Starts the service which periodically produces proposer preparations.
     pub fn start_proposer_prepare_service(self, spec: &ChainSpec) -> Result<(), String> {
-        let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+        let slot_duration = spec.get_slot_duration();
         info!("Proposer preparation service started");
 
         let executor = self.executor.clone();
@@ -214,7 +214,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
         info!("Validator registration service started");
 
         let spec = spec.clone();
-        let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+        let slot_duration = spec.get_slot_duration();
 
         let executor = self.executor.clone();
 

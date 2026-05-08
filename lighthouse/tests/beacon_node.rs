@@ -24,7 +24,7 @@ use std::str::FromStr;
 use std::string::ToString;
 use std::time::Duration;
 use tempfile::TempDir;
-use types::non_zero_usize::new_non_zero_usize;
+use types::new_non_zero_usize;
 use types::{Address, Checkpoint, Epoch, Hash256, MainnetEthSpec};
 
 const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
@@ -296,6 +296,21 @@ fn paranoid_block_proposal_on() {
 }
 
 #[test]
+fn ignore_ws_check_enabled() {
+    CommandLineTest::new()
+        .flag("ignore-ws-check", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.ignore_ws_check));
+}
+
+#[test]
+fn ignore_ws_check_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.ignore_ws_check));
+}
+
+#[test]
 fn reset_payload_statuses_default() {
     CommandLineTest::new()
         .run_with_zero_port()
@@ -386,9 +401,9 @@ fn genesis_backfill_flag() {
 
 /// The genesis backfill flag should be enabled if historic states flag is set.
 #[test]
-fn genesis_backfill_with_historic_flag() {
+fn genesis_backfill_with_archive_flag() {
     CommandLineTest::new()
-        .flag("reconstruct-historic-states", None)
+        .flag("archive", None)
         .run_with_zero_port()
         .with_config(|config| assert!(config.chain.genesis_backfill));
 }
@@ -2015,17 +2030,24 @@ fn blob_prune_margin_epochs_on_startup_ten() {
         .with_config(|config| assert!(config.store.blob_prune_margin_epochs == 10));
 }
 #[test]
-fn reconstruct_historic_states_flag() {
+fn archive_flag() {
+    CommandLineTest::new()
+        .flag("archive", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.archive));
+}
+#[test]
+fn archive_flag_alias() {
     CommandLineTest::new()
         .flag("reconstruct-historic-states", None)
         .run_with_zero_port()
-        .with_config(|config| assert!(config.chain.reconstruct_historic_states));
+        .with_config(|config| assert!(config.chain.archive));
 }
 #[test]
-fn no_reconstruct_historic_states_flag() {
+fn no_archive_flag() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert!(!config.chain.reconstruct_historic_states));
+        .with_config(|config| assert!(!config.chain.archive));
 }
 #[test]
 fn epochs_per_migration_default() {
@@ -2332,7 +2354,7 @@ fn enable_proposer_re_orgs_default() {
                 DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
             );
             assert_eq!(
-                config.chain.re_org_cutoff(12),
+                config.chain.re_org_cutoff(Duration::from_secs(12)),
                 Duration::from_secs(12) / DEFAULT_RE_ORG_CUTOFF_DENOMINATOR
             );
         });
@@ -2384,7 +2406,10 @@ fn proposer_re_org_cutoff() {
         .flag("proposer-reorg-cutoff", Some("500"))
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.chain.re_org_cutoff(12), Duration::from_millis(500))
+            assert_eq!(
+                config.chain.re_org_cutoff(Duration::from_secs(12)),
+                Duration::from_millis(500)
+            )
         });
 }
 
@@ -2837,5 +2862,23 @@ fn invalid_block_roots_default_mainnet() {
         .run_with_zero_port()
         .with_config(|config| {
             assert!(config.chain.invalid_block_roots.is_empty());
+        })
+}
+
+#[test]
+fn partial_columns() {
+    CommandLineTest::new()
+        .flag("enable-partial-columns", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_partial_columns);
+            assert!(config.chain.enable_partial_columns);
+        });
+    // And disabled by default:
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.network.enable_partial_columns);
+            assert!(!config.chain.enable_partial_columns);
         })
 }

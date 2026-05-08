@@ -11,10 +11,10 @@ async fn runs_without_error() {
         .default_spec()
         .deterministic_keypairs(8)
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
     harness.advance_slot();
 
-    let spec = MinimalEthSpec::default_spec();
     let target_slot =
         (MinimalEthSpec::genesis_epoch() + 4).end_slot(MinimalEthSpec::slots_per_epoch());
 
@@ -32,7 +32,7 @@ async fn runs_without_error() {
         .await;
     let mut new_head_state = harness.get_current_state();
 
-    process_epoch(&mut new_head_state, &spec).unwrap();
+    process_epoch(&mut new_head_state, &harness.spec).unwrap();
 }
 
 #[cfg(not(debug_assertions))]

@@ -11,7 +11,7 @@ path = "src/lib.rs"
 [dependencies]
 bls = { workspace = true }
 clap = { workspace = true }
-eth2 = { workspace = true }
+eth2 = { workspace = true, features = ["events"] }
 futures = { workspace = true }
 itertools = { workspace = true }
 sensitive_url = { workspace = true }

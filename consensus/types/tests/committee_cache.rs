@@ -21,6 +21,7 @@ fn get_harness<E: EthSpec>(validator_count: usize) -> BeaconChainHarness<Ephemer
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
     harness.advance_slot();
     harness
@@ -33,9 +34,9 @@ fn default_values() {
     assert!(!cache.is_initialized_at(Epoch::new(0)));
     assert!(&cache.active_validator_indices().is_empty());
     assert_eq!(cache.get_beacon_committee(Slot::new(0), 0), None);
-    assert_eq!(cache.get_attestation_duties(0), None);
+    assert_eq!(cache.get_attestation_duties(0), Ok(None));
     assert_eq!(cache.active_validator_count(), 0);
-    assert_eq!(cache.epoch_committee_count(), 0);
+    assert_eq!(cache.epoch_committee_count(), Ok(0));
     assert!(cache.get_beacon_committees_at_slot(Slot::new(0)).is_err());
 }
 

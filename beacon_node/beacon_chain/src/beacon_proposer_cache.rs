@@ -12,14 +12,15 @@ use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use fork_choice::ExecutionStatus;
 use lru::LruCache;
 use once_cell::sync::OnceCell;
+use parking_lot::Mutex;
 use safe_arith::SafeArith;
 use smallvec::SmallVec;
 use state_processing::state_advance::partial_state_advance;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use tracing::instrument;
+use tracing::{debug, instrument};
 use typenum::Unsigned;
-use types::non_zero_usize::new_non_zero_usize;
+use types::new_non_zero_usize;
 use types::{BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Fork, Hash256, Slot};
 
 /// The number of sets of proposer indices that should be cached.
@@ -162,6 +163,82 @@ impl BeaconProposerCache {
 
         Ok(())
     }
+}
+
+/// Access the proposer cache, computing and caching the proposers if necessary.
+///
+/// This is a free function that operates on references to the cache and spec, decoupled from
+/// `BeaconChain`. The `accessor` is called with the cached `EpochBlockProposers` for the given
+/// `(proposal_epoch, shuffling_decision_block)` key. If the cache entry is missing, the
+/// `state_provider` closure is called to produce a state which is then used to compute and
+/// cache the proposers.
+pub fn with_proposer_cache<Spec, V, Err>(
+    beacon_proposer_cache: &Mutex<BeaconProposerCache>,
+    shuffling_decision_block: Hash256,
+    proposal_epoch: Epoch,
+    accessor: impl Fn(&EpochBlockProposers) -> Result<V, BeaconChainError>,
+    state_provider: impl FnOnce() -> Result<(Hash256, BeaconState<Spec>), Err>,
+    spec: &ChainSpec,
+) -> Result<V, Err>
+where
+    Spec: EthSpec,
+    Err: From<BeaconChainError> + From<BeaconStateError>,
+{
+    let cache_entry = beacon_proposer_cache
+        .lock()
+        .get_or_insert_key(proposal_epoch, shuffling_decision_block);
+
+    // If the cache entry is not initialised, run the code to initialise it inside a OnceCell.
+    // This prevents duplication of work across multiple threads.
+    //
+    // If it is already initialised, then `get_or_try_init` will return immediately without
+    // executing the initialisation code at all.
+    let epoch_block_proposers = cache_entry.get_or_try_init(|| {
+        // Fetch the state on-demand if the required epoch was missing from the cache.
+        // If the caller wants to not compute the state they must return an error here and then
+        // catch it at the call site.
+        let (state_root, mut state) = state_provider()?;
+
+        // Ensure the state can compute proposer duties for `epoch`.
+        ensure_state_can_determine_proposers_for_epoch(
+            &mut state,
+            state_root,
+            proposal_epoch,
+            spec,
+        )?;
+
+        // Sanity check the state.
+        let latest_block_root = state.get_latest_block_root(state_root);
+        let state_decision_block_root = state.proposer_shuffling_decision_root_at_epoch(
+            proposal_epoch,
+            latest_block_root,
+            spec,
+        )?;
+        if state_decision_block_root != shuffling_decision_block {
+            return Err(BeaconChainError::ProposerCacheIncorrectState {
+                state_decision_block_root,
+                requested_decision_block_root: shuffling_decision_block,
+            }
+            .into());
+        }
+
+        let proposers = state.get_beacon_proposer_indices(proposal_epoch, spec)?;
+
+        // Use fork_at_epoch rather than the state's fork, because post-Fulu we may not have
+        // advanced the state completely into the new epoch.
+        let fork = spec.fork_at_epoch(proposal_epoch);
+
+        debug!(
+            ?shuffling_decision_block,
+            epoch = %proposal_epoch,
+            "Priming proposer shuffling cache"
+        );
+
+        Ok::<_, Err>(EpochBlockProposers::new(proposal_epoch, fork, proposers))
+    })?;
+
+    // Run the accessor function on the computed epoch proposers.
+    accessor(epoch_block_proposers).map_err(Into::into)
 }
 
 /// Compute the proposer duties using the head state without cache.

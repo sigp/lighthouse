@@ -114,6 +114,7 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
     let u32_hex = |v: u32| hex_string(&v.to_le_bytes());
     let u8_hex = |v: u8| hex_string(&v.to_le_bytes());
     hashmap! {
+        "attestation_subnet_prefix_bits".to_uppercase() => spec.attestation_subnet_prefix_bits.to_string().into(),
         "bls_withdrawal_prefix".to_uppercase() => u8_hex(spec.bls_withdrawal_prefix_byte),
         "eth1_address_withdrawal_prefix".to_uppercase() => u8_hex(spec.eth1_address_withdrawal_prefix_byte),
         "domain_beacon_proposer".to_uppercase() => u32_hex(spec.domain_beacon_proposer),
@@ -131,6 +132,10 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
         "domain_sync_committee".to_uppercase() => u32_hex(spec.domain_sync_committee),
         "domain_sync_committee_selection_proof".to_uppercase() =>
             u32_hex(spec.domain_sync_committee_selection_proof),
+        "domain_bls_to_execution_change".to_uppercase() => u32_hex(spec.domain_bls_to_execution_change),
+        "domain_beacon_builder".to_uppercase() => u32_hex(spec.domain_beacon_builder),
+        "domain_ptc_attester".to_uppercase() => u32_hex(spec.domain_ptc_attester),
+        "domain_proposer_preferences".to_uppercase() => u32_hex(spec.domain_proposer_preferences),
         "sync_committee_subnet_count".to_uppercase() =>
             consts::altair::SYNC_COMMITTEE_SUBNET_COUNT.to_string().into(),
         "target_aggregators_per_sync_subcommittee".to_uppercase() =>
@@ -172,7 +177,7 @@ mod test {
         yamlconfig.extra_fields_mut().insert(k3.into(), v3.into());
         yamlconfig.extra_fields_mut().insert(k4.into(), v4);
 
-        serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
+        yaml_serde::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
         let reader = File::options()
             .read(true)
@@ -180,7 +185,41 @@ mod test {
             .open(tmp_file.as_ref())
             .expect("error while opening the file");
         let from: ConfigAndPresetGloas =
-            serde_yaml::from_reader(reader).expect("error while deserializing");
+            yaml_serde::from_reader(reader).expect("error while deserializing");
         assert_eq!(ConfigAndPreset::Gloas(from), yamlconfig);
+    }
+
+    #[test]
+    fn test_attestation_subnet_prefix_bits_in_extra_fields() {
+        let mainnet_spec = ChainSpec::mainnet();
+        let config = ConfigAndPreset::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
+        let extra_fields = config.extra_fields();
+        assert!(extra_fields.contains_key("ATTESTATION_SUBNET_PREFIX_BITS"));
+
+        // For mainnet: 64 subnets, 0 extra bits -> ceil(log2(64)) + 0 = 6
+        assert_eq!(
+            extra_fields.get("ATTESTATION_SUBNET_PREFIX_BITS"),
+            Some(&Value::String("6".to_string()))
+        );
+    }
+
+    // This is not exhaustive, but it can be extended as new fields are added to the spec.
+    #[test]
+    fn test_required_spec_fields_exist() {
+        let mainnet_spec = ChainSpec::mainnet();
+        let config = ConfigAndPreset::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
+        let json = serde_json::to_value(&config).expect("should serialize");
+        let obj = json.as_object().expect("should be an object");
+        let required_fields = [
+            "EPOCHS_PER_SUBNET_SUBSCRIPTION",
+            "ATTESTATION_SUBNET_COUNT",
+            "ATTESTATION_SUBNET_EXTRA_BITS",
+            "ATTESTATION_SUBNET_PREFIX_BITS",
+            "UPDATE_TIMEOUT",
+            "DOMAIN_BLS_TO_EXECUTION_CHANGE",
+        ];
+        for field in required_fields {
+            assert!(obj.contains_key(field), "Missing required field: {}", field);
+        }
     }
 }

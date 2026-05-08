@@ -232,35 +232,6 @@ where
     }
 
     /// Restore `Self` from a previously-generated `PersistedForkChoiceStore`.
-    ///
-    /// DEPRECATED. Can be deleted once migrations no longer require it.
-    pub fn from_persisted_v17(
-        persisted: PersistedForkChoiceStoreV17,
-        justified_state_root: Hash256,
-        unrealized_justified_state_root: Hash256,
-        store: Arc<HotColdDB<E, Hot, Cold>>,
-    ) -> Result<Self, Error> {
-        let justified_balances =
-            JustifiedBalances::from_effective_balances(persisted.justified_balances)?;
-
-        Ok(Self {
-            store,
-            balances_cache: <_>::default(),
-            time: persisted.time,
-            finalized_checkpoint: persisted.finalized_checkpoint,
-            justified_checkpoint: persisted.justified_checkpoint,
-            justified_balances,
-            justified_state_root,
-            unrealized_justified_checkpoint: persisted.unrealized_justified_checkpoint,
-            unrealized_justified_state_root,
-            unrealized_finalized_checkpoint: persisted.unrealized_finalized_checkpoint,
-            proposer_boost_root: persisted.proposer_boost_root,
-            equivocating_indices: persisted.equivocating_indices,
-            _phantom: PhantomData,
-        })
-    }
-
-    /// Restore `Self` from a previously-generated `PersistedForkChoiceStore`.
     pub fn from_persisted(
         persisted: PersistedForkChoiceStore,
         store: Arc<HotColdDB<E, Hot, Cold>>,
@@ -411,45 +382,15 @@ where
 pub type PersistedForkChoiceStore = PersistedForkChoiceStoreV28;
 
 /// A container which allows persisting the `BeaconForkChoiceStore` to the on-disk database.
-#[superstruct(
-    variants(V17, V28),
-    variant_attributes(derive(Encode, Decode)),
-    no_enum
-)]
+#[superstruct(variants(V28), variant_attributes(derive(Encode, Decode)), no_enum)]
 pub struct PersistedForkChoiceStore {
-    /// The balances cache was removed from disk storage in schema V28.
-    #[superstruct(only(V17))]
-    pub balances_cache: BalancesCacheV8,
     pub time: Slot,
     pub finalized_checkpoint: Checkpoint,
     pub justified_checkpoint: Checkpoint,
-    /// The justified balances were removed from disk storage in schema V28.
-    #[superstruct(only(V17))]
-    pub justified_balances: Vec<u64>,
-    /// The justified state root is stored so that it can be used to load the justified balances.
-    #[superstruct(only(V28))]
     pub justified_state_root: Hash256,
     pub unrealized_justified_checkpoint: Checkpoint,
-    #[superstruct(only(V28))]
     pub unrealized_justified_state_root: Hash256,
     pub unrealized_finalized_checkpoint: Checkpoint,
     pub proposer_boost_root: Hash256,
     pub equivocating_indices: BTreeSet<u64>,
-}
-
-// Convert V28 to V17 by adding balances and removing justified state roots.
-impl From<(PersistedForkChoiceStoreV28, JustifiedBalances)> for PersistedForkChoiceStoreV17 {
-    fn from((v28, balances): (PersistedForkChoiceStoreV28, JustifiedBalances)) -> Self {
-        Self {
-            balances_cache: Default::default(),
-            time: v28.time,
-            finalized_checkpoint: v28.finalized_checkpoint,
-            justified_checkpoint: v28.justified_checkpoint,
-            justified_balances: balances.effective_balances,
-            unrealized_justified_checkpoint: v28.unrealized_justified_checkpoint,
-            unrealized_finalized_checkpoint: v28.unrealized_finalized_checkpoint,
-            proposer_boost_root: v28.proposer_boost_root,
-            equivocating_indices: v28.equivocating_indices,
-        }
-    }
 }

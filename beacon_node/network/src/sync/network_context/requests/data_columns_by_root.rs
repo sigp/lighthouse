@@ -56,16 +56,24 @@ impl<E: EthSpec> ActiveRequestItems for DataColumnsByRootRequestItems<E> {
         if self.request.block_root != block_root {
             return Err(LookupVerifyError::UnrequestedBlockRoot(block_root));
         }
-        if !data_column.verify_inclusion_proof() {
+
+        if let DataColumnSidecar::Fulu(data_column) = data_column.as_ref()
+            && !data_column.verify_inclusion_proof()
+        {
             return Err(LookupVerifyError::InvalidInclusionProof);
         }
-        if !self.request.indices.contains(&data_column.index) {
-            return Err(LookupVerifyError::UnrequestedIndex(data_column.index));
+
+        if !self.request.indices.contains(data_column.index()) {
+            return Err(LookupVerifyError::UnrequestedIndex(*data_column.index()));
         }
-        if self.items.iter().any(|d| d.index == data_column.index) {
+        if self
+            .items
+            .iter()
+            .any(|d| *d.index() == *data_column.index())
+        {
             return Err(LookupVerifyError::DuplicatedData(
                 data_column.slot(),
-                data_column.index,
+                *data_column.index(),
             ));
         }
 

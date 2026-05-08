@@ -15,7 +15,7 @@ use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
 use execution_layer::DEFAULT_JWT_FILE;
 use http_api::TlsConfig;
-use lighthouse_network::{Enr, Multiaddr, NetworkConfig, PeerIdSerialized, multiaddr::Protocol};
+use lighthouse_network::{Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use network_utils::listen_addr::ListenAddress;
 use sensitive_url::SensitiveUrl;
 use std::collections::HashSet;
@@ -28,7 +28,7 @@ use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 use types::graffiti::GraffitiString;
 use types::{Checkpoint, Epoch, EthSpec, Hash256};
 
@@ -109,6 +109,21 @@ pub fn get_config<E: EthSpec>(
     let data_dir_ref = client_config.data_dir().clone();
 
     set_network_config(&mut client_config.network, cli_args, &data_dir_ref)?;
+
+    if parse_flag(cli_args, "enable-partial-columns") {
+        // Partial messages assume that each subnet maps to exactly one column.
+        // Check this here to avoid weird issues on networks where this is not the case.
+        if spec.data_column_sidecar_subnet_count == E::number_of_columns() as u64 {
+            client_config.network.enable_partial_columns = true;
+            client_config.chain.enable_partial_columns = true;
+        } else {
+            warn!(
+                subnets = spec.data_column_sidecar_subnet_count,
+                columns = E::number_of_columns(),
+                "Not enabling partial columns on networks with multiple columns per subnet"
+            )
+        }
+    }
 
     // Parse custody mode from CLI flags
     let is_supernode = parse_flag(cli_args, "supernode");
@@ -554,8 +569,8 @@ pub fn get_config<E: EthSpec>(
         ClientGenesis::DepositContract
     };
 
-    if cli_args.get_flag("reconstruct-historic-states") {
-        client_config.chain.reconstruct_historic_states = true;
+    if cli_args.get_flag("archive") {
+        client_config.chain.archive = true;
         client_config.chain.genesis_backfill = true;
     }
 
@@ -766,10 +781,7 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.prepare_payload_lookahead =
         clap_utils::parse_optional(cli_args, "prepare-payload-lookahead")?
             .map(Duration::from_millis)
-            .unwrap_or_else(|| {
-                Duration::from_secs(spec.seconds_per_slot)
-                    / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR
-            });
+            .unwrap_or_else(|| spec.get_slot_duration() / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR);
 
     client_config.chain.always_prepare_payload = cli_args.get_flag("always-prepare-payload");
 
@@ -782,6 +794,8 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.always_reset_payload_statuses = cli_args.get_flag("reset-payload-statuses");
 
     client_config.chain.paranoid_block_proposal = cli_args.get_flag("paranoid-block-proposal");
+
+    client_config.chain.ignore_ws_check = cli_args.get_flag("ignore-ws-check");
 
     /*
      * Builder fallback configs.
@@ -1196,12 +1210,6 @@ pub fn set_network_config(
                     let multi: Multiaddr = addr
                         .parse()
                         .map_err(|_| format!("Not valid as ENR nor Multiaddr: {}", addr))?;
-                    if !multi.iter().any(|proto| matches!(proto, Protocol::Udp(_))) {
-                        error!(multiaddr = multi.to_string(), "Missing UDP in Multiaddr");
-                    }
-                    if !multi.iter().any(|proto| matches!(proto, Protocol::P2p(_))) {
-                        error!(multiaddr = multi.to_string(), "Missing P2P in Multiaddr");
-                    }
                     multiaddrs.push(multi);
                 }
             }
@@ -1210,7 +1218,9 @@ pub fn set_network_config(
         config.boot_nodes_multiaddr = multiaddrs;
     }
 
+    // DEPRECATED: can be removed in v8.2.0./v9.0.0
     if let Some(libp2p_addresses_str) = cli_args.get_one::<String>("libp2p-addresses") {
+        warn!("The --libp2p-addresses flag is deprecated and replaced by --boot-nodes");
         config.libp2p_nodes = libp2p_addresses_str
             .split(',')
             .map(|multiaddr| {

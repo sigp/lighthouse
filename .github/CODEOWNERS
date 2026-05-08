@@ -1,3 +1,4 @@
 /beacon_node/network/                @jxs
 /beacon_node/lighthouse_network/     @jxs
 /beacon_node/store/                  @michaelsproul
+/.github/forbidden-files.txt         @michaelsproul

@@ -12,31 +12,24 @@ use crate::{
     ExecutionPayloadError,
 };
 use execution_layer::{
-    BlockProposalContents, BlockProposalContentsType, BuilderParams, NewPayloadRequest,
-    PayloadAttributes, PayloadParameters, PayloadStatus,
+    BlockProposalContentsType, BuilderParams, NewPayloadRequest, PayloadAttributes,
+    PayloadParameters, PayloadStatus,
 };
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slot_clock::SlotClock;
 use state_processing::per_block_processing::{
     compute_timestamp_at_slot, get_expected_withdrawals, is_execution_enabled,
-    is_merge_transition_complete, partially_verify_execution_payload,
+    partially_verify_execution_payload,
 };
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use tracing::{Instrument, debug, debug_span, warn};
-use tree_hash::TreeHash;
-use types::payload::BlockProductionVersion;
+use tracing::{Instrument, debug_span, warn};
+use types::execution::BlockProductionVersion;
 use types::*;
 
 pub type PreparePayloadResult<E> = Result<BlockProposalContentsType<E>, BlockProductionError>;
 pub type PreparePayloadHandle<E> = JoinHandle<Option<PreparePayloadResult<E>>>;
-
-#[derive(PartialEq)]
-pub enum AllowOptimisticImport {
-    Yes,
-    No,
-}
 
 /// Signal whether the execution payloads of new blocks should be
 /// immediately verified with the EL or imported optimistically without
@@ -62,7 +55,10 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         state: &BeaconState<T::EthSpec>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, BlockError> {
-        let payload_verification_status = if is_execution_enabled(state, block.message().body()) {
+        let payload_verification_status = if block.fork_name_unchecked().gloas_enabled() {
+            // Gloas blocks don't contain an execution payload.
+            Some(PayloadVerificationStatus::Irrelevant)
+        } else if is_execution_enabled(state, block.message().body()) {
             // Perform the initial stages of payload verification.
             //
             // We will duplicate these checks again during `per_block_processing`, however these
@@ -112,12 +108,18 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         if let Some(precomputed_status) = self.payload_verification_status {
             Ok(precomputed_status)
         } else {
-            notify_new_payload(&self.chain, self.block.message()).await
+            notify_new_payload(
+                &self.chain,
+                self.block.message().slot(),
+                self.block.message().parent_root(),
+                self.block.message().try_into()?,
+            )
+            .await
         }
     }
 }
 
-/// Verify that `execution_payload` contained by `block` is considered valid by an execution
+/// Verify that `execution_payload` is considered valid by an execution
 /// engine.
 ///
 /// ## Specification
@@ -126,17 +128,21 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
 /// contains a few extra checks by running `partially_verify_execution_payload` first:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.9/specs/bellatrix/beacon-chain.md#notify_new_payload
-async fn notify_new_payload<T: BeaconChainTypes>(
+pub async fn notify_new_payload<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
-    block: BeaconBlockRef<'_, T::EthSpec>,
+    slot: Slot,
+    parent_beacon_block_root: Hash256,
+    new_payload_request: NewPayloadRequest<'_, T::EthSpec>,
 ) -> Result<PayloadVerificationStatus, BlockError> {
     let execution_layer = chain
         .execution_layer
         .as_ref()
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
 
-    let execution_block_hash = block.execution_payload()?.block_hash();
-    let new_payload_response = execution_layer.notify_new_payload(block.try_into()?).await;
+    let execution_block_hash = new_payload_request.execution_payload_ref().block_hash();
+    let new_payload_response = execution_layer
+        .notify_new_payload(new_payload_request.clone())
+        .await;
 
     match new_payload_response {
         Ok(status) => match status {
@@ -152,10 +158,7 @@ async fn notify_new_payload<T: BeaconChainTypes>(
                     ?validation_error,
                     ?latest_valid_hash,
                     ?execution_block_hash,
-                    root = ?block.tree_hash_root(),
-                    graffiti = block.body().graffiti().as_utf8_lossy(),
-                    proposer_index = block.proposer_index(),
-                    slot = %block.slot(),
+                    %slot,
                     method = "new_payload",
                     "Invalid execution payload"
                 );
@@ -178,11 +181,9 @@ async fn notify_new_payload<T: BeaconChainTypes>(
                 {
                     // This block has not yet been applied to fork choice, so the latest block that was
                     // imported to fork choice was the parent.
-                    let latest_root = block.parent_root();
-
                     chain
                         .process_invalid_execution_payload(&InvalidationOperation::InvalidateMany {
-                            head_block_root: latest_root,
+                            head_block_root: parent_beacon_block_root,
                             always_invalidate_head: false,
                             latest_valid_ancestor: latest_valid_hash,
                         })
@@ -197,10 +198,7 @@ async fn notify_new_payload<T: BeaconChainTypes>(
                 warn!(
                     ?validation_error,
                     ?execution_block_hash,
-                    root = ?block.tree_hash_root(),
-                    graffiti = block.body().graffiti().as_utf8_lossy(),
-                    proposer_index = block.proposer_index(),
-                    slot = %block.slot(),
+                    %slot,
                     method = "new_payload",
                     "Invalid execution payload block hash"
                 );
@@ -215,78 +213,6 @@ async fn notify_new_payload<T: BeaconChainTypes>(
     }
 }
 
-/// Verify that the block which triggers the merge is valid to be imported to fork choice.
-///
-/// ## Errors
-///
-/// Will return an error when using a pre-merge fork `state`. Ensure to only run this function
-/// after the merge fork.
-///
-/// ## Specification
-///
-/// Equivalent to the `validate_merge_block` function in the merge Fork Choice Changes:
-///
-/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/fork-choice.md#validate_merge_block
-pub async fn validate_merge_block<T: BeaconChainTypes>(
-    chain: &Arc<BeaconChain<T>>,
-    block: BeaconBlockRef<'_, T::EthSpec>,
-    allow_optimistic_import: AllowOptimisticImport,
-) -> Result<(), BlockError> {
-    let spec = &chain.spec;
-    let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
-    let execution_payload = block.execution_payload()?;
-
-    if spec.terminal_block_hash != ExecutionBlockHash::zero() {
-        if block_epoch < spec.terminal_block_hash_activation_epoch {
-            return Err(ExecutionPayloadError::InvalidActivationEpoch {
-                activation_epoch: spec.terminal_block_hash_activation_epoch,
-                epoch: block_epoch,
-            }
-            .into());
-        }
-
-        if execution_payload.parent_hash() != spec.terminal_block_hash {
-            return Err(ExecutionPayloadError::InvalidTerminalBlockHash {
-                terminal_block_hash: spec.terminal_block_hash,
-                payload_parent_hash: execution_payload.parent_hash(),
-            }
-            .into());
-        }
-
-        return Ok(());
-    }
-
-    let execution_layer = chain
-        .execution_layer
-        .as_ref()
-        .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
-
-    let is_valid_terminal_pow_block = execution_layer
-        .is_valid_terminal_pow_block_hash(execution_payload.parent_hash(), spec)
-        .await
-        .map_err(ExecutionPayloadError::from)?;
-
-    match is_valid_terminal_pow_block {
-        Some(true) => Ok(()),
-        Some(false) => Err(ExecutionPayloadError::InvalidTerminalPoWBlock {
-            parent_hash: execution_payload.parent_hash(),
-        }
-        .into()),
-        None => {
-            if allow_optimistic_import == AllowOptimisticImport::Yes {
-                debug!(
-                    block_hash = ?execution_payload.parent_hash(),
-                    msg = "the terminal block/parent was unavailable",
-                    "Optimistically importing merge transition block"
-                );
-                Ok(())
-            } else {
-                Err(ExecutionPayloadError::UnverifiedNonOptimisticCandidate.into())
-            }
-        }
-    }
-}
-
 /// Validate the gossip block's execution_payload according to the checks described here:
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/p2p-interface.md#beacon_block
 pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
@@ -294,16 +220,22 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
     block: BeaconBlockRef<'_, T::EthSpec>,
     chain: &BeaconChain<T>,
 ) -> Result<(), BlockError> {
+    // Gloas blocks don't have an execution payload in the block body.
+    // Bid-related validations are handled in gossip block verification.
+    if block.fork_name_unchecked().gloas_enabled() {
+        return Ok(());
+    }
+
     // Only apply this validation if this is a Bellatrix beacon block.
     if let Ok(execution_payload) = block.body().execution_payload() {
-        // This logic should match `is_execution_enabled`. We use only the execution block hash of
-        // the parent here in order to avoid loading the parent state during gossip verification.
+        // Check parent execution status to determine if we should validate the payload.
+        // We use only the execution status of the parent here to avoid loading the parent state
+        // during gossip verification.
 
-        let is_merge_transition_complete = match parent_block.execution_status {
-            // Optimistically declare that an "unknown" status block has completed the merge.
+        let parent_has_execution = match parent_block.execution_status {
+            // Parent has valid or optimistic execution status.
             ExecutionStatus::Valid(_) | ExecutionStatus::Optimistic(_) => true,
-            // It's impossible for an irrelevant block to have completed the merge. It is pre-merge
-            // by definition.
+            // Pre-merge blocks have irrelevant execution status.
             ExecutionStatus::Irrelevant(_) => false,
             // If the parent has an invalid payload then it's impossible to build a valid block upon
             // it. Reject the block.
@@ -314,7 +246,7 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
             }
         };
 
-        if is_merge_transition_complete || !execution_payload.is_default_with_empty_roots() {
+        if parent_has_execution || !execution_payload.is_default_with_empty_roots() {
             let expected_timestamp = chain
                 .slot_clock
                 .start_of(block.slot())
@@ -363,7 +295,6 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
     // task.
     let spec = &chain.spec;
     let current_epoch = state.current_epoch();
-    let is_merge_transition_complete = is_merge_transition_complete(state);
     let timestamp =
         compute_timestamp_at_slot(state, state.slot(), spec).map_err(BeaconStateError::from)?;
     let random = *state.get_randao_mix(current_epoch)?;
@@ -371,7 +302,7 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
     let latest_execution_payload_header_block_hash = latest_execution_payload_header.block_hash();
     let latest_execution_payload_header_gas_limit = latest_execution_payload_header.gas_limit();
     let withdrawals = if state.fork_name_unchecked().capella_enabled() {
-        Some(get_expected_withdrawals(state, spec)?.0.into())
+        Some(Withdrawals::<T::EthSpec>::from(get_expected_withdrawals(state, spec)?).into())
     } else {
         None
     };
@@ -390,7 +321,6 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
             async move {
                 prepare_execution_payload::<T>(
                     &chain,
-                    is_merge_transition_complete,
                     timestamp,
                     random,
                     proposer_index,
@@ -414,8 +344,6 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
 
 /// Prepares an execution payload for inclusion in a block.
 ///
-/// Will return `Ok(None)` if the Bellatrix fork has occurred, but a terminal block has not been found.
-///
 /// ## Errors
 ///
 /// Will return an error when using a pre-Bellatrix fork `state`. Ensure to only run this function
@@ -429,7 +357,6 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
 #[allow(clippy::too_many_arguments)]
 pub async fn prepare_execution_payload<T>(
     chain: &Arc<BeaconChain<T>>,
-    is_merge_transition_complete: bool,
     timestamp: u64,
     random: Hash256,
     proposer_index: u64,
@@ -444,7 +371,6 @@ pub async fn prepare_execution_payload<T>(
 where
     T: BeaconChainTypes,
 {
-    let current_epoch = builder_params.slot.epoch(T::EthSpec::slots_per_epoch());
     let spec = &chain.spec;
     let fork = spec.fork_name_at_slot::<T::EthSpec>(builder_params.slot);
     let execution_layer = chain
@@ -452,42 +378,7 @@ where
         .as_ref()
         .ok_or(BlockProductionError::ExecutionLayerMissing)?;
 
-    let parent_hash = if !is_merge_transition_complete {
-        let is_terminal_block_hash_set = spec.terminal_block_hash != ExecutionBlockHash::zero();
-        let is_activation_epoch_reached =
-            current_epoch >= spec.terminal_block_hash_activation_epoch;
-
-        if is_terminal_block_hash_set && !is_activation_epoch_reached {
-            // Use the "empty" payload if there's a terminal block hash, but we haven't reached the
-            // terminal block epoch yet.
-            return Ok(BlockProposalContentsType::Full(
-                BlockProposalContents::Payload {
-                    payload: FullPayload::default_at_fork(fork)?,
-                    block_value: Uint256::ZERO,
-                },
-            ));
-        }
-
-        let terminal_pow_block_hash = execution_layer
-            .get_terminal_pow_block_hash(spec, timestamp)
-            .await
-            .map_err(BlockProductionError::TerminalPoWBlockLookupFailed)?;
-
-        if let Some(terminal_pow_block_hash) = terminal_pow_block_hash {
-            terminal_pow_block_hash
-        } else {
-            // If the merge transition hasn't occurred yet and the EL hasn't found the terminal
-            // block, return an "empty" payload.
-            return Ok(BlockProposalContentsType::Full(
-                BlockProposalContents::Payload {
-                    payload: FullPayload::default_at_fork(fork)?,
-                    block_value: Uint256::ZERO,
-                },
-            ));
-        }
-    } else {
-        latest_execution_payload_header_block_hash
-    };
+    let parent_hash = latest_execution_payload_header_block_hash;
 
     // Try to obtain the fork choice update parameters from the cached head.
     //
@@ -511,12 +402,20 @@ where
     let suggested_fee_recipient = execution_layer
         .get_suggested_fee_recipient(proposer_index)
         .await;
+
+    let slot_number = if fork.gloas_enabled() {
+        Some(builder_params.slot.as_u64())
+    } else {
+        None
+    };
+
     let payload_attributes = PayloadAttributes::new(
         timestamp,
         random,
         suggested_fee_recipient,
         withdrawals,
         parent_beacon_block_root,
+        slot_number,
     );
 
     let target_gas_limit = execution_layer.get_proposer_gas_limit(proposer_index).await;

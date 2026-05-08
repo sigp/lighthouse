@@ -5,9 +5,6 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 autotests = false
 
-[features]
-libp2p-websocket = []
-
 [dependencies]
 alloy-primitives = { workspace = true }
 alloy-rlp = { workspace = true }
@@ -24,19 +21,21 @@ ethereum_ssz_derive = { workspace = true }
 fixed_bytes = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
-gossipsub = { workspace = true }
+# Enable partial messages feature
+gossipsub = { package = "libp2p-gossipsub", git = "https://github.com/libp2p/rust-libp2p.git", features = ["partial_messages"] }
 hex = { workspace = true }
+if-addrs = "0.14"
 itertools = { workspace = true }
-libp2p-mplex = "0.43"
+libp2p = { workspace = true }
+libp2p-mplex = { git = "https://github.com/libp2p/rust-libp2p.git" }
 lighthouse_version = { workspace = true }
-local-ip-address = "0.6"
 logging = { workspace = true }
 lru = { workspace = true }
 lru_cache = { workspace = true }
 metrics = { workspace = true }
 network_utils = { workspace = true }
 parking_lot = { workspace = true }
-prometheus-client = "0.23.0"
+prometheus-client = "0.24.0"
 rand = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
@@ -54,24 +53,6 @@ tracing-subscriber = { workspace = true }
 typenum = { workspace = true }
 types = { workspace = true }
 unsigned-varint = { version = "0.8", features = ["codec"] }
-
-[dependencies.libp2p]
-version = "0.56"
-default-features = false
-features = [
-    "identify",
-    "yamux",
-    "noise",
-    "dns",
-    "tcp",
-    "tokio",
-    "plaintext",
-    "secp256k1",
-    "macros",
-    "metrics",
-    "quic",
-    "upnp",
-]
 
 [dev-dependencies]
 async-channel = { workspace = true }

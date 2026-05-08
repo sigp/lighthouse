@@ -37,7 +37,7 @@ impl Default for TestRuntime {
             (Some(runtime), handle)
         };
 
-        let task_executor = TaskExecutor::new(handle, exit, shutdown_tx, "test".to_string());
+        let task_executor = TaskExecutor::new(handle, exit, shutdown_tx);
 
         Self {
             runtime,

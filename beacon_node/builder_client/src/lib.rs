@@ -2,7 +2,7 @@ use bls::PublicKeyBytes;
 use context_deserialize::ContextDeserialize;
 pub use eth2::Error;
 use eth2::types::beacon_response::EmptyMetadata;
-use eth2::types::builder_bid::SignedBuilderBid;
+use eth2::types::builder::SignedBuilderBid;
 use eth2::types::{
     ContentType, EthSpec, ExecutionBlockHash, ForkName, ForkVersionDecode, ForkVersionedResponse,
     SignedValidatorRegistrationData, Slot,
@@ -10,10 +10,10 @@ use eth2::types::{
 use eth2::types::{FullPayloadContents, SignedBlindedBeaconBlock};
 use eth2::{
     CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, JSON_CONTENT_TYPE_HEADER,
-    SSZ_CONTENT_TYPE_HEADER, StatusCode, ok_or_error, success_or_error,
+    SSZ_CONTENT_TYPE_HEADER, ok_or_error, success_or_error,
 };
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue};
-use reqwest::{IntoUrl, Response};
+use reqwest::{IntoUrl, Response, StatusCode};
 use sensitive_url::SensitiveUrl;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -540,10 +540,10 @@ impl BuilderHttpClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arbitrary::Arbitrary;
     use bls::Signature;
     use eth2::types::MainnetEthSpec;
-    use eth2::types::builder_bid::{BuilderBid, BuilderBidFulu};
-    use eth2::types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use eth2::types::builder::{BuilderBid, BuilderBidFulu};
     use mockito::{Matcher, Server, ServerGuard};
 
     type E = MainnetEthSpec;
@@ -689,12 +689,12 @@ mod tests {
     }
 
     fn fulu_signed_builder_bid() -> ForkVersionedResponse<SignedBuilderBid<E>> {
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
         ForkVersionedResponse {
             version: ForkName::Fulu,
             metadata: EmptyMetadata {},
             data: SignedBuilderBid {
-                message: BuilderBid::Fulu(BuilderBidFulu::random_for_test(rng)),
+                message: BuilderBid::Fulu(BuilderBidFulu::arbitrary(&mut u).unwrap()),
                 signature: Signature::empty(),
             },
         }

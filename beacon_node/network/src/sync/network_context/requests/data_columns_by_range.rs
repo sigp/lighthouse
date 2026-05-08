@@ -28,18 +28,22 @@ impl<E: EthSpec> ActiveRequestItems for DataColumnsByRangeRequestItems<E> {
         {
             return Err(LookupVerifyError::UnrequestedSlot(data_column.slot()));
         }
-        if !self.request.columns.contains(&data_column.index) {
-            return Err(LookupVerifyError::UnrequestedIndex(data_column.index));
+        if !self.request.columns.contains(data_column.index()) {
+            return Err(LookupVerifyError::UnrequestedIndex(*data_column.index()));
         }
-        if !data_column.verify_inclusion_proof() {
+
+        if let DataColumnSidecar::Fulu(data_column) = data_column.as_ref()
+            && !data_column.verify_inclusion_proof()
+        {
             return Err(LookupVerifyError::InvalidInclusionProof);
         }
+
         if self.items.iter().any(|existing| {
-            existing.slot() == data_column.slot() && existing.index == data_column.index
+            existing.slot() == data_column.slot() && *existing.index() == *data_column.index()
         }) {
             return Err(LookupVerifyError::DuplicatedData(
                 data_column.slot(),
-                data_column.index,
+                *data_column.index(),
             ));
         }
 

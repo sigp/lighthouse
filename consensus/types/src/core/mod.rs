@@ -5,6 +5,7 @@ mod chain_spec;
 mod config_and_preset;
 mod enr_fork_id;
 mod eth_spec;
+mod execution_block_hash;
 mod graffiti;
 mod non_zero_usize;
 mod preset;
@@ -25,6 +26,7 @@ pub use config_and_preset::{
 };
 pub use enr_fork_id::EnrForkId;
 pub use eth_spec::{EthSpec, EthSpecId, GNOSIS, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
+pub use execution_block_hash::ExecutionBlockHash;
 pub use graffiti::{GRAFFITI_BYTES_LEN, Graffiti, GraffitiString};
 pub use non_zero_usize::new_non_zero_usize;
 pub use preset::{
@@ -36,9 +38,40 @@ pub use signing_data::{SignedRoot, SigningData};
 pub use slot_data::SlotData;
 pub use slot_epoch::{Epoch, Slot};
 
+#[cfg(test)]
+pub(crate) use chain_spec::{
+    max_blobs_by_root_request_common, max_data_columns_by_root_request_common,
+};
+
 pub type Hash256 = alloy_primitives::B256;
 pub type Uint256 = alloy_primitives::U256;
 pub type Hash64 = alloy_primitives::B64;
 pub type Address = alloy_primitives::Address;
 pub type VersionedHash = Hash256;
 pub type MerkleProof = Vec<Hash256>;
+
+/// Extension trait for `Hash256` to allow us to implement additional methods on it.
+pub trait Hash256Ext {
+    fn short(&self) -> ShortenedHash<'_>;
+}
+
+impl Hash256Ext for Hash256 {
+    fn short(&self) -> ShortenedHash<'_> {
+        ShortenedHash(self)
+    }
+}
+
+pub struct ShortenedHash<'a>(&'a Hash256);
+
+impl<'a> std::fmt::Display for ShortenedHash<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let hash: &[u8; 32] = self.0.as_ref();
+        write!(
+            f,
+            // Format as hex, padded to 2 digits per byte.
+            // This outputs a consistent "0x1234...abcd" format.
+            "0x{:02x}{:02x}…{:02x}{:02x}",
+            hash[0], hash[1], hash[30], hash[31]
+        )
+    }
+}

@@ -225,7 +225,8 @@ Options:
           be careful to avoid filling up their disks.
       --libp2p-addresses <MULTIADDR>
           One or more comma-delimited multiaddrs to manually connect to a libp2p
-          peer without an ENR.
+          peer without an ENR. DEPRECATED. The --libp2p-addresses flag is
+          deprecated and replaced by --boot-nodes
       --listen-address [<ADDRESS>...]
           The address lighthouse will listen for UDP and TCP connections. To
           listen over IPv4 and IPv6 set this flag twice with the different
@@ -438,6 +439,10 @@ Flags:
           intended for use by block builders, relays and developers. You should
           set a fee recipient on this BN and also consider adjusting the
           --prepare-payload-lookahead flag.
+      --archive
+          Store all beacon states in the database. When checkpoint syncing,
+          states are reconstructed after backfill completes. This requires
+          syncing all the way back to genesis.
       --builder-fallback-disable-checks
           This flag disables all checks related to chain health. This means the
           builder API will always be used for payload construction, regardless
@@ -492,6 +497,9 @@ Flags:
           Sets the local ENR IP address and port to match those set for
           lighthouse. Specifically, the IP address will be the value of
           --listen-address and the UDP port will be --discovery-port.
+      --enable-partial-columns
+          Enable partial messages for data columns. This can reduce the amount
+          of data sent over the network.
       --enable-private-discovery
           Lighthouse by default does not discover private IP addresses. Set this
           flag to enable connection attempts to local addresses.
@@ -508,6 +516,12 @@ Flags:
       --http-enable-tls
           Serves the RESTful HTTP API server over TLS. This feature is currently
           experimental.
+      --ignore-ws-check
+          Using this flag allows a node to run in a state that may expose it to
+          long-range attacks. For more information please read this blog post:
+          https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity
+          If you understand the risks, you can use this flag to disable the Weak
+          Subjectivity check at startup.
       --import-all-attestations
           Import and aggregate all attestations, regardless of validator
           subscriptions. This will only import attestations from
@@ -545,9 +559,6 @@ Flags:
       --purge-db-force
           If present, the chain database will be deleted without confirmation.
           Use with caution.
-      --reconstruct-historic-states
-          After a checkpoint sync, reconstruct historic states in the database.
-          This requires syncing all the way back to genesis.
       --reset-payload-statuses
           When present, Lighthouse will forget the payload statuses of any
           already-imported blocks. This can assist in the recovery from a

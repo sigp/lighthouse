@@ -17,7 +17,7 @@ pub fn process_slashings<E: EthSpec>(
     let sum_slashings = state.get_all_slashings().iter().copied().safe_sum()?;
 
     let adjusted_total_slashing_balance = std::cmp::min(
-        sum_slashings.safe_mul(spec.proportional_slashing_multiplier_for_state(state))?,
+        sum_slashings.safe_mul(state.get_proportional_slashing_multiplier(spec))?,
         total_balance,
     );
 

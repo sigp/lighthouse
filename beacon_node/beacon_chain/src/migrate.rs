@@ -330,7 +330,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         let finalized_block_root = notif.finalized_checkpoint.root;
 
         // The enshrined finalized state should be in the state cache.
-        let finalized_state = match db.get_state(&finalized_state_root.into(), None, true) {
+        let finalized_state = match db.get_hot_state(&finalized_state_root.into(), true) {
             Ok(Some(state)) => state,
             other => {
                 error!(
@@ -773,6 +773,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                     StoreOp::DeleteBlock(block_root),
                     StoreOp::DeleteExecutionPayload(block_root),
                     StoreOp::DeleteBlobs(block_root),
+                    StoreOp::DeletePayloadEnvelope(block_root),
                     StoreOp::DeleteSyncCommitteeBranch(block_root),
                 ]
             })

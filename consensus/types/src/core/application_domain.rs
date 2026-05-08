@@ -4,6 +4,7 @@ pub const APPLICATION_DOMAIN_BUILDER: u32 = 16777216;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ApplicationDomain {
+    /// NOTE: This domain is only used for out-of-protocol block building, DO NOT use it for Gloas/ePBS.
     Builder,
 }
 
