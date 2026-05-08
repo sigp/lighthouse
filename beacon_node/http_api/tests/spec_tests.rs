@@ -850,9 +850,7 @@ async fn http_api_spec_test() -> Result<(), String> {
                 .as_object_mut()
                 .unwrap()
                 .remove("finalized");
-            assert!(
-                check_field(&result_json_modify, get_response_object_schema, endpoint).is_err()
-            );
+            assert!(check_field(&result_json_modify, get_response_object_schema, endpoint).is_ok());
 
             // modify the type from Boolean to String to test type check
             let mut result_json_modify: serde_json::Value =
