@@ -20,6 +20,7 @@ fn build_result(repo_dir: &Path) -> Output {
         .arg("src/Nethermind/Nethermind.slnx")
         .arg("-c")
         .arg("Release")
+        .arg("/p:NuGetAudit=false")
         .current_dir(repo_dir)
         .output()
         .expect("failed to make nethermind")
