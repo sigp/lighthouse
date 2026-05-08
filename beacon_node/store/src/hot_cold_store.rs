@@ -217,11 +217,11 @@ pub enum HotColdDBError {
     Rollback,
 }
 
-impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
+impl<E: EthSpec> HotColdDB<E, MemoryStore, MemoryStore> {
     pub fn open_ephemeral(
         config: StoreConfig,
         spec: Arc<ChainSpec>,
-    ) -> Result<HotColdDB<E, MemoryStore<E>, MemoryStore<E>>, Error> {
+    ) -> Result<HotColdDB<E, MemoryStore, MemoryStore>, Error> {
         config.verify::<E>()?;
 
         let hierarchy = config.hierarchy_config.to_moduli()?;
@@ -258,7 +258,7 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
     }
 }
 
-impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
+impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend> {
     /// Open a new or existing database, with the given paths to the hot and cold DBs.
     ///
     /// The `migrate_schema` function is passed in so that the parent `BeaconChain` can provide

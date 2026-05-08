@@ -376,7 +376,7 @@ mod test {
         harness.get_current_state()
     }
 
-    fn get_store<E: EthSpec>() -> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
+    fn get_store<E: EthSpec>() -> HotColdDB<E, MemoryStore, MemoryStore> {
         let store =
             HotColdDB::open_ephemeral(Config::default(), Arc::new(E::default_spec())).unwrap();
         // Init achor info so anchor slot is set. Use a random block as it is only used for the

@@ -517,22 +517,21 @@ mod tests {
     fn simplediskdb() {
         let dir = tempdir().unwrap();
         let path = dir.path();
-        let store =
-            BeaconNodeBackend::<MinimalEthSpec>::open(&StoreConfig::default(), path).unwrap();
+        let store = BeaconNodeBackend::open(&StoreConfig::default(), path).unwrap();
 
         test_impl(store);
     }
 
     #[test]
     fn memorydb() {
-        let store = MemoryStore::<MinimalEthSpec>::open();
+        let store = MemoryStore::open();
 
         test_impl(store);
     }
 
     #[test]
     fn exists() {
-        let store = MemoryStore::<MinimalEthSpec>::open();
+        let store = MemoryStore::open();
         let key = Hash256::random();
         let item = StorableThing { a: 1, b: 42 };
 

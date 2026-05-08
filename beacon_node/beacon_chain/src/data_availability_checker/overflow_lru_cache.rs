@@ -802,7 +802,7 @@ mod test {
     fn get_store_with_spec<E: EthSpec>(
         db_path: &TempDir,
         spec: Arc<ChainSpec>,
-    ) -> Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>> {
+    ) -> Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>> {
         let hot_path = db_path.path().join("hot_db");
         let cold_path = db_path.path().join("cold_db");
         let blobs_path = db_path.path().join("blobs_db");
@@ -946,8 +946,8 @@ mod test {
     where
         E: EthSpec,
         T: BeaconChainTypes<
-                HotStore = BeaconNodeBackend<E>,
-                ColdStore = BeaconNodeBackend<E>,
+                HotStore = BeaconNodeBackend,
+                ColdStore = BeaconNodeBackend,
                 EthSpec = E,
             >,
     {
