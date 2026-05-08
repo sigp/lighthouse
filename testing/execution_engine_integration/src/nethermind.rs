@@ -17,7 +17,7 @@ const NETHERMIND_REPO_URL: &str = "https://github.com/NethermindEth/nethermind";
 fn build_result(repo_dir: &Path) -> Output {
     Command::new("dotnet")
         .arg("build")
-        .arg("src/Nethermind/Nethermind.sln")
+        .arg("src/Nethermind/Nethermind.slnx")
         .arg("-c")
         .arg("Release")
         .current_dir(repo_dir)
@@ -68,8 +68,6 @@ impl NethermindEngine {
         manifest_dir
             .join("execution_clients")
             .join("nethermind")
-            .join("src")
-            .join("Nethermind")
             .join("artifacts")
             .join("bin")
             .join("Nethermind.Runner")
