@@ -4058,8 +4058,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | EnvelopeError::BlockHashMismatch { .. }
                 | EnvelopeError::UnknownValidator { .. }
                 | EnvelopeError::IncorrectBlockProposer { .. }
-                | EnvelopeError::ExecutionPayloadError(_)
-                | EnvelopeError::EnvelopeProcessingError(_) => {
+                | EnvelopeError::ExecutionPayloadError(_) => {
                     self.gossip_penalize_peer(
                         peer_id,
                         PeerAction::LowToleranceError,
@@ -4068,6 +4067,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 }
 
                 EnvelopeError::BlockRootUnknown { .. }
+                | EnvelopeError::EnvelopeProcessingError(_)
                 | EnvelopeError::PriorToFinalization { .. }
                 | EnvelopeError::BeaconChainError(_)
                 | EnvelopeError::BeaconStateError(_)
