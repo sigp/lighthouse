@@ -983,10 +983,15 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             .gloas_enabled();
         let parent_is_anchor = parent_block.parent_root.is_none();
 
+        // Check if this block's bid references a payload envelope we haven't received.
+        // Only trigger a lookup if the bid's parent_block_hash matches the parent block's
+        // committed execution_payload_block_hash (meaning this block builds directly on
+        // the parent's payload). If they don't match, the block is building on an older
+        // execution state (e.g. grandparent's) and doesn't need the parent's envelope.
         if parent_is_gloas
             && !parent_is_anchor
+            && Some(bid.message.parent_block_hash) == parent_block.execution_payload_block_hash
             && !fork_choice_read_lock.is_payload_received(&block.message().parent_root())
-            && Some(bid.message.parent_block_hash) != parent_block.execution_payload_block_hash
         {
             return Err(BlockError::ParentEnvelopeUnknown {
                 parent_root: block.message().parent_root(),
