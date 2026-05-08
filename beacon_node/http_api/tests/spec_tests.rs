@@ -295,7 +295,6 @@ async fn extract_all_endpoints() -> ObjectSchemaByEndpoint {
         "https://github.com/ethereum/beacon-APIs/releases/latest/download/beacon-node-oapi.yaml";
 
     let yaml = if std::env::var("CI").is_ok() {
-        println!("using CI branch to download the file");
         // In CI, download with Github token to avoid rate limiting
         let token = std::env::var("GITHUB_TOKEN").unwrap();
         Client::new()
@@ -309,17 +308,14 @@ async fn extract_all_endpoints() -> ObjectSchemaByEndpoint {
             .unwrap()
     } else {
         // This branch is for running the test locally
-        println!("running locally");
         let path =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/beacon-node-oapi.yaml");
 
         if path.exists() {
             // If the file exists, read it directly
-            println!("file exists");
             std::fs::read_to_string(&path).unwrap()
         } else {
             // If the file doesn't exist, only we download from the url
-            println!("file does not exist, downloading");
             let content = reqwest::get(url).await.unwrap().text().await.unwrap();
             std::fs::write(&path, &content).unwrap();
             content
@@ -850,7 +846,9 @@ async fn http_api_spec_test() -> Result<(), String> {
                 .as_object_mut()
                 .unwrap()
                 .remove("finalized");
-            assert!(check_field(&result_json_modify, get_response_object_schema, endpoint).is_ok());
+            assert!(
+                check_field(&result_json_modify, get_response_object_schema, endpoint).is_err()
+            );
 
             // modify the type from Boolean to String to test type check
             let mut result_json_modify: serde_json::Value =
