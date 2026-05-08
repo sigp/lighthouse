@@ -11,16 +11,16 @@ use tempfile::TempDir;
 /// We've pinned the Nethermind version since our method of using the `master` branch to
 /// find the latest tag isn't working. It appears Nethermind don't always tag on `master`.
 /// We should fix this so we always pull the latest version of Nethermind.
-const NETHERMIND_BRANCH: &str = "release/1.36.0";
+const NETHERMIND_BRANCH: &str = "release/1.27.0";
 const NETHERMIND_REPO_URL: &str = "https://github.com/NethermindEth/nethermind";
 
 fn build_result(repo_dir: &Path) -> Output {
     Command::new("dotnet")
         .arg("build")
-        .arg("src/Nethermind/Nethermind.slnx")
+        .arg("src/Nethermind/Nethermind.sln")
         .arg("-c")
         .arg("Release")
-        .arg("/p:NuGetAudit=false")
+        .arg("-p:TreatWarningsAsErrors=false")
         .current_dir(repo_dir)
         .output()
         .expect("failed to make nethermind")
