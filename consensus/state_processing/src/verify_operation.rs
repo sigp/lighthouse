@@ -14,11 +14,10 @@ use smallvec::{SmallVec, smallvec};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
-use test_random_derive::TestRandom;
 use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingOnDisk, AttesterSlashingRefOnDisk,
     BeaconState, ChainSpec, Epoch, EthSpec, Fork, ForkVersion, ProposerSlashing,
-    SignedBlsToExecutionChange, SignedVoluntaryExit, test_utils::TestRandom,
+    SignedBlsToExecutionChange, SignedVoluntaryExit,
 };
 
 const MAX_FORKS_VERIFIED_AGAINST: usize = 2;
@@ -138,7 +137,7 @@ struct SigVerifiedOpDecode<P: Decode> {
 ///
 /// We need to store multiple `ForkVersion`s because attester slashings contain two indexed
 /// attestations which may be signed using different versions.
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Encode, Decode, TestRandom)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Encode, Decode)]
 #[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
 pub struct VerifiedAgainst {
     fork_versions: SmallVec<[ForkVersion; MAX_FORKS_VERIFIED_AGAINST]>,
@@ -423,20 +422,21 @@ impl TransformPersist for SignedBlsToExecutionChange {
 #[cfg(all(test, not(debug_assertions)))]
 mod test {
     use super::*;
-    use types::{
-        MainnetEthSpec,
-        test_utils::{SeedableRng, TestRandom, XorShiftRng},
-    };
+    use types::MainnetEthSpec;
 
     type E = MainnetEthSpec;
 
-    fn roundtrip_test<T: TestRandom + TransformPersist + PartialEq + std::fmt::Debug>() {
+    fn roundtrip_test<'a, T>()
+    where
+        T: arbitrary::Arbitrary<'a> + TransformPersist + PartialEq + std::fmt::Debug,
+    {
         let runs = 10;
-        let mut rng = XorShiftRng::seed_from_u64(0xff0af5a356af1123);
+        let mut u = types::test_utils::test_unstructured();
 
         for _ in 0..runs {
-            let op = T::random_for_test(&mut rng);
-            let verified_against = VerifiedAgainst::random_for_test(&mut rng);
+            let op = T::arbitrary(&mut u).expect("arbitrary op");
+            let verified_against =
+                VerifiedAgainst::arbitrary(&mut u).expect("arbitrary verified_against");
 
             let verified_op = SigVerifiedOp {
                 op,

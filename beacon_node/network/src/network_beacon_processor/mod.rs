@@ -14,8 +14,8 @@ use beacon_processor::{
 };
 use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::methods::{
-    BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
-    LightClientUpdatesByRangeRequest, PayloadEnvelopesByRangeRequest,
+    BlobsByRangeRequest, BlobsByRootRequest, BlocksByHeadRequest, DataColumnsByRangeRequest,
+    DataColumnsByRootRequest, LightClientUpdatesByRangeRequest, PayloadEnvelopesByRangeRequest,
     PayloadEnvelopesByRootRequest,
 };
 use lighthouse_network::service::api_types::CustodyBackfillBatchId;
@@ -526,15 +526,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        proposer_preferences: Box<SignedProposerPreferences>,
+        proposer_preferences: Arc<SignedProposerPreferences>,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = move || {
-            processor.process_gossip_proposer_preferences(
-                message_id,
-                peer_id,
-                Arc::new(*proposer_preferences),
-            )
+            processor.process_gossip_proposer_preferences(message_id, peer_id, proposer_preferences)
         };
 
         self.try_send(BeaconWorkEvent {
@@ -700,6 +696,26 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::BlocksByRangeRequest(Box::pin(process_fn)),
+        })
+    }
+
+    /// Create a new work event to process `BlocksByHeadRequest`s from the RPC network.
+    pub fn send_blocks_by_head_request(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        inbound_request_id: InboundRequestId,
+        request: BlocksByHeadRequest,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = async move {
+            processor
+                .handle_blocks_by_head_request(peer_id, inbound_request_id, request)
+                .await;
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::BlocksByHeadRequest(Box::pin(process_fn)),
         })
     }
 
