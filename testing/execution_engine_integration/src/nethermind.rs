@@ -8,10 +8,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output};
 use tempfile::TempDir;
 
-/// We've pinned the Nethermind version since our method of using the `master` branch to
-/// find the latest tag isn't working. It appears Nethermind don't always tag on `master`.
-/// We should fix this so we always pull the latest version of Nethermind.
-const NETHERMIND_BRANCH: &str = "release/1.27.0";
 const NETHERMIND_REPO_URL: &str = "https://github.com/NethermindEth/nethermind";
 
 fn build_result(repo_dir: &Path) -> Output {
@@ -34,8 +30,8 @@ pub fn build(execution_clients_dir: &Path) {
         build_utils::clone_repo(execution_clients_dir, NETHERMIND_REPO_URL).unwrap()
     }
 
-    // Get the latest tag
-    let last_release = build_utils::get_latest_release(&repo_dir, NETHERMIND_BRANCH).unwrap();
+    // Get the latest stable release tag
+    let last_release = build_utils::get_latest_stable_release(&repo_dir).unwrap();
     build_utils::checkout(&repo_dir, dbg!(&last_release)).unwrap();
 
     // Build nethermind
