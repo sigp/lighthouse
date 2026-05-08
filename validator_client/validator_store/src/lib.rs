@@ -88,10 +88,15 @@ pub trait ValidatorStore: Send + Sync {
     /// - Else return `None` to indicate no preference between builder and local payloads.
     fn determine_builder_boost_factor(&self, validator_pubkey: &PublicKeyBytes) -> Option<u64>;
 
+    /// Produce a RANDAO reveal for a block proposal at `slot`.
+    ///
+    /// The RANDAO message signs the epoch containing `slot`, but callers pass
+    /// the proposer slot so validator store implementations keep the full duty
+    /// context.
     fn randao_reveal(
         &self,
         validator_pubkey: PublicKeyBytes,
-        signing_epoch: Epoch,
+        slot: Slot,
     ) -> impl Future<Output = Result<Signature, Error<Self::Error>>> + Send;
 
     fn set_validator_index(&self, validator_pubkey: &PublicKeyBytes, index: u64);

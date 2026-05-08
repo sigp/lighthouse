@@ -591,9 +591,9 @@ mod tests {
         .await
         .assert_signatures_match("randao_reveal", |pubkey, validator_store| async move {
             validator_store
-                .randao_reveal(pubkey, Epoch::new(0))
+                .randao_reveal(pubkey, Slot::new(0))
                 .await
-                .unwrap()
+                .expect("randao reveal should sign")
         })
         .await
         .assert_signatures_match("beacon_block_base", |pubkey, validator_store| {

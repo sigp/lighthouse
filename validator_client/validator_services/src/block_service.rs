@@ -409,7 +409,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
 
         let randao_reveal = match self
             .validator_store
-            .randao_reveal(validator_pubkey, slot.epoch(S::E::slots_per_epoch()))
+            .randao_reveal(validator_pubkey, slot)
             .await
         {
             Ok(signature) => signature.into(),
