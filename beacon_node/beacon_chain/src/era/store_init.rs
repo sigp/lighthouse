@@ -33,10 +33,32 @@ pub fn init_genesis_store<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     let block_root = signed_block.canonical_root();
     let state_root = signed_block.message().state_root();
 
-    // Store genesis state and block
+    // Initialize anchor in memory FIRST. `put_state` below calls `hot_storage_strategy` which
+    // reads `anchor_slot`; without this it errors with `AnchorUninitialized`. The kv-op is
+    // included in the batch at the end of this function for crash-consistent persistence.
+    let mut batch = vec![];
+    batch.push(
+        store
+            .init_anchor_info(
+                signed_block.parent_root(),
+                Slot::new(0),
+                Slot::new(0),
+                false,
+            )
+            .map_err(|e| format!("failed to init anchor: {e:?}"))?,
+    );
+
+    // Store genesis state in BOTH hot and cold DB:
+    // - Hot DB (`put_state`): creates the hot state summary so `HotColdDB::load_split` can
+    //   resolve `split.block_root` via summary on subsequent reopens — required for crash-resume.
+    // - Cold DB (`put_cold_state`): provides the slot-0 snapshot that subsequent eras' DiffFrom
+    //   strategy chains against (without it, era 1's `put_cold_state` errors with `MissingSnapshot(Slot(0))`).
+    store
+        .put_state(&state_root, genesis_state)
+        .map_err(|e| format!("failed to store genesis state in hot DB: {e:?}"))?;
     store
         .put_cold_state(&state_root, genesis_state)
-        .map_err(|e| format!("failed to store genesis state: {e:?}"))?;
+        .map_err(|e| format!("failed to store genesis state in cold DB: {e:?}"))?;
     store
         .put_block(&block_root, signed_block.clone())
         .map_err(|e| format!("failed to store genesis block: {e:?}"))?;
@@ -52,18 +74,6 @@ pub fn init_genesis_store<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     // Set split at genesis
     store.set_split(Slot::new(0), state_root, block_root);
 
-    // Initialize anchor
-    let mut batch = vec![];
-    batch.push(
-        store
-            .init_anchor_info(
-                signed_block.parent_root(),
-                Slot::new(0),
-                Slot::new(0),
-                false,
-            )
-            .map_err(|e| format!("failed to init anchor: {e:?}"))?,
-    );
     batch.push(
         store
             .init_blob_info(Slot::new(0))
