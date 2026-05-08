@@ -721,10 +721,9 @@ where
             if let Some(execution_layer) = beacon_chain.execution_layer.as_ref() {
                 // Only send a head update *after* genesis.
                 if let Ok(current_slot) = beacon_chain.slot() {
-                    let params = beacon_chain
-                        .canonical_head
-                        .cached_head()
-                        .forkchoice_update_parameters();
+                    let cached_head = beacon_chain.canonical_head.cached_head();
+                    let head_payload_status = cached_head.head_payload_status();
+                    let params = cached_head.forkchoice_update_parameters();
                     if params
                         .head_hash
                         .is_some_and(|hash| hash != ExecutionBlockHash::zero())
@@ -737,6 +736,7 @@ where
                                     .update_execution_engine_forkchoice(
                                         current_slot,
                                         params,
+                                        head_payload_status,
                                         Default::default(),
                                     )
                                     .await;

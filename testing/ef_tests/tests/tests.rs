@@ -100,6 +100,12 @@ fn operations_execution_payload_bid() {
 }
 
 #[test]
+fn operations_parent_execution_payload() {
+    OperationsHandler::<MinimalEthSpec, ParentExecutionPayloadBlock<_>>::default().run();
+    OperationsHandler::<MainnetEthSpec, ParentExecutionPayloadBlock<_>>::default().run();
+}
+
+#[test]
 fn operations_payload_attestation() {
     OperationsHandler::<MinimalEthSpec, PayloadAttestation<_>>::default().run();
     OperationsHandler::<MainnetEthSpec, PayloadAttestation<_>>::default().run();
@@ -134,6 +140,12 @@ fn operations_consolidations() {
 fn operations_bls_to_execution_change() {
     OperationsHandler::<MinimalEthSpec, SignedBlsToExecutionChange>::default().run();
     OperationsHandler::<MainnetEthSpec, SignedBlsToExecutionChange>::default().run();
+}
+
+#[test]
+fn operations_voluntary_exit_churn() {
+    OperationsHandler::<MinimalEthSpec, VoluntaryExitChurn>::default().run();
+    OperationsHandler::<MainnetEthSpec, VoluntaryExitChurn>::default().run();
 }
 
 #[test]
@@ -279,8 +291,19 @@ mod ssz_static {
     ssz_static_test!(eth1_data, Eth1Data);
     ssz_static_test!(fork, Fork);
     ssz_static_test!(fork_data, ForkData);
-    ssz_static_test!(historical_batch, HistoricalBatch<_>);
-    ssz_static_test!(pending_attestation, PendingAttestation<_>);
+    // `HistoricalBatch` was removed in Capella, so test vectors only exist for Base,
+    // Altair and Bellatrix.
+    #[test]
+    fn historical_batch() {
+        SszStaticHandler::<HistoricalBatch<MinimalEthSpec>, MinimalEthSpec>::pre_capella().run();
+        SszStaticHandler::<HistoricalBatch<MainnetEthSpec>, MainnetEthSpec>::pre_capella().run();
+    }
+    // `PendingAttestation` was removed in Altair, so test vectors only exist for Base.
+    #[test]
+    fn pending_attestation() {
+        SszStaticHandler::<PendingAttestation<MinimalEthSpec>, MinimalEthSpec>::base_only().run();
+        SszStaticHandler::<PendingAttestation<MainnetEthSpec>, MainnetEthSpec>::base_only().run();
+    }
     ssz_static_test!(proposer_slashing, ProposerSlashing);
     ssz_static_test!(
         signed_beacon_block,
@@ -894,6 +917,12 @@ fn epoch_processing_pending_balance_deposits() {
 }
 
 #[test]
+fn epoch_processing_pending_deposits_churn() {
+    EpochProcessingHandler::<MinimalEthSpec, PendingDepositsChurn>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, PendingDepositsChurn>::default().run();
+}
+
+#[test]
 fn epoch_processing_pending_consolidations() {
     EpochProcessingHandler::<MinimalEthSpec, PendingConsolidations>::default().run();
     EpochProcessingHandler::<MainnetEthSpec, PendingConsolidations>::default().run();
@@ -958,6 +987,12 @@ fn epoch_processing_participation_flag_updates() {
 fn epoch_processing_proposer_lookahead() {
     EpochProcessingHandler::<MinimalEthSpec, ProposerLookahead>::default().run();
     EpochProcessingHandler::<MainnetEthSpec, ProposerLookahead>::default().run();
+}
+
+#[test]
+fn epoch_processing_ptc_window() {
+    EpochProcessingHandler::<MinimalEthSpec, PtcWindow>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, PtcWindow>::default().run();
 }
 
 #[test]
@@ -1030,6 +1065,18 @@ fn fork_choice_get_proposer_head() {
 fn fork_choice_deposit_with_reorg() {
     ForkChoiceHandler::<MinimalEthSpec>::new("deposit_with_reorg").run();
     // There is no mainnet variant for this test.
+}
+
+#[test]
+fn fork_choice_on_execution_payload_envelope() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("on_execution_payload_envelope").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("on_execution_payload_envelope").run();
+}
+
+#[test]
+fn fork_choice_get_parent_payload_status() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("get_parent_payload_status").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("get_parent_payload_status").run();
 }
 
 #[test]

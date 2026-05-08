@@ -2,11 +2,11 @@ use crate::sync::network_context::{
     DataColumnsByRootRequestId, DataColumnsByRootSingleBlockRequest,
 };
 use beacon_chain::BeaconChainTypes;
-use beacon_chain::validator_monitor::timestamp_now;
 use fnv::FnvHashMap;
 use lighthouse_network::PeerId;
 use lighthouse_network::service::api_types::{CustodyId, DataColumnsByRootRequester};
 use parking_lot::RwLock;
+use slot_clock::SlotClock;
 use std::collections::HashSet;
 use std::hash::{BuildHasher, RandomState};
 use std::time::{Duration, Instant};
@@ -223,7 +223,10 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                 .collect::<Result<Vec<_>, _>>()?;
 
             let peer_group = PeerGroup::from_set(peers);
-            let max_seen_timestamp = seen_timestamps.into_iter().max().unwrap_or(timestamp_now());
+            let max_seen_timestamp = seen_timestamps
+                .into_iter()
+                .max()
+                .unwrap_or_else(|| cx.chain.slot_clock.now_duration().unwrap_or_default());
             return Ok(Some((columns, peer_group, max_seen_timestamp)));
         }
 

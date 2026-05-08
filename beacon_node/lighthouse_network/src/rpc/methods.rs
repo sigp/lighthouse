@@ -488,6 +488,18 @@ impl From<BlocksByRangeRequest> for OldBlocksByRangeRequest {
     }
 }
 
+/// Request a contiguous range of beacon blocks by walking the parent chain of `beacon_root`.
+///
+/// New in Fulu (see consensus-specs PR 5181). The responder walks the parent chain of
+/// `beacon_root` (inclusive) and emits up to `count` blocks in descending slot order.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct BlocksByHeadRequest {
+    /// The block root to start the parent walk from (inclusive).
+    pub beacon_root: Hash256,
+    /// The maximum number of blocks to return.
+    pub count: u64,
+}
+
 /// Request a number of beacon block bodies from a peer.
 #[superstruct(variants(V1, V2), variant_attributes(derive(Clone, Debug, PartialEq)))]
 #[derive(Clone, Debug, PartialEq)]
@@ -622,6 +634,9 @@ pub enum RpcSuccessResponse<E: EthSpec> {
     /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Arc<SignedBeaconBlock<E>>),
 
+    /// A response to a get BEACON_BLOCKS_BY_HEAD request.
+    BlocksByHead(Arc<SignedBeaconBlock<E>>),
+
     /// A response to a get EXECUTION_PAYLOAD_ENVELOPES_BY_RANGE request. A None response signifies
     /// the end of the batch.
     PayloadEnvelopesByRange(Arc<SignedExecutionPayloadEnvelope<E>>),
@@ -669,6 +684,9 @@ pub enum ResponseTermination {
     /// Blocks by root stream termination.
     BlocksByRoot,
 
+    /// Blocks by head stream termination.
+    BlocksByHead,
+
     /// Execution payload envelopes by range stream termination.
     PayloadEnvelopesByRange,
 
@@ -696,6 +714,7 @@ impl ResponseTermination {
         match self {
             ResponseTermination::BlocksByRange => Protocol::BlocksByRange,
             ResponseTermination::BlocksByRoot => Protocol::BlocksByRoot,
+            ResponseTermination::BlocksByHead => Protocol::BlocksByHead,
             ResponseTermination::PayloadEnvelopesByRange => Protocol::PayloadEnvelopesByRange,
             ResponseTermination::PayloadEnvelopesByRoot => Protocol::PayloadEnvelopesByRoot,
             ResponseTermination::BlobsByRange => Protocol::BlobsByRange,
@@ -793,6 +812,7 @@ impl<E: EthSpec> RpcSuccessResponse<E> {
             RpcSuccessResponse::Status(_) => Protocol::Status,
             RpcSuccessResponse::BlocksByRange(_) => Protocol::BlocksByRange,
             RpcSuccessResponse::BlocksByRoot(_) => Protocol::BlocksByRoot,
+            RpcSuccessResponse::BlocksByHead(_) => Protocol::BlocksByHead,
             RpcSuccessResponse::PayloadEnvelopesByRange(_) => Protocol::PayloadEnvelopesByRange,
             RpcSuccessResponse::PayloadEnvelopesByRoot(_) => Protocol::PayloadEnvelopesByRoot,
             RpcSuccessResponse::BlobsByRange(_) => Protocol::BlobsByRange,
@@ -812,7 +832,9 @@ impl<E: EthSpec> RpcSuccessResponse<E> {
 
     pub fn slot(&self) -> Option<Slot> {
         match self {
-            Self::BlocksByRange(r) | Self::BlocksByRoot(r) => Some(r.slot()),
+            Self::BlocksByRange(r) | Self::BlocksByRoot(r) | Self::BlocksByHead(r) => {
+                Some(r.slot())
+            }
             Self::PayloadEnvelopesByRoot(r) | Self::PayloadEnvelopesByRange(r) => Some(r.slot()),
             Self::BlobsByRange(r) | Self::BlobsByRoot(r) => Some(r.slot()),
             Self::DataColumnsByRange(r) | Self::DataColumnsByRoot(r) => Some(r.slot()),
@@ -863,6 +885,9 @@ impl<E: EthSpec> std::fmt::Display for RpcSuccessResponse<E> {
             }
             RpcSuccessResponse::BlocksByRoot(block) => {
                 write!(f, "BlocksByRoot: Block slot: {}", block.slot())
+            }
+            RpcSuccessResponse::BlocksByHead(block) => {
+                write!(f, "BlocksByHead: Block slot: {}", block.slot())
             }
             RpcSuccessResponse::PayloadEnvelopesByRange(envelope) => {
                 write!(
@@ -971,6 +996,16 @@ impl std::fmt::Display for OldBlocksByRangeRequest {
             self.start_slot(),
             self.count(),
             self.step()
+        )
+    }
+}
+
+impl std::fmt::Display for BlocksByHeadRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "BlocksByHead: beacon_root: {}, count: {}",
+            self.beacon_root, self.count
         )
     }
 }

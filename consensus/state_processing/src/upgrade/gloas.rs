@@ -2,13 +2,17 @@ use crate::per_block_processing::{
     is_valid_deposit_signature, process_operations::apply_deposit_for_builder,
 };
 use milhouse::{List, Vector};
+use safe_arith::SafeArith;
 use ssz_types::BitVector;
+use ssz_types::FixedVector;
 use std::collections::HashSet;
 use std::mem;
+use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
     BeaconState, BeaconStateError as Error, BeaconStateGloas, BuilderPendingPayment, ChainSpec,
-    DepositData, EthSpec, ExecutionPayloadBid, Fork, is_builder_withdrawal_credential,
+    DepositData, EthSpec, ExecutionPayloadBid, ExecutionRequests, Fork,
+    is_builder_withdrawal_credential,
 };
 
 /// Transform a `Fulu` state into a `Gloas` state.
@@ -76,6 +80,7 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         // Execution Bid
         latest_execution_payload_bid: ExecutionPayloadBid {
             block_hash: pre.latest_execution_payload_header.block_hash,
+            execution_requests_root: ExecutionRequests::<E>::default().tree_hash_root(),
             ..Default::default()
         },
         // Capella
@@ -102,13 +107,11 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
             vec![0xFFu8; E::SlotsPerHistoricalRoot::to_usize() / 8].into(),
         )
         .map_err(|_| Error::InvalidBitfield)?,
-        builder_pending_payments: Vector::new(vec![
-            BuilderPendingPayment::default();
-            E::builder_pending_payments_limit()
-        ])?,
+        builder_pending_payments: Vector::from_elem(BuilderPendingPayment::default())?,
         builder_pending_withdrawals: List::default(), // Empty list initially,
         latest_block_hash: pre.latest_execution_payload_header.block_hash,
         payload_expected_withdrawals: List::default(),
+        ptc_window: Vector::from_elem(FixedVector::from_elem(0))?, // placeholder, will be initialized below
         // Caches
         total_active_balance: pre.total_active_balance,
         progressive_balances_cache: mem::take(&mut pre.progressive_balances_cache),
@@ -120,8 +123,43 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
     });
     // [New in Gloas:EIP7732]
     onboard_builders_from_pending_deposits(&mut post, spec)?;
+    initialize_ptc_window(&mut post, spec)?;
 
     Ok(post)
+}
+
+/// Initialize the `ptc_window` field in the beacon state at fork transition.
+///
+/// The window contains:
+/// - One epoch of empty entries (previous epoch)
+/// - Computed PTC for the current epoch through `1 + MIN_SEED_LOOKAHEAD` epochs
+fn initialize_ptc_window<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    let slots_per_epoch = E::slots_per_epoch() as usize;
+
+    let empty_previous_epoch = vec![FixedVector::<u64, E::PTCSize>::from_elem(0); slots_per_epoch];
+    let mut ptcs = empty_previous_epoch;
+
+    // Compute PTC for current epoch + lookahead epochs
+    let current_epoch = state.current_epoch();
+    for e in 0..=spec.min_seed_lookahead.as_u64() {
+        let epoch = current_epoch.safe_add(e)?;
+        let committee_cache = state.initialize_committee_cache_for_lookahead(epoch, spec)?;
+        let start_slot = epoch.start_slot(E::slots_per_epoch());
+        for i in 0..slots_per_epoch {
+            let slot = start_slot.safe_add(i as u64)?;
+            let ptc = state.compute_ptc_with_cache(slot, &committee_cache, spec)?;
+            let ptc_u64: Vec<u64> = ptc.into_iter().map(|v| v as u64).collect();
+            let entry = FixedVector::new(ptc_u64)?;
+            ptcs.push(entry);
+        }
+    }
+
+    *state.ptc_window_mut()? = Vector::new(ptcs)?;
+
+    Ok(())
 }
 
 /// Applies any pending deposit for builders, effectively onboarding builders at the fork.

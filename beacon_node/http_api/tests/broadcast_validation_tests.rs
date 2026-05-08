@@ -909,7 +909,7 @@ pub async fn blinded_gossip_partial_pass() {
         .client
         .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
-    if tester.harness.spec.is_fulu_scheduled() {
+    if tester.harness.spec.is_fulu_scheduled() && !tester.harness.spec.is_gloas_scheduled() {
         let error_response = response.unwrap_err();
         // XXX: this should be a 400 but is a 500 due to the mock-builder being janky
         assert_eq!(
@@ -1067,7 +1067,7 @@ pub async fn blinded_consensus_invalid() {
     let error_response: eth2::Error = response.err().unwrap();
 
     /* mandated by Beacon API spec */
-    if tester.harness.spec.is_fulu_scheduled() {
+    if tester.harness.spec.is_fulu_scheduled() && !tester.harness.spec.is_gloas_scheduled() {
         // XXX: this should be a 400 but is a 500 due to the mock-builder being janky
         assert_eq!(
             error_response.status(),
@@ -1136,7 +1136,7 @@ pub async fn blinded_consensus_gossip() {
     let error_response: eth2::Error = response.err().unwrap();
 
     /* mandated by Beacon API spec */
-    if tester.harness.spec.is_fulu_scheduled() {
+    if tester.harness.spec.is_fulu_scheduled() && !tester.harness.spec.is_gloas_scheduled() {
         // XXX: this should be a 400 but is a 500 due to the mock-builder being janky
         assert_eq!(
             error_response.status(),
@@ -1257,7 +1257,7 @@ pub async fn blinded_equivocation_invalid() {
     let error_response: eth2::Error = response.err().unwrap();
 
     /* mandated by Beacon API spec */
-    if tester.harness.spec.is_fulu_scheduled() {
+    if tester.harness.spec.is_fulu_scheduled() && !tester.harness.spec.is_gloas_scheduled() {
         assert_eq!(
             error_response.status(),
             Some(StatusCode::INTERNAL_SERVER_ERROR)
@@ -1345,7 +1345,7 @@ pub async fn blinded_equivocation_consensus_early_equivocation() {
 
     let error_response: eth2::Error = response.err().unwrap();
 
-    if tester.harness.spec.is_fulu_scheduled() {
+    if tester.harness.spec.is_fulu_scheduled() && !tester.harness.spec.is_gloas_scheduled() {
         assert_eq!(
             error_response.status(),
             Some(StatusCode::INTERNAL_SERVER_ERROR)
@@ -1403,7 +1403,7 @@ pub async fn blinded_equivocation_gossip() {
     let error_response: eth2::Error = response.err().unwrap();
 
     /* mandated by Beacon API spec */
-    if tester.harness.spec.is_fulu_scheduled() {
+    if tester.harness.spec.is_fulu_scheduled() && !tester.harness.spec.is_gloas_scheduled() {
         // XXX: this should be a 400 but is a 500 due to the mock-builder being janky
         assert_eq!(
             error_response.status(),
@@ -1586,7 +1586,8 @@ pub async fn block_seen_on_gossip_without_blobs_or_columns() {
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
     let state = tester.harness.get_current_state();
     let fork_name = state.fork_name(&tester.harness.spec).unwrap();
-    if !fork_name.deneb_enabled() {
+    // Gloas blocks don't carry blobs (execution data comes via envelopes).
+    if !fork_name.deneb_enabled() || fork_name.gloas_enabled() {
         return;
     }
 
@@ -1656,7 +1657,8 @@ pub async fn block_seen_on_gossip_with_some_blobs_or_columns() {
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
     let state = tester.harness.get_current_state();
     let fork_name = state.fork_name(&tester.harness.spec).unwrap();
-    if !fork_name.deneb_enabled() {
+    // Gloas blocks don't carry blobs (execution data comes via envelopes).
+    if !fork_name.deneb_enabled() || fork_name.gloas_enabled() {
         return;
     }
 
@@ -1749,7 +1751,8 @@ pub async fn blobs_or_columns_seen_on_gossip_without_block() {
     let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
     let state = tester.harness.get_current_state();
     let fork_name = state.fork_name(&tester.harness.spec).unwrap();
-    if !fork_name.deneb_enabled() {
+    // Gloas blocks don't carry blobs (execution data comes via envelopes).
+    if !fork_name.deneb_enabled() || fork_name.gloas_enabled() {
         return;
     }
 
@@ -1823,7 +1826,8 @@ async fn blobs_or_columns_seen_on_gossip_without_block_and_no_http_blobs_or_colu
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
     let state = tester.harness.get_current_state();
     let fork_name = state.fork_name(&tester.harness.spec).unwrap();
-    if !fork_name.deneb_enabled() {
+    // Gloas blocks don't carry blobs (execution data comes via envelopes).
+    if !fork_name.deneb_enabled() || fork_name.gloas_enabled() {
         return;
     }
 
@@ -1900,7 +1904,8 @@ async fn slashable_blobs_or_columns_seen_on_gossip_cause_failure() {
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
     let state = tester.harness.get_current_state();
     let fork_name = state.fork_name(&tester.harness.spec).unwrap();
-    if !fork_name.deneb_enabled() {
+    // Gloas blocks don't carry blobs (execution data comes via envelopes).
+    if !fork_name.deneb_enabled() || fork_name.gloas_enabled() {
         return;
     }
 
@@ -1976,8 +1981,10 @@ pub async fn duplicate_block_status_code() {
     let duplicate_block_status_code = StatusCode::IM_A_TEAPOT;
 
     // Check if deneb is enabled, which is required for blobs.
+    // Gloas blocks don't carry blobs (execution data comes via envelopes).
     let spec = test_spec::<E>();
-    if !spec.fork_name_at_slot::<E>(Slot::new(0)).deneb_enabled() {
+    let genesis_fork = spec.fork_name_at_slot::<E>(Slot::new(0));
+    if !genesis_fork.deneb_enabled() || genesis_fork.gloas_enabled() {
         return;
     }
 

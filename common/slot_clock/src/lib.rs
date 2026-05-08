@@ -2,7 +2,7 @@ mod manual_slot_clock;
 mod metrics;
 mod system_time_slot_clock;
 
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub use crate::manual_slot_clock::ManualSlotClock as TestingSlotClock;
 pub use crate::manual_slot_clock::ManualSlotClock;
@@ -109,4 +109,14 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
         slot_clock.set_current_time(freeze_at);
         slot_clock
     }
+}
+
+/// Returns the current system time as a duration since the UNIX epoch.
+///
+/// This is a convenience function for recording timestamps when `SlotClock` is not available.
+/// Prefer `SlotClock::now_duration` if available.
+pub fn timestamp_now() -> Duration {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
 }

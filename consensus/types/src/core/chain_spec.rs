@@ -107,6 +107,8 @@ pub struct ChainSpec {
     pub shard_committee_period: u64,
     pub proposer_reorg_cutoff_bps: u64,
     pub attestation_due_bps: u64,
+    pub attestation_due_bps_gloas: u64,
+    pub payload_attestation_due_bps: u64,
     pub aggregate_due_bps: u64,
     pub sync_message_due_bps: u64,
     pub contribution_due_bps: u64,
@@ -115,6 +117,8 @@ pub struct ChainSpec {
      * Derived time values (computed at startup via `compute_derived_values()`)
      */
     pub unaggregated_attestation_due: Duration,
+    pub unaggregated_attestation_due_gloas: Duration,
+    pub payload_attestation_due: Duration,
     pub aggregate_attestation_due: Duration,
     pub sync_message_due: Duration,
     pub contribution_and_proof_due: Duration,
@@ -148,6 +152,7 @@ pub struct ChainSpec {
     pub proposer_score_boost: Option<u64>,
     pub reorg_head_weight_threshold: Option<u64>,
     pub reorg_parent_weight_threshold: Option<u64>,
+    pub reorg_max_epochs_since_finalization: Option<u64>,
 
     /*
      * Eth1
@@ -246,6 +251,9 @@ pub struct ChainSpec {
     pub builder_payment_threshold_numerator: u64,
     pub builder_payment_threshold_denominator: u64,
     pub min_builder_withdrawability_delay: Epoch,
+    pub churn_limit_quotient_gloas: u64,
+    pub consolidation_churn_limit_quotient: u64,
+    pub max_per_epoch_activation_churn_limit_gloas: u64,
 
     /*
      * Networking
@@ -828,15 +836,17 @@ impl ChainSpec {
 
     /// Returns the min epoch for blob / data column sidecar requests based on the current epoch.
     /// Switch to use the column sidecar config once the `blob_retention_epoch` has passed Fulu fork epoch.
+    /// Never uses the `blob_retention_epoch` for networks that started with Fulu enabled.
     pub fn min_epoch_data_availability_boundary(&self, current_epoch: Epoch) -> Option<Epoch> {
-        let fork_epoch = self.deneb_fork_epoch?;
+        let deneb_fork_epoch = self.deneb_fork_epoch?;
         let blob_retention_epoch =
             current_epoch.saturating_sub(self.min_epochs_for_blob_sidecars_requests);
-        match self.fulu_fork_epoch {
-            Some(fulu_fork_epoch) if blob_retention_epoch > fulu_fork_epoch => Some(
-                current_epoch.saturating_sub(self.min_epochs_for_data_column_sidecars_requests),
-            ),
-            _ => Some(std::cmp::max(fork_epoch, blob_retention_epoch)),
+        if let Some(fulu_fork_epoch) = self.fulu_fork_epoch
+            && blob_retention_epoch >= fulu_fork_epoch
+        {
+            Some(current_epoch.saturating_sub(self.min_epochs_for_data_column_sidecars_requests))
+        } else {
+            Some(std::cmp::max(deneb_fork_epoch, blob_retention_epoch))
         }
     }
 
@@ -873,6 +883,20 @@ impl ChainSpec {
     /// Returns the pre-computed value from `compute_derived_values()`.
     pub fn get_unaggregated_attestation_due(&self) -> Duration {
         self.unaggregated_attestation_due
+    }
+
+    /// Spec: `get_attestation_due_ms`. Returns the epoch-appropriate threshold.
+    pub fn get_attestation_due<E: EthSpec>(&self, slot: Slot) -> Duration {
+        if self.fork_name_at_slot::<E>(slot).gloas_enabled() {
+            self.unaggregated_attestation_due_gloas
+        } else {
+            self.unaggregated_attestation_due
+        }
+    }
+
+    /// Spec: `get_payload_attestation_due_ms`.
+    pub fn get_payload_attestation_due(&self) -> Duration {
+        self.payload_attestation_due
     }
 
     /// Get the duration into a slot in which an aggregated attestation is due.
@@ -947,6 +971,12 @@ impl ChainSpec {
         self.unaggregated_attestation_due = self
             .compute_slot_component_duration(self.attestation_due_bps)
             .expect("invalid chain spec: cannot compute unaggregated_attestation_due");
+        self.unaggregated_attestation_due_gloas = self
+            .compute_slot_component_duration(self.attestation_due_bps_gloas)
+            .expect("invalid chain spec: cannot compute unaggregated_attestation_due_gloas");
+        self.payload_attestation_due = self
+            .compute_slot_component_duration(self.payload_attestation_due_bps)
+            .expect("invalid chain spec: cannot compute payload_attestation_due");
         self.aggregate_attestation_due = self
             .compute_slot_component_duration(self.aggregate_due_bps)
             .expect("invalid chain spec: cannot compute aggregate_attestation_due");
@@ -1077,6 +1107,8 @@ impl ChainSpec {
             shard_committee_period: 256,
             proposer_reorg_cutoff_bps: 1667,
             attestation_due_bps: 3333,
+            attestation_due_bps_gloas: 2500,
+            payload_attestation_due_bps: 7500,
             aggregate_due_bps: 6667,
             sync_message_due_bps: 3333,
             contribution_due_bps: 6667,
@@ -1085,6 +1117,8 @@ impl ChainSpec {
              * Derived time values (set by `compute_derived_values()`)
              */
             unaggregated_attestation_due: Duration::from_millis(3999),
+            unaggregated_attestation_due_gloas: Duration::from_millis(3000),
+            payload_attestation_due: Duration::from_millis(9000),
             aggregate_attestation_due: Duration::from_millis(8000),
             sync_message_due: Duration::from_millis(3999),
             contribution_and_proof_due: Duration::from_millis(8000),
@@ -1119,6 +1153,7 @@ impl ChainSpec {
             proposer_score_boost: Some(40),
             reorg_head_weight_threshold: Some(20),
             reorg_parent_weight_threshold: Some(160),
+            reorg_max_epochs_since_finalization: Some(2),
 
             /*
              * Eth1
@@ -1236,6 +1271,14 @@ impl ChainSpec {
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
             min_builder_withdrawability_delay: Epoch::new(64),
+            churn_limit_quotient_gloas: option_wrapper(|| u64::checked_pow(2, 15))
+                .expect("calculation does not overflow"),
+            consolidation_churn_limit_quotient: option_wrapper(|| u64::checked_pow(2, 16))
+                .expect("calculation does not overflow"),
+            max_per_epoch_activation_churn_limit_gloas: option_wrapper(|| {
+                u64::checked_pow(2, 8)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
             max_request_payloads: 128,
 
             /*
@@ -1382,12 +1425,22 @@ impl ChainSpec {
             gloas_fork_version: [0x07, 0x00, 0x00, 0x01],
             gloas_fork_epoch: None,
             min_builder_withdrawability_delay: Epoch::new(2),
+            churn_limit_quotient_gloas: option_wrapper(|| u64::checked_pow(2, 4))
+                .expect("calculation does not overflow"),
+            consolidation_churn_limit_quotient: option_wrapper(|| u64::checked_pow(2, 5))
+                .expect("calculation does not overflow"),
+            max_per_epoch_activation_churn_limit_gloas: option_wrapper(|| {
+                u64::checked_pow(2, 7)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
 
             /*
              * Derived time values (set by `compute_derived_values()`)
              * Precomputed for 6000ms slot: 3333 bps = 1999ms, 6667 bps = 4000ms
              */
             unaggregated_attestation_due: Duration::from_millis(1999),
+            unaggregated_attestation_due_gloas: Duration::from_millis(1500),
+            payload_attestation_due: Duration::from_millis(4500),
             aggregate_attestation_due: Duration::from_millis(4000),
             sync_message_due: Duration::from_millis(1999),
             contribution_and_proof_due: Duration::from_millis(4000),
@@ -1477,6 +1530,8 @@ impl ChainSpec {
             shard_committee_period: 256,
             proposer_reorg_cutoff_bps: 1667,
             attestation_due_bps: 3333,
+            attestation_due_bps_gloas: 2500,
+            payload_attestation_due_bps: 7500,
             aggregate_due_bps: 6667,
 
             /*
@@ -1484,6 +1539,8 @@ impl ChainSpec {
              * Precomputed for 5000ms slot: 3333 bps = 1666ms, 6667 bps = 3333ms
              */
             unaggregated_attestation_due: Duration::from_millis(1666),
+            unaggregated_attestation_due_gloas: Duration::from_millis(1250),
+            payload_attestation_due: Duration::from_millis(3750),
             aggregate_attestation_due: Duration::from_millis(3333),
             sync_message_due: Duration::from_millis(1666),
             contribution_and_proof_due: Duration::from_millis(3333),
@@ -1518,6 +1575,7 @@ impl ChainSpec {
             proposer_score_boost: Some(40),
             reorg_head_weight_threshold: Some(20),
             reorg_parent_weight_threshold: Some(160),
+            reorg_max_epochs_since_finalization: Some(2),
 
             /*
              * Eth1
@@ -1636,6 +1694,14 @@ impl ChainSpec {
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
             min_builder_withdrawability_delay: Epoch::new(64),
+            churn_limit_quotient_gloas: option_wrapper(|| u64::checked_pow(2, 15))
+                .expect("calculation does not overflow"),
+            consolidation_churn_limit_quotient: option_wrapper(|| u64::checked_pow(2, 16))
+                .expect("calculation does not overflow"),
+            max_per_epoch_activation_churn_limit_gloas: option_wrapper(|| {
+                u64::checked_pow(2, 8)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
             max_request_payloads: 128,
 
             /*
@@ -1750,7 +1816,7 @@ impl<'de> Deserialize<'de> for BlobSchedule {
 impl BlobSchedule {
     pub fn new(mut vec: Vec<BlobParameters>) -> Self {
         // reverse sort by epoch
-        vec.sort_by(|a, b| b.epoch.cmp(&a.epoch));
+        vec.sort_by_key(|b| std::cmp::Reverse(b.epoch));
         Self {
             schedule: vec,
             skip_serializing: false,
@@ -1947,6 +2013,13 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     proposer_score_boost: Option<MaybeQuoted<u64>>,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reorg_head_weight_threshold: Option<MaybeQuoted<u64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reorg_parent_weight_threshold: Option<MaybeQuoted<u64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reorg_max_epochs_since_finalization: Option<MaybeQuoted<u64>>,
+
     #[serde(with = "serde_utils::quoted_u64")]
     deposit_chain_id: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -2060,6 +2133,12 @@ pub struct Config {
     #[serde(default = "default_attestation_due_bps")]
     #[serde(with = "serde_utils::quoted_u64")]
     attestation_due_bps: u64,
+    #[serde(default = "default_attestation_due_bps_gloas")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    attestation_due_bps_gloas: u64,
+    #[serde(default = "default_payload_attestation_due_bps")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    payload_attestation_due_bps: u64,
     #[serde(default = "default_aggregate_due_bps")]
     #[serde(with = "serde_utils::quoted_u64")]
     aggregate_due_bps: u64,
@@ -2073,6 +2152,16 @@ pub struct Config {
     #[serde(default = "default_min_builder_withdrawability_delay")]
     #[serde(with = "serde_utils::quoted_u64")]
     min_builder_withdrawability_delay: u64,
+
+    #[serde(default = "default_churn_limit_quotient_gloas")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    churn_limit_quotient_gloas: u64,
+    #[serde(default = "default_consolidation_churn_limit_quotient")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    consolidation_churn_limit_quotient: u64,
+    #[serde(default = "default_max_per_epoch_activation_churn_limit_gloas")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_per_epoch_activation_churn_limit_gloas: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -2286,6 +2375,14 @@ const fn default_attestation_due_bps() -> u64 {
     3333
 }
 
+const fn default_attestation_due_bps_gloas() -> u64 {
+    2500
+}
+
+const fn default_payload_attestation_due_bps() -> u64 {
+    7500
+}
+
 const fn default_aggregate_due_bps() -> u64 {
     6667
 }
@@ -2300,6 +2397,18 @@ const fn default_contribution_due_bps() -> u64 {
 
 const fn default_min_builder_withdrawability_delay() -> u64 {
     64
+}
+
+const fn default_churn_limit_quotient_gloas() -> u64 {
+    32_768
+}
+
+const fn default_consolidation_churn_limit_quotient() -> u64 {
+    65_536
+}
+
+const fn default_max_per_epoch_activation_churn_limit_gloas() -> u64 {
+    256_000_000_000
 }
 
 fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
@@ -2495,6 +2604,15 @@ impl Config {
             max_per_epoch_activation_churn_limit: spec.max_per_epoch_activation_churn_limit,
 
             proposer_score_boost: spec.proposer_score_boost.map(|value| MaybeQuoted { value }),
+            reorg_head_weight_threshold: spec
+                .reorg_head_weight_threshold
+                .map(|value| MaybeQuoted { value }),
+            reorg_parent_weight_threshold: spec
+                .reorg_parent_weight_threshold
+                .map(|value| MaybeQuoted { value }),
+            reorg_max_epochs_since_finalization: spec
+                .reorg_max_epochs_since_finalization
+                .map(|value| MaybeQuoted { value }),
 
             deposit_chain_id: spec.deposit_chain_id,
             deposit_network_id: spec.deposit_network_id,
@@ -2537,11 +2655,18 @@ impl Config {
 
             proposer_reorg_cutoff_bps: spec.proposer_reorg_cutoff_bps,
             attestation_due_bps: spec.attestation_due_bps,
+            attestation_due_bps_gloas: spec.attestation_due_bps_gloas,
+            payload_attestation_due_bps: spec.payload_attestation_due_bps,
             aggregate_due_bps: spec.aggregate_due_bps,
             sync_message_due_bps: spec.sync_message_due_bps,
             contribution_due_bps: spec.contribution_due_bps,
 
             min_builder_withdrawability_delay: spec.min_builder_withdrawability_delay.as_u64(),
+
+            churn_limit_quotient_gloas: spec.churn_limit_quotient_gloas,
+            consolidation_churn_limit_quotient: spec.consolidation_churn_limit_quotient,
+            max_per_epoch_activation_churn_limit_gloas: spec
+                .max_per_epoch_activation_churn_limit_gloas,
         }
     }
 
@@ -2595,6 +2720,9 @@ impl Config {
             max_per_epoch_activation_churn_limit,
             churn_limit_quotient,
             proposer_score_boost,
+            reorg_head_weight_threshold,
+            reorg_parent_weight_threshold,
+            reorg_max_epochs_since_finalization,
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,
@@ -2630,10 +2758,15 @@ impl Config {
             min_epochs_for_data_column_sidecars_requests,
             proposer_reorg_cutoff_bps,
             attestation_due_bps,
+            attestation_due_bps_gloas,
+            payload_attestation_due_bps,
             aggregate_due_bps,
             sync_message_due_bps,
             contribution_due_bps,
             min_builder_withdrawability_delay,
+            churn_limit_quotient_gloas,
+            consolidation_churn_limit_quotient,
+            max_per_epoch_activation_churn_limit_gloas,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -2689,6 +2822,10 @@ impl Config {
             max_per_epoch_activation_churn_limit,
             churn_limit_quotient,
             proposer_score_boost: proposer_score_boost.map(|q| q.value),
+            reorg_head_weight_threshold: reorg_head_weight_threshold.map(|q| q.value),
+            reorg_parent_weight_threshold: reorg_parent_weight_threshold.map(|q| q.value),
+            reorg_max_epochs_since_finalization: reorg_max_epochs_since_finalization
+                .map(|q| q.value),
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,
@@ -2729,11 +2866,17 @@ impl Config {
 
             proposer_reorg_cutoff_bps,
             attestation_due_bps,
+            attestation_due_bps_gloas,
+            payload_attestation_due_bps,
             aggregate_due_bps,
             sync_message_due_bps,
             contribution_due_bps,
 
             min_builder_withdrawability_delay: Epoch::new(min_builder_withdrawability_delay),
+
+            churn_limit_quotient_gloas,
+            consolidation_churn_limit_quotient,
+            max_per_epoch_activation_churn_limit_gloas,
 
             ..chain_spec.clone()
         };
@@ -3398,22 +3541,57 @@ mod yaml_tests {
             spec.min_epoch_data_availability_boundary(fulu_fork_epoch)
         );
 
-        // `min_epochs_for_data_sidecar_requests` at fulu fork epoch + min_epochs_for_blob_sidecars_request
-        let blob_retention_epoch_after_fulu = fulu_fork_epoch + blob_retention_epochs;
-        let expected_blob_retention_epoch = blob_retention_epoch_after_fulu - blob_retention_epochs;
+        // Now, the blob retention period starts still before the fulu fork epoch, so the boundary
+        // should respect the blob retention period.
+        let half_blob_retention_epoch_after_fulu = fulu_fork_epoch + (blob_retention_epochs / 2);
+        let expected_blob_retention_epoch =
+            half_blob_retention_epoch_after_fulu - blob_retention_epochs;
         assert_eq!(
             Some(expected_blob_retention_epoch),
-            spec.min_epoch_data_availability_boundary(blob_retention_epoch_after_fulu)
+            spec.min_epoch_data_availability_boundary(half_blob_retention_epoch_after_fulu)
         );
 
-        // After the final blob retention epoch, `min_epochs_for_data_sidecar_requests` should be calculated
-        // using `min_epochs_for_data_column_sidecars_request`
-        let current_epoch = blob_retention_epoch_after_fulu + 1;
+        // If the retention period starts with the fulu fork epoch, there are no more blobs to
+        // retain, and the return value will be based on the data column retention period.
+        let current_epoch = fulu_fork_epoch + blob_retention_epochs;
         let expected_data_column_retention_epoch = current_epoch - data_column_retention_epochs;
         assert_eq!(
             Some(expected_data_column_retention_epoch),
             spec.min_epoch_data_availability_boundary(current_epoch)
         );
+    }
+
+    #[test]
+    fn min_epochs_for_data_sidecar_requests_fulu_genesis() {
+        type E = MainnetEthSpec;
+        let spec = {
+            // fulu active at genesis
+            let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+            // set a different value for testing purpose, 4096 / 2 = 2048
+            spec.min_epochs_for_data_column_sidecars_requests =
+                spec.min_epochs_for_blob_sidecars_requests / 2;
+            Arc::new(spec)
+        };
+        let blob_retention_epochs = spec.min_epochs_for_blob_sidecars_requests;
+        let data_column_retention_epochs = spec.min_epochs_for_data_column_sidecars_requests;
+
+        // If Fulu is activated at genesis, the column retention period should always be used.
+        let assert_correct_boundary = |epoch| {
+            let epoch = Epoch::new(epoch);
+            assert_eq!(
+                Some(epoch.saturating_sub(data_column_retention_epochs)),
+                spec.min_epoch_data_availability_boundary(epoch)
+            )
+        };
+
+        assert_correct_boundary(0);
+        assert_correct_boundary(1);
+        assert_correct_boundary(blob_retention_epochs - 1);
+        assert_correct_boundary(blob_retention_epochs);
+        assert_correct_boundary(blob_retention_epochs + 1);
+        assert_correct_boundary(data_column_retention_epochs - 1);
+        assert_correct_boundary(data_column_retention_epochs);
+        assert_correct_boundary(data_column_retention_epochs + 1);
     }
 
     #[test]
@@ -3597,20 +3775,12 @@ mod yaml_tests {
         "EIP7928_FORK_VERSION",
         "EIP7928_FORK_EPOCH",
         // Gloas params not yet in Config
-        "ATTESTATION_DUE_BPS_GLOAS",
         "AGGREGATE_DUE_BPS_GLOAS",
         "SYNC_MESSAGE_DUE_BPS_GLOAS",
         "CONTRIBUTION_DUE_BPS_GLOAS",
-        "PAYLOAD_ATTESTATION_DUE_BPS",
         "MAX_REQUEST_PAYLOADS",
-        // Gloas fork choice params not yet in Config
-        "REORG_HEAD_WEIGHT_THRESHOLD",
-        "REORG_PARENT_WEIGHT_THRESHOLD",
-        "REORG_MAX_EPOCHS_SINCE_FINALIZATION",
         // Heze networking
-        "VIEW_FREEZE_CUTOFF_BPS",
-        "INCLUSION_LIST_SUBMISSION_DUE_BPS",
-        "PROPOSER_INCLUSION_LIST_CUTOFF_BPS",
+        "INCLUSION_LIST_DUE_BPS",
         "MAX_REQUEST_INCLUSION_LIST",
         "MAX_BYTES_PER_INCLUSION_LIST",
     ];

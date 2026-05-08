@@ -11,7 +11,7 @@ use types::{
     sync_committee::SyncSubnetId,
 };
 
-use crate::Subnet;
+use crate::{NetworkConfig, Subnet};
 
 /// The gossipsub topic names.
 // These constants form a topic name of the form /TOPIC_PREFIX/TOPIC/ENCODING_POSTFIX
@@ -198,6 +198,15 @@ pub enum GossipKind {
     LightClientFinalityUpdate,
     /// Topic for publishing optimistic updates for light clients.
     LightClientOptimisticUpdate,
+}
+
+impl GossipKind {
+    pub fn use_partial_messages(&self, config: &NetworkConfig) -> bool {
+        match self {
+            GossipKind::DataColumnSidecar(_) => config.enable_partial_columns,
+            _ => false,
+        }
+    }
 }
 
 impl std::fmt::Display for GossipKind {
