@@ -215,11 +215,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         &mut self,
         network: &mut SyncNetworkContext<T>,
     ) -> Result<SyncStart, BackFillError> {
-        // Skip backfill sync for GLOaS — not yet implemented for this fork.
-        if self.beacon_chain.spec.gloas_fork_epoch.is_some_and(|e| e != Epoch::max_value()) {
-            return Ok(SyncStart::NotSyncing);
-        }
-
         match self.state() {
             BackFillState::Syncing => {} // already syncing ignore.
             BackFillState::Paused => {
