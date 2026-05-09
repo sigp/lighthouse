@@ -29,13 +29,13 @@ use types::{
     Address, Attestation, AttestationElectra, AttesterSlashing, AttesterSlashingElectra,
     BeaconBlock, BeaconBlockBodyGloas, BeaconBlockBodyHeze, BeaconBlockGloas, BeaconBlockHeze,
     BeaconState, BeaconStateError, BuilderIndex, ChainSpec, Deposit, Eth1Data, EthSpec,
-    ExecutionBlockHash, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze,
-    ExecutionPayloadEnvelope, ExecutionPayloadEnvelopeGloas, ExecutionPayloadGloas,
+    ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze,
+    ExecutionPayloadEnvelope, ExecutionPayloadEnvelopeGloas, ExecutionPayloadEnvelopeHeze,
     ExecutionRequests, FullPayload, Graffiti, Hash256, PayloadAttestation, ProposerSlashing,
     RelativeEpoch, SignedBeaconBlock, SignedBlsToExecutionChange, SignedExecutionPayloadBid,
     SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope,
-    SignedExecutionPayloadEnvelopeGloas, SignedVoluntaryExit, Slot, SyncAggregate, Withdrawal,
-    Withdrawals,
+    SignedExecutionPayloadEnvelopeGloas, SignedExecutionPayloadEnvelopeHeze, SignedVoluntaryExit,
+    Slot, SyncAggregate, Withdrawal, Withdrawals,
 };
 
 use crate::pending_payload_envelopes::PendingEnvelopeData;
@@ -73,8 +73,8 @@ pub struct PartialBeaconBlock<E: EthSpec> {
 
 /// Data needed to construct an ExecutionPayloadEnvelope.
 /// The envelope requires the beacon_block_root which can only be computed after the block exists.
-pub struct ExecutionPayloadData<E: types::EthSpec> {
-    pub payload: ExecutionPayloadGloas<E>,
+pub struct ExecutionPayloadData<E: EthSpec> {
+    pub payload: ExecutionPayload<E>,
     pub execution_requests: ExecutionRequests<E>,
     pub builder_index: BuilderIndex,
     pub slot: Slot,
@@ -720,19 +720,45 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(payload_data) = payload_data {
             let beacon_block_root = block.tree_hash_root();
             let parent_beacon_block_root = block.parent_root();
-            let execution_payload_envelope = ExecutionPayloadEnvelopeGloas {
-                payload: payload_data.payload,
-                execution_requests: payload_data.execution_requests,
-                builder_index: payload_data.builder_index,
-                beacon_block_root,
-                parent_beacon_block_root,
+
+            let envelope = match payload_data.payload {
+                ExecutionPayload::Gloas(payload) => {
+                    ExecutionPayloadEnvelope::Gloas(ExecutionPayloadEnvelopeGloas {
+                        payload,
+                        execution_requests: payload_data.execution_requests,
+                        builder_index: payload_data.builder_index,
+                        beacon_block_root,
+                        parent_beacon_block_root,
+                    })
+                }
+                ExecutionPayload::Heze(payload) => {
+                    ExecutionPayloadEnvelope::Heze(ExecutionPayloadEnvelopeHeze {
+                        payload,
+                        execution_requests: payload_data.execution_requests,
+                        builder_index: payload_data.builder_index,
+                        beacon_block_root,
+                        parent_beacon_block_root,
+                    })
+                }
+                _ => {
+                    return Err(BlockProductionError::InvalidPayloadFork);
+                }
             };
 
-            let signed_envelope =
-                SignedExecutionPayloadEnvelope::Gloas(SignedExecutionPayloadEnvelopeGloas {
-                    message: execution_payload_envelope.clone(),
-                    signature: Signature::empty(),
-                });
+            let signed_envelope = match &envelope {
+                ExecutionPayloadEnvelope::Gloas(msg) => {
+                    SignedExecutionPayloadEnvelope::Gloas(SignedExecutionPayloadEnvelopeGloas {
+                        message: msg.clone(),
+                        signature: Signature::empty(),
+                    })
+                }
+                ExecutionPayloadEnvelope::Heze(msg) => {
+                    SignedExecutionPayloadEnvelope::Heze(SignedExecutionPayloadEnvelopeHeze {
+                        message: msg.clone(),
+                        signature: Signature::empty(),
+                    })
+                }
+            };
 
             // Verify the envelope against the state. This performs no state mutation.
             verify_execution_payload_envelope(
@@ -752,7 +778,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.pending_payload_envelopes.write().insert(
                 envelope_slot,
                 PendingEnvelopeData {
-                    envelope: ExecutionPayloadEnvelope::Gloas(execution_payload_envelope),
+                    envelope,
                     blobs: Some(blobs),
                 },
             );
@@ -895,7 +921,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Store payload data for envelope construction after block is created
         let payload_data = ExecutionPayloadData {
-            payload,
+            payload: ExecutionPayload::Gloas(payload),
             execution_requests,
             builder_index,
             slot: produce_at_slot,
@@ -1233,7 +1259,10 @@ fn filter_voluntary_exits_for_parent_execution_requests<E: EthSpec>(
 mod tests {
     use super::*;
     use ssz_types::VariableList;
-    use types::{ConsolidationRequest, Epoch, MainnetEthSpec, VoluntaryExit, WithdrawalRequest};
+    use types::{
+        ConsolidationRequest, Epoch, ExecutionPayloadGloas, MainnetEthSpec, VoluntaryExit,
+        WithdrawalRequest,
+    };
 
     type TestSpec = MainnetEthSpec;
 
@@ -1401,7 +1430,7 @@ mod tests {
     fn local_build(payload_gwei: u64, should_override_builder: bool) -> LocalBuildResult<TestSpec> {
         LocalBuildResult {
             payload_data: ExecutionPayloadData {
-                payload: types::ExecutionPayloadGloas::default(),
+                payload: ExecutionPayload::Gloas(ExecutionPayloadGloas::default()),
                 execution_requests: ExecutionRequests::default(),
                 builder_index: BUILDER_INDEX_SELF_BUILD,
                 slot: Slot::new(0),
