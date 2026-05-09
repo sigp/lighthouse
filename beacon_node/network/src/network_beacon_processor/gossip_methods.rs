@@ -3956,7 +3956,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     async fn process_gossip_verified_execution_payload_envelope(
         self: Arc<Self>,
-        peer_id: PeerId,
+        _peer_id: PeerId,
         verified_envelope: GossipVerifiedEnvelope<T>,
     ) {
         let _processing_start_time = Instant::now();
@@ -3977,44 +3977,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // TODO(gloas) metrics
         // register_process_result_metrics(&result, metrics::BlockSource::Gossip, "envelope");
 
-        match &result {
-            Ok(AvailabilityProcessingStatus::Imported(_))
-            | Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
-                // Nothing to do
-            }
-            Err(e) => match e {
-                EnvelopeError::ExecutionPayloadError(epe) if !epe.penalize_peer() => {}
-                EnvelopeError::BadSignature
-                | EnvelopeError::BuilderIndexMismatch { .. }
-                | EnvelopeError::SlotMismatch { .. }
-                | EnvelopeError::BlockHashMismatch { .. }
-                | EnvelopeError::UnknownValidator { .. }
-                | EnvelopeError::IncorrectBlockProposer { .. }
-                | EnvelopeError::ExecutionPayloadError(_) => {
-                    self.gossip_penalize_peer(
-                        peer_id,
-                        PeerAction::LowToleranceError,
-                        "gossip_envelope_processing_low",
-                    );
-                }
-
-                EnvelopeError::EnvelopeProcessingError(_)
-                | EnvelopeError::BlockError(_)
-                | EnvelopeError::BlockRootUnknown { .. } => {
-                    self.gossip_penalize_peer(
-                        peer_id,
-                        PeerAction::LowToleranceError,
-                        "gossip_envelope_processing_error",
-                    );
-                }
-
-                EnvelopeError::PriorToFinalization { .. }
-                | EnvelopeError::OptimisticSyncNotSupported { .. }
-                | EnvelopeError::BeaconChainError(_)
-                | EnvelopeError::BeaconStateError(_)
-                | EnvelopeError::BlockProcessingError(_)
-                | EnvelopeError::InternalError(_) => {}
-            },
+        if let Err(e) = &result {
+            warn!(
+                ?beacon_block_root,
+                error = ?e,
+                "Execution payload envelope rejected"
+            );
         }
     }
 
