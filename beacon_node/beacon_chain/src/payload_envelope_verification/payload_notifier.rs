@@ -1,15 +1,14 @@
 use std::sync::Arc;
 
-use execution_layer::{NewPayloadRequest, NewPayloadRequestGloas};
+use execution_layer::{NewPayloadRequest, NewPayloadRequestGloas, NewPayloadRequestHeze};
 use fork_choice::PayloadVerificationStatus;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
-use tracing::{info, warn};
-use types::{BeaconBlockRef, SignedBeaconBlock, SignedExecutionPayloadEnvelope};
+use tracing::warn;
+use types::{SignedBeaconBlock, SignedExecutionPayloadEnvelope};
 
 use crate::{
     BeaconChain, BeaconChainTypes, BlockError, NotifyExecutionLayer,
-    execution_payload::notify_new_payload_with_request,
-    payload_envelope_verification::EnvelopeError,
+    execution_payload::notify_new_payload, payload_envelope_verification::EnvelopeError,
 };
 
 /// Used to await the result of executing payload with a remote EE.
@@ -28,15 +27,13 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, EnvelopeError> {
         let payload_verification_status = {
-            let payload_message = &envelope.message;
-
             match notify_execution_layer {
                 NotifyExecutionLayer::No if chain.config.optimistic_finalized_sync => {
                     let new_payload_request = Self::build_new_payload_request(&envelope, &block)?;
                     // TODO(gloas): check and test RLP block hash calculation post-Gloas
                     if let Err(e) = new_payload_request.perform_optimistic_sync_verifications() {
                         warn!(
-                            block_number = ?payload_message.payload.block_number,
+                            block_number = ?envelope.message().payload().block_number(),
                             info = "you can silence this warning with --disable-optimistic-finalized-sync",
                             error = ?e,
                             "Falling back to slow block hash verification"
@@ -64,8 +61,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         } else {
             let parent_root = self.block.message().parent_root();
             let request = Self::build_new_payload_request(&self.envelope, &self.block)?;
-            notify_new_payload_with_request(&self.chain, self.envelope.slot(), parent_root, request)
-                .await
+            notify_new_payload(&self.chain, self.envelope.slot(), parent_root, request).await
         }
     }
 
@@ -86,25 +82,24 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
             .map(kzg_commitment_to_versioned_hash)
             .collect();
 
-        // Heze and Gloas share identical payload wire formats; only the engine API
-        // method version differs (V6 for Heze, V5 for Gloas). Set is_heze_fork so
-        // the dispatch in http.rs calls engine_newPayloadV6 for Heze blocks.
-        let block_fork = block.message().fork_name_unchecked();
-        let is_heze_fork = matches!(block.message(), BeaconBlockRef::Heze(_));
-        info!(
-            ?block_fork,
-            is_heze_fork,
-            slot = ?envelope.message.slot(),
-            "[FOCIL DEBUG] build_new_payload_request fork check"
-        );
-
-        Ok(NewPayloadRequest::Gloas(NewPayloadRequestGloas {
-            execution_payload: &envelope.message.payload,
-            versioned_hashes,
-            parent_beacon_block_root: envelope.message.parent_beacon_block_root,
-            execution_requests: &envelope.message.execution_requests,
-            il_transactions: Default::default(),
-            is_heze_fork,
-        }))
+        match envelope {
+            SignedExecutionPayloadEnvelope::Heze(inner) => {
+                Ok(NewPayloadRequest::Heze(NewPayloadRequestHeze {
+                    execution_payload: &inner.message.payload,
+                    versioned_hashes,
+                    parent_beacon_block_root: inner.message.parent_beacon_block_root,
+                    execution_requests: &inner.message.execution_requests,
+                    il_transactions: Default::default(),
+                }))
+            }
+            SignedExecutionPayloadEnvelope::Gloas(inner) => {
+                Ok(NewPayloadRequest::Gloas(NewPayloadRequestGloas {
+                    execution_payload: &inner.message.payload,
+                    versioned_hashes,
+                    parent_beacon_block_root: inner.message.parent_beacon_block_root,
+                    execution_requests: &inner.message.execution_requests,
+                }))
+            }
+        }
     }
 }

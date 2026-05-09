@@ -1246,9 +1246,23 @@ where
                     );
                     let message = envelope.signing_root(domain);
                     let signature = self.validator_keypairs[proposer_index].sk.sign(message);
-                    SignedExecutionPayloadEnvelope {
-                        message: envelope,
-                        signature,
+                    match envelope {
+                        ExecutionPayloadEnvelope::Gloas(msg) => {
+                            SignedExecutionPayloadEnvelope::Gloas(
+                                SignedExecutionPayloadEnvelopeGloas {
+                                    message: msg,
+                                    signature,
+                                },
+                            )
+                        }
+                        ExecutionPayloadEnvelope::Heze(msg) => {
+                            SignedExecutionPayloadEnvelope::Heze(
+                                SignedExecutionPayloadEnvelopeHeze {
+                                    message: msg,
+                                    signature,
+                                },
+                            )
+                        }
                     }
                 });
 
@@ -2894,13 +2908,14 @@ where
             .map(kzg_commitment_to_versioned_hash)
             .collect();
 
+        let envelope_message = signed_envelope.message();
         let request = NewPayloadRequest::Gloas(NewPayloadRequestGloas {
-            execution_payload: &signed_envelope.message.payload,
+            execution_payload: envelope_message
+                .payload_gloas()
+                .expect("should be Gloas envelope"),
             versioned_hashes,
             parent_beacon_block_root: block.message().parent_root(),
-            execution_requests: &signed_envelope.message.execution_requests,
-            il_transactions: Default::default(),
-            is_heze_fork: false,
+            execution_requests: envelope_message.execution_requests(),
         });
 
         self.chain

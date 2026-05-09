@@ -4069,6 +4069,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         match chain.verify_envelope_for_gossip(raw_envelope).await {
                             Ok(re_verified) => {
                                 let re_block_root = re_verified.signed_envelope.beacon_block_root();
+                                #[allow(clippy::result_large_err)]
                                 let result = chain
                                     .process_execution_payload_envelope(
                                         re_block_root,
@@ -4094,11 +4095,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                         // On repeated transient failure, the envelope will be
                                         // retried again via the reprocess queue (up to max
                                         // retries), handled by the RetryEnvelope message handler.
-                                        if let EnvelopeError::ExecutionPayloadError(epe) = e {
-                                            if !epe.penalize_peer() {
-                                                // Could retry again, but we let the
-                                                // reprocess queue handle max retry logic.
-                                            }
+                                        if let EnvelopeError::ExecutionPayloadError(epe) = e
+                                            && !epe.penalize_peer()
+                                        {
+                                            // Could retry again, but we let the
+                                            // reprocess queue handle max retry logic.
                                         }
                                     }
                                 }

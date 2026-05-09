@@ -29,10 +29,8 @@ macro_rules! map_execution_payload_into_full_payload {
                 let f: fn(ExecutionPayloadFulu<_>, fn(_) -> _) -> _ = $f;
                 f(inner, FullPayload::Fulu)
             }
-            ExecutionPayload::Gloas(_) => panic!("FullPayload::Gloas does not exist!"),
-            ExecutionPayload::Heze(inner) => {
-                let f: fn(ExecutionPayloadHeze<_>, fn(_) -> _) -> _ = $f;
-                f(inner, FullPayload::Heze)
+            ExecutionPayload::Gloas(_) | ExecutionPayload::Heze(_) => {
+                panic!("FullPayload::Gloas does not exist!")
             }
         }
     };
@@ -62,10 +60,8 @@ macro_rules! map_execution_payload_into_blinded_payload {
                 let f: fn(ExecutionPayloadFulu<_>, fn(_) -> _) -> _ = $f;
                 f(inner, BlindedPayload::Fulu)
             }
-            ExecutionPayload::Gloas(_) => panic!("BlindedPayload::Gloas does not exist!"),
-            ExecutionPayload::Heze(inner) => {
-                let f: fn(ExecutionPayloadHeze<_>, fn(_) -> _) -> _ = $f;
-                f(inner, BlindedPayload::Heze)
+            ExecutionPayload::Gloas(_) | ExecutionPayload::Heze(_) => {
+                panic!("BlindedPayload::Gloas does not exist!")
             }
         }
     };
@@ -110,14 +106,7 @@ macro_rules! map_execution_payload_ref_into_execution_payload_header {
                 ) -> _ = $f;
                 f(inner, ExecutionPayloadHeader::Fulu)
             }
-            ExecutionPayloadRef::Gloas(_) => panic!("ExecutionPayloadHeader::Gloas does not exist!"),
-            ExecutionPayloadRef::Heze(inner) => {
-                let f: fn(
-                    &$lifetime ExecutionPayloadHeze<_>,
-                    fn(_) -> _,
-                ) -> _ = $f;
-                f(inner, ExecutionPayloadHeader::Heze)
-            }
+            ExecutionPayloadRef::Gloas(_) | ExecutionPayloadRef::Heze(_) => panic!("ExecutionPayloadHeader::Gloas does not exist!"),
         }
     }
 }

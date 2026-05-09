@@ -120,13 +120,6 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
                 blobs_and_proofs: None,
                 requests: Some(builder_bid.execution_requests),
             },
-            BuilderBid::Heze(builder_bid) => BlockProposalContents::PayloadAndBlobs {
-                payload: ExecutionPayloadHeader::Heze(builder_bid.header).into(),
-                block_value: builder_bid.value,
-                kzg_commitments: builder_bid.blob_kzg_commitments,
-                blobs_and_proofs: None,
-                requests: Some(builder_bid.execution_requests),
-            },
             BuilderBid::Fulu(builder_bid) => BlockProposalContents::PayloadAndBlobs {
                 payload: ExecutionPayloadHeader::Fulu(builder_bid.header).into(),
                 block_value: builder_bid.value,
@@ -1558,22 +1551,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
         // TODO(focil) write block hash to some store in the case where theres an IL valdation error on newPayloadv5
 
         process_payload_status(block_hash, result)
-            .map_err(Box::new)
-            .map_err(Error::EngineError)
-    }
-
-    pub async fn is_inclusion_list_satisfied(
-        &self,
-        payload_block_hash: ExecutionBlockHash,
-        inclusion_list_transactions: Vec<Vec<u8>>,
-    ) -> Result<bool, Error> {
-        self.engine()
-            .request(|engine| {
-                engine
-                    .api
-                    .is_inclusion_list_satisfied(payload_block_hash, inclusion_list_transactions)
-            })
-            .await
             .map_err(Box::new)
             .map_err(Error::EngineError)
     }

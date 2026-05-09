@@ -26,7 +26,7 @@ use store::Error as DBError;
 use tracing::instrument;
 use types::{
     BeaconState, BeaconStateError, ChainSpec, DataColumnSidecarList, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadEnvelope, Slot,
+    ExecutionPayloadEnvelopeRef, Hash256, SignedExecutionPayloadEnvelope, Slot,
 };
 
 use crate::{
@@ -76,8 +76,8 @@ impl<E: EthSpec> AvailableEnvelope<E> {
         }
     }
 
-    pub fn message(&self) -> &ExecutionPayloadEnvelope<E> {
-        &self.envelope.message
+    pub fn message(&self) -> ExecutionPayloadEnvelopeRef<'_, E> {
+        self.envelope.message()
     }
 
     #[allow(clippy::type_complexity)]

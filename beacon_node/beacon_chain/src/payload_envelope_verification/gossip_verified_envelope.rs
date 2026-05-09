@@ -6,7 +6,7 @@ use parking_lot::{Mutex, RwLock};
 use store::DatabaseBlock;
 use tracing::debug;
 use types::{
-    ChainSpec, EthSpec, ExecutionPayloadBidRef, ExecutionPayloadEnvelope, Hash256,
+    ChainSpec, EthSpec, ExecutionPayloadBidRef, ExecutionPayloadEnvelopeRef, Hash256,
     SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
     consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
@@ -36,7 +36,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
 /// Verify that an execution payload envelope is consistent with its beacon block
 /// and execution bid.
 pub(crate) fn verify_envelope_consistency<E: EthSpec>(
-    envelope: &ExecutionPayloadEnvelope<E>,
+    envelope: ExecutionPayloadEnvelopeRef<E>,
     block: &SignedBeaconBlock<E>,
     execution_bid: ExecutionPayloadBidRef<'_, E>,
     latest_finalized_slot: Slot,
@@ -59,18 +59,18 @@ pub(crate) fn verify_envelope_consistency<E: EthSpec>(
     }
 
     // Builder index matches committed bid.
-    if envelope.builder_index != execution_bid.builder_index() {
+    if envelope.builder_index() != execution_bid.builder_index() {
         return Err(EnvelopeError::BuilderIndexMismatch {
             committed_bid: execution_bid.builder_index(),
-            envelope: envelope.builder_index,
+            envelope: envelope.builder_index(),
         });
     }
 
     // The block hash should match the block hash of the execution bid.
-    if envelope.payload.block_hash != execution_bid.block_hash() {
+    if envelope.payload().block_hash() != execution_bid.block_hash() {
         return Err(EnvelopeError::BlockHashMismatch {
             committed_bid: execution_bid.block_hash(),
-            envelope: envelope.payload.block_hash,
+            envelope: envelope.payload().block_hash(),
         });
     }
 
@@ -92,8 +92,8 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         signed_envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
         ctx: &GossipVerificationContext<'_, T>,
     ) -> Result<Self, EnvelopeError> {
-        let envelope = &signed_envelope.message;
-        let beacon_block_root = envelope.beacon_block_root;
+        let envelope = signed_envelope.message();
+        let beacon_block_root = envelope.beacon_block_root();
 
         // Check that we've seen the beacon block for this envelope and that it passes validation.
         // TODO(EIP-7732): We might need some type of status table in order to differentiate between:
@@ -144,7 +144,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         // For self-built envelopes, we can use the proposer cache for the fork and the
         // validator pubkey cache for the proposer's pubkey, avoiding a state load from disk.
         // For external builder envelopes, we must load the state to access the builder registry.
-        let builder_index = envelope.builder_index;
+        let builder_index = envelope.builder_index();
         let block_slot = envelope.slot();
         let envelope_epoch = block_slot.epoch(T::EthSpec::slots_per_epoch());
         // Since the payload's block is already guaranteed to be imported, the associated `proto_block.current_epoch_shuffling_id`
@@ -223,7 +223,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
                 SseExecutionPayloadGossip {
                     slot: block.slot(),
                     builder_index,
-                    block_hash: signed_envelope.message.payload.block_hash,
+                    block_hash: signed_envelope.message().payload().block_hash(),
                     block_root: beacon_block_root,
                 },
             ));
@@ -275,7 +275,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .spawn_blocking_handle(
                 move || {
                     let slot = envelope.slot();
-                    let beacon_block_root = envelope.message.beacon_block_root;
+                    let beacon_block_root = envelope.message().beacon_block_root();
 
                     let ctx = chain.payload_envelope_gossip_verification_context();
                     match GossipVerifiedEnvelope::new(envelope, &ctx) {
@@ -317,8 +317,8 @@ mod tests {
     use types::{
         BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, Eth1Data, ExecutionBlockHash,
         ExecutionPayloadBidGloas, ExecutionPayloadBidRef, ExecutionPayloadEnvelope,
-        ExecutionPayloadGloas, ExecutionRequests, Graffiti, Hash256, MinimalEthSpec,
-        SignedBeaconBlock, SignedExecutionPayloadBidGloas, Slot, SyncAggregate,
+        ExecutionPayloadEnvelopeGloas, ExecutionPayloadGloas, ExecutionRequests, Graffiti, Hash256,
+        MinimalEthSpec, SignedBeaconBlock, SignedExecutionPayloadBidGloas, Slot, SyncAggregate,
     };
 
     use super::verify_envelope_consistency;
@@ -331,7 +331,7 @@ mod tests {
         builder_index: u64,
         block_hash: ExecutionBlockHash,
     ) -> ExecutionPayloadEnvelope<E> {
-        ExecutionPayloadEnvelope {
+        ExecutionPayloadEnvelope::Gloas(ExecutionPayloadEnvelopeGloas {
             payload: ExecutionPayloadGloas {
                 block_hash,
                 slot_number: slot,
@@ -341,7 +341,7 @@ mod tests {
             builder_index,
             beacon_block_root: Hash256::ZERO,
             parent_beacon_block_root: Hash256::ZERO,
-        }
+        })
     }
 
     fn make_block(slot: Slot) -> SignedBeaconBlock<E> {
@@ -394,7 +394,7 @@ mod tests {
 
         assert!(
             verify_envelope_consistency::<E>(
-                &envelope,
+                envelope.to_ref(),
                 &block,
                 ExecutionPayloadBidRef::Gloas(&bid),
                 Slot::new(0)
@@ -415,7 +415,7 @@ mod tests {
         let latest_finalized_slot = Slot::new(10);
 
         let result = verify_envelope_consistency::<E>(
-            &envelope,
+            envelope.to_ref(),
             &block,
             ExecutionPayloadBidRef::Gloas(&bid),
             latest_finalized_slot,
@@ -436,7 +436,7 @@ mod tests {
         let bid = make_bid(builder_index, block_hash);
 
         let result = verify_envelope_consistency::<E>(
-            &envelope,
+            envelope.to_ref(),
             &block,
             ExecutionPayloadBidRef::Gloas(&bid),
             Slot::new(0),
@@ -454,7 +454,7 @@ mod tests {
         let bid = make_bid(2, block_hash);
 
         let result = verify_envelope_consistency::<E>(
-            &envelope,
+            envelope.to_ref(),
             &block,
             ExecutionPayloadBidRef::Gloas(&bid),
             Slot::new(0),
@@ -475,7 +475,7 @@ mod tests {
         let bid = make_bid(builder_index, ExecutionBlockHash::repeat_byte(0xff));
 
         let result = verify_envelope_consistency::<E>(
-            &envelope,
+            envelope.to_ref(),
             &block,
             ExecutionPayloadBidRef::Gloas(&bid),
             Slot::new(0),

@@ -8,8 +8,8 @@ use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, BlobSidecar,
-    DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkName, Hash256,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, PartialDataColumn,
+    DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkName, ForkVersionDecode,
+    Hash256, LightClientFinalityUpdate, LightClientOptimisticUpdate, PartialDataColumn,
     PartialDataColumnSidecar, PayloadAttestationMessage, ProposerSlashing, SignedAggregateAndProof,
     SignedAggregateAndProofBase, SignedAggregateAndProofElectra, SignedBeaconBlock,
     SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
@@ -372,9 +372,19 @@ impl<E: EthSpec> PubsubMessage<E> {
                         )))
                     }
                     GossipKind::ExecutionPayload => {
+                        let fork_name = fork_context
+                            .get_fork_from_context_bytes(gossip_topic.fork_digest)
+                            .ok_or_else(|| {
+                                format!(
+                                    "Unknown gossipsub fork digest: {:?}",
+                                    gossip_topic.fork_digest
+                                )
+                            })?;
                         let execution_payload_envelope =
-                            SignedExecutionPayloadEnvelope::from_ssz_bytes(data)
-                                .map_err(|e| format!("{:?}", e))?;
+                            SignedExecutionPayloadEnvelope::from_ssz_bytes_by_fork(
+                                data, *fork_name,
+                            )
+                            .map_err(|e| format!("{:?}", e))?;
                         Ok(PubsubMessage::ExecutionPayload(Box::new(
                             execution_payload_envelope,
                         )))

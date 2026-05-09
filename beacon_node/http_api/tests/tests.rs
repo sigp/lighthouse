@@ -48,9 +48,10 @@ use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::ApplicationDomain;
 use types::{
-    Domain, EthSpec, ExecutionBlockHash, Hash256, MainnetEthSpec, RelativeEpoch, SelectionProof,
-    SignedExecutionPayloadEnvelope, SignedRoot, SingleAttestation, Slot,
-    attestation::AttestationBase, consts::gloas::BUILDER_INDEX_SELF_BUILD,
+    Domain, EthSpec, ExecutionBlockHash, ExecutionPayloadEnvelope, Hash256, MainnetEthSpec,
+    RelativeEpoch, SelectionProof, SignedExecutionPayloadEnvelope,
+    SignedExecutionPayloadEnvelopeGloas, SignedExecutionPayloadEnvelopeHeze, SignedRoot,
+    SingleAttestation, Slot, attestation::AttestationBase, consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
 type E = MainnetEthSpec;
@@ -4153,7 +4154,7 @@ impl ApiTester {
             .get(slot)
             .cloned()
             .expect("envelope should exist in pending cache for local building");
-        assert_eq!(envelope.beacon_block_root, block_root);
+        assert_eq!(envelope.beacon_block_root(), block_root);
         assert_eq!(envelope.slot(), slot);
     }
 
@@ -4164,9 +4165,9 @@ impl ApiTester {
         block_root: Hash256,
         slot: Slot,
     ) {
-        assert_eq!(envelope.beacon_block_root, block_root);
+        assert_eq!(envelope.beacon_block_root(), block_root);
         assert_eq!(envelope.slot(), slot);
-        assert_eq!(envelope.builder_index, BUILDER_INDEX_SELF_BUILD);
+        assert_eq!(envelope.builder_index(), BUILDER_INDEX_SELF_BUILD);
     }
 
     /// Sign an execution payload envelope.
@@ -4185,9 +4186,19 @@ impl ApiTester {
         let signing_root = envelope.signing_root(domain);
         let signature = sk.sign(signing_root);
 
-        SignedExecutionPayloadEnvelope {
-            message: envelope,
-            signature,
+        match envelope {
+            ExecutionPayloadEnvelope::Gloas(message) => {
+                SignedExecutionPayloadEnvelope::Gloas(SignedExecutionPayloadEnvelopeGloas {
+                    message,
+                    signature,
+                })
+            }
+            ExecutionPayloadEnvelope::Heze(message) => {
+                SignedExecutionPayloadEnvelope::Heze(SignedExecutionPayloadEnvelopeHeze {
+                    message,
+                    signature,
+                })
+            }
         }
     }
 
@@ -4287,7 +4298,11 @@ impl ApiTester {
 
             let envelope = self
                 .client
-                .get_validator_execution_payload_envelope_ssz::<E>(slot, BUILDER_INDEX_SELF_BUILD)
+                .get_validator_execution_payload_envelope_ssz::<E>(
+                    slot,
+                    BUILDER_INDEX_SELF_BUILD,
+                    self.chain.spec.fork_name_at_slot::<E>(slot),
+                )
                 .await
                 .unwrap();
 

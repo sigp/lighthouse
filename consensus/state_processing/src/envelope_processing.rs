@@ -113,8 +113,8 @@ pub fn verify_execution_payload_envelope<E: EthSpec>(
         return Err(EnvelopeProcessingError::BadSignature);
     }
 
-    let envelope = &signed_envelope.message;
-    let payload = &envelope.payload;
+    let envelope = &signed_envelope.message();
+    let payload = &envelope.payload();
 
     // Verify consistency with the beacon block.
     // Use a copy of the header with state_root filled in, matching the spec's approach.
@@ -126,16 +126,16 @@ pub fn verify_execution_payload_envelope<E: EthSpec>(
     }
     let latest_block_header_root = header.tree_hash_root();
     envelope_verify!(
-        envelope.beacon_block_root == latest_block_header_root,
+        envelope.beacon_block_root() == latest_block_header_root,
         EnvelopeProcessingError::LatestBlockHeaderMismatch {
-            envelope_root: envelope.beacon_block_root,
+            envelope_root: envelope.beacon_block_root(),
             block_header_root: latest_block_header_root,
         }
     );
     envelope_verify!(
-        envelope.parent_beacon_block_root == state.latest_block_header().parent_root,
+        envelope.parent_beacon_block_root() == state.latest_block_header().parent_root,
         EnvelopeProcessingError::ParentBeaconBlockRootMismatch {
-            envelope: envelope.parent_beacon_block_root,
+            envelope: envelope.parent_beacon_block_root(),
             state: state.latest_block_header().parent_root,
         }
     );
@@ -150,17 +150,17 @@ pub fn verify_execution_payload_envelope<E: EthSpec>(
     // Verify consistency with the committed bid
     let committed_bid = state.latest_execution_payload_bid()?;
     envelope_verify!(
-        envelope.builder_index == committed_bid.builder_index(),
+        envelope.builder_index() == committed_bid.builder_index(),
         EnvelopeProcessingError::BuilderIndexMismatch {
             committed_bid: committed_bid.builder_index(),
-            envelope: envelope.builder_index,
+            envelope: envelope.builder_index(),
         }
     );
     envelope_verify!(
-        committed_bid.prev_randao() == payload.prev_randao,
+        committed_bid.prev_randao() == payload.prev_randao(),
         EnvelopeProcessingError::PrevRandaoMismatch {
             committed_bid: committed_bid.prev_randao(),
-            envelope: payload.prev_randao,
+            envelope: payload.prev_randao(),
         }
     );
 
@@ -170,56 +170,56 @@ pub fn verify_execution_payload_envelope<E: EthSpec>(
     // changed to match (currently we are comparing VariableList to List). This could happen
     // coincidentally when we adopt ProgressiveList.
     envelope_verify!(
-        payload.withdrawals.len() == state.payload_expected_withdrawals()?.len()
+        payload.withdrawals()?.len() == state.payload_expected_withdrawals()?.len()
             && payload
-                .withdrawals
+                .withdrawals()?
                 .iter()
                 .eq(state.payload_expected_withdrawals()?.iter()),
         EnvelopeProcessingError::WithdrawalsRootMismatch {
             state: state.payload_expected_withdrawals()?.tree_hash_root(),
-            payload: payload.withdrawals.tree_hash_root(),
+            payload: payload.withdrawals()?.tree_hash_root(),
         }
     );
 
     // Verify the gas limit
     envelope_verify!(
-        committed_bid.gas_limit() == payload.gas_limit,
+        committed_bid.gas_limit() == payload.gas_limit(),
         EnvelopeProcessingError::GasLimitMismatch {
             committed_bid: committed_bid.gas_limit(),
-            envelope: payload.gas_limit,
+            envelope: payload.gas_limit(),
         }
     );
 
     // Verify the block hash
     envelope_verify!(
-        committed_bid.block_hash() == payload.block_hash,
+        committed_bid.block_hash() == payload.block_hash(),
         EnvelopeProcessingError::BlockHashMismatch {
             committed_bid: committed_bid.block_hash(),
-            envelope: payload.block_hash,
+            envelope: payload.block_hash(),
         }
     );
 
     // Verify consistency of the parent hash with respect to the previous execution payload
     envelope_verify!(
-        payload.parent_hash == *state.latest_block_hash()?,
+        payload.parent_hash() == *state.latest_block_hash()?,
         EnvelopeProcessingError::ParentHashMismatch {
             state: *state.latest_block_hash()?,
-            envelope: payload.parent_hash,
+            envelope: payload.parent_hash(),
         }
     );
 
     // Verify timestamp
     let state_timestamp = compute_timestamp_at_slot(state, state.slot(), spec)?;
     envelope_verify!(
-        payload.timestamp == state_timestamp,
+        payload.timestamp() == state_timestamp,
         EnvelopeProcessingError::TimestampMismatch {
             state: state_timestamp,
-            envelope: payload.timestamp,
+            envelope: payload.timestamp(),
         }
     );
 
     // Verify execution requests root matches committed bid
-    let execution_requests_root = envelope.execution_requests.tree_hash_root();
+    let execution_requests_root = envelope.execution_requests().tree_hash_root();
     envelope_verify!(
         execution_requests_root == committed_bid.execution_requests_root(),
         EnvelopeProcessingError::ExecutionRequestsRootMismatch {

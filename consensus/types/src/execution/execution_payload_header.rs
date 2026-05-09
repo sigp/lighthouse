@@ -14,8 +14,7 @@ use crate::{
     core::{Address, EthSpec, ExecutionBlockHash, Hash256, Uint256},
     execution::{
         ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-        ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadHeze, ExecutionPayloadRef,
-        Transactions,
+        ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadRef, Transactions,
     },
     fork::ForkName,
     map_execution_payload_ref_into_execution_payload_header,
@@ -24,7 +23,7 @@ use crate::{
 };
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Heze, Fulu),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu),
     variant_attributes(
         derive(
             Default,
@@ -106,12 +105,12 @@ pub struct ExecutionPayloadHeader<E: EthSpec> {
     pub block_hash: ExecutionBlockHash,
     #[superstruct(getter(copy))]
     pub transactions_root: Hash256,
-    #[superstruct(only(Capella, Deneb, Electra, Heze, Fulu), partial_getter(copy))]
+    #[superstruct(only(Capella, Deneb, Electra, Fulu), partial_getter(copy))]
     pub withdrawals_root: Hash256,
-    #[superstruct(only(Deneb, Electra, Heze, Fulu), partial_getter(copy))]
+    #[superstruct(only(Deneb, Electra, Fulu), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub blob_gas_used: u64,
-    #[superstruct(only(Deneb, Electra, Heze, Fulu), partial_getter(copy))]
+    #[superstruct(only(Deneb, Electra, Fulu), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub excess_blob_gas: u64,
 }
@@ -166,7 +165,6 @@ impl<E: EthSpec> ExecutionPayloadHeader<E> {
             ExecutionPayloadHeader::Capella(_) => ForkName::Capella,
             ExecutionPayloadHeader::Deneb(_) => ForkName::Deneb,
             ExecutionPayloadHeader::Electra(_) => ForkName::Electra,
-            ExecutionPayloadHeader::Heze(_) => ForkName::Heze,
             ExecutionPayloadHeader::Fulu(_) => ForkName::Fulu,
         }
     }
@@ -230,30 +228,6 @@ impl<E: EthSpec> ExecutionPayloadHeaderCapella<E> {
 impl<E: EthSpec> ExecutionPayloadHeaderDeneb<E> {
     pub fn upgrade_to_electra(&self) -> ExecutionPayloadHeaderElectra<E> {
         ExecutionPayloadHeaderElectra {
-            parent_hash: self.parent_hash,
-            fee_recipient: self.fee_recipient,
-            state_root: self.state_root,
-            receipts_root: self.receipts_root,
-            logs_bloom: self.logs_bloom.clone(),
-            prev_randao: self.prev_randao,
-            block_number: self.block_number,
-            gas_limit: self.gas_limit,
-            gas_used: self.gas_used,
-            timestamp: self.timestamp,
-            extra_data: self.extra_data.clone(),
-            base_fee_per_gas: self.base_fee_per_gas,
-            block_hash: self.block_hash,
-            transactions_root: self.transactions_root,
-            withdrawals_root: self.withdrawals_root,
-            blob_gas_used: self.blob_gas_used,
-            excess_blob_gas: self.excess_blob_gas,
-        }
-    }
-}
-
-impl<E: EthSpec> ExecutionPayloadHeaderFulu<E> {
-    pub fn upgrade_to_heze(&self) -> ExecutionPayloadHeaderHeze<E> {
-        ExecutionPayloadHeaderHeze {
             parent_hash: self.parent_hash,
             fee_recipient: self.fee_recipient,
             state_root: self.state_root,
@@ -390,30 +364,6 @@ impl<'a, E: EthSpec> From<&'a ExecutionPayloadElectra<E>> for ExecutionPayloadHe
     }
 }
 
-impl<'a, E: EthSpec> From<&'a ExecutionPayloadHeze<E>> for ExecutionPayloadHeaderHeze<E> {
-    fn from(payload: &'a ExecutionPayloadHeze<E>) -> Self {
-        Self {
-            parent_hash: payload.parent_hash,
-            fee_recipient: payload.fee_recipient,
-            state_root: payload.state_root,
-            receipts_root: payload.receipts_root,
-            logs_bloom: payload.logs_bloom.clone(),
-            prev_randao: payload.prev_randao,
-            block_number: payload.block_number,
-            gas_limit: payload.gas_limit,
-            gas_used: payload.gas_used,
-            timestamp: payload.timestamp,
-            extra_data: payload.extra_data.clone(),
-            base_fee_per_gas: payload.base_fee_per_gas,
-            block_hash: payload.block_hash,
-            transactions_root: payload.transactions.tree_hash_root(),
-            withdrawals_root: payload.withdrawals.tree_hash_root(),
-            blob_gas_used: payload.blob_gas_used,
-            excess_blob_gas: payload.excess_blob_gas,
-        }
-    }
-}
-
 impl<'a, E: EthSpec> From<&'a ExecutionPayloadFulu<E>> for ExecutionPayloadHeaderFulu<E> {
     fn from(payload: &'a ExecutionPayloadFulu<E>) -> Self {
         Self {
@@ -459,12 +409,6 @@ impl<'a, E: EthSpec> From<&'a Self> for ExecutionPayloadHeaderDeneb<E> {
 }
 
 impl<'a, E: EthSpec> From<&'a Self> for ExecutionPayloadHeaderElectra<E> {
-    fn from(payload: &'a Self) -> Self {
-        payload.clone()
-    }
-}
-
-impl<'a, E: EthSpec> From<&'a Self> for ExecutionPayloadHeaderHeze<E> {
     fn from(payload: &'a Self) -> Self {
         payload.clone()
     }
@@ -534,9 +478,6 @@ impl<E: EthSpec> ExecutionPayloadHeaderRefMut<'_, E> {
             ExecutionPayloadHeaderRefMut::Electra(mut_ref) => {
                 *mut_ref = header.try_into()?;
             }
-            ExecutionPayloadHeaderRefMut::Heze(mut_ref) => {
-                *mut_ref = header.try_into()?;
-            }
             ExecutionPayloadHeaderRefMut::Fulu(mut_ref) => {
                 *mut_ref = header.try_into()?;
             }
@@ -552,16 +493,6 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderEl
             ExecutionPayloadHeader::Electra(execution_payload_header) => {
                 Ok(execution_payload_header)
             }
-            _ => Err(BeaconStateError::IncorrectStateVariant),
-        }
-    }
-}
-
-impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderHeze<E> {
-    type Error = BeaconStateError;
-    fn try_from(header: ExecutionPayloadHeader<E>) -> Result<Self, Self::Error> {
-        match header {
-            ExecutionPayloadHeader::Heze(execution_payload_header) => Ok(execution_payload_header),
             _ => Err(BeaconStateError::IncorrectStateVariant),
         }
     }

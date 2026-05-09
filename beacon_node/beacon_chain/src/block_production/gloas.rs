@@ -30,11 +30,12 @@ use types::{
     BeaconBlock, BeaconBlockBodyGloas, BeaconBlockBodyHeze, BeaconBlockGloas, BeaconBlockHeze,
     BeaconState, BeaconStateError, BuilderIndex, ChainSpec, Deposit, Eth1Data, EthSpec,
     ExecutionBlockHash, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze,
-    ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, FullPayload, Graffiti,
-    Hash256, PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
-    SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas,
-    SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope, SignedVoluntaryExit, Slot,
-    SyncAggregate, Withdrawal, Withdrawals,
+    ExecutionPayloadEnvelope, ExecutionPayloadEnvelopeGloas, ExecutionPayloadGloas,
+    ExecutionRequests, FullPayload, Graffiti, Hash256, PayloadAttestation, ProposerSlashing,
+    RelativeEpoch, SignedBeaconBlock, SignedBlsToExecutionChange, SignedExecutionPayloadBid,
+    SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope,
+    SignedExecutionPayloadEnvelopeGloas, SignedVoluntaryExit, Slot, SyncAggregate, Withdrawal,
+    Withdrawals,
 };
 
 use crate::pending_payload_envelopes::PendingEnvelopeData;
@@ -156,7 +157,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let parent_execution_requests = if parent_payload_status == PayloadStatus::Full {
             parent_envelope
                 .as_ref()
-                .map(|env| env.message.execution_requests.clone())
+                .map(|env| env.message().execution_requests().clone())
                 .ok_or(BlockProductionError::MissingParentExecutionPayload)?
         } else {
             ExecutionRequests::default()
@@ -719,7 +720,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(payload_data) = payload_data {
             let beacon_block_root = block.tree_hash_root();
             let parent_beacon_block_root = block.parent_root();
-            let execution_payload_envelope = ExecutionPayloadEnvelope {
+            let execution_payload_envelope = ExecutionPayloadEnvelopeGloas {
                 payload: payload_data.payload,
                 execution_requests: payload_data.execution_requests,
                 builder_index: payload_data.builder_index,
@@ -727,10 +728,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 parent_beacon_block_root,
             };
 
-            let signed_envelope = SignedExecutionPayloadEnvelope {
-                message: execution_payload_envelope,
-                signature: Signature::empty(),
-            };
+            let signed_envelope =
+                SignedExecutionPayloadEnvelope::Gloas(SignedExecutionPayloadEnvelopeGloas {
+                    message: execution_payload_envelope.clone(),
+                    signature: Signature::empty(),
+                });
 
             // Verify the envelope against the state. This performs no state mutation.
             verify_execution_payload_envelope(
@@ -750,7 +752,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.pending_payload_envelopes.write().insert(
                 envelope_slot,
                 PendingEnvelopeData {
-                    envelope: signed_envelope.message,
+                    envelope: ExecutionPayloadEnvelope::Gloas(execution_payload_envelope),
                     blobs: Some(blobs),
                 },
             );
@@ -1050,7 +1052,7 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
             let mut withdrawals_state = state.clone();
             apply_parent_execution_payload(
                 &mut withdrawals_state,
-                &envelope.message.execution_requests,
+                envelope.message().execution_requests(),
                 spec,
             )?;
             Withdrawals::<T::EthSpec>::from(get_expected_withdrawals(&withdrawals_state, spec)?)

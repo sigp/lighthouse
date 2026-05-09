@@ -2596,7 +2596,6 @@ mod test {
             ExecutionPayload::Electra(ExecutionPayloadElectra::<MainnetEthSpec>::random_for_test(
                 rng,
             )),
-            ExecutionPayload::Heze(ExecutionPayloadHeze::<MainnetEthSpec>::random_for_test(rng)),
             ExecutionPayload::Fulu(ExecutionPayloadFulu::<MainnetEthSpec>::random_for_test(rng)),
             ExecutionPayload::Gloas(ExecutionPayloadGloas::<MainnetEthSpec>::random_for_test(
                 rng,

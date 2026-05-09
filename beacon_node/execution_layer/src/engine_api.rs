@@ -6,8 +6,8 @@ use crate::http::{
     ENGINE_GET_INCLUSION_LIST_V1, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
     ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6,
-    ENGINE_IS_INCLUSION_LIST_SATISFIED_V1, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2,
-    ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V5, ENGINE_NEW_PAYLOAD_V6,
+    ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4,
+    ENGINE_NEW_PAYLOAD_V5, ENGINE_NEW_PAYLOAD_V6,
 };
 use eth2::types::{
     BlobsBundle, SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2,
@@ -589,37 +589,6 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                     ))
                 }
             }
-            ExecutionPayloadHeader::Heze(header) => {
-                if let Some(withdrawals) = self.withdrawals {
-                    Ok(ExecutionPayload::Heze(ExecutionPayloadHeze {
-                        parent_hash: header.parent_hash,
-                        fee_recipient: header.fee_recipient,
-                        state_root: header.state_root,
-                        receipts_root: header.receipts_root,
-                        logs_bloom: header.logs_bloom,
-                        prev_randao: header.prev_randao,
-                        block_number: header.block_number,
-                        gas_limit: header.gas_limit,
-                        gas_used: header.gas_used,
-                        timestamp: header.timestamp,
-                        extra_data: header.extra_data,
-                        base_fee_per_gas: header.base_fee_per_gas,
-                        block_hash: header.block_hash,
-                        transactions: self.transactions,
-                        withdrawals,
-                        blob_gas_used: header.blob_gas_used,
-                        excess_blob_gas: header.excess_blob_gas,
-                        // TODO(heze): block_access_list and slot_number are not available in ExecutionPayloadBodyV1
-                        block_access_list: Default::default(),
-                        slot_number: Default::default(),
-                    }))
-                } else {
-                    Err(format!(
-                        "block {} is post capella but payload body doesn't have withdrawals",
-                        header.block_hash
-                    ))
-                }
-            }
             ExecutionPayloadHeader::Fulu(header) => {
                 if let Some(withdrawals) = self.withdrawals {
                     Ok(ExecutionPayload::Fulu(ExecutionPayloadFulu {
@@ -678,7 +647,6 @@ pub struct EngineCapabilities {
     pub get_inclusion_list_v1: bool,
     pub get_blobs_v3: bool,
     pub forkchoice_updated_v5: bool,
-    pub is_inclusion_list_satisfied_v1: bool,
 }
 
 impl EngineCapabilities {
@@ -755,9 +723,6 @@ impl EngineCapabilities {
         }
         if self.forkchoice_updated_v5 {
             response.push(ENGINE_FORKCHOICE_UPDATED_V5);
-        }
-        if self.is_inclusion_list_satisfied_v1 {
-            response.push(ENGINE_IS_INCLUSION_LIST_SATISFIED_V1);
         }
 
         response

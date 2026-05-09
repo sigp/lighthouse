@@ -13,12 +13,12 @@ use eth2::types as api_types;
 use eth2::{CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use ssz::{Decode, Encode};
+use ssz::Encode;
 use std::future::Future;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, info, warn};
-use types::{BlockImportSource, EthSpec, SignedExecutionPayloadEnvelope};
+use types::{self, BlockImportSource, EthSpec, ForkVersionDecode, SignedExecutionPayloadEnvelope};
 use warp::{
     Filter, Rejection, Reply,
     hyper::{Body, Response},
@@ -30,6 +30,7 @@ pub(crate) fn post_beacon_execution_payload_envelope_ssz<T: BeaconChainTypes>(
     task_spawner_filter: TaskSpawnerFilter<T>,
     chain_filter: ChainFilter<T>,
     network_tx_filter: NetworkTxFilter<T>,
+    consensus_version_header_filter: warp::filters::BoxedFilter<(types::ForkName,)>,
 ) -> ResponseFilter {
     eth_v1
         .and(warp::path("beacon"))
@@ -40,18 +41,23 @@ pub(crate) fn post_beacon_execution_payload_envelope_ssz<T: BeaconChainTypes>(
             SSZ_CONTENT_TYPE_HEADER,
         ))
         .and(warp::body::bytes())
+        .and(consensus_version_header_filter)
         .and(task_spawner_filter)
         .and(chain_filter)
         .and(network_tx_filter)
         .then(
             |body_bytes: Bytes,
+             consensus_version: types::ForkName,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let envelope =
-                        SignedExecutionPayloadEnvelope::<T::EthSpec>::from_ssz_bytes(&body_bytes)
-                            .map_err(|e| {
+                        SignedExecutionPayloadEnvelope::<T::EthSpec>::from_ssz_bytes_by_fork(
+                            &body_bytes,
+                            consensus_version,
+                        )
+                        .map_err(|e| {
                             warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
                         })?;
                     publish_execution_payload_envelope(envelope, chain, &network_tx).await
@@ -97,7 +103,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
 ) -> Result<Response<Body>, Rejection> {
     let slot = envelope.slot();
-    let beacon_block_root = envelope.message.beacon_block_root;
+    let beacon_block_root = envelope.message().beacon_block_root();
 
     if !chain.spec.is_gloas_scheduled() {
         return Err(warp_utils::reject::custom_bad_request(
@@ -108,7 +114,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     info!(
         %slot,
         %beacon_block_root,
-        builder_index = envelope.message.builder_index,
+        builder_index = envelope.message().builder_index(),
         "Publishing signed execution payload envelope to network"
     );
 

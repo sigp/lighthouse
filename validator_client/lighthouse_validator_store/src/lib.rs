@@ -23,10 +23,12 @@ use types::{
     ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, ExecutionPayloadEnvelope, Fork,
     FullPayload, Graffiti, Hash256, InclusionList, PayloadAttestationData,
     PayloadAttestationMessage, SelectionProof, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedInclusionList, SignedRoot,
-    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncAggregatorSelectionData,
-    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
-    ValidatorRegistrationData, VoluntaryExit, graffiti::GraffitiString,
+    SignedContributionAndProof, SignedExecutionPayloadEnvelope,
+    SignedExecutionPayloadEnvelopeGloas, SignedExecutionPayloadEnvelopeHeze, SignedInclusionList,
+    SignedRoot, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
+    SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
+    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData, VoluntaryExit,
+    graffiti::GraffitiString,
 };
 use validator_store::{
     AggregateToSign, AttestationToSign, ContributionToSign, DoppelgangerStatus,
@@ -1504,9 +1506,19 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
             .await
             .map_err(Error::SpecificError)?;
 
-        Ok(SignedExecutionPayloadEnvelope {
-            message: envelope,
-            signature,
+        Ok(match envelope {
+            ExecutionPayloadEnvelope::Gloas(message) => {
+                SignedExecutionPayloadEnvelope::Gloas(SignedExecutionPayloadEnvelopeGloas {
+                    message,
+                    signature,
+                })
+            }
+            ExecutionPayloadEnvelope::Heze(message) => {
+                SignedExecutionPayloadEnvelope::Heze(SignedExecutionPayloadEnvelopeHeze {
+                    message,
+                    signature,
+                })
+            }
         })
     }
 }

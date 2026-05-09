@@ -496,8 +496,10 @@ impl<E: EthSpec> Operation<E> for SignedExecutionPayloadEnvelope<E> {
         false
     }
 
-    fn decode(path: &Path, _: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
-        ssz_decode_file(path)
+    fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file_with(path, |bytes| {
+            SignedExecutionPayloadEnvelope::from_ssz_bytes_by_fork(bytes, fork_name)
+        })
     }
 
     fn apply_to(
