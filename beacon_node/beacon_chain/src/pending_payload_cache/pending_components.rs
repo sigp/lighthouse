@@ -57,7 +57,7 @@ impl<E: EthSpec> PendingComponents<E> {
             .collect()
     }
 
-    /// Returns the indices of cached custody columns
+    /// Returns the indices of cached sampling columns
     pub fn get_cached_data_columns_indices(&self) -> Vec<ColumnIndex> {
         self.verified_data_columns
             .iter()
