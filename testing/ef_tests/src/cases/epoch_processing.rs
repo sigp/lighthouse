@@ -444,25 +444,16 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
         let mut state = pre_state.clone();
         let mut expected = self.post.clone();
 
-        if let Some(post_state) = expected.as_mut() {
-            post_state.build_all_committee_caches(spec).unwrap();
-        }
-
         let mut result = T::run(&mut state, spec).map(|_| state);
 
         compare_beacon_state_results_without_caches(&mut result, &mut expected)?;
 
         if let Some(pre_epoch_state) = &self.pre_epoch {
             let mut pre_epoch_state = pre_epoch_state.clone();
-            // the committee_caches will be built in process_epoch function
-            // pre_epoch_state.build_all_committee_caches(spec).unwrap();
-
             let mut expected_post_epoch_state = self.post_epoch.clone();
-            if let Some(post_epoch_state) = expected_post_epoch_state.as_mut() {
-                post_epoch_state.build_all_committee_caches(spec).unwrap();
-            }
 
-            let mut result = process_epoch(&mut pre_epoch_state, spec).map(|_| pre_epoch_state);
+            let mut result: Result<BeaconState<E>, EpochProcessingError> =
+                process_epoch(&mut pre_epoch_state, spec).map(|_| pre_epoch_state);
             compare_beacon_state_results_without_caches(
                 &mut result,
                 &mut expected_post_epoch_state,
