@@ -385,9 +385,7 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
         // Check if this column contains any cells not already in the cache. If all cells are
         // already cached, observe so we don't process it again — but still return Ok since the
         // caller needs to publish it on gossip.
-        if missing_cells_for_column_sidecar(chain, &column_sidecar)?.is_none()
-            && O::observe()
-        {
+        if missing_cells_for_column_sidecar(chain, &column_sidecar)?.is_none() && O::observe() {
             observe_gossip_data_column(&column_sidecar, chain)?;
         }
 
