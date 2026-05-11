@@ -308,16 +308,16 @@ async fn extract_all_endpoints() -> ObjectSchemaByEndpoint {
             .unwrap()
     } else {
         // This branch is for running the test locally
-        let path =
+        let file =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/beacon-node-oapi.yaml");
 
-        if path.exists() {
+        if file.exists() {
             // If the file exists, read it directly
-            std::fs::read_to_string(&path).unwrap()
+            std::fs::read_to_string(&file).unwrap()
         } else {
             // If the file doesn't exist, only we download from the url
             let content = reqwest::get(url).await.unwrap().text().await.unwrap();
-            std::fs::write(&path, &content).unwrap();
+            std::fs::write(&file, &content).unwrap();
             content
         }
     };
