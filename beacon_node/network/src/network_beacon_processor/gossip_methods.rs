@@ -3956,7 +3956,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     async fn process_gossip_verified_execution_payload_envelope(
         self: Arc<Self>,
-        _peer_id: PeerId,
+        peer_id: PeerId,
         verified_envelope: GossipVerifiedEnvelope<T>,
     ) {
         let _processing_start_time = Instant::now();
@@ -3978,10 +3978,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // register_process_result_metrics(&result, metrics::BlockSource::Gossip, "envelope");
 
         if let Err(e) = &result {
-            warn!(
+            debug!(
                 ?beacon_block_root,
+                %peer_id,
                 error = ?e,
-                "Execution payload envelope rejected"
+                "Execution payload envelope processing failed"
             );
         }
     }
