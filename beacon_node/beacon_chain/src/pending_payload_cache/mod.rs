@@ -2,10 +2,9 @@
 //! over gossip/p2p we insert its bid into this cache, keyed by block root. As soon as the bid
 //! is received we can begin using it to verify data columns.
 //!
-//! When a payload envelope is received over gossip/p2p we first insert it as a pre-executed envelope. A separate
-//! thread eventually executes the payload envelope against the EL. Assuming the payload is executed successfully
-//! the envelope is updated in the cache from `PreExecuted` -> `Executed`. Once all required custody columns
-//! have been kzg verified and the envelope has been executed we can import the envelope into fork choice and store it to disk.
+//! When a payload envelope is received and executed against the EL, it is inserted into this cache.
+//! Once all required custody columns have been kzg verified and the envelope has been executed we can
+//! import the envelope into fork choice and store it to disk.
 //!
 //! Note that the block must have arrived before the envelope for the envelope to pass upstream verification checks and reach this cache.
 //! However data columns can potentially arrive before the block.
