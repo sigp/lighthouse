@@ -669,9 +669,9 @@ pub fn reconstruct_blobs<E: EthSpec>(
     // Sort data columns by index to ensure ascending order for KZG operations
     data_columns.sort_unstable_by_key(|dc| *dc.index());
 
-    let first_data_column = data_columns
-        .first()
-        .ok_or("data_columns should have at least one element".to_string())?;
+    if data_columns.is_empty() {
+        return Err("data_columns should have at least one element".to_string());
+    }
 
     let blob_indices: Vec<usize> = match blob_indices_opt {
         Some(indices) => indices.into_iter().map(|i| i as usize).collect(),

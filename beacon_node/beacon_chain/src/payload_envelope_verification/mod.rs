@@ -72,14 +72,6 @@ impl<E: EthSpec> AvailableEnvelope<E> {
     }
 }
 
-pub enum MaybeAvailableEnvelope<E: EthSpec> {
-    Available(AvailableEnvelope<E>),
-    AvailabilityPending {
-        block_hash: ExecutionBlockHash,
-        envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
-    },
-}
-
 /// This snapshot is to be used for verifying a payload envelope.
 #[derive(Debug, Clone)]
 pub struct EnvelopeProcessingSnapshot<E: EthSpec> {
