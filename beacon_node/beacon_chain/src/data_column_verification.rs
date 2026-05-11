@@ -37,6 +37,8 @@ use types::{
 /// An error occurred while validating a gossip data column.
 #[derive(Debug)]
 pub enum GossipDataColumnError {
+    /// Internal logic error: the column sidecar variant does not match the expected fork.
+    /// This is not a peer fault and should not be used to penalize peers.
     InvalidVariant,
     /// There was an error whilst processing the data column. It is not known if it is
     /// valid or invalid.

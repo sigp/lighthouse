@@ -1091,7 +1091,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .fork_choice_read_lock()
             .get_block(&block_root)
             .map(|block| block.slot)
-            .unwrap_or_else(|| self.chain.slot().unwrap_or_default());
+            .or_else(|| self.chain.slot().ok())
+            .ok_or_else(|| {
+                RpcRequestSendError::InternalError(format!(
+                    "Unable to determine slot for block {block_root:?}"
+                ))
+            })?;
 
         let custody_indexes_imported = self
             .chain
