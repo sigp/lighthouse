@@ -13,7 +13,7 @@ const NETHERMIND_REPO_URL: &str = "https://github.com/NethermindEth/nethermind";
 fn build_result(repo_dir: &Path) -> Output {
     Command::new("dotnet")
         .arg("build")
-        .arg("src/Nethermind/Nethermind.sln")
+        .arg("src/Nethermind/Nethermind.slnx")
         .arg("-c")
         .arg("Release")
         .arg("-p:TreatWarningsAsErrors=false")
