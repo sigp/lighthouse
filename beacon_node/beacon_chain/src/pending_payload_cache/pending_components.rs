@@ -35,12 +35,11 @@ impl<E: EthSpec> PendingComponents<E> {
     /// Skips columns that are not yet complete and logs an error if a complete column fails to
     /// build (a spec-bound invariant would have to be violated; should never happen in practice).
     pub fn get_cached_data_columns(&self) -> Vec<Arc<DataColumnSidecar<E>>> {
-        let blob_count = self.num_blobs_expected();
         let slot = self.bid.message.slot;
         let block_root = self.block_root;
         self.verified_data_columns
             .iter()
-            .filter(|(_, col)| col.is_complete(blob_count))
+            .filter(|(_, col)| col.is_complete())
             .filter_map(
                 |(col_idx, col)| match col.to_sidecar(*col_idx, slot, block_root) {
                     Ok(sidecar) => Some(sidecar),
@@ -62,10 +61,7 @@ impl<E: EthSpec> PendingComponents<E> {
     pub fn get_cached_data_columns_indices(&self) -> Vec<ColumnIndex> {
         self.verified_data_columns
             .iter()
-            .filter_map(|(col_idx, col)| {
-                col.is_complete(self.num_blobs_expected())
-                    .then_some(*col_idx)
-            })
+            .filter_map(|(col_idx, col)| col.is_complete().then_some(*col_idx))
             .collect()
     }
 
@@ -108,7 +104,7 @@ impl<E: EthSpec> PendingComponents<E> {
     pub fn num_completed_columns(&self) -> usize {
         self.verified_data_columns
             .values()
-            .filter(|col| col.is_complete(self.num_blobs_expected()))
+            .filter(|col| col.is_complete())
             .count()
     }
 

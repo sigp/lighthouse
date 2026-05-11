@@ -32,13 +32,13 @@ impl<E: EthSpec> PendingColumn<E> {
             .map(|(c, p)| c == cell && p == proof)
     }
 
-    pub fn is_complete(&self, blob_count: usize) -> bool {
-        self.cells.len() == blob_count && self.cells.iter().all(|cell| cell.is_some())
+    pub fn is_complete(&self) -> bool {
+        self.cells.iter().all(|cell| cell.is_some())
     }
 
     /// Build a `DataColumnSidecar` from the cached cells.
     ///
-    /// Caller MUST have checked `is_complete(blob_count)` first; this returns `Err` only on the
+    /// Caller MUST have checked `is_complete()` first; this returns `Err` only on the
     /// (currently theoretically impossible) `VariableList` size-bound failures, which we surface
     /// as a typed error so the caller can log/metric it instead of silently producing nothing.
     pub fn to_sidecar(
@@ -52,7 +52,8 @@ impl<E: EthSpec> PendingColumn<E> {
 
         for cell in self.cells.iter() {
             let (cell, proof) = cell.as_ref().ok_or(PendingColumnError::IncompleteColumn)?;
-            // TODO(gloas): we likely want to go and arc all cells
+            // TODO(gloas): we likely want to go and arc all cells. This will help us from requiring a clone
+            // in PendingColumn::insert
             column.push(cell.clone());
             kzg_proofs.push(*proof);
         }
