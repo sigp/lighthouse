@@ -1160,23 +1160,22 @@ impl ProtoArray {
 
             // Spec: children = [root for root in blocks if blocks[root].parent_root == block_root]
             // Skip execution-invalid children (not in store.blocks in the spec).
-            let children = self
+            let valid_children: Vec<usize> = self
                 .children
                 .get(node_index)
-                .ok_or(Error::InvalidNodeIndex(node_index))?;
-            let mut valid_children: Vec<usize> = Vec::with_capacity(children.len());
-            for &child_index in children {
-                let child = self
-                    .nodes
-                    .get(child_index)
-                    .ok_or(Error::InvalidNodeIndex(child_index))?;
-                if !child
-                    .execution_status()
-                    .is_ok_and(|status| status.is_invalid())
-                {
-                    valid_children.push(child_index);
-                }
-            }
+                .ok_or(Error::InvalidNodeIndex(node_index))?
+                .iter()
+                .copied()
+                .filter_map(|i| {
+                    self.nodes
+                        .get(i)
+                        .ok_or(Error::InvalidNodeIndex(i))
+                        .map(|child| {
+                            (!child.execution_status().is_ok_and(|s| s.is_invalid())).then_some(i)
+                        })
+                        .transpose()
+                })
+                .collect::<Result<_, _>>()?;
 
             if !valid_children.is_empty() {
                 // Spec: if any(children): if any(filter_block_tree_result): blocks[block_root] = block
@@ -1486,28 +1485,35 @@ impl ProtoArray {
             }
             Ok(children)
         } else {
+            // Spec: [root for root in blocks.keys() if blocks[root].parent_root == node.root ...]
+            // (cached `self.children[i]` is the same set as the spec's filtered scan).
             let indices = self
                 .children
                 .get(node.proto_node_index)
                 .ok_or(Error::InvalidNodeIndex(node.proto_node_index))?;
-            let mut out = Vec::with_capacity(indices.len());
-            for &child_index in indices {
-                let child_node = self
-                    .nodes
-                    .get(child_index)
-                    .ok_or(Error::InvalidNodeIndex(child_index))?;
-                if child_node.get_parent_payload_status() == node.payload_status {
-                    out.push((
-                        IndexedForkChoiceNode {
-                            root: child_node.root(),
-                            proto_node_index: child_index,
-                            payload_status: PayloadStatus::Pending,
-                        },
-                        child_node.clone(),
-                    ));
-                }
-            }
-            Ok(out)
+            indices
+                .iter()
+                .copied()
+                .filter_map(|i| {
+                    self.nodes
+                        .get(i)
+                        .ok_or(Error::InvalidNodeIndex(i))
+                        .map(|child| {
+                            // Spec: node.payload_status == get_parent_payload_status(store, blocks[root])
+                            (child.get_parent_payload_status() == node.payload_status).then(|| {
+                                (
+                                    IndexedForkChoiceNode {
+                                        root: child.root(),
+                                        proto_node_index: i,
+                                        payload_status: PayloadStatus::Pending,
+                                    },
+                                    child.clone(),
+                                )
+                            })
+                        })
+                        .transpose()
+                })
+                .collect()
         }
     }
 
