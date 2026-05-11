@@ -181,7 +181,9 @@ pub enum SyncMessage<E: EthSpec> {
         result: BlockProcessingResult,
     },
 
-    /// A block from gossip has completed processing,
+    /// A gossip-received component has completed processing and the block may now be imported.
+    /// In Fulu this is sent after block or blob processing. In Gloas this is also sent after
+    /// data column or payload envelope processing triggers availability.
     GossipBlockProcessResult { block_root: Hash256, imported: bool },
 }
 
