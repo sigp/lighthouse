@@ -20,6 +20,7 @@ pub struct PendingComponents<E: EthSpec> {
     pub bid: Arc<SignedExecutionPayloadBid<E>>,
     /// a cached post executed payload envelope
     pub envelope: Option<AvailabilityPendingExecutedEnvelope<E>>,
+    /// A column entry in this map may only have some cells filled in (i.e. a partial data column)
     pub verified_data_columns: HashMap<ColumnIndex, PendingColumn<E>>,
     pub reconstruction_started: bool,
     pub(crate) span: Span,
@@ -101,6 +102,8 @@ impl<E: EthSpec> PendingComponents<E> {
         self.envelope = Some(envelope);
     }
 
+    /// Count of columns that have been received, excluding partial
+    /// columns that are still awaiting cells.
     pub fn num_completed_columns(&self) -> usize {
         self.verified_data_columns
             .values()
@@ -179,7 +182,7 @@ impl<E: EthSpec> PendingComponents<E> {
         format!(
             "envelope {}, data_columns {}/{}",
             self.envelope.is_some(),
-            self.verified_data_columns.len(),
+            self.num_completed_columns(),
             num_expected_columns
         )
     }
