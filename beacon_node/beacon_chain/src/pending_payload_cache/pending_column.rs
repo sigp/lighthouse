@@ -38,9 +38,8 @@ impl<E: EthSpec> PendingColumn<E> {
 
     /// Build a `DataColumnSidecar` from the cached cells.
     ///
-    /// Caller MUST have checked `is_complete()` first; this returns `Err` only on the
-    /// (currently theoretically impossible) `VariableList` size-bound failures, which we surface
-    /// as a typed error so the caller can log/metric it instead of silently producing nothing.
+    /// Returns `Err(IncompleteColumn)` if any cell is missing, or a size-bound error if the
+    /// column/proofs exceed spec limits (should never happen in practice).
     pub fn to_sidecar(
         &self,
         index: ColumnIndex,
@@ -72,9 +71,7 @@ impl<E: EthSpec> PendingColumn<E> {
     }
 }
 
-/// Errors returned by [`PendingColumn::to_sidecar`]. `IncompleteColumn` should never fire if the
-/// caller checks [`PendingColumn::is_complete`] first; the size-bound variants reflect spec-bound
-/// invariants and should never fire in practice.
+/// Errors returned by [`PendingColumn::to_sidecar`].
 #[derive(Debug, Clone)]
 pub enum PendingColumnError {
     IncompleteColumn,
