@@ -242,6 +242,10 @@ impl ValidatorStatuses {
         &mut self,
         state: &BeaconState<E>,
     ) -> Result<(), BeaconStateError> {
+        if state.current_epoch() == E::genesis_epoch() {
+            return Ok(());
+        }
+
         let base_state = state.as_base()?;
         for a in base_state
             .previous_epoch_attestations
