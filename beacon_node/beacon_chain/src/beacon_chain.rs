@@ -27,7 +27,7 @@ use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::data_column_verification::{
     GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
     GossipVerifiedPartialDataColumnHeader, KzgVerifiedCustodyPartialDataColumn,
-    KzgVerifiedPartialDataColumn, PartialColumnVerificationResult, load_gloas_payload_bid,
+    KzgVerifiedPartialDataColumn, PartialColumnVerificationResult,
     validate_partial_data_column_sidecar_for_gossip,
 };
 use crate::early_attester_cache::EarlyAttesterCache;
@@ -3430,15 +3430,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .fork_name_at_slot::<T::EthSpec>(slot)
                 .gloas_enabled()
             {
-                let bid = load_gloas_payload_bid(block_root, self)?
-                    .ok_or(BlockError::EnvelopeBlockRootUnknown(block_root))?;
                 let availability = self
                     .pending_payload_cache
-                    .put_kzg_verified_custody_data_columns(
-                        block_root,
-                        bid,
-                        &merge_result.full_columns,
-                    )
+                    .put_kzg_verified_custody_data_columns(block_root, &merge_result.full_columns)
                     .map_err(BlockError::from)?;
                 self.process_payload_envelope_availability(slot, availability, || Ok(()))
                     .await?
@@ -3649,13 +3643,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .gloas_enabled();
 
         if is_gloas {
-            let bid = load_gloas_payload_bid(block_root, self)?
-                .ok_or(BlockError::EnvelopeBlockRootUnknown(block_root))?;
             let pending_payload_cache = self.pending_payload_cache.clone();
             let result = self
                 .task_executor
                 .spawn_blocking_with_rayon_async(RayonPoolType::HighPriority, move || {
-                    pending_payload_cache.reconstruct_data_columns(&block_root, bid)
+                    pending_payload_cache.reconstruct_data_columns(&block_root)
                 })
                 .await
                 .map_err(|_| BlockError::from(BeaconChainError::RuntimeShutdown))?
@@ -4006,11 +3998,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_name_at_slot::<T::EthSpec>(slot)
             .gloas_enabled()
         {
-            let bid = load_gloas_payload_bid(block_root, self)?
-                .ok_or(BlockError::EnvelopeBlockRootUnknown(block_root))?;
             let availability = self
                 .pending_payload_cache
-                .put_gossip_verified_data_columns(block_root, bid, data_columns)?;
+                .put_gossip_verified_data_columns(block_root, data_columns)?;
             Ok(self
                 .process_payload_envelope_availability(slot, availability, publish_fn)
                 .await?)
@@ -4112,11 +4102,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .fork_name_at_slot::<T::EthSpec>(slot)
                     .gloas_enabled()
                 {
-                    let bid = load_gloas_payload_bid(block_root, self)?
-                        .ok_or(BlockError::EnvelopeBlockRootUnknown(block_root))?;
                     let availability = self
                         .pending_payload_cache
-                        .put_kzg_verified_custody_data_columns(block_root, bid, &data_columns)
+                        .put_kzg_verified_custody_data_columns(block_root, &data_columns)
                         .map_err(BlockError::from)?;
                     Ok(self
                         .process_payload_envelope_availability(slot, availability, || Ok(()))
@@ -4156,11 +4144,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_name_at_slot::<T::EthSpec>(slot)
             .gloas_enabled()
         {
-            let bid = load_gloas_payload_bid(block_root, self)?
-                .ok_or(BlockError::EnvelopeBlockRootUnknown(block_root))?;
             let availability = self
                 .pending_payload_cache
-                .put_rpc_custody_columns(block_root, bid, custody_columns)
+                .put_rpc_custody_columns(block_root, custody_columns)
                 .map_err(BlockError::from)?;
             Ok(self
                 .process_payload_envelope_availability(slot, availability, || Ok(()))

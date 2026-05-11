@@ -4,6 +4,7 @@ use types::{BeaconStateError, ColumnIndex, Hash256};
 #[derive(Debug)]
 pub enum Error {
     InvalidBlobs(KzgError),
+    MissingBid(Hash256),
     InvalidColumn((Option<ColumnIndex>, KzgError)),
     ReconstructColumnsError(KzgError),
     KzgCommitmentMismatch {
@@ -39,6 +40,7 @@ impl Error {
         match self {
             Error::SszTypes(_)
             | Error::MissingBlobs
+            | Error::MissingBid(_)
             | Error::MissingCustodyColumns
             | Error::StoreError(_)
             | Error::DecodeError(_)
