@@ -8,7 +8,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::FixedVector;
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tracing::instrument;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
@@ -33,7 +32,6 @@ use crate::{
     fork::{Fork, ForkName, ForkVersionDecode, InconsistentFork, map_fork_name},
     kzg_ext::format_kzg_commitments,
     state::BeaconStateError,
-    test_utils::TestRandom,
 };
 
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
@@ -77,7 +75,6 @@ impl From<SignedBeaconBlockHash> for Hash256 {
             Decode,
             TreeHash,
             Educe,
-            TestRandom
         ),
         educe(PartialEq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec, Payload: AbstractExecPayload<E>"),
@@ -375,6 +372,16 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             .body()
             .signed_execution_payload_bid()
             .map(|bid| bid.message.block_hash)
+    }
+
+    /// Convenience accessor for the block's bid's `parent_block_hash`.
+    ///
+    /// This method returns an error prior to Gloas.
+    pub fn payload_bid_parent_block_hash(&self) -> Result<ExecutionBlockHash, BeaconStateError> {
+        self.message()
+            .body()
+            .signed_execution_payload_bid()
+            .map(|bid| bid.message.parent_block_hash)
     }
 
     /// Check if the `parent_hash` in this block's `signed_payload_bid` matches `parent_block_hash`.

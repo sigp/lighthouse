@@ -8,6 +8,7 @@ use crate::observed_aggregates::Error as ObservedAttestationsError;
 use crate::observed_attesters::Error as ObservedAttestersError;
 use crate::observed_block_producers::Error as ObservedBlockProducersError;
 use crate::observed_data_sidecars::Error as ObservedDataSidecarsError;
+use crate::payload_envelope_streamer::Error as EnvelopeStreamerError;
 use bls::PublicKeyBytes;
 use execution_layer::PayloadStatus;
 use fork_choice::ExecutionStatus;
@@ -53,6 +54,7 @@ pub enum BeaconChainError {
     },
     SlotClockDidNotStart,
     NoStateForSlot(Slot),
+    NoBlockForSlot(Slot),
     BeaconStateError(BeaconStateError),
     EpochCacheError(EpochCacheError),
     DBInconsistent(String),
@@ -61,6 +63,7 @@ pub enum BeaconChainError {
     ForkChoiceStoreError(ForkChoiceStoreError),
     MissingBeaconBlock(Hash256),
     MissingBeaconState(Hash256),
+    MissingExecutionPayloadEnvelope(Hash256),
     MissingHotStateSummary(Hash256),
     SlotProcessingError(SlotProcessingError),
     EpochProcessingError(EpochProcessingError),
@@ -157,6 +160,7 @@ pub enum BeaconChainError {
         reconstructed_transactions_root: Hash256,
     },
     BlockStreamerError(BlockStreamerError),
+    EnvelopeStreamerError(EnvelopeStreamerError),
     AddPayloadLogicError,
     ExecutionForkChoiceUpdateFailed(execution_layer::Error),
     PrepareProposerFailed(BlockProcessingError),
@@ -291,9 +295,6 @@ pub enum BlockProductionError {
     BeaconStateError(BeaconStateError),
     StateAdvanceError(StateAdvanceError),
     OpPoolError(OpPoolError),
-    /// The `BeaconChain` was explicitly configured _without_ a connection to eth1, therefore it
-    /// cannot produce blocks.
-    NoEth1ChainConnection,
     StateSlotTooHigh {
         produce_at_slot: Slot,
         state_slot: Slot,
@@ -321,6 +322,8 @@ pub enum BlockProductionError {
     SszTypesError(ssz_types::Error),
     EnvelopeProcessingError(EnvelopeProcessingError),
     BlsError(bls::Error),
+    MissingParentExecutionPayload,
+    MissingExecutionPayloadEnvelope(Hash256),
     // TODO(gloas): Remove this once Gloas is implemented
     GloasNotImplemented(String),
 }

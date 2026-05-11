@@ -2,7 +2,6 @@ use compare_fields::CompareFields;
 use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
@@ -10,7 +9,6 @@ use crate::{
     core::{EthSpec, Hash256},
     fork::ForkName,
     state::BeaconState,
-    test_utils::TestRandom,
 };
 
 /// `HistoricalSummary` matches the components of the phase0 `HistoricalBatch`
@@ -28,7 +26,6 @@ use crate::{
     Encode,
     Decode,
     TreeHash,
-    TestRandom,
     CompareFields,
     Clone,
     Copy,

@@ -210,7 +210,7 @@ mod tests {
             };
             let key_config_file =
                 File::create(keystore_dir.path().join("key-config.yaml")).unwrap();
-            serde_yaml::to_writer(key_config_file, &key_config).unwrap();
+            yaml_serde::to_writer(key_config_file, &key_config).unwrap();
 
             let tls_keystore_file = tls_dir().join("web3signer").join("key.p12");
             let tls_keystore_password_file = tls_dir().join("web3signer").join("password.txt");

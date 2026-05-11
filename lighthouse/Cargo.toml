@@ -62,7 +62,6 @@ opentelemetry-otlp = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde_yaml = { workspace = true }
 slasher = { workspace = true }
 store = { workspace = true }
 task_executor = { workspace = true }
@@ -73,6 +72,7 @@ tracing_samplers = { workspace = true }
 types = { workspace = true }
 validator_client = { workspace = true }
 validator_manager = { path = "../validator_manager" }
+yaml_serde = { workspace = true }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 malloc_utils = { workspace = true, features = ["jemalloc"] }

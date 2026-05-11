@@ -4,7 +4,6 @@ on:
     push:
         branches:
             - unstable
-            - stable
         tags:
             - v*
 
@@ -28,11 +27,6 @@ jobs:
     extract-version:
         runs-on: ubuntu-22.04
         steps:
-            - name: Extract version (if stable)
-              if: github.event.ref == 'refs/heads/stable'
-              run: |
-                    echo "VERSION=latest" >> $GITHUB_ENV
-                    echo "VERSION_SUFFIX=" >> $GITHUB_ENV
             - name: Extract version (if unstable)
               if: github.event.ref == 'refs/heads/unstable'
               run: |
@@ -159,7 +153,16 @@ jobs:
 
             - name: Create and push multiarch manifests
               run: |
+                  # Create the main tag (versioned for releases, latest-unstable for unstable)
                   docker buildx imagetools create -t ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}${VERSION_SUFFIX} \
                       ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}-arm64${VERSION_SUFFIX} \
                       ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}-amd64${VERSION_SUFFIX};
+
+                  # For version tags, also create/update the latest tag to keep stable up to date
+                  # Only create latest tag for proper release versions (e.g. v1.2.3, not v1.2.3-alpha)
+                  if [[ "${GITHUB_REF}" == refs/tags/* ]] && [[ "${VERSION}" =~ ^v[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+                    docker buildx imagetools create -t ${{ github.repository_owner}}/${{ matrix.binary }}:latest \
+                        ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}-arm64${VERSION_SUFFIX} \
+                        ${{ github.repository_owner}}/${{ matrix.binary }}:${VERSION}-amd64${VERSION_SUFFIX};
+                  fi
 

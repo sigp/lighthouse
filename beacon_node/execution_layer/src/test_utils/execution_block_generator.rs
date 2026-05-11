@@ -26,8 +26,8 @@ use tree_hash_derive::TreeHash;
 use types::{
     Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
     ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
-    ExecutionPayloadGloas, ExecutionPayloadHeader, ForkName, Hash256, KzgProofs, Transaction,
-    Transactions, Uint256,
+    ExecutionPayloadGloas, ExecutionPayloadHeader, ExecutionRequests, ForkName, Hash256, KzgProofs,
+    Transaction, Transactions, Uint256,
 };
 
 const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
@@ -66,6 +66,13 @@ impl<E: EthSpec> Block<E> {
         match self {
             Block::PoW(block) => block.block_hash,
             Block::PoS(payload) => payload.block_hash(),
+        }
+    }
+
+    pub fn timestamp(&self) -> u64 {
+        match self {
+            Block::PoW(block) => block.timestamp,
+            Block::PoS(payload) => payload.timestamp(),
         }
     }
 
@@ -161,6 +168,14 @@ pub struct ExecutionBlockGenerator<E: EthSpec> {
     pub blobs_bundles: HashMap<PayloadId, BlobsBundle<E>>,
     pub kzg: Option<Arc<Kzg>>,
     rng: Arc<Mutex<StdRng>>,
+    /*
+     * Execution requests (electra+)
+     */
+    /// Per-payload execution requests returned by `getPayload`.
+    execution_requests: HashMap<PayloadId, ExecutionRequests<E>>,
+    /// If set, the next call to `build_new_execution_payload` will associate these
+    /// execution requests with the generated payload ID.
+    next_execution_requests: Option<ExecutionRequests<E>>,
 }
 
 fn make_rng() -> Arc<Mutex<StdRng>> {
@@ -199,6 +214,8 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             blobs_bundles: <_>::default(),
             kzg,
             rng: make_rng(),
+            execution_requests: <_>::default(),
+            next_execution_requests: None,
         };
 
         generator.insert_pow_block(0).unwrap();
@@ -458,6 +475,15 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         self.blobs_bundles.get(id).cloned()
     }
 
+    pub fn get_execution_requests(&self, id: &PayloadId) -> Option<ExecutionRequests<E>> {
+        self.execution_requests.get(id).cloned()
+    }
+
+    /// Set execution requests to be returned alongside the next generated payload.
+    pub fn set_next_execution_requests(&mut self, requests: ExecutionRequests<E>) {
+        self.next_execution_requests = Some(requests);
+    }
+
     /// Look up a blob and proof by versioned hash across all stored bundles.
     pub fn get_blob_and_proof(&self, versioned_hash: &Hash256) -> Option<BlobAndProof<E>> {
         self.blobs_bundles
@@ -537,6 +563,23 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
 
         if let Some(payload) = self.pending_payloads.remove(&head_block_hash) {
             self.insert_block(Block::PoS(payload))?;
+        }
+
+        // Post-Gloas, the justified and finalized block hashes must be non-zero, since the
+        // CL always has a known parent_block_hash to reference.
+        if let Some(head_block) = self.blocks.get(&head_block_hash)
+            && self
+                .get_fork_at_timestamp(head_block.timestamp())
+                .gloas_enabled()
+        {
+            assert!(
+                forkchoice_state.safe_block_hash != ExecutionBlockHash::zero(),
+                "post-Gloas safe_block_hash must not be zero"
+            );
+            assert!(
+                forkchoice_state.finalized_block_hash != ExecutionBlockHash::zero(),
+                "post-Gloas finalized_block_hash must not be zero"
+            );
         }
 
         let unknown_head_block_hash = !self.blocks.contains_key(&head_block_hash);
@@ -735,6 +778,9 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     blob_gas_used: 0,
                     excess_blob_gas: 0,
                 }),
+                _ => unreachable!(),
+            },
+            PayloadAttributes::V4(pa) => match self.get_fork_at_timestamp(pa.timestamp) {
                 ForkName::Gloas => ExecutionPayload::Gloas(ExecutionPayloadGloas {
                     parent_hash: head_block_hash,
                     fee_recipient: pa.suggested_fee_recipient,
@@ -753,10 +799,17 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     withdrawals: pa.withdrawals.clone().try_into().unwrap(),
                     blob_gas_used: 0,
                     excess_blob_gas: 0,
+                    block_access_list: VariableList::empty(),
+                    slot_number: pa.slot_number.into(),
                 }),
                 _ => unreachable!(),
             },
         };
+
+        // Store execution requests for this payload if configured.
+        if let Some(requests) = self.next_execution_requests.take() {
+            self.execution_requests.insert(id, requests);
+        }
 
         let fork_name = execution_payload.fork_name();
         if fork_name.deneb_enabled() {

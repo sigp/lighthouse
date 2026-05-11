@@ -51,8 +51,8 @@ pub fn process_epoch<E: EthSpec>(
     // without loss of correctness.
     let current_epoch_progressive_balances = state.progressive_balances_cache().clone();
     let current_epoch_total_active_balance = state.get_total_active_balance()?;
-    let participation_summary =
-        process_epoch_single_pass(state, spec, SinglePassConfig::default())?;
+    let epoch_result = process_epoch_single_pass(state, spec, SinglePassConfig::default())?;
+    let participation_summary = epoch_result.summary;
 
     // Reset eth1 data votes.
     process_eth1_data_reset(state)?;
@@ -79,6 +79,13 @@ pub fn process_epoch<E: EthSpec>(
 
     // Rotate the epoch caches to suit the epoch transition.
     state.advance_caches()?;
+
+    // Install the lookahead committee cache (built during PTC window processing) as the Next
+    // cache. After advance_caches, the lookahead epoch becomes the Next relative epoch.
+    if let Some(cache) = epoch_result.lookahead_committee_cache {
+        state.set_committee_cache(RelativeEpoch::Next, cache)?;
+    }
+
     update_progressive_balances_on_epoch_transition(state, spec)?;
 
     Ok(EpochProcessingSummary::Altair {

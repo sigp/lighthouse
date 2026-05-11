@@ -18,11 +18,11 @@
 //!
 //! ```
 
+use std::marker::PhantomData;
 use std::sync::Arc;
 
-use store::Error as DBError;
-
 use state_processing::{BlockProcessingError, envelope_processing::EnvelopeProcessingError};
+use store::Error as DBError;
 use tracing::instrument;
 use types::{
     BeaconState, BeaconStateError, ChainSpec, DataColumnSidecarList, EthSpec, ExecutionBlockHash,
@@ -41,10 +41,11 @@ mod payload_notifier;
 
 pub use execution_pending_envelope::ExecutionPendingEnvelope;
 
+// TODO(gloas): could remove this type completely, or remove the generic
 #[derive(PartialEq)]
 pub struct EnvelopeImportData<E: EthSpec> {
     pub block_root: Hash256,
-    pub post_state: Box<BeaconState<E>>,
+    _phantom: PhantomData<E>,
 }
 
 #[derive(Debug)]
@@ -59,6 +60,22 @@ pub struct AvailableEnvelope<E: EthSpec> {
 }
 
 impl<E: EthSpec> AvailableEnvelope<E> {
+    pub fn new(
+        execution_block_hash: ExecutionBlockHash,
+        envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+        columns: DataColumnSidecarList<E>,
+        columns_available_timestamp: Option<std::time::Duration>,
+        spec: Arc<ChainSpec>,
+    ) -> Self {
+        Self {
+            execution_block_hash,
+            envelope,
+            columns,
+            columns_available_timestamp,
+            spec,
+        }
+    }
+
     pub fn message(&self) -> &ExecutionPayloadEnvelope<E> {
         &self.envelope.message
     }
@@ -103,9 +120,10 @@ pub struct EnvelopeProcessingSnapshot<E: EthSpec> {
 ///    fully available.
 /// 2. `AvailabilityPending`: This envelope hasn't received all required blobs to consider it
 ///    fully available.
+#[allow(dead_code)]
 pub enum ExecutedEnvelope<E: EthSpec> {
     Available(AvailableExecutedEnvelope<E>),
-    // TODO(gloas) implement availability pending
+    // TODO(gloas): check data column availability via DA checker
     AvailabilityPending(),
 }
 
@@ -114,6 +132,7 @@ impl<E: EthSpec> ExecutedEnvelope<E> {
         envelope: MaybeAvailableEnvelope<E>,
         import_data: EnvelopeImportData<E>,
         payload_verification_outcome: PayloadVerificationOutcome,
+        spec: Arc<ChainSpec>,
     ) -> Self {
         match envelope {
             MaybeAvailableEnvelope::Available(available_envelope) => {
@@ -123,11 +142,15 @@ impl<E: EthSpec> ExecutedEnvelope<E> {
                     payload_verification_outcome,
                 ))
             }
-            // TODO(gloas) implement availability pending
+            // TODO(gloas): check data column availability via DA checker
             MaybeAvailableEnvelope::AvailabilityPending {
-                block_hash: _,
-                envelope: _,
-            } => Self::AvailabilityPending(),
+                block_hash,
+                envelope,
+            } => Self::Available(AvailableExecutedEnvelope::new(
+                AvailableEnvelope::new(block_hash, envelope, vec![], None, spec),
+                import_data,
+                payload_verification_outcome,
+            )),
         }
     }
 }
@@ -182,6 +205,8 @@ pub enum EnvelopeError {
         payload_slot: Slot,
         latest_finalized_slot: Slot,
     },
+    /// Optimistic sync is not supported for Gloas payload envelopes.
+    OptimisticSyncNotSupported { block_root: Hash256 },
     /// Some Beacon Chain Error
     BeaconChainError(Arc<BeaconChainError>),
     /// Some Beacon State error
@@ -247,9 +272,6 @@ impl From<EnvelopeProcessingError> for EnvelopeError {
                 committed_bid,
                 envelope,
             },
-            EnvelopeProcessingError::BlockProcessingError(e) => {
-                EnvelopeError::BlockProcessingError(e)
-            }
             e => EnvelopeError::EnvelopeProcessingError(e),
         }
     }

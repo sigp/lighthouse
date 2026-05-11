@@ -402,12 +402,20 @@ where
     let suggested_fee_recipient = execution_layer
         .get_suggested_fee_recipient(proposer_index)
         .await;
+
+    let slot_number = if fork.gloas_enabled() {
+        Some(builder_params.slot.as_u64())
+    } else {
+        None
+    };
+
     let payload_attributes = PayloadAttributes::new(
         timestamp,
         random,
         suggested_fee_recipient,
         withdrawals,
         parent_beacon_block_root,
+        slot_number,
     );
 
     let target_gas_limit = execution_layer.get_proposer_gas_limit(proposer_index).await;

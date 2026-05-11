@@ -186,10 +186,8 @@ impl<E: EthSpec> LevelDB<E> {
             )
         };
 
-        for (start_key, end_key) in [
-            endpoints(DBColumn::BeaconState),
-            endpoints(DBColumn::BeaconStateSummary),
-        ] {
+        {
+            let (start_key, end_key) = endpoints(DBColumn::BeaconStateHotSummary);
             self.db.compact(&start_key, &end_key);
         }
 

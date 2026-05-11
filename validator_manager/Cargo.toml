@@ -11,7 +11,7 @@ clap = { workspace = true }
 clap_utils = { workspace = true }
 educe = { workspace = true }
 environment = { workspace = true }
-eth2 = { workspace = true }
+eth2 = { workspace = true, features = ["lighthouse"] }
 eth2_network_config = { workspace = true }
 eth2_wallet = { workspace = true }
 ethereum_serde_utils = { workspace = true }

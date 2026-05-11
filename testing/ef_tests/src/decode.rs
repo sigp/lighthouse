@@ -33,14 +33,14 @@ pub fn log_file_access<P: AsRef<Path>>(file_accessed: P) {
 }
 
 pub fn yaml_decode<T: serde::de::DeserializeOwned>(string: &str) -> Result<T, Error> {
-    serde_yaml::from_str(string).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))
+    yaml_serde::from_str(string).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))
 }
 
 pub fn context_yaml_decode<'de, T, C>(string: &'de str, context: C) -> Result<T, Error>
 where
     T: ContextDeserialize<'de, C>,
 {
-    let deserializer = serde_yaml::Deserializer::from_str(string);
+    let deserializer = yaml_serde::Deserializer::from_str(string);
     T::context_deserialize(deserializer, context)
         .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))
 }

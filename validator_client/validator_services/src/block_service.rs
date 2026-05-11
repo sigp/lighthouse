@@ -404,7 +404,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
     }
 
     #[instrument(
-        name = "block_proposal_duty_cycle",
+        name = "lh_block_proposal_duty_cycle",
         skip_all,
         fields(%slot, ?validator_pubkey)
     )]

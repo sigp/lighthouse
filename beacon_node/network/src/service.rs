@@ -39,8 +39,8 @@ use tokio::time::Sleep;
 use tracing::{debug, error, info, trace, warn};
 use typenum::Unsigned;
 use types::{
-    EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
-    ValidatorSubscription,
+    EthSpec, ForkContext, PartialDataColumn, PartialDataColumnHeader, Slot, SubnetId,
+    SyncCommitteeSubscription, SyncSubnetId, ValidatorSubscription,
 };
 
 mod tests;
@@ -83,6 +83,11 @@ pub enum NetworkMessage<E: EthSpec> {
     },
     /// Publish a list of messages to the gossipsub protocol.
     Publish { messages: Vec<PubsubMessage<E>> },
+    /// Publish partial data column sidecars via the partial gossipsub protocol.
+    PublishPartialColumns {
+        columns: Vec<Arc<PartialDataColumn<E>>>,
+        header: Arc<PartialDataColumnHeader<E>>,
+    },
     /// Validates a received gossipsub message. This will propagate the message on the network.
     ValidationResult {
         /// The peer that sent us the message. We don't send back to this peer.
@@ -91,6 +96,13 @@ pub enum NetworkMessage<E: EthSpec> {
         message_id: MessageId,
         /// The result of the validation
         validation_result: MessageAcceptance,
+    },
+    /// Reports validation failure of a partial message.
+    PartialValidationFailure {
+        /// The peer that sent us the message.
+        propagation_source: PeerId,
+        /// The topic of the message.
+        gossip_topic: GossipTopic,
     },
     /// Reports a peer to the peer manager for performing an action.
     ReportPeer {
@@ -540,7 +552,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         let subnet_id = subnet_and_attestation.0;
                         let attestation = &subnet_and_attestation.1;
                         // checks if we have an aggregator for the slot. If so, we should process
-                        // the attestation, else we just just propagate the Attestation.
+                        // the attestation, else we just propagate the Attestation.
                         let should_process = self.subnet_service.should_process_attestation(
                             Subnet::Attestation(subnet_id),
                             &attestation.data,
@@ -559,6 +571,15 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         ));
                     }
                 }
+            }
+            NetworkEvent::PartialDataColumnSidecar {
+                source,
+                column,
+                topic,
+            } => {
+                self.send_to_router(RouterMessage::PartialDataColumnSidecar(
+                    source, column, topic,
+                ));
             }
             NetworkEvent::NewListenAddr(multiaddr) => {
                 self.network_globals
@@ -640,11 +661,19 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     validation_result,
                 );
             }
+            NetworkMessage::PartialValidationFailure {
+                propagation_source,
+                gossip_topic,
+            } => {
+                self.libp2p
+                    .report_partial_message_validation_failure(propagation_source, gossip_topic);
+            }
             NetworkMessage::Publish { messages } => {
                 let mut topic_kinds = Vec::new();
                 for message in &messages {
-                    if !topic_kinds.contains(&message.kind()) {
-                        topic_kinds.push(message.kind());
+                    let kind = message.kind();
+                    if !topic_kinds.contains(&kind) {
+                        topic_kinds.push(kind);
                     }
                 }
                 debug!(
@@ -653,6 +682,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     "Sending pubsub messages"
                 );
                 self.libp2p.publish(messages);
+            }
+            NetworkMessage::PublishPartialColumns { columns, header } => {
+                self.libp2p.publish_partial(columns, header);
             }
             NetworkMessage::ReportPeer {
                 peer_id,
