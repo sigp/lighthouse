@@ -1163,16 +1163,20 @@ impl ProtoArray {
         let mut excluded = vec![false; self.nodes.len()];
         for i in (start_index + 1)..self.nodes.len() {
             let node = self.nodes.get(i).ok_or(Error::InvalidNodeIndex(i))?;
-            let parent_excluded = node
-                .parent()
-                .is_some_and(|p| excluded.get(p).copied().unwrap_or(false));
+            let parent_excluded = match node.parent() {
+                Some(p) => *excluded.get(p).ok_or(Error::InvalidNodeIndex(p))?,
+                None => false,
+            };
             let self_invalid = node.execution_status().is_ok_and(|s| s.is_invalid());
             excluded[i] = parent_excluded || self_invalid;
         }
 
         for node_index in (start_index..self.nodes.len()).rev() {
             // Spec: invalid subtree removed from `store.blocks` — skip entirely.
-            if excluded[node_index] {
+            if *excluded
+                .get(node_index)
+                .ok_or(Error::InvalidNodeIndex(node_index))?
+            {
                 continue;
             }
             let node = self
@@ -1187,8 +1191,12 @@ impl ProtoArray {
                 .ok_or(Error::InvalidNodeIndex(node_index))?
                 .iter()
                 .copied()
-                .filter(|&i| !excluded.get(i).copied().unwrap_or(true))
-                .collect();
+                .filter_map(|i| match excluded.get(i) {
+                    Some(false) => Some(Ok(i)),
+                    Some(true) => None,
+                    None => Some(Err(Error::InvalidNodeIndex(i))),
+                })
+                .collect::<Result<_, _>>()?;
 
             if !valid_children.is_empty() {
                 // Spec: if any(children): if any(filter_block_tree_result): blocks[block_root] = block
