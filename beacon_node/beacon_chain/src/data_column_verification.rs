@@ -397,6 +397,8 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
         // In this case, we should accept it for gossip propagation.
         verify_is_unknown_sidecar(chain, &column_sidecar)?;
 
+        // Check if this column contains any cells not already in the cache. If all cells are
+        // already cached, reject as `PriorKnownUnpublished` to avoid redundant processing.
         match missing_cells_for_column_sidecar(chain, &column_sidecar)? {
             Some(_) => Ok(Self {
                 block_root: column_sidecar.block_root(),
