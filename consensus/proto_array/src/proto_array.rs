@@ -685,7 +685,7 @@ impl ProtoArray {
     /// Returns `true` if the proposer boost should be kept. Returns `false` if the
     /// boost should be subtracted (invalidated) because the parent is weak and there
     /// are no equivocating blocks at the parent's slot.
-    fn should_apply_proposer_boost<E: EthSpec>(
+    pub(crate) fn should_apply_proposer_boost<E: EthSpec>(
         &self,
         proposer_boost_root: Hash256,
         justified_balances: &JustifiedBalances,
@@ -1328,7 +1328,7 @@ impl ProtoArray {
 
     /// Spec: `get_weight`.
     #[allow(clippy::too_many_arguments)]
-    fn get_weight<E: EthSpec>(
+    pub(crate) fn get_weight<E: EthSpec>(
         &self,
         fc_node: &IndexedForkChoiceNode,
         proto_node: &ProtoNode,

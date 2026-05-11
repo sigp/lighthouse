@@ -1,7 +1,8 @@
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use ::fork_choice::{
-    AttestationFromBlock, ForkChoiceStore, PayloadVerificationStatus, ProposerHeadError,
+    AttestationFromBlock, ForkChoiceStore, PayloadStatus as FcPayloadStatus,
+    PayloadVerificationStatus, ProposerHeadError,
 };
 use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
 use beacon_chain::blob_verification::GossipBlobError;
@@ -85,10 +86,10 @@ pub struct Checks {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct RootAndWeight {
     pub root: Hash256,
     pub weight: u64,
+    pub payload_status: Option<u8>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -624,10 +625,7 @@ impl<E: EthSpec> Tester<E> {
             .slot_clock
             .set_current_time(Duration::from_secs(tick));
 
-        // Compute the slot time manually to ensure the slot clock is correct.
         let slot = self.tick_to_slot(tick).unwrap();
-        assert_eq!(slot, self.harness.chain.slot().unwrap());
-
         self.harness
             .chain
             .canonical_head
@@ -920,11 +918,15 @@ impl<E: EthSpec> Tester<E> {
             signature: AggregateSignature::from(&message.signature),
         };
 
+        let current_slot = self.harness.chain.slot().map_err(|e| {
+            Error::InternalError(format!("reading current slot failed with {:?}", e))
+        })?;
+
         self.harness
             .chain
             .canonical_head
             .fork_choice_write_lock()
-            .on_payload_attestation(slot, &indexed, AttestationFromBlock::False, &ptc.0)
+            .on_payload_attestation(current_slot, &indexed, AttestationFromBlock::False, &ptc.0)
             .map_err(|e| {
                 Error::InternalError(format!("payload attestation import failed with {:?}", e))
             })
@@ -1220,6 +1222,8 @@ impl<E: EthSpec> Tester<E> {
         let justified = fork_choice.justified_checkpoint();
         let finalized = fork_choice.finalized_checkpoint();
         let current_slot = fork_choice.fc_store().get_current_slot();
+        let proposer_boost_root = fork_choice.proposer_boost_root();
+        let justified_balances = fork_choice.fc_store().justified_balances().clone();
         let actual = fork_choice
             .proto_array()
             .filtered_block_tree_leaves_and_weights::<E>(
@@ -1227,6 +1231,9 @@ impl<E: EthSpec> Tester<E> {
                 current_slot,
                 justified,
                 finalized,
+                proposer_boost_root,
+                &justified_balances,
+                &self.spec,
             )
             .map_err(|e| {
                 Error::InternalError(format!(
@@ -1235,10 +1242,15 @@ impl<E: EthSpec> Tester<E> {
             })?;
         drop(fork_choice);
 
-        let mut actual_sorted = actual;
+        let mut actual_sorted: Vec<(Hash256, u8, u64)> = actual
+            .into_iter()
+            .map(|(root, status, weight)| (root, status as u8, weight))
+            .collect();
         actual_sorted.sort();
-        let mut expected_sorted: Vec<(Hash256, u64)> =
-            expected.iter().map(|x| (x.root, x.weight)).collect();
+        let mut expected_sorted: Vec<(Hash256, u8, u64)> = expected
+            .iter()
+            .map(|x| (x.root, x.payload_status.unwrap_or(FcPayloadStatus::Pending as u8), x.weight))
+            .collect();
         expected_sorted.sort();
 
         check_equal(

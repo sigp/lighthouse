@@ -748,7 +748,6 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
 
 pub struct ForkChoiceComplianceHandler<E> {
     handler_name: String,
-    only_fork: Option<ForkName>,
     _phantom: PhantomData<E>,
 }
 
@@ -756,7 +755,6 @@ impl<E: EthSpec> ForkChoiceComplianceHandler<E> {
     pub fn new(handler_name: &str) -> Self {
         Self {
             handler_name: handler_name.into(),
-            only_fork: None,
             _phantom: PhantomData,
         }
     }

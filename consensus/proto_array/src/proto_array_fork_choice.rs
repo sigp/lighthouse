@@ -1089,7 +1089,10 @@ impl ProtoArrayForkChoice {
         current_slot: Slot,
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
-    ) -> Result<Vec<(Hash256, u64)>, String> {
+        proposer_boost_root: Hash256,
+        justified_balances: &JustifiedBalances,
+        spec: &ChainSpec,
+    ) -> Result<Vec<(Hash256, PayloadStatus, u64)>, String> {
         let start_index = self
             .proto_array
             .indices
@@ -1107,6 +1110,12 @@ impl ProtoArrayForkChoice {
             justified_checkpoint,
             finalized_checkpoint,
         );
+
+        let apply_proposer_boost = self
+            .proto_array
+            .should_apply_proposer_boost::<E>(proposer_boost_root, justified_balances, spec)
+            .map_err(|e| format!("should_apply_proposer_boost failed: {e:?}"))?;
+
         let mut leaves = Vec::with_capacity(viable.len());
         for &i in &viable {
             let has_viable_child = viable
@@ -1120,7 +1129,70 @@ impl ProtoArrayForkChoice {
                 .nodes
                 .get(i)
                 .ok_or_else(|| format!("invalid viable node index {i}"))?;
-            leaves.push((node.root(), node.weight()));
+
+            let is_gloas = node.payload_received().is_ok();
+            if is_gloas {
+                // Gloas: expand into Empty/Full virtual children.
+                let empty_fc = IndexedForkChoiceNode {
+                    root: node.root(),
+                    proto_node_index: i,
+                    payload_status: PayloadStatus::Empty,
+                };
+                let empty_weight = self
+                    .proto_array
+                    .get_weight::<E>(
+                        &empty_fc,
+                        node,
+                        apply_proposer_boost,
+                        proposer_boost_root,
+                        current_slot,
+                        justified_balances,
+                        spec,
+                    )
+                    .map_err(|e| format!("get_weight failed: {e:?}"))?;
+                leaves.push((node.root(), PayloadStatus::Empty, empty_weight));
+
+                if node.payload_received().is_ok_and(|r| r) {
+                    let full_fc = IndexedForkChoiceNode {
+                        root: node.root(),
+                        proto_node_index: i,
+                        payload_status: PayloadStatus::Full,
+                    };
+                    let full_weight = self
+                        .proto_array
+                        .get_weight::<E>(
+                            &full_fc,
+                            node,
+                            apply_proposer_boost,
+                            proposer_boost_root,
+                            current_slot,
+                            justified_balances,
+                            spec,
+                        )
+                        .map_err(|e| format!("get_weight failed: {e:?}"))?;
+                    leaves.push((node.root(), PayloadStatus::Full, full_weight));
+                }
+            } else {
+                // Pre-Gloas: use Pending status (no payload split).
+                let fc_node = IndexedForkChoiceNode {
+                    root: node.root(),
+                    proto_node_index: i,
+                    payload_status: PayloadStatus::Pending,
+                };
+                let weight = self
+                    .proto_array
+                    .get_weight::<E>(
+                        &fc_node,
+                        node,
+                        apply_proposer_boost,
+                        proposer_boost_root,
+                        current_slot,
+                        justified_balances,
+                        spec,
+                    )
+                    .map_err(|e| format!("get_weight failed: {e:?}"))?;
+                leaves.push((node.root(), PayloadStatus::Pending, weight));
+            }
         }
         Ok(leaves)
     }
