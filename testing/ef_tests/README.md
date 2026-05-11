@@ -2,7 +2,7 @@
 
 This crate parses and executes the test vectors at [ethereum/consensus-spec-tests](https://github.com/ethereum/consensus-spec-tests).
 
-Functionality is achieved only via the `$ cargo test --features ef_tests` command.
+Functionality is achieved only via the `$ cargo test -p ef_tests --features ef_tests` command.
 
 ## Running the Tests
 
