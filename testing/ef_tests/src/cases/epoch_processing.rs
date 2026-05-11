@@ -452,8 +452,7 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
             let mut pre_epoch_state = pre_epoch_state.clone();
             let mut expected_post_epoch_state = self.post_epoch.clone();
 
-            let mut result: Result<BeaconState<E>, EpochProcessingError> =
-                process_epoch(&mut pre_epoch_state, spec).map(|_| pre_epoch_state);
+            let mut result = process_epoch(&mut pre_epoch_state, spec).map(|_| pre_epoch_state);
             compare_beacon_state_results_without_caches(
                 &mut result,
                 &mut expected_post_epoch_state,
