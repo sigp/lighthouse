@@ -23,6 +23,7 @@ use beacon_chain::{
     },
     custody_context::NodeCustodyType,
     historical_blocks::HistoricalBlockError,
+    kzg_utils::reconstruct_blobs,
     migrate::MigratorConfig,
 };
 use bls::{Keypair, Signature, SignatureBytes};
@@ -67,6 +68,43 @@ static KEYPAIRS: LazyLock<Vec<Keypair>> =
 
 type E = MinimalEthSpec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
+
+/// Retrieve or reconstruct blobs for a given block root. This uses the block's epoch to determine
+/// whether to retrieve blobs directly or reconstruct them from columns.
+///
+/// Returns `None` for Gloas blocks (which have no blob sidecar representation).
+fn get_or_reconstruct_blobs<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    block_root: &Hash256,
+) -> Result<Option<BlobSidecarList<T::EthSpec>>, BeaconChainError> {
+    let Some(block) = chain.store.get_blinded_block(block_root)? else {
+        return Ok(None);
+    };
+
+    if block.fork_name_unchecked().gloas_enabled() {
+        return Ok(None);
+    }
+
+    if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
+        let fork_name = chain.spec.fork_name_at_epoch(block.epoch());
+        if let Some(columns) = chain.store.get_data_columns(block_root, fork_name)? {
+            let num_required_columns = T::EthSpec::number_of_columns() / 2;
+            if columns.len() >= num_required_columns {
+                reconstruct_blobs(&chain.kzg, columns, None, &block, &chain.spec)
+                    .map(Some)
+                    .map_err(BeaconChainError::FailedToReconstructBlobs)
+            } else {
+                Err(BeaconChainError::InsufficientColumnsToReconstructBlobs {
+                    columns_found: columns.len(),
+                })
+            }
+        } else {
+            Ok(None)
+        }
+    } else {
+        Ok(chain.get_blobs(block_root)?.blobs())
+    }
+}
 
 fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>> {
     let store_config = StoreConfig {
@@ -2901,10 +2939,7 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
                 .is_ok()
     );
 
-    let wss_blobs_opt = harness
-        .chain
-        .get_or_reconstruct_blobs(&wss_block_root)
-        .unwrap();
+    let wss_blobs_opt = get_or_reconstruct_blobs(&harness.chain, &wss_block_root).unwrap();
 
     let wss_state = full_store
         .get_state(&wss_state_root, Some(checkpoint_slot), CACHE_STATE_IN_TESTS)
@@ -3042,10 +3077,7 @@ async fn weak_subjectivity_sync_test(
         .state_root_at_slot(checkpoint_slot)
         .unwrap()
         .unwrap();
-    let wss_blobs_opt = harness
-        .chain
-        .get_or_reconstruct_blobs(&wss_block_root)
-        .unwrap();
+    let wss_blobs_opt = get_or_reconstruct_blobs(&harness.chain, &wss_block_root).unwrap();
     let wss_state = full_store
         .get_state(&wss_state_root, Some(checkpoint_slot), CACHE_STATE_IN_TESTS)
         .unwrap()
@@ -3164,9 +3196,7 @@ async fn weak_subjectivity_sync_test(
         .unwrap()
         .unwrap();
     // This test may break in the future if we no longer store the full checkpoint data columns.
-    let store_wss_blobs_opt = beacon_chain
-        .get_or_reconstruct_blobs(&wss_block_root)
-        .unwrap();
+    let store_wss_blobs_opt = get_or_reconstruct_blobs(&beacon_chain, &wss_block_root).unwrap();
 
     assert_eq!(store_wss_block, wss_block);
     // TODO(fulu): Remove this condition once #6760 (PeerDAS checkpoint sync) is merged.

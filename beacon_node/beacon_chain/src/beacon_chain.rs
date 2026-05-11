@@ -38,7 +38,6 @@ use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_e
 use crate::fetch_blobs::EngineGetBlobsOutput;
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
-use crate::kzg_utils::reconstruct_blobs;
 use crate::light_client_finality_update_verification::{
     Error as LightClientFinalityUpdateError, VerifiedLightClientFinalityUpdate,
 };
@@ -1311,53 +1310,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.store
             .get_data_columns(block_root, fork_name)
             .map_err(Error::from)
-    }
-
-    /// Returns the blobs at the given root, if any.
-    ///
-    /// Uses the `block.epoch()` to determine whether to retrieve blobs or columns from the store.
-    ///
-    /// If at least 50% of columns are retrieved, blobs will be reconstructed and returned,
-    /// otherwise an error `InsufficientColumnsToReconstructBlobs` is returned.
-    ///
-    /// ## Errors
-    /// May return a database error.
-    pub fn get_or_reconstruct_blobs(
-        &self,
-        block_root: &Hash256,
-    ) -> Result<Option<BlobSidecarList<T::EthSpec>>, Error> {
-        let Some(block) = self.store.get_blinded_block(block_root)? else {
-            return Ok(None);
-        };
-
-        // Gloas removes the standalone `BlobSidecar` shape — KZG commitments live in the bid and
-        // there's no signed-block-header / inclusion-proof to populate a `BlobSidecar` from. The
-        // canonical data is the column sidecar set on disk; callers needing data for a Gloas
-        // block should consume columns directly via `get_data_columns`.
-        if block.fork_name_unchecked().gloas_enabled() {
-            return Ok(None);
-        }
-
-        if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-            let fork_name = self.spec.fork_name_at_epoch(block.epoch());
-            if let Some(columns) = self.store.get_data_columns(block_root, fork_name)? {
-                let num_required_columns = T::EthSpec::number_of_columns() / 2;
-                let reconstruction_possible = columns.len() >= num_required_columns;
-                if reconstruction_possible {
-                    reconstruct_blobs(&self.kzg, columns, None, &block, &self.spec)
-                        .map(Some)
-                        .map_err(Error::FailedToReconstructBlobs)
-                } else {
-                    Err(Error::InsufficientColumnsToReconstructBlobs {
-                        columns_found: columns.len(),
-                    })
-                }
-            } else {
-                Ok(None)
-            }
-        } else {
-            Ok(self.get_blobs(block_root)?.blobs())
-        }
     }
 
     /// Returns the data columns at the given root, if any.
