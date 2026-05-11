@@ -337,12 +337,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
             AvailabilityCheckError::ReconstructColumnsError(e)
         })?;
 
-        let Some(slot) = all_data_columns.first().map(|d| d.as_data_column().slot()) else {
-            return Ok(DataColumnReconstructionResult::RecoveredColumnsNotImported(
-                "No new columns to import and publish",
-            ));
-        };
-
+        let slot = bid.message.slot;
         let columns_to_sample = self
             .custody_context()
             .sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()), &self.spec);
