@@ -679,9 +679,7 @@ pub fn reconstruct_blobs<E: EthSpec>(
             let num_of_blobs = signed_block
                 .message()
                 .blob_kzg_commitments_len()
-                .ok_or_else(|| {
-                    "Block does not have blob KZG commitments".to_string()
-                })?;
+                .ok_or_else(|| "Block does not have blob KZG commitments".to_string())?;
             (0..num_of_blobs).collect()
         }
     };

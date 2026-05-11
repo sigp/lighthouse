@@ -87,10 +87,7 @@ pub enum GossipDataColumnError {
     /// ## Peer scoring
     ///
     /// The column is invalid or the peer is faulty.
-    InvalidSubnetId {
-        received: u64,
-        expected: u64,
-    },
+    InvalidSubnetId { received: u64, expected: u64 },
     /// The column sidecar is from a slot that is later than the current slot (with respect to the
     /// gossip clock disparity).
     ///
@@ -123,28 +120,19 @@ pub enum GossipDataColumnError {
     /// ## Peer scoring
     ///
     /// The column is invalid and the peer is faulty.
-    ProposerIndexMismatch {
-        sidecar: usize,
-        local: usize,
-    },
+    ProposerIndexMismatch { sidecar: usize, local: usize },
     /// The provided columns's parent block is unknown.
     ///
     /// ## Peer scoring
     ///
     /// We cannot process the columns without validating its parent, the peer isn't necessarily faulty.
-    ParentUnknown {
-        parent_root: Hash256,
-        slot: Slot,
-    },
+    ParentUnknown { parent_root: Hash256, slot: Slot },
     /// The block referenced by the data column is unknown.
     ///
     /// ## Peer scoring
     ///
     /// We cannot process the column without the referenced block, the peer isn't necessarily faulty.
-    BlockRootUnknown {
-        block_root: Hash256,
-        slot: Slot,
-    },
+    BlockRootUnknown { block_root: Hash256, slot: Slot },
     /// The data column slot does not match its referenced block slot.
     ///
     /// ## Peer scoring
@@ -160,9 +148,7 @@ pub enum GossipDataColumnError {
     ///
     /// It's unclear if this column is valid, but it conflicts with finality and shouldn't be
     /// imported.
-    NotFinalizedDescendant {
-        block_parent_root: Hash256,
-    },
+    NotFinalizedDescendant { block_parent_root: Hash256 },
     /// Invalid kzg commitment inclusion proof
     ///
     /// ## Peer scoring
@@ -210,10 +196,7 @@ pub enum GossipDataColumnError {
     /// ## Peer scoring
     ///
     /// The column sidecar is invalid and the peer is faulty
-    InconsistentProofsLength {
-        cells_len: usize,
-        proofs_len: usize,
-    },
+    InconsistentProofsLength { cells_len: usize, proofs_len: usize },
     /// The number of KZG commitments exceeds the maximum number of blobs allowed for the fork. The
     /// sidecar is invalid.
     ///
@@ -400,21 +383,19 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
         verify_is_unknown_sidecar(chain, &column_sidecar)?;
 
         // Check if this column contains any cells not already in the cache. If all cells are
-        // already cached, reject as `PriorKnownUnpublished` to avoid redundant processing.
-        match missing_cells_for_column_sidecar(chain, &column_sidecar)? {
-            Some(_) => Ok(Self {
-                block_root: column_sidecar.block_root(),
-                data_column: KzgVerifiedDataColumn::from_execution_verified(column_sidecar),
-                _phantom: Default::default(),
-            }),
-            None => {
-                // Observe this data column so we don't process it again.
-                if O::observe() {
-                    observe_gossip_data_column(&column_sidecar, chain)?;
-                }
-                Err(GossipDataColumnError::PriorKnownUnpublished)
+        // already cached, observe so we don't process it again — but still return Ok since the
+        // caller needs to publish it on gossip.
+        if missing_cells_for_column_sidecar(chain, &column_sidecar)?.is_none() {
+            if O::observe() {
+                observe_gossip_data_column(&column_sidecar, chain)?;
             }
         }
+
+        Ok(Self {
+            block_root: column_sidecar.block_root(),
+            data_column: KzgVerifiedDataColumn::from_execution_verified(column_sidecar),
+            _phantom: Default::default(),
+        })
     }
 
     /// Create a `GossipVerifiedDataColumn` from `DataColumnSidecar` for testing ONLY.
