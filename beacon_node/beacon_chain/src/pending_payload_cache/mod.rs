@@ -380,12 +380,12 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     /// Collects metrics from the data availability checker.
     pub fn metrics(&self) -> DataAvailabilityCheckerMetrics {
         DataAvailabilityCheckerMetrics {
-            block_cache_size: self.block_cache_size(),
+            cache_size: self.cache_size(),
         }
     }
 
     /// Number of pending component entries in memory in the cache.
-    pub fn block_cache_size(&self) -> usize {
+    pub fn cache_size(&self) -> usize {
         self.availability_cache.read().len()
     }
 
@@ -512,7 +512,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
 
 /// Helper struct to group data availability checker metrics.
 pub struct DataAvailabilityCheckerMetrics {
-    pub block_cache_size: usize,
+    pub cache_size: usize,
 }
 
 #[cfg(test)]
