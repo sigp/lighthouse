@@ -480,12 +480,13 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
         data_columns: Vec<Arc<DataColumnSidecar<E>>>,
         kzg: &Kzg,
     ) -> Result<Vec<Self>, (Option<ColumnIndex>, KzgError)> {
+        let seen_timestamp = timestamp_now();
         verify_kzg_for_data_column_list(data_columns.iter(), kzg)?;
         Ok(data_columns
             .into_iter()
             .map(|column| Self {
                 data: column,
-                seen_timestamp: timestamp_now(),
+                seen_timestamp,
             })
             .collect())
     }
@@ -496,12 +497,13 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
         kzg: &Kzg,
     ) -> Result<Vec<Self>, (Option<ColumnIndex>, KzgError)> {
         let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_BATCH_TIMES);
+        let seen_timestamp = timestamp_now();
         validate_data_columns_with_commitments(kzg, data_columns.iter(), kzg_commitments)?;
         Ok(data_columns
             .into_iter()
             .map(|column| Self {
                 data: column,
-                seen_timestamp: timestamp_now(),
+                seen_timestamp,
             })
             .collect())
     }
