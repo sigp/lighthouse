@@ -644,12 +644,14 @@ impl ProtoArray {
         self.indices.insert(node.root(), node_index);
         self.nodes.push(node.clone());
 
-        // Maintain cached children index.
+        // Maintain cached children index. `parent_index` is already bounds-checked above
+        // against `self.nodes`, and `self.children` is kept in lockstep with `self.nodes`.
         self.children.push(Vec::new());
-        if let Some(parent_index) = node.parent()
-            && let Some(siblings) = self.children.get_mut(parent_index)
-        {
-            siblings.push(node_index);
+        if let Some(parent_index) = node.parent() {
+            self.children
+                .get_mut(parent_index)
+                .ok_or(Error::InvalidNodeIndex(parent_index))?
+                .push(node_index);
         }
 
         if let Some(parent_index) = node.parent()
@@ -1100,16 +1102,18 @@ impl ProtoArray {
 
     /// Rebuild the cached `self.children` index from `self.nodes`. Called once after
     /// deserialization to populate the transient field.
-    pub fn rebuild_children_index(&mut self) {
+    pub fn rebuild_children_index(&mut self) -> Result<(), Error> {
         let mut children = vec![Vec::new(); self.nodes.len()];
         for (i, node) in self.nodes.iter().enumerate() {
-            if let Some(parent_idx) = node.parent()
-                && parent_idx < children.len()
-            {
-                children[parent_idx].push(i);
+            if let Some(parent_idx) = node.parent() {
+                children
+                    .get_mut(parent_idx)
+                    .ok_or(Error::InvalidNodeIndex(parent_idx))?
+                    .push(i);
             }
         }
         self.children = children;
+        Ok(())
     }
 
     /// Spec: `get_filtered_block_tree`.
@@ -1122,8 +1126,7 @@ impl ProtoArray {
         current_slot: Slot,
         best_justified_checkpoint: Checkpoint,
         best_finalized_checkpoint: Checkpoint,
-        children_index: &[Vec<usize>],
-    ) -> HashSet<usize> {
+    ) -> Result<HashSet<usize>, Error> {
         let mut viable = HashSet::new();
         self.filter_block_tree::<E>(
             start_index,
@@ -1131,9 +1134,8 @@ impl ProtoArray {
             best_justified_checkpoint,
             best_finalized_checkpoint,
             &mut viable,
-            children_index,
-        );
-        viable
+        )?;
+        Ok(viable)
     }
 
     /// Spec: `filter_block_tree`.
@@ -1149,30 +1151,32 @@ impl ProtoArray {
         best_justified_checkpoint: Checkpoint,
         best_finalized_checkpoint: Checkpoint,
         viable: &mut HashSet<usize>,
-        children_index: &[Vec<usize>],
-    ) {
+    ) -> Result<(), Error> {
         for node_index in (start_index..self.nodes.len()).rev() {
-            let Some(node) = self.nodes.get(node_index) else {
-                continue;
-            };
+            let node = self
+                .nodes
+                .get(node_index)
+                .ok_or(Error::InvalidNodeIndex(node_index))?;
 
             // Spec: children = [root for root in blocks if blocks[root].parent_root == block_root]
             // Skip execution-invalid children (not in store.blocks in the spec).
-            let children = children_index
+            let children = self
+                .children
                 .get(node_index)
-                .map(|c| c.as_slice())
-                .unwrap_or(&[]);
-            let valid_children: Vec<usize> = children
-                .iter()
-                .copied()
-                .filter(|&i| {
-                    !self.nodes.get(i).is_some_and(|child| {
-                        child
-                            .execution_status()
-                            .is_ok_and(|status| status.is_invalid())
-                    })
-                })
-                .collect();
+                .ok_or(Error::InvalidNodeIndex(node_index))?;
+            let mut valid_children: Vec<usize> = Vec::with_capacity(children.len());
+            for &child_index in children {
+                let child = self
+                    .nodes
+                    .get(child_index)
+                    .ok_or(Error::InvalidNodeIndex(child_index))?;
+                if !child
+                    .execution_status()
+                    .is_ok_and(|status| status.is_invalid())
+                {
+                    valid_children.push(child_index);
+                }
+            }
 
             if !valid_children.is_empty() {
                 // Spec: if any(children): if any(filter_block_tree_result): blocks[block_root] = block
@@ -1191,6 +1195,7 @@ impl ProtoArray {
                 }
             }
         }
+        Ok(())
     }
 
     /// Spec: `get_head`.
@@ -1211,16 +1216,13 @@ impl ProtoArray {
             payload_status: PayloadStatus::Pending,
         };
 
-        let children_index = &self.children;
-
         // Spec: `get_filtered_block_tree`.
         let viable_nodes = self.get_filtered_block_tree::<E>(
             start_index,
             current_slot,
             best_justified_checkpoint,
             best_finalized_checkpoint,
-            children_index,
-        );
+        )?;
 
         // Compute once rather than per-child per-level.
         let apply_proposer_boost =
@@ -1228,7 +1230,7 @@ impl ProtoArray {
 
         loop {
             let children: Vec<_> = self
-                .get_node_children(&head, children_index)?
+                .get_node_children(&head)?
                 .into_iter()
                 .filter(|(fc_node, _)| viable_nodes.contains(&fc_node.proto_node_index))
                 .collect();
@@ -1471,7 +1473,6 @@ impl ProtoArray {
     fn get_node_children(
         &self,
         node: &IndexedForkChoiceNode,
-        children_index: &[Vec<usize>],
     ) -> Result<Vec<(IndexedForkChoiceNode, ProtoNode)>, Error> {
         if node.payload_status == PayloadStatus::Pending {
             let proto_node = self
@@ -1485,29 +1486,28 @@ impl ProtoArray {
             }
             Ok(children)
         } else {
-            Ok(children_index
+            let indices = self
+                .children
                 .get(node.proto_node_index)
-                .map(|indices| {
-                    indices
-                        .iter()
-                        .filter_map(|&child_index| {
-                            let child_node = self.nodes.get(child_index)?;
-                            if child_node.get_parent_payload_status() == node.payload_status {
-                                Some((
-                                    IndexedForkChoiceNode {
-                                        root: child_node.root(),
-                                        proto_node_index: child_index,
-                                        payload_status: PayloadStatus::Pending,
-                                    },
-                                    child_node.clone(),
-                                ))
-                            } else {
-                                None
-                            }
-                        })
-                        .collect()
-                })
-                .unwrap_or_default())
+                .ok_or(Error::InvalidNodeIndex(node.proto_node_index))?;
+            let mut out = Vec::with_capacity(indices.len());
+            for &child_index in indices {
+                let child_node = self
+                    .nodes
+                    .get(child_index)
+                    .ok_or(Error::InvalidNodeIndex(child_index))?;
+                if child_node.get_parent_payload_status() == node.payload_status {
+                    out.push((
+                        IndexedForkChoiceNode {
+                            root: child_node.root(),
+                            proto_node_index: child_index,
+                            payload_status: PayloadStatus::Pending,
+                        },
+                        child_node.clone(),
+                    ));
+                }
+            }
+            Ok(out)
         }
     }
 
@@ -1606,13 +1606,16 @@ impl ProtoArray {
         self.nodes = self.nodes.split_off(finalized_index);
 
         // Drop pruned entries from children index and shift all remaining indices down.
+        // Invariant: child_index > parent_index, and all parents we kept have
+        // index >= finalized_index, so every remaining child_index is also
+        // >= finalized_index.
         self.children = self.children.split_off(finalized_index);
         for children in self.children.iter_mut() {
-            children.retain_mut(|child_index| {
-                *child_index = child_index.wrapping_sub(finalized_index);
-                // Discard children that pointed into the pruned prefix (underflow).
-                *child_index < self.nodes.len()
-            });
+            for child_index in children.iter_mut() {
+                *child_index = child_index
+                    .checked_sub(finalized_index)
+                    .ok_or(Error::IndexOverflow("children"))?;
+            }
         }
 
         // Adjust the indices map.

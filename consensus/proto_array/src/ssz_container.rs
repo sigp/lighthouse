@@ -65,7 +65,7 @@ impl TryFrom<(SszContainerV29, JustifiedBalances)> for ProtoArrayForkChoice {
             indices: from.indices.into_iter().collect::<HashMap<_, _>>(),
             children: Vec::new(),
         };
-        proto_array.rebuild_children_index();
+        proto_array.rebuild_children_index()?;
 
         Ok(Self {
             proto_array,

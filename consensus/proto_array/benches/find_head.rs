@@ -19,7 +19,6 @@ fn get_hash(i: u64) -> ExecutionBlockHash {
 /// Build a linear chain of `num_blocks` blocks.
 fn build_chain(num_blocks: u64, gloas: bool) -> (ProtoArrayForkChoice, types::ChainSpec) {
     let mut spec = MainnetEthSpec::default_spec();
-    spec.proposer_score_boost = Some(50);
     let gloas_fork_slot = 32;
     if gloas {
         spec.gloas_fork_epoch = Some(Epoch::new(1));
@@ -82,57 +81,34 @@ fn build_chain(num_blocks: u64, gloas: bool) -> (ProtoArrayForkChoice, types::Ch
 fn bench_find_head(c: &mut Criterion) {
     let mut group = c.benchmark_group("find_head");
     let equivocating_indices = BTreeSet::new();
+    let finalized_checkpoint = Checkpoint {
+        epoch: Epoch::new(0),
+        root: get_root(0),
+    };
+    let balances = JustifiedBalances::from_effective_balances(vec![1; 64]).unwrap();
 
+    // 216k = ~1 month non-finality mainnet, 518k = ~1 month non-finality Gnosis.
     // Must survive extended non-finality (500k+ blocks).
-    for &num_blocks in &[100, 1_000, 10_000, 50_000, 216_000, 518_000] {
-        let (mut fork_choice, spec) = build_chain(num_blocks, false);
-        let finalized_checkpoint = Checkpoint {
-            epoch: Epoch::new(0),
-            root: get_root(0),
-        };
-        let balances = JustifiedBalances::from_effective_balances(vec![1; 64]).unwrap();
+    for (label, gloas) in [("pre_gloas", false), ("gloas", true)] {
+        for &num_blocks in &[100, 1_000, 10_000, 50_000, 216_000, 518_000] {
+            let (mut fork_choice, spec) = build_chain(num_blocks, gloas);
 
-        group.bench_function(BenchmarkId::new("pre_gloas", num_blocks), |b| {
-            b.iter(|| {
-                fork_choice
-                    .find_head::<MainnetEthSpec>(
-                        finalized_checkpoint,
-                        finalized_checkpoint,
-                        &balances,
-                        Hash256::zero(),
-                        &equivocating_indices,
-                        Slot::new(num_blocks),
-                        &spec,
-                    )
-                    .expect("should find head")
+            group.bench_function(BenchmarkId::new(label, num_blocks), |b| {
+                b.iter(|| {
+                    fork_choice
+                        .find_head::<MainnetEthSpec>(
+                            finalized_checkpoint,
+                            finalized_checkpoint,
+                            &balances,
+                            Hash256::zero(),
+                            &equivocating_indices,
+                            Slot::new(num_blocks),
+                            &spec,
+                        )
+                        .expect("should find head")
+                });
             });
-        });
-    }
-
-    // 216k = ~1 month non-finality mainnet, 518k = ~1 month non-finality Gnosis
-    for &num_blocks in &[100, 1_000, 10_000, 50_000, 216_000, 518_000] {
-        let (mut fork_choice, spec) = build_chain(num_blocks, true);
-        let finalized_checkpoint = Checkpoint {
-            epoch: Epoch::new(0),
-            root: get_root(0),
-        };
-        let balances = JustifiedBalances::from_effective_balances(vec![1; 64]).unwrap();
-
-        group.bench_function(BenchmarkId::new("gloas", num_blocks), |b| {
-            b.iter(|| {
-                fork_choice
-                    .find_head::<MainnetEthSpec>(
-                        finalized_checkpoint,
-                        finalized_checkpoint,
-                        &balances,
-                        Hash256::zero(),
-                        &equivocating_indices,
-                        Slot::new(num_blocks),
-                        &spec,
-                    )
-                    .expect("should find head")
-            });
-        });
+        }
     }
 
     group.finish();
