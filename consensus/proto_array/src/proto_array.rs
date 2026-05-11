@@ -1144,6 +1144,12 @@ impl ProtoArray {
     /// indices than their parents. A single reverse pass therefore processes every
     /// child before its parent, matching the spec's recursive post-order semantics
     /// without recursion (required to survive 500k+ blocks of non-finality).
+    ///
+    /// The spec removes execution-invalid blocks (and their entire subtrees) from
+    /// `store.blocks` before running. We replicate that here with a forward pass
+    /// propagating `excluded` from parent to child — V29 children of an invalidated
+    /// V17 ancestor are excluded transitively, since V29 nodes carry no
+    /// `execution_status` of their own.
     fn filter_block_tree<E: EthSpec>(
         &self,
         start_index: usize,
@@ -1152,30 +1158,37 @@ impl ProtoArray {
         best_finalized_checkpoint: Checkpoint,
         viable: &mut HashSet<usize>,
     ) -> Result<(), Error> {
+        // Forward pass: a node is "excluded" if it (or any ancestor down to
+        // `start_index`) has an invalid execution status.
+        let mut excluded = vec![false; self.nodes.len()];
+        for i in (start_index + 1)..self.nodes.len() {
+            let node = self.nodes.get(i).ok_or(Error::InvalidNodeIndex(i))?;
+            let parent_excluded = node
+                .parent()
+                .is_some_and(|p| excluded.get(p).copied().unwrap_or(false));
+            let self_invalid = node.execution_status().is_ok_and(|s| s.is_invalid());
+            excluded[i] = parent_excluded || self_invalid;
+        }
+
         for node_index in (start_index..self.nodes.len()).rev() {
+            // Spec: invalid subtree removed from `store.blocks` — skip entirely.
+            if excluded[node_index] {
+                continue;
+            }
             let node = self
                 .nodes
                 .get(node_index)
                 .ok_or(Error::InvalidNodeIndex(node_index))?;
 
             // Spec: children = [root for root in blocks if blocks[root].parent_root == block_root]
-            // Skip execution-invalid children (not in store.blocks in the spec).
             let valid_children: Vec<usize> = self
                 .children
                 .get(node_index)
                 .ok_or(Error::InvalidNodeIndex(node_index))?
                 .iter()
                 .copied()
-                .filter_map(|i| {
-                    self.nodes
-                        .get(i)
-                        .ok_or(Error::InvalidNodeIndex(i))
-                        .map(|child| {
-                            (!child.execution_status().is_ok_and(|s| s.is_invalid())).then_some(i)
-                        })
-                        .transpose()
-                })
-                .collect::<Result<_, _>>()?;
+                .filter(|&i| !excluded.get(i).copied().unwrap_or(true))
+                .collect();
 
             if !valid_children.is_empty() {
                 // Spec: if any(children): if any(filter_block_tree_result): blocks[block_root] = block
