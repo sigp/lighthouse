@@ -742,15 +742,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             MessageAcceptance::Ignore,
                         );
                     }
-                    GossipDataColumnError::PubkeyCacheTimeout
+                    GossipDataColumnError::InvalidVariant
+                    | GossipDataColumnError::PubkeyCacheTimeout
                     | GossipDataColumnError::BeaconChainError(_) => {
                         crit!(
                             error = ?err,
                             "Internal error when verifying column sidecar"
                         )
                     }
-                    GossipDataColumnError::InvalidVariant
-                    | GossipDataColumnError::ProposalSignatureInvalid
+                    GossipDataColumnError::ProposalSignatureInvalid
                     | GossipDataColumnError::UnknownValidator(_)
                     | GossipDataColumnError::ProposerIndexMismatch { .. }
                     | GossipDataColumnError::IsNotLaterThanParent { .. }
