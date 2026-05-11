@@ -46,7 +46,7 @@ use ssz::{Decode, Encode};
 use std::fmt;
 use std::future::Future;
 use std::time::Duration;
-use types::{PayloadAttestationData, PayloadAttestationMessage};
+use types::{PayloadAttestationData, PayloadAttestationMessage, SignedProposerPreferences};
 
 pub const V1: EndpointVersion = EndpointVersion(1);
 pub const V2: EndpointVersion = EndpointVersion(2);
@@ -1849,6 +1849,46 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// `POST validator/proposer_preferences`
+    pub async fn post_validator_proposer_preferences(
+        &self,
+        signed_preferences: &[SignedProposerPreferences],
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("proposer_preferences");
+
+        self.post_generic_with_consensus_version(path, &signed_preferences, None, fork_name)
+            .await?;
+
+        Ok(())
+    }
+
+    /// `POST validator/proposer_preferences` (SSZ)
+    pub async fn post_validator_proposer_preferences_ssz(
+        &self,
+        signed_preferences: &Vec<SignedProposerPreferences>,
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("proposer_preferences");
+
+        let ssz_body = signed_preferences.as_ssz_bytes();
+
+        self.post_generic_with_consensus_version_and_ssz_body(path, ssz_body, None, fork_name)
+            .await?;
+
+        Ok(())
+    }
+
     /// `POST beacon/rewards/sync_committee`
     pub async fn post_beacon_rewards_sync_committee(
         &self,
@@ -2990,10 +3030,11 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET validator/payload_attestation_data/{slot}`
+    /// Returns `None` if no block has been received for the requested slot (404).
     pub async fn get_validator_payload_attestation_data(
         &self,
         slot: Slot,
-    ) -> Result<BeaconResponse<PayloadAttestationData>, Error> {
+    ) -> Result<Option<BeaconResponse<PayloadAttestationData>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -3002,16 +3043,23 @@ impl BeaconNodeHttpClient {
             .push("payload_attestation_data")
             .push(&slot.to_string());
 
-        self.get_with_timeout(path, self.timeouts.payload_attestation)
+        let opt_response = self
+            .get_response(path, |b| b.timeout(self.timeouts.payload_attestation))
             .await
-            .map(BeaconResponse::ForkVersioned)
+            .optional()?;
+
+        match opt_response {
+            Some(response) => Ok(Some(BeaconResponse::ForkVersioned(response.json().await?))),
+            None => Ok(None),
+        }
     }
 
     /// `GET validator/payload_attestation_data/{slot}` in SSZ format
+    /// Returns `None` if no block has been received for the requested slot (404).
     pub async fn get_validator_payload_attestation_data_ssz(
         &self,
         slot: Slot,
-    ) -> Result<PayloadAttestationData, Error> {
+    ) -> Result<Option<PayloadAttestationData>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -3024,9 +3072,9 @@ impl BeaconNodeHttpClient {
             .get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.payload_attestation)
             .await?;
 
-        let response_bytes = opt_response.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))?;
-
-        PayloadAttestationData::from_ssz_bytes(&response_bytes).map_err(Error::InvalidSsz)
+        opt_response
+            .map(|bytes| PayloadAttestationData::from_ssz_bytes(&bytes).map_err(Error::InvalidSsz))
+            .transpose()
     }
 
     /// `GET v1/validator/aggregate_attestation?slot,attestation_data_root`

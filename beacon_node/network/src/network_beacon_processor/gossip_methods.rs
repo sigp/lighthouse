@@ -815,6 +815,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             MessageAcceptance::Ignore,
                         );
                     }
+                    GossipDataColumnError::InternalError(err) => {
+                        error!(
+                            error = ?err,
+                            %block_root,
+                            %index,
+                            "Internal error while processing data columns"
+                        );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
                 }
             }
         }
@@ -946,6 +959,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         %unknown_block_root,
                         "Unknown block root for partial column"
                     );
+                    // TODO(gloas): wire this into proper lookup sync. Sending
+                    // `UnknownBlockHashFromAttestation` here is a Fulu-shaped fallback that
+                    // mixes column processing with the attestation lookup path and is not
+                    // the right primitive for Gloas column lookups.
                     self.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
                         peer_id,
                         unknown_block_root,
@@ -1013,6 +1030,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "gossip_partial_data_column_high",
                     );
                 }
+                GossipDataColumnError::InternalError(err) => {
+                    error!(
+                        error = ?err,
+                        %block_root,
+                        %index,
+                        "Internal error while handling partial data column verification"
+                    );
+                }
             },
             GossipPartialDataColumnError::MissingHeader => {
                 metrics::inc_counter(
@@ -1072,7 +1097,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "gossip_partial_data_column_low",
                 );
             }
-            GossipPartialDataColumnError::InternalError(_) => {
+            GossipPartialDataColumnError::InternalError(err) => {
                 error!(
                     error = ?err,
                     %block_root,

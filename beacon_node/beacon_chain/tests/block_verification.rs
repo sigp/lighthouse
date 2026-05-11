@@ -1166,8 +1166,13 @@ async fn block_gossip_verification() {
             )
             .await
             .expect("should import valid gossip verified block");
+        if let Some(data_sidecars) = blobs_opt {
+            verify_and_process_gossip_data_sidecars(&harness, data_sidecars).await;
+        }
         // Post-Gloas, store the execution payload envelope so that subsequent blocks can look up
-        // the parent envelope.
+        // the parent envelope. This must run after gossip column processing because marking the
+        // payload as received in fork choice causes the gossip column path's
+        // `is_block_data_imported` gate to reject otherwise-valid columns as duplicates.
         if let Some(ref envelope) = snapshot.execution_envelope {
             harness
                 .chain
@@ -1180,9 +1185,6 @@ async fn block_gossip_verification() {
                 .fork_choice_write_lock()
                 .on_valid_payload_envelope_received(snapshot.beacon_block_root)
                 .expect("should update fork choice with envelope");
-        }
-        if let Some(data_sidecars) = blobs_opt {
-            verify_and_process_gossip_data_sidecars(&harness, data_sidecars).await;
         }
     }
 

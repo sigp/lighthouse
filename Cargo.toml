@@ -42,7 +42,6 @@ members = [
     "common/system_health",
     "common/target_check",
     "common/task_executor",
-    "common/test_random_derive",
     "common/tracing_samplers",
     "common/validator_dir",
     "common/warp_utils",
@@ -200,6 +199,7 @@ proto_array = { path = "consensus/proto_array" }
 quote = "1"
 r2d2 = "0.8"
 rand = "0.9.0"
+rand_xorshift = "0.4.0"
 rayon = "1.7"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "stream", "rustls-tls"] }

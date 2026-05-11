@@ -154,7 +154,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
 #[cfg(test)]
 mod tests {
-    use types::{Address, BeaconState, EthSpec, MinimalEthSpec, ProposerPreferences, Slot};
+    use types::{
+        Address, BeaconState, EthSpec, Hash256, MinimalEthSpec, ProposerPreferences, Slot,
+    };
 
     use super::verify_preferences_consistency;
     use crate::proposer_preferences_verification::ProposerPreferencesError;
@@ -163,7 +165,7 @@ mod tests {
 
     fn make_preferences(proposal_slot: Slot, validator_index: u64) -> ProposerPreferences {
         ProposerPreferences {
-            dependent_root: types::Hash256::ZERO,
+            dependent_root: Hash256::ZERO,
             proposal_slot,
             validator_index,
             fee_recipient: Address::ZERO,
