@@ -5746,7 +5746,7 @@ async fn test_gloas_hot_state_hierarchy() {
 
         last_block_root = block_root;
         state = block_state;
-
+    }
 
     // Head should be the block at slot 40 with full payload.
     let head = harness.chain.canonical_head.cached_head();
