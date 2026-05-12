@@ -16,9 +16,11 @@ participation_metrics = []
 fork_from_env = []
 portable = ["bls/supranational-portable"]
 test_backfill = []
+arbitrary = ["dep:arbitrary", "types/arbitrary"]
 
 [dependencies]
 alloy-primitives = { workspace = true }
+arbitrary = { workspace = true, optional = true }
 bitvec = { workspace = true }
 bls = { workspace = true }
 educe = { workspace = true }
@@ -74,11 +76,15 @@ types = { workspace = true }
 zstd = { workspace = true }
 
 [dev-dependencies]
+arbitrary = { workspace = true }
+beacon_chain = { path = ".", features = ["arbitrary"] }
 criterion = { workspace = true }
 maplit = { workspace = true }
 mockall = { workspace = true }
 mockall_double = { workspace = true }
+rand_xorshift = { workspace = true }
 serde_json = { workspace = true }
+types = { workspace = true, features = ["arbitrary"] }
 
 [[bench]]
 name = "benches"

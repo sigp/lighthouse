@@ -644,13 +644,12 @@ mod tests {
             DataColumnsByRangeRequestId, DataColumnsByRangeRequester, Id, RangeRequestId,
         },
     };
-    use rand::SeedableRng;
     use std::{collections::HashMap, sync::Arc};
     use tracing::Span;
     use types::{
         Epoch, EthSpec, ExecutionBlockHash, ExecutionPayloadEnvelope, ExecutionPayloadGloas,
         ExecutionRequests, ForkName, Hash256, MinimalEthSpec as E, SignedBeaconBlock,
-        SignedExecutionPayloadEnvelope, Slot, test_utils::XorShiftRng,
+        SignedExecutionPayloadEnvelope, Slot,
     };
 
     fn components_id() -> ComponentsByRangeRequestId {
@@ -697,17 +696,13 @@ mod tests {
     #[test]
     fn no_blobs_into_responses() {
         let spec = Arc::new(test_spec::<E>());
-
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
         let blocks = (0..4)
             .map(|_| {
-                generate_rand_block_and_blobs::<E>(
-                    spec.fork_name_at_epoch(Epoch::new(0)),
-                    NumBlobs::None,
-                    &mut rng,
-                )
-                .0
-                .into()
+                generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut u)
+                    .unwrap()
+                    .0
+                    .into()
             })
             .collect::<Vec<Arc<SignedBeaconBlock<E>>>>();
 
@@ -726,11 +721,12 @@ mod tests {
 
     #[test]
     fn empty_blobs_into_responses() {
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
         let blocks = (0..4)
             .map(|_| {
                 // Always generate some blobs.
-                generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Number(3), &mut rng)
+                generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Number(3), &mut u)
+                    .unwrap()
                     .0
                     .into()
             })
@@ -772,15 +768,16 @@ mod tests {
             .custody_context()
             .sampling_columns_for_epoch(Epoch::new(0), &spec)
             .to_vec();
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
         let blocks = (0..4)
             .map(|_| {
                 generate_rand_block_and_data_columns::<E>(
                     ForkName::Fulu,
                     NumBlobs::Number(1),
-                    &mut rng,
+                    &mut u,
                     &spec,
                 )
+                .unwrap()
             })
             .collect::<Vec<_>>();
 
@@ -884,15 +881,16 @@ mod tests {
             Span::none(),
         );
 
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
         let blocks = (0..4)
             .map(|_| {
                 generate_rand_block_and_data_columns::<E>(
                     ForkName::Fulu,
                     NumBlobs::Number(1),
-                    &mut rng,
+                    &mut u,
                     &spec,
                 )
+                .unwrap()
             })
             .collect::<Vec<_>>();
 
@@ -942,15 +940,16 @@ mod tests {
             .custody_context()
             .sampling_columns_for_epoch(Epoch::new(0), &spec)
             .to_vec();
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
         let blocks = (0..2)
             .map(|_| {
                 generate_rand_block_and_data_columns::<E>(
                     ForkName::Fulu,
                     NumBlobs::Number(1),
-                    &mut rng,
+                    &mut u,
                     &spec,
                 )
+                .unwrap()
             })
             .collect::<Vec<_>>();
 
@@ -1040,15 +1039,16 @@ mod tests {
             .custody_context()
             .sampling_columns_for_epoch(Epoch::new(0), &spec)
             .to_vec();
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
         let blocks = (0..2)
             .map(|_| {
                 generate_rand_block_and_data_columns::<E>(
                     ForkName::Fulu,
                     NumBlobs::Number(1),
-                    &mut rng,
+                    &mut u,
                     &spec,
                 )
+                .unwrap()
             })
             .collect::<Vec<_>>();
 
@@ -1156,15 +1156,16 @@ mod tests {
             .custody_context()
             .sampling_columns_for_epoch(Epoch::new(0), &spec)
             .to_vec();
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
         let blocks = (0..1)
             .map(|_| {
                 generate_rand_block_and_data_columns::<E>(
                     ForkName::Fulu,
                     NumBlobs::Number(1),
-                    &mut rng,
+                    &mut u,
                     &spec,
                 )
+                .unwrap()
             })
             .collect::<Vec<_>>();
 
@@ -1264,17 +1265,21 @@ mod tests {
 
     fn make_gloas_envelope<E: EthSpec>(
         slot: Slot,
-        rng: &mut impl rand::Rng,
+        u: &mut arbitrary::Unstructured,
     ) -> Arc<SignedExecutionPayloadEnvelope<E>> {
         let envelope = ExecutionPayloadEnvelope {
             payload: ExecutionPayloadGloas {
                 slot_number: slot,
-                block_hash: ExecutionBlockHash::from_root(Hash256::from(rng.random::<[u8; 32]>())),
+                block_hash: ExecutionBlockHash::from_root(Hash256::from(
+                    u.arbitrary::<[u8; 32]>().unwrap_or_default(),
+                )),
                 ..ExecutionPayloadGloas::default()
             },
             execution_requests: ExecutionRequests::default(),
             builder_index: 0,
-            beacon_block_root: Hash256::from(rng.random::<[u8; 32]>()),
+            beacon_block_root: Hash256::from(
+                u.arbitrary::<[u8; 32]>().unwrap_or_default(),
+            ),
             parent_beacon_block_root: Hash256::repeat_byte(0),
         };
         Arc::new(SignedExecutionPayloadEnvelope {
@@ -1301,16 +1306,17 @@ mod tests {
         spec.gloas_fork_epoch = Some(Epoch::new(0));
         let spec = Arc::new(spec);
         let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
 
         let blocks = (0..4)
             .map(|_| {
                 let (raw_block, _) = generate_rand_block_and_data_columns::<E>(
                     ForkName::Gloas,
                     NumBlobs::None,
-                    &mut rng,
+                    &mut u,
                     &spec,
-                );
+                )
+                .unwrap();
                 Arc::new(raw_block) as Arc<SignedBeaconBlock<E>>
             })
             .collect::<Vec<_>>();
@@ -1318,7 +1324,7 @@ mod tests {
         // Build envelopes with slots matching each block
         let envelopes: Vec<Arc<SignedExecutionPayloadEnvelope<E>>> = blocks
             .iter()
-            .map(|b| make_gloas_envelope::<E>(b.slot(), &mut rng))
+            .map(|b| make_gloas_envelope::<E>(b.slot(), &mut u))
             .collect();
 
         let components_id = components_id();
@@ -1353,14 +1359,15 @@ mod tests {
         spec.gloas_fork_epoch = Some(Epoch::new(0));
         let spec = Arc::new(spec);
         let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
 
         let (raw_block, _) = generate_rand_block_and_data_columns::<E>(
             ForkName::Gloas,
             NumBlobs::None,
-            &mut rng,
+            &mut u,
             &spec,
-        );
+        )
+        .unwrap();
         let block: Arc<SignedBeaconBlock<E>> = Arc::new(raw_block);
 
         let components_id = components_id();
@@ -1392,14 +1399,15 @@ mod tests {
         spec.gloas_fork_epoch = Some(Epoch::new(0));
         let spec = Arc::new(spec);
         let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        let mut rng = XorShiftRng::from_seed([99; 16]);
+        let mut u = types::test_utils::test_unstructured();
 
         let (raw_block, _) = generate_rand_block_and_data_columns::<E>(
             ForkName::Gloas,
             NumBlobs::None,
-            &mut rng,
+            &mut u,
             &spec,
-        );
+        )
+        .unwrap();
         let block: Arc<SignedBeaconBlock<E>> = Arc::new(raw_block);
         let slot = block.slot();
 
@@ -1417,8 +1425,8 @@ mod tests {
 
         info.add_blocks(blocks_req_id, vec![block]).unwrap();
         // Two envelopes: one matching, one extra at a different slot
-        let env1 = make_gloas_envelope::<E>(slot, &mut rng);
-        let env2 = make_gloas_envelope::<E>(Slot::new(slot.as_u64() + 10), &mut rng);
+        let env1 = make_gloas_envelope::<E>(slot, &mut u);
+        let env2 = make_gloas_envelope::<E>(Slot::new(slot.as_u64() + 10), &mut u);
         info.add_payload_envelopes(env_req_id, vec![env1, env2])
             .unwrap();
 

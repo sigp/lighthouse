@@ -165,13 +165,26 @@ macro_rules! impl_debug {
 /// Contains the functions required for an `Arbitrary` implementation.
 ///
 /// Does not include the `Impl` section since it gets very complicated when it comes to generics.
+///
+/// For `GenericPublicKeyBytes` and `GenericSignatureBytes`, this implementation works correctly
+/// without falling back to zeros.
+///
+/// For `GenericPublicKey`, `GenericSignature` and `GenericAggregateSignature`, this implementation
+/// will almost always fail and fallback to zeros. This matches the behavior of the previous
+/// `TestRandom` impls.
+///
+/// TODO: For proper fuzzing, this implementation needs more consideration on how to
+/// arbitrarily construct valid types.
 #[cfg(feature = "arbitrary")]
 macro_rules! impl_arbitrary {
     ($byte_size: expr) => {
         fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
             let mut bytes = [0u8; $byte_size];
             u.fill_buffer(&mut bytes)?;
-            Self::deserialize(&bytes).map_err(|_| arbitrary::Error::IncorrectFormat)
+            Ok(Self::deserialize(&bytes).unwrap_or_else(|_| {
+                // All-zeros is the "empty" encoding accepted by every BLS type.
+                Self::deserialize(&[0u8; $byte_size]).expect("all-zeros is a valid encoding")
+            }))
         }
     };
 }

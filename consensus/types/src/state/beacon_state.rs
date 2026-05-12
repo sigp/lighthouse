@@ -17,7 +17,6 @@ use ssz_types::{BitVector, FixedVector};
 use std::collections::BTreeMap;
 use superstruct::superstruct;
 use swap_or_not_shuffle::compute_shuffled_index;
-use test_random_derive::TestRandom;
 use tracing::instrument;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
@@ -50,7 +49,6 @@ use crate::{
         get_active_validator_indices,
     },
     sync_committee::{SyncCommittee, SyncDuty},
-    test_utils::TestRandom,
     validator::Validator,
     withdrawal::PendingPartialWithdrawal,
 };
@@ -289,7 +287,6 @@ impl From<BeaconStateHash> for Hash256 {
             Encode,
             Decode,
             TreeHash,
-            TestRandom,
             CompareFields,
         ),
         serde(bound = "E: EthSpec", deny_unknown_fields),
@@ -455,21 +452,21 @@ where
     // History
     #[metastruct(exclude_from(tree_lists))]
     pub latest_block_header: BeaconBlockHeader,
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[compare_fields(as_iter)]
     pub block_roots: Vector<Hash256, E::SlotsPerHistoricalRoot>,
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[compare_fields(as_iter)]
     pub state_roots: Vector<Hash256, E::SlotsPerHistoricalRoot>,
     // Frozen in Capella, replaced by historical_summaries
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[compare_fields(as_iter)]
     pub historical_roots: List<Hash256, E::HistoricalRootsLimit>,
 
     // Ethereum 1.0 chain data
     #[metastruct(exclude_from(tree_lists))]
     pub eth1_data: Eth1Data,
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub eth1_data_votes: List<Eth1Data, E::SlotsPerEth1VotingPeriod>,
     #[superstruct(getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
@@ -478,42 +475,42 @@ where
 
     // Registry
     #[compare_fields(as_iter)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub validators: Validators<E>,
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     #[compare_fields(as_iter)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub balances: List<u64, E::ValidatorRegistryLimit>,
 
     // Randomness
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub randao_mixes: Vector<Hash256, E::EpochsPerHistoricalVector>,
 
     // Slashings
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[serde(with = "ssz_types::serde_utils::quoted_u64_fixed_vec")]
     pub slashings: Vector<u64, E::EpochsPerSlashingsVector>,
 
     // Attestations (genesis fork only)
     #[superstruct(only(Base))]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub previous_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
     #[superstruct(only(Base))]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub current_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
 
     // Participation (Altair and later)
     #[compare_fields(as_iter)]
     #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas))]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[compare_fields(as_iter)]
     pub previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
     #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas))]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub current_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
 
     // Finality
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[metastruct(exclude_from(tree_lists))]
     pub justification_bits: BitVector<E::JustificationBitsLength>,
     #[superstruct(getter(copy))]
@@ -529,7 +526,7 @@ where
     // Inactivity
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas))]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub inactivity_scores: List<u64, E::ValidatorRegistryLimit>,
 
     // Light-client sync committees
@@ -571,7 +568,7 @@ where
     )]
     #[metastruct(exclude_from(tree_lists))]
     pub latest_execution_payload_header: ExecutionPayloadHeaderFulu<E>,
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(only(Gloas))]
     #[metastruct(exclude_from(tree_lists))]
     pub latest_block_hash: ExecutionBlockHash,
@@ -585,7 +582,7 @@ where
     pub next_withdrawal_validator_index: u64,
     // Deep history valid from Capella onwards.
     #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas))]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub historical_summaries: List<HistoricalSummary, E::HistoricalRootsLimit>,
 
     // Electra
@@ -612,28 +609,28 @@ where
     #[metastruct(exclude_from(tree_lists))]
     pub earliest_consolidation_epoch: Epoch,
     #[compare_fields(as_iter)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(only(Electra, Fulu, Gloas))]
     pub pending_deposits: List<PendingDeposit, E::PendingDepositsLimit>,
     #[compare_fields(as_iter)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(only(Electra, Fulu, Gloas))]
     pub pending_partial_withdrawals:
         List<PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
     #[compare_fields(as_iter)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(only(Electra, Fulu, Gloas))]
     pub pending_consolidations: List<PendingConsolidation, E::PendingConsolidationsLimit>,
 
     // Fulu
     #[compare_fields(as_iter)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(only(Fulu, Gloas))]
     #[serde(with = "ssz_types::serde_utils::quoted_u64_fixed_vec")]
     pub proposer_lookahead: Vector<u64, E::ProposerLookaheadSlots>,
     // Gloas
     #[compare_fields(as_iter)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(only(Gloas))]
     pub builders: List<Builder, E::BuilderRegistryLimit>,
 
@@ -642,33 +639,34 @@ where
     #[superstruct(only(Gloas), partial_getter(copy))]
     pub next_withdrawal_builder_index: BuilderIndex,
 
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(only(Gloas))]
     #[metastruct(exclude_from(tree_lists))]
     pub execution_payload_availability: BitVector<E::SlotsPerHistoricalRoot>,
 
     #[compare_fields(as_iter)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(only(Gloas))]
     pub builder_pending_payments: Vector<BuilderPendingPayment, E::BuilderPendingPaymentsLimit>,
 
     #[compare_fields(as_iter)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(only(Gloas))]
     pub builder_pending_withdrawals:
         List<BuilderPendingWithdrawal, E::BuilderPendingWithdrawalsLimit>,
 
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(only(Gloas))]
     #[metastruct(exclude_from(tree_lists))]
     pub latest_execution_payload_bid: ExecutionPayloadBid<E>,
 
     #[compare_fields(as_iter)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(only(Gloas))]
     pub payload_expected_withdrawals: List<Withdrawal, E::MaxWithdrawalsPerPayload>,
 
     #[compare_fields(as_iter)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(only(Gloas))]
     pub ptc_window: Vector<FixedVector<u64, E::PTCSize>, E::PtcWindowLength>,
 
@@ -676,44 +674,44 @@ where
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[metastruct(exclude)]
     pub total_active_balance: Option<(Epoch, u64)>,
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[metastruct(exclude)]
     pub committee_caches: [Arc<CommitteeCache>; CACHED_EPOCHS],
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[metastruct(exclude)]
     pub progressive_balances_cache: ProgressiveBalancesCache,
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[metastruct(exclude)]
     pub pubkey_cache: PubkeyCache,
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[metastruct(exclude)]
     pub exit_cache: ExitCache,
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[metastruct(exclude)]
     pub slashings_cache: SlashingsCache,
     /// Epoch cache of values that are useful for block processing that are static over an epoch.
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
-    #[test_random(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[metastruct(exclude)]
     pub epoch_cache: EpochCache,
 }

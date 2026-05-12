@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, RuntimeFixedVector, RuntimeVariableList, VariableList};
-use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
@@ -25,7 +24,6 @@ use crate::{
     fork::ForkName,
     kzg_ext::KzgProofs,
     state::BeaconStateError,
-    test_utils::TestRandom,
 };
 
 /// Container of the data that identifies an individual blob.
@@ -55,7 +53,7 @@ impl Ord for BlobIdentifier {
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Educe)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, Educe)]
 #[context_deserialize(ForkName)]
 #[serde(bound = "E: EthSpec")]
 #[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]

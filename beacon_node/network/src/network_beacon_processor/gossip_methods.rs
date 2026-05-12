@@ -1865,18 +1865,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 error!(error = %e, "Internal block gossip validation error");
                 return None;
             }
-            Err(BlockError::ParentEnvelopeUnknown { .. }) => {
-                // Gossip validation does not check envelope availability; this should not occur.
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                return None;
-            }
             Err(e @ BlockError::EnvelopeError(_)) => {
                 debug!(error = %e, "Gossip block envelope error");
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                return None;
-            }
-            Err(e @ BlockError::PayloadEnvelopeError { .. }) => {
-                debug!(error = %e, "Gossip block payload envelope error");
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
             }
@@ -4037,46 +4027,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // TODO(gloas) metrics
         // register_process_result_metrics(&result, metrics::BlockSource::Gossip, "envelope");
 
-        match &result {
-            Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
-                // Notify sync so any pending child lookup awaiting this parent envelope unblocks.
-                self.send_sync_message(SyncMessage::GossipEnvelopeImported {
-                    block_root: *block_root,
-                });
-            }
-            Ok(AvailabilityProcessingStatus::MissingComponents(_slot, _block_root)) => {
-                // TODO(gloas): wire this into the envelope DA checker once it exists, analogous to
-                // how `process_availability` drives block import once blobs/columns arrive. Until
-                // then gossip envelopes with missing columns will be stuck until columns arrive via
-                // gossip or engineGetBlobs.
-            }
-            Err(e) => match e {
-                EnvelopeError::ExecutionPayloadError(epe) if !epe.penalize_peer() => {}
-                EnvelopeError::BadSignature
-                | EnvelopeError::BuilderIndexMismatch { .. }
-                | EnvelopeError::SlotMismatch { .. }
-                | EnvelopeError::BlockHashMismatch { .. }
-                | EnvelopeError::UnknownValidator { .. }
-                | EnvelopeError::IncorrectBlockProposer { .. }
-                | EnvelopeError::ExecutionPayloadError(_) => {
-                    self.gossip_penalize_peer(
-                        peer_id,
-                        PeerAction::LowToleranceError,
-                        "gossip_envelope_processing_low",
-                    );
-                }
+        if let Ok(AvailabilityProcessingStatus::Imported(block_root)) = &result {
+            self.send_sync_message(SyncMessage::GossipEnvelopeImported {
+                block_root: *block_root,
+            });
+        }
 
-                EnvelopeError::BlockRootUnknown { .. }
-                | EnvelopeError::EnvelopeProcessingError(_)
-                | EnvelopeError::PriorToFinalization { .. }
-                | EnvelopeError::BeaconChainError(_)
-                | EnvelopeError::BeaconStateError(_)
-                | EnvelopeError::ImportError(_)
-                | EnvelopeError::BlockProcessingError(_)
-                | EnvelopeError::BlockError(_)
-                | EnvelopeError::InternalError(_)
-                | EnvelopeError::OptimisticSyncNotSupported { .. } => {}
-            },
+        if let Err(e) = &result {
+            debug!(
+                ?beacon_block_root,
+                %peer_id,
+                error = ?e,
+                "Execution payload envelope processing failed"
+            );
         }
     }
 

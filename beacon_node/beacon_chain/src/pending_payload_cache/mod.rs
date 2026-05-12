@@ -605,8 +605,7 @@ mod data_availability_checker_tests {
     };
     use fork_choice::PayloadVerificationStatus;
     use logging::create_test_tracing_subscriber;
-    use rand::SeedableRng;
-    use rand::rngs::StdRng;
+    use types::test_utils::test_unstructured;
     use store::{HotColdDB, StoreConfig, database::interface::BeaconNodeBackend};
     use tempfile::{TempDir, tempdir};
     use types::{
@@ -705,15 +704,16 @@ mod data_availability_checker_tests {
         cache: &PendingPayloadCache<T>,
         spec: &ChainSpec,
         num_blobs: NumBlobs,
-        seed: u64,
+        _seed: u64,
     ) -> (
         Arc<SignedExecutionPayloadBid<E>>,
         Hash256,
         DataColumnSidecarList<E>,
     ) {
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut u = test_unstructured();
         let (block, data_columns) =
-            generate_rand_block_and_data_columns::<E>(ForkName::Gloas, num_blobs, &mut rng, spec);
+            generate_rand_block_and_data_columns::<E>(ForkName::Gloas, num_blobs, &mut u, spec)
+                .unwrap();
         let block_root = block.canonical_root();
         let bid = Arc::new(
             block

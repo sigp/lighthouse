@@ -434,6 +434,7 @@ pub enum Work<E: EthSpec> {
     Status(BlockingFn),
     BlocksByRangeRequest(AsyncFn),
     BlocksByRootsRequest(AsyncFn),
+    BlocksByHeadRequest(AsyncFn),
     PayloadEnvelopesByRangeRequest(AsyncFn),
     PayloadEnvelopesByRootRequest(AsyncFn),
     BlobsByRangeRequest(BlockingFn),
@@ -495,6 +496,7 @@ pub enum WorkType {
     Status,
     BlocksByRangeRequest,
     BlocksByRootsRequest,
+    BlocksByHeadRequest,
     PayloadEnvelopesByRangeRequest,
     PayloadEnvelopesByRootRequest,
     BlobsByRangeRequest,
@@ -558,6 +560,7 @@ impl<E: EthSpec> Work<E> {
             Work::Status(_) => WorkType::Status,
             Work::BlocksByRangeRequest(_) => WorkType::BlocksByRangeRequest,
             Work::BlocksByRootsRequest(_) => WorkType::BlocksByRootsRequest,
+            Work::BlocksByHeadRequest(_) => WorkType::BlocksByHeadRequest,
             Work::PayloadEnvelopesByRangeRequest(_) => WorkType::PayloadEnvelopesByRangeRequest,
             Work::PayloadEnvelopesByRootRequest(_) => WorkType::PayloadEnvelopesByRootRequest,
             Work::BlobsByRangeRequest(_) => WorkType::BlobsByRangeRequest,
@@ -1005,6 +1008,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Some(item)
                         } else if let Some(item) = work_queues.block_broots_queue.pop() {
                             Some(item)
+                        } else if let Some(item) = work_queues.block_bhead_queue.pop() {
+                            Some(item)
                         } else if let Some(item) = work_queues.blob_brange_queue.pop() {
                             Some(item)
                         } else if let Some(item) = work_queues.blob_broots_queue.pop() {
@@ -1213,6 +1218,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::BlocksByRootsRequest { .. } => {
                                 work_queues.block_broots_queue.push(work, work_id)
                             }
+                            Work::BlocksByHeadRequest { .. } => {
+                                work_queues.block_bhead_queue.push(work, work_id)
+                            }
                             Work::PayloadEnvelopesByRangeRequest { .. } => work_queues
                                 .payload_envelopes_brange_queue
                                 .push(work, work_id),
@@ -1340,6 +1348,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::Status => work_queues.status_queue.len(),
                         WorkType::BlocksByRangeRequest => work_queues.block_brange_queue.len(),
                         WorkType::BlocksByRootsRequest => work_queues.block_broots_queue.len(),
+                        WorkType::BlocksByHeadRequest => work_queues.block_bhead_queue.len(),
                         WorkType::PayloadEnvelopesByRangeRequest => {
                             work_queues.payload_envelopes_brange_queue.len()
                         }
@@ -1541,6 +1550,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             }
             Work::BlocksByRangeRequest(work)
             | Work::BlocksByRootsRequest(work)
+            | Work::BlocksByHeadRequest(work)
             | Work::PayloadEnvelopesByRangeRequest(work)
             | Work::PayloadEnvelopesByRootRequest(work) => task_spawner.spawn_async(work),
             Work::ChainSegmentBackfill(process_fn) => {
