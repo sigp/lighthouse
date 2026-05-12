@@ -105,7 +105,7 @@ async fn test_sync_committee_rewards() {
 
     // Add block
     let chain = &harness.chain;
-    let (head_state, _) = harness.get_current_state_and_root();
+    let head_state = harness.get_current_state();
     let target_slot = harness.get_current_slot() + 1;
 
     let (block_root, mut state) = harness

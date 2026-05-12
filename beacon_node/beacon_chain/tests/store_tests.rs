@@ -5630,7 +5630,7 @@ async fn test_gloas_block_replay_with_envelopes() {
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
 
     let num_blocks = 16u64;
-    let (genesis_state, _genesis_state_root) = harness.get_current_state_and_root();
+    let genesis_state = harness.get_current_state();
     let mut state = genesis_state.clone();
 
     let mut last_block_root = Hash256::zero();
@@ -5706,7 +5706,7 @@ async fn test_gloas_hot_state_hierarchy() {
     let num_blocks = E::slots_per_epoch() * 5;
     let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
 
-    let (genesis_state, _genesis_state_root) = harness.get_current_state_and_root();
+    let genesis_state = harness.get_current_state();
 
     // Use manual block building with envelopes for the first few blocks,
     // then use the standard attested-blocks path once we've verified envelope handling.
@@ -5746,7 +5746,7 @@ async fn test_gloas_hot_state_hierarchy() {
 
         last_block_root = block_root;
         state = block_state;
-    }
+
 
     // Head should be the block at slot 40 with full payload.
     let head = harness.chain.canonical_head.cached_head();
