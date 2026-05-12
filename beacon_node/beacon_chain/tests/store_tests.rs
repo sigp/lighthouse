@@ -198,11 +198,10 @@ async fn light_client_bootstrap_test() {
     let num_initial_slots = E::slots_per_epoch() * 7;
     let slots: Vec<Slot> = (1..num_initial_slots).map(Slot::new).collect();
 
-    let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
+    let genesis_state = harness.get_current_state();
     harness
         .add_attested_blocks_at_slots_with_lc_data(
             genesis_state.clone(),
-            genesis_state_root,
             &slots,
             &all_validators,
             None,
@@ -258,14 +257,9 @@ async fn light_client_updates_test() {
     let num_initial_slots = E::slots_per_epoch() * 10;
     let slots: Vec<Slot> = (1..num_initial_slots).map(Slot::new).collect();
 
-    let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
+    let genesis_state = harness.get_current_state();
     harness
-        .add_attested_blocks_at_slots(
-            genesis_state.clone(),
-            genesis_state_root,
-            &slots,
-            &all_validators,
-        )
+        .add_attested_blocks_at_slots(genesis_state.clone(), &slots, &all_validators)
         .await;
 
     harness.advance_slot();
@@ -639,7 +633,7 @@ async fn forwards_iter_block_and_state_roots_until() {
 
     for slot in (1..=num_blocks_produced).map(Slot::from) {
         let (block_root, mut state) = harness
-            .add_attested_block_at_slot(slot, head_state, head_state_root, all_validators)
+            .add_attested_block_at_slot(slot, head_state, all_validators)
             .await
             .unwrap();
         head_state_root = state.update_tree_hash_cache().unwrap();
@@ -714,10 +708,10 @@ async fn block_replayer_hooks() {
     let max_slot = *block_slots.last().unwrap();
     let all_slots = (0..=max_slot.as_u64()).map(Slot::new).collect::<Vec<_>>();
 
-    let (state, state_root) = harness.get_current_state_and_root();
+    let state = harness.get_current_state();
     let all_validators = harness.get_all_validators();
     let (_, _, end_block_root, mut end_state) = harness
-        .add_attested_blocks_at_slots(state.clone(), state_root, &block_slots, &all_validators)
+        .add_attested_blocks_at_slots(state.clone(), &block_slots, &all_validators)
         .await;
 
     let blocks = store
@@ -786,10 +780,10 @@ async fn delete_blocks_and_states() {
 
     // Finalize an initial portion of the chain.
     let initial_slots: Vec<Slot> = (1..=unforked_blocks).map(Into::into).collect();
-    let (state, state_root) = harness.get_current_state_and_root();
+    let state = harness.get_current_state();
     let all_validators = harness.get_all_validators();
     harness
-        .add_attested_blocks_at_slots(state, state_root, &initial_slots, &all_validators)
+        .add_attested_blocks_at_slots(state, &initial_slots, &all_validators)
         .await;
 
     // Create a fork post-finalization.
@@ -924,10 +918,10 @@ async fn multi_epoch_fork_valid_blocks_test(
     // Create the initial portion of the chain
     if initial_blocks > 0 {
         let initial_slots: Vec<Slot> = (1..=initial_blocks).map(Into::into).collect();
-        let (state, state_root) = harness.get_current_state_and_root();
+        let state = harness.get_current_state();
         let all_validators = harness.get_all_validators();
         harness
-            .add_attested_blocks_at_slots(state, state_root, &initial_slots, &all_validators)
+            .add_attested_blocks_at_slots(state, &initial_slots, &all_validators)
             .await;
     }
 
@@ -1269,17 +1263,17 @@ async fn proposer_shuffling_root_consistency_test(
 
     // Build chain out to parent block.
     let initial_slots: Vec<Slot> = (1..=parent_slot).map(Into::into).collect();
-    let (state, state_root) = harness.get_current_state_and_root();
+    let state = harness.get_current_state();
     let all_validators = harness.get_all_validators();
     let (_, _, parent_root, _) = harness
-        .add_attested_blocks_at_slots(state, state_root, &initial_slots, &all_validators)
+        .add_attested_blocks_at_slots(state, &initial_slots, &all_validators)
         .await;
 
     // Add the child block.
-    let (state, state_root) = harness.get_current_state_and_root();
+    let state = harness.get_current_state();
     let all_validators = harness.get_all_validators();
     let (_, _, child_root, child_block_state) = harness
-        .add_attested_blocks_at_slots(state, state_root, &[child_slot], &all_validators)
+        .add_attested_blocks_at_slots(state, &[child_slot], &all_validators)
         .await;
 
     let child_block_epoch = child_slot.epoch(E::slots_per_epoch());
@@ -1591,10 +1585,10 @@ async fn proposer_duties_from_head_fulu() {
 
     // Build chain out to parent block.
     let initial_slots: Vec<Slot> = (1..=initial_blocks).map(Into::into).collect();
-    let (state, state_root) = harness.get_current_state_and_root();
+    let state = harness.get_current_state();
     let all_validators = harness.get_all_validators();
     let (_, _, head_block_root, head_state) = harness
-        .add_attested_blocks_at_slots(state, state_root, &initial_slots, &all_validators)
+        .add_attested_blocks_at_slots(state, &initial_slots, &all_validators)
         .await;
 
     // Compute the proposer duties at the next epoch from the head
@@ -1642,10 +1636,10 @@ async fn proposer_lookahead_gloas_fork_epoch() {
 
     // Build chain out to parent block.
     let initial_slots: Vec<Slot> = (1..=initial_blocks).map(Into::into).collect();
-    let (state, state_root) = harness.get_current_state_and_root();
+    let state = harness.get_current_state();
     let all_validators = harness.get_all_validators();
     let (_, _, head_block_root, mut head_state) = harness
-        .add_attested_blocks_at_slots(state, state_root, &initial_slots, &all_validators)
+        .add_attested_blocks_at_slots(state, &initial_slots, &all_validators)
         .await;
     let head_state_root = head_state.canonical_root().unwrap();
 
@@ -1681,7 +1675,7 @@ async fn proposer_lookahead_gloas_fork_epoch() {
     // Build a block in the Gloas fork epoch and assert that the shuffling does not change.
     let gloas_slots = vec![gloas_fork_epoch.start_slot(E::slots_per_epoch())];
     let (_, _, _, _) = harness
-        .add_attested_blocks_at_slots(head_state, head_state_root, &gloas_slots, &all_validators)
+        .add_attested_blocks_at_slots(head_state, &gloas_slots, &all_validators)
         .await;
 
     let (no_lookahead_indices, no_lookahead_dependent_root, _, _, no_lookahead_fork) =
@@ -1704,16 +1698,11 @@ async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
     let store = get_store(&db_path);
     let rig = get_harness(store.clone(), VALIDATOR_COUNT);
     let slots_per_epoch = rig.slots_per_epoch();
-    let (mut state, state_root) = rig.get_current_state_and_root();
+    let mut state = rig.get_current_state();
 
     let canonical_chain_slots: Vec<Slot> = (1..=rig.epoch_start_slot(1)).map(Slot::new).collect();
     let (canonical_chain_blocks_pre_finalization, _, _, new_state) = rig
-        .add_attested_blocks_at_slots(
-            state,
-            state_root,
-            &canonical_chain_slots,
-            &honest_validators,
-        )
+        .add_attested_blocks_at_slots(state, &canonical_chain_slots, &honest_validators)
         .await;
     state = new_state;
     let canonical_chain_slot: u64 = rig.get_current_slot().into();
@@ -1721,14 +1710,9 @@ async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
     let stray_slots: Vec<Slot> = (canonical_chain_slot + 1..rig.epoch_start_slot(2))
         .map(Slot::new)
         .collect();
-    let (current_state, current_state_root) = rig.get_current_state_and_root();
+    let current_state = rig.get_current_state();
     let (stray_blocks, stray_states, stray_head, _) = rig
-        .add_attested_blocks_at_slots(
-            current_state,
-            current_state_root,
-            &stray_slots,
-            &adversarial_validators,
-        )
+        .add_attested_blocks_at_slots(current_state, &stray_slots, &adversarial_validators)
         .await;
 
     // Precondition: Ensure all stray_blocks blocks are still known
@@ -1758,9 +1742,8 @@ async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
         ..=(canonical_chain_slot + slots_per_epoch * 5))
         .map(Slot::new)
         .collect();
-    let state_root = state.update_tree_hash_cache().unwrap();
     let (canonical_chain_blocks_post_finalization, _, _, _) = rig
-        .add_attested_blocks_at_slots(state, state_root, &finalization_slots, &honest_validators)
+        .add_attested_blocks_at_slots(state, &finalization_slots, &honest_validators)
         .await;
 
     // Postcondition: New blocks got finalized
@@ -1815,15 +1798,14 @@ async fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
     let store = get_store(&db_path);
     let rig = get_harness(store.clone(), VALIDATOR_COUNT);
     let slots_per_epoch = rig.slots_per_epoch();
-    let (state, state_root) = rig.get_current_state_and_root();
+    let state = rig.get_current_state();
 
     // Fill up 0th epoch
     let canonical_chain_slots_zeroth_epoch: Vec<Slot> =
         (1..rig.epoch_start_slot(1)).map(Slot::new).collect();
-    let (_, _, _, mut state) = rig
+    let (_, _, _, state) = rig
         .add_attested_blocks_at_slots(
             state,
-            state_root,
             &canonical_chain_slots_zeroth_epoch,
             &honest_validators,
         )
@@ -1834,11 +1816,9 @@ async fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
         ..=rig.epoch_start_slot(1) + 1)
         .map(Slot::new)
         .collect();
-    let state_root = state.update_tree_hash_cache().unwrap();
-    let (canonical_chain_blocks_first_epoch, _, shared_head, mut state) = rig
+    let (canonical_chain_blocks_first_epoch, _, shared_head, state) = rig
         .add_attested_blocks_at_slots(
             state.clone(),
-            state_root,
             &canonical_chain_slots_first_epoch,
             &honest_validators,
         )
@@ -1849,11 +1829,9 @@ async fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
         ..=rig.epoch_start_slot(1) + 2)
         .map(Slot::new)
         .collect();
-    let state_root = state.update_tree_hash_cache().unwrap();
     let (stray_blocks, stray_states, stray_head, _) = rig
         .add_attested_blocks_at_slots(
             state.clone(),
-            state_root,
             &stray_chain_slots_first_epoch,
             &adversarial_validators,
         )
@@ -1890,9 +1868,8 @@ async fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
         ..=(canonical_chain_slot + slots_per_epoch * 5))
         .map(Slot::new)
         .collect();
-    let state_root = state.update_tree_hash_cache().unwrap();
     let (canonical_chain_blocks, _, _, _) = rig
-        .add_attested_blocks_at_slots(state, state_root, &finalization_slots, &honest_validators)
+        .add_attested_blocks_at_slots(state, &finalization_slots, &honest_validators)
         .await;
 
     // Postconditions
@@ -1945,12 +1922,12 @@ async fn pruning_does_not_touch_blocks_prior_to_finalization() {
     let store = get_store(&db_path);
     let rig = get_harness(store.clone(), VALIDATOR_COUNT);
     let slots_per_epoch = rig.slots_per_epoch();
-    let (mut state, state_root) = rig.get_current_state_and_root();
+    let mut state = rig.get_current_state();
 
     // Fill up 0th epoch with canonical chain blocks
     let zeroth_epoch_slots: Vec<Slot> = (1..=rig.epoch_start_slot(1)).map(Slot::new).collect();
     let (canonical_chain_blocks, _, _, new_state) = rig
-        .add_attested_blocks_at_slots(state, state_root, &zeroth_epoch_slots, &honest_validators)
+        .add_attested_blocks_at_slots(state, &zeroth_epoch_slots, &honest_validators)
         .await;
     state = new_state;
     let canonical_chain_slot: u64 = rig.get_current_slot().into();
@@ -1959,14 +1936,8 @@ async fn pruning_does_not_touch_blocks_prior_to_finalization() {
     let first_epoch_slots: Vec<Slot> = ((rig.epoch_start_slot(1) + 1)..(rig.epoch_start_slot(2)))
         .map(Slot::new)
         .collect();
-    let state_root = state.update_tree_hash_cache().unwrap();
     let (stray_blocks, stray_states, stray_head, _) = rig
-        .add_attested_blocks_at_slots(
-            state.clone(),
-            state_root,
-            &first_epoch_slots,
-            &adversarial_validators,
-        )
+        .add_attested_blocks_at_slots(state.clone(), &first_epoch_slots, &adversarial_validators)
         .await;
 
     // Preconditions
@@ -1994,9 +1965,8 @@ async fn pruning_does_not_touch_blocks_prior_to_finalization() {
         ..=(canonical_chain_slot + slots_per_epoch * 4))
         .map(Slot::new)
         .collect();
-    let state_root = state.update_tree_hash_cache().unwrap();
     let (_, _, _, _) = rig
-        .add_attested_blocks_at_slots(state, state_root, &slots, &honest_validators)
+        .add_attested_blocks_at_slots(state, &slots, &honest_validators)
         .await;
 
     // Postconditions
@@ -2037,29 +2007,23 @@ async fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let rig = get_harness(store.clone(), VALIDATOR_COUNT);
-    let (state, state_root) = rig.get_current_state_and_root();
+    let state = rig.get_current_state();
 
     // Fill up 0th epoch with canonical chain blocks
     let zeroth_epoch_slots: Vec<Slot> = (1..=rig.epoch_start_slot(1)).map(Slot::new).collect();
-    let (canonical_blocks_zeroth_epoch, _, _, mut state) = rig
-        .add_attested_blocks_at_slots(state, state_root, &zeroth_epoch_slots, &honest_validators)
+    let (canonical_blocks_zeroth_epoch, _, _, state) = rig
+        .add_attested_blocks_at_slots(state, &zeroth_epoch_slots, &honest_validators)
         .await;
 
     // Fill up 1st epoch.  Contains a fork.
     let slots_first_epoch: Vec<Slot> = (rig.epoch_start_slot(1) + 1..rig.epoch_start_slot(2))
         .map(Into::into)
         .collect();
-    let state_root = state.update_tree_hash_cache().unwrap();
-    let (stray_blocks_first_epoch, stray_states_first_epoch, _, mut stray_state) = rig
-        .add_attested_blocks_at_slots(
-            state.clone(),
-            state_root,
-            &slots_first_epoch,
-            &adversarial_validators,
-        )
+    let (stray_blocks_first_epoch, stray_states_first_epoch, _, stray_state) = rig
+        .add_attested_blocks_at_slots(state.clone(), &slots_first_epoch, &adversarial_validators)
         .await;
-    let (canonical_blocks_first_epoch, _, _, mut canonical_state) = rig
-        .add_attested_blocks_at_slots(state, state_root, &slots_first_epoch, &honest_validators)
+    let (canonical_blocks_first_epoch, _, _, canonical_state) = rig
+        .add_attested_blocks_at_slots(state, &slots_first_epoch, &honest_validators)
         .await;
 
     // Fill up 2nd epoch.  Extends both the canonical chain and the fork.
@@ -2067,11 +2031,9 @@ async fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
         ..=rig.epoch_start_slot(2) + 1)
         .map(Into::into)
         .collect();
-    let stray_state_root = stray_state.update_tree_hash_cache().unwrap();
     let (stray_blocks_second_epoch, stray_states_second_epoch, stray_head, _) = rig
         .add_attested_blocks_at_slots(
             stray_state,
-            stray_state_root,
             &stray_slots_second_epoch,
             &adversarial_validators,
         )
@@ -2114,10 +2076,8 @@ async fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
     let canonical_slots: Vec<Slot> = (rig.epoch_start_slot(2)..=rig.epoch_start_slot(6))
         .map(Into::into)
         .collect();
-    let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
     let (canonical_blocks, _, _, _) = Box::pin(rig.add_attested_blocks_at_slots(
         canonical_state,
-        canonical_state_root,
         &canonical_slots,
         &honest_validators,
     ))
@@ -2179,14 +2139,13 @@ async fn prunes_skipped_slots_states() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let rig = get_harness(store.clone(), VALIDATOR_COUNT);
-    let (state, state_root) = rig.get_current_state_and_root();
+    let state = rig.get_current_state();
 
     let canonical_slots_zeroth_epoch: Vec<Slot> =
         (1..=rig.epoch_start_slot(1)).map(Into::into).collect();
-    let (canonical_blocks_zeroth_epoch, _, _, mut canonical_state) = rig
+    let (canonical_blocks_zeroth_epoch, _, _, canonical_state) = rig
         .add_attested_blocks_at_slots(
             state.clone(),
-            state_root,
             &canonical_slots_zeroth_epoch,
             &honest_validators,
         )
@@ -2197,11 +2156,9 @@ async fn prunes_skipped_slots_states() {
     let stray_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.epoch_start_slot(2))
         .map(Into::into)
         .collect();
-    let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
     let (stray_blocks, stray_states, _, stray_state) = rig
         .add_attested_blocks_at_slots(
             canonical_state.clone(),
-            canonical_state_root,
             &stray_slots,
             &adversarial_validators,
         )
@@ -2242,14 +2199,8 @@ async fn prunes_skipped_slots_states() {
     let canonical_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.epoch_start_slot(7))
         .map(Into::into)
         .collect();
-    let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
     let (canonical_blocks_post_finalization, _, _, _) = rig
-        .add_attested_blocks_at_slots(
-            canonical_state,
-            canonical_state_root,
-            &canonical_slots,
-            &honest_validators,
-        )
+        .add_attested_blocks_at_slots(canonical_state, &canonical_slots, &honest_validators)
         .await;
 
     // Postconditions
@@ -2304,14 +2255,13 @@ async fn finalizes_non_epoch_start_slot() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let rig = get_harness(store.clone(), VALIDATOR_COUNT);
-    let (state, state_root) = rig.get_current_state_and_root();
+    let state = rig.get_current_state();
 
     let canonical_slots_zeroth_epoch: Vec<Slot> =
         (1..rig.epoch_start_slot(1)).map(Into::into).collect();
-    let (canonical_blocks_zeroth_epoch, _, _, mut canonical_state) = rig
+    let (canonical_blocks_zeroth_epoch, _, _, canonical_state) = rig
         .add_attested_blocks_at_slots(
             state.clone(),
-            state_root,
             &canonical_slots_zeroth_epoch,
             &honest_validators,
         )
@@ -2322,11 +2272,9 @@ async fn finalizes_non_epoch_start_slot() {
     let stray_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.epoch_start_slot(2))
         .map(Into::into)
         .collect();
-    let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
     let (stray_blocks, stray_states, _, stray_state) = rig
         .add_attested_blocks_at_slots(
             canonical_state.clone(),
-            canonical_state_root,
             &stray_slots,
             &adversarial_validators,
         )
@@ -2367,14 +2315,8 @@ async fn finalizes_non_epoch_start_slot() {
     let canonical_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.epoch_start_slot(7))
         .map(Into::into)
         .collect();
-    let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
     let (canonical_blocks_post_finalization, _, _, _) = rig
-        .add_attested_blocks_at_slots(
-            canonical_state,
-            canonical_state_root,
-            &canonical_slots,
-            &honest_validators,
-        )
+        .add_attested_blocks_at_slots(canonical_state, &canonical_slots, &honest_validators)
         .await;
 
     // Postconditions
@@ -2597,11 +2539,10 @@ async fn pruning_test(
 
     let start_slot = Slot::new(1);
     let divergence_slot = start_slot + num_initial_blocks;
-    let (state, state_root) = harness.get_current_state_and_root();
+    let state = harness.get_current_state();
     let (_, _, _, divergence_state) = harness
         .add_attested_blocks_at_slots(
             state,
-            state_root,
             &slots(start_slot, num_initial_blocks)[..],
             &honest_validators,
         )
@@ -2626,7 +2567,7 @@ async fn pruning_test(
             ),
         ])
         .await;
-    let (_, _, _, mut canonical_state) = chains.remove(0);
+    let (_, _, _, canonical_state) = chains.remove(0);
     let (stray_blocks, stray_states, _, stray_head_state) = chains.remove(0);
 
     let stray_head_slot = divergence_slot + num_fork_skips + num_fork_blocks - 1;
@@ -2650,11 +2591,9 @@ async fn pruning_test(
     // Trigger finalization
     let num_finalization_blocks = 4 * E::slots_per_epoch();
     let canonical_slot = divergence_slot + num_canonical_skips + num_canonical_middle_blocks;
-    let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
     harness
         .add_attested_blocks_at_slots(
             canonical_state,
-            canonical_state_root,
             &slots(canonical_slot, num_finalization_blocks),
             &honest_validators,
         )
@@ -2862,14 +2801,9 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
     let harness = get_harness_import_all_data_columns(full_store.clone(), LOW_VALIDATOR_COUNT);
     let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
 
-    let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
+    let genesis_state = harness.get_current_state();
     harness
-        .add_attested_blocks_at_slots(
-            genesis_state.clone(),
-            genesis_state_root,
-            &slots,
-            &all_validators,
-        )
+        .add_attested_blocks_at_slots(genesis_state.clone(), &slots, &all_validators)
         .await;
 
     // Extract snapshot data from the harness.
@@ -3016,14 +2950,9 @@ async fn weak_subjectivity_sync_test(
 
     let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
 
-    let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
+    let genesis_state = harness.get_current_state();
     harness
-        .add_attested_blocks_at_slots(
-            genesis_state.clone(),
-            genesis_state_root,
-            &slots,
-            &all_validators,
-        )
+        .add_attested_blocks_at_slots(genesis_state.clone(), &slots, &all_validators)
         .await;
 
     let wss_block_root = harness
@@ -3831,14 +3760,9 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
         .map(Slot::new)
         .collect::<Vec<_>>();
 
-    let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
+    let genesis_state = harness.get_current_state();
     harness
-        .add_attested_blocks_at_slots(
-            genesis_state.clone(),
-            genesis_state_root,
-            &slots,
-            &all_validators,
-        )
+        .add_attested_blocks_at_slots(genesis_state.clone(), &slots, &all_validators)
         .await;
 
     // Before the split slot becomes finalized, create two forking blocks that build on the split
@@ -5706,7 +5630,7 @@ async fn test_gloas_block_replay_with_envelopes() {
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
 
     let num_blocks = 16u64;
-    let (genesis_state, _genesis_state_root) = harness.get_current_state_and_root();
+    let genesis_state = harness.get_current_state();
     let mut state = genesis_state.clone();
 
     let mut last_block_root = Hash256::zero();
@@ -5782,7 +5706,7 @@ async fn test_gloas_hot_state_hierarchy() {
     let num_blocks = E::slots_per_epoch() * 5;
     let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
 
-    let (genesis_state, _genesis_state_root) = harness.get_current_state_and_root();
+    let genesis_state = harness.get_current_state();
 
     // Use manual block building with envelopes for the first few blocks,
     // then use the standard attested-blocks path once we've verified envelope handling.
