@@ -823,6 +823,45 @@ where
             }));
         }
 
+        let execution_status = if let Ok(execution_payload) = block.body().execution_payload() {
+            let block_hash = execution_payload.block_hash();
+
+            if block_hash == ExecutionBlockHash::zero() {
+                // The block is post-merge-fork, but pre-terminal-PoW block. We don't need to verify
+                // the payload.
+                ExecutionStatus::irrelevant()
+            } else {
+                match payload_verification_status {
+                    PayloadVerificationStatus::Verified => ExecutionStatus::Valid(block_hash),
+                    PayloadVerificationStatus::Optimistic => {
+                        ExecutionStatus::Optimistic(block_hash)
+                    }
+                    // It would be a logic error to declare a block irrelevant if it has an
+                    // execution payload with a non-zero block hash.
+                    PayloadVerificationStatus::Irrelevant => {
+                        return Err(Error::InvalidPayloadStatus {
+                            block_slot: block.slot(),
+                            block_root,
+                            payload_verification_status,
+                        });
+                    }
+                }
+            }
+        } else {
+            // There is no payload to verify.
+            ExecutionStatus::irrelevant()
+        };
+
+        let (execution_payload_parent_hash, execution_payload_block_hash) =
+            if let Ok(signed_bid) = block.body().signed_execution_payload_bid() {
+                (
+                    Some(signed_bid.message.parent_block_hash),
+                    Some(signed_bid.message.block_hash),
+                )
+            } else {
+                (None, None)
+            };
+
         let attestation_threshold = spec.get_attestation_due::<E>(block.slot());
 
         // Add proposer score boost if the block is the first timely block for this slot and its
@@ -955,45 +994,6 @@ where
         self.fc_store
             .on_verified_block(block, block_root, state)
             .map_err(Error::AfterBlockFailed)?;
-
-        let execution_status = if let Ok(execution_payload) = block.body().execution_payload() {
-            let block_hash = execution_payload.block_hash();
-
-            if block_hash == ExecutionBlockHash::zero() {
-                // The block is post-merge-fork, but pre-terminal-PoW block. We don't need to verify
-                // the payload.
-                ExecutionStatus::irrelevant()
-            } else {
-                match payload_verification_status {
-                    PayloadVerificationStatus::Verified => ExecutionStatus::Valid(block_hash),
-                    PayloadVerificationStatus::Optimistic => {
-                        ExecutionStatus::Optimistic(block_hash)
-                    }
-                    // It would be a logic error to declare a block irrelevant if it has an
-                    // execution payload with a non-zero block hash.
-                    PayloadVerificationStatus::Irrelevant => {
-                        return Err(Error::InvalidPayloadStatus {
-                            block_slot: block.slot(),
-                            block_root,
-                            payload_verification_status,
-                        });
-                    }
-                }
-            }
-        } else {
-            // There is no payload to verify.
-            ExecutionStatus::irrelevant()
-        };
-
-        let (execution_payload_parent_hash, execution_payload_block_hash) =
-            if let Ok(signed_bid) = block.body().signed_execution_payload_bid() {
-                (
-                    Some(signed_bid.message.parent_block_hash),
-                    Some(signed_bid.message.block_hash),
-                )
-            } else {
-                (None, None)
-            };
 
         // This does not apply a vote to the block, it just makes fork choice aware of the block so
         // it can still be identified as the head even if it doesn't have any votes.

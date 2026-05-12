@@ -865,7 +865,7 @@ impl<E: EthSpec> Tester<E> {
                     block_root,
                     block_delay,
                     &state,
-                    PayloadVerificationStatus::Irrelevant,
+                    PayloadVerificationStatus::Optimistic,
                     block.message().proposer_index(),
                     &self.harness.chain.spec,
                 );
@@ -1249,7 +1249,13 @@ impl<E: EthSpec> Tester<E> {
         actual_sorted.sort();
         let mut expected_sorted: Vec<(Hash256, u8, u64)> = expected
             .iter()
-            .map(|x| (x.root, x.payload_status.unwrap_or(FcPayloadStatus::Pending as u8), x.weight))
+            .map(|x| {
+                (
+                    x.root,
+                    x.payload_status.unwrap_or(FcPayloadStatus::Pending as u8),
+                    x.weight,
+                )
+            })
             .collect();
         expected_sorted.sort();
 
