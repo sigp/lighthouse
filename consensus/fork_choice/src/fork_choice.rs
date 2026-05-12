@@ -185,6 +185,11 @@ pub enum InvalidAttestation {
     /// Post-Gloas: attestation with index == 1 (payload_present) requires the block's
     /// payload to have been received (`root in store.payload_states`).
     PayloadNotReceived { beacon_block_root: Hash256 },
+    /// The attestation slot is not yet in the past (current_slot < attestation_slot + 1).
+    FutureSlot {
+        attestation_slot: Slot,
+        current_slot: Slot,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1111,6 +1116,15 @@ where
 
         if matches!(is_from_block, AttestationFromBlock::False) {
             self.validate_target_epoch_against_current_time(target.epoch)?;
+
+            // Per spec: attestations can only affect the fork choice of subsequent slots.
+            // Reject attestations whose slot is not yet in the past.
+            if self.fc_store.get_current_slot() < indexed_attestation.data().slot + 1 {
+                return Err(InvalidAttestation::FutureSlot {
+                    attestation_slot: indexed_attestation.data().slot,
+                    current_slot: self.fc_store.get_current_slot(),
+                });
+            }
         }
 
         if target.epoch != indexed_attestation.data().slot.epoch(E::slots_per_epoch()) {
