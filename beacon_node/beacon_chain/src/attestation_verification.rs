@@ -1257,22 +1257,22 @@ pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
         });
     }
 
-    // Taking advantage of saturating subtraction on `Slot`.
-    let one_epoch_prior = slot_clock
-        .now_with_past_tolerance(spec.maximum_gossip_clock_disparity())
-        .ok_or(BeaconChainError::UnableToReadSlot)?
-        - E::slots_per_epoch();
-
     let current_fork =
         spec.fork_name_at_slot::<E>(slot_clock.now().ok_or(BeaconChainError::UnableToReadSlot)?);
 
     let earliest_permissible_slot = if current_fork.deneb_enabled() {
         // EIP-7045
-        one_epoch_prior
-            .epoch(E::slots_per_epoch())
-            .start_slot(E::slots_per_epoch())
+        (slot_clock
+            .now_with_past_tolerance(spec.maximum_gossip_clock_disparity())
+            .ok_or(BeaconChainError::UnableToReadSlot)?
+            - E::slots_per_epoch())
+        .epoch(E::slots_per_epoch())
+        .start_slot(E::slots_per_epoch())
     } else {
-        one_epoch_prior
+        slot_clock
+            .now_with_past_tolerance(spec.maximum_gossip_clock_disparity())
+            .ok_or(BeaconChainError::UnableToReadSlot)?
+            - spec.attestation_propagation_slot_range
     };
 
     if attestation_slot < earliest_permissible_slot {
@@ -1587,4 +1587,44 @@ where
                 })
             }))
     })?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use slot_clock::TestingSlotClock;
+    use std::time::Duration;
+    use types::MinimalEthSpec;
+
+    #[test]
+    fn pre_deneb_propagation_window_uses_configured_slot_range() {
+        let mut spec = MinimalEthSpec::default_spec();
+        spec.attestation_propagation_slot_range = 4;
+        spec.deneb_fork_epoch = Some(Epoch::new(1_000));
+
+        let clock =
+            TestingSlotClock::new(spec.genesis_slot, Duration::ZERO, spec.get_slot_duration());
+        clock.set_slot(16);
+
+        // At an exact slot boundary the past gossip tolerance puts the
+        // effective current slot at 15, so a four-slot propagation window
+        // accepts slot 11 and rejects slot 10.
+        let mut attestation = AttestationData {
+            slot: Slot::new(11),
+            ..AttestationData::default()
+        };
+        assert!(
+            verify_propagation_slot_range::<_, MinimalEthSpec>(&clock, &attestation, &spec).is_ok()
+        );
+
+        attestation.slot = Slot::new(10);
+        assert!(matches!(
+            verify_propagation_slot_range::<_, MinimalEthSpec>(&clock, &attestation, &spec),
+            Err(Error::PastSlot {
+                attestation_slot,
+                earliest_permissible_slot,
+            }) if attestation_slot == Slot::new(10)
+                && earliest_permissible_slot == Slot::new(11)
+        ));
+    }
 }
