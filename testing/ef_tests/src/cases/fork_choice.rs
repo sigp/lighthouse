@@ -854,6 +854,9 @@ impl<E: EthSpec> Tester<E> {
                 .seconds_from_current_slot_start()
                 .unwrap();
 
+            // FIXME(sproul): this whole concept is a bit ill-conceived, the blocks just get
+            // rejected here due to passing payload status irrelevant, which is not a real codepath
+            // that should be reached
             let result = self
                 .harness
                 .chain
@@ -865,7 +868,7 @@ impl<E: EthSpec> Tester<E> {
                     block_root,
                     block_delay,
                     &state,
-                    PayloadVerificationStatus::Optimistic,
+                    PayloadVerificationStatus::Irrelevant,
                     block.message().proposer_index(),
                     &self.harness.chain.spec,
                 );
