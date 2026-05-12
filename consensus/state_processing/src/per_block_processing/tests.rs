@@ -12,7 +12,6 @@ use crate::{
 };
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use bls::{AggregateSignature, Keypair, PublicKeyBytes, Signature, SignatureBytes};
-use fixed_bytes::FixedBytesExtended;
 use ssz_types::Bitfield;
 use ssz_types::VariableList;
 use std::sync::{Arc, LazyLock};

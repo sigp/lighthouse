@@ -897,7 +897,6 @@ mod release_tests {
         BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee, test_spec,
     };
     use bls::Keypair;
-    use fixed_bytes::FixedBytesExtended;
     use maplit::hashset;
     use state_processing::epoch_cache::initialize_epoch_cache;
     use state_processing::{VerifyOperation, common::get_attesting_indices_from_state};

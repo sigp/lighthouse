@@ -46,7 +46,7 @@ async fn missed_blocks_across_epochs() {
 
     let harness = get_harness(VALIDATOR_COUNT, vec![]);
     let validator_monitor = &harness.chain.validator_monitor;
-    let mut genesis_state = harness.get_current_state();
+    let genesis_state = harness.get_current_state();
     let genesis_block_root = harness.head_block_root();
 
     // Skip a slot in the first epoch (to prime the cache inside the missed block function) and then
