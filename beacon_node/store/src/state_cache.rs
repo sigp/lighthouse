@@ -272,6 +272,18 @@ impl<E: EthSpec> StateCache<E> {
         Ok(PutStateOutcome::New(deleted_states))
     }
 
+    /// Test-only: insert an exact state/block-root pair without applying the
+    /// normal finalized-state and HDiff policies.
+    pub fn put_state_for_testing(
+        &mut self,
+        state_root: Hash256,
+        block_root: Hash256,
+        state: &BeaconState<E>,
+    ) {
+        self.states.put(state_root, (state_root, state.clone()));
+        self.block_map.insert(block_root, state.slot(), state_root);
+    }
+
     pub fn get_by_state_root(&mut self, state_root: Hash256) -> Option<BeaconState<E>> {
         if let Some(ref finalized_state) = self.finalized_state
             && state_root == finalized_state.state_root

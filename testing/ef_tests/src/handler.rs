@@ -980,9 +980,25 @@ impl<E: EthSpec + TypeName> Handler for ComputeColumnsForCustodyGroupHandler<E> 
     }
 }
 
-#[derive(Educe)]
-#[educe(Default)]
-pub struct GossipValidationHandler<E>(PhantomData<E>);
+pub struct GossipValidationHandler<E> {
+    handler_name: &'static str,
+    _phantom: PhantomData<E>,
+}
+
+impl<E> GossipValidationHandler<E> {
+    pub const fn new(handler_name: &'static str) -> Self {
+        Self {
+            handler_name,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<E> Default for GossipValidationHandler<E> {
+    fn default() -> Self {
+        Self::new(cases::GOSSIP_VALIDATION_HANDLER_NAME)
+    }
+}
 
 impl<E: EthSpec + TypeName> Handler for GossipValidationHandler<E> {
     type Case = cases::GossipValidation<E>;
@@ -996,7 +1012,11 @@ impl<E: EthSpec + TypeName> Handler for GossipValidationHandler<E> {
     }
 
     fn handler_name(&self) -> String {
-        "gossip_validation".into()
+        self.handler_name.into()
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        cases::gossip_validation_handler_path::<E>(fork_name, self.handler_name).exists()
     }
 
     fn use_rayon() -> bool {

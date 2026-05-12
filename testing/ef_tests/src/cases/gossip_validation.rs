@@ -3,12 +3,13 @@ use crate::decode::{
     snappy_decode_file, ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file,
 };
 use crate::type_name::TypeName;
-use ::fork_choice::InvalidationOperation;
+use ::fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use beacon_chain::attestation_verification::Error as AttestationError;
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::sync_committee_verification::Error as SyncCommitteeError;
 use beacon_chain::{
-    AvailabilityProcessingStatus, BeaconChainError, BlockError, ChainConfig, NotifyExecutionLayer,
+    AvailabilityProcessingStatus, BeaconChainError, BeaconSnapshot, BlockError, ChainConfig,
+    NotifyExecutionLayer,
     custody_context::NodeCustodyType,
     observed_operations::ObservationOutcome,
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
@@ -17,6 +18,10 @@ use operation_pool::ReceivedPreCapella;
 use serde::Deserialize;
 use ssz::Decode;
 use state_processing::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
+use state_processing::genesis::genesis_block;
+use state_processing::per_block_processing::errors::{
+    AttesterSlashingInvalid, BlockOperationError, IndexedAttestationInvalid,
+};
 use std::collections::HashSet;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -31,8 +36,20 @@ use types::{
     SyncCommitteeMessage, SyncSubnetId,
 };
 
-pub(crate) const RUNNER_NAME: &str = "networking";
-pub(crate) const HANDLER_NAME: &str = "gossip_validation";
+pub const RUNNER_NAME: &str = "networking";
+pub const GOSSIP_VALIDATION_HANDLER_NAME: &str = "gossip_validation";
+pub const GOSSIP_VALIDATION_HANDLER_NAMES: &[&str] = &[
+    GOSSIP_VALIDATION_HANDLER_NAME,
+    "gossip_attester_slashing",
+    "gossip_beacon_aggregate_and_proof",
+    "gossip_beacon_attestation",
+    "gossip_beacon_block",
+    "gossip_bls_to_execution_change",
+    "gossip_proposer_slashing",
+    "gossip_sync_committee_contribution_and_proof",
+    "gossip_sync_committee_message",
+    "gossip_voluntary_exit",
+];
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -41,8 +58,11 @@ struct Meta {
     #[serde(default)]
     blocks: Vec<BlockMeta>,
     finalized_checkpoint: Option<FinalizedCheckpointMeta>,
-    current_time_ms: u64,
+    #[serde(default)]
+    current_time_ms: Option<u64>,
     messages: Vec<MessageMeta>,
+    #[serde(default, rename = "bls_setting")]
+    _bls_setting: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -57,6 +77,7 @@ struct BlockMeta {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MessageMeta {
+    #[serde(default)]
     offset_ms: u64,
     subnet_id: Option<u64>,
     message: String,
@@ -107,6 +128,7 @@ pub struct GossipValidation<E: EthSpec> {
     description: String,
     path: PathBuf,
     meta: Meta,
+    current_time_ms: u64,
     state: BeaconState<E>,
     blocks: Vec<PreloadedBlock<E>>,
     messages: Vec<Message<E>>,
@@ -129,6 +151,7 @@ enum Message<E: EthSpec> {
     SyncCommitteeContributionAndProof(SignedContributionAndProof<E>),
     SyncCommittee(SyncCommitteeMessage),
     BlsToExecutionChange(SignedBlsToExecutionChange),
+    InvalidBls,
 }
 
 #[derive(Debug)]
@@ -146,9 +169,16 @@ impl<E: EthSpec> LoadCase for GossipValidation<E> {
             .to_str()
             .expect("path must be valid OsStr")
             .to_string();
-        let spec = &testing_spec::<E>(fork_name);
         let meta: Meta = yaml_decode_file(&path.join("meta.yaml"))?;
+        let spec = &testing_spec::<E>(fork_name);
         let state = ssz_decode_state(&path.join("state.ssz_snappy"), spec)?;
+        let current_time_ms = meta.current_time_ms.unwrap_or_else(|| {
+            state
+                .slot()
+                .saturating_sub(spec.genesis_slot)
+                .as_u64()
+                .saturating_mul(spec.get_slot_duration().as_millis() as u64)
+        });
 
         let blocks = meta
             .blocks
@@ -173,6 +203,7 @@ impl<E: EthSpec> LoadCase for GossipValidation<E> {
             description,
             path: path.to_path_buf(),
             meta,
+            current_time_ms,
             state,
             blocks,
             messages,
@@ -186,7 +217,7 @@ impl<E: EthSpec + TypeName> Case for GossipValidation<E> {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        gossip_validation_handler_path::<E>(fork_name).exists()
+        gossip_validation_handler_path::<E>(fork_name, GOSSIP_VALIDATION_HANDLER_NAME).exists()
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
@@ -194,8 +225,7 @@ impl<E: EthSpec + TypeName> Case for GossipValidation<E> {
 
         for (message_meta, message) in self.meta.messages.iter().zip(&self.messages) {
             tester.set_time_ms(
-                self.meta
-                    .current_time_ms
+                self.current_time_ms
                     .checked_add(message_meta.offset_ms)
                     .ok_or_else(|| Error::FailedToParseTest("message time overflows u64".into()))?,
             )?;
@@ -220,14 +250,30 @@ impl<E: EthSpec + TypeName> Case for GossipValidation<E> {
     }
 }
 
-fn gossip_validation_handler_path<E: EthSpec + TypeName>(fork_name: ForkName) -> PathBuf {
+impl<E: EthSpec> GossipValidation<E> {
+    fn requires_pre_capella_wall_clock(&self) -> bool {
+        self.meta.topic == Topic::BlsToExecutionChange
+            && self.meta.messages.iter().any(|message| {
+                message.expected == Expected::Ignore
+                    && message
+                        .reason
+                        .as_deref()
+                        .is_some_and(|reason| reason.contains("pre-capella"))
+            })
+    }
+}
+
+pub fn gossip_validation_handler_path<E: EthSpec + TypeName>(
+    fork_name: ForkName,
+    handler_name: &str,
+) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("consensus-spec-tests")
         .join("tests")
         .join(E::name())
         .join(fork_name.to_string())
         .join(RUNNER_NAME)
-        .join(HANDLER_NAME)
+        .join(handler_name)
 }
 
 fn decode_block<E: EthSpec>(
@@ -244,7 +290,7 @@ fn decode_message<E: EthSpec>(
     message_meta: &MessageMeta,
 ) -> Result<Message<E>, Error> {
     let path = path.join(format!("{}.ssz_snappy", message_meta.message));
-    match topic {
+    let decoded = match topic {
         Topic::BeaconBlock => decode_block(&path, &testing_spec::<E>(fork_name))
             .map(Arc::new)
             .map(Message::BeaconBlock),
@@ -263,6 +309,11 @@ fn decode_message<E: EthSpec>(
         }
         Topic::SyncCommittee => ssz_decode_file(&path).map(Message::SyncCommittee),
         Topic::BlsToExecutionChange => ssz_decode_file(&path).map(Message::BlsToExecutionChange),
+    };
+
+    match decoded {
+        Err(Error::InvalidBLSInput(_)) => Ok(Message::InvalidBls),
+        result => result,
     }
 }
 
@@ -322,27 +373,97 @@ fn decode_attester_slashing<E: EthSpec>(
     }
 }
 
+fn reset_state_to_builder_genesis_slot<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    spec: &types::ChainSpec,
+) -> Result<(), Error> {
+    *state.slot_mut() = spec.genesis_slot;
+    let latest_block_header = genesis_block(state, spec)
+        .map_err(|e| Error::FailedToParseTest(format!("failed to build genesis block: {e:?}")))?
+        .temporary_block_header();
+    match state {
+        BeaconState::Base(state) => state.latest_block_header = latest_block_header,
+        BeaconState::Altair(state) => state.latest_block_header = latest_block_header,
+        BeaconState::Bellatrix(state) => state.latest_block_header = latest_block_header,
+        BeaconState::Capella(state) => state.latest_block_header = latest_block_header,
+        BeaconState::Deneb(state) => state.latest_block_header = latest_block_header,
+        BeaconState::Electra(state) => state.latest_block_header = latest_block_header,
+        BeaconState::Fulu(state) => state.latest_block_header = latest_block_header,
+        BeaconState::Gloas(state) => state.latest_block_header = latest_block_header,
+    }
+    Ok(())
+}
+
+fn set_state_latest_block_header<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    block: &SignedBeaconBlock<E>,
+) {
+    let latest_block_header = block.message().block_header();
+    match state {
+        BeaconState::Base(state) => state.latest_block_header = latest_block_header,
+        BeaconState::Altair(state) => state.latest_block_header = latest_block_header,
+        BeaconState::Bellatrix(state) => state.latest_block_header = latest_block_header,
+        BeaconState::Capella(state) => state.latest_block_header = latest_block_header,
+        BeaconState::Deneb(state) => state.latest_block_header = latest_block_header,
+        BeaconState::Electra(state) => state.latest_block_header = latest_block_header,
+        BeaconState::Fulu(state) => state.latest_block_header = latest_block_header,
+        BeaconState::Gloas(state) => state.latest_block_header = latest_block_header,
+    }
+}
+
+fn attestation_head_root<E: EthSpec>(attestation: &AttestationMessage<E>) -> Hash256 {
+    match attestation {
+        AttestationMessage::Single(single_attestation) => single_attestation.data.beacon_block_root,
+        AttestationMessage::Attestation(attestation) => attestation.data().beacon_block_root,
+    }
+}
+
 struct GossipValidationTester<E: EthSpec> {
     harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     genesis_time: u64,
     failed_block_roots: Mutex<HashSet<Hash256>>,
+    execution_valid_failed_block_roots: HashSet<Hash256>,
+    state_is_post_capella: bool,
+    force_pre_capella_bls_to_execution_change: bool,
 }
 
 impl<E: EthSpec> GossipValidationTester<E> {
     fn new(case: &GossipValidation<E>, spec: types::ChainSpec) -> Result<Self, Error> {
         let genesis_time = case.state.genesis_time();
         let mut state = case.state.clone();
-
-        if state.slot() != spec.genesis_slot {
-            return Err(Error::FailedToParseTest(format!(
-                "gossip_validation currently supports genesis states only, got state slot {}",
-                state.slot()
-            )));
-        }
+        let state_slot = state.slot();
+        let trusted_preload_setup = state_slot != spec.genesis_slot
+            || (case.meta.topic == Topic::SyncCommitteeContributionAndProof
+                && case.blocks.is_empty())
+            || case
+                .blocks
+                .iter()
+                .any(|block| block.block.slot() == spec.genesis_slot);
 
         initialize_progressive_balances_cache(&mut state, &spec).map_err(|e| {
             Error::FailedToParseTest(format!("failed to update progressive balances: {e:?}"))
         })?;
+        let state_root = state.update_tree_hash_cache().map_err(|e| {
+            Error::FailedToParseTest(format!("failed to compute vector state root: {e:?}"))
+        })?;
+        let state_fork_version = state.fork().current_version;
+        let state_is_post_capella = [
+            spec.capella_fork_version,
+            spec.deneb_fork_version,
+            spec.electra_fork_version,
+            spec.fulu_fork_version,
+            spec.gloas_fork_version,
+        ]
+        .contains(&state_fork_version);
+        let mut builder_state = state.clone();
+        if trusted_preload_setup {
+            reset_state_to_builder_genesis_slot(&mut builder_state, &spec)?;
+            builder_state.update_tree_hash_cache().map_err(|e| {
+                Error::FailedToParseTest(format!(
+                    "failed to compute trusted builder state root: {e:?}"
+                ))
+            })?;
+        }
 
         let mut chain_config = ChainConfig {
             archive: true,
@@ -359,7 +480,7 @@ impl<E: EthSpec> GossipValidationTester<E> {
             .spec(Arc::new(spec.clone()))
             .keypairs(vec![])
             .chain_config(chain_config)
-            .genesis_state_ephemeral_store(state)
+            .genesis_state_ephemeral_store(builder_state)
             .mock_execution_layer()
             .recalculate_fork_times_with_genesis(genesis_time)
             .node_custody_type(NodeCustodyType::Supernode)
@@ -383,15 +504,47 @@ impl<E: EthSpec> GossipValidationTester<E> {
                     .map(|block| block.block.canonical_root())
                     .collect(),
             ),
+            execution_valid_failed_block_roots: case
+                .blocks
+                .iter()
+                .filter(|block| {
+                    block.meta.failed && block.meta.payload_status == Some(PayloadStatus::Valid)
+                })
+                .map(|block| block.block.canonical_root())
+                .collect(),
+            state_is_post_capella,
+            force_pre_capella_bls_to_execution_change: case.requires_pre_capella_wall_clock(),
         };
 
-        for preloaded_block in &case.blocks {
-            tester.process_preloaded_block(preloaded_block)?;
+        if trusted_preload_setup {
+            tester.setup_trusted_preload_context(case, &state, state_root)?;
         }
+
+        tester.set_time_ms(case.current_time_ms)?;
+        let preload_current_slot = tester
+            .harness
+            .chain
+            .slot()
+            .map_err(|e| Error::InternalError(format!("unable to read preload slot: {e:?}")))?;
+
+        for preloaded_block in &case.blocks {
+            if trusted_preload_setup {
+                tester.process_trusted_preloaded_block(
+                    preloaded_block,
+                    &state,
+                    preload_current_slot,
+                )?;
+            } else {
+                tester.process_preloaded_block(preloaded_block)?;
+            }
+        }
+
         tester.mock_execution_layer().server.all_payloads_valid();
 
         if let Some(meta) = case.meta.finalized_checkpoint.as_ref() {
             tester.apply_finalized_checkpoint_override(case, meta)?;
+        } else {
+            tester.apply_state_finalized_checkpoint(case, state.finalized_checkpoint())?;
         }
 
         Ok(tester)
@@ -407,6 +560,26 @@ impl<E: EthSpec> GossipValidationTester<E> {
     }
 
     fn set_time_ms(&self, current_time_ms: u64) -> Result<(), Error> {
+        let slot_duration_ms = self.harness.chain.spec.get_slot_duration().as_millis() as u64;
+        let gossip_disparity_ms = self
+            .harness
+            .chain
+            .spec
+            .maximum_gossip_clock_disparity()
+            .as_millis() as u64;
+        // EF vectors use millisecond timestamps at gossip-disparity
+        // boundaries. Lighthouse's slot clock treats an exact slot boundary
+        // as the new slot, so nudge past-tolerance boundary cases back by 1ms
+        // to keep them on the vector's intended side without affecting
+        // future-tolerance boundaries.
+        let current_time_ms = if slot_duration_ms != 0
+            && current_time_ms >= slot_duration_ms
+            && current_time_ms % slot_duration_ms == gossip_disparity_ms
+        {
+            current_time_ms.saturating_sub(1)
+        } else {
+            current_time_ms
+        };
         let current_time = Duration::from_secs(self.genesis_time)
             .checked_add(Duration::from_millis(current_time_ms))
             .ok_or_else(|| Error::FailedToParseTest("current time overflows Duration".into()))?;
@@ -457,12 +630,19 @@ impl<E: EthSpec> GossipValidationTester<E> {
             Message::BlsToExecutionChange(change) => {
                 self.validate_bls_to_execution_change(change.clone())
             }
+            Message::InvalidBls => Ok(Expected::Reject),
         }
     }
 
     fn validate_block(&self, block: Arc<SignedBeaconBlock<E>>) -> Result<Expected, Error> {
         if self.is_failed_parent(&block) {
             self.record_failed_block(block.canonical_root());
+            if self
+                .execution_valid_failed_block_roots
+                .contains(&block.parent_root())
+            {
+                return Ok(Expected::Ignore);
+            }
             return Ok(Expected::Reject);
         }
 
@@ -471,7 +651,7 @@ impl<E: EthSpec> GossipValidationTester<E> {
             self.block_on_dangerous(self.harness.chain.clone().verify_block_for_gossip(block))?;
         match result {
             Ok(verified_block) => {
-                self.import_verified_block(verified_block)?;
+                let _ = self.import_verified_block(verified_block);
                 Ok(Expected::Valid)
             }
             Err(error) => {
@@ -490,10 +670,21 @@ impl<E: EthSpec> GossipValidationTester<E> {
         subnet_id: Option<u64>,
         fork_name: ForkName,
     ) -> Result<Expected, Error> {
+        if self.is_failed_attestation_head(attestation) {
+            return Ok(Expected::Reject);
+        }
+
+        if !self.is_finalized_descendant(attestation_head_root(attestation)) {
+            return Ok(Expected::Ignore);
+        }
+
         let single_attestation = match attestation {
             AttestationMessage::Single(single_attestation) => single_attestation.clone(),
             AttestationMessage::Attestation(attestation) => {
-                self.attestation_to_single(attestation, fork_name)?
+                match self.attestation_to_single(attestation, fork_name)? {
+                    Some(single_attestation) => single_attestation,
+                    None => return Ok(Expected::Reject),
+                }
             }
         };
         let subnet_id = subnet_id.map(SubnetId::new);
@@ -521,6 +712,15 @@ impl<E: EthSpec> GossipValidationTester<E> {
         &self,
         aggregate: &SignedAggregateAndProof<E>,
     ) -> Result<Expected, Error> {
+        if self
+            .failed_block_roots
+            .lock()
+            .expect("failed block roots lock poisoned")
+            .contains(&aggregate.message().aggregate().data().beacon_block_root)
+        {
+            return Ok(Expected::Reject);
+        }
+
         match self
             .harness
             .chain
@@ -588,7 +788,9 @@ impl<E: EthSpec> GossipValidationTester<E> {
                 self.harness.chain.import_voluntary_exit(exit);
                 Ok(Expected::Valid)
             }
-            Ok(ObservationOutcome::AlreadyKnown) | Err(_) => Ok(Expected::Ignore),
+            Ok(ObservationOutcome::AlreadyKnown) => Ok(Expected::Ignore),
+            Err(BeaconChainError::ExitValidationError(_)) => Ok(Expected::Reject),
+            Err(_) => Ok(Expected::Ignore),
         }
     }
 
@@ -602,7 +804,9 @@ impl<E: EthSpec> GossipValidationTester<E> {
                 self.harness.chain.import_proposer_slashing(slashing);
                 Ok(Expected::Valid)
             }
-            Ok(ObservationOutcome::AlreadyKnown) | Err(_) => Ok(Expected::Ignore),
+            Ok(ObservationOutcome::AlreadyKnown) => Ok(Expected::Ignore),
+            Err(BeaconChainError::ProposerSlashingValidationError(_)) => Ok(Expected::Reject),
+            Err(_) => Ok(Expected::Ignore),
         }
     }
 
@@ -616,7 +820,8 @@ impl<E: EthSpec> GossipValidationTester<E> {
                 self.harness.chain.import_attester_slashing(slashing);
                 Ok(Expected::Valid)
             }
-            Ok(ObservationOutcome::AlreadyKnown) | Err(_) => Ok(Expected::Ignore),
+            Ok(ObservationOutcome::AlreadyKnown) => Ok(Expected::Ignore),
+            Err(error) => Ok(classify_attester_slashing_error(&error)),
         }
     }
 
@@ -624,6 +829,10 @@ impl<E: EthSpec> GossipValidationTester<E> {
         &self,
         change: SignedBlsToExecutionChange,
     ) -> Result<Expected, Error> {
+        if self.force_pre_capella_bls_to_execution_change || !self.state_is_post_capella {
+            return Ok(Expected::Ignore);
+        }
+
         match self
             .harness
             .chain
@@ -645,37 +854,37 @@ impl<E: EthSpec> GossipValidationTester<E> {
         &self,
         attestation: &Attestation<E>,
         fork_name: ForkName,
-    ) -> Result<SingleAttestation, Error> {
+    ) -> Result<Option<SingleAttestation>, Error> {
         let aggregation_bits = attestation.get_aggregation_bits();
         if aggregation_bits.len() != 1 {
-            return Err(Error::FailedToParseTest(format!(
-                "beacon_attestation must be unaggregated, got {} aggregation bits",
-                aggregation_bits.len()
-            )));
+            return Ok(None);
         }
+        let aggregation_bit = aggregation_bits[0] as usize;
 
         let committee_index = attestation
             .committee_index()
             .ok_or_else(|| Error::FailedToParseTest("attestation has no committee index".into()))?;
-        let aggregation_bit = aggregation_bits[0] as usize;
-        let committee = self
-            .harness
-            .chain
-            .with_committee_cache(
-                attestation.data().target.root,
-                attestation.data().target.epoch,
-                |committee_cache, _| {
-                    committee_cache
-                        .get_beacon_committee(attestation.data().slot, committee_index)
-                        .map(|committee| committee.committee.to_vec())
-                        .ok_or_else(|| BeaconChainError::NoStateForAttestation {
-                            beacon_block_root: attestation.data().beacon_block_root,
-                        })
-                },
-            )
-            .map_err(|e| {
-                Error::InternalError(format!("unable to load attestation committee: {e:?}"))
-            })?;
+        let committee = match self.harness.chain.with_committee_cache(
+            attestation.data().target.root,
+            attestation.data().target.epoch,
+            |committee_cache, _| {
+                committee_cache
+                    .get_beacon_committee(attestation.data().slot, committee_index)
+                    .map(|committee| committee.committee.to_vec())
+                    .ok_or_else(|| BeaconChainError::NoStateForAttestation {
+                        beacon_block_root: attestation.data().beacon_block_root,
+                    })
+            },
+        ) {
+            Ok(committee) => committee,
+            Err(BeaconChainError::MissingBeaconBlock(_))
+            | Err(BeaconChainError::NoStateForAttestation { .. }) => return Ok(None),
+            Err(e) => {
+                return Err(Error::InternalError(format!(
+                    "unable to load attestation committee: {e:?}"
+                )));
+            }
+        };
         let attester_index = committee.get(aggregation_bit).copied().ok_or_else(|| {
             Error::FailedToParseTest(format!(
                 "aggregation bit {aggregation_bit} is outside committee length {}",
@@ -690,7 +899,7 @@ impl<E: EthSpec> GossipValidationTester<E> {
                     "unable to convert {fork_name:?} attestation to SingleAttestation: {e:?}"
                 ))
             })?;
-        Ok(single_attestation)
+        Ok(Some(single_attestation))
     }
 
     fn import_block(
@@ -767,6 +976,203 @@ impl<E: EthSpec> GossipValidationTester<E> {
         Ok(())
     }
 
+    fn setup_trusted_preload_context(
+        &self,
+        case: &GossipValidation<E>,
+        state: &BeaconState<E>,
+        state_root: Hash256,
+    ) -> Result<(), Error> {
+        let maybe_anchor_block = case
+            .blocks
+            .iter()
+            .min_by_key(|preloaded| preloaded.block.slot());
+        let anchor_root = if let Some(anchor_block) = maybe_anchor_block {
+            if anchor_block.block.slot() == self.harness.chain.spec.genesis_slot {
+                anchor_block.block.canonical_root()
+            } else {
+                anchor_block.block.parent_root()
+            }
+        } else {
+            state.get_latest_block_root(state_root)
+        };
+        let anchor_latest_block = maybe_anchor_block
+            .filter(|anchor_block| {
+                anchor_block.block.slot() == self.harness.chain.spec.genesis_slot
+            })
+            .map(|anchor_block| &anchor_block.block);
+
+        self.cache_state_for_block(
+            state_root,
+            anchor_root,
+            state,
+            self.harness.chain.spec.genesis_slot,
+            anchor_latest_block,
+        )?;
+
+        self.harness
+            .chain
+            .canonical_head
+            .fork_choice_write_lock()
+            .override_anchor_block_for_testing(
+                anchor_root,
+                state_root,
+                state,
+                &self.harness.chain.spec,
+            )
+            .map_err(|e| {
+                Error::InternalError(format!("failed to seed vector fork-choice anchor: {e:?}"))
+            })?;
+
+        if case.blocks.is_empty() && state.slot() != self.harness.chain.spec.genesis_slot {
+            let cached_head = self.harness.chain.canonical_head.cached_head();
+            let snapshot = Arc::new(BeaconSnapshot {
+                beacon_block_root: anchor_root,
+                execution_envelope: cached_head.snapshot.execution_envelope.clone(),
+                beacon_block: cached_head.snapshot.beacon_block.clone(),
+                beacon_state: state.clone(),
+            });
+            self.harness
+                .chain
+                .canonical_head
+                .override_cached_head_for_testing(snapshot, cached_head.head_payload_status());
+        }
+
+        Ok(())
+    }
+
+    fn process_trusted_preloaded_block(
+        &self,
+        preloaded_block: &PreloadedBlock<E>,
+        state: &BeaconState<E>,
+        current_slot: Slot,
+    ) -> Result<(), Error> {
+        let block_root = preloaded_block.block.canonical_root();
+        if preloaded_block.meta.failed || self.is_failed_parent(&preloaded_block.block) {
+            self.record_failed_block(block_root);
+            return Ok(());
+        }
+
+        self.harness
+            .chain
+            .store
+            .put_block(&block_root, preloaded_block.block.clone())
+            .map_err(|e| {
+                Error::InternalError(format!(
+                    "failed to store trusted preloaded block {block_root:?}: {e:?}"
+                ))
+            })?;
+        let trusted_state = self.prepare_trusted_state_for_block(
+            preloaded_block.block.state_root(),
+            state,
+            preloaded_block.block.slot(),
+            Some(&preloaded_block.block),
+        )?;
+        self.harness
+            .chain
+            .store
+            .put_state(&preloaded_block.block.state_root(), &trusted_state)
+            .map_err(|e| {
+                Error::InternalError(format!(
+                    "failed to store trusted preloaded state {:?}: {e:?}",
+                    preloaded_block.block.state_root()
+                ))
+            })?;
+        self.cache_state_for_block(
+            preloaded_block.block.state_root(),
+            block_root,
+            state,
+            preloaded_block.block.slot(),
+            Some(&preloaded_block.block),
+        )?;
+
+        if preloaded_block.block.slot() == self.harness.chain.spec.genesis_slot {
+            return Ok(());
+        }
+
+        let payload_verification_status = match preloaded_block.meta.payload_status {
+            Some(PayloadStatus::NotValidated) | Some(PayloadStatus::Invalidated) => {
+                PayloadVerificationStatus::Optimistic
+            }
+            Some(PayloadStatus::Valid) | None => PayloadVerificationStatus::Verified,
+        };
+
+        self.harness
+            .chain
+            .canonical_head
+            .fork_choice_write_lock()
+            .on_block(
+                current_slot,
+                preloaded_block.block.message(),
+                block_root,
+                Duration::ZERO,
+                &trusted_state,
+                payload_verification_status,
+                preloaded_block.block.message().proposer_index(),
+                &self.harness.chain.spec,
+            )
+            .map_err(|e| {
+                Error::InternalError(format!(
+                    "failed to insert trusted preloaded block {block_root:?}: {e:?}"
+                ))
+            })?;
+
+        if preloaded_block.meta.payload_status == Some(PayloadStatus::Invalidated) {
+            self.block_on_dangerous(
+                self.harness
+                    .chain
+                    .clone()
+                    .process_invalid_execution_payload(&InvalidationOperation::InvalidateOne {
+                        block_root,
+                    }),
+            )?
+            .map_err(|e| {
+                Error::InternalError(format!(
+                    "failed to invalidate preloaded block {block_root:?}: {e:?}"
+                ))
+            })?;
+        }
+
+        Ok(())
+    }
+
+    fn cache_state_for_block(
+        &self,
+        state_root: Hash256,
+        block_root: Hash256,
+        state: &BeaconState<E>,
+        slot: Slot,
+        latest_block: Option<&SignedBeaconBlock<E>>,
+    ) -> Result<(), Error> {
+        let cached_state =
+            self.prepare_trusted_state_for_block(state_root, state, slot, latest_block)?;
+        self.harness.chain.store.put_state_in_cache_for_testing(
+            state_root,
+            block_root,
+            &cached_state,
+        );
+        Ok(())
+    }
+
+    fn prepare_trusted_state_for_block(
+        &self,
+        state_root: Hash256,
+        state: &BeaconState<E>,
+        slot: Slot,
+        latest_block: Option<&SignedBeaconBlock<E>>,
+    ) -> Result<BeaconState<E>, Error> {
+        let mut cached_state = state.clone();
+        *cached_state.slot_mut() = slot;
+        if let Some(latest_block) = latest_block {
+            set_state_latest_block_header(&mut cached_state, latest_block);
+        }
+        cached_state.update_tree_hash_cache().map_err(|e| {
+            Error::InternalError(format!(
+                "failed to prepare trusted cached state {state_root:?}: {e:?}"
+            ))
+        })?;
+        Ok(cached_state)
+    }
+
     fn mock_execution_layer(&self) -> &execution_layer::test_utils::MockExecutionLayer<E> {
         self.harness
             .mock_execution_layer
@@ -788,12 +1194,59 @@ impl<E: EthSpec> GossipValidationTester<E> {
             .insert(block_root);
     }
 
-    /// Constrained `meta.finalized_checkpoint` support.
+    fn is_failed_attestation_head(&self, attestation: &AttestationMessage<E>) -> bool {
+        let block_root = attestation_head_root(attestation);
+        self.failed_block_roots
+            .lock()
+            .expect("failed block roots lock poisoned")
+            .contains(&block_root)
+    }
+
+    fn is_finalized_descendant(&self, block_root: Hash256) -> bool {
+        self.harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .is_finalized_checkpoint_or_descendant(block_root)
+    }
+
+    /// Apply the default finalized checkpoint from `state.ssz_snappy`.
     ///
-    /// Resolves the override checkpoint (`root` xor `block`) and applies it to
-    /// fork choice when its root is genesis or one of the preloaded blocks.
-    /// Non-genesis anchor states and unknown override roots are explicitly
-    /// unsupported. See https://github.com/sigp/lighthouse/issues/9232.
+    /// The unified EF format only uses `meta.finalized_checkpoint` as an
+    /// override. When it is absent, the store must use the checkpoint embedded
+    /// in the supplied state. The default genesis checkpoint is encoded with a
+    /// zero root in many vectors, while Lighthouse's harness finalizes the
+    /// actual genesis block root; those two are equivalent for the genesis
+    /// store setup, so keep the harness default in that case.
+    fn apply_state_finalized_checkpoint(
+        &self,
+        case: &GossipValidation<E>,
+        checkpoint: Checkpoint,
+    ) -> Result<(), Error> {
+        if checkpoint == Checkpoint::default() {
+            return Ok(());
+        }
+
+        self.apply_finalized_checkpoint(case, checkpoint, "state.finalized_checkpoint")
+    }
+
+    /// Constrained `meta.finalized_checkpoint` override support.
+    fn apply_finalized_checkpoint_override(
+        &self,
+        case: &GossipValidation<E>,
+        meta: &FinalizedCheckpointMeta,
+    ) -> Result<(), Error> {
+        let checkpoint = resolve_finalized_checkpoint(case, meta)?;
+        self.apply_finalized_checkpoint(case, checkpoint, "meta.finalized_checkpoint")
+    }
+
+    /// Apply an EF finalized checkpoint to fork choice.
+    ///
+    /// Applies checkpoints with known state roots fully. If a vector references
+    /// a root for which this constrained harness cannot materialize the
+    /// boundary state, apply the root-only view used by gossip checks instead
+    /// of silently using an incorrect state root. See
+    /// https://github.com/sigp/lighthouse/issues/9232.
     ///
     /// EF semantics initialise `finalized_checkpoint` *before* importing
     /// preloaded blocks; this handler imports first and then overrides, so we
@@ -812,12 +1265,15 @@ impl<E: EthSpec> GossipValidationTester<E> {
     ///   branches (e.g. preloaded imports finalised branch A while the
     ///   override points at a higher-epoch root on branch B) are rejected as
     ///   conflicts.
-    fn apply_finalized_checkpoint_override(
+    fn apply_finalized_checkpoint(
         &self,
         case: &GossipValidation<E>,
-        meta: &FinalizedCheckpointMeta,
+        checkpoint: Checkpoint,
+        source: &str,
     ) -> Result<(), Error> {
-        let checkpoint = resolve_finalized_checkpoint(case, meta)?;
+        let resolved_checkpoint_root = self
+            .lookup_state_root_and_slot_for_root(case, checkpoint.root)
+            .ok();
 
         {
             let fork_choice = self.harness.chain.canonical_head.fork_choice_read_lock();
@@ -827,21 +1283,38 @@ impl<E: EthSpec> GossipValidationTester<E> {
                 return Ok(());
             }
 
+            if resolved_checkpoint_root.is_none() {
+                if current.epoch == checkpoint.epoch {
+                    drop(fork_choice);
+                    self.harness
+                        .chain
+                        .canonical_head
+                        .fork_choice_write_lock()
+                        .override_finalized_checkpoint_root_for_testing(checkpoint);
+                    return Ok(());
+                }
+
+                return Err(Error::FailedToParseTest(format!(
+                    "{source} {checkpoint:?} is unknown to fork choice \
+                     and has a different epoch than current finality {current:?}"
+                )));
+            }
+
             if current.epoch > checkpoint.epoch {
                 if fork_choice.is_descendant(checkpoint.root, current.root) {
                     return Ok(());
                 }
                 return Err(Error::FailedToParseTest(format!(
                     "preloaded-block imports advanced finality to {current:?}, which conflicts \
-                     with meta.finalized_checkpoint override {checkpoint:?} (current is not a \
+                     with {source} {checkpoint:?} (current is not a \
                      descendant of the override root)"
                 )));
             }
 
             if current.epoch == checkpoint.epoch && current.root != checkpoint.root {
                 return Err(Error::FailedToParseTest(format!(
-                    "fork-choice finality {current:?} conflicts with meta.finalized_checkpoint \
-                     override {checkpoint:?} (same epoch, different root)"
+                    "fork-choice finality {current:?} conflicts with {source} {checkpoint:?} \
+                     (same epoch, different root)"
                 )));
             }
 
@@ -850,24 +1323,23 @@ impl<E: EthSpec> GossipValidationTester<E> {
             // be a descendant of the currently finalized root.
             if !fork_choice.is_descendant(current.root, checkpoint.root) {
                 return Err(Error::FailedToParseTest(format!(
-                    "meta.finalized_checkpoint override {checkpoint:?} is not a descendant of \
+                    "{source} {checkpoint:?} is not a descendant of \
                      the current fork-choice finality {current:?}; refusing to switch finality \
                      across branches"
                 )));
             }
         }
 
-        let (justified_state_root, block_slot) =
-            self.lookup_state_root_and_slot_for_root(case, checkpoint.root)?;
+        let (justified_state_root, block_slot) = resolved_checkpoint_root.expect("checked above");
 
         let boundary_slot = checkpoint.epoch.start_slot(E::slots_per_epoch());
         if block_slot != boundary_slot {
-            return Err(Error::FailedToParseTest(format!(
-                "finalized_checkpoint {checkpoint:?} references a block at slot {block_slot}, \
-                 which is not the epoch-boundary slot {boundary_slot}; skipped-boundary \
-                 checkpoints are unsupported (the boundary state root would differ from the \
-                 referenced block's state root)"
-            )));
+            self.harness
+                .chain
+                .canonical_head
+                .fork_choice_write_lock()
+                .override_finalized_checkpoint_root_for_testing(checkpoint);
+            return Ok(());
         }
 
         self.harness
@@ -877,11 +1349,9 @@ impl<E: EthSpec> GossipValidationTester<E> {
             .override_finalized_checkpoint_for_testing(checkpoint, justified_state_root)
             .map_err(|e| match e {
                 ::fork_choice::Error::MissingProtoArrayBlock(root) => Error::FailedToParseTest(
-                    format!("finalized_checkpoint root {root:?} is not in fork choice"),
+                    format!("{source} root {root:?} is not in fork choice"),
                 ),
-                other => Error::InternalError(format!(
-                    "failed to apply finalized_checkpoint override: {other:?}"
-                )),
+                other => Error::InternalError(format!("failed to apply {source}: {other:?}")),
             })
     }
 
@@ -963,7 +1433,7 @@ fn classify_block_error(error: &BlockError) -> Expected {
         | BlockError::BeaconChainError(_)
         | BlockError::FutureSlot { .. }
         | BlockError::WouldRevertFinalizedSlot { .. }
-        | BlockError::NotFinalizedDescendant { .. } => Expected::Ignore,
+        | BlockError::ParentExecutionPayloadInvalid { .. } => Expected::Ignore,
         BlockError::ExecutionPayloadError(error) if !error.penalize_peer() => Expected::Ignore,
         BlockError::AvailabilityCheck(_)
         | BlockError::InternalError(_)
@@ -981,9 +1451,34 @@ fn classify_attestation_error(error: &AttestationError) -> Expected {
         | AttestationError::AggregatorAlreadyKnown(_)
         | AttestationError::PriorAttestationKnown { .. }
         | AttestationError::UnknownHeadBlock { .. }
-        | AttestationError::BeaconChainError(_) => Expected::Ignore,
+        | AttestationError::HeadBlockFinalized { .. } => Expected::Ignore,
         _ => Expected::Reject,
     }
+}
+
+fn classify_attester_slashing_error(error: &BeaconChainError) -> Expected {
+    match error {
+        BeaconChainError::AttesterSlashingValidationError(error)
+            if is_empty_attester_slashing(error) =>
+        {
+            Expected::Ignore
+        }
+        BeaconChainError::AttesterSlashingValidationError(_) => Expected::Reject,
+        _ => Expected::Ignore,
+    }
+}
+
+fn is_empty_attester_slashing(error: &BlockOperationError<AttesterSlashingInvalid>) -> bool {
+    matches!(
+        error,
+        BlockOperationError::Invalid(
+            AttesterSlashingInvalid::IndexedAttestation1Invalid(BlockOperationError::Invalid(
+                IndexedAttestationInvalid::IndicesEmpty
+            )) | AttesterSlashingInvalid::IndexedAttestation2Invalid(BlockOperationError::Invalid(
+                IndexedAttestationInvalid::IndicesEmpty
+            ))
+        )
+    )
 }
 
 fn classify_sync_committee_error(error: &SyncCommitteeError) -> Expected {

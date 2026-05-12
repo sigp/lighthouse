@@ -496,6 +496,24 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.state_cache.lock().len()
     }
 
+    /// Test-only: insert an exact state/block-root pair into the hot state cache.
+    ///
+    /// Some EF test harnesses seed trusted context that is not aligned with
+    /// Lighthouse's normal hot/cold state persistence strategy. This helper
+    /// lets those harnesses provide the exact state needed for subsequent
+    /// verification without asking the store to reconstruct it from block
+    /// replay.
+    pub fn put_state_in_cache_for_testing(
+        &self,
+        state_root: Hash256,
+        block_root: Hash256,
+        state: &BeaconState<E>,
+    ) {
+        self.state_cache
+            .lock()
+            .put_state_for_testing(state_root, block_root, state);
+    }
+
     pub fn register_metrics(&self) {
         let hsc_metrics = self.historic_state_cache.lock().metrics();
 

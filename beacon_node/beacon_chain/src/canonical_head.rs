@@ -414,6 +414,34 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         self.cached_head_read_lock().clone()
     }
 
+    /// Test-only: replace the cached canonical head snapshot.
+    ///
+    /// Some external test vectors provide a trusted head state without the
+    /// full block history needed to reconstruct that head through the normal
+    /// store/recompute path. This helper lets those tests point gossip
+    /// verification at the supplied state while keeping fork choice's
+    /// checkpoint view authoritative.
+    pub fn override_cached_head_for_testing(
+        &self,
+        snapshot: Arc<BeaconSnapshot<T::EthSpec>>,
+        head_payload_status: PayloadStatus,
+    ) {
+        let fork_choice = self.fork_choice_read_lock();
+        let fork_choice_view = fork_choice.cached_fork_choice_view();
+        let forkchoice_update_params = fork_choice.get_forkchoice_update_parameters();
+        drop(fork_choice);
+
+        *self.cached_head.write() = CachedHead {
+            snapshot,
+            justified_checkpoint: fork_choice_view.justified_checkpoint,
+            finalized_checkpoint: fork_choice_view.finalized_checkpoint,
+            head_payload_status,
+            head_hash: forkchoice_update_params.head_hash,
+            justified_hash: forkchoice_update_params.justified_hash,
+            finalized_hash: forkchoice_update_params.finalized_hash,
+        };
+    }
+
     /// Access a read-lock for the cached head.
     ///
     /// This function is **not safe** to be public. See the module-level documentation for more

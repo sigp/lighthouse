@@ -1187,6 +1187,8 @@ fn compute_columns_for_custody_group() {
 #[test]
 #[cfg(not(feature = "fake_crypto"))]
 fn gossip_validation() {
-    GossipValidationHandler::<MainnetEthSpec>::default().run();
-    GossipValidationHandler::<MinimalEthSpec>::default().run();
+    for handler_name in GOSSIP_VALIDATION_HANDLER_NAMES {
+        GossipValidationHandler::<MainnetEthSpec>::new(handler_name).run();
+        GossipValidationHandler::<MinimalEthSpec>::new(handler_name).run();
+    }
 }
