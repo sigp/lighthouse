@@ -385,7 +385,7 @@ where
                     info!("Blocks will be downloaded all the way back to genesis");
                 }
 
-                let client = eth2::reqwest::Client::builder()
+                let client = reqwest::Client::builder()
                     .user_agent(&config.user_agent)
                     .build()
                     .unwrap_or_default();
