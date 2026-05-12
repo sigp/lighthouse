@@ -8,12 +8,10 @@ use bls::AggregateSignature;
 use educe::Educe;
 use eth2::types::{EventKind, ForkVersionedResponse};
 use parking_lot::RwLock;
-use safe_arith::SafeArith;
 use slot_clock::SlotClock;
 use state_processing::per_block_processing::signature_sets::indexed_payload_attestation_signature_set;
-use state_processing::state_advance::partial_state_advance;
 use std::borrow::Cow;
-use types::{ChainSpec, EthSpec, IndexedPayloadAttestation, PTC, PayloadAttestationMessage, Slot};
+use types::{ChainSpec, IndexedPayloadAttestation, PTC, PayloadAttestationMessage, Slot};
 
 pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub slot_clock: &'a T::SlotClock,
@@ -67,62 +65,26 @@ impl<T: BeaconChainTypes> VerifiedPayloadAttestationMessage<T> {
         // 2. Blocks we've seen that are invalid (REJECT).
         // Presently both cases return IGNORE.
         let beacon_block_root = payload_attestation_message.data.beacon_block_root;
-        if ctx
+        let Some(block) = ctx
             .canonical_head
             .fork_choice_read_lock()
             .get_block(&beacon_block_root)
-            .is_none()
-        {
+        else {
             return Err(Error::UnknownHeadBlock { beacon_block_root });
-        }
-
-        // Get head state for PTC computation. If the cached head state is too stale
-        // (e.g. during liveness failures with many skipped slots), fall back to loading
-        // a more recent state from the store and advancing it if necessary.
-        let head = ctx.canonical_head.cached_head();
-        let head_state = &head.snapshot.beacon_state;
-
-        let message_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
-        let state_epoch = head_state.current_epoch();
-
-        // get_ptc can serve epochs in [state_epoch - 1, state_epoch + min_seed_lookahead].
-        // If the message epoch is beyond that range, the head state is stale.
-        let advanced_state = if message_epoch
-            > state_epoch
-                .safe_add(ctx.spec.min_seed_lookahead)
-                .map_err(BeaconChainError::from)?
-        {
-            let head_block_root = head.head_block_root();
-            let target_slot = message_epoch.start_slot(T::EthSpec::slots_per_epoch());
-
-            let (state_root, mut state) = ctx
-                .store
-                .get_advanced_hot_state(
-                    head_block_root,
-                    target_slot,
-                    head.snapshot.beacon_state_root(),
-                )
-                .map_err(BeaconChainError::from)?
-                .ok_or(BeaconChainError::MissingBeaconState(
-                    head.snapshot.beacon_state_root(),
-                ))?;
-
-            if state
-                .current_epoch()
-                .safe_add(ctx.spec.min_seed_lookahead)
-                .map_err(BeaconChainError::from)?
-                < message_epoch
-            {
-                partial_state_advance(&mut state, Some(state_root), target_slot, ctx.spec)
-                    .map_err(BeaconChainError::from)?;
-            }
-
-            Some(state)
-        } else {
-            None
         };
 
-        let state = advanced_state.as_ref().unwrap_or(head_state);
+        // Spec: use `store.block_states[data.beacon_block_root]` to derive the PTC for this
+        // payload attestation. The canonical head can be on a different branch.
+        let state = ctx
+            .store
+            .get_hot_state(&block.state_root, true)
+            .map_err(BeaconChainError::from)?
+            .ok_or_else(|| {
+                BeaconChainError::DBInconsistent(format!(
+                    "Missing state for payload attestation block {:?}",
+                    block.state_root
+                ))
+            })?;
 
         // [REJECT] `validator_index` is within `get_ptc(state, data.slot)`.
         let ptc = state.get_ptc(slot, ctx.spec)?;
@@ -146,7 +108,7 @@ impl<T: BeaconChainTypes> VerifiedPayloadAttestationMessage<T> {
             // [REJECT] The signature is valid with respect to the `validator_index`.
             let pubkey_cache = ctx.validator_pubkey_cache.read();
             let signature_set = indexed_payload_attestation_signature_set(
-                state,
+                &state,
                 |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
                 &indexed_payload_attestation.signature,
                 &indexed_payload_attestation,

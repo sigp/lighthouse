@@ -338,7 +338,14 @@ impl ForkChoiceTestDefinition {
                     attestation_slot,
                 } => {
                     fork_choice
-                        .process_attestation(validator_index, block_root, attestation_slot, false)
+                        .process_attestation(
+                            validator_index,
+                            block_root,
+                            attestation_slot,
+                            false,
+                            false,
+                            MainnetEthSpec::slots_per_epoch(),
+                        )
                         .unwrap_or_else(|_| {
                             panic!(
                                 "process_attestation op at index {} returned error",
@@ -359,6 +366,8 @@ impl ForkChoiceTestDefinition {
                             block_root,
                             attestation_slot,
                             payload_present,
+                            true,
+                            MainnetEthSpec::slots_per_epoch(),
                         )
                         .unwrap_or_else(|_| {
                             panic!(

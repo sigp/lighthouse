@@ -594,10 +594,18 @@ impl ProtoArrayForkChoice {
         block_root: Hash256,
         attestation_slot: Slot,
         payload_present: bool,
+        update_by_slot: bool,
+        slots_per_epoch: u64,
     ) -> Result<(), String> {
         let vote = self.votes.get_mut(validator_index);
 
-        if attestation_slot > vote.next_slot || *vote == VoteTracker::default() {
+        let is_newer_vote = if update_by_slot {
+            attestation_slot > vote.next_slot
+        } else {
+            attestation_slot.epoch(slots_per_epoch) > vote.next_slot.epoch(slots_per_epoch)
+        };
+
+        if is_newer_vote || *vote == VoteTracker::default() {
             vote.next_root = block_root;
             vote.next_slot = attestation_slot;
             vote.next_payload_present = payload_present;

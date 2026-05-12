@@ -15,9 +15,7 @@ use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, CachedHead, ChainConfig, NotifyExecutionLayer,
-    attestation_verification::{
-        VerifiedAttestation, obtain_indexed_attestation_and_committees_per_slot,
-    },
+    attestation_verification::VerifiedAttestation,
     blob_verification::GossipVerifiedBlob,
     custody_context::NodeCustodyType,
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
@@ -29,7 +27,9 @@ use execution_layer::{
 use serde::Deserialize;
 use ssz_derive::Decode;
 use state_processing::VerifySignatures;
+use state_processing::common::{attesting_indices_base, attesting_indices_electra};
 use state_processing::envelope_processing::verify_execution_payload_envelope;
+use state_processing::per_block_processing::verify_attester_slashing;
 use state_processing::state_advance::complete_state_advance;
 use std::future::Future;
 use std::sync::Arc;
@@ -413,8 +413,21 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                 }
                 Step::AttesterSlashing {
                     attester_slashing,
-                    valid: _,
-                } => tester.process_attester_slashing(attester_slashing.to_ref()),
+                    valid,
+                } => {
+                    let result = tester.process_attester_slashing(attester_slashing.to_ref());
+                    match valid {
+                        Some(false) => {
+                            if result.is_ok() {
+                                return Err(Error::DidntFail(
+                                    "attester slashing marked valid=false should have been rejected"
+                                        .into(),
+                                ));
+                            }
+                        }
+                        _ => result?,
+                    }
+                }
                 Step::PowBlock { pow_block } => tester.process_pow_block(pow_block),
                 Step::OnPayloadInfo {
                     block_hash,
@@ -703,7 +716,7 @@ impl<E: EthSpec> Tester<E> {
                 let _ = self.process_attestation(&att);
             }
             for attester_slashing in block.message().body().attester_slashings() {
-                self.process_attester_slashing(attester_slashing);
+                self.process_attester_slashing(attester_slashing)?;
             }
         }
 
@@ -807,7 +820,7 @@ impl<E: EthSpec> Tester<E> {
                 let _ = self.process_attestation(&att);
             }
             for attester_slashing in block.message().body().attester_slashings() {
-                self.process_attester_slashing(attester_slashing);
+                self.process_attester_slashing(attester_slashing)?;
             }
         }
 
@@ -885,11 +898,61 @@ impl<E: EthSpec> Tester<E> {
     }
 
     pub fn process_attestation(&self, attestation: &Attestation<E>) -> Result<(), Error> {
-        let (indexed_attestation, _) = obtain_indexed_attestation_and_committees_per_slot(
-            &self.harness.chain,
-            attestation.to_ref(),
+        let target_root = attestation.data().target.root;
+        let target_block = self
+            .harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block(&target_root)
+            .ok_or_else(|| {
+                Error::InternalError(format!("attestation target block {target_root:?} unknown"))
+            })?;
+        let mut target_state = self
+            .harness
+            .chain
+            .store
+            .get_hot_state(&target_block.state_root, CACHE_STATE_IN_TESTS)
+            .map_err(|e| Error::InternalError(format!("failed to load target state: {e:?}")))?
+            .ok_or_else(|| {
+                Error::InternalError(format!(
+                    "attestation target state {:?} unknown",
+                    target_block.state_root
+                ))
+            })?;
+        let target_epoch_start_slot = attestation
+            .data()
+            .target
+            .epoch
+            .start_slot(E::slots_per_epoch());
+        complete_state_advance(
+            &mut target_state,
+            Some(target_block.state_root),
+            target_epoch_start_slot,
+            &self.harness.chain.spec,
         )
-        .map_err(|e| Error::InternalError(format!("attestation indexing failed with {:?}", e)))?;
+        .map_err(|e| {
+            Error::InternalError(format!("failed to advance attestation target state: {e:?}"))
+        })?;
+
+        let indexed_attestation = match attestation.to_ref() {
+            AttestationRef::Base(att) => {
+                let committee = target_state
+                    .get_beacon_committee(att.data.slot, att.data.index)
+                    .map_err(|e| {
+                        Error::InternalError(format!("attestation committee lookup failed: {e:?}"))
+                    })?;
+                attesting_indices_base::get_indexed_attestation(committee.committee, att).map_err(
+                    |e| Error::InternalError(format!("attestation indexing failed: {e:?}")),
+                )?
+            }
+            AttestationRef::Electra(att) => {
+                attesting_indices_electra::get_indexed_attestation_from_state(&target_state, att)
+                    .map_err(|e| {
+                        Error::InternalError(format!("attestation indexing failed: {e:?}"))
+                    })?
+            }
+        };
         let verified_attestation: ManuallyVerifiedAttestation<EphemeralHarnessType<E>> =
             ManuallyVerifiedAttestation {
                 attestation,
@@ -906,10 +969,37 @@ impl<E: EthSpec> Tester<E> {
         &self,
         message: &PayloadAttestationMessage,
     ) -> Result<(), Error> {
-        let head = self.harness.chain.canonical_head.cached_head();
-        let head_state = &head.snapshot.beacon_state;
         let slot = message.data.slot;
-        let ptc = head_state
+
+        let block = {
+            let fork_choice = self.harness.chain.canonical_head.fork_choice_read_lock();
+            fork_choice
+                .get_block(&message.data.beacon_block_root)
+                .ok_or_else(|| {
+                    Error::InternalError(format!(
+                        "payload attestation block {:?} not found",
+                        message.data.beacon_block_root
+                    ))
+                })?
+        };
+        let state = self
+            .harness
+            .chain
+            .store
+            .get_hot_state(&block.state_root, CACHE_STATE_IN_TESTS)
+            .map_err(|e| {
+                Error::InternalError(format!(
+                    "failed to load payload attestation block state: {e:?}"
+                ))
+            })?
+            .ok_or_else(|| {
+                Error::InternalError(format!(
+                    "payload attestation block state {:?} not found",
+                    block.state_root
+                ))
+            })?;
+
+        let ptc = state
             .get_ptc(slot, &self.spec)
             .map_err(|e| Error::InternalError(format!("get_ptc failed with {:?}", e)))?;
 
@@ -935,12 +1025,44 @@ impl<E: EthSpec> Tester<E> {
             })
     }
 
-    pub fn process_attester_slashing(&self, attester_slashing: AttesterSlashingRef<E>) {
+    pub fn process_attester_slashing(
+        &self,
+        attester_slashing: AttesterSlashingRef<E>,
+    ) -> Result<(), Error> {
+        let justified_block = {
+            let fork_choice = self.harness.chain.canonical_head.fork_choice_read_lock();
+            fork_choice
+                .get_block(&fork_choice.justified_checkpoint().root)
+                .ok_or_else(|| Error::InternalError("justified block not found".into()))?
+        };
+        let justified_state = self
+            .harness
+            .chain
+            .store
+            .get_hot_state(&justified_block.state_root, CACHE_STATE_IN_TESTS)
+            .map_err(|e| Error::InternalError(format!("failed to load justified state: {e:?}")))?
+            .ok_or_else(|| {
+                Error::InternalError(format!(
+                    "justified state {:?} not found",
+                    justified_block.state_root
+                ))
+            })?;
+
+        verify_attester_slashing(
+            &justified_state,
+            attester_slashing,
+            VerifySignatures::True,
+            &self.harness.chain.spec,
+        )
+        .map_err(|e| Error::InternalError(format!("invalid attester slashing: {e:?}")))?;
+
         self.harness
             .chain
             .canonical_head
             .fork_choice_write_lock()
-            .on_attester_slashing(attester_slashing)
+            .on_attester_slashing(attester_slashing);
+
+        Ok(())
     }
 
     pub fn process_pow_block(&self, pow_block: &PowBlock) {

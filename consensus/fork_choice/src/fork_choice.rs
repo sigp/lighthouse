@@ -283,6 +283,8 @@ pub struct QueuedAttestation {
     target_epoch: Epoch,
     /// Per Gloas spec: `payload_present = attestation.data.index == 1`.
     payload_present: bool,
+    /// Pre-Gloas latest messages update by target epoch. Gloas updates by slot.
+    update_by_slot: bool,
 }
 
 /// Legacy queued attestation without payload_present (pre-Gloas, schema V28).
@@ -294,14 +296,18 @@ pub struct QueuedAttestationV28 {
     target_epoch: Epoch,
 }
 
-impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
-    fn from(a: IndexedAttestationRef<'a, E>) -> Self {
+impl QueuedAttestation {
+    fn from_indexed_attestation<E: EthSpec>(
+        a: IndexedAttestationRef<'_, E>,
+        update_by_slot: bool,
+    ) -> Self {
         Self {
             slot: a.data().slot,
             attesting_indices: a.attesting_indices_to_vec(),
             block_root: a.data().beacon_block_root,
             target_epoch: a.data().target.epoch,
-            payload_present: a.data().index == 1,
+            payload_present: update_by_slot && a.data().index == 1,
+            update_by_slot,
         }
     }
 }
@@ -770,17 +776,29 @@ where
     ) -> Result<(), Error<T::Error>> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_ON_BLOCK_TIMES);
 
-        // If this block has already been processed we do not need to reprocess it.
-        // We check this immediately in case re-processing the block mutates some property of the
-        // global fork choice store, e.g. the justified checkpoints or the proposer boost root.
-        if self.proto_array.contains_block(&block_root) {
-            return Ok(());
-        }
-
         // Provide the slot (as per the system clock) to the `fc_store` and then return its view of
         // the current slot. The `fc_store` will ensure that the `current_slot` is never
         // decreasing, a property which we must maintain.
         let current_slot = self.update_time(system_time_current_slot)?;
+
+        // Check block is later than the finalized epoch slot (optimization to reduce calls to
+        // get_ancestor).
+        let finalized_slot =
+            compute_start_slot_at_epoch::<E>(self.fc_store.finalized_checkpoint().epoch);
+        if block.slot() <= finalized_slot {
+            return Err(Error::InvalidBlock(InvalidBlock::FinalizedSlot {
+                finalized_slot,
+                block_slot: block.slot(),
+            }));
+        }
+
+        // If this block has already been processed we do not need to reprocess it.
+        // We check this before parent lookup and state updates in case re-processing the block
+        // mutates some property of the global fork choice store, e.g. the justified checkpoints or
+        // the proposer boost root. The finalized-slot check above still applies to match the spec.
+        if self.proto_array.contains_block(&block_root) {
+            return Ok(());
+        }
 
         // Parent block must be known.
         let parent_block = self
@@ -795,17 +813,6 @@ where
         if block.slot() > current_slot {
             return Err(Error::InvalidBlock(InvalidBlock::FutureSlot {
                 current_slot,
-                block_slot: block.slot(),
-            }));
-        }
-
-        // Check that block is later than the finalized epoch slot (optimization to reduce calls to
-        // get_ancestor).
-        let finalized_slot =
-            compute_start_slot_at_epoch::<E>(self.fc_store.finalized_checkpoint().epoch);
-        if block.slot() <= finalized_slot {
-            return Err(Error::InvalidBlock(InvalidBlock::FinalizedSlot {
-                finalized_slot,
                 block_slot: block.slot(),
             }));
         }
@@ -1317,10 +1324,10 @@ where
         self.validate_on_attestation(attestation, is_from_block, spec)?;
 
         // Per Gloas spec: `payload_present = attestation.data.index == 1`.
-        let payload_present = spec
+        let is_gloas = spec
             .fork_name_at_slot::<E>(attestation.data().slot)
-            .gloas_enabled()
-            && attestation.data().index == 1;
+            .gloas_enabled();
+        let payload_present = is_gloas && attestation.data().index == 1;
 
         if attestation.data().slot < self.fc_store.get_current_slot() {
             for validator_index in attestation.attesting_indices_iter() {
@@ -1329,6 +1336,8 @@ where
                     attestation.data().beacon_block_root,
                     attestation.data().slot,
                     payload_present,
+                    is_gloas,
+                    E::slots_per_epoch(),
                 )?;
             }
         } else {
@@ -1339,7 +1348,10 @@ where
             // Delay consideration in the fork choice until their slot is in the past.
             // ```
             self.queued_attestations
-                .push(QueuedAttestation::from(attestation));
+                .push(QueuedAttestation::from_indexed_attestation(
+                    attestation,
+                    is_gloas,
+                ));
         }
 
         Ok(())
@@ -1506,6 +1518,8 @@ where
                     attestation.block_root,
                     attestation.slot,
                     attestation.payload_present,
+                    attestation.update_by_slot,
+                    E::slots_per_epoch(),
                 )?;
             }
         }
@@ -1901,6 +1915,7 @@ mod tests {
                 block_root: Hash256::zero(),
                 target_epoch: Epoch::new(0),
                 payload_present: false,
+                update_by_slot: false,
             })
             .collect()
     }
