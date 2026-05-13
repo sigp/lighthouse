@@ -127,7 +127,8 @@ delay_map = "0.4"
 deposit_contract = { path = "common/deposit_contract" }
 directory = { path = "common/directory" }
 dirs = "3"
-discv5 = { version = "0.10", features = ["libp2p"] }
+# TODO: switch to crates.io once released.
+discv5 = { git = "https://github.com/ackintosh/discv5.git", rev = "279671c83fd5acea3422c5772f767238723cff40", features = ["libp2p"] }
 doppelganger_service = { path = "validator_client/doppelganger_service" }
 educe = "0.6"
 eip_3076 = { path = "common/eip_3076" }

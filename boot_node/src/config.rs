@@ -218,6 +218,9 @@ impl BootNodeConfigSerialization {
                 Some(SocketAddrV4::new(ipv4, ipv4_port)),
                 Some(SocketAddrV6::new(ipv6, ipv6_port, 0, 0)),
             ),
+            lighthouse_network::discv5::ListenConfig::FromSockets { .. } => {
+                unreachable!("FromSockets is not used in Lighthouse")
+            }
         };
 
         BootNodeConfigSerialization {
