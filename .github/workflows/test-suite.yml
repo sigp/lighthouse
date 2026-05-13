@@ -85,8 +85,8 @@ jobs:
             while IFS= read -r file || [ -n "$file" ]; do
               # Skip comments and empty lines
               [[ "$file" =~ ^#.*$ || -z "$file" ]] && continue
-              if [ -f "$file" ]; then
-                echo "::error::Forbidden file exists: $file"
+              if [ -e "$file" ]; then
+                echo "::error::Forbidden file or directory exists: $file"
                 status=1
               fi
             done < .github/forbidden-files.txt
@@ -414,10 +414,6 @@ jobs:
           cache: false
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    - name: Fetch libssl1.1
-      run: wget https://nz2.archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2_amd64.deb
-    - name: Install libssl1.1
-      run: sudo dpkg -i libssl1.1_1.1.1f-1ubuntu2_amd64.deb
     - name: Create Cargo config dir
       run: mkdir -p .cargo
     - name: Install custom Cargo config

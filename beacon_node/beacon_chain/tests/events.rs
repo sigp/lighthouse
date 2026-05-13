@@ -1,13 +1,11 @@
+use arbitrary::Arbitrary;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::test_utils::{
     BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
 };
 use eth2::types::{EventKind, SseBlobSidecar, SseDataColumnSidecar};
-use rand::SeedableRng;
-use rand::rngs::StdRng;
 use std::sync::Arc;
 use types::data::FixedBlobSidecarList;
-use types::test_utils::TestRandom;
 use types::{
     BlobSidecar, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas, Domain, EthSpec,
     MinimalEthSpec, PayloadAttestationData, PayloadAttestationMessage, SignedRoot, Slot,
@@ -35,19 +33,19 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
     let mut data_column_event_receiver = event_handler.subscribe_data_column_sidecar();
 
     // build and process a gossip verified data column
-    let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
+    let mut u = types::test_utils::test_unstructured();
     let sidecar = {
         let slot = Slot::new(10);
         let fork_name = harness.spec.fork_name_at_slot::<E>(slot);
         // DA checker only accepts sampling columns, so we need to create one with a sampling index.
         if fork_name.gloas_enabled() {
-            let mut random_sidecar = DataColumnSidecarGloas::random_for_test(&mut rng);
+            let mut random_sidecar = DataColumnSidecarGloas::arbitrary(&mut u).unwrap();
             let epoch = slot.epoch(E::slots_per_epoch());
             random_sidecar.slot = slot;
             random_sidecar.index = harness.chain.sampling_columns_for_epoch(epoch)[0];
             DataColumnSidecar::Gloas(random_sidecar)
         } else {
-            let mut random_sidecar = DataColumnSidecarFulu::random_for_test(&mut rng);
+            let mut random_sidecar = DataColumnSidecarFulu::arbitrary(&mut u).unwrap();
             let epoch = slot.epoch(E::slots_per_epoch());
             random_sidecar.signed_block_header.message.slot = slot;
             random_sidecar.index = harness.chain.sampling_columns_for_epoch(epoch)[0];

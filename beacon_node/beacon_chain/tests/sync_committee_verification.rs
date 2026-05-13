@@ -185,7 +185,6 @@ async fn aggregated_gossip_verification() {
     harness
         .add_attested_blocks_at_slots(
             state,
-            Hash256::zero(),
             &[Slot::new(1), Slot::new(2)],
             (0..VALIDATOR_COUNT).collect::<Vec<_>>().as_slice(),
         )
@@ -495,7 +494,7 @@ async fn aggregated_gossip_verification() {
     );
 
     harness
-        .add_attested_block_at_slot(target_slot, state, Hash256::zero(), &[])
+        .add_attested_block_at_slot(target_slot, state, &[])
         .await
         .expect("should add block");
 
@@ -519,7 +518,6 @@ async fn unaggregated_gossip_verification() {
     harness
         .add_attested_blocks_at_slots(
             state,
-            Hash256::zero(),
             &[Slot::new(1), Slot::new(2)],
             (0..VALIDATOR_COUNT).collect::<Vec<_>>().as_slice(),
         )
@@ -801,7 +799,7 @@ async fn unaggregated_gossip_verification() {
     );
 
     harness
-        .add_attested_block_at_slot(target_slot, state, Hash256::zero(), &[])
+        .add_attested_block_at_slot(target_slot, state, &[])
         .await
         .expect("should add block");
 
