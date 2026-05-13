@@ -1,13 +1,11 @@
 use crate::kzg_utils::{validate_blob, validate_blobs};
-use crate::metrics;
 use educe::Educe;
 use kzg::{Error as KzgError, Kzg, KzgCommitment};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::instrument;
-use tree_hash::TreeHash;
-use types::{BlobSidecar, EthSpec, Hash256};
+use types::{BlobSidecar, EthSpec};
 
 /// Wrapper over a `BlobSidecar` for which we have completed kzg verification.
 /// i.e. `verify_blob_kzg_proof(blob, commitment, proof) == true`.
@@ -151,17 +149,4 @@ where
         .map(|blob| (&blob.blob, (blob.kzg_commitment, blob.kzg_proof)))
         .unzip();
     validate_blobs::<E>(kzg, commitments.as_slice(), blobs, proofs.as_slice())
-}
-
-/// Returns the canonical root of the given `blob`.
-///
-/// Use this function to ensure that we report the blob hashing time Prometheus metric.
-pub fn get_blob_root<E: EthSpec>(blob: &BlobSidecar<E>) -> Hash256 {
-    let blob_root_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_BLOB_ROOT);
-
-    let blob_root = blob.tree_hash_root();
-
-    metrics::stop_timer(blob_root_timer);
-
-    blob_root
 }

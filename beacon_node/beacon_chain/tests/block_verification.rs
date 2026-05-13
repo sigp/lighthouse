@@ -1491,7 +1491,7 @@ async fn verify_block_for_gossip_slashing_detection() {
 
     let verified_block = harness.chain.verify_block_for_gossip(block1).await.unwrap();
 
-    if let Some((_, _)) = blobs1 {
+    if blobs1.is_some() {
         harness
             .process_gossip_columns(verified_block.block(), None)
             .await;
