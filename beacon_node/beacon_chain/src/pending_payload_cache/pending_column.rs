@@ -32,25 +32,18 @@ impl<E: EthSpec> PendingColumn<E> {
             .map(|(c, p)| c == cell && p == proof)
     }
 
-    pub fn is_complete(&self) -> bool {
-        self.cells.iter().all(|cell| cell.is_some())
-    }
-
-    /// Build a `DataColumnSidecar` from the cached cells.
-    ///
-    /// Returns `Err(IncompleteColumn)` if any cell is missing, or a size-bound error if the
-    /// column/proofs exceed spec limits (should never happen in practice).
-    pub fn to_sidecar(
+    /// Returns a full `DataColumnSidecar` if all cells are present, or `None` if any are missing.
+    pub fn into_full_sidecar(
         &self,
         index: ColumnIndex,
         slot: Slot,
         beacon_block_root: Hash256,
-    ) -> Result<Arc<DataColumnSidecar<E>>, PendingColumnError> {
+    ) -> Option<Arc<DataColumnSidecar<E>>> {
         let mut column = Vec::with_capacity(self.cells.len());
         let mut kzg_proofs = Vec::with_capacity(self.cells.len());
 
         for cell in self.cells.iter() {
-            let (cell, proof) = cell.as_ref().ok_or(PendingColumnError::IncompleteColumn)?;
+            let (cell, proof) = cell.as_ref()?;
             // TODO(gloas): we likely want to go and arc all cells. This will help us from requiring a clone
             // in PendingColumn::insert
             column.push(cell.clone());
@@ -59,22 +52,12 @@ impl<E: EthSpec> PendingColumn<E> {
 
         // TODO(gloas): this hard-codes the Gloas sidecar variant. Pass the fork in once
         // post-Gloas variants are introduced (or move construction to a fork-aware helper).
-        Ok(Arc::new(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
+        Some(Arc::new(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
             index,
-            column: VariableList::try_from(column)
-                .map_err(|_| PendingColumnError::ColumnSizeExceedsBound)?,
-            kzg_proofs: VariableList::try_from(kzg_proofs)
-                .map_err(|_| PendingColumnError::ProofsSizeExceedsBound)?,
+            column: VariableList::try_from(column).ok()?,
+            kzg_proofs: VariableList::try_from(kzg_proofs).ok()?,
             slot,
             beacon_block_root,
         })))
     }
-}
-
-/// Errors returned by [`PendingColumn::to_sidecar`].
-#[derive(Debug, Clone)]
-pub enum PendingColumnError {
-    IncompleteColumn,
-    ColumnSizeExceedsBound,
-    ProofsSizeExceedsBound,
 }

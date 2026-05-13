@@ -7,7 +7,7 @@ use crate::pending_payload_cache::pending_column::PendingColumn;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{Span, debug, debug_span, error};
+use tracing::{Span, debug, debug_span};
 use types::DataColumnSidecar;
 use types::{ColumnIndex, EthSpec, Hash256, SignedExecutionPayloadBid};
 
@@ -31,38 +31,26 @@ impl<E: EthSpec> PendingComponents<E> {
         self.bid.message.blob_kzg_commitments.len()
     }
 
-    /// Returns the completed custody columns.
-    ///
-    /// Skips columns that are not yet complete and logs an error if a complete column fails to
-    /// build (a spec-bound invariant would have to be violated; should never happen in practice).
+    /// Returns columns that have all cells present.
     pub fn get_cached_data_columns(&self) -> Vec<Arc<DataColumnSidecar<E>>> {
         let slot = self.bid.message.slot;
         let block_root = self.block_root;
         self.verified_data_columns
             .iter()
-            .filter(|(_, col)| col.is_complete())
-            .filter_map(
-                |(col_idx, col)| match col.to_sidecar(*col_idx, slot, block_root) {
-                    Ok(sidecar) => Some(sidecar),
-                    Err(e) => {
-                        error!(
-                            ?e,
-                            column_index = %col_idx,
-                            ?block_root,
-                            "Failed to build sidecar for complete column"
-                        );
-                        None
-                    }
-                },
-            )
+            .filter_map(|(col_idx, col)| col.into_full_sidecar(*col_idx, slot, block_root))
             .collect()
     }
 
-    /// Returns the indices of cached sampling columns
+    /// Returns the indices of columns that have all cells present.
     pub fn get_cached_data_columns_indices(&self) -> Vec<ColumnIndex> {
+        let slot = self.bid.message.slot;
+        let block_root = self.block_root;
         self.verified_data_columns
             .iter()
-            .filter_map(|(col_idx, col)| col.is_complete().then_some(*col_idx))
+            .filter_map(|(col_idx, col)| {
+                col.into_full_sidecar(*col_idx, slot, block_root)
+                    .map(|_| *col_idx)
+            })
             .collect()
     }
 
@@ -102,13 +90,8 @@ impl<E: EthSpec> PendingComponents<E> {
         self.envelope = Some(envelope);
     }
 
-    /// Count of columns that have been received, excluding partial
-    /// columns that are still awaiting cells.
     pub fn num_completed_columns(&self) -> usize {
-        self.verified_data_columns
-            .values()
-            .filter(|col| col.is_complete())
-            .count()
+        self.get_cached_data_columns().len()
     }
 
     /// Returns `Some` if the envelope and all required data columns have been received.
@@ -133,20 +116,19 @@ impl<E: EthSpec> PendingComponents<E> {
             });
             vec![]
         } else {
-            let num_completed_columns = self.num_completed_columns();
-            match num_completed_columns.cmp(&num_expected_columns) {
+            let columns = self.get_cached_data_columns();
+            match columns.len().cmp(&num_expected_columns) {
                 Ordering::Greater => {
-                    // Should never happen
                     return Err(AvailabilityCheckError::Unexpected(format!(
-                        "too many columns got {num_completed_columns} expected {num_expected_columns}"
+                        "too many columns: got {} expected {num_expected_columns}",
+                        columns.len()
                     )));
                 }
                 Ordering::Equal => {
                     self.span.in_scope(|| {
                         debug!("All data columns received, data is available");
                     });
-
-                    self.get_cached_data_columns()
+                    columns
                 }
                 Ordering::Less => {
                     // Not enough data columns received yet
