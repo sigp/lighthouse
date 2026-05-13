@@ -2087,8 +2087,7 @@ async fn too_many_processing_failures(depth: usize) {
     r.build_chain_and_trigger_last_block(depth).await;
     // Simulate that a peer always returns empty
     r.simulate(
-        SimulateConfig::new()
-            .with_process_result(|| BlockProcessingResult::Err(BlockError::BlockSlotLimitReached)),
+        SimulateConfig::new().with_process_result(|| BlockError::BlockSlotLimitReached.into()),
     )
     .await;
     // We register multiple penalties, the lookup fails and sync does not progress
@@ -2156,9 +2155,10 @@ async fn test_single_block_lookup_duplicate_response() {
     let mut r = TestRig::default();
     r.build_chain_and_trigger_last_block(1).await;
     // Send a DuplicateFullyImported response, the lookup should complete successfully
-    r.simulate(SimulateConfig::new().with_process_result(|| {
-        BlockProcessingResult::Err(BlockError::DuplicateFullyImported(Hash256::ZERO))
-    }))
+    r.simulate(
+        SimulateConfig::new()
+            .with_process_result(|| BlockError::DuplicateFullyImported(Hash256::ZERO).into()),
+    )
     .await;
     // The block was not actually imported
     r.assert_head_slot(0);

@@ -23,6 +23,7 @@ use beacon_chain::{
     },
     custody_context::NodeCustodyType,
     historical_blocks::HistoricalBlockError,
+    kzg_utils::reconstruct_blobs,
     migrate::MigratorConfig,
 };
 use bls::{Keypair, Signature, SignatureBytes};
@@ -67,6 +68,43 @@ static KEYPAIRS: LazyLock<Vec<Keypair>> =
 
 type E = MinimalEthSpec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
+
+/// Retrieve or reconstruct blobs for a given block root. This uses the block's epoch to determine
+/// whether to retrieve blobs directly or reconstruct them from columns.
+///
+/// Returns `None` for Gloas blocks (which have no blob sidecar representation).
+fn get_or_reconstruct_blobs<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    block_root: &Hash256,
+) -> Result<Option<BlobSidecarList<T::EthSpec>>, BeaconChainError> {
+    let Some(block) = chain.store.get_blinded_block(block_root)? else {
+        return Ok(None);
+    };
+
+    if block.fork_name_unchecked().gloas_enabled() {
+        return Ok(None);
+    }
+
+    if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
+        let fork_name = chain.spec.fork_name_at_epoch(block.epoch());
+        if let Some(columns) = chain.store.get_data_columns(block_root, fork_name)? {
+            let num_required_columns = T::EthSpec::number_of_columns() / 2;
+            if columns.len() >= num_required_columns {
+                reconstruct_blobs(&chain.kzg, columns, None, &block, &chain.spec)
+                    .map(Some)
+                    .map_err(BeaconChainError::FailedToReconstructBlobs)
+            } else {
+                Err(BeaconChainError::InsufficientColumnsToReconstructBlobs {
+                    columns_found: columns.len(),
+                })
+            }
+        } else {
+            Ok(None)
+        }
+    } else {
+        Ok(chain.get_blobs(block_root)?.blobs())
+    }
+}
 
 fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>> {
     let store_config = StoreConfig {
@@ -2835,10 +2873,7 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
                 .is_ok()
     );
 
-    let wss_blobs_opt = harness
-        .chain
-        .get_or_reconstruct_blobs(&wss_block_root)
-        .unwrap();
+    let wss_blobs_opt = get_or_reconstruct_blobs(&harness.chain, &wss_block_root).unwrap();
 
     let wss_state = full_store
         .get_state(&wss_state_root, Some(checkpoint_slot), CACHE_STATE_IN_TESTS)
@@ -2971,10 +3006,7 @@ async fn weak_subjectivity_sync_test(
         .state_root_at_slot(checkpoint_slot)
         .unwrap()
         .unwrap();
-    let wss_blobs_opt = harness
-        .chain
-        .get_or_reconstruct_blobs(&wss_block_root)
-        .unwrap();
+    let wss_blobs_opt = get_or_reconstruct_blobs(&harness.chain, &wss_block_root).unwrap();
     let wss_state = full_store
         .get_state(&wss_state_root, Some(checkpoint_slot), CACHE_STATE_IN_TESTS)
         .unwrap()
@@ -3063,6 +3095,29 @@ async fn weak_subjectivity_sync_test(
 
     let beacon_chain = Arc::new(beacon_chain);
     let wss_block_root = wss_block.canonical_root();
+
+    // For Gloas, blobs aren't a standalone shape — the WSS data is the column sidecar set, which
+    // `get_or_reconstruct_blobs` returns `None` for. Copy the WSS block's columns straight from
+    // the source store so that the destination has them after checkpoint sync, matching what
+    // network-driven WSS would produce in production.
+    if wss_block.fork_name_unchecked().gloas_enabled()
+        && let Ok(Some(source_columns)) = harness
+            .chain
+            .store
+            .get_data_columns(&wss_block_root, ForkName::Gloas)
+        && !source_columns.is_empty()
+        && let Some(store_op) = beacon_chain.get_blobs_or_columns_store_op(
+            wss_block_root,
+            wss_block.slot(),
+            beacon_chain::block_verification_types::AvailableBlockData::DataColumns(source_columns),
+        )
+    {
+        beacon_chain
+            .store
+            .do_atomically_with_block_and_blobs_cache(vec![store_op])
+            .unwrap();
+    }
+
     let store_wss_block = harness
         .chain
         .get_block(&wss_block_root)
@@ -3070,9 +3125,7 @@ async fn weak_subjectivity_sync_test(
         .unwrap()
         .unwrap();
     // This test may break in the future if we no longer store the full checkpoint data columns.
-    let store_wss_blobs_opt = beacon_chain
-        .get_or_reconstruct_blobs(&wss_block_root)
-        .unwrap();
+    let store_wss_blobs_opt = get_or_reconstruct_blobs(&beacon_chain, &wss_block_root).unwrap();
 
     assert_eq!(store_wss_block, wss_block);
     // TODO(fulu): Remove this condition once #6760 (PeerDAS checkpoint sync) is merged.
@@ -3130,12 +3183,43 @@ async fn weak_subjectivity_sync_test(
             .await
             .unwrap();
 
-        // Store the envelope and apply it to fork choice.
+        // Store the envelope, its columns, and apply to fork choice.
         if let Some(envelope) = &snapshot.execution_envelope {
+            // Persist data columns for Gloas blocks. This mirrors what production does in
+            // `import_available_execution_payload_envelope` and what the harness now does in
+            // `process_envelope` — the WSS forward-sync loop bypasses both, so do it directly.
+            let mut ops = vec![];
+            let columns_block = beacon_chain
+                .store
+                .get_blinded_block(&block_root)
+                .unwrap()
+                .and_then(|b| beacon_chain.store.make_full_block(&block_root, b).ok());
+            if let Some(full_block) = columns_block {
+                let columns = beacon_chain::test_utils::generate_data_column_sidecars_from_block(
+                    &full_block,
+                    &beacon_chain.spec,
+                );
+                if !columns.is_empty()
+                    && let Some(store_op) = beacon_chain.get_blobs_or_columns_store_op(
+                        block_root,
+                        full_block.slot(),
+                        beacon_chain::block_verification_types::AvailableBlockData::DataColumns(
+                            columns,
+                        ),
+                    )
+                {
+                    ops.push(store_op);
+                }
+            }
+            ops.push(store::StoreOp::PutPayloadEnvelope(
+                block_root,
+                std::sync::Arc::new(envelope.as_ref().clone()),
+            ));
             beacon_chain
                 .store
-                .put_payload_envelope(&block_root, envelope)
+                .do_atomically_with_block_and_blobs_cache(ops)
                 .unwrap();
+
             // Update fork choice so head selection accounts for Full payload status.
             beacon_chain
                 .canonical_head
