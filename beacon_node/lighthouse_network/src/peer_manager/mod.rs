@@ -151,6 +151,33 @@ pub enum PeerManagerEvent {
     DiscoverSubnetPeers(Vec<SubnetDiscovery>),
 }
 
+/// Maps an [`RPCError`] (and its inner status code, where applicable) to a
+/// stable, granular `'static` tag used as the `msg` for `report_peer` so
+/// external consumers can distinguish e.g. a rate limit from a ssz decode
+/// failure or an unsupported protocol.
+fn rpc_error_msg(err: &RPCError) -> &'static str {
+    match err {
+        RPCError::IncompleteStream => "rpc_incomplete_stream",
+        RPCError::HandlerRejected => "rpc_handler_rejected",
+        RPCError::InvalidData(_) => "rpc_invalid_data",
+        RPCError::SSZDecodeError(_) => "rpc_ssz_decode_error",
+        RPCError::IoError(_) => "rpc_io_error",
+        RPCError::NegotiationTimeout => "rpc_negotiation_timeout",
+        RPCError::StreamTimeout => "rpc_stream_timeout",
+        RPCError::UnsupportedProtocol => "rpc_unsupported_protocol",
+        RPCError::Disconnected => "rpc_disconnected",
+        RPCError::InternalError(_) => "rpc_internal_error",
+        RPCError::ErrorResponse(code, _) => match code {
+            RpcErrorResponse::Unknown => "rpc_unknown_status",
+            RpcErrorResponse::ResourceUnavailable => "rpc_resource_unavailable",
+            RpcErrorResponse::ServerError => "rpc_server_error",
+            RpcErrorResponse::InvalidRequest => "rpc_invalid_request",
+            RpcErrorResponse::RateLimited => "rpc_rate_limited",
+            RpcErrorResponse::BlobsNotFoundForBlock => "rpc_blobs_not_found",
+        },
+    }
+}
+
 /// Returns a stable `'static` variant name for a [`GoodbyeReason`] suitable
 /// for JSON serialization on the `/lighthouse/peers` HTTP endpoint.
 pub(crate) fn goodbye_reason_name(reason: &GoodbyeReason) -> &'static str {
@@ -692,13 +719,8 @@ impl<E: EthSpec> PeerManager<E> {
             RPCError::Disconnected => return, // No penalty for a graceful disconnection
         };
 
-        self.report_peer(
-            peer_id,
-            peer_action,
-            ReportSource::RPC,
-            None,
-            "handle_rpc_error",
-        );
+        let msg = rpc_error_msg(err);
+        self.report_peer(peer_id, peer_action, ReportSource::RPC, None, msg);
     }
 
     /// A ping request has been received.
