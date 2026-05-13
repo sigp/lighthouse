@@ -849,12 +849,13 @@ where
                     It is highly recommended to purge your db and checkpoint sync. For more information please \
                     read this blog post: https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity"
                 )
+            } else {
+                return Err(
+                    "The current head state is outside the weak subjectivity period. A node in this state is susceptible to long range attacks. You should purge your db and \
+                    checkpoint sync. For more information please read this blog post: https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity \
+                    If you understand the risks, it is possible to ignore this error with the --ignore-ws-check flag.".to_string()
+                );
             }
-            return Err(
-                "The current head state is outside the weak subjectivity period. A node in this state is susceptible to long range attacks. You should purge your db and \
-                checkpoint sync. For more information please read this blog post: https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity \
-                If you understand the risks, it is possible to ignore this error with the --ignore-ws-check flag.".to_string()
-            );
         }
 
         let validator_pubkey_cache = self
