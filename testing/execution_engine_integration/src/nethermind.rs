@@ -13,7 +13,7 @@ const NETHERMIND_REPO_URL: &str = "https://github.com/NethermindEth/nethermind";
 fn build_result(repo_dir: &Path) -> Output {
     Command::new("dotnet")
         .arg("build")
-        .arg("src/Nethermind/Nethermind.slnx")
+        .arg("src/Nethermind/Nethermind.Runner/Nethermind.Runner.csproj")
         .arg("-c")
         .arg("Release")
         .arg("-p:TreatWarningsAsErrors=false")
@@ -62,7 +62,7 @@ pub struct NethermindEngine;
 impl NethermindEngine {
     fn binary_path() -> PathBuf {
         let manifest_dir: PathBuf = env::var("CARGO_MANIFEST_DIR").unwrap().into();
-        manifest_dir
+        let nethermind_dir = manifest_dir
             .join("execution_clients")
             .join("nethermind")
             .join("src")
@@ -70,8 +70,14 @@ impl NethermindEngine {
             .join("artifacts")
             .join("bin")
             .join("Nethermind.Runner")
-            .join("release")
-            .join("nethermind")
+            .join("release");
+
+        let latest_path = nethermind_dir.join("net10.0").join("nethermind");
+        if latest_path.exists() {
+            latest_path
+        } else {
+            nethermind_dir.join("nethermind")
+        }
     }
 }
 
@@ -98,7 +104,7 @@ impl GenericExecutionEngine for NethermindEngine {
             .arg("--datadir")
             .arg(datadir.path().to_str().unwrap())
             .arg("--config")
-            .arg("hive")
+            .arg("none.json")
             .arg("--Init.ChainSpecPath")
             .arg(genesis_json_path.to_str().unwrap())
             .arg("--Merge.TerminalTotalDifficulty")
