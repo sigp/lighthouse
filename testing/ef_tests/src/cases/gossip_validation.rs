@@ -143,21 +143,21 @@ struct PreloadedBlock<E: EthSpec> {
 #[derive(Debug)]
 enum Message<E: EthSpec> {
     BeaconBlock(Arc<SignedBeaconBlock<E>>),
-    BeaconAttestation(AttestationMessage<E>),
-    BeaconAggregateAndProof(SignedAggregateAndProof<E>),
-    ProposerSlashing(ProposerSlashing),
-    AttesterSlashing(AttesterSlashing<E>),
-    VoluntaryExit(SignedVoluntaryExit),
-    SyncCommitteeContributionAndProof(SignedContributionAndProof<E>),
-    SyncCommittee(SyncCommitteeMessage),
-    BlsToExecutionChange(SignedBlsToExecutionChange),
+    BeaconAttestation(Box<AttestationMessage<E>>),
+    BeaconAggregateAndProof(Box<SignedAggregateAndProof<E>>),
+    ProposerSlashing(Box<ProposerSlashing>),
+    AttesterSlashing(Box<AttesterSlashing<E>>),
+    VoluntaryExit(Box<SignedVoluntaryExit>),
+    SyncCommitteeContributionAndProof(Box<SignedContributionAndProof<E>>),
+    SyncCommittee(Box<SyncCommitteeMessage>),
+    BlsToExecutionChange(Box<SignedBlsToExecutionChange>),
     InvalidBls,
 }
 
 #[derive(Debug)]
 enum AttestationMessage<E: EthSpec> {
-    Single(SingleAttestation),
-    Attestation(Attestation<E>),
+    Single(Box<SingleAttestation>),
+    Attestation(Box<Attestation<E>>),
 }
 
 impl<E: EthSpec> LoadCase for GossipValidation<E> {
@@ -296,21 +296,30 @@ fn decode_message<E: EthSpec>(
         Topic::BeaconBlock => decode_block(&path, &testing_spec::<E>(fork_name))
             .map(Arc::new)
             .map(Message::BeaconBlock),
-        Topic::BeaconAttestation => {
-            decode_attestation_message(&path, fork_name).map(Message::BeaconAttestation)
-        }
+        Topic::BeaconAttestation => decode_attestation_message(&path, fork_name)
+            .map(Box::new)
+            .map(Message::BeaconAttestation),
         Topic::BeaconAggregateAndProof => decode_signed_aggregate_and_proof(&path, fork_name)
+            .map(Box::new)
             .map(Message::BeaconAggregateAndProof),
-        Topic::ProposerSlashing => ssz_decode_file(&path).map(Message::ProposerSlashing),
-        Topic::AttesterSlashing => {
-            decode_attester_slashing(&path, fork_name).map(Message::AttesterSlashing)
-        }
-        Topic::VoluntaryExit => ssz_decode_file(&path).map(Message::VoluntaryExit),
-        Topic::SyncCommitteeContributionAndProof => {
-            ssz_decode_file(&path).map(Message::SyncCommitteeContributionAndProof)
-        }
-        Topic::SyncCommittee => ssz_decode_file(&path).map(Message::SyncCommittee),
-        Topic::BlsToExecutionChange => ssz_decode_file(&path).map(Message::BlsToExecutionChange),
+        Topic::ProposerSlashing => ssz_decode_file(&path)
+            .map(Box::new)
+            .map(Message::ProposerSlashing),
+        Topic::AttesterSlashing => decode_attester_slashing(&path, fork_name)
+            .map(Box::new)
+            .map(Message::AttesterSlashing),
+        Topic::VoluntaryExit => ssz_decode_file(&path)
+            .map(Box::new)
+            .map(Message::VoluntaryExit),
+        Topic::SyncCommitteeContributionAndProof => ssz_decode_file(&path)
+            .map(Box::new)
+            .map(Message::SyncCommitteeContributionAndProof),
+        Topic::SyncCommittee => ssz_decode_file(&path)
+            .map(Box::new)
+            .map(Message::SyncCommittee),
+        Topic::BlsToExecutionChange => ssz_decode_file(&path)
+            .map(Box::new)
+            .map(Message::BlsToExecutionChange),
     };
 
     match decoded {
@@ -327,12 +336,14 @@ fn decode_attestation_message<E: EthSpec>(
     if fork_name.electra_enabled()
         && let Ok(single_attestation) = SingleAttestation::from_ssz_bytes(&bytes)
     {
-        return Ok(AttestationMessage::Single(single_attestation));
+        return Ok(AttestationMessage::Single(Box::new(single_attestation)));
     }
 
     if fork_name.electra_enabled() {
         AttestationElectra::from_ssz_bytes(&bytes)
-            .map(|attestation| AttestationMessage::Attestation(Attestation::Electra(attestation)))
+            .map(|attestation| {
+                AttestationMessage::Attestation(Box::new(Attestation::Electra(attestation)))
+            })
             .map_err(|e| {
                 Error::FailedToParseTest(format!(
                     "Unable to parse SSZ at {}: {:?}",
@@ -342,7 +353,9 @@ fn decode_attestation_message<E: EthSpec>(
             })
     } else {
         AttestationBase::from_ssz_bytes(&bytes)
-            .map(|attestation| AttestationMessage::Attestation(Attestation::Base(attestation)))
+            .map(|attestation| {
+                AttestationMessage::Attestation(Box::new(Attestation::Base(attestation)))
+            })
             .map_err(|e| {
                 Error::FailedToParseTest(format!(
                     "Unable to parse SSZ at {}: {:?}",
@@ -614,23 +627,23 @@ impl<E: EthSpec> GossipValidationTester<E> {
             }
             Message::BeaconAggregateAndProof(aggregate) => self.validate_aggregate(aggregate),
             Message::ProposerSlashing(slashing) => {
-                self.validate_proposer_slashing(slashing.clone())
+                self.validate_proposer_slashing(slashing.as_ref().clone())
             }
             Message::AttesterSlashing(slashing) => {
-                self.validate_attester_slashing(slashing.clone())
+                self.validate_attester_slashing(slashing.as_ref().clone())
             }
-            Message::VoluntaryExit(exit) => self.validate_voluntary_exit(exit.clone()),
+            Message::VoluntaryExit(exit) => self.validate_voluntary_exit(exit.as_ref().clone()),
             Message::SyncCommitteeContributionAndProof(contribution) => {
-                self.validate_sync_contribution(contribution.clone())
+                self.validate_sync_contribution(contribution.as_ref().clone())
             }
             Message::SyncCommittee(message) => self.validate_sync_committee_message(
-                message.clone(),
+                message.as_ref().clone(),
                 subnet_id.ok_or_else(|| {
                     Error::FailedToParseTest("sync_committee message requires subnet_id".into())
                 })?,
             ),
             Message::BlsToExecutionChange(change) => {
-                self.validate_bls_to_execution_change(change.clone())
+                self.validate_bls_to_execution_change(change.as_ref().clone())
             }
             Message::InvalidBls => Ok(Expected::Reject),
         }
@@ -681,7 +694,7 @@ impl<E: EthSpec> GossipValidationTester<E> {
         }
 
         let single_attestation = match attestation {
-            AttestationMessage::Single(single_attestation) => single_attestation.clone(),
+            AttestationMessage::Single(single_attestation) => single_attestation.as_ref().clone(),
             AttestationMessage::Attestation(attestation) => {
                 match self.attestation_to_single(attestation, fork_name)? {
                     Some(single_attestation) => single_attestation,
@@ -852,6 +865,7 @@ impl<E: EthSpec> GossipValidationTester<E> {
         }
     }
 
+    #[allow(clippy::result_large_err)]
     fn attestation_to_single(
         &self,
         attestation: &Attestation<E>,
