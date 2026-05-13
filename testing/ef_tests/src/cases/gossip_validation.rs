@@ -1,6 +1,7 @@
 use super::*;
 use crate::decode::{
-    snappy_decode_file, ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file,
+    log_file_access, snappy_decode_file, ssz_decode_file, ssz_decode_file_with, ssz_decode_state,
+    yaml_decode_file,
 };
 use crate::type_name::TypeName;
 use ::fork_choice::{InvalidationOperation, PayloadVerificationStatus};
@@ -171,6 +172,10 @@ impl<E: EthSpec> LoadCase for GossipValidation<E> {
             .to_string();
         let meta: Meta = yaml_decode_file(&path.join("meta.yaml"))?;
         let spec = &testing_spec::<E>(fork_name);
+        let config_path = path.join("config.yaml");
+        if config_path.exists() {
+            log_file_access(&config_path);
+        }
         let state = ssz_decode_state(&path.join("state.ssz_snappy"), spec)?;
         let current_time_ms = meta.current_time_ms.unwrap_or_else(|| {
             state
