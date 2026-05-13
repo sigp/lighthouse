@@ -19,9 +19,11 @@ pub use crate::canonical_head::CanonicalHead;
 use crate::chain_config::ChainConfig;
 use crate::custody_context::CustodyContextSsz;
 use crate::data_availability_checker::{
-    Availability, AvailabilityCheckError, AvailableBlock, AvailableBlockData,
-    DataAvailabilityChecker, DataColumnReconstructionResult,
+    Availability as BlockAvailability, AvailabilityCheckError, AvailableBlock, AvailableBlockData,
+    DataColumnReconstructionResult as DataColumnReconstructionResultV1,
 };
+
+use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::data_column_verification::{
     GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
     GossipVerifiedPartialDataColumnHeader, KzgVerifiedCustodyPartialDataColumn,
@@ -36,7 +38,6 @@ use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_e
 use crate::fetch_blobs::EngineGetBlobsOutput;
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
-use crate::kzg_utils::reconstruct_blobs;
 use crate::light_client_finality_update_verification::{
     Error as LightClientFinalityUpdateError, VerifiedLightClientFinalityUpdate,
 };
@@ -65,6 +66,11 @@ use crate::payload_attestation_verification::VerifiedPayloadAttestationMessage;
 use crate::payload_bid_verification::payload_bid_cache::GossipVerifiedPayloadBidCache;
 #[cfg(not(test))]
 use crate::payload_envelope_streamer::{EnvelopeRequestSource, launch_payload_envelope_stream};
+use crate::pending_payload_cache::PendingPayloadCache;
+use crate::pending_payload_cache::{
+    Availability as PayloadAvailability,
+    DataColumnReconstructionResult as DataColumnReconstructionResultGloas,
+};
 use crate::pending_payload_envelopes::PendingPayloadEnvelopes;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::persisted_custody::persist_custody_context;
@@ -498,9 +504,10 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
     /// The slot at which blocks are downloaded back to.
     pub genesis_backfill_slot: Slot,
-    /// Provides a KZG verification and temporary storage for blocks and blobs as
-    /// they are collected and combined.
+    /// Provides KZG verification and temporary storage for pre-Gloas blocks and blobs.
     pub data_availability_checker: Arc<DataAvailabilityChecker<T>>,
+    /// Provides KZG verification and temporary storage for post-Gloas payload envelopes.
+    pub pending_payload_cache: Arc<PendingPayloadCache<T>>,
     /// The KZG trusted setup used by this chain.
     pub kzg: Arc<Kzg>,
     /// RNG instance used by the chain. Currently used for shuffling column sidecars in block publishing.
@@ -1180,6 +1187,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let all_cached_columns_opt = self
             .data_availability_checker
             .get_data_columns(block_root)
+            .or_else(|| self.pending_payload_cache.get_data_columns(block_root))
             .or_else(|| self.early_attester_cache.get_data_columns(block_root));
 
         if let Some(mut all_cached_columns) = all_cached_columns_opt {
@@ -1195,6 +1203,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .collect::<Result<_, _>>()
         } else {
             Ok(vec![])
+        }
+    }
+
+    pub fn cached_data_column_indexes(
+        &self,
+        block_root: &Hash256,
+        slot: Slot,
+    ) -> Option<Vec<ColumnIndex>> {
+        if self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(slot)
+            .gloas_enabled()
+        {
+            self.pending_payload_cache
+                .cached_data_column_indexes(block_root)
+        } else {
+            self.data_availability_checker
+                .cached_data_column_indexes(block_root)
         }
     }
 
@@ -1284,45 +1310,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.store
             .get_data_columns(block_root, fork_name)
             .map_err(Error::from)
-    }
-
-    /// Returns the blobs at the given root, if any.
-    ///
-    /// Uses the `block.epoch()` to determine whether to retrieve blobs or columns from the store.
-    ///
-    /// If at least 50% of columns are retrieved, blobs will be reconstructed and returned,
-    /// otherwise an error `InsufficientColumnsToReconstructBlobs` is returned.
-    ///
-    /// ## Errors
-    /// May return a database error.
-    pub fn get_or_reconstruct_blobs(
-        &self,
-        block_root: &Hash256,
-    ) -> Result<Option<BlobSidecarList<T::EthSpec>>, Error> {
-        let Some(block) = self.store.get_blinded_block(block_root)? else {
-            return Ok(None);
-        };
-
-        if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-            let fork_name = self.spec.fork_name_at_epoch(block.epoch());
-            if let Some(columns) = self.store.get_data_columns(block_root, fork_name)? {
-                let num_required_columns = T::EthSpec::number_of_columns() / 2;
-                let reconstruction_possible = columns.len() >= num_required_columns;
-                if reconstruction_possible {
-                    reconstruct_blobs(&self.kzg, columns, None, &block, &self.spec)
-                        .map(Some)
-                        .map_err(Error::FailedToReconstructBlobs)
-                } else {
-                    Err(Error::InsufficientColumnsToReconstructBlobs {
-                        columns_found: columns.len(),
-                    })
-                }
-            } else {
-                Ok(None)
-            }
-        } else {
-            Ok(self.get_blobs(block_root)?.blobs())
-        }
     }
 
     /// Returns the data columns at the given root, if any.
@@ -3306,13 +3293,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             ));
         };
 
-        // If this block has already been imported to forkchoice it must have been available, so
-        // we don't need to process its samples again.
-        if self
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(&block_root)
-        {
+        if self.is_block_data_imported(block_root, slot) {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
@@ -3357,12 +3338,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(None);
         };
 
-        // If this block has already been imported to forkchoice it must have been available
-        if self
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(&block_root)
-        {
+        if self.is_block_data_imported(block_root, slot) {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
@@ -3401,15 +3377,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .map(|column| column.as_data_column()),
             );
 
-            let availability = self
-                .data_availability_checker
-                .put_kzg_verified_custody_data_columns(
-                    block_root,
-                    merge_result.full_columns.clone(),
-                )?;
-
-            self.process_availability(slot, availability, || Ok(()))
-                .await?
+            if self
+                .spec
+                .fork_name_at_slot::<T::EthSpec>(slot)
+                .gloas_enabled()
+            {
+                let availability = self
+                    .pending_payload_cache
+                    .put_kzg_verified_custody_data_columns(block_root, &merge_result.full_columns)
+                    .map_err(BlockError::from)?;
+                self.process_payload_envelope_availability(slot, availability, || Ok(()))
+                    .await?
+            } else {
+                let availability = self
+                    .data_availability_checker
+                    .put_kzg_verified_custody_data_columns(
+                        block_root,
+                        merge_result.full_columns.clone(),
+                    )
+                    .map_err(BlockError::from)?;
+                self.process_availability(slot, availability, || Ok(()))
+                    .await?
+            }
         } else {
             AvailabilityProcessingStatus::MissingComponents(slot, block_root)
         };
@@ -3426,13 +3415,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        // If this block has already been imported to forkchoice it must have been available, so
-        // we don't need to process its blobs again.
-        if self
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(&block_root)
-        {
+        if self.is_block_data_imported(block_root, slot) {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
@@ -3521,9 +3504,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(event_handler) = self.event_handler.as_ref()
             && event_handler.has_data_column_sidecar_subscribers()
         {
+            let mut data_columns_iter = data_columns_iter.peekable();
+            let Some(slot) = data_columns_iter.peek().map(|col| col.slot()) else {
+                return;
+            };
             let imported_data_columns = self
-                .data_availability_checker
-                .cached_data_column_indexes(block_root)
+                .cached_data_column_indexes(block_root, slot)
                 .unwrap_or_default();
             let new_data_columns =
                 data_columns_iter.filter(|b| !imported_data_columns.contains(b.index()));
@@ -3554,15 +3540,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             ));
         };
 
-        // If this block has already been imported to forkchoice it must have been available, so
-        // we don't need to process its columns again.
-        // TODO(gloas) the block will be available in fork choice for gloas. This does not indicate availability
-        // anymore.
-        if self
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(&block_root)
-        {
+        if self.is_block_data_imported(block_root, slot) {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
@@ -3596,6 +3574,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     pub async fn reconstruct_data_columns(
         self: &Arc<Self>,
+        slot: Slot,
         block_root: Hash256,
     ) -> Result<
         Option<(
@@ -3604,48 +3583,84 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )>,
         BlockError,
     > {
-        // As of now we only reconstruct data columns on supernodes, so if the block is already
-        // available on a supernode, there's no need to reconstruct as the node must already have
-        // all columns.
-        if self
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(&block_root)
-        {
+        // As of now we only reconstruct data columns on supernodes, so if all availability data
+        // for the block is already imported, there's nothing left to reconstruct.
+        if self.is_block_data_imported(block_root, slot) {
             return Ok(None);
         }
 
-        let data_availability_checker = self.data_availability_checker.clone();
+        let is_gloas = self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(slot)
+            .gloas_enabled();
 
-        let result = self
-            .task_executor
-            .spawn_blocking_with_rayon_async(RayonPoolType::HighPriority, move || {
-                data_availability_checker.reconstruct_data_columns(&block_root)
-            })
-            .await
-            .map_err(|_| BeaconChainError::RuntimeShutdown)??;
+        if is_gloas {
+            let pending_payload_cache = self.pending_payload_cache.clone();
+            let result = self
+                .task_executor
+                .spawn_blocking_with_rayon_async(RayonPoolType::HighPriority, move || {
+                    pending_payload_cache.reconstruct_data_columns(&block_root)
+                })
+                .await
+                .map_err(|_| BlockError::from(BeaconChainError::RuntimeShutdown))?
+                .map_err(BlockError::from)?;
 
-        match result {
-            DataColumnReconstructionResult::Success((availability, data_columns_to_publish)) => {
-                let Some(slot) = data_columns_to_publish.first().map(|d| d.slot()) else {
-                    // This should be unreachable because empty result would return `RecoveredColumnsNotImported` instead of success.
-                    return Ok(None);
-                };
+            match result {
+                DataColumnReconstructionResultGloas::Success((
+                    availability,
+                    data_columns_to_publish,
+                )) => {
+                    let Some(slot) = data_columns_to_publish.first().map(|d| d.slot()) else {
+                        return Ok(None);
+                    };
 
-                self.process_availability(slot, availability, || Ok(()))
-                    .await
-                    .map(|availability_processing_status| {
-                        Some((availability_processing_status, data_columns_to_publish))
-                    })
+                    Ok(self
+                        .process_payload_envelope_availability(slot, availability, || Ok(()))
+                        .await
+                        .map(|status| Some((status, data_columns_to_publish)))?)
+                }
+                DataColumnReconstructionResultGloas::NotStarted(reason)
+                | DataColumnReconstructionResultGloas::RecoveredColumnsNotImported(reason) => {
+                    metrics::inc_counter_vec(
+                        &metrics::KZG_DATA_COLUMN_RECONSTRUCTION_INCOMPLETE_TOTAL,
+                        &[reason],
+                    );
+                    Ok(None)
+                }
             }
-            DataColumnReconstructionResult::NotStarted(reason)
-            | DataColumnReconstructionResult::RecoveredColumnsNotImported(reason) => {
-                // We use metric here because logging this would be *very* noisy.
-                metrics::inc_counter_vec(
-                    &metrics::KZG_DATA_COLUMN_RECONSTRUCTION_INCOMPLETE_TOTAL,
-                    &[reason],
-                );
-                Ok(None)
+        } else {
+            let data_availability_checker = self.data_availability_checker.clone();
+            let result = self
+                .task_executor
+                .spawn_blocking_with_rayon_async(RayonPoolType::HighPriority, move || {
+                    data_availability_checker.reconstruct_data_columns(&block_root)
+                })
+                .await
+                .map_err(|_| BlockError::from(BeaconChainError::RuntimeShutdown))?
+                .map_err(BlockError::from)?;
+
+            match result {
+                DataColumnReconstructionResultV1::Success((
+                    availability,
+                    data_columns_to_publish,
+                )) => {
+                    let Some(slot) = data_columns_to_publish.first().map(|d| d.slot()) else {
+                        return Ok(None);
+                    };
+
+                    Ok(self
+                        .process_availability(slot, availability, || Ok(()))
+                        .await
+                        .map(|status| Some((status, data_columns_to_publish)))?)
+                }
+                DataColumnReconstructionResultV1::NotStarted(reason)
+                | DataColumnReconstructionResultV1::RecoveredColumnsNotImported(reason) => {
+                    metrics::inc_counter_vec(
+                        &metrics::KZG_DATA_COLUMN_RECONSTRUCTION_INCOMPLETE_TOTAL,
+                        &[reason],
+                    );
+                    Ok(None)
+                }
             }
         }
     }
@@ -3657,6 +3672,32 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             Ok(())
         }
+    }
+
+    /// Returns true when no further availability data for `block_root` should be processed.
+    ///
+    /// Pre-Gloas:
+    /// - true once the block is fully imported into fork choice.
+    ///
+    /// Gloas:
+    /// - true only once the payload envelope and required data columns are fully imported.
+    ///   The beacon block itself may already be present in fork choice before this is true.
+    fn is_block_data_imported(&self, block_root: Hash256, slot: Slot) -> bool {
+        let is_gloas = self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(slot)
+            .gloas_enabled();
+
+        let fork_choice = self.canonical_head.fork_choice_read_lock();
+        if !fork_choice.contains_block(&block_root) {
+            return false;
+        }
+
+        if !is_gloas {
+            return true;
+        }
+
+        fork_choice.is_payload_received(&block_root)
     }
 
     /// Returns `Ok(block_root)` if the given `unverified_block` was successfully verified and
@@ -3723,6 +3764,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 &chain,
                 notify_execution_layer,
             )?;
+
+            let block = execution_pending.block.block_cloned();
+            if block.fork_name_unchecked().gloas_enabled() {
+                let bid = Arc::new(
+                    block
+                        .message()
+                        .body()
+                        .signed_execution_payload_bid()?
+                        .clone(),
+                );
+                chain.pending_payload_cache.insert_bid(block_root, bid);
+            }
+
             publish_fn()?;
 
             // Record the time it took to complete consensus verification.
@@ -3891,12 +3945,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        let availability = self
-            .data_availability_checker
-            .put_gossip_verified_data_columns(block_root, slot, data_columns)?;
-
-        self.process_availability(slot, availability, publish_fn)
-            .await
+        if self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(slot)
+            .gloas_enabled()
+        {
+            let availability = self
+                .pending_payload_cache
+                .put_gossip_verified_data_columns(block_root, data_columns)?;
+            Ok(self
+                .process_payload_envelope_availability(slot, availability, publish_fn)
+                .await?)
+        } else {
+            let availability = self
+                .data_availability_checker
+                .put_gossip_verified_data_columns(block_root, slot, data_columns)?;
+            Ok(self
+                .process_availability(slot, availability, publish_fn)
+                .await?)
+        }
     }
 
     fn check_blob_header_signature_and_slashability<'a>(
@@ -3943,7 +4010,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )?;
         let availability = self
             .data_availability_checker
-            .put_rpc_blobs(block_root, blobs)?;
+            .put_rpc_blobs(block_root, blobs)
+            .map_err(BlockError::from)?;
 
         self.process_availability(slot, availability, || Ok(()))
             .await
@@ -3955,14 +4023,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         engine_get_blobs_output: EngineGetBlobsOutput<T>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        let availability = match engine_get_blobs_output {
+        match engine_get_blobs_output {
             EngineGetBlobsOutput::Blobs(blobs) => {
                 self.check_blob_header_signature_and_slashability(
                     block_root,
                     blobs.iter().map(|b| b.as_blob()),
                 )?;
-                self.data_availability_checker
-                    .put_kzg_verified_blobs(block_root, blobs)?
+                let availability = self
+                    .data_availability_checker
+                    .put_kzg_verified_blobs(block_root, blobs)
+                    .map_err(BlockError::from)?;
+
+                Ok(self
+                    .process_availability(slot, availability, || Ok(()))
+                    .await?)
             }
             EngineGetBlobsOutput::CustodyColumns(data_columns) => {
                 // TODO(gloas) verify that this check is no longer relevant for gloas
@@ -3975,13 +4049,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             _ => None,
                         }),
                 )?;
-                self.data_availability_checker
-                    .put_kzg_verified_custody_data_columns(block_root, data_columns)?
+                if self
+                    .spec
+                    .fork_name_at_slot::<T::EthSpec>(slot)
+                    .gloas_enabled()
+                {
+                    let availability = self
+                        .pending_payload_cache
+                        .put_kzg_verified_custody_data_columns(block_root, &data_columns)
+                        .map_err(BlockError::from)?;
+                    Ok(self
+                        .process_payload_envelope_availability(slot, availability, || Ok(()))
+                        .await?)
+                } else {
+                    let availability = self
+                        .data_availability_checker
+                        .put_kzg_verified_custody_data_columns(block_root, data_columns)
+                        .map_err(BlockError::from)?;
+                    Ok(self
+                        .process_availability(slot, availability, || Ok(()))
+                        .await?)
+                }
             }
-        };
-
-        self.process_availability(slot, availability, || Ok(()))
-            .await
+        }
     }
 
     /// Checks if the provided columns can make any cached blocks available, and imports immediately
@@ -4001,16 +4091,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }),
         )?;
 
-        // This slot value is purely informative for the consumers of
-        // `AvailabilityProcessingStatus::MissingComponents` to log an error with a slot.
-        let availability = self.data_availability_checker.put_rpc_custody_columns(
-            block_root,
-            slot,
-            custody_columns,
-        )?;
-
-        self.process_availability(slot, availability, || Ok(()))
-            .await
+        if self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(slot)
+            .gloas_enabled()
+        {
+            let availability = self
+                .pending_payload_cache
+                .put_rpc_custody_columns(block_root, custody_columns)
+                .map_err(BlockError::from)?;
+            Ok(self
+                .process_payload_envelope_availability(slot, availability, || Ok(()))
+                .await?)
+        } else {
+            let availability = self
+                .data_availability_checker
+                .put_rpc_custody_columns(block_root, slot, custody_columns)
+                .map_err(BlockError::from)?;
+            Ok(self
+                .process_availability(slot, availability, || Ok(()))
+                .await?)
+        }
     }
 
     fn check_data_column_sidecar_header_signature_and_slashability<'a>(
@@ -4053,16 +4154,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     async fn process_availability(
         self: &Arc<Self>,
         slot: Slot,
-        availability: Availability<T::EthSpec>,
+        availability: BlockAvailability<T::EthSpec>,
         publish_fn: impl FnOnce() -> Result<(), BlockError>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         match availability {
-            Availability::Available(block) => {
+            BlockAvailability::Available(block) => {
                 publish_fn()?;
-                // Block is fully available, import into fork choice
                 self.import_available_block(block).await
             }
-            Availability::MissingComponents(block_root) => Ok(
+            BlockAvailability::MissingComponents(block_root) => Ok(
+                AvailabilityProcessingStatus::MissingComponents(slot, block_root),
+            ),
+        }
+    }
+
+    pub(crate) async fn process_payload_envelope_availability(
+        self: &Arc<Self>,
+        slot: Slot,
+        availability: PayloadAvailability<T::EthSpec>,
+        publish_fn: impl FnOnce() -> Result<(), BlockError>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError> {
+        match availability {
+            PayloadAvailability::Available(available_envelope) => {
+                publish_fn()?;
+                self.import_available_execution_payload_envelope(available_envelope)
+                    .await
+            }
+            PayloadAvailability::MissingComponents(block_root) => Ok(
                 AvailabilityProcessingStatus::MissingComponents(slot, block_root),
             ),
         }
@@ -7572,7 +7690,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )
     }
 
-    pub(crate) fn get_blobs_or_columns_store_op(
+    pub fn get_blobs_or_columns_store_op(
         &self,
         block_root: Hash256,
         block_slot: Slot,
