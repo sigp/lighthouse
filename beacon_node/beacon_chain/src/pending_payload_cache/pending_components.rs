@@ -37,7 +37,7 @@ impl<E: EthSpec> PendingComponents<E> {
         let block_root = self.block_root;
         self.verified_data_columns
             .iter()
-            .filter_map(|(col_idx, col)| col.into_full_sidecar(*col_idx, slot, block_root))
+            .filter_map(|(col_idx, col)| col.to_full_sidecar(*col_idx, slot, block_root))
             .collect()
     }
 
@@ -48,7 +48,7 @@ impl<E: EthSpec> PendingComponents<E> {
         self.verified_data_columns
             .iter()
             .filter_map(|(col_idx, col)| {
-                col.into_full_sidecar(*col_idx, slot, block_root)
+                col.to_full_sidecar(*col_idx, slot, block_root)
                     .map(|_| *col_idx)
             })
             .collect()

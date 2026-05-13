@@ -33,7 +33,7 @@ impl<E: EthSpec> PendingColumn<E> {
     }
 
     /// Returns a full `DataColumnSidecar` if all cells are present, or `None` if any are missing.
-    pub fn into_full_sidecar(
+    pub fn to_full_sidecar(
         &self,
         index: ColumnIndex,
         slot: Slot,
