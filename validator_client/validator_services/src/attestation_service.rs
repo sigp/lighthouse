@@ -546,6 +546,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                 attestation_data.beacon_block_root,
                 attestation_data.source,
                 attestation_data.target,
+                attestation_data.index != 0,
                 &self.chain_spec,
             ) {
                 Ok(attestation) => attestation,

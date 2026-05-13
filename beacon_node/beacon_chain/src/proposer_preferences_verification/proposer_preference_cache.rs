@@ -5,11 +5,11 @@ use std::{
 
 use crate::proposer_preferences_verification::gossip_verified_proposer_preferences::GossipVerifiedProposerPreferences;
 use parking_lot::RwLock;
-use types::{SignedProposerPreferences, Slot};
+use types::{Hash256, SignedProposerPreferences, Slot};
 
 pub struct GossipVerifiedProposerPreferenceCache {
     preferences: RwLock<BTreeMap<Slot, GossipVerifiedProposerPreferences>>,
-    seen: RwLock<BTreeMap<Slot, HashSet<u64>>>,
+    seen: RwLock<BTreeMap<Slot, HashSet<(Hash256, u64)>>>,
 }
 
 impl Default for GossipVerifiedProposerPreferenceCache {
@@ -34,21 +34,27 @@ impl GossipVerifiedProposerPreferenceCache {
         self.preferences.write().insert(slot, preferences);
     }
 
-    pub fn get_seen_validator(&self, slot: &Slot, validator_index: u64) -> bool {
+    pub fn get_seen_validator(
+        &self,
+        slot: &Slot,
+        dependent_root: Hash256,
+        validator_index: u64,
+    ) -> bool {
         self.seen
             .read()
             .get(slot)
-            .is_some_and(|seen| seen.contains(&validator_index))
+            .is_some_and(|seen| seen.contains(&(dependent_root, validator_index)))
     }
 
     pub fn insert_seen_validator(&self, preferences: &GossipVerifiedProposerPreferences) {
         let slot = preferences.signed_preferences.message.proposal_slot;
+        let dependent_root = preferences.signed_preferences.message.dependent_root;
         let validator_index = preferences.signed_preferences.message.validator_index;
         self.seen
             .write()
             .entry(slot)
             .or_default()
-            .insert(validator_index);
+            .insert((dependent_root, validator_index));
     }
 
     pub fn prune(&self, current_slot: Slot) {
@@ -64,15 +70,20 @@ mod tests {
     use std::sync::Arc;
 
     use bls::Signature;
-    use types::{Address, ProposerPreferences, SignedProposerPreferences, Slot};
+    use types::{Address, Hash256, ProposerPreferences, SignedProposerPreferences, Slot};
 
     use super::GossipVerifiedProposerPreferenceCache;
     use crate::proposer_preferences_verification::gossip_verified_proposer_preferences::GossipVerifiedProposerPreferences;
 
-    fn make_gossip_verified(slot: Slot, validator_index: u64) -> GossipVerifiedProposerPreferences {
+    fn make_gossip_verified(
+        slot: Slot,
+        validator_index: u64,
+        dependent_root: Hash256,
+    ) -> GossipVerifiedProposerPreferences {
         GossipVerifiedProposerPreferences {
             signed_preferences: Arc::new(SignedProposerPreferences {
                 message: ProposerPreferences {
+                    dependent_root,
                     proposal_slot: slot,
                     validator_index,
                     fee_recipient: Address::ZERO,
@@ -86,9 +97,10 @@ mod tests {
     #[test]
     fn prune_removes_old_retains_current() {
         let cache = GossipVerifiedProposerPreferenceCache::default();
+        let root = Hash256::ZERO;
 
         for slot in [1, 2, 3, 7, 8, 9, 10] {
-            let verified = make_gossip_verified(Slot::new(slot), slot);
+            let verified = make_gossip_verified(Slot::new(slot), slot, root);
             cache.insert_seen_validator(&verified);
             cache.insert_preferences(verified);
         }
@@ -97,11 +109,26 @@ mod tests {
 
         for slot in [1, 2, 3, 7] {
             assert!(cache.get_preferences(&Slot::new(slot)).is_none());
-            assert!(!cache.get_seen_validator(&Slot::new(slot), slot));
+            assert!(!cache.get_seen_validator(&Slot::new(slot), root, slot));
         }
         for slot in [8, 9, 10] {
             assert!(cache.get_preferences(&Slot::new(slot)).is_some());
-            assert!(cache.get_seen_validator(&Slot::new(slot), slot));
+            assert!(cache.get_seen_validator(&Slot::new(slot), root, slot));
         }
+    }
+
+    #[test]
+    fn different_dependent_roots_not_deduped() {
+        let cache = GossipVerifiedProposerPreferenceCache::default();
+        let slot = Slot::new(5);
+        let root_a = Hash256::repeat_byte(0xaa);
+        let root_b = Hash256::repeat_byte(0xbb);
+        let validator_index = 42;
+
+        let verified_a = make_gossip_verified(slot, validator_index, root_a);
+        cache.insert_seen_validator(&verified_a);
+
+        assert!(cache.get_seen_validator(&slot, root_a, validator_index));
+        assert!(!cache.get_seen_validator(&slot, root_b, validator_index));
     }
 }

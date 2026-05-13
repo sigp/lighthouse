@@ -1,16 +1,12 @@
 use crate::kzg_ext::KzgCommitments;
-use crate::test_utils::TestRandom;
 use crate::{Address, EthSpec, ExecutionBlockHash, ForkName, Hash256, SignedRoot, Slot};
 use context_deserialize::context_deserialize;
 use educe::Educe;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-#[derive(
-    Default, Debug, Clone, Serialize, Encode, Decode, Deserialize, TreeHash, Educe, TestRandom,
-)]
+#[derive(Default, Debug, Clone, Serialize, Encode, Decode, Deserialize, TreeHash, Educe)]
 #[cfg_attr(
     feature = "arbitrary",
     derive(arbitrary::Arbitrary),
@@ -37,6 +33,7 @@ pub struct ExecutionPayloadBid<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub execution_payment: u64,
     pub blob_kzg_commitments: KzgCommitments<E>,
+    pub execution_requests_root: Hash256,
 }
 
 impl<E: EthSpec> SignedRoot for ExecutionPayloadBid<E> {}

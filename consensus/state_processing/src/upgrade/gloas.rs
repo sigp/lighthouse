@@ -7,10 +7,12 @@ use ssz_types::BitVector;
 use ssz_types::FixedVector;
 use std::collections::HashSet;
 use std::mem;
+use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
     BeaconState, BeaconStateError as Error, BeaconStateGloas, BuilderPendingPayment, ChainSpec,
-    DepositData, EthSpec, ExecutionPayloadBid, Fork, is_builder_withdrawal_credential,
+    DepositData, EthSpec, ExecutionPayloadBid, ExecutionRequests, Fork,
+    is_builder_withdrawal_credential,
 };
 
 /// Transform a `Fulu` state into a `Gloas` state.
@@ -78,6 +80,7 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         // Execution Bid
         latest_execution_payload_bid: ExecutionPayloadBid {
             block_hash: pre.latest_execution_payload_header.block_hash,
+            execution_requests_root: ExecutionRequests::<E>::default().tree_hash_root(),
             ..Default::default()
         },
         // Capella

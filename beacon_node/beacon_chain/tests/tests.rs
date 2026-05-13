@@ -115,7 +115,18 @@ fn massive_skips() {
 
     assert!(state.slot() > 1, "the state should skip at least one slot");
 
-    if state.fork_name_unchecked().fulu_enabled() {
+    if state.fork_name_unchecked().gloas_enabled() {
+        // Gloas uses compute_balance_weighted_selection for proposer selection, which
+        // returns InvalidIndicesCount (not InsufficientValidators) when the active
+        // validator set is empty.
+        assert_eq!(
+            error,
+            SlotProcessingError::EpochProcessingError(EpochProcessingError::BeaconStateError(
+                BeaconStateError::InvalidIndicesCount
+            )),
+            "should return error indicating that validators have been slashed out"
+        )
+    } else if state.fork_name_unchecked().fulu_enabled() {
         // post-fulu this is done in per_epoch_processing
         assert_eq!(
             error,
@@ -1006,9 +1017,12 @@ async fn pseudo_finalize_test_generic(
     };
 
     // pseudo finalize
+    // Post-Gloas the finalized state must be Pending (the block's state_root), not Full
+    // (the envelope's state_root), because the payload of the finalized block is not finalized.
+    let finalized_state_root = head.beacon_block.message().state_root();
     harness
         .chain
-        .manually_finalize_state(head.beacon_state_root(), checkpoint)
+        .manually_finalize_state(finalized_state_root, checkpoint)
         .unwrap();
 
     let split = harness.chain.store.get_split_info();

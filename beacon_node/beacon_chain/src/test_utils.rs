@@ -20,6 +20,8 @@ pub use crate::{
     sync_committee_verification::Error as SyncCommitteeError,
     validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig},
 };
+#[cfg(feature = "arbitrary")]
+use arbitrary::Arbitrary;
 use bls::get_withdrawal_credentials;
 use bls::{
     AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey, Signature, SignatureBytes,
@@ -73,7 +75,6 @@ use typenum::U4294967296;
 use types::attestation::IndexedAttestationBase;
 use types::data::CustodyIndex;
 use types::execution::BlockProductionVersion;
-use types::test_utils::TestRandom;
 pub use types::test_utils::generate_deterministic_keypairs;
 use types::*;
 
@@ -86,6 +87,8 @@ pub const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
 // `beacon_node/execution_layer/src/test_utils/fixtures/mainnet/test_blobs_bundle.ssz`
 pub const TEST_DATA_COLUMN_SIDECARS_SSZ: &[u8] =
     include_bytes!("test_utils/fixtures/test_data_column_sidecars.ssz");
+pub const TEST_DATA_COLUMN_SIDECARS_GLOAS_SSZ: &[u8] =
+    include_bytes!("test_utils/fixtures/test_data_column_sidecars_gloas.ssz");
 
 // Default target aggregators to set during testing, this ensures an aggregator at each slot.
 //
@@ -94,7 +97,9 @@ pub const TEST_DATA_COLUMN_SIDECARS_SSZ: &[u8] =
 pub const DEFAULT_TARGET_AGGREGATORS: u64 = u64::MAX;
 
 // Minimum and maximum number of blobs to generate in each slot when using the `NumBlobs::Random` option (default).
+#[cfg(feature = "arbitrary")]
 const DEFAULT_MIN_BLOBS: usize = 1;
+#[cfg(feature = "arbitrary")]
 const DEFAULT_MAX_BLOBS: usize = 2;
 
 static KZG: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
@@ -239,6 +244,7 @@ pub fn test_da_checker<E: EthSpec>(
         kzg,
         custody_context,
         spec,
+        true,
     )
     .expect("should initialise data availability checker")
 }
@@ -770,6 +776,36 @@ where
             .execution_block_generator()
     }
 
+    /// Create a switch-to-compounding `ConsolidationRequest` for the given validator.
+    ///
+    /// Panics if the validator doesn't exist, doesn't have eth1 withdrawal credentials,
+    /// or doesn't have an execution withdrawal address.
+    pub fn make_switch_to_compounding_request(
+        &self,
+        validator_index: usize,
+    ) -> ConsolidationRequest {
+        let head = self.chain.canonical_head.cached_head();
+        let head_state = &head.snapshot.beacon_state;
+        let validator = head_state
+            .get_validator(validator_index)
+            .expect("validator should exist");
+
+        assert!(
+            validator.has_eth1_withdrawal_credential(&self.spec),
+            "validator {validator_index} should have eth1 withdrawal credentials"
+        );
+
+        let source_address = validator
+            .get_execution_withdrawal_address(&self.spec)
+            .expect("validator should have execution withdrawal address");
+
+        ConsolidationRequest {
+            source_address,
+            source_pubkey: validator.pubkey,
+            target_pubkey: validator.pubkey,
+        }
+    }
+
     pub fn set_mock_builder(
         &mut self,
         beacon_url: SensitiveUrl,
@@ -984,6 +1020,28 @@ where
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
+        // For Gloas, blinded and full blocks are structurally identical (no payload in body).
+        // Produce via the Gloas path and convert to blinded.
+        if self.spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
+            let (block_contents, _envelope, pending_state) =
+                Box::pin(self.make_block_with_envelope(state, slot)).await;
+            let (signed_block, _blobs) = block_contents;
+            let signed_blinded = signed_block.clone_as_blinded();
+            let (mut blinded_block, _signature) = signed_blinded.deconstruct();
+            block_modifier(&mut blinded_block);
+            let proposer_index = pending_state
+                .get_beacon_proposer_index(slot, &self.spec)
+                .unwrap();
+            // Re-sign after modification.
+            let signed_blinded = blinded_block.sign(
+                &self.validator_keypairs[proposer_index].sk,
+                &pending_state.fork(),
+                pending_state.genesis_validators_root(),
+                &self.spec,
+            );
+            return (signed_blinded, pending_state);
+        }
+
         complete_state_advance(&mut state, None, slot, &self.spec)
             .expect("should be able to advance state to slot");
 
@@ -1043,6 +1101,13 @@ where
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
+        // For Gloas forks, delegate to make_block_with_envelope and discard the envelope.
+        if self.spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
+            let (block_contents, _envelope, state) =
+                Box::pin(self.make_block_with_envelope(state, slot)).await;
+            return (block_contents, state);
+        }
+
         complete_state_advance(&mut state, None, slot, &self.spec)
             .expect("should be able to advance state to slot");
 
@@ -1095,7 +1160,7 @@ where
     }
 
     /// Returns a newly created block, signed by the proposer for the given slot,
-    /// along with the execution payload envelope (for Gloas) and the pending state.
+    /// along with the execution payload envelope (for Gloas) and the post-block state.
     ///
     /// For pre-Gloas forks, the envelope is `None` and this behaves like `make_block`.
     pub async fn make_block_with_envelope(
@@ -1124,23 +1189,37 @@ where
                 GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
             let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
-            let (block, pending_state, _consensus_block_value) = self
+            // Load the parent's payload envelope and status from the cached head.
+            // TODO(gloas): we may want to pass these as arguments to support cases where we build
+            // on alternate chains to the head.
+            let (parent_payload_status, parent_envelope) = {
+                let head = self.chain.canonical_head.cached_head();
+                (
+                    head.head_payload_status(),
+                    head.snapshot.execution_envelope.clone(),
+                )
+            };
+
+            let (block, post_block_state, _consensus_block_value) = self
                 .chain
                 .produce_block_on_state_gloas(
                     state,
                     None,
+                    parent_payload_status,
+                    parent_envelope,
                     slot,
                     randao_reveal,
                     graffiti_settings,
                     ProduceBlockVerification::VerifyRandao,
+                    None,
                 )
                 .await
                 .unwrap();
 
             let signed_block = Arc::new(block.sign(
                 &self.validator_keypairs[proposer_index].sk,
-                &pending_state.fork(),
-                pending_state.genesis_validators_root(),
+                &post_block_state.fork(),
+                post_block_state.genesis_validators_root(),
                 &self.spec,
             ));
 
@@ -1155,8 +1234,8 @@ where
                     let domain = self.spec.get_domain(
                         epoch,
                         Domain::BeaconBuilder,
-                        &pending_state.fork(),
-                        pending_state.genesis_validators_root(),
+                        &post_block_state.fork(),
+                        post_block_state.genesis_validators_root(),
                     );
                     let message = envelope.signing_root(domain);
                     let signature = self.validator_keypairs[proposer_index].sk.sign(message);
@@ -1167,7 +1246,7 @@ where
                 });
 
             let block_contents: SignedBlockContentsTuple<E> = (signed_block, None);
-            (block_contents, signed_envelope, pending_state)
+            (block_contents, signed_envelope, post_block_state)
         } else {
             let (block_contents, state) = self.make_block(state, slot).await;
             (block_contents, None, state)
@@ -1183,6 +1262,21 @@ where
     ) -> (SignedBlockContentsTuple<E>, BeaconState<E>) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
+
+        // For Gloas forks, delegate to make_block_with_envelope which uses the
+        // Gloas-specific block production path, and return the pre-state.
+        if self.spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
+            let pre_state = {
+                let mut s = state.clone();
+                complete_state_advance(&mut s, None, slot, &self.spec)
+                    .expect("should be able to advance state to slot");
+                s.build_caches(&self.spec).expect("should build caches");
+                s
+            };
+            let (block_contents, _envelope, _state) =
+                Box::pin(self.make_block_with_envelope(state, slot)).await;
+            return (block_contents, pre_state);
+        }
 
         complete_state_advance(&mut state, None, slot, &self.spec)
             .expect("should be able to advance state to slot");
@@ -1400,6 +1494,7 @@ where
                 epoch,
                 root: target_root,
             },
+            false,
             &self.spec,
         )?;
 
@@ -1475,6 +1570,15 @@ where
         mut state: Cow<BeaconState<E>>,
         state_root: Hash256,
     ) -> Result<Attestation<E>, BeaconChainError> {
+        assert_eq!(
+            state.get_latest_block_root(state_root),
+            beacon_block_root,
+            "State must match beacon block root, state slot {:?} attestation slot {:?} state root {:?}",
+            state.latest_block_header().slot,
+            slot,
+            state_root,
+        );
+
         let epoch = slot.epoch(E::slots_per_epoch());
 
         if state.slot() > slot {
@@ -1499,6 +1603,13 @@ where
             *state.get_block_root(target_slot)?
         };
 
+        let payload_present = state.fork_name_unchecked().gloas_enabled()
+            && state.latest_block_header().slot != slot
+            && self
+                .chain
+                .canonical_head
+                .block_has_canonical_payload(&beacon_block_root, &self.spec)?;
+
         Ok(Attestation::empty_for_signing(
             index,
             committee_len,
@@ -1509,6 +1620,7 @@ where
                 epoch,
                 root: target_root,
             },
+            payload_present,
             &self.spec,
         )?)
     }
@@ -2681,32 +2793,27 @@ where
         Ok(block_hash)
     }
 
-    /// Process an execution payload envelope for a Gloas block.
+    /// Verify and process (with fork choice) an execution payload envelope for a Gloas block.
     pub async fn process_envelope(
         &self,
         block_root: Hash256,
         signed_envelope: SignedExecutionPayloadEnvelope<E>,
-        pending_state: &mut BeaconState<E>,
-    ) -> Hash256 {
-        let state_root = signed_envelope.message.state_root;
+        state: &BeaconState<E>,
+        block_state_root: Hash256,
+    ) {
         debug!(
-            slot = %signed_envelope.message.slot,
-            ?state_root,
+            slot = %signed_envelope.slot(),
             "Processing execution payload envelope"
         );
-        let block_state_root = pending_state
-            .update_tree_hash_cache()
-            .expect("should compute pending state root");
 
-        state_processing::envelope_processing::process_execution_payload_envelope(
-            pending_state,
-            Some(block_state_root),
+        state_processing::envelope_processing::verify_execution_payload_envelope(
+            state,
             &signed_envelope,
             state_processing::VerifySignatures::True,
-            state_processing::envelope_processing::VerifyStateRoot::True,
+            block_state_root,
             &self.spec,
         )
-        .expect("should process envelope");
+        .expect("should verify envelope");
 
         // Notify the EL of the new payload so forkchoiceUpdated can reference it.
         let block = self
@@ -2747,16 +2854,18 @@ where
         // Store the envelope.
         self.chain
             .store
-            .put_payload_envelope(&block_root, signed_envelope)
+            .put_payload_envelope(&block_root, &signed_envelope)
             .expect("should store envelope");
 
-        // Store the Full state.
+        // Update fork choice so it knows the payload was received.
         self.chain
-            .store
-            .put_state(&state_root, pending_state)
-            .expect("should store full state");
+            .canonical_head
+            .fork_choice_write_lock()
+            .on_valid_payload_envelope_received(block_root)
+            .expect("should update fork choice with envelope");
 
-        state_root
+        // Run fork choice because the envelope could become the head.
+        self.chain.recompute_head_at_current_slot().await;
     }
 
     /// Builds a `RangeSyncBlock` from a `SignedBeaconBlock` and blobs or data columns retrieved from
@@ -2970,7 +3079,8 @@ where
         BlockError,
     > {
         self.set_current_slot(slot);
-        let (block_contents, new_state) = self.make_block(state, slot).await;
+        let (block_contents, opt_envelope, new_state) =
+            self.make_block_with_envelope(state, slot).await;
 
         let block_hash = self
             .process_block(
@@ -2979,6 +3089,12 @@ where
                 block_contents.clone(),
             )
             .await?;
+
+        if let Some(envelope) = opt_envelope {
+            let block_state_root = block_contents.0.state_root();
+            self.process_envelope(block_hash.into(), envelope, &new_state, block_state_root)
+                .await;
+        }
         Ok((block_hash, block_contents, new_state))
     }
 
@@ -3011,13 +3127,11 @@ where
         &self,
         slot: Slot,
         state: BeaconState<E>,
-        state_root: Hash256,
         validators: &[usize],
     ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError> {
         self.add_attested_block_at_slot_with_sync(
             slot,
             state,
-            state_root,
             validators,
             SyncCommitteeStrategy::NoValidators,
         )
@@ -3028,18 +3142,18 @@ where
         &self,
         slot: Slot,
         state: BeaconState<E>,
-        state_root: Hash256,
         validators: &[usize],
         sync_committee_strategy: SyncCommitteeStrategy,
     ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError> {
-        let (block_hash, block, state) = self.add_block_at_slot(slot, state).await?;
-        self.attest_block(&state, state_root, block_hash, &block.0, validators);
+        let (block_hash, block, mut new_state) = self.add_block_at_slot(slot, state).await?;
+        let new_state_root = new_state.canonical_root().unwrap();
+        self.attest_block(&new_state, new_state_root, block_hash, &block.0, validators);
 
         if sync_committee_strategy == SyncCommitteeStrategy::AllValidators
-            && state.current_sync_committee().is_ok()
+            && new_state.current_sync_committee().is_ok()
         {
             self.sync_committee_sign_block(
-                &state,
+                &new_state,
                 block_hash.into(),
                 slot,
                 if (slot + 1).epoch(E::slots_per_epoch())
@@ -3053,19 +3167,17 @@ where
             );
         }
 
-        Ok((block_hash, state))
+        Ok((block_hash, new_state))
     }
 
     pub async fn add_attested_blocks_at_slots(
         &self,
         state: BeaconState<E>,
-        state_root: Hash256,
         slots: &[Slot],
         validators: &[usize],
     ) -> AddBlocksResult<E> {
         self.add_attested_blocks_at_slots_with_sync(
             state,
-            state_root,
             slots,
             validators,
             SyncCommitteeStrategy::NoValidators,
@@ -3076,7 +3188,6 @@ where
     pub async fn add_attested_blocks_at_slots_with_sync(
         &self,
         state: BeaconState<E>,
-        state_root: Hash256,
         slots: &[Slot],
         validators: &[usize],
         sync_committee_strategy: SyncCommitteeStrategy,
@@ -3084,7 +3195,6 @@ where
         assert!(!slots.is_empty());
         self.add_attested_blocks_at_slots_given_lbh(
             state,
-            state_root,
             slots,
             validators,
             None,
@@ -3141,7 +3251,6 @@ where
     pub async fn add_attested_blocks_at_slots_with_lc_data(
         &self,
         mut state: BeaconState<E>,
-        state_root: Hash256,
         slots: &[Slot],
         validators: &[usize],
         mut latest_block_hash: Option<SignedBeaconBlockHash>,
@@ -3155,7 +3264,6 @@ where
                 .add_attested_block_at_slot_with_sync(
                     *slot,
                     state,
-                    state_root,
                     validators,
                     sync_committee_strategy,
                 )
@@ -3181,7 +3289,6 @@ where
     async fn add_attested_blocks_at_slots_given_lbh(
         &self,
         mut state: BeaconState<E>,
-        state_root: Hash256,
         slots: &[Slot],
         validators: &[usize],
         mut latest_block_hash: Option<SignedBeaconBlockHash>,
@@ -3195,7 +3302,6 @@ where
             let (block_hash, new_state) = Box::pin(self.add_attested_block_at_slot_with_sync(
                 *slot,
                 state,
-                state_root,
                 validators,
                 sync_committee_strategy,
             ))
@@ -3259,14 +3365,8 @@ where
         for epoch in min_epoch.as_u64()..=max_epoch.as_u64() {
             let mut new_chains = vec![];
 
-            for (
-                mut head_state,
-                slots,
-                validators,
-                mut block_hashes,
-                mut state_hashes,
-                head_block,
-            ) in chains
+            for (head_state, slots, validators, mut block_hashes, mut state_hashes, head_block) in
+                chains
             {
                 let epoch_slots = slots
                     .iter()
@@ -3274,11 +3374,9 @@ where
                     .copied()
                     .collect::<Vec<_>>();
 
-                let head_state_root = head_state.update_tree_hash_cache().unwrap();
                 let (new_block_hashes, new_state_hashes, new_head_block, new_head_state) = self
                     .add_attested_blocks_at_slots_given_lbh(
                         head_state,
-                        head_state_root,
                         &epoch_slots,
                         &validators,
                         Some(head_block),
@@ -3440,7 +3538,7 @@ where
         sync_committee_strategy: SyncCommitteeStrategy,
         light_client_strategy: LightClientStrategy,
     ) -> Hash256 {
-        let (mut state, slots) = match block_strategy {
+        let (state, slots) = match block_strategy {
             BlockStrategy::OnCanonicalHead => {
                 let current_slot: u64 = self.get_current_slot().into();
                 let slots: Vec<Slot> = (current_slot..(current_slot + (num_blocks as u64)))
@@ -3469,12 +3567,10 @@ where
             AttestationStrategy::SomeValidators(vals) => vals,
         };
 
-        let state_root = state.update_tree_hash_cache().unwrap();
         let (_, _, last_produced_block_hash, _) = match light_client_strategy {
             LightClientStrategy::Enabled => {
                 self.add_attested_blocks_at_slots_with_lc_data(
                     state,
-                    state_root,
                     &slots,
                     &validators,
                     None,
@@ -3485,7 +3581,6 @@ where
             LightClientStrategy::Disabled => {
                 self.add_attested_blocks_at_slots_with_sync(
                     state,
-                    state_root,
                     &slots,
                     &validators,
                     sync_committee_strategy,
@@ -3644,10 +3739,11 @@ pub enum NumBlobs {
     None,
 }
 
+#[cfg(feature = "arbitrary")]
 macro_rules! add_blob_transactions {
-    ($message:expr, $payload_type:ty, $num_blobs:expr, $rng:expr, $fork_name:expr) => {{
+    ($message:expr, $payload_type:ty, $num_blobs:expr, $u:expr, $fork_name:expr) => {{
         let num_blobs = match $num_blobs {
-            NumBlobs::Random => $rng.random_range(DEFAULT_MIN_BLOBS..=DEFAULT_MAX_BLOBS),
+            NumBlobs::Random => $u.int_in_range(DEFAULT_MIN_BLOBS..=DEFAULT_MAX_BLOBS)?,
             NumBlobs::Number(n) => n,
             NumBlobs::None => 0,
         };
@@ -3664,28 +3760,30 @@ macro_rules! add_blob_transactions {
     }};
 }
 
+#[cfg(feature = "arbitrary")]
+#[allow(clippy::type_complexity)]
 pub fn generate_rand_block_and_blobs<E: EthSpec>(
     fork_name: ForkName,
     num_blobs: NumBlobs,
-    rng: &mut impl Rng,
-) -> (SignedBeaconBlock<E, FullPayload<E>>, Vec<BlobSidecar<E>>) {
-    let inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(rng));
+    u: &mut arbitrary::Unstructured,
+) -> arbitrary::Result<(SignedBeaconBlock<E, FullPayload<E>>, Vec<BlobSidecar<E>>)> {
+    let inner = map_fork_name!(fork_name, BeaconBlock, <_>::arbitrary(&mut *u)?);
 
-    let mut block = SignedBeaconBlock::from_block(inner, Signature::random_for_test(rng));
+    let mut block = SignedBeaconBlock::from_block(inner, Signature::arbitrary(&mut *u)?);
     let mut blob_sidecars = vec![];
 
     let bundle = match block {
         SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb {
             ref mut message, ..
-        }) => add_blob_transactions!(message, FullPayloadDeneb<E>, num_blobs, rng, fork_name),
+        }) => add_blob_transactions!(message, FullPayloadDeneb<E>, num_blobs, u, fork_name),
         SignedBeaconBlock::Electra(SignedBeaconBlockElectra {
             ref mut message, ..
-        }) => add_blob_transactions!(message, FullPayloadElectra<E>, num_blobs, rng, fork_name),
+        }) => add_blob_transactions!(message, FullPayloadElectra<E>, num_blobs, u, fork_name),
         SignedBeaconBlock::Fulu(SignedBeaconBlockFulu {
             ref mut message, ..
-        }) => add_blob_transactions!(message, FullPayloadFulu<E>, num_blobs, rng, fork_name),
+        }) => add_blob_transactions!(message, FullPayloadFulu<E>, num_blobs, u, fork_name),
         // TODO(EIP-7732) Add `SignedBeaconBlock::Gloas` variant
-        _ => return (block, blob_sidecars),
+        _ => return Ok((block, blob_sidecars)),
     };
 
     let eth2::types::BlobsBundle {
@@ -3710,21 +3808,23 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
                 .unwrap(),
         });
     }
-    (block, blob_sidecars)
+    Ok((block, blob_sidecars))
 }
 
+#[cfg(feature = "arbitrary")]
+#[allow(clippy::type_complexity)]
 pub fn generate_rand_block_and_data_columns<E: EthSpec>(
     fork_name: ForkName,
     num_blobs: NumBlobs,
-    rng: &mut impl Rng,
+    u: &mut arbitrary::Unstructured,
     spec: &ChainSpec,
-) -> (
+) -> arbitrary::Result<(
     SignedBeaconBlock<E, FullPayload<E>>,
     DataColumnSidecarList<E>,
-) {
-    let (block, _blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, rng);
+)> {
+    let (block, _blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, u)?;
     let data_columns = generate_data_column_sidecars_from_block(&block, spec);
-    (block, data_columns)
+    Ok((block, data_columns))
 }
 
 /// Generate data column sidecars from pre-computed cells and proofs.
@@ -3732,24 +3832,24 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
     block: &SignedBeaconBlock<E>,
     spec: &ChainSpec,
 ) -> DataColumnSidecarList<E> {
-    let kzg_commitments = block.message().body().blob_kzg_commitments().unwrap();
-    if kzg_commitments.is_empty() {
-        return vec![];
-    }
-
-    let kzg_commitments_inclusion_proof = block
-        .message()
-        .body()
-        .kzg_commitments_merkle_proof()
-        .unwrap();
-    let signed_block_header = block.signed_block_header();
-
     // Load the precomputed column sidecar to avoid computing them for every block in the tests.
     // Then repeat the cells and proofs for every blob
     if block.fork_name_unchecked().gloas_enabled() {
+        let kzg_commitments = &block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .expect("Gloas block should have a payload bid")
+            .message
+            .blob_kzg_commitments;
+        if kzg_commitments.is_empty() {
+            return vec![];
+        }
+        let num_blobs = kzg_commitments.len();
+        let signed_block_header = block.signed_block_header();
         let template_data_columns =
             RuntimeVariableList::<DataColumnSidecarGloas<E>>::from_ssz_bytes(
-                TEST_DATA_COLUMN_SIDECARS_SSZ,
+                TEST_DATA_COLUMN_SIDECARS_GLOAS_SSZ,
                 E::number_of_columns(),
             )
             .unwrap();
@@ -3769,7 +3869,7 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
             .collect::<(Vec<_>, Vec<_>)>();
 
         let blob_cells_and_proofs_vec =
-            vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); kzg_commitments.len()];
+            vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); num_blobs];
 
         build_data_column_sidecars_gloas(
             signed_block_header.message.tree_hash_root(),
@@ -3779,6 +3879,18 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
         )
         .unwrap()
     } else {
+        let kzg_commitments = block.message().body().blob_kzg_commitments().unwrap();
+        if kzg_commitments.is_empty() {
+            return vec![];
+        }
+
+        let kzg_commitments_inclusion_proof = block
+            .message()
+            .body()
+            .kzg_commitments_merkle_proof()
+            .unwrap();
+        let signed_block_header = block.signed_block_header();
+
         // load the precomputed column sidecar to avoid computing them for every block in the tests.
         let template_data_columns =
             RuntimeVariableList::<DataColumnSidecarFulu<E>>::from_ssz_bytes(

@@ -87,7 +87,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         Ok(NewPayloadRequest::Gloas(NewPayloadRequestGloas {
             execution_payload: &envelope.message.payload,
             versioned_hashes,
-            parent_beacon_block_root: block.message().parent_root(),
+            parent_beacon_block_root: envelope.message.parent_beacon_block_root,
             execution_requests: &envelope.message.execution_requests,
         }))
     }

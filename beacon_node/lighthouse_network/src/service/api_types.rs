@@ -161,6 +161,9 @@ pub enum Response<E: EthSpec> {
     DataColumnsByRange(Option<Arc<DataColumnSidecar<E>>>),
     /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Option<Arc<SignedBeaconBlock<E>>>),
+    /// A response to a get BEACON_BLOCKS_BY_HEAD request. A None response signals the end of the
+    /// batch.
+    BlocksByHead(Option<Arc<SignedBeaconBlock<E>>>),
     /// A response to a get `EXECUTION_PAYLOAD_ENVELOPES_BY_ROOT` request.
     PayloadEnvelopesByRoot(Option<Arc<SignedExecutionPayloadEnvelope<E>>>),
     /// A response to a get `EXECUTION_PAYLOAD_ENVELOPES_BY_RANGE` request.
@@ -185,6 +188,10 @@ impl<E: EthSpec> std::convert::From<Response<E>> for RpcResponse<E> {
             Response::BlocksByRoot(r) => match r {
                 Some(b) => RpcResponse::Success(RpcSuccessResponse::BlocksByRoot(b)),
                 None => RpcResponse::StreamTermination(ResponseTermination::BlocksByRoot),
+            },
+            Response::BlocksByHead(r) => match r {
+                Some(b) => RpcResponse::Success(RpcSuccessResponse::BlocksByHead(b)),
+                None => RpcResponse::StreamTermination(ResponseTermination::BlocksByHead),
             },
             Response::BlocksByRange(r) => match r {
                 Some(b) => RpcResponse::Success(RpcSuccessResponse::BlocksByRange(b)),

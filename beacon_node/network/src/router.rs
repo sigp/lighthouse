@@ -14,7 +14,7 @@ use beacon_processor::{BeaconProcessorSend, DuplicateCache};
 use futures::prelude::*;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{
-    MessageId, NetworkGlobals, PeerId, PubsubMessage, Response,
+    GossipTopic, MessageId, NetworkGlobals, PeerId, PubsubMessage, Response,
     service::api_types::{AppRequestId, SyncRequestId},
 };
 use logging::TimeLatch;
@@ -24,7 +24,9 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, trace, warn};
-use types::{BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, SignedBeaconBlock};
+use types::{
+    BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, PartialDataColumn, SignedBeaconBlock,
+};
 
 /// Handles messages from the network and routes them to the appropriate service to be handled.
 pub struct Router<T: BeaconChainTypes> {
@@ -69,6 +71,8 @@ pub enum RouterMessage<E: EthSpec> {
     /// message, the message itself and a bool which indicates if the message should be processed
     /// by the beacon chain after successful verification.
     PubsubMessage(MessageId, PeerId, PubsubMessage<E>, bool),
+    /// A partial data column sidecar has been received via gossipsub partial protocol.
+    PartialDataColumnSidecar(PeerId, Box<PartialDataColumn<E>>, GossipTopic),
     /// The peer manager has requested we re-status a peer.
     StatusPeer(PeerId),
     /// The peer has an updated custody group count from METADATA.
@@ -180,6 +184,16 @@ impl<T: BeaconChainTypes> Router<T> {
             RouterMessage::PubsubMessage(id, peer_id, gossip, should_process) => {
                 self.handle_gossip(id, peer_id, gossip, should_process);
             }
+            RouterMessage::PartialDataColumnSidecar(peer_id, column, topic) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_partial_data_column_sidecar(
+                            peer_id,
+                            column,
+                            self.chain.slot_clock.now_duration().unwrap_or_default(),
+                            topic,
+                        ),
+                ),
         }
     }
 
@@ -224,6 +238,13 @@ impl<T: BeaconChainTypes> Router<T> {
             }
             RequestType::BlocksByRoot(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor.send_blocks_by_roots_request(
+                    peer_id,
+                    inbound_request_id,
+                    request,
+                ),
+            ),
+            RequestType::BlocksByHead(request) => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor.send_blocks_by_head_request(
                     peer_id,
                     inbound_request_id,
                     request,
@@ -331,6 +352,11 @@ impl<T: BeaconChainTypes> Router<T> {
             // responses once sync manager requests them.
             Response::PayloadEnvelopesByRoot(_) | Response::PayloadEnvelopesByRange(_) => {
                 debug!("Requesting envelopes by root and by range not supported yet");
+            }
+            // Lighthouse currently only serves BlocksByHead and does not issue it as a client,
+            // so receiving a response is unexpected. Drop it without crashing.
+            Response::BlocksByHead(_) => {
+                debug!("BlocksByHead response received but not requested by lighthouse");
             }
             // Light client responses should not be received
             Response::LightClientBootstrap(_)
