@@ -383,17 +383,20 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
         verify_is_unknown_sidecar(chain, &column_sidecar)?;
 
         // Check if this column contains any cells not already in the cache. If all cells are
-        // already cached, observe so we don't process it again — but still return Ok since the
-        // caller needs to publish it on gossip.
-        if missing_cells_for_column_sidecar(chain, &column_sidecar)?.is_none() && O::observe() {
-            observe_gossip_data_column(&column_sidecar, chain)?;
+        // already cached, reject as `PriorKnownUnpublished` to avoid redundant processing.
+        match missing_cells_for_column_sidecar(chain, &column_sidecar)? {
+            Some(_) => Ok(Self {
+                block_root: column_sidecar.block_root(),
+                data_column: KzgVerifiedDataColumn::from_execution_verified(column_sidecar),
+                _phantom: Default::default(),
+            }),
+            None => {
+                if O::observe() {
+                    observe_gossip_data_column(&column_sidecar, chain)?;
+                }
+                Err(GossipDataColumnError::PriorKnownUnpublished)
+            }
         }
-
-        Ok(Self {
-            block_root: column_sidecar.block_root(),
-            data_column: KzgVerifiedDataColumn::from_execution_verified(column_sidecar),
-            _phantom: Default::default(),
-        })
     }
 
     /// Create a `GossipVerifiedDataColumn` from `DataColumnSidecar` for testing ONLY.
