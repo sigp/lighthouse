@@ -28,7 +28,7 @@ use libp2p::multiaddr;
 use network_utils::discovery_metrics;
 use network_utils::enr_ext::{EnrExt, peer_id_to_node_id};
 pub use peerdb::peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
-use peerdb::score::{PeerAction, ReportSource};
+use peerdb::score::{DisconnectDirection, LastDisconnect, PeerAction, ReportSource};
 pub use peerdb::sync_status::{SyncInfo, SyncStatus};
 use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::net::IpAddr;
@@ -151,6 +151,22 @@ pub enum PeerManagerEvent {
     DiscoverSubnetPeers(Vec<SubnetDiscovery>),
 }
 
+/// Returns a stable `'static` variant name for a [`GoodbyeReason`] suitable
+/// for JSON serialization on the `/lighthouse/peers` HTTP endpoint.
+pub(crate) fn goodbye_reason_name(reason: &GoodbyeReason) -> &'static str {
+    match reason {
+        GoodbyeReason::ClientShutdown => "ClientShutdown",
+        GoodbyeReason::IrrelevantNetwork => "IrrelevantNetwork",
+        GoodbyeReason::Fault => "Fault",
+        GoodbyeReason::UnableToVerifyNetwork => "UnableToVerifyNetwork",
+        GoodbyeReason::TooManyPeers => "TooManyPeers",
+        GoodbyeReason::BadScore => "BadScore",
+        GoodbyeReason::Banned => "Banned",
+        GoodbyeReason::BannedIP => "BannedIP",
+        GoodbyeReason::Unknown => "Unknown",
+    }
+}
+
 impl<E: EthSpec> PeerManager<E> {
     // NOTE: Must be run inside a tokio executor.
     pub fn new(
@@ -214,12 +230,24 @@ impl<E: EthSpec> PeerManager<E> {
     ///
     /// This will send a goodbye and disconnect the peer if it is connected or dialing.
     pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason, source: ReportSource) {
+        // Capture the goodbye details for the `/lighthouse/peers` API before
+        // `reason` is consumed by `report_peer` below.
+        let reason_name = goodbye_reason_name(&reason);
+        let reason_code: u64 = reason.clone().into();
+        let last_disconnect = LastDisconnect {
+            reason: reason_name,
+            code: reason_code,
+            direction: DisconnectDirection::Sent,
+            at: Instant::now(),
+        };
+
         // Update the sync status if required
         if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             debug!(%peer_id, %reason, score = %info.score(), "Sending goodbye to peer");
             if matches!(reason, GoodbyeReason::IrrelevantNetwork) {
                 info.update_sync_status(SyncStatus::IrrelevantPeer);
             }
+            info.set_last_disconnect(last_disconnect);
         }
 
         self.report_peer(

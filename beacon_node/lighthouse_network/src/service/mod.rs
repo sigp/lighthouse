@@ -6,7 +6,8 @@ use crate::discovery::{
 };
 use crate::peer_manager::{
     ConnectionDirection, PeerManager, PeerManagerEvent, config::Config as PeerManagerCfg,
-    peerdb::score::PeerAction, peerdb::score::ReportSource,
+    goodbye_reason_name,
+    peerdb::score::{DisconnectDirection, LastDisconnect, PeerAction, ReportSource},
 };
 use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS};
 use crate::rpc::methods::MetadataRequest;
@@ -40,7 +41,7 @@ use std::num::{NonZeroU8, NonZeroUsize};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tracing::{debug, error, info, trace, warn};
 use types::{
     ChainSpec, DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, ForkName, PartialDataColumn,
@@ -1641,6 +1642,18 @@ impl<E: EthSpec> Network<E> {
                             %reason,
                             client = %self.network_globals.client(&peer_id),
                             "Peer sent Goodbye"
+                        );
+                        // Record the received goodbye for the `/lighthouse/peers` API.
+                        let reason_name = goodbye_reason_name(&reason);
+                        let reason_code: u64 = reason.clone().into();
+                        self.network_globals.peers.write().record_last_disconnect(
+                            &peer_id,
+                            LastDisconnect {
+                                reason: reason_name,
+                                code: reason_code,
+                                direction: DisconnectDirection::Received,
+                                at: Instant::now(),
+                            },
                         );
                         // NOTE: We currently do not inform the application that we are
                         // disconnecting here. The RPC handler will automatically
