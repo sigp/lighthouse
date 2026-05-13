@@ -1,4 +1,5 @@
 use crate::checks::epoch_delay;
+use beacon_chain::custody_context::NodeCustodyType;
 use kzg::trusted_setup::get_trusted_setup;
 use node_test_rig::{
     ClientConfig, ClientGenesis, LocalBeaconNode, LocalExecutionNode, LocalValidatorClient,
@@ -46,6 +47,7 @@ fn default_client_config(network_params: LocalNetworkParams, genesis_time: u64) 
     beacon_config.network.discv5_config.enable_packet_filter = false;
     beacon_config.chain.enable_light_client_server = true;
     beacon_config.chain.optimistic_finalized_sync = false;
+    beacon_config.chain.node_custody_type = NodeCustodyType::Supernode;
     beacon_config.trusted_setup = get_trusted_setup();
 
     let el_config = execution_layer::Config {
