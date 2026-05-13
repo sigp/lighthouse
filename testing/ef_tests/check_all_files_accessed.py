@@ -75,8 +75,8 @@ excluded_paths = [
     "tests/.*/compute_challenge/.*",
     # We don't need these manifest files at the moment.
     "tests/.*/manifest.yaml",
-    # TODO: gossip condition tests not implemented yet
-    "tests/.*/.*/networking/.*",
+    # Pre-Fulu gossip codepaths are no longer relevant after all networks upgraded to Fulu.
+    "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra)/networking/.*",
     # TODO: fast confirmation rule not merged yet
     "tests/.*/.*/fast_confirmation",
 ]

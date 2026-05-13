@@ -1729,7 +1729,7 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
     // block which conflicts with the fork-choice view of finalization.
     let finalized_slot = chain
         .canonical_head
-        .cached_head()
+        .fork_choice_read_lock()
         .finalized_checkpoint()
         .epoch
         .start_slot(T::EthSpec::slots_per_epoch());

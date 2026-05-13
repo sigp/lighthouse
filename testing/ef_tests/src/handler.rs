@@ -1016,7 +1016,8 @@ impl<E: EthSpec + TypeName> Handler for GossipValidationHandler<E> {
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        cases::gossip_validation_handler_path::<E>(fork_name, self.handler_name).exists()
+        fork_name.fulu_enabled()
+            && cases::gossip_validation_handler_path::<E>(fork_name, self.handler_name).exists()
     }
 
     fn use_rayon() -> bool {
