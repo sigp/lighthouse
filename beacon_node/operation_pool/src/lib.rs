@@ -897,7 +897,6 @@ mod release_tests {
         BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee, test_spec,
     };
     use bls::Keypair;
-    use fixed_bytes::FixedBytesExtended;
     use maplit::hashset;
     use state_processing::epoch_cache::initialize_epoch_cache;
     use state_processing::{VerifyOperation, common::get_attesting_indices_from_state};
@@ -944,10 +943,10 @@ mod release_tests {
     fn get_current_state_initialize_epoch_cache<E: EthSpec>(
         harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
         spec: &ChainSpec,
-    ) -> BeaconState<E> {
-        let mut state = harness.get_current_state();
+    ) -> (BeaconState<E>, Hash256) {
+        let (mut state, state_root) = harness.get_current_state_and_root();
         initialize_epoch_cache(&mut state, spec).unwrap();
-        state
+        (state, state_root)
     }
 
     /// Test state for sync contribution-related tests.
@@ -965,7 +964,6 @@ mod release_tests {
         harness
             .add_attested_blocks_at_slots(
                 state,
-                Hash256::zero(),
                 &[Slot::new(1)],
                 (0..num_validators).collect::<Vec<_>>().as_slice(),
             )
@@ -983,7 +981,7 @@ mod release_tests {
             return;
         }
 
-        let mut state = get_current_state_initialize_epoch_cache(&harness, spec);
+        let (mut state, state_root) = get_current_state_initialize_epoch_cache(&harness, spec);
         let slot = state.slot();
         let committees = state
             .get_beacon_committees_at_slot(slot)
@@ -998,8 +996,8 @@ mod release_tests {
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
             &state,
-            Hash256::zero(),
-            SignedBeaconBlockHash::from(Hash256::zero()),
+            state_root,
+            harness.head_block_root().into(),
             slot,
         );
 
@@ -1065,7 +1063,7 @@ mod release_tests {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
-        let mut state = get_current_state_initialize_epoch_cache(&harness, spec);
+        let (mut state, state_root) = get_current_state_initialize_epoch_cache(&harness, spec);
 
         let slot = state.slot();
         let committees = state
@@ -1087,8 +1085,8 @@ mod release_tests {
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
             &state,
-            Hash256::zero(),
-            SignedBeaconBlockHash::from(Hash256::zero()),
+            state_root,
+            harness.head_block_root().into(),
             slot,
         );
 
@@ -1141,7 +1139,7 @@ mod release_tests {
     fn attestation_duplicate() {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
 
-        let state = get_current_state_initialize_epoch_cache(&harness, spec);
+        let (state, state_root) = get_current_state_initialize_epoch_cache(&harness, spec);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -1158,8 +1156,8 @@ mod release_tests {
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
             &state,
-            Hash256::zero(),
-            SignedBeaconBlockHash::from(Hash256::zero()),
+            state_root,
+            harness.head_block_root().into(),
             slot,
         );
 
@@ -1184,7 +1182,7 @@ mod release_tests {
     fn attestation_pairwise_overlapping() {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
 
-        let state = get_current_state_initialize_epoch_cache(&harness, spec);
+        let (state, state_root) = get_current_state_initialize_epoch_cache(&harness, spec);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -1202,8 +1200,8 @@ mod release_tests {
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
             &state,
-            Hash256::zero(),
-            SignedBeaconBlockHash::from(Hash256::zero()),
+            state_root,
+            harness.head_block_root().into(),
             slot,
         );
 
@@ -1279,7 +1277,7 @@ mod release_tests {
 
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(num_committees);
 
-        let mut state = get_current_state_initialize_epoch_cache(&harness, spec);
+        let (mut state, state_root) = get_current_state_initialize_epoch_cache(&harness, spec);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -1300,8 +1298,8 @@ mod release_tests {
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
             &state,
-            Hash256::zero(),
-            SignedBeaconBlockHash::from(Hash256::zero()),
+            state_root,
+            harness.head_block_root().into(),
             slot,
         );
 
@@ -1385,7 +1383,7 @@ mod release_tests {
 
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(num_committees);
 
-        let mut state = get_current_state_initialize_epoch_cache(&harness, spec);
+        let (mut state, state_root) = get_current_state_initialize_epoch_cache(&harness, spec);
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
         let slot = state.slot();
@@ -1411,8 +1409,8 @@ mod release_tests {
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
             &state,
-            Hash256::zero(),
-            SignedBeaconBlockHash::from(Hash256::zero()),
+            state_root,
+            harness.head_block_root().into(),
             slot,
         );
 
@@ -2275,7 +2273,6 @@ mod release_tests {
         harness
             .add_attested_blocks_at_slots(
                 harness.get_current_state(),
-                Hash256::zero(),
                 &[Slot::new(1)],
                 (0..num_validators).collect::<Vec<_>>().as_slice(),
             )
@@ -2332,7 +2329,6 @@ mod release_tests {
         harness
             .add_attested_blocks_at_slots(
                 harness.get_current_state(),
-                Hash256::zero(),
                 &[Slot::new(1)],
                 (0..num_validators).collect::<Vec<_>>().as_slice(),
             )

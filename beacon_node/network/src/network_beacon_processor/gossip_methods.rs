@@ -4021,34 +4021,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // TODO(gloas) metrics
         // register_process_result_metrics(&result, metrics::BlockSource::Gossip, "envelope");
 
-        match &result {
-            Ok(AvailabilityProcessingStatus::Imported(_))
-            | Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
-                // Nothing to do
-            }
-            Err(e) => match e {
-                EnvelopeError::ExecutionPayloadError(epe) if !epe.penalize_peer() => {}
-                EnvelopeError::BadSignature
-                | EnvelopeError::BuilderIndexMismatch { .. }
-                | EnvelopeError::SlotMismatch { .. }
-                | EnvelopeError::BlockHashMismatch { .. }
-                | EnvelopeError::UnknownValidator { .. }
-                | EnvelopeError::IncorrectBlockProposer { .. }
-                | EnvelopeError::ExecutionPayloadError(_)
-                | EnvelopeError::EnvelopeProcessingError(_) => {
-                    self.gossip_penalize_peer(
-                        peer_id,
-                        PeerAction::LowToleranceError,
-                        "gossip_envelope_processing_low",
-                    );
-                }
-
-                EnvelopeError::BlockRootUnknown { .. }
-                | EnvelopeError::PriorToFinalization { .. }
-                | EnvelopeError::BeaconChainError(_)
-                | EnvelopeError::BeaconStateError(_)
-                | EnvelopeError::ImportError(_) => {}
-            },
+        if let Err(e) = &result {
+            debug!(
+                ?beacon_block_root,
+                %peer_id,
+                error = ?e,
+                "Execution payload envelope processing failed"
+            );
         }
     }
 
