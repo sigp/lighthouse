@@ -56,6 +56,7 @@ pub const V4: EndpointVersion = EndpointVersion(4);
 pub const CONSENSUS_VERSION_HEADER: &str = "Eth-Consensus-Version";
 pub const EXECUTION_PAYLOAD_BLINDED_HEADER: &str = "Eth-Execution-Payload-Blinded";
 pub const EXECUTION_PAYLOAD_VALUE_HEADER: &str = "Eth-Execution-Payload-Value";
+pub const EXECUTION_PAYLOAD_INCLUDED_HEADER: &str = "Eth-Execution-Payload-Included";
 pub const CONSENSUS_BLOCK_VALUE_HEADER: &str = "Eth-Consensus-Block-Value";
 
 pub const CONTENT_TYPE_HEADER: &str = "Content-Type";
@@ -2554,12 +2555,14 @@ impl BeaconNodeHttpClient {
     }
 
     /// returns `GET v4/validator/blocks/{slot}` URL path
+    #[allow(clippy::too_many_arguments)]
     pub async fn get_validator_blocks_v4_path(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
+        include_payload: Option<bool>,
         builder_booster_factor: Option<u64>,
         graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<Url, Error> {
@@ -2584,6 +2587,11 @@ impl BeaconNodeHttpClient {
                 .append_pair("skip_randao_verification", "");
         }
 
+        if let Some(include_payload) = include_payload {
+            path.query_pairs_mut()
+                .append_pair("include_payload", &include_payload.to_string());
+        }
+
         if let Some(builder_booster_factor) = builder_booster_factor {
             path.query_pairs_mut()
                 .append_pair("builder_boost_factor", &builder_booster_factor.to_string());
@@ -2603,6 +2611,7 @@ impl BeaconNodeHttpClient {
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
+        include_payload: Option<bool>,
         builder_booster_factor: Option<u64>,
         graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<
@@ -2617,6 +2626,7 @@ impl BeaconNodeHttpClient {
             randao_reveal,
             graffiti,
             SkipRandaoVerification::No,
+            include_payload,
             builder_booster_factor,
             graffiti_policy,
         )
@@ -2624,12 +2634,14 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET v4/validator/blocks/{slot}`
+    #[allow(clippy::too_many_arguments)]
     pub async fn get_validator_blocks_v4_modular<E: EthSpec>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
+        include_payload: Option<bool>,
         builder_booster_factor: Option<u64>,
         graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<
@@ -2645,6 +2657,7 @@ impl BeaconNodeHttpClient {
                 randao_reveal,
                 graffiti,
                 skip_randao_verification,
+                include_payload,
                 builder_booster_factor,
                 graffiti_policy,
             )
@@ -2675,6 +2688,7 @@ impl BeaconNodeHttpClient {
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
+        include_payload: Option<bool>,
         builder_booster_factor: Option<u64>,
         graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<(BeaconBlock<E>, ProduceBlockV4Metadata), Error> {
@@ -2683,6 +2697,7 @@ impl BeaconNodeHttpClient {
             randao_reveal,
             graffiti,
             SkipRandaoVerification::No,
+            include_payload,
             builder_booster_factor,
             graffiti_policy,
         )
@@ -2690,12 +2705,14 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET v4/validator/blocks/{slot}` in ssz format
+    #[allow(clippy::too_many_arguments)]
     pub async fn get_validator_blocks_v4_modular_ssz<E: EthSpec>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
+        include_payload: Option<bool>,
         builder_booster_factor: Option<u64>,
         graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<(BeaconBlock<E>, ProduceBlockV4Metadata), Error> {
@@ -2705,6 +2722,7 @@ impl BeaconNodeHttpClient {
                 randao_reveal,
                 graffiti,
                 skip_randao_verification,
+                include_payload,
                 builder_booster_factor,
                 graffiti_policy,
             )
@@ -2734,11 +2752,10 @@ impl BeaconNodeHttpClient {
         opt_response.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))
     }
 
-    /// `GET v1/validator/execution_payload_envelope/{slot}/{builder_index}`
+    /// `GET v1/validator/execution_payload_envelope/{slot}`
     pub async fn get_validator_execution_payload_envelope<E: EthSpec>(
         &self,
         slot: Slot,
-        builder_index: u64,
     ) -> Result<ForkVersionedResponse<ExecutionPayloadEnvelope<E>>, Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -2746,17 +2763,15 @@ impl BeaconNodeHttpClient {
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("validator")
             .push("execution_payload_envelope")
-            .push(&slot.to_string())
-            .push(&builder_index.to_string());
+            .push(&slot.to_string());
 
         self.get(path).await
     }
 
-    /// `GET v1/validator/execution_payload_envelope/{slot}/{builder_index}` in SSZ format
+    /// `GET v1/validator/execution_payload_envelope/{slot}` in SSZ format
     pub async fn get_validator_execution_payload_envelope_ssz<E: EthSpec>(
         &self,
         slot: Slot,
-        builder_index: u64,
     ) -> Result<ExecutionPayloadEnvelope<E>, Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -2764,8 +2779,7 @@ impl BeaconNodeHttpClient {
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("validator")
             .push("execution_payload_envelope")
-            .push(&slot.to_string())
-            .push(&builder_index.to_string());
+            .push(&slot.to_string());
 
         let opt_response = self
             .get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_validator_block)
