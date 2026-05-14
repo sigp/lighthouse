@@ -2,6 +2,7 @@ use super::Error;
 use crate::beacon_chain::BeaconStore;
 use crate::canonical_head::CanonicalHead;
 use crate::observed_attesters::ObservedPayloadAttesters;
+use crate::shuffling_cache::{ShufflingCache, with_cached_shuffling};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, metrics};
 use bls::AggregateSignature;
@@ -20,6 +21,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub spec: &'a ChainSpec,
     pub observed_payload_attesters: &'a RwLock<ObservedPayloadAttesters<T::EthSpec>>,
     pub canonical_head: &'a CanonicalHead<T>,
+    pub shuffling_cache: &'a RwLock<ShufflingCache<T::EthSpec>>,
     pub validator_pubkey_cache: &'a RwLock<ValidatorPubkeyCache<T>>,
     pub store: &'a BeaconStore<T>,
 }
@@ -76,13 +78,32 @@ impl<T: BeaconChainTypes> VerifiedPayloadAttestationMessage<T> {
             return Err(Error::UnknownHeadBlock { beacon_block_root });
         }
 
-        // Get head state for PTC computation. If the cached head state is too stale
+        let message_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+        let ptc = with_cached_shuffling(
+            ctx.canonical_head,
+            ctx.shuffling_cache,
+            ctx.store,
+            ctx.spec,
+            beacon_block_root,
+            message_epoch,
+            |cached_shuffling, _| Ok::<_, Error>(cached_shuffling.ptc.clone()),
+        )?
+        .ok_or(Error::MissingPTC { slot })?;
+
+        // [REJECT] `validator_index` is within `get_ptc(state, data.slot)`.
+        if !ptc.0.contains(&(validator_index as usize)) {
+            return Err(Error::NotInPTC {
+                validator_index,
+                slot,
+            });
+        }
+
+        // Get a state for signature verification. If the cached head state is too stale
         // (e.g. during liveness failures with many skipped slots), fall back to loading
         // a more recent state from the store and advancing it if necessary.
         let head = ctx.canonical_head.cached_head();
         let head_state = &head.snapshot.beacon_state;
 
-        let message_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
         let state_epoch = head_state.current_epoch();
 
         // get_ptc can serve epochs in [state_epoch - 1, state_epoch + min_seed_lookahead].
@@ -123,15 +144,6 @@ impl<T: BeaconChainTypes> VerifiedPayloadAttestationMessage<T> {
         };
 
         let state = advanced_state.as_ref().unwrap_or(head_state);
-
-        // [REJECT] `validator_index` is within `get_ptc(state, data.slot)`.
-        let ptc = state.get_ptc(slot, ctx.spec)?;
-        if !ptc.0.contains(&(validator_index as usize)) {
-            return Err(Error::NotInPTC {
-                validator_index,
-                slot,
-            });
-        }
 
         // Build the indexed form for signature verification and downstream fork choice.
         let indexed_payload_attestation = IndexedPayloadAttestation {
@@ -204,6 +216,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             spec: &self.spec,
             observed_payload_attesters: &self.observed_payload_attesters,
             canonical_head: &self.canonical_head,
+            shuffling_cache: &self.shuffling_cache,
             validator_pubkey_cache: &self.validator_pubkey_cache,
             store: &self.store,
         }

@@ -66,6 +66,12 @@ pub enum Error {
     ///
     /// The peer has sent an invalid message.
     NotInPTC { validator_index: u64, slot: Slot },
+    /// The shuffling cache entry did not contain a PTC for this slot.
+    ///
+    /// ## Peer scoring
+    ///
+    /// We were unable to process this message due to an internal error.
+    MissingPTC { slot: Slot },
     /// The validator index is unknown.
     ///
     /// ## Peer scoring

@@ -1,33 +1,18 @@
-use std::sync::Arc;
-use std::time::Duration;
-
-use bls::{Keypair, Signature};
-use fork_choice::ForkChoice;
-use genesis::{generate_deterministic_keypairs, interop_genesis_state};
-use parking_lot::RwLock;
-use proto_array::PayloadStatus;
-use slot_clock::{SlotClock, TestingSlotClock};
+use bls::Signature;
 use state_processing::AllCaches;
-use state_processing::genesis::genesis_block;
-use store::{HotColdDB, StoreConfig};
 use types::{
-    ChainSpec, Checkpoint, Domain, Epoch, EthSpec, Hash256, MinimalEthSpec, PayloadAttestationData,
-    PayloadAttestationMessage, SignedBeaconBlock, SignedRoot, Slot,
+    Domain, EthSpec, Hash256, MinimalEthSpec, PayloadAttestationData, PayloadAttestationMessage,
+    SignedRoot, Slot,
 };
 
 use crate::{
-    beacon_fork_choice_store::BeaconForkChoiceStore,
-    beacon_snapshot::BeaconSnapshot,
-    canonical_head::CanonicalHead,
-    observed_attesters::ObservedPayloadAttesters,
     payload_attestation_verification::{
         Error as PayloadAttestationError,
         gossip_verified_payload_attestation::{
             GossipVerificationContext, VerifiedPayloadAttestationMessage,
         },
     },
-    test_utils::{BeaconChainHarness, EphemeralHarnessType, fork_name_from_env, test_spec},
-    validator_pubkey_cache::ValidatorPubkeyCache,
+    test_utils::{BeaconChainHarness, EphemeralHarnessType, fork_name_from_env},
 };
 
 type E = MinimalEthSpec;
@@ -36,96 +21,41 @@ type T = EphemeralHarnessType<E>;
 const NUM_VALIDATORS: usize = 64;
 
 struct TestContext {
-    canonical_head: CanonicalHead<T>,
-    observed_payload_attesters: RwLock<ObservedPayloadAttesters<E>>,
-    validator_pubkey_cache: RwLock<ValidatorPubkeyCache<T>>,
-    slot_clock: TestingSlotClock,
-    keypairs: Vec<Keypair>,
-    spec: ChainSpec,
+    harness: BeaconChainHarness<T>,
     genesis_block_root: Hash256,
-    store: Arc<store::HotColdDB<E, store::MemoryStore<E>, store::MemoryStore<E>>>,
 }
 
 impl TestContext {
     fn new() -> Self {
-        let spec = test_spec::<E>();
-        let store = Arc::new(
-            HotColdDB::open_ephemeral(StoreConfig::default(), Arc::new(spec.clone()))
-                .expect("should open ephemeral store"),
-        );
+        let harness = BeaconChainHarness::builder(E::default())
+            .default_spec()
+            .deterministic_keypairs(NUM_VALIDATORS)
+            .fresh_ephemeral_store()
+            .build();
 
-        let keypairs = generate_deterministic_keypairs(NUM_VALIDATORS);
-
-        let mut state =
-            interop_genesis_state::<E>(&keypairs, 0, Hash256::repeat_byte(0x42), None, &spec)
-                .expect("should build genesis state");
-
-        *state.finalized_checkpoint_mut() = Checkpoint {
-            epoch: Epoch::new(1),
-            root: Hash256::ZERO,
-        };
-
-        let mut block = genesis_block(&state, &spec).expect("should build genesis block");
-        *block.state_root_mut() = state
-            .update_tree_hash_cache()
-            .expect("should hash genesis state");
-        let signed_block = SignedBeaconBlock::from_block(block, Signature::empty());
-        let block_root = signed_block.canonical_root();
-
-        let snapshot = BeaconSnapshot::new(
-            Arc::new(signed_block.clone()),
-            None,
-            block_root,
-            state.clone(),
-        );
-
-        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store.clone(), snapshot.clone())
-            .expect("should create fork choice store");
-        let fork_choice =
-            ForkChoice::from_anchor(fc_store, block_root, &signed_block, &state, None, &spec)
-                .expect("should create fork choice");
-
-        let canonical_head =
-            CanonicalHead::new(fork_choice, Arc::new(snapshot), PayloadStatus::Pending);
-
-        let slot_clock = TestingSlotClock::new(
-            Slot::new(0),
-            Duration::from_secs(0),
-            spec.get_slot_duration(),
-        );
         // Advance past genesis so `now_with_past_tolerance` doesn't underflow.
-        slot_clock.set_current_time(spec.get_slot_duration());
-
-        let validator_pubkey_cache =
-            ValidatorPubkeyCache::new(&state, store.clone()).expect("should create pubkey cache");
+        harness
+            .chain
+            .slot_clock
+            .set_current_time(harness.spec.get_slot_duration());
+        let genesis_block_root = harness.chain.genesis_block_root;
 
         Self {
-            canonical_head,
-            observed_payload_attesters: RwLock::new(ObservedPayloadAttesters::default()),
-            validator_pubkey_cache: RwLock::new(validator_pubkey_cache),
-            slot_clock,
-            keypairs,
-            spec,
-            genesis_block_root: block_root,
-            store,
+            harness,
+            genesis_block_root,
         }
     }
 
     fn gossip_ctx(&self) -> GossipVerificationContext<'_, T> {
-        GossipVerificationContext {
-            slot_clock: &self.slot_clock,
-            spec: &self.spec,
-            observed_payload_attesters: &self.observed_payload_attesters,
-            canonical_head: &self.canonical_head,
-            validator_pubkey_cache: &self.validator_pubkey_cache,
-            store: &self.store,
-        }
+        self.harness.chain.payload_attestation_gossip_context()
     }
 
     fn ptc_members(&self, slot: Slot) -> Vec<usize> {
-        let head = self.canonical_head.cached_head();
+        let head = self.harness.chain.canonical_head.cached_head();
         let state = &head.snapshot.beacon_state;
-        let ptc = state.get_ptc(slot, &self.spec).expect("should get PTC");
+        let ptc = state
+            .get_ptc(slot, &self.harness.spec)
+            .expect("should get PTC");
         ptc.0.to_vec()
     }
 
@@ -134,16 +64,18 @@ impl TestContext {
         data: PayloadAttestationData,
         validator_index: u64,
     ) -> PayloadAttestationMessage {
-        let head = self.canonical_head.cached_head();
+        let head = self.harness.chain.canonical_head.cached_head();
         let state = &head.snapshot.beacon_state;
-        let domain = self.spec.get_domain(
+        let domain = self.harness.spec.get_domain(
             data.slot.epoch(E::slots_per_epoch()),
             Domain::PTCAttester,
             &state.fork(),
             state.genesis_validators_root(),
         );
         let message = data.signing_root(domain);
-        let signature = self.keypairs[validator_index as usize].sk.sign(message);
+        let signature = self.harness.validator_keypairs[validator_index as usize]
+            .sk
+            .sign(message);
         PayloadAttestationMessage {
             validator_index,
             data,
@@ -192,7 +124,7 @@ fn past_slot() {
         return;
     }
     let ctx = TestContext::new();
-    ctx.slot_clock.set_slot(5);
+    ctx.harness.chain.slot_clock.set_slot(5);
     let gossip = ctx.gossip_ctx();
 
     let msg = make_payload_attestation(Slot::new(0), 0, ctx.genesis_block_root);

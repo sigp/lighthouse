@@ -3,13 +3,17 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use oneshot_broadcast::{Receiver, Sender, oneshot};
+use parking_lot::RwLock;
+use state_processing::state_advance::partial_state_advance;
 use tracing::debug;
 use types::{
     AttestationShufflingId, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256, PTC,
     RelativeEpoch, state::CommitteeCache,
 };
 
-use crate::{BeaconChainError, metrics};
+use crate::{
+    BeaconChainError, BeaconChainTypes, BeaconStore, canonical_head::CanonicalHead, metrics,
+};
 
 /// The size of the cache that stores shufflings for quicker verification.
 ///
@@ -232,6 +236,164 @@ impl<E: EthSpec> ShufflingCache<E> {
     /// the cache during `Self::insert_cache_item`.
     pub fn update_head_shuffling_ids(&mut self, head_shuffling_ids: BlockShufflingIds) {
         self.head_shuffling_ids = head_shuffling_ids;
+    }
+}
+
+pub fn with_cached_shuffling<T, F, R, Error>(
+    canonical_head: &CanonicalHead<T>,
+    shuffling_cache_lock: &RwLock<ShufflingCache<T::EthSpec>>,
+    store: &BeaconStore<T>,
+    spec: &ChainSpec,
+    head_block_root: Hash256,
+    shuffling_epoch: Epoch,
+    map_fn: F,
+) -> Result<R, Error>
+where
+    T: BeaconChainTypes,
+    F: Fn(&CachedShuffling<T::EthSpec>, Hash256) -> Result<R, Error>,
+    Error: From<BeaconChainError>,
+{
+    let head_block = canonical_head
+        .fork_choice_read_lock()
+        .get_block(&head_block_root)
+        .ok_or(BeaconChainError::MissingBeaconBlock(head_block_root))?;
+
+    let shuffling_id = BlockShufflingIds {
+        current: head_block.current_epoch_shuffling_id.clone(),
+        next: head_block.next_epoch_shuffling_id.clone(),
+        previous: None,
+        block_root: head_block.root,
+    }
+    .id_for_epoch(shuffling_epoch)
+    .ok_or_else(|| BeaconChainError::InvalidShufflingId {
+        shuffling_epoch,
+        head_block_epoch: head_block.slot.epoch(T::EthSpec::slots_per_epoch()),
+    })?;
+
+    let mut shuffling_cache = {
+        let _ = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SHUFFLING_CACHE_WAIT_TIMES);
+        shuffling_cache_lock.write()
+    };
+
+    if let Some(cache_item) = shuffling_cache.get(&shuffling_id) {
+        drop(shuffling_cache);
+
+        let cached_shuffling = cache_item.wait()?;
+        map_fn(&cached_shuffling, shuffling_id.shuffling_decision_block)
+    } else {
+        // Create an entry in the cache that "promises" this value will eventually be computed.
+        // This avoids the case where multiple threads attempt to produce the same value at the
+        // same time.
+        //
+        // Creating the promise whilst we hold the `shuffling_cache` lock will prevent the same
+        // promise from being created twice.
+        let sender = shuffling_cache.create_promise(shuffling_id.clone())?;
+
+        // Drop the shuffling cache to avoid holding the lock for any longer than required.
+        drop(shuffling_cache);
+
+        debug!(
+            shuffling_id = ?shuffling_epoch,
+            head_block_root = head_block_root.to_string(),
+            "Committee cache miss"
+        );
+
+        // If the block's state will be so far ahead of `shuffling_epoch` that even its previous
+        // epoch committee cache will be too new, then error. Callers of this function shouldn't be
+        // requesting such old shufflings for this `head_block_root`.
+        let head_block_epoch = head_block.slot.epoch(T::EthSpec::slots_per_epoch());
+        if head_block_epoch > shuffling_epoch + 1 {
+            return Err(BeaconChainError::InvalidStateForShuffling {
+                state_epoch: head_block_epoch,
+                shuffling_epoch,
+            }
+            .into());
+        }
+
+        let state_read_timer =
+            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_READ_TIMES);
+
+        let cached_head = canonical_head.cached_head();
+        let head_state_opt = if cached_head.head_block_root() == head_block_root {
+            Some((
+                cached_head.snapshot.beacon_state.clone(),
+                cached_head.head_state_root(),
+            ))
+        } else {
+            None
+        };
+
+        // Compute the `target_slot` to advance the block's state to.
+        //
+        // Since there's a one-epoch look-ahead on the attester shuffling, it suffices to only
+        // advance into the first slot of the epoch prior to `shuffling_epoch`.
+        //
+        // If the `head_block` is already ahead of that slot, then we should load the state at that
+        // slot, as we've determined above that the `shuffling_epoch` cache will not be too far in
+        // the past.
+        let target_slot = std::cmp::max(
+            shuffling_epoch
+                .saturating_sub(1_u64)
+                .start_slot(T::EthSpec::slots_per_epoch()),
+            head_block.slot,
+        );
+
+        // If the head state is useful for this request, use it. Otherwise, read a state from disk
+        // that is advanced as close as possible to `target_slot`.
+        let (mut state, state_root) = if let Some((state, state_root)) = head_state_opt {
+            (state, state_root)
+        } else {
+            // We assume that the `Pending` state has the same shufflings as a `Full` state for the
+            // same block. Analysis: https://hackmd.io/@dapplion/gloas_dependant_root
+            let (state_root, state) = store
+                .get_advanced_hot_state(head_block_root, target_slot, head_block.state_root)
+                .map_err(BeaconChainError::DBError)?
+                .ok_or(BeaconChainError::MissingBeaconState(head_block.state_root))?;
+            (state, state_root)
+        };
+
+        metrics::stop_timer(state_read_timer);
+        let state_skip_timer =
+            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_SKIP_TIMES);
+
+        // If the state is still in an earlier epoch, advance it to the `target_slot` so that its
+        // next epoch committee cache matches the `shuffling_epoch`.
+        if state.current_epoch() + 1 < shuffling_epoch {
+            // Advance the state into the required slot, using the "partial" method since the state
+            // roots are not relevant for the shuffling.
+            partial_state_advance(&mut state, Some(state_root), target_slot, spec)
+                .map_err(BeaconChainError::from)?;
+        }
+        metrics::stop_timer(state_skip_timer);
+
+        let committee_building_timer =
+            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_COMMITTEE_BUILDING_TIMES);
+
+        let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), shuffling_epoch)
+            .map_err(BeaconChainError::IncorrectStateForAttestation)?;
+
+        state
+            .build_committee_cache(relative_epoch, spec)
+            .map_err(BeaconChainError::from)?;
+
+        let committee_cache = state
+            .committee_cache(relative_epoch)
+            .map_err(BeaconChainError::from)?
+            .clone();
+        let ptc = get_ptc_for_shuffling_epoch(&state, shuffling_epoch, spec)
+            .map_err(BeaconChainError::from)?;
+        let shuffling_decision_block = shuffling_id.shuffling_decision_block;
+        let cached_shuffling = CachedShuffling::new(committee_cache, ptc);
+
+        shuffling_cache_lock
+            .write()
+            .insert_committee_cache_with_ptc(shuffling_id, cached_shuffling.clone());
+
+        metrics::stop_timer(committee_building_timer);
+
+        sender.send(cached_shuffling.clone());
+
+        map_fn(&cached_shuffling, shuffling_decision_block)
     }
 }
 
