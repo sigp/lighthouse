@@ -170,7 +170,8 @@ impl<E: EthSpec> ShufflingCache<E> {
         if self
             .cache
             .get(&key)
-            // Replace the cached shuffling if it's not present or if it's a promise.
+            // Replace the committee if it's not present or if it's a promise. A bird in the hand is
+            // worth two in the promise-bush!
             .is_none_or(CacheItem::is_promise)
         {
             self.insert_cache_item(key, CacheItem::Committee(cached_shuffling));
