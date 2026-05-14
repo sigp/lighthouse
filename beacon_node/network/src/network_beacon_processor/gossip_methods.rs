@@ -4242,8 +4242,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
             }
             PayloadAttestationError::MissingPTC { .. }
-            | PayloadAttestationError::BeaconChainError(_)
-            | PayloadAttestationError::BeaconStateError(_) => {
+            | PayloadAttestationError::BeaconChainError(_) => {
                 debug!(
                     %peer_id,
                     %message_slot,

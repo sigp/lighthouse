@@ -260,20 +260,16 @@ fn duplicate_after_valid() {
     ));
 }
 
-/// Exercises the `partial_state_advance` fallback in gossip verification when
-/// the head state is too stale to compute PTC membership (e.g., during a
-/// network liveness failure with many missed slots).
+/// Exercises payload attestation gossip verification when the message epoch is ahead of the
+/// canonical head due to many missed slots.
 #[tokio::test]
-async fn stale_head_with_partial_advance() {
+async fn stale_head_payload_attestation() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
 
     let slots_per_epoch = E::slots_per_epoch();
-    // Head at epoch 1, message at epoch 5 — 4 epochs of missed slots.
-    // This exceeds min_seed_lookahead (1), triggering the fallback path:
-    // get_advanced_hot_state loads the stored state, then partial_state_advance
-    // advances it through epoch boundaries to populate ptc_window.
+    // Head at epoch 1, message at epoch 5: 4 epochs of missed slots.
     let head_slot = Slot::new(slots_per_epoch);
     let missed_epochs = 4;
     let target_slot = Slot::new(slots_per_epoch * (1 + missed_epochs));
@@ -292,7 +288,7 @@ async fn stale_head_with_partial_advance() {
     let head_epoch = head.snapshot.beacon_state.current_epoch();
     assert!(
         target_epoch > head_epoch + harness.spec.min_seed_lookahead,
-        "precondition: message epoch must exceed head + min_seed_lookahead to trigger fallback"
+        "precondition: message epoch must exceed head + min_seed_lookahead"
     );
 
     // GIVEN a slot clock advanced to epoch 5 without producing blocks
@@ -317,7 +313,9 @@ async fn stale_head_with_partial_advance() {
         .expect("should get PTC from reference state");
     let validator_index = *ptc.0.first().expect("PTC should have at least one member") as u64;
 
-    // WHEN a properly-signed payload attestation from a PTC member is verified.
+    // WHEN a properly-signed payload attestation from a PTC member is verified. The signature
+    // domain should come from the spec fork schedule and genesis validators root, not a loaded
+    // state in the verifier.
     let domain = harness.spec.get_domain(
         target_epoch,
         Domain::PTCAttester,
