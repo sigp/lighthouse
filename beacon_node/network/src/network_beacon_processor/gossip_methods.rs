@@ -4254,8 +4254,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "payload_attn_invalid_sig",
                 );
             }
-            PayloadAttestationError::BeaconChainError(_)
-            | PayloadAttestationError::BeaconStateError(_) => {
+            PayloadAttestationError::MissingPTC { .. }
+            | PayloadAttestationError::BeaconChainError(_) => {
                 debug!(
                     %peer_id,
                     %message_slot,
