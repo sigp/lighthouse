@@ -882,6 +882,14 @@ pub struct PeerData {
     pub last_seen_p2p_address: String,
     pub state: PeerState,
     pub direction: PeerDirection,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disconnect_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub downscore_reasons: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

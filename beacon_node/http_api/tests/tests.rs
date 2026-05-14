@@ -3220,6 +3220,10 @@ impl ApiTester {
             last_seen_p2p_address: EXTERNAL_ADDR.to_string(),
             state: PeerState::Connected,
             direction: PeerDirection::Inbound,
+            agent_version: result.agent_version.clone(),
+            score: result.score,
+            disconnect_reason: result.disconnect_reason.clone(),
+            downscore_reasons: result.downscore_reasons.clone(),
         };
 
         assert_eq!(result, expected);
@@ -3246,12 +3250,27 @@ impl ApiTester {
         for states in peer_states {
             for dirs in peer_dirs.clone() {
                 let result = self.client.get_node_peers(states, dirs).await.unwrap();
+                let (agent_version, score, disconnect_reason, downscore_reasons) =
+                    if let Some(peer) = result.data.first() {
+                        (
+                            peer.agent_version.clone(),
+                            peer.score,
+                            peer.disconnect_reason.clone(),
+                            peer.downscore_reasons.clone(),
+                        )
+                    } else {
+                        (None, None, None, None)
+                    };
                 let expected_peer = PeerData {
                     peer_id: self.external_peer_id.to_string(),
                     enr: None,
                     last_seen_p2p_address: EXTERNAL_ADDR.to_string(),
                     state: PeerState::Connected,
                     direction: PeerDirection::Inbound,
+                    agent_version,
+                    score,
+                    disconnect_reason,
+                    downscore_reasons,
                 };
 
                 let state_match =
