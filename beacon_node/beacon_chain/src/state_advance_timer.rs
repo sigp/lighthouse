@@ -15,7 +15,9 @@
 //! 2. There's a possibility that the head block is never built upon, causing wasted CPU cycles.
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::{
-    BeaconChain, BeaconChainError, BeaconChainTypes, chain_config::FORK_CHOICE_LOOKAHEAD_FACTOR,
+    BeaconChain, BeaconChainError, BeaconChainTypes,
+    chain_config::FORK_CHOICE_LOOKAHEAD_FACTOR,
+    shuffling_cache::{CachedShuffling, get_ptc_for_shuffling_epoch},
 };
 use slot_clock::SlotClock;
 use state_processing::per_slot_processing;
@@ -395,10 +397,17 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
         let committee_cache = state
             .committee_cache(RelativeEpoch::Next)
             .map_err(BeaconChainError::from)?;
+        let ptc = get_ptc_for_shuffling_epoch(
+            &state,
+            RelativeEpoch::Next.into_epoch(state.current_epoch()),
+            &beacon_chain.spec,
+        )
+        .map_err(BeaconChainError::from)?;
+        let cached_shuffling = CachedShuffling::new(committee_cache.clone(), ptc);
         beacon_chain
             .shuffling_cache
             .write()
-            .insert_committee_cache(shuffling_id.clone(), committee_cache);
+            .insert_committee_cache_with_ptc(shuffling_id.clone(), cached_shuffling);
 
         debug!(
             ?head_block_root,

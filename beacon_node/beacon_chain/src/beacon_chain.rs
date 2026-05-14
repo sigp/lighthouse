@@ -71,7 +71,9 @@ use crate::persisted_custody::persist_custody_context;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::pre_finalization_cache::PreFinalizationBlockCache;
 use crate::proposer_preferences_verification::proposer_preference_cache::GossipVerifiedProposerPreferenceCache;
-use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
+use crate::shuffling_cache::{
+    BlockShufflingIds, CachedShuffling, ShufflingCache, get_ptc_for_shuffling_epoch,
+};
 use crate::sync_committee_verification::{
     Error as SyncCommitteeError, VerifiedSyncCommitteeMessage, VerifiedSyncContribution,
 };
@@ -466,7 +468,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// HTTP server is enabled.
     pub event_handler: Option<ServerSentEventHandler<T::EthSpec>>,
     /// Caches the attester shuffling for a given epoch and shuffling key root.
-    pub shuffling_cache: RwLock<ShufflingCache>,
+    pub shuffling_cache: RwLock<ShufflingCache<T::EthSpec>>,
     /// Caches the beacon block proposer shuffling for a given epoch and shuffling key root.
     pub beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>,
     /// Caches a map of `validator_index -> validator_pubkey`.
@@ -4794,9 +4796,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if !shuffling_is_cached {
                 state.build_committee_cache(relative_epoch, &self.spec)?;
                 let committee_cache = state.committee_cache(relative_epoch)?;
+                let shuffling_epoch = relative_epoch.into_epoch(state.current_epoch());
+                let ptc = get_ptc_for_shuffling_epoch(state, shuffling_epoch, &self.spec)?;
+                let cached_shuffling = CachedShuffling::new(committee_cache.clone(), ptc);
                 self.shuffling_cache
                     .write()
-                    .insert_committee_cache(shuffling_id, committee_cache);
+                    .insert_committee_cache_with_ptc(shuffling_id, cached_shuffling);
             }
         }
         Ok(())
@@ -6930,8 +6935,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // access.
             drop(shuffling_cache);
 
-            let committee_cache = cache_item.wait()?;
-            map_fn(&committee_cache, shuffling_id.shuffling_decision_block)
+            let cached_shuffling = cache_item.wait()?;
+            map_fn(
+                &cached_shuffling.committee_cache,
+                shuffling_id.shuffling_decision_block,
+            )
         } else {
             // Create an entry in the cache that "promises" this value will eventually be computed.
             // This avoids the case where multiple threads attempt to produce the same value at the
@@ -7029,17 +7037,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state.build_committee_cache(relative_epoch, &self.spec)?;
 
             let committee_cache = state.committee_cache(relative_epoch)?.clone();
+            let ptc = get_ptc_for_shuffling_epoch(&state, shuffling_epoch, &self.spec)?;
             let shuffling_decision_block = shuffling_id.shuffling_decision_block;
+            let cached_shuffling = CachedShuffling::new(committee_cache.clone(), ptc);
 
             self.shuffling_cache
                 .write()
-                .insert_committee_cache(shuffling_id, &committee_cache);
+                .insert_committee_cache_with_ptc(shuffling_id, cached_shuffling.clone());
 
             metrics::stop_timer(committee_building_timer);
 
-            sender.send(committee_cache.clone());
+            sender.send(cached_shuffling.clone());
 
-            map_fn(&committee_cache, shuffling_decision_block)
+            map_fn(&cached_shuffling.committee_cache, shuffling_decision_block)
         }
     }
 

@@ -5,21 +5,22 @@ use itertools::Itertools;
 use oneshot_broadcast::{Receiver, Sender, oneshot};
 use tracing::debug;
 use types::{
-    AttestationShufflingId, BeaconState, Epoch, EthSpec, Hash256, RelativeEpoch,
-    state::CommitteeCache,
+    AttestationShufflingId, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256, PTC,
+    RelativeEpoch, state::CommitteeCache,
 };
 
 use crate::{BeaconChainError, metrics};
 
-/// The size of the cache that stores committee caches for quicker verification.
+/// The size of the cache that stores shufflings for quicker verification.
 ///
-/// Each entry should be `8 + 800,000 = 800,008` bytes in size with 100k validators. (8-byte hash +
-/// 100k indices). Therefore, this cache should be approx `16 * 800,008 = 12.8 MB`. (Note: this
-/// ignores a few extra bytes in the caches that should be insignificant compared to the indices).
+/// Each entry should be around `8 + 800,000 + 4,096 = 804,104` bytes in size with 100k validators
+/// and a 512-validator PTC. Therefore, this cache should be approx `16 * 804,104 = 12.9 MB`.
+/// (Note: this ignores a few extra bytes in the caches that should be insignificant compared to the
+/// indices).
 pub const DEFAULT_CACHE_SIZE: usize = 16;
 
-/// The maximum number of concurrent committee cache "promises" that can be issued. In effect, this
-/// limits the number of concurrent states that can be loaded into memory for the committee cache.
+/// The maximum number of concurrent shuffling "promises" that can be issued. In effect, this
+/// limits the number of concurrent states that can be loaded into memory for the shuffling.
 /// This prevents excessive memory usage at the cost of rejecting some attestations.
 ///
 /// We set this value to 2 since states can be quite large and have a significant impact on memory
@@ -30,19 +31,34 @@ pub const DEFAULT_CACHE_SIZE: usize = 16;
 const MAX_CONCURRENT_PROMISES: usize = 2;
 
 #[derive(Clone)]
-pub enum CacheItem {
-    /// A committee.
-    Committee(Arc<CommitteeCache>),
-    /// A promise for a future committee.
-    Promise(Receiver<Arc<CommitteeCache>>),
+pub struct CachedShuffling<E: EthSpec> {
+    pub committee_cache: Arc<CommitteeCache>,
+    pub ptc: Option<PTC<E>>,
 }
 
-impl CacheItem {
+impl<E: EthSpec> CachedShuffling<E> {
+    pub fn new(committee_cache: Arc<CommitteeCache>, ptc: Option<PTC<E>>) -> Self {
+        Self {
+            committee_cache,
+            ptc,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub enum CacheItem<E: EthSpec> {
+    /// A cached shuffling.
+    Committee(CachedShuffling<E>),
+    /// A promise for a future cached shuffling.
+    Promise(Receiver<CachedShuffling<E>>),
+}
+
+impl<E: EthSpec> CacheItem<E> {
     pub fn is_promise(&self) -> bool {
         matches!(self, CacheItem::Promise(_))
     }
 
-    pub fn wait(self) -> Result<Arc<CommitteeCache>, BeaconChainError> {
+    pub fn wait(self) -> Result<CachedShuffling<E>, BeaconChainError> {
         match self {
             CacheItem::Committee(cache) => Ok(cache),
             CacheItem::Promise(receiver) => receiver
@@ -52,17 +68,17 @@ impl CacheItem {
     }
 }
 
-/// Provides a cache for `CommitteeCache`.
+/// Provides a cache for `CommitteeCache` and the associated optional PTC.
 ///
 /// It has been named `ShufflingCache` because `CommitteeCacheCache` is a bit weird and looks like
 /// a find/replace error.
-pub struct ShufflingCache {
-    cache: HashMap<AttestationShufflingId, CacheItem>,
+pub struct ShufflingCache<E: EthSpec> {
+    cache: HashMap<AttestationShufflingId, CacheItem<E>>,
     cache_size: usize,
     head_shuffling_ids: BlockShufflingIds,
 }
 
-impl ShufflingCache {
+impl<E: EthSpec> ShufflingCache<E> {
     pub fn new(cache_size: usize, head_shuffling_ids: BlockShufflingIds) -> Self {
         Self {
             cache: HashMap::new(),
@@ -71,22 +87,22 @@ impl ShufflingCache {
         }
     }
 
-    pub fn get(&mut self, key: &AttestationShufflingId) -> Option<CacheItem> {
+    pub fn get(&mut self, key: &AttestationShufflingId) -> Option<CacheItem<E>> {
         match self.cache.get(key) {
-            // The cache contained the committee cache, return it.
+            // The cache contained the shuffling, return it.
             item @ Some(CacheItem::Committee(_)) => {
                 metrics::inc_counter(&metrics::SHUFFLING_CACHE_HITS);
                 item.cloned()
             }
-            // The cache contains a promise for the committee cache. Check to see if the promise has
+            // The cache contains a promise for the shuffling. Check to see if the promise has
             // already been resolved, without waiting for it.
             item @ Some(CacheItem::Promise(receiver)) => match receiver.try_recv() {
                 // The promise has already been resolved. Replace the entry in the cache with a
-                // `Committee` entry and then return the committee.
-                Ok(Some(committee)) => {
+                // `Committee` entry and then return the cached shuffling.
+                Ok(Some(cached_shuffling)) => {
                     metrics::inc_counter(&metrics::SHUFFLING_CACHE_PROMISE_HITS);
                     metrics::inc_counter(&metrics::SHUFFLING_CACHE_HITS);
-                    let ready = CacheItem::Committee(committee);
+                    let ready = CacheItem::Committee(cached_shuffling);
                     self.insert_cache_item(key.clone(), ready.clone());
                     Some(ready)
                 }
@@ -97,8 +113,8 @@ impl ShufflingCache {
                     metrics::inc_counter(&metrics::SHUFFLING_CACHE_HITS);
                     item.cloned()
                 }
-                // The sender has been dropped without sending a committee. There was most likely an
-                // error computing the committee cache. Drop the key from the cache and return
+                // The sender has been dropped without sending a shuffling. There was most likely an
+                // error computing the shuffling. Drop the key from the cache and return
                 // `None` so the caller can recompute the committee.
                 //
                 // It's worth noting that this is the only place where we removed unresolved
@@ -113,7 +129,7 @@ impl ShufflingCache {
                     None
                 }
             },
-            // The cache does not have this committee and it's not already promised to be computed.
+            // The cache does not have this shuffling and it's not already promised to be computed.
             None => {
                 metrics::inc_counter(&metrics::SHUFFLING_CACHE_MISSES);
                 None
@@ -130,22 +146,29 @@ impl ShufflingCache {
         key: AttestationShufflingId,
         committee_cache: &C,
     ) {
+        self.insert_committee_cache_with_ptc(
+            key,
+            CachedShuffling::new(committee_cache.to_arc_committee_cache(), None),
+        );
+    }
+
+    pub fn insert_committee_cache_with_ptc(
+        &mut self,
+        key: AttestationShufflingId,
+        cached_shuffling: CachedShuffling<E>,
+    ) {
         if self
             .cache
             .get(&key)
-            // Replace the committee if it's not present or if it's a promise. A bird in the hand is
-            // worth two in the promise-bush!
+            // Replace the cached shuffling if it's not present or if it's a promise.
             .is_none_or(CacheItem::is_promise)
         {
-            self.insert_cache_item(
-                key,
-                CacheItem::Committee(committee_cache.to_arc_committee_cache()),
-            );
+            self.insert_cache_item(key, CacheItem::Committee(cached_shuffling));
         }
     }
 
     /// Prunes the cache first before inserting a new cache item.
-    fn insert_cache_item(&mut self, key: AttestationShufflingId, cache_item: CacheItem) {
+    fn insert_cache_item(&mut self, key: AttestationShufflingId, cache_item: CacheItem<E>) {
         self.prune_cache();
         self.cache.insert(key, cache_item);
     }
@@ -188,7 +211,7 @@ impl ShufflingCache {
     pub fn create_promise(
         &mut self,
         key: AttestationShufflingId,
-    ) -> Result<Sender<Arc<CommitteeCache>>, BeaconChainError> {
+    ) -> Result<Sender<CachedShuffling<E>>, BeaconChainError> {
         let num_active_promises = self
             .cache
             .iter()
@@ -209,6 +232,20 @@ impl ShufflingCache {
     /// the cache during `Self::insert_cache_item`.
     pub fn update_head_shuffling_ids(&mut self, head_shuffling_ids: BlockShufflingIds) {
         self.head_shuffling_ids = head_shuffling_ids;
+    }
+}
+
+/// Return the PTC associated with the first slot in `shuffling_epoch`, when the state supports PTCs.
+pub fn get_ptc_for_shuffling_epoch<E: EthSpec>(
+    state: &BeaconState<E>,
+    shuffling_epoch: Epoch,
+    spec: &ChainSpec,
+) -> Result<Option<PTC<E>>, BeaconStateError> {
+    if state.fork_name_unchecked().gloas_enabled() {
+        let slot = shuffling_epoch.start_slot(E::slots_per_epoch());
+        state.get_ptc(slot, spec).map(Some)
+    } else {
+        Ok(None)
     }
 }
 
@@ -304,7 +341,7 @@ mod test {
     const TEST_CACHE_SIZE: usize = 5;
 
     // Creates a new shuffling cache for testing
-    fn new_shuffling_cache() -> ShufflingCache {
+    fn new_shuffling_cache() -> ShufflingCache<E> {
         create_test_tracing_subscriber();
 
         let current_epoch = 8;
@@ -316,6 +353,10 @@ mod test {
         };
 
         ShufflingCache::new(TEST_CACHE_SIZE, head_shuffling_ids)
+    }
+
+    fn cached_shuffling(committee_cache: Arc<CommitteeCache>) -> CachedShuffling<E> {
+        CachedShuffling::new(committee_cache, None)
     }
 
     /// Returns two different committee caches for testing.
@@ -366,12 +407,12 @@ mod test {
         );
 
         // Resolve the promise.
-        sender.send(committee_a.clone());
+        sender.send(cached_shuffling(committee_a.clone()));
 
         // Ensure the promise has been resolved.
         let item = cache.get(&id_a).unwrap();
         assert!(
-            matches!(item, CacheItem::Committee(committee) if committee == committee_a),
+            matches!(item, CacheItem::Committee(cached_shuffling) if cached_shuffling.committee_cache == committee_a),
             "the promise should be resolved"
         );
         assert_eq!(cache.cache.len(), 1, "the cache should have one entry");
@@ -428,30 +469,30 @@ mod test {
         );
 
         // Resolve promise A.
-        sender_a.send(committee_a.clone());
+        sender_a.send(cached_shuffling(committee_a.clone()));
         // Ensure promise A has been resolved.
         let item = cache.get(&id_a).unwrap();
         assert!(
-            matches!(item, CacheItem::Committee(committee) if committee == committee_a),
+            matches!(item, CacheItem::Committee(cached_shuffling) if cached_shuffling.committee_cache == committee_a),
             "promise A should be resolved"
         );
 
         // Resolve promise B.
-        sender_b.send(committee_b.clone());
+        sender_b.send(cached_shuffling(committee_b.clone()));
         // Ensure promise B has been resolved.
         let item = cache.get(&id_b).unwrap();
         assert!(
-            matches!(item, CacheItem::Committee(committee) if committee == committee_b),
+            matches!(item, CacheItem::Committee(cached_shuffling) if cached_shuffling.committee_cache == committee_b),
             "promise B should be resolved"
         );
 
         // Check both entries again.
         assert!(
-            matches!(cache.get(&id_a).unwrap(), CacheItem::Committee(committee) if committee == committee_a),
+            matches!(cache.get(&id_a).unwrap(), CacheItem::Committee(cached_shuffling) if cached_shuffling.committee_cache == committee_a),
             "promise A should remain resolved"
         );
         assert!(
-            matches!(cache.get(&id_b).unwrap(), CacheItem::Committee(committee) if committee == committee_b),
+            matches!(cache.get(&id_b).unwrap(), CacheItem::Committee(cached_shuffling) if cached_shuffling.committee_cache == committee_b),
             "promise B should remain resolved"
         );
         assert_eq!(cache.cache.len(), 2, "the cache should have two entries");
@@ -487,7 +528,7 @@ mod test {
         let committee_cache_a = Arc::new(CommitteeCache::default());
         cache.insert_committee_cache(id_a.clone(), &committee_cache_a);
         assert!(
-            matches!(cache.get(&id_a).unwrap(), CacheItem::Committee(committee_cache) if committee_cache == committee_cache_a),
+            matches!(cache.get(&id_a).unwrap(), CacheItem::Committee(cached_shuffling) if cached_shuffling.committee_cache == committee_cache_a),
             "should insert committee cache"
         );
     }
