@@ -1091,6 +1091,7 @@ impl ProtoArrayForkChoice {
     /// Returns the leaves of the filtered block tree (rooted at `justified_root`) along with
     /// their weights — i.e. roots that are viable for head and have no descendant that is also
     /// viable for head. Mirrors the spec's `viable_for_head_roots_and_weights` check.
+    #[allow(clippy::too_many_arguments)]
     pub fn filtered_block_tree_leaves_and_weights<E: EthSpec>(
         &self,
         justified_root: &Hash256,
