@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use super::*;
 use crate::VerifySignatures;
 use crate::common::{
@@ -901,21 +903,10 @@ pub fn process_deposit_requests_pre_gloas<E: EthSpec>(
     Ok(())
 }
 
-pub fn process_deposit_requests_post_gloas<E: EthSpec>(
-    state: &mut BeaconState<E>,
-    deposit_requests: &[DepositRequest],
-    spec: &ChainSpec,
-) -> Result<(), BlockProcessingError> {
-    for request in deposit_requests {
-        process_deposit_request_post_gloas(state, request, spec)?;
-    }
-
-    Ok(())
-}
-
 /// Check if there is a pending deposit for a new validator with the given pubkey.
 // TODO(gloas): cache the deposit signature validation or remove this loop entirely if possible,
 // it is `O(n * m)` where `n` is max 8192 and `m` is max 128M.
+#[instrument(name = "is_pending_validator", skip_all, level = "debug")]
 fn is_pending_validator<E: EthSpec>(
     state: &BeaconState<E>,
     pubkey: &PublicKeyBytes,
@@ -937,59 +928,142 @@ fn is_pending_validator<E: EthSpec>(
     Ok(false)
 }
 
-pub fn process_deposit_request_post_gloas<E: EthSpec>(
-    state: &mut BeaconState<E>,
-    deposit_request: &DepositRequest,
-    spec: &ChainSpec,
-) -> Result<(), BlockProcessingError> {
-    // [New in Gloas:EIP7732]
-    // Regardless of the withdrawal credentials prefix, if a builder/validator
-    // already exists with this pubkey, apply the deposit to their balance
-    // TODO(gloas): this could be more efficient in the builder case, see:
-    // https://github.com/sigp/lighthouse/issues/8783
-    let builder_index = state
+#[derive(Copy, Clone)]
+pub enum VerifyBuilderSignature {
+    /// Verification not done
+    Verify,
+    VerifiedValid,
+    VerifiedInvalid,
+}
+
+/// Returns `Ok(true)` if a builder with the given pubkey exists in the state.
+/// Otherwise returns `Ok(false)`. Returns an error if this function is called with a
+/// pre-gloas state.
+///
+/// TODO(gloas): this could be more efficient in the builder case, see:
+/// https://github.com/sigp/lighthouse/issues/8783
+#[instrument(name = "get_builder_index", skip_all, level = "debug")]
+fn get_builder_index<E: EthSpec>(
+    state: &BeaconState<E>,
+    pubkey: &PublicKeyBytes,
+) -> Result<Option<u64>, BlockProcessingError> {
+    Ok(state
         .builders()?
         .iter()
         .enumerate()
-        .find(|(_, builder)| builder.pubkey == deposit_request.pubkey)
-        .map(|(i, _)| i as u64);
-    let is_builder = builder_index.is_some();
+        .find(|(_, builder)| builder.pubkey == *pubkey)
+        .map(|(i, _)| i as u64))
+}
 
-    let validator_index = state.get_validator_index(&deposit_request.pubkey)?;
-    let is_validator = validator_index.is_some();
+pub fn process_deposit_requests_post_gloas<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    deposit_requests: &[DepositRequest],
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    let now = Instant::now();
+    let mut builder_signature_request_indices = Vec::with_capacity(deposit_requests.len());
+    let mut builder_signature_deposits = Vec::with_capacity(deposit_requests.len());
 
-    let has_builder_prefix =
-        is_builder_withdrawal_credential(deposit_request.withdrawal_credentials, spec);
+    // Step 1: Collect all requests that could create a new builder when evaluated against the current
+    // state.
+    for (request_index, deposit_request) in deposit_requests.iter().enumerate() {
+        let is_builder = get_builder_index(state, &deposit_request.pubkey)?.is_some();
+        let is_validator = state
+            .get_validator_index(&deposit_request.pubkey)?
+            .is_some();
+        let has_builder_prefix =
+            is_builder_withdrawal_credential(deposit_request.withdrawal_credentials, spec);
 
-    if is_builder
-        || (has_builder_prefix
-            && !is_validator
-            && !is_pending_validator(state, &deposit_request.pubkey, spec)?)
-    {
-        // Apply builder deposits immediately
-        apply_deposit_for_builder(
-            state,
-            builder_index,
-            deposit_request.pubkey,
-            deposit_request.withdrawal_credentials,
-            deposit_request.amount,
-            deposit_request.signature.clone(),
-            state.slot(),
-            spec,
-        )?;
-        return Ok(());
+        // Intentionally not checking `!is_pending_validator` to avoid potentially expensive operation
+        // in the first pass. This may result in more signatures to verify but potentially avoids a double
+        // loop with a signature verification.
+        // TODO(pawan): reevaluate if this is best for the worst case.
+        if !is_builder && has_builder_prefix && !is_validator {
+            builder_signature_request_indices.push(request_index);
+            builder_signature_deposits.push(DepositData {
+                pubkey: deposit_request.pubkey,
+                withdrawal_credentials: deposit_request.withdrawal_credentials,
+                amount: deposit_request.amount,
+                signature: deposit_request.signature.clone(),
+            });
+        }
     }
 
-    // Add validator deposits to the queue
-    let slot = state.slot();
-    state.pending_deposits_mut()?.push(PendingDeposit {
-        pubkey: deposit_request.pubkey,
-        withdrawal_credentials: deposit_request.withdrawal_credentials,
-        amount: deposit_request.amount,
-        signature: deposit_request.signature.clone(),
-        slot,
-    })?;
+    let sig_now = Instant::now();
+    let batch_len = builder_signature_deposits.len();
+    // Step 2: Batch verify all builder signatures that need to be verified
+    let builder_signature_results =
+        is_valid_deposit_signature_batch(builder_signature_deposits, spec);
 
+    tracing::debug!(
+        count = batch_len,
+        time = sig_now.elapsed().as_millis(),
+        "Completed processing deposit signatures"
+    );
+
+    // TODO(pawan): potentially use a hashmap for clarity.
+    let mut builder_signature_results_by_request =
+        vec![VerifyBuilderSignature::Verify; deposit_requests.len()];
+    for (request_index, is_valid) in builder_signature_request_indices
+        .into_iter()
+        .zip(builder_signature_results)
+    {
+        builder_signature_results_by_request[request_index] = if is_valid {
+            VerifyBuilderSignature::VerifiedValid
+        } else {
+            VerifyBuilderSignature::VerifiedInvalid
+        }
+    }
+
+    // Step 3: Second pass over the requests that is equivalent to the spec function only
+    // with the signature verification cached.
+    for (request_index, deposit_request) in deposit_requests.iter().enumerate() {
+        let builder_index = get_builder_index(state, &deposit_request.pubkey)?;
+        let is_builder = builder_index.is_some();
+
+        let is_validator = state
+            .get_validator_index(&deposit_request.pubkey)?
+            .is_some();
+        let has_builder_prefix =
+            is_builder_withdrawal_credential(deposit_request.withdrawal_credentials, spec);
+
+        if is_builder
+            || (has_builder_prefix
+                && !is_validator
+                && !is_pending_validator(state, &deposit_request.pubkey, spec)?)
+        {
+            apply_deposit_for_builder(
+                state,
+                builder_index,
+                deposit_request.pubkey,
+                deposit_request.withdrawal_credentials,
+                deposit_request.amount,
+                deposit_request.signature.clone(),
+                state.slot(),
+                builder_signature_results_by_request
+                    .get(request_index)
+                    .copied()
+                    .unwrap_or(VerifyBuilderSignature::Verify),
+                spec,
+            )?;
+            continue;
+        }
+
+        let slot = state.slot();
+        state.pending_deposits_mut()?.push(PendingDeposit {
+            pubkey: deposit_request.pubkey,
+            withdrawal_credentials: deposit_request.withdrawal_credentials,
+            amount: deposit_request.amount,
+            signature: deposit_request.signature.clone(),
+            slot,
+        })?;
+    }
+
+    tracing::debug!(
+        count = deposit_requests.len(),
+        time = now.elapsed().as_millis(),
+        "Completed processing deposits"
+    );
     Ok(())
 }
 
@@ -1002,6 +1076,7 @@ pub fn apply_deposit_for_builder<E: EthSpec>(
     amount: u64,
     signature: SignatureBytes,
     slot: Slot,
+    verify_signature: VerifyBuilderSignature,
     spec: &ChainSpec,
 ) -> Result<(), BeaconStateError> {
     match builder_index_opt {
@@ -1013,14 +1088,28 @@ pub fn apply_deposit_for_builder<E: EthSpec>(
                 amount,
                 signature,
             };
-            if is_valid_deposit_signature(&deposit_data, spec).is_ok() {
-                state.add_builder_to_registry(
-                    pubkey,
-                    withdrawal_credentials,
-                    amount,
-                    slot,
-                    spec,
-                )?;
+            match verify_signature {
+                VerifyBuilderSignature::Verify => {
+                    if is_valid_deposit_signature(&deposit_data, spec).is_ok() {
+                        state.add_builder_to_registry(
+                            pubkey,
+                            withdrawal_credentials,
+                            amount,
+                            slot,
+                            spec,
+                        )?;
+                    }
+                }
+                VerifyBuilderSignature::VerifiedValid => {
+                    state.add_builder_to_registry(
+                        pubkey,
+                        withdrawal_credentials,
+                        amount,
+                        slot,
+                        spec,
+                    )?;
+                }
+                VerifyBuilderSignature::VerifiedInvalid => {}
             }
         }
         Some(builder_index) => {

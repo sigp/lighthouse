@@ -208,6 +208,7 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
                 deposit.amount,
                 deposit.signature.clone(),
                 deposit.slot,
+                crate::per_block_processing::process_operations::VerifyBuilderSignature::Verify,
                 spec,
             )?;
             continue;

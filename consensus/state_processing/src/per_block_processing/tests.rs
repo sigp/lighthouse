@@ -35,11 +35,25 @@ async fn get_harness<E: EthSpec>(
     epoch_offset: u64,
     num_validators: usize,
 ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
+    get_harness_at_fork::<E>(epoch_offset, num_validators, ForkName::Electra).await
+}
+
+async fn get_gloas_harness<E: EthSpec>(
+    epoch_offset: u64,
+    num_validators: usize,
+) -> BeaconChainHarness<EphemeralHarnessType<E>> {
+    get_harness_at_fork::<E>(epoch_offset, num_validators, ForkName::Gloas).await
+}
+
+async fn get_harness_at_fork<E: EthSpec>(
+    epoch_offset: u64,
+    num_validators: usize,
+    fork_name: ForkName,
+) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     // Set the state and block to be in the last slot of the `epoch_offset`th epoch.
     let last_slot_of_epoch =
         (MainnetEthSpec::genesis_epoch() + epoch_offset).end_slot(E::slots_per_epoch());
-    // Use Electra spec to ensure blocks are created at the same fork as the state
-    let spec = Arc::new(ForkName::Electra.make_genesis_spec(E::default_spec()));
+    let spec = Arc::new(fork_name.make_genesis_spec(E::default_spec()));
     let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
         .spec(spec.clone())
         .keypairs(KEYPAIRS[0..num_validators].to_vec())
@@ -60,6 +74,47 @@ async fn get_harness<E: EthSpec>(
             .await;
     }
     harness
+}
+
+fn builder_withdrawal_credentials(spec: &ChainSpec) -> Hash256 {
+    let mut credentials = [0u8; 32];
+    credentials[0] = spec.builder_withdrawal_prefix_byte;
+    Hash256::from_slice(&credentials)
+}
+
+fn make_deposit_request(
+    keypair: &Keypair,
+    withdrawal_credentials: Hash256,
+    amount: u64,
+    spec: &ChainSpec,
+    index: u64,
+) -> DepositRequest {
+    let mut deposit_data = DepositData {
+        pubkey: keypair.pk.compress(),
+        withdrawal_credentials,
+        amount,
+        signature: SignatureBytes::empty(),
+    };
+    deposit_data.signature = deposit_data.create_signature(&keypair.sk, spec);
+
+    DepositRequest {
+        pubkey: deposit_data.pubkey,
+        withdrawal_credentials: deposit_data.withdrawal_credentials,
+        amount: deposit_data.amount,
+        signature: deposit_data.signature,
+        index,
+    }
+}
+
+fn find_builder_index<E: EthSpec>(
+    state: &BeaconState<E>,
+    pubkey: &PublicKeyBytes,
+) -> Option<usize> {
+    state
+        .builders()
+        .unwrap()
+        .iter()
+        .position(|builder| builder.pubkey == *pubkey)
 }
 
 #[tokio::test]
@@ -375,6 +430,335 @@ async fn invalid_deposit_invalid_pub_key() {
 
     // Expecting Ok(()) even though we passed in invalid publickeybytes in the public key field of the deposit data.
     assert_eq!(result, Ok(()));
+}
+
+#[tokio::test]
+async fn deposit_signature_batch_returns_true_for_valid_and_false_for_invalid() {
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
+    let spec = harness.spec.clone();
+    let mut state = harness.get_current_state();
+
+    let (mut deposits, _) = harness.make_deposits(&mut state, 10, None, None);
+    deposits[1].data.signature = SignatureBytes::empty();
+    deposits[8].data.pubkey = PublicKeyBytes::empty();
+
+    let result = per_block_processing::is_valid_deposit_signature_batch(
+        deposits.into_iter().map(|deposit| deposit.data).collect(),
+        &spec,
+    );
+
+    assert_eq!(result.len(), 10);
+    assert_eq!(result[1], false);
+    assert_eq!(result[8], false);
+    assert!(
+        result
+            .iter()
+            .enumerate()
+            .all(|(index, is_valid)| matches!(index, 1 | 8) || *is_valid)
+    );
+}
+
+#[tokio::test]
+async fn deposit_signature_batch_returns_true_for_all_valid_signatures() {
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
+    let spec = harness.spec.clone();
+    let mut state = harness.get_current_state();
+
+    let (deposits, _) = harness.make_deposits(&mut state, 10, None, None);
+
+    let result = per_block_processing::is_valid_deposit_signature_batch(
+        deposits.into_iter().map(|deposit| deposit.data).collect(),
+        &spec,
+    );
+
+    assert_eq!(result, vec![true; 10]);
+}
+
+#[tokio::test]
+async fn deposit_signature_batch_falls_back_to_individual_verification() {
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
+    let spec = harness.spec.clone();
+    let mut state = harness.get_current_state();
+
+    let (mut deposits, _) = harness.make_deposits(&mut state, 10, None, None);
+    let wrong_signature = deposits[4].data.signature.clone();
+    deposits[3].data.signature = wrong_signature;
+
+    let result = per_block_processing::is_valid_deposit_signature_batch(
+        deposits.into_iter().map(|deposit| deposit.data).collect(),
+        &spec,
+    );
+
+    assert_eq!(result.len(), 10);
+    assert_eq!(result[3], false);
+    assert!(
+        result
+            .iter()
+            .enumerate()
+            .all(|(index, is_valid)| index == 3 || *is_valid)
+    );
+}
+
+#[tokio::test]
+async fn process_deposit_requests_post_gloas_batches_new_builder_signature_verification() {
+    let harness = get_gloas_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
+    let spec = harness.spec.clone();
+    let mut state = harness.get_current_state();
+
+    let existing_builder_keypair = &KEYPAIRS[VALIDATOR_COUNT];
+    let existing_builder_credentials = builder_withdrawal_credentials(&spec);
+    let existing_builder_amount = 11;
+    let slot = state.slot();
+    state
+        .add_builder_to_registry(
+            existing_builder_keypair.pk.compress(),
+            existing_builder_credentials,
+            existing_builder_amount,
+            slot,
+            &spec,
+        )
+        .unwrap();
+
+    let valid_builder_request = make_deposit_request(
+        &KEYPAIRS[VALIDATOR_COUNT + 1],
+        builder_withdrawal_credentials(&spec),
+        13,
+        &spec,
+        0,
+    );
+
+    let mut invalid_builder_request = make_deposit_request(
+        &KEYPAIRS[VALIDATOR_COUNT + 2],
+        builder_withdrawal_credentials(&spec),
+        17,
+        &spec,
+        1,
+    );
+    invalid_builder_request.signature = SignatureBytes::empty();
+
+    let mut existing_builder_top_up = make_deposit_request(
+        existing_builder_keypair,
+        existing_builder_credentials,
+        19,
+        &spec,
+        2,
+    );
+    existing_builder_top_up.signature = SignatureBytes::empty();
+
+    let mut pending_validator_request =
+        make_deposit_request(&KEYPAIRS[VALIDATOR_COUNT + 3], Hash256::ZERO, 23, &spec, 3);
+    pending_validator_request.signature = SignatureBytes::empty();
+
+    process_operations::process_deposit_requests_post_gloas(
+        &mut state,
+        &[
+            valid_builder_request.clone(),
+            invalid_builder_request.clone(),
+            existing_builder_top_up.clone(),
+            pending_validator_request.clone(),
+        ],
+        &spec,
+    )
+    .unwrap();
+
+    let valid_builder_index = find_builder_index(&state, &valid_builder_request.pubkey);
+    assert!(valid_builder_index.is_some());
+
+    let invalid_builder_index = find_builder_index(&state, &invalid_builder_request.pubkey);
+    assert!(invalid_builder_index.is_none());
+
+    let existing_builder_index = find_builder_index(&state, &existing_builder_top_up.pubkey)
+        .unwrap();
+    let existing_builder = state
+        .builders()
+        .unwrap()
+        .get(existing_builder_index)
+        .unwrap();
+    assert_eq!(
+        existing_builder.balance,
+        existing_builder_amount + existing_builder_top_up.amount
+    );
+
+    let pending_deposits = state.pending_deposits().unwrap();
+    assert_eq!(pending_deposits.len(), 1);
+    assert_eq!(
+        pending_deposits.get(0).unwrap().pubkey,
+        pending_validator_request.pubkey
+    );
+    assert_eq!(
+        pending_deposits.get(0).unwrap().amount,
+        pending_validator_request.amount
+    );
+}
+
+#[tokio::test]
+async fn process_deposit_requests_post_gloas_preserves_existing_builder_path() {
+    let harness = get_gloas_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
+    let spec = harness.spec.clone();
+    let mut state = harness.get_current_state();
+
+    let pubkey = KEYPAIRS[VALIDATOR_COUNT + 4].pk.compress();
+    let withdrawal_credentials = builder_withdrawal_credentials(&spec);
+
+    let first_request = make_deposit_request(
+        &KEYPAIRS[VALIDATOR_COUNT + 4],
+        withdrawal_credentials,
+        29,
+        &spec,
+        0,
+    );
+    let mut second_request = make_deposit_request(
+        &KEYPAIRS[VALIDATOR_COUNT + 4],
+        withdrawal_credentials,
+        31,
+        &spec,
+        1,
+    );
+    second_request.signature = SignatureBytes::empty();
+
+    process_operations::process_deposit_requests_post_gloas(
+        &mut state,
+        &[first_request.clone(), second_request.clone()],
+        &spec,
+    )
+    .unwrap();
+
+    let builder_index = find_builder_index(&state, &pubkey).unwrap();
+    let builder = state.builders().unwrap().get(builder_index).unwrap();
+    assert_eq!(
+        builder.balance,
+        first_request.amount + second_request.amount
+    );
+}
+
+#[tokio::test]
+async fn process_deposit_requests_post_gloas_preserves_pending_validator_path() {
+    let harness = get_gloas_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
+    let spec = harness.spec.clone();
+    let mut state = harness.get_current_state();
+
+    let pending_validator_request =
+        make_deposit_request(&KEYPAIRS[VALIDATOR_COUNT + 5], Hash256::ZERO, 37, &spec, 0);
+    let builder_prefixed_request = make_deposit_request(
+        &KEYPAIRS[VALIDATOR_COUNT + 5],
+        builder_withdrawal_credentials(&spec),
+        41,
+        &spec,
+        1,
+    );
+
+    process_operations::process_deposit_requests_post_gloas(
+        &mut state,
+        &[
+            pending_validator_request.clone(),
+            builder_prefixed_request.clone(),
+        ],
+        &spec,
+    )
+    .unwrap();
+
+    assert!(find_builder_index(&state, &pending_validator_request.pubkey).is_none());
+
+    let pending_deposits = state.pending_deposits().unwrap();
+    assert_eq!(pending_deposits.len(), 2);
+    assert_eq!(
+        pending_deposits.get(0).unwrap().pubkey,
+        pending_validator_request.pubkey
+    );
+    assert_eq!(
+        pending_deposits.get(1).unwrap().pubkey,
+        builder_prefixed_request.pubkey
+    );
+}
+
+#[tokio::test]
+async fn process_deposit_requests_post_gloas_preserves_existing_builder_before_validator_path() {
+    let harness = get_gloas_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
+    let spec = harness.spec.clone();
+    let mut state = harness.get_current_state();
+
+    let builder_prefixed_request = make_deposit_request(
+        &KEYPAIRS[VALIDATOR_COUNT + 6],
+        builder_withdrawal_credentials(&spec),
+        43,
+        &spec,
+        0,
+    );
+    let validator_prefixed_request = make_deposit_request(
+        &KEYPAIRS[VALIDATOR_COUNT + 6],
+        Hash256::ZERO,
+        47,
+        &spec,
+        1,
+    );
+
+    process_operations::process_deposit_requests_post_gloas(
+        &mut state,
+        &[
+            builder_prefixed_request.clone(),
+            validator_prefixed_request.clone(),
+        ],
+        &spec,
+    )
+    .unwrap();
+
+    let builder_index = find_builder_index(&state, &builder_prefixed_request.pubkey).unwrap();
+    let builder = state.builders().unwrap().get(builder_index).unwrap();
+    assert_eq!(
+        builder.balance,
+        builder_prefixed_request.amount + validator_prefixed_request.amount
+    );
+    assert!(state.pending_deposits().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn process_deposit_requests_post_gloas_preserves_pre_state_pending_validator_path() {
+    let harness = get_gloas_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
+    let spec = harness.spec.clone();
+    let mut state = harness.get_current_state();
+
+    let pending_validator_request =
+        make_deposit_request(&KEYPAIRS[VALIDATOR_COUNT + 7], Hash256::ZERO, 53, &spec, 0);
+    let slot = state.slot();
+    state
+        .pending_deposits_mut()
+        .unwrap()
+        .push(PendingDeposit {
+            pubkey: pending_validator_request.pubkey,
+            withdrawal_credentials: pending_validator_request.withdrawal_credentials,
+            amount: pending_validator_request.amount,
+            signature: pending_validator_request.signature.clone(),
+            slot,
+        })
+        .unwrap();
+
+    let builder_prefixed_request = make_deposit_request(
+        &KEYPAIRS[VALIDATOR_COUNT + 7],
+        builder_withdrawal_credentials(&spec),
+        59,
+        &spec,
+        1,
+    );
+
+    process_operations::process_deposit_requests_post_gloas(
+        &mut state,
+        &[builder_prefixed_request.clone()],
+        &spec,
+    )
+    .unwrap();
+
+    assert!(find_builder_index(&state, &builder_prefixed_request.pubkey).is_none());
+
+    let pending_deposits = state.pending_deposits().unwrap();
+    assert_eq!(pending_deposits.len(), 2);
+    assert_eq!(
+        pending_deposits.get(0).unwrap().pubkey,
+        pending_validator_request.pubkey
+    );
+    assert_eq!(
+        pending_deposits.get(1).unwrap().pubkey,
+        builder_prefixed_request.pubkey
+    );
 }
 
 #[tokio::test]
