@@ -236,6 +236,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Everything in this initial section is on the hot path for processing the envelope.
         // Take an upgradable read lock on fork choice so we can check if this block has already
         // been imported. We don't want to repeat work importing a block that is already imported.
+        let fork_choice_span =
+            info_span!("payload_envelope_import_fork_choice_update", ?block_root).entered();
         let fork_choice_reader = self.canonical_head.fork_choice_upgradable_read_lock();
         if !fork_choice_reader.contains_block(&block_root) {
             return Err(EnvelopeError::BlockRootUnknown { block_root });
@@ -306,6 +308,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // The fork choice write-lock is dropped *after* the on-disk database has been updated.
         // This prevents inconsistency between the two at the expense of concurrency.
         drop(fork_choice);
+        drop(fork_choice_span);
 
         // We're declaring the envelope "imported" at this point, since fork choice and the DB know
         // about it.

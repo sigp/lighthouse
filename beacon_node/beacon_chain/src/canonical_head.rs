@@ -58,7 +58,7 @@ use store::{
     Error as StoreError, KeyValueStore, KeyValueStoreOp, StoreConfig, iter::StateRootsIterator,
 };
 use task_executor::{JoinHandle, ShutdownReason};
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, info_span, instrument, warn};
 use types::*;
 
 /// Simple wrapper around `RwLock` that uses private visibility to prevent any other modules from
@@ -629,6 +629,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
         let old_payload_status = old_cached_head.head_payload_status();
 
+        let fork_choice_span =
+            info_span!("recompute_head_fork_choice_update", %current_slot).entered();
         let mut fork_choice_write_lock = self.canonical_head.fork_choice_write_lock();
 
         // Recompute the current head via the fork choice algorithm.
@@ -637,6 +639,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Downgrade the fork choice write-lock to a read lock, without allowing access to any
         // other writers.
         let fork_choice_read_lock = RwLockWriteGuard::downgrade(fork_choice_write_lock);
+        drop(fork_choice_span);
 
         // Read the current head value from the fork choice algorithm.
         let new_view = fork_choice_read_lock.cached_fork_choice_view();
@@ -1059,6 +1062,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Take a write-lock on the canonical head and signal for it to prune.
+        let _fork_choice_span = info_span!("finalization_fork_choice_prune").entered();
         self.canonical_head.fork_choice_write_lock().prune()?;
 
         Ok(())
