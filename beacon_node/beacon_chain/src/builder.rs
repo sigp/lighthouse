@@ -4,6 +4,7 @@ use crate::beacon_chain::{
     BEACON_CHAIN_DB_KEY, CanonicalHead, LightClientProducerEvent, OP_POOL_DB_KEY,
 };
 use crate::beacon_proposer_cache::BeaconProposerCache;
+use crate::builder_deposits_cache::OnboardBuildersCache;
 use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
@@ -1084,6 +1085,7 @@ where
             rng: Arc::new(Mutex::new(rng)),
             gossip_verified_payload_bid_cache: <_>::default(),
             gossip_verified_proposer_preferences_cache: <_>::default(),
+            builder_onboarding_cache: OnboardBuildersCache::new(&self.spec).map(Arc::new),
         };
 
         let head = beacon_chain.head_snapshot();
@@ -1153,6 +1155,16 @@ where
             beacon_chain
                 .store_migrator
                 .process_prune_blobs(data_availability_boundary);
+        }
+
+        // Seed the builder onboarding cache in the background from the current head state.
+        if let Some(onboarding_cache) = &beacon_chain.builder_onboarding_cache {
+            let cache = onboarding_cache.clone();
+            let spec = self.spec.clone();
+            beacon_chain.task_executor.spawn_blocking(
+                move || cache.seed_from_state(&head.beacon_state, &spec),
+                "initialize_builder_onboarding_cache",
+            );
         }
 
         Ok(beacon_chain)

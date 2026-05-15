@@ -15,6 +15,7 @@ use crate::block_verification::{
 use crate::block_verification_types::{
     AsBlock, AvailableExecutedBlock, BlockImportData, ExecutedBlock, RangeSyncBlock,
 };
+use crate::builder_deposits_cache::OnboardBuildersCache;
 pub use crate::canonical_head::CanonicalHead;
 use crate::chain_config::ChainConfig;
 use crate::custody_context::CustodyContextSsz;
@@ -511,6 +512,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// The KZG trusted setup used by this chain.
     pub kzg: Arc<Kzg>,
     /// RNG instance used by the chain. Currently used for shuffling column sidecars in block publishing.
+    pub builder_onboarding_cache: Option<Arc<OnboardBuildersCache>>,
     pub rng: Arc<Mutex<Box<dyn RngCore + Send>>>,
 }
 
@@ -4535,6 +4537,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             payload_verification_status,
             current_slot,
         );
+
+        if let Some(builder_onboarding_cache) = &self.builder_onboarding_cache {
+            let cache = builder_onboarding_cache.clone();
+            let spec = self.spec.clone();
+            self.task_executor.spawn_blocking(
+                move || cache.add_new_pending_deposits::<T::EthSpec>(&state, &spec),
+                "pre_verify_deposits",
+            );
+        }
 
         Ok(block_root)
     }
