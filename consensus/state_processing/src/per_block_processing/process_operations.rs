@@ -13,6 +13,7 @@ use crate::per_block_processing::errors::{BlockProcessingError, ExitInvalid, Int
 use crate::per_block_processing::signature_sets::{exit_signature_set, get_pubkey_from_state};
 use crate::per_block_processing::verify_payload_attestation::verify_payload_attestation;
 use bls::{PublicKeyBytes, SignatureBytes};
+use milhouse::List;
 use ssz_types::FixedVector;
 use typenum::U33;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
@@ -907,12 +908,12 @@ pub fn process_deposit_requests_pre_gloas<E: EthSpec>(
 // TODO(gloas): cache the deposit signature validation or remove this loop entirely if possible,
 // it is `O(n * m)` where `n` is max 8192 and `m` is max 128M.
 #[instrument(name = "is_pending_validator", skip_all, level = "debug")]
-fn is_pending_validator<E: EthSpec>(
-    state: &BeaconState<E>,
+pub fn is_pending_validator<E: EthSpec>(
+    deposits: &List<PendingDeposit, E::PendingDepositsLimit>,
     pubkey: &PublicKeyBytes,
     spec: &ChainSpec,
-) -> Result<bool, BlockProcessingError> {
-    for deposit in state.pending_deposits()?.iter() {
+) -> bool {
+    for deposit in deposits.iter() {
         if deposit.pubkey == *pubkey {
             let deposit_data = DepositData {
                 pubkey: deposit.pubkey,
@@ -921,11 +922,11 @@ fn is_pending_validator<E: EthSpec>(
                 signature: deposit.signature.clone(),
             };
             if is_valid_deposit_signature(&deposit_data, spec).is_ok() {
-                return Ok(true);
+                return true;
             }
         }
     }
-    Ok(false)
+    false
 }
 
 #[derive(Copy, Clone)]
@@ -1030,7 +1031,11 @@ pub fn process_deposit_requests_post_gloas<E: EthSpec>(
         if is_builder
             || (has_builder_prefix
                 && !is_validator
-                && !is_pending_validator(state, &deposit_request.pubkey, spec)?)
+                && !is_pending_validator::<E>(
+                    state.pending_deposits()?,
+                    &deposit_request.pubkey,
+                    spec,
+                ))
         {
             apply_deposit_for_builder(
                 state,
