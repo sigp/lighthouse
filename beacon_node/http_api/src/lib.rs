@@ -2436,9 +2436,21 @@ pub fn serve<T: BeaconChainTypes>(
                         if let Some(&dir) = peer_info.connection_direction() {
                             let agent_version = peer_info.client().agent_string.clone();
                             let score = Some(peer_info.score().score());
-                            let disconnect_reason = peer_info.last_disconnect().and_then(|d| {
-                                map_disconnect_reason(d.reason).map(|s| s.to_string())
-                            });
+                            let state: api_types::PeerState =
+                                peer_info.connection_status().clone().into();
+                            // Per beacon-API spec, `disconnect_reason` MUST only be populated
+                            // when `state` is `disconnected` or `disconnecting`.
+                            let disconnect_reason = if matches!(
+                                state,
+                                api_types::PeerState::Disconnected
+                                    | api_types::PeerState::Disconnecting
+                            ) {
+                                peer_info.last_disconnect().and_then(|d| {
+                                    map_disconnect_reason(d.reason).map(|s| s.to_string())
+                                })
+                            } else {
+                                None
+                            };
                             let downscore_reasons = peer_info
                                 .last_action()
                                 .map(|a| vec![map_downscore_reason(a.reason).to_string()]);
@@ -2447,7 +2459,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 enr: peer_info.enr().map(|enr| enr.to_base64()),
                                 last_seen_p2p_address: address,
                                 direction: dir.into(),
-                                state: peer_info.connection_status().clone().into(),
+                                state,
                                 agent_version,
                                 score,
                                 disconnect_reason,
@@ -2509,10 +2521,19 @@ pub fn serve<T: BeaconChainTypes>(
                                 if state_matches && direction_matches {
                                     let agent_version = peer_info.client().agent_string.clone();
                                     let score = Some(peer_info.score().score());
-                                    let disconnect_reason =
+                                    // Per beacon-API spec, `disconnect_reason` MUST only be
+                                    // populated when `state` is `disconnected` or `disconnecting`.
+                                    let disconnect_reason = if matches!(
+                                        state,
+                                        api_types::PeerState::Disconnected
+                                            | api_types::PeerState::Disconnecting
+                                    ) {
                                         peer_info.last_disconnect().and_then(|d| {
                                             map_disconnect_reason(d.reason).map(|s| s.to_string())
-                                        });
+                                        })
+                                    } else {
+                                        None
+                                    };
                                     let downscore_reasons = peer_info
                                         .last_action()
                                         .map(|a| vec![map_downscore_reason(a.reason).to_string()]);
