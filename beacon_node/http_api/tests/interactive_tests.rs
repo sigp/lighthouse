@@ -182,6 +182,7 @@ pub struct ReOrgTest {
     /// Number of slots between head block and block proposal slot.
     head_distance: u64,
     re_org_threshold: u64,
+    re_org_parent_threshold: u64,
     max_epochs_since_finalization: u64,
     percent_parent_votes: usize,
     percent_empty_votes: usize,
@@ -202,6 +203,7 @@ impl Default for ReOrgTest {
             parent_distance: 1,
             head_distance: 1,
             re_org_threshold: 20,
+            re_org_parent_threshold: 160,
             max_epochs_since_finalization: 2,
             percent_parent_votes: 100,
             percent_empty_votes: 100,
@@ -375,6 +377,64 @@ pub async fn proposer_boost_re_org_weight_misprediction() {
     .await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_custom_head_threshold_permits() {
+    proposer_boost_re_org_test(ReOrgTest {
+        re_org_threshold: 40,
+        percent_empty_votes: 70,
+        percent_head_votes: 30,
+        should_re_org: true,
+        ..Default::default()
+    })
+    .await;
+}
+
+/// A zero head threshold means the head can never be considered weak, so the strict check at
+/// proposal time rejects the re-org despite the prepare-time override. This is a misprediction.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_custom_head_threshold_blocks() {
+    proposer_boost_re_org_test(ReOrgTest {
+        re_org_threshold: 0,
+        should_re_org: false,
+        misprediction: true,
+        ..Default::default()
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_custom_parent_threshold_blocks() {
+    proposer_boost_re_org_test(ReOrgTest {
+        re_org_parent_threshold: 250,
+        should_re_org: false,
+        misprediction: true,
+        ..Default::default()
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_custom_parent_threshold_permits() {
+    proposer_boost_re_org_test(ReOrgTest {
+        re_org_parent_threshold: 100,
+        percent_empty_votes: 50,
+        should_re_org: true,
+        ..Default::default()
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_custom_max_epochs_since_finalization_blocks() {
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(129),
+        max_epochs_since_finalization: 1,
+        should_re_org: false,
+        ..Default::default()
+    })
+    .await;
+}
+
 /// Run a proposer boost re-org test.
 ///
 /// - `head_slot`: the slot of the canonical head to be reorged
@@ -389,6 +449,7 @@ pub async fn proposer_boost_re_org_test(
         parent_distance,
         head_distance,
         re_org_threshold,
+        re_org_parent_threshold,
         max_epochs_since_finalization,
         percent_parent_votes,
         percent_empty_votes,
@@ -429,6 +490,7 @@ pub async fn proposer_boost_re_org_test(
         Some(Box::new(move |builder| {
             builder
                 .proposer_re_org_head_threshold(Some(ReOrgThreshold(re_org_threshold)))
+                .proposer_re_org_parent_threshold(Some(ReOrgThreshold(re_org_parent_threshold)))
                 .proposer_re_org_max_epochs_since_finalization(Epoch::new(
                     max_epochs_since_finalization,
                 ))
