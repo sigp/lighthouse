@@ -160,6 +160,7 @@ where
                         BlockSignatureStrategy::NoVerification,
                         VerifyBlockRoot::True,
                         &mut ctxt,
+                        None,
                         &self.spec,
                     )
                     .map_err(HotColdDBError::BlockReplayBlockError)?;

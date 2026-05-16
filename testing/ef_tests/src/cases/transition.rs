@@ -133,6 +133,7 @@ impl<E: EthSpec> Case for TransitionTest<E> {
                     BlockSignatureStrategy::VerifyBulk,
                     VerifyBlockRoot::True,
                     &mut ctxt,
+                    None,
                     spec,
                 )
                 .map_err(|e| format!("Block processing failed: {:?}", e))?;

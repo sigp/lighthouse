@@ -135,6 +135,7 @@ async fn valid_block_ok() {
         BlockSignatureStrategy::VerifyIndividual,
         VerifyBlockRoot::True,
         &mut ctxt,
+        None,
         &spec,
     );
 
@@ -160,6 +161,7 @@ async fn invalid_block_header_state_slot() {
         BlockSignatureStrategy::VerifyIndividual,
         VerifyBlockRoot::True,
         &mut ctxt,
+        None,
         &spec,
     );
 
@@ -192,6 +194,7 @@ async fn invalid_parent_block_root() {
         BlockSignatureStrategy::VerifyIndividual,
         VerifyBlockRoot::True,
         &mut ctxt,
+        None,
         &spec,
     );
 
@@ -222,6 +225,7 @@ async fn invalid_block_signature() {
         BlockSignatureStrategy::VerifyIndividual,
         VerifyBlockRoot::True,
         &mut ctxt,
+        None,
         &spec,
     );
 
@@ -254,6 +258,7 @@ async fn invalid_randao_reveal_signature() {
         BlockSignatureStrategy::VerifyIndividual,
         VerifyBlockRoot::True,
         &mut ctxt,
+        None,
         &spec,
     );
 
@@ -557,6 +562,7 @@ async fn process_deposit_requests_post_gloas_batches_new_builder_signature_verif
             existing_builder_top_up.clone(),
             pending_validator_request.clone(),
         ],
+        None,
         &spec,
     )
     .unwrap();
@@ -619,6 +625,7 @@ async fn process_deposit_requests_post_gloas_preserves_existing_builder_path() {
     process_operations::process_deposit_requests_post_gloas(
         &mut state,
         &[first_request.clone(), second_request.clone()],
+        None,
         &spec,
     )
     .unwrap();
@@ -653,6 +660,7 @@ async fn process_deposit_requests_post_gloas_preserves_pending_validator_path() 
             pending_validator_request.clone(),
             builder_prefixed_request.clone(),
         ],
+        None,
         &spec,
     )
     .unwrap();
@@ -698,6 +706,7 @@ async fn process_deposit_requests_post_gloas_preserves_existing_builder_before_v
             builder_prefixed_request.clone(),
             validator_prefixed_request.clone(),
         ],
+        None,
         &spec,
     )
     .unwrap();
@@ -743,6 +752,7 @@ async fn process_deposit_requests_post_gloas_preserves_pre_state_pending_validat
     process_operations::process_deposit_requests_post_gloas(
         &mut state,
         &[builder_prefixed_request.clone()],
+        None,
         &spec,
     )
     .unwrap();

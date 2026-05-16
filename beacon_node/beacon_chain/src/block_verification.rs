@@ -1611,6 +1611,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             BlockSignatureStrategy::NoVerification,
             VerifyBlockRoot::True,
             &mut consensus_context,
+            chain.builder_onboarding_cache.as_deref(),
             &chain.spec,
         ) {
             match err {

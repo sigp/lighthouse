@@ -4,8 +4,8 @@ use parking_lot::Mutex;
 use tracing::debug;
 use tree_hash::{Hash256, TreeHash};
 use types::{
-    BeaconState, ChainSpec, DepositData, EthSpec, PendingDeposit, is_builder_withdrawal_credential,
-    new_non_zero_usize,
+    BeaconState, ChainSpec, DepositData, DepositRequest, EthSpec, PendingDeposit,
+    is_builder_withdrawal_credential, new_non_zero_usize,
 };
 
 use std::num::NonZeroUsize;
@@ -115,6 +115,51 @@ impl OnboardBuildersCache {
         }
     }
 
+    /// Pre-verifies builder deposit signatures from execution payload deposit requests
+    /// and caches the results for later use during `process_deposit_requests_post_gloas`.
+    pub fn cache_deposit_requests(&self, deposit_requests: &[DepositRequest], spec: &ChainSpec) {
+        let mut builder_deposits = Vec::new();
+        let mut builder_deposit_keys = Vec::new();
+
+        {
+            let mut cache = self.cache.lock();
+            for request in deposit_requests {
+                if !is_builder_withdrawal_credential(request.withdrawal_credentials, spec) {
+                    continue;
+                }
+
+                let deposit_data = DepositData {
+                    amount: request.amount,
+                    pubkey: request.pubkey,
+                    signature: request.signature.clone(),
+                    withdrawal_credentials: request.withdrawal_credentials,
+                };
+                let key = deposit_data.tree_hash_root();
+                if cache.get(&key).is_some() {
+                    continue;
+                }
+
+                builder_deposit_keys.push(key);
+                builder_deposits.push(deposit_data);
+            }
+        }
+
+        if builder_deposits.is_empty() {
+            return;
+        }
+
+        debug!(
+            builder_deposits_count = builder_deposits.len(),
+            "Pre-verifying builder deposit signatures from payload envelope"
+        );
+
+        let verified = is_valid_deposit_signature_batch(builder_deposits, spec);
+        let mut cache = self.cache.lock();
+        for (key, value) in builder_deposit_keys.into_iter().zip(verified.into_iter()) {
+            cache.push(key, value);
+        }
+    }
+
     /// Returns `Some(true)` if the deposit exists in the cache and has a valid signature.
     /// Returns `Some(false)` if the deposit exists and failed signature verification.
     /// Returns `None` if the deposit doesn't exist in the cache.
@@ -125,6 +170,11 @@ impl OnboardBuildersCache {
             signature: deposit.signature.clone(),
             withdrawal_credentials: deposit.withdrawal_credentials,
         };
+        self.get(&deposit_data)
+    }
+
+    /// Looks up a `DepositData` in the cache by its tree hash root.
+    pub fn get(&self, deposit_data: &DepositData) -> Option<bool> {
         let key = deposit_data.tree_hash_root();
         self.cache.lock().get(&key).copied()
     }

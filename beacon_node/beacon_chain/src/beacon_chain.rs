@@ -5204,6 +5204,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             apply_parent_execution_payload(
                 &mut advanced_state,
                 &envelope.message.execution_requests,
+                self.builder_onboarding_cache.as_deref(),
                 &self.spec,
             )
             .map_err(Error::PrepareProposerFailed)?;
@@ -6207,6 +6208,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             signature_strategy,
             VerifyBlockRoot::True,
             &mut ctxt,
+            self.builder_onboarding_cache.as_deref(),
             &self.spec,
         )?;
         drop(process_timer);

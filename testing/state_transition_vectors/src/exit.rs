@@ -71,6 +71,7 @@ impl ExitTest {
             BlockSignatureStrategy::VerifyIndividual,
             VerifyBlockRoot::True,
             &mut ctxt,
+            None,
             &test_spec::<E>(),
         )
     }

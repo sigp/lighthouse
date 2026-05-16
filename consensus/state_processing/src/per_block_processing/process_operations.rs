@@ -2,6 +2,7 @@ use std::time::Instant;
 
 use super::*;
 use crate::VerifySignatures;
+use crate::builder_deposits_cache::OnboardBuildersCache;
 use crate::common::{
     get_attestation_participation_flag_indices, increase_balance, initiate_validator_exit,
     slash_validator,
@@ -969,6 +970,7 @@ fn get_builder_index<E: EthSpec>(
 pub fn process_deposit_requests_post_gloas<E: EthSpec>(
     state: &mut BeaconState<E>,
     deposit_requests: &[DepositRequest],
+    onboarding_cache: Option<&OnboardBuildersCache>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let now = Instant::now();
@@ -1000,31 +1002,48 @@ pub fn process_deposit_requests_post_gloas<E: EthSpec>(
         }
     }
 
+    // Step 2: Check cache for already-verified signatures, batch verify the rest.
     let sig_now = Instant::now();
-    let batch_len = builder_signature_deposits.len();
-    // Step 2: Batch verify all builder signatures that need to be verified
-    let builder_signature_results =
-        is_valid_deposit_signature_batch(builder_signature_deposits, spec);
-
-    tracing::debug!(
-        count = batch_len,
-        time = sig_now.elapsed().as_millis(),
-        "Completed processing deposit signatures"
-    );
-
-    // TODO(pawan): potentially use a hashmap for clarity.
     let mut builder_signature_results_by_request =
         vec![VerifyBuilderSignature::Verify; deposit_requests.len()];
-    for (request_index, is_valid) in builder_signature_request_indices
-        .into_iter()
-        .zip(builder_signature_results)
-    {
+
+    let mut uncached_indices = Vec::new();
+    let mut uncached_deposits = Vec::new();
+
+    for (i, deposit_data) in builder_signature_deposits.iter().enumerate() {
+        let cached_result = onboarding_cache.and_then(|c| c.get(deposit_data));
+        if let Some(is_valid) = cached_result {
+            let request_index = builder_signature_request_indices[i];
+            builder_signature_results_by_request[request_index] = if is_valid {
+                VerifyBuilderSignature::VerifiedValid
+            } else {
+                VerifyBuilderSignature::VerifiedInvalid
+            };
+        } else {
+            uncached_indices.push(i);
+            uncached_deposits.push(deposit_data.clone());
+        }
+    }
+
+    let cache_hits = builder_signature_deposits.len() - uncached_deposits.len();
+    let batch_len = uncached_deposits.len();
+    let batch_results = is_valid_deposit_signature_batch(uncached_deposits, spec);
+
+    for (batch_i, is_valid) in uncached_indices.into_iter().zip(batch_results) {
+        let request_index = builder_signature_request_indices[batch_i];
         builder_signature_results_by_request[request_index] = if is_valid {
             VerifyBuilderSignature::VerifiedValid
         } else {
             VerifyBuilderSignature::VerifiedInvalid
-        }
+        };
     }
+
+    tracing::debug!(
+        verified = batch_len,
+        cache_hits,
+        time = sig_now.elapsed().as_millis(),
+        "Completed processing deposit signatures"
+    );
 
     // Step 3: Second pass over the requests that is equivalent to the spec function only
     // with the signature verification cached.

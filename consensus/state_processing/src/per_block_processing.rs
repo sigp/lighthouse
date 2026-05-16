@@ -1,3 +1,4 @@
+use crate::builder_deposits_cache::OnboardBuildersCache;
 use crate::consensus_context::ConsensusContext;
 use errors::{
     BlockOperationError, BlockProcessingError, ExecutionPayloadBidInvalid, HeaderInvalid,
@@ -116,6 +117,7 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
     block_signature_strategy: BlockSignatureStrategy,
     verify_block_root: VerifyBlockRoot,
     ctxt: &mut ConsensusContext<E>,
+    builder_onboarding_cache: Option<&OnboardBuildersCache>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let block = signed_block.message();
@@ -132,7 +134,7 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
 
     // Process deferred execution requests from the parent's envelope.
     if fork_name.gloas_enabled() {
-        process_parent_execution_payload(state, block, spec)?;
+        process_parent_execution_payload(state, block, builder_onboarding_cache, spec)?;
     }
 
     // Build epoch cache if it hasn't already been built, or if it is no longer valid
@@ -549,6 +551,7 @@ pub fn compute_timestamp_at_slot<E: EthSpec>(
 pub fn process_parent_execution_payload<E: EthSpec, Payload: AbstractExecPayload<E>>(
     state: &mut BeaconState<E>,
     block: BeaconBlockRef<'_, E, Payload>,
+    builder_onboarding_cache: Option<&OnboardBuildersCache>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let bid_parent_block_hash = block
@@ -578,7 +581,7 @@ pub fn process_parent_execution_payload<E: EthSpec, Payload: AbstractExecPayload
         }
     );
 
-    apply_parent_execution_payload(state, requests, spec)
+    apply_parent_execution_payload(state, requests, builder_onboarding_cache, spec)
 }
 
 /// Apply the parent execution payload's deferred effects to the state.
@@ -590,6 +593,7 @@ pub fn process_parent_execution_payload<E: EthSpec, Payload: AbstractExecPayload
 pub fn apply_parent_execution_payload<E: EthSpec>(
     state: &mut BeaconState<E>,
     requests: &ExecutionRequests<E>,
+    onboarding_cache: Option<&OnboardBuildersCache>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let parent_bid = state.latest_execution_payload_bid()?.clone();
@@ -597,7 +601,12 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
     let parent_epoch = parent_slot.epoch(E::slots_per_epoch());
 
     // Process execution requests from the parent's payload
-    process_operations::process_deposit_requests_post_gloas(state, &requests.deposits, spec)?;
+    process_operations::process_deposit_requests_post_gloas(
+        state,
+        &requests.deposits,
+        onboarding_cache,
+        spec,
+    )?;
     process_operations::process_withdrawal_requests(state, &requests.withdrawals, spec)?;
     process_operations::process_consolidation_requests(state, &requests.consolidations, spec)?;
 

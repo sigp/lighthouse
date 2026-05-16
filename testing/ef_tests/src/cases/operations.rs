@@ -582,7 +582,7 @@ impl<E: EthSpec> Operation<E> for ParentExecutionPayloadBlock<E> {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_parent_execution_payload(state, self.block.to_ref(), spec)
+        process_parent_execution_payload(state, self.block.to_ref(), None, spec)
     }
 }
 
@@ -716,7 +716,7 @@ impl<E: EthSpec> Operation<E> for DepositRequest {
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         if state.fork_name_unchecked().gloas_enabled() {
-            process_deposit_requests_post_gloas(state, std::slice::from_ref(self), spec)
+            process_deposit_requests_post_gloas(state, std::slice::from_ref(self), None, spec)
         } else {
             process_deposit_requests_pre_gloas(state, std::slice::from_ref(self), spec)
         }

@@ -399,6 +399,7 @@ fn do_transition<E: EthSpec>(
         BlockSignatureStrategy::NoVerification,
         VerifyBlockRoot::True,
         &mut ctxt,
+        None,
         spec,
     )
     .map_err(|e| format!("State transition failed: {:?}", e))?;

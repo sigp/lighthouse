@@ -98,6 +98,7 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
                     BlockSignatureStrategy::VerifyIndividual,
                     VerifyBlockRoot::True,
                     &mut ctxt,
+                    None,
                     spec,
                 )?;
 
@@ -108,6 +109,7 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
                     BlockSignatureStrategy::VerifyBulk,
                     VerifyBlockRoot::True,
                     &mut ctxt,
+                    None,
                     spec,
                 )?;
 

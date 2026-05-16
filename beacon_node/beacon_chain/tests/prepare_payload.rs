@@ -237,6 +237,7 @@ async fn prepare_payload_generic(
     apply_parent_execution_payload(
         &mut unadvanced_full_state,
         &envelope.message.execution_requests,
+        None,
         &spec,
     )
     .unwrap();
@@ -245,6 +246,7 @@ async fn prepare_payload_generic(
     apply_parent_execution_payload(
         &mut advanced_full_state,
         &envelope.message.execution_requests,
+        None,
         &spec,
     )
     .unwrap();

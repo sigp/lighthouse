@@ -68,6 +68,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .into_execution_pending_envelope(&chain, notify_execution_layer)?;
             publish_fn()?;
 
+            // Pre-verify builder deposit signatures while awaiting EL verification.
+            if let Some(ref cache) = chain.builder_onboarding_cache {
+                cache.cache_deposit_requests(
+                    &execution_pending.signed_envelope.message.execution_requests.deposits,
+                    &chain.spec,
+                );
+            }
+
             // Record the time it took to complete consensus verification.
             if let Some(timestamp) = chain.slot_clock.now_duration() {
                 chain

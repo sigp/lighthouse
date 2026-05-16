@@ -2,21 +2,17 @@ use crate::builder_deposits_cache::OnboardBuildersCache;
 use crate::per_block_processing::process_operations::{
     VerifyBuilderSignature, is_pending_validator,
 };
-use crate::per_block_processing::{
-    is_valid_deposit_signature, process_operations::apply_deposit_for_builder,
-};
+use crate::per_block_processing::process_operations::apply_deposit_for_builder;
 use milhouse::{List, Vector};
 use safe_arith::SafeArith;
 use ssz_types::BitVector;
 use ssz_types::FixedVector;
-use std::collections::HashSet;
 use std::mem;
 use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
     BeaconState, BeaconStateError as Error, BeaconStateGloas, BuilderPendingPayment, ChainSpec,
-    DepositData, EthSpec, ExecutionPayloadBid, ExecutionRequests, Fork,
-    is_builder_withdrawal_credential,
+    EthSpec, ExecutionPayloadBid, ExecutionRequests, Fork, is_builder_withdrawal_credential,
 };
 
 /// Transform a `Fulu` state into a `Gloas` state.

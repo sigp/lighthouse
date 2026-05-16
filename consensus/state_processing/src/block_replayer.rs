@@ -260,6 +260,7 @@ where
                 self.block_sig_strategy,
                 verify_block_root,
                 &mut ctxt,
+                None,
                 self.spec,
             )
             .map_err(BlockReplayError::from)?;

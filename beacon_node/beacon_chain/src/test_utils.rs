@@ -1425,6 +1425,7 @@ where
             BlockSignatureStrategy::NoVerification,
             VerifyBlockRoot::False,
             &mut ctxt,
+            None,
             &self.spec,
         )
         .unwrap_or_else(|e| panic!("per_block_processing failed at slot {}: {e:?}", slot));

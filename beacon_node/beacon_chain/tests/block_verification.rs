@@ -1696,7 +1696,7 @@ async fn add_base_block_to_altair_chain() {
     {
         let mut state = state;
         let mut ctxt = ConsensusContext::new(base_block.slot());
-        per_slot_processing(&mut state, None, &harness.chain.spec).unwrap();
+        per_slot_processing(&mut state, None, None, &harness.chain.spec).unwrap();
         assert!(matches!(
             per_block_processing(
                 &mut state,
@@ -1704,6 +1704,7 @@ async fn add_base_block_to_altair_chain() {
                 BlockSignatureStrategy::NoVerification,
                 VerifyBlockRoot::True,
                 &mut ctxt,
+                None,
                 &harness.chain.spec,
             ),
             Err(BlockProcessingError::InconsistentBlockFork(
@@ -1847,7 +1848,7 @@ async fn add_altair_block_to_base_chain() {
     {
         let mut state = state;
         let mut ctxt = ConsensusContext::new(altair_block.slot());
-        per_slot_processing(&mut state, None, &harness.chain.spec).unwrap();
+        per_slot_processing(&mut state, None, None, &harness.chain.spec).unwrap();
         assert!(matches!(
             per_block_processing(
                 &mut state,
@@ -1855,6 +1856,7 @@ async fn add_altair_block_to_base_chain() {
                 BlockSignatureStrategy::NoVerification,
                 VerifyBlockRoot::True,
                 &mut ctxt,
+                None,
                 &harness.chain.spec,
             ),
             Err(BlockProcessingError::InconsistentBlockFork(

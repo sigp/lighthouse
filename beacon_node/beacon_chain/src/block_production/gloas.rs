@@ -619,6 +619,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             signature_strategy,
             VerifyBlockRoot::True,
             &mut ctxt,
+            self.builder_onboarding_cache.as_deref(),
             &self.spec,
         )?;
         drop(process_timer);
@@ -965,6 +966,7 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
             apply_parent_execution_payload(
                 &mut withdrawals_state,
                 &envelope.message.execution_requests,
+                chain.builder_onboarding_cache.as_deref(),
                 spec,
             )?;
             Withdrawals::<T::EthSpec>::from(get_expected_withdrawals(&withdrawals_state, spec)?)
