@@ -4,7 +4,6 @@ use crate::beacon_chain::{
     BEACON_CHAIN_DB_KEY, CanonicalHead, LightClientProducerEvent, OP_POOL_DB_KEY,
 };
 use crate::beacon_proposer_cache::BeaconProposerCache;
-use crate::builder_deposits_cache::OnboardBuildersCache;
 use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
@@ -37,6 +36,7 @@ use rayon::prelude::*;
 use slasher::Slasher;
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::AllCaches;
+use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use state_processing::genesis::genesis_block;
 use state_processing::per_slot_processing;
 use std::marker::PhantomData;
@@ -446,7 +446,7 @@ where
                 "Advancing checkpoint state to boundary"
             );
             while weak_subj_state.slot() % slots_per_epoch != 0 {
-                per_slot_processing(&mut weak_subj_state, None, &self.spec)
+                per_slot_processing(&mut weak_subj_state, None, None, &self.spec)
                     .map_err(|e| format!("Error advancing state: {e:?}"))?;
             }
         }

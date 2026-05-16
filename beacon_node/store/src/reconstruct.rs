@@ -145,7 +145,7 @@ where
                 };
 
                 // Advance state to slot.
-                per_slot_processing(&mut state, prev_state_root.take(), &self.spec)
+                per_slot_processing(&mut state, prev_state_root.take(), None, &self.spec)
                     .map_err(HotColdDBError::BlockReplaySlotError)?;
 
                 // Apply block.

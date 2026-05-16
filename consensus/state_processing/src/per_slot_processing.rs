@@ -1,3 +1,4 @@
+use crate::builder_deposits_cache::OnboardBuildersCache;
 use crate::upgrade::{
     upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb,
     upgrade_to_electra, upgrade_to_fulu, upgrade_to_gloas,
@@ -38,6 +39,7 @@ impl From<ssz::BitfieldError> for Error {
 pub fn per_slot_processing<E: EthSpec>(
     state: &mut BeaconState<E>,
     state_root: Option<Hash256>,
+    builder_onboarding_cache: Option<&OnboardBuildersCache>,
     spec: &ChainSpec,
 ) -> Result<Option<EpochProcessingSummary<E>>, Error> {
     // Verify that the `BeaconState` instantiation matches the fork at `state.slot()`.
@@ -100,7 +102,7 @@ pub fn per_slot_processing<E: EthSpec>(
 
         // Gloas.
         if spec.gloas_fork_epoch == Some(state.current_epoch()) {
-            upgrade_to_gloas(state, spec)?;
+            upgrade_to_gloas(state, builder_onboarding_cache, spec)?;
         }
 
         // Additionally build all caches so that all valid states that are advanced always have

@@ -15,7 +15,6 @@ use crate::block_verification::{
 use crate::block_verification_types::{
     AsBlock, AvailableExecutedBlock, BlockImportData, ExecutedBlock, RangeSyncBlock,
 };
-use crate::builder_deposits_cache::OnboardBuildersCache;
 pub use crate::canonical_head::CanonicalHead;
 use crate::chain_config::ChainConfig;
 use crate::custody_context::CustodyContextSsz;
@@ -122,6 +121,7 @@ use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
     BlockSignatureStrategy, ConsensusContext, SigVerifiedOp, VerifyBlockRoot, VerifyOperation,
+    builder_deposits_cache::OnboardBuildersCache,
     common::get_attesting_indices_from_state,
     epoch_cache::initialize_epoch_cache,
     per_block_processing,
@@ -1515,7 +1515,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 while state.slot() < slot {
                     // Note: supplying some `state_root` when it is known would be a cheap and easy
                     // optimization.
-                    match per_slot_processing(&mut state, skip_state_root, &self.spec) {
+                    match per_slot_processing(
+                        &mut state,
+                        skip_state_root,
+                        self.builder_onboarding_cache.as_deref(),
+                        &self.spec,
+                    ) {
                         Ok(_) => (),
                         Err(e) => {
                             warn!(

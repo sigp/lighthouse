@@ -287,7 +287,7 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
 
     // Advance the state a single slot.
     if let Some(summary) =
-        per_slot_processing(&mut state, Some(head_state_root), &beacon_chain.spec)
+        per_slot_processing(&mut state, Some(head_state_root), beacon_chain.builder_onboarding_cache.as_deref(), &beacon_chain.spec)
             .map_err(BeaconChainError::from)?
     {
         // Expose Prometheus metrics.

@@ -1542,7 +1542,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 state_root
             };
 
-            if let Some(summary) = per_slot_processing(&mut state, Some(state_root), &chain.spec)? {
+            if let Some(summary) = per_slot_processing(&mut state, Some(state_root), chain.builder_onboarding_cache.as_deref(), &chain.spec)? {
                 // Expose Prometheus metrics.
                 if let Err(e) = summary.observe_metrics() {
                     error!(

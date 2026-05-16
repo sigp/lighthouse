@@ -1,4 +1,7 @@
-use crate::per_block_processing::process_operations::is_pending_validator;
+use crate::builder_deposits_cache::OnboardBuildersCache;
+use crate::per_block_processing::process_operations::{
+    VerifyBuilderSignature, is_pending_validator,
+};
 use crate::per_block_processing::{
     is_valid_deposit_signature, process_operations::apply_deposit_for_builder,
 };
@@ -19,9 +22,10 @@ use types::{
 /// Transform a `Fulu` state into a `Gloas` state.
 pub fn upgrade_to_gloas<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
+    builder_onboarding_cache: Option<&OnboardBuildersCache>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let post = upgrade_state_to_gloas(pre_state, spec)?;
+    let post = upgrade_state_to_gloas(pre_state, builder_onboarding_cache, spec)?;
 
     *pre_state = post;
 
@@ -30,6 +34,7 @@ pub fn upgrade_to_gloas<E: EthSpec>(
 
 pub fn upgrade_state_to_gloas<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
+    builder_onboarding_cache: Option<&OnboardBuildersCache>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<E>, Error> {
     let epoch = pre_state.current_epoch();
@@ -123,7 +128,7 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         epoch_cache: mem::take(&mut pre.epoch_cache),
     });
     // [New in Gloas:EIP7732]
-    onboard_builders_from_pending_deposits(&mut post, spec)?;
+    onboard_builders_from_pending_deposits(&mut post, builder_onboarding_cache, spec)?;
     initialize_ptc_window(&mut post, spec)?;
 
     Ok(post)
@@ -166,6 +171,7 @@ fn initialize_ptc_window<E: EthSpec>(
 /// Applies any pending deposit for builders, effectively onboarding builders at the fork.
 fn onboard_builders_from_pending_deposits<E: EthSpec>(
     state: &mut BeaconState<E>,
+    builder_onboarding_cache: Option<&OnboardBuildersCache>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     // Clone pending deposits to avoid borrow conflicts when mutating state.
@@ -199,6 +205,11 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
             }
         }
         let builder_index_opt = builder_index.map(|i| i as u64);
+        let verify_signature = if let Some(cache) = builder_onboarding_cache {
+            cache.cached_is_valid_signature(deposit).into()
+        } else {
+            VerifyBuilderSignature::Verify
+        };
         apply_deposit_for_builder(
             state,
             builder_index_opt,
@@ -207,7 +218,7 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
             deposit.amount,
             deposit.signature.clone(),
             deposit.slot,
-            crate::per_block_processing::process_operations::VerifyBuilderSignature::Verify,
+            verify_signature,
             spec,
         )?;
     }

@@ -3,7 +3,6 @@ pub mod attestation_simulator;
 pub mod attestation_verification;
 pub mod beacon_block_reward;
 mod beacon_block_streamer;
-mod builder_deposits_cache;
 mod beacon_chain;
 mod beacon_fork_choice_store;
 pub mod beacon_proposer_cache;

@@ -1,6 +1,6 @@
+use crate::per_block_processing::is_valid_deposit_signature_batch;
 use lru::LruCache;
 use parking_lot::Mutex;
-use state_processing::per_block_processing::is_valid_deposit_signature_batch;
 use tracing::debug;
 use tree_hash::{Hash256, TreeHash};
 use types::{

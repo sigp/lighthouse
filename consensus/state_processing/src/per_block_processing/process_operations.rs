@@ -937,6 +937,16 @@ pub enum VerifyBuilderSignature {
     VerifiedInvalid,
 }
 
+impl From<Option<bool>> for VerifyBuilderSignature {
+    fn from(value: Option<bool>) -> Self {
+        match value {
+            Some(true) => VerifyBuilderSignature::VerifiedValid,
+            Some(false) => VerifyBuilderSignature::VerifiedInvalid,
+            None => VerifyBuilderSignature::Verify,
+        }
+    }
+}
+
 /// Returns `Ok(true)` if a builder with the given pubkey exists in the state.
 /// Otherwise returns `Ok(false)`. Returns an error if this function is called with a
 /// pre-gloas state.
