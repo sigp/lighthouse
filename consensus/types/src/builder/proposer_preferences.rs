@@ -14,8 +14,10 @@ use tree_hash_derive::TreeHash;
 pub struct ProposerPreferences {
     pub dependent_root: Hash256,
     pub proposal_slot: Slot,
+    #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
     pub fee_recipient: Address,
+    #[serde(with = "serde_utils::quoted_u64")]
     pub gas_limit: u64,
 }
 
