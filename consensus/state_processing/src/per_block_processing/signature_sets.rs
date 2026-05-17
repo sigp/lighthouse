@@ -378,10 +378,14 @@ where
         .data
         .slot
         .epoch(E::slots_per_epoch());
+    // Use config-based fork lookup rather than state.fork() to avoid
+    // race conditions during fork transitions where the head state
+    // may not yet reflect the new fork.
+    let fork = spec.fork_at_epoch(epoch);
     let domain = spec.get_domain(
         epoch,
         Domain::PTCAttester,
-        &state.fork(),
+        &fork,
         state.genesis_validators_root(),
     );
 
