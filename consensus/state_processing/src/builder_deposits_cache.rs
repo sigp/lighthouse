@@ -11,7 +11,7 @@ use types::{
 use std::num::NonZeroUsize;
 
 // TODO(pawan): analyze size of cache
-const CACHE_SIZE: NonZeroUsize = new_non_zero_usize(64000);
+const CACHE_SIZE: NonZeroUsize = new_non_zero_usize(1<<18);
 
 pub struct OnboardBuildersCache {
     cache: Mutex<LruCache<Hash256, bool>>,
