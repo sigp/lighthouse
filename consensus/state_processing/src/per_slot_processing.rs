@@ -1,8 +1,8 @@
+use crate::upgrade::gloas::GloasVerificationContext;
 use crate::upgrade::{
     upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb,
     upgrade_to_electra, upgrade_to_fulu, upgrade_to_gloas,
 };
-use crate::upgrade::gloas::GloasVerificationContext;
 use crate::{per_epoch_processing::EpochProcessingSummary, *};
 use fixed_bytes::FixedBytesExtended;
 use safe_arith::{ArithError, SafeArith};

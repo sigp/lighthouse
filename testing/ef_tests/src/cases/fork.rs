@@ -72,9 +72,12 @@ impl<E: EthSpec> Case for ForkTest<E> {
             ForkName::Deneb => upgrade_to_deneb(&mut result_state, spec).map(|_| result_state),
             ForkName::Electra => upgrade_to_electra(&mut result_state, spec).map(|_| result_state),
             ForkName::Fulu => upgrade_to_fulu(&mut result_state, spec).map(|_| result_state),
-            ForkName::Gloas => {
-                upgrade_to_gloas(&mut result_state, GloasVerificationContext::FullVerification, spec).map(|_| result_state)
-            }
+            ForkName::Gloas => upgrade_to_gloas(
+                &mut result_state,
+                GloasVerificationContext::FullVerification,
+                spec,
+            )
+            .map(|_| result_state),
         };
 
         compare_beacon_state_results_without_caches(&mut result, &mut expected)

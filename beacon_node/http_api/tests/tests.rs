@@ -40,8 +40,8 @@ use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
 use ssz::{BitList, Decode};
 use state_processing::per_block_processing::get_expected_withdrawals;
-use state_processing::{GloasVerificationContext, per_slot_processing};
 use state_processing::state_advance::partial_state_advance;
+use state_processing::{GloasVerificationContext, per_slot_processing};
 use std::convert::TryInto;
 use std::sync::Arc;
 use tokio::time::Duration;
@@ -5011,7 +5011,13 @@ impl ApiTester {
 
         let mut head = self.chain.head_snapshot().as_ref().clone();
         while head.beacon_state.current_epoch() < epoch {
-            per_slot_processing(&mut head.beacon_state, None, GloasVerificationContext::FullVerification, &self.chain.spec).unwrap();
+            per_slot_processing(
+                &mut head.beacon_state,
+                None,
+                GloasVerificationContext::FullVerification,
+                &self.chain.spec,
+            )
+            .unwrap();
         }
         head.beacon_state
             .build_committee_cache(RelativeEpoch::Current, &self.chain.spec)

@@ -121,7 +121,8 @@ use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
     BlockSignatureStrategy, ConsensusContext, GloasVerificationContext, SigVerifiedOp,
-    VerifyBlockRoot, VerifyOperation, builder_deposits_cache::OnboardBuildersCache,
+    VerifyBlockRoot, VerifyOperation,
+    builder_deposits_cache::OnboardBuildersCache,
     common::get_attesting_indices_from_state,
     epoch_cache::initialize_epoch_cache,
     per_block_processing,

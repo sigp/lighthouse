@@ -573,8 +573,8 @@ async fn process_deposit_requests_post_gloas_batches_new_builder_signature_verif
     let invalid_builder_index = find_builder_index(&state, &invalid_builder_request.pubkey);
     assert!(invalid_builder_index.is_none());
 
-    let existing_builder_index = find_builder_index(&state, &existing_builder_top_up.pubkey)
-        .unwrap();
+    let existing_builder_index =
+        find_builder_index(&state, &existing_builder_top_up.pubkey).unwrap();
     let existing_builder = state
         .builders()
         .unwrap()
@@ -692,13 +692,8 @@ async fn process_deposit_requests_post_gloas_preserves_existing_builder_before_v
         &spec,
         0,
     );
-    let validator_prefixed_request = make_deposit_request(
-        &KEYPAIRS[VALIDATOR_COUNT + 6],
-        Hash256::ZERO,
-        47,
-        &spec,
-        1,
-    );
+    let validator_prefixed_request =
+        make_deposit_request(&KEYPAIRS[VALIDATOR_COUNT + 6], Hash256::ZERO, 47, &spec, 1);
 
     process_operations::process_deposit_requests_post_gloas(
         &mut state,

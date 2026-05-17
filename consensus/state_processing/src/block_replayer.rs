@@ -230,9 +230,13 @@ where
                     pre_slot_hook(state_root, &mut self.state)?;
                 }
 
-                let summary =
-                    per_slot_processing(&mut self.state, Some(state_root), GloasVerificationContext::FullVerification, self.spec)
-                        .map_err(BlockReplayError::from)?;
+                let summary = per_slot_processing(
+                    &mut self.state,
+                    Some(state_root),
+                    GloasVerificationContext::FullVerification,
+                    self.spec,
+                )
+                .map_err(BlockReplayError::from)?;
 
                 if let Some(ref mut post_slot_hook) = self.post_slot_hook {
                     let is_skipped_slot = self.state.slot() < block.slot();
@@ -278,9 +282,13 @@ where
                     pre_slot_hook(state_root, &mut self.state)?;
                 }
 
-                let summary =
-                    per_slot_processing(&mut self.state, Some(state_root), GloasVerificationContext::FullVerification, self.spec)
-                        .map_err(BlockReplayError::from)?;
+                let summary = per_slot_processing(
+                    &mut self.state,
+                    Some(state_root),
+                    GloasVerificationContext::FullVerification,
+                    self.spec,
+                )
+                .map_err(BlockReplayError::from)?;
 
                 if let Some(ref mut post_slot_hook) = self.post_slot_hook {
                     // No more blocks to apply (from our perspective) so we consider these slots

@@ -1542,7 +1542,12 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 state_root
             };
 
-            if let Some(summary) = per_slot_processing(&mut state, Some(state_root), GloasVerificationContext::from_cache(chain.builder_onboarding_cache.clone()), &chain.spec)? {
+            if let Some(summary) = per_slot_processing(
+                &mut state,
+                Some(state_root),
+                GloasVerificationContext::from_cache(chain.builder_onboarding_cache.clone()),
+                &chain.spec,
+            )? {
                 // Expose Prometheus metrics.
                 if let Err(e) = summary.observe_metrics() {
                     error!(

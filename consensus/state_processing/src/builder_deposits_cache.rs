@@ -22,7 +22,6 @@ use std::num::NonZeroUsize;
 /// every slot.
 const CACHE_SIZE: NonZeroUsize = new_non_zero_usize(262144);
 
-
 /// A simple cache that performs signature verification on `PendingDeposit` entries in the
 /// beacon state for 0x03 credentials and caches the result.
 ///

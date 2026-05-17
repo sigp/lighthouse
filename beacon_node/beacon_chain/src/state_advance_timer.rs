@@ -286,9 +286,13 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
     let initial_epoch = state.current_epoch();
 
     // Advance the state a single slot.
-    if let Some(summary) =
-        per_slot_processing(&mut state, Some(head_state_root), GloasVerificationContext::from_cache(beacon_chain.builder_onboarding_cache.clone()), &beacon_chain.spec)
-            .map_err(BeaconChainError::from)?
+    if let Some(summary) = per_slot_processing(
+        &mut state,
+        Some(head_state_root),
+        GloasVerificationContext::from_cache(beacon_chain.builder_onboarding_cache.clone()),
+        &beacon_chain.spec,
+    )
+    .map_err(BeaconChainError::from)?
     {
         // Expose Prometheus metrics.
         if let Err(e) = summary.observe_metrics() {

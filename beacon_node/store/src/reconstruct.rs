@@ -145,8 +145,13 @@ where
                 };
 
                 // Advance state to slot.
-                per_slot_processing(&mut state, prev_state_root.take(), GloasVerificationContext::FullVerification, &self.spec)
-                    .map_err(HotColdDBError::BlockReplaySlotError)?;
+                per_slot_processing(
+                    &mut state,
+                    prev_state_root.take(),
+                    GloasVerificationContext::FullVerification,
+                    &self.spec,
+                )
+                .map_err(HotColdDBError::BlockReplaySlotError)?;
 
                 // Apply block.
                 if let Some(block) = block {

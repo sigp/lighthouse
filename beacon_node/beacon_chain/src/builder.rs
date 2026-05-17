@@ -446,8 +446,13 @@ where
                 "Advancing checkpoint state to boundary"
             );
             while weak_subj_state.slot() % slots_per_epoch != 0 {
-                per_slot_processing(&mut weak_subj_state, None, GloasVerificationContext::FullVerification, &self.spec)
-                    .map_err(|e| format!("Error advancing state: {e:?}"))?;
+                per_slot_processing(
+                    &mut weak_subj_state,
+                    None,
+                    GloasVerificationContext::FullVerification,
+                    &self.spec,
+                )
+                .map_err(|e| format!("Error advancing state: {e:?}"))?;
             }
         }
 

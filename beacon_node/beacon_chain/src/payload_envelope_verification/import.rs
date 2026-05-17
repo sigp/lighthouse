@@ -71,7 +71,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Pre-verify builder deposit signatures while awaiting EL verification.
             if let Some(ref cache) = chain.builder_onboarding_cache {
                 cache.cache_deposit_requests(
-                    &execution_pending.signed_envelope.message.execution_requests.deposits,
+                    &execution_pending
+                        .signed_envelope
+                        .message
+                        .execution_requests
+                        .deposits,
                     &chain.spec,
                 );
             }

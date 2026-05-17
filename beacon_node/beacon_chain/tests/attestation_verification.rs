@@ -1217,7 +1217,13 @@ async fn attestation_that_skips_epochs() {
         .expect("should find state");
 
     while state.slot() < current_slot {
-        per_slot_processing(&mut state, None, GloasVerificationContext::FullVerification, &harness.spec).expect("should process slot");
+        per_slot_processing(
+            &mut state,
+            None,
+            GloasVerificationContext::FullVerification,
+            &harness.spec,
+        )
+        .expect("should process slot");
     }
 
     let state_root = state.update_tree_hash_cache().unwrap();
@@ -1328,7 +1334,13 @@ async fn attestation_validator_receive_proposer_reward_and_withdrawals() {
         .expect("should find state");
 
     while state.slot() < current_slot {
-        per_slot_processing(&mut state, None, GloasVerificationContext::FullVerification, &harness.spec).expect("should process slot");
+        per_slot_processing(
+            &mut state,
+            None,
+            GloasVerificationContext::FullVerification,
+            &harness.spec,
+        )
+        .expect("should process slot");
     }
 
     let state_root = state.update_tree_hash_cache().unwrap();
@@ -1405,7 +1417,13 @@ async fn attestation_to_finalized_block() {
         .expect("should find state");
 
     while state.slot() < current_slot {
-        per_slot_processing(&mut state, None, GloasVerificationContext::FullVerification, &harness.spec).expect("should process slot");
+        per_slot_processing(
+            &mut state,
+            None,
+            GloasVerificationContext::FullVerification,
+            &harness.spec,
+        )
+        .expect("should process slot");
     }
 
     let state_root = state.update_tree_hash_cache().unwrap();
