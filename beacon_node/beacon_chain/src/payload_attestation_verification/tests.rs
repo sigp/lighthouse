@@ -5,8 +5,8 @@ use bls::Signature;
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::AllCaches;
 use types::{
-    Domain, EthSpec, Hash256, MinimalEthSpec, PayloadAttestationData, PayloadAttestationMessage,
-    SignedRoot, Slot,
+    Domain, Epoch, EthSpec, ForkName, Hash256, MinimalEthSpec, PayloadAttestationData,
+    PayloadAttestationMessage, SignedRoot, Slot,
 };
 
 use crate::{
@@ -269,6 +269,75 @@ fn duplicate_after_valid() {
         result2,
         Err(PayloadAttestationError::PriorPayloadAttestationMessageKnown { .. })
     ));
+}
+
+#[tokio::test]
+async fn ptc_cache_is_primed_at_gloas_fork_boundary() {
+    // Only run this test once, when FORK_NAME=gloas exactly.
+    let mut spec = test_spec::<E>();
+    if spec.fork_name_at_epoch(Epoch::new(0)) != ForkName::Gloas {
+        return;
+    }
+
+    let gloas_fork_epoch = Epoch::new(2);
+    spec.gloas_fork_epoch = Some(gloas_fork_epoch);
+    assert_eq!(
+        spec.fork_name_at_epoch(gloas_fork_epoch - 1),
+        ForkName::Fulu
+    );
+    assert_eq!(spec.fork_name_at_epoch(gloas_fork_epoch), ForkName::Gloas);
+
+    let slots_per_epoch = E::slots_per_epoch();
+    let fork_boundary_slot = gloas_fork_epoch.start_slot(slots_per_epoch);
+    let test_slots = (fork_boundary_slot.as_u64()
+        ..fork_boundary_slot.as_u64() + slots_per_epoch * 2)
+        .map(Slot::new);
+
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(Arc::new(spec))
+        .deterministic_keypairs(NUM_VALIDATORS)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    for slot in test_slots {
+        harness.extend_to_slot(slot).await;
+
+        let head = harness.chain.canonical_head.cached_head();
+        let state = &head.snapshot.beacon_state;
+        let ptc = state.get_ptc(slot, &harness.spec).expect("should get PTC");
+        let validator_index = *ptc.0.first().expect("PTC should have a member") as u64;
+        let data = PayloadAttestationData {
+            beacon_block_root: head.head_block_root(),
+            slot,
+            payload_present: true,
+            blob_data_available: true,
+        };
+        let domain = harness.spec.get_domain(
+            data.slot.epoch(slots_per_epoch),
+            Domain::PTCAttester,
+            &state.fork(),
+            state.genesis_validators_root(),
+        );
+        let signature = harness.validator_keypairs[validator_index as usize]
+            .sk
+            .sign(data.signing_root(domain));
+        let msg = PayloadAttestationMessage {
+            validator_index,
+            data,
+            signature,
+        };
+
+        let result = harness
+            .chain
+            .verify_payload_attestation_message_for_gossip(msg);
+        assert!(
+            result.is_ok(),
+            "expected PTC payload attestation to verify at slot {}, got: {:?}",
+            slot,
+            result.unwrap_err()
+        );
+    }
 }
 
 /// Exercises payload attestation gossip verification when the message epoch is ahead of the
