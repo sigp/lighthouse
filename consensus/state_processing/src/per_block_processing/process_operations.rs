@@ -1010,32 +1010,37 @@ pub fn process_deposit_requests_post_gloas<E: EthSpec>(
     let mut uncached_indices = Vec::new();
     let mut uncached_deposits = Vec::new();
 
-    for (i, deposit_data) in builder_signature_deposits.iter().enumerate() {
+    for (deposit_data, &request_index) in builder_signature_deposits
+        .iter()
+        .zip(builder_signature_request_indices.iter())
+    {
         let cached_result = onboarding_cache.and_then(|c| c.get(deposit_data));
         if let Some(is_valid) = cached_result {
-            let request_index = builder_signature_request_indices[i];
-            builder_signature_results_by_request[request_index] = if is_valid {
-                VerifyBuilderSignature::VerifiedValid
-            } else {
-                VerifyBuilderSignature::VerifiedInvalid
-            };
+            if let Some(res) = builder_signature_results_by_request.get_mut(request_index) {
+                *res = if is_valid {
+                    VerifyBuilderSignature::VerifiedValid
+                } else {
+                    VerifyBuilderSignature::VerifiedInvalid
+                };
+            }
         } else {
-            uncached_indices.push(i);
+            uncached_indices.push(request_index);
             uncached_deposits.push(deposit_data.clone());
         }
     }
 
-    let cache_hits = builder_signature_deposits.len() - uncached_deposits.len();
+    let cache_hits = builder_signature_deposits.len().saturating_sub(uncached_deposits.len());
     let batch_len = uncached_deposits.len();
     let batch_results = is_valid_deposit_signature_batch(uncached_deposits, spec);
 
-    for (batch_i, is_valid) in uncached_indices.into_iter().zip(batch_results) {
-        let request_index = builder_signature_request_indices[batch_i];
-        builder_signature_results_by_request[request_index] = if is_valid {
-            VerifyBuilderSignature::VerifiedValid
-        } else {
-            VerifyBuilderSignature::VerifiedInvalid
-        };
+    for (&request_index, is_valid) in uncached_indices.iter().zip(batch_results) {
+        if let Some(slot) = builder_signature_results_by_request.get_mut(request_index) {
+            *slot = if is_valid {
+                VerifyBuilderSignature::VerifiedValid
+            } else {
+                VerifyBuilderSignature::VerifiedInvalid
+            };
+        }
     }
 
     tracing::debug!(

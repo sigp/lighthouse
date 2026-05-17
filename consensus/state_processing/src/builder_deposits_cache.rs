@@ -28,12 +28,12 @@ const CACHE_SIZE: NonZeroUsize = new_non_zero_usize(262144);
 /// The key is the hash_tree_root of the `Deposit` and the value is the verification result.
 /// In gloas, there are 2 places where we need to do bulk signature verification:
 /// 1. `onboard_builders_from_pending_deposits` in `upgrade_to_gloas` happens at the fork transition.
-/// If the `pending_deposits` queue at fork has many signatures to verify, then verifying them
-/// in the hot path could be very expensive.
-/// 2. `process_deposit_requests_post_gloas` in `process_operations` can contain upto 8192 signatures to
-/// verify in the hot block verification path based on limits today. Since the deposits are received a
-/// couple seconds before the actual deposits processing, we can cache those signatures too to ensure
-/// the deposit processing is just a lookup operation in the worst case.
+///    If the `pending_deposits` queue at fork has many signatures to verify, then verifying them
+///    in the hot path could be very expensive.
+/// 2. `process_deposit_requests_post_gloas` in `process_operations` can contain upto 8192 signatures
+///    to verify in the hot block verification path based on limits today. Since the deposits are
+///    received a couple seconds before the actual deposits processing, we can cache those signatures
+///    too to ensure the deposit processing is just a lookup operation in the worst case.
 pub struct OnboardBuildersCache {
     cache: Mutex<LruCache<Hash256, bool>>,
 }
@@ -92,7 +92,7 @@ impl OnboardBuildersCache {
             "Adding new pending deposits to builder onboarding cache"
         );
 
-        self.cache_pending_deposits(pending_deposits, &spec);
+        self.cache_pending_deposits(pending_deposits, spec);
     }
 
     /// Takes a list of pending deposits, signature verifies them and caches the result.
@@ -134,7 +134,7 @@ impl OnboardBuildersCache {
 
         let verified = is_valid_deposit_signature_batch(builder_deposits, spec);
         let mut cache = self.cache.lock();
-        for (key, value) in builder_deposit_keys.into_iter().zip(verified.into_iter()) {
+        for (key, value) in builder_deposit_keys.into_iter().zip(verified) {
             cache.push(key, value);
         }
     }
@@ -180,7 +180,7 @@ impl OnboardBuildersCache {
 
         let verified = is_valid_deposit_signature_batch(builder_deposits, spec);
         let mut cache = self.cache.lock();
-        for (key, value) in builder_deposit_keys.into_iter().zip(verified.into_iter()) {
+        for (key, value) in builder_deposit_keys.into_iter().zip(verified) {
             cache.push(key, value);
         }
     }
@@ -221,7 +221,7 @@ fn pending_deposits_to_verify<E: EthSpec>(state: &BeaconState<E>) -> Vec<&Pendin
             .get(index)
             .is_some_and(|deposit| deposit.slot != current_slot)
         {
-            first_current_slot_index = index + 1;
+            first_current_slot_index = index.saturating_add(1);
             break;
         }
     }
