@@ -7,13 +7,16 @@ use milhouse::{List, Vector};
 use safe_arith::SafeArith;
 use ssz_types::BitVector;
 use ssz_types::FixedVector;
+use std::collections::HashMap;
 use std::mem;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use typenum::Unsigned;
+use bls::PublicKeyBytes;
 use types::{
     BeaconState, BeaconStateError as Error, BeaconStateGloas, BuilderPendingPayment, ChainSpec,
-    EthSpec, ExecutionPayloadBid, ExecutionRequests, Fork, is_builder_withdrawal_credential,
+    EthSpec, ExecutionPayloadBid, ExecutionRequests, Fork,
+    is_builder_withdrawal_credential,
 };
 
 /// Controls how builder onboarding is handled during the Gloas fork `upgrade_to_gloas`.
@@ -215,26 +218,20 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
     builder_onboarding_cache: Option<&OnboardBuildersCache>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    // Clone pending deposits to avoid borrow conflicts when mutating state.
     let current_pending_deposits = state.pending_deposits()?.clone();
 
+    // A temporary lookup for builders that are added in the loop.
+    // TODO(gloas): can be removed if we end up creating a builder pubkey cache.
+    let mut builder_pubkey_to_index: HashMap<PublicKeyBytes, u64> = HashMap::new();
     let mut pending_deposits = List::empty();
 
     for deposit in &current_pending_deposits {
-        // Deposits for existing validators stay in the pending queue.
         if state.get_validator_index(&deposit.pubkey)?.is_some() {
             pending_deposits.push(deposit.clone())?;
             continue;
         }
 
-        // Re-scan builder list each iteration because `apply_deposit_for_builder` may add
-        // new builders to the registry.
-        // TODO(gloas): this linear scan could be optimized, see:
-        // https://github.com/sigp/lighthouse/issues/8783
-        let builder_index = state
-            .builders()?
-            .iter()
-            .position(|b| b.pubkey == deposit.pubkey);
+        let builder_index = builder_pubkey_to_index.get(&deposit.pubkey).copied();
 
         // Equivalent to if deposit.pubkey not in builder_pubkeys:
         if builder_index.is_none() {
@@ -245,15 +242,21 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
                 continue;
             }
         }
-        let builder_index_opt = builder_index.map(|i| i as u64);
+
         let verify_signature = if let Some(cache) = builder_onboarding_cache {
             cache.cached_is_valid_signature(deposit).into()
         } else {
             VerifyBuilderSignature::Verify
         };
+
+        if builder_index.is_none() {
+            let next_index = state.builders()?.len() as u64;
+            builder_pubkey_to_index.insert(deposit.pubkey, next_index);
+        }
+
         apply_deposit_for_builder(
             state,
-            builder_index_opt,
+            builder_index,
             deposit.pubkey,
             deposit.withdrawal_credentials,
             deposit.amount,
