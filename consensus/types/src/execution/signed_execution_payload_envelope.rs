@@ -3,7 +3,6 @@ use crate::execution::{
 };
 use crate::fork::ForkVersionDecode;
 use crate::state::BeaconStateError;
-use crate::test_utils::TestRandom;
 use crate::{
     BeaconState, ChainSpec, Domain, Epoch, EthSpec, ExecutionBlockHash, Fork, ForkName, Hash256,
     SignedRoot, Slot, consts::gloas::BUILDER_INDEX_SELF_BUILD,
@@ -15,7 +14,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 #[superstruct(
@@ -28,7 +26,6 @@ use tree_hash_derive::TreeHash;
             Deserialize,
             Encode,
             Decode,
-            TestRandom,
             TreeHash,
             Educe,
         ),

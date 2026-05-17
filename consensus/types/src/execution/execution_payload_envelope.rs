@@ -3,7 +3,6 @@ use crate::execution::{
 };
 use crate::fork::ForkVersionDecode;
 use crate::state::BeaconStateError;
-use crate::test_utils::TestRandom;
 use crate::{EthSpec, ForkName, Hash256, SignedRoot, Slot};
 use context_deserialize::{ContextDeserialize, context_deserialize};
 use educe::Educe;
@@ -11,7 +10,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 use ssz::{BYTES_PER_LENGTH_OFFSET, Encode as SszEncode};
 use ssz_derive::{Decode, Encode};
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 #[superstruct(
@@ -26,7 +24,6 @@ use tree_hash_derive::TreeHash;
             Encode,
             Decode,
             TreeHash,
-            TestRandom,
             Educe,
         ),
         educe(PartialEq, Hash(bound(E: EthSpec))),

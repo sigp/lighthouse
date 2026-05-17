@@ -38,7 +38,6 @@ use tracing::info;
 use types::{
     BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, EthSpec, ForkContext, ForkName,
     Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
-    test_utils::{SeedableRng, XorShiftRng},
 };
 
 const D: Duration = Duration::new(0, 0);
@@ -279,7 +278,6 @@ impl TestRig {
 
         // deterministic seed
         let rng_08 = <rand_chacha_03::ChaCha20Rng as rand_08::SeedableRng>::from_seed([0u8; 32]);
-        let rng = ChaCha20Rng::from_seed([0u8; 32]);
 
         init_tracing();
 
@@ -291,7 +289,7 @@ impl TestRig {
             sync_rx,
             sync_rx_queue: vec![],
             rng_08,
-            rng,
+            unstructured: types::test_utils::test_unstructured(),
             network_globals: beacon_processor.network_globals.clone(),
             sync_manager: SyncManager::new(
                 chain,
@@ -1492,8 +1490,7 @@ impl TestRig {
         num_blobs: NumBlobs,
     ) -> (SignedBeaconBlock<E>, Vec<BlobSidecar<E>>) {
         let fork_name = self.fork_name;
-        let rng = &mut self.rng;
-        generate_rand_block_and_blobs::<E>(fork_name, num_blobs, rng)
+        generate_rand_block_and_blobs::<E>(fork_name, num_blobs, &mut self.unstructured).unwrap()
     }
 
     pub fn send_sync_message(&mut self, sync_message: SyncMessage<E>) {
@@ -1829,16 +1826,17 @@ impl TestRig {
 }
 
 #[test]
-fn stable_rng() {
-    let mut rng = XorShiftRng::from_seed([42; 16]);
-    let (block, _) = generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng);
+fn stable_arbitrary() {
+    let mut u = types::test_utils::test_unstructured();
+    let (block, _) =
+        generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut u).unwrap();
     assert_eq!(
         block.canonical_root(),
         Hash256::from_slice(
-            &hex::decode("adfd2e9e7a7976e8ccaed6eaf0257ed36a5b476732fee63ff44966602fd099ec")
+            &hex::decode("7348573d99ca404b502e2be790593203a1d899f9cf04f42ec9c5b4975803e3c5")
                 .unwrap()
         ),
-        "rng produces a consistent value"
+        "arbitrary produces a consistent value"
     );
 }
 

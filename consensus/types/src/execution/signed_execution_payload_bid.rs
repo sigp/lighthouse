@@ -1,6 +1,5 @@
 use crate::execution::{ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef};
 use crate::state::BeaconStateError;
-use crate::test_utils::TestRandom;
 use crate::{EthSpec, ForkName};
 use bls::Signature;
 use context_deserialize::{ContextDeserialize, context_deserialize};
@@ -8,7 +7,6 @@ use educe::Educe;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 #[superstruct(
@@ -21,7 +19,6 @@ use tree_hash_derive::TreeHash;
             Deserialize,
             Encode,
             Decode,
-            TestRandom,
             TreeHash,
             Educe,
         ),

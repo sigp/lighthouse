@@ -31,12 +31,12 @@ use types::{
     BeaconState, BeaconStateError, BuilderIndex, ChainSpec, Deposit, Eth1Data, EthSpec,
     ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze,
     ExecutionPayloadEnvelope, ExecutionPayloadEnvelopeGloas, ExecutionPayloadEnvelopeHeze,
-    ExecutionRequests, ForkName, FullPayload, Graffiti, Hash256,
-    PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
-    SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas,
-    SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope,
-    SignedExecutionPayloadEnvelopeGloas, SignedExecutionPayloadEnvelopeHeze, SignedVoluntaryExit,
-    Slot, SyncAggregate, Withdrawal, Withdrawals,
+    ExecutionRequests, ForkName, FullPayload, Graffiti, Hash256, PayloadAttestation,
+    ProposerSlashing, RelativeEpoch, SignedBeaconBlock, SignedBlsToExecutionChange,
+    SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze,
+    SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeGloas,
+    SignedExecutionPayloadEnvelopeHeze, SignedVoluntaryExit, Slot, SyncAggregate, Withdrawal,
+    Withdrawals,
 };
 
 use crate::pending_payload_envelopes::PendingEnvelopeData;

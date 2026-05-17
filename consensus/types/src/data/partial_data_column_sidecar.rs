@@ -5,7 +5,6 @@ use crate::{
     execution::AbstractExecPayload,
     kzg_ext::KzgCommitments,
     state::BeaconStateError,
-    test_utils::TestRandom,
 };
 use educe::Educe;
 use kzg::KzgProof;
@@ -14,7 +13,6 @@ use ssz::BitList;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, ListEncodedOption, VariableList};
 use std::fmt::Display;
-use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
@@ -134,7 +132,7 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, Encode, Decode, TreeHash, TestRandom, Educe)]
+#[derive(Debug, Clone, Encode, Decode, TreeHash, Educe)]
 #[educe(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
 pub struct PartialDataColumnHeader<E: EthSpec> {
     pub kzg_commitments: KzgCommitments<E>,

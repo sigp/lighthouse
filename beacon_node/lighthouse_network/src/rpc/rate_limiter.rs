@@ -105,6 +105,8 @@ pub struct RPCRateLimiter {
     bbrange_rl: Limiter<PeerId>,
     /// BlocksByRoot rate limiter.
     bbroots_rl: Limiter<PeerId>,
+    /// BlocksByHead rate limiter.
+    bbhead_rl: Limiter<PeerId>,
     /// BlobsByRange rate limiter.
     blbrange_rl: Limiter<PeerId>,
     /// BlobsByRoot rate limiter.
@@ -152,6 +154,8 @@ pub struct RPCRateLimiterBuilder {
     bbrange_quota: Option<Quota>,
     /// Quota for the BlocksByRoot protocol.
     bbroots_quota: Option<Quota>,
+    /// Quota for the BlocksByHead protocol.
+    bbhead_quota: Option<Quota>,
     /// Quota for the ExecutionPayloadEnvelopesByRange protocol.
     perange_quota: Option<Quota>,
     /// Quota for the ExecutionPayloadEnvelopesByRoot protocol.
@@ -185,6 +189,7 @@ impl RPCRateLimiterBuilder {
             Protocol::Goodbye => self.goodbye_quota = q,
             Protocol::BlocksByRange => self.bbrange_quota = q,
             Protocol::BlocksByRoot => self.bbroots_quota = q,
+            Protocol::BlocksByHead => self.bbhead_quota = q,
             Protocol::PayloadEnvelopesByRange => self.perange_quota = q,
             Protocol::PayloadEnvelopesByRoot => self.peroots_quota = q,
             Protocol::BlobsByRange => self.blbrange_quota = q,
@@ -211,6 +216,9 @@ impl RPCRateLimiterBuilder {
         let bbrange_quota = self
             .bbrange_quota
             .ok_or("BlocksByRange quota not specified")?;
+        let bbhead_quota = self
+            .bbhead_quota
+            .ok_or("BlocksByHead quota not specified")?;
         let perange_quota = self
             .perange_quota
             .ok_or("PayloadEnvelopesByRange quota not specified")?;
@@ -252,6 +260,7 @@ impl RPCRateLimiterBuilder {
         let goodbye_rl = Limiter::from_quota(goodbye_quota)?;
         let bbroots_rl = Limiter::from_quota(bbroots_quota)?;
         let bbrange_rl = Limiter::from_quota(bbrange_quota)?;
+        let bbhead_rl = Limiter::from_quota(bbhead_quota)?;
         let envrange_rl = Limiter::from_quota(perange_quota)?;
         let envroots_rl = Limiter::from_quota(peroots_quota)?;
         let blbrange_rl = Limiter::from_quota(blbrange_quota)?;
@@ -277,6 +286,7 @@ impl RPCRateLimiterBuilder {
             goodbye_rl,
             bbroots_rl,
             bbrange_rl,
+            bbhead_rl,
             envrange_rl,
             envroots_rl,
             blbrange_rl,
@@ -332,6 +342,7 @@ impl RPCRateLimiter {
             goodbye_quota,
             blocks_by_range_quota,
             blocks_by_root_quota,
+            blocks_by_head_quota,
             payload_envelopes_by_range_quota,
             payload_envelopes_by_root_quota,
             blobs_by_range_quota,
@@ -351,6 +362,7 @@ impl RPCRateLimiter {
             .set_quota(Protocol::Goodbye, goodbye_quota)
             .set_quota(Protocol::BlocksByRange, blocks_by_range_quota)
             .set_quota(Protocol::BlocksByRoot, blocks_by_root_quota)
+            .set_quota(Protocol::BlocksByHead, blocks_by_head_quota)
             .set_quota(
                 Protocol::PayloadEnvelopesByRange,
                 payload_envelopes_by_range_quota,
@@ -406,6 +418,7 @@ impl RPCRateLimiter {
             Protocol::Goodbye => &mut self.goodbye_rl,
             Protocol::BlocksByRange => &mut self.bbrange_rl,
             Protocol::BlocksByRoot => &mut self.bbroots_rl,
+            Protocol::BlocksByHead => &mut self.bbhead_rl,
             Protocol::PayloadEnvelopesByRange => &mut self.envrange_rl,
             Protocol::PayloadEnvelopesByRoot => &mut self.envroots_rl,
             Protocol::BlobsByRange => &mut self.blbrange_rl,
@@ -432,6 +445,7 @@ impl RPCRateLimiter {
             status_rl,
             bbrange_rl,
             bbroots_rl,
+            bbhead_rl,
             envrange_rl,
             envroots_rl,
             blbrange_rl,
@@ -451,6 +465,7 @@ impl RPCRateLimiter {
         status_rl.prune(time_since_start);
         bbrange_rl.prune(time_since_start);
         bbroots_rl.prune(time_since_start);
+        bbhead_rl.prune(time_since_start);
         envrange_rl.prune(time_since_start);
         envroots_rl.prune(time_since_start);
         blbrange_rl.prune(time_since_start);

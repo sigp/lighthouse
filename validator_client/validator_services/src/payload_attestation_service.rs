@@ -139,14 +139,22 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
                 beacon_node
                     .get_validator_payload_attestation_data(slot)
                     .await
-                    .map_err(|e| format!("Failed to get payload attestation data: {e:?}"))
-                    .map(|resp| resp.into_data())
+                    .map(|opt| opt.map(|resp| resp.into_data()))
             })
             .await
         {
-            Ok(data) => data,
+            Ok(Some(data)) => data,
+            Ok(None) => {
+                // Per the consensus spec, validators should not submit a
+                // payload attestation when no block has been seen for the slot.
+                debug!(
+                    %slot,
+                    "No block received for slot, skipping payload attestation"
+                );
+                return;
+            }
             Err(e) => {
-                crit!(
+                error!(
                     error = %e,
                     %slot,
                     "Failed to produce payload attestation data"

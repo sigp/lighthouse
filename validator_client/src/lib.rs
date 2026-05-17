@@ -49,6 +49,7 @@ use validator_services::{
     latency_service,
     payload_attestation_service::PayloadAttestationService,
     preparation_service::{PreparationService, PreparationServiceBuilder},
+    proposer_preferences_service::ProposerPreferencesService,
     sync_committee_service::SyncCommitteeService,
 };
 use validator_store::ValidatorStore as ValidatorStoreTrait;
@@ -88,6 +89,8 @@ pub struct ProductionValidatorClient<E: EthSpec> {
     sync_committee_service: SyncCommitteeService<ValidatorStore<E>, SystemTimeSlotClock>,
     inclusion_list_service: InclusionListService<ValidatorStore<E>, SystemTimeSlotClock>,
     payload_attestation_service: PayloadAttestationService<ValidatorStore<E>, SystemTimeSlotClock>,
+    proposer_preferences_service:
+        ProposerPreferencesService<ValidatorStore<E>, SystemTimeSlotClock>,
     doppelganger_service: Option<Arc<DoppelgangerService>>,
     preparation_service: PreparationService<ValidatorStore<E>, SystemTimeSlotClock>,
     validator_store: Arc<ValidatorStore<E>>,
@@ -585,6 +588,15 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             context.eth2_config.spec.clone(),
         );
 
+        let proposer_preferences_service = ProposerPreferencesService::new(
+            duties_service.clone(),
+            validator_store.clone(),
+            slot_clock.clone(),
+            beacon_nodes.clone(),
+            context.executor.clone(),
+            context.eth2_config.spec.clone(),
+        );
+
         Ok(Self {
             context,
             duties_service,
@@ -593,6 +605,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             sync_committee_service,
             inclusion_list_service,
             payload_attestation_service,
+            proposer_preferences_service,
             doppelganger_service,
             preparation_service,
             validator_store,
@@ -674,6 +687,11 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                 .clone()
                 .start_update_service()
                 .map_err(|e| format!("Unable to start payload attestation service: {}", e))?;
+
+            self.proposer_preferences_service
+                .clone()
+                .start_update_service()
+                .map_err(|e| format!("Unable to start proposer preferences service: {}", e))?;
         }
 
         self.preparation_service

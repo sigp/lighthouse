@@ -22,11 +22,11 @@ use types::{
     AbstractExecPayload, Address, AggregateAndProof, Attestation, BeaconBlock, BlindedPayload,
     ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, ExecutionPayloadEnvelope, Fork,
     FullPayload, Graffiti, Hash256, InclusionList, PayloadAttestationData,
-    PayloadAttestationMessage, SelectionProof, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedContributionAndProof, SignedExecutionPayloadEnvelope,
+    PayloadAttestationMessage, ProposerPreferences, SelectionProof, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedContributionAndProof, SignedExecutionPayloadEnvelope,
     SignedExecutionPayloadEnvelopeGloas, SignedExecutionPayloadEnvelopeHeze, SignedInclusionList,
-    SignedRoot, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
-    SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
+    SignedProposerPreferences, SignedRoot, SignedValidatorRegistrationData, SignedVoluntaryExit,
+    Slot, SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
     SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData, VoluntaryExit,
     graffiti::GraffitiString,
 };
@@ -1519,6 +1519,34 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
                     signature,
                 })
             }
+        })
+    }
+
+    async fn sign_proposer_preferences(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        preferences: ProposerPreferences,
+    ) -> Result<SignedProposerPreferences, Error> {
+        let signing_context = self.signing_context(
+            Domain::ProposerPreferences,
+            preferences.proposal_slot.epoch(E::slots_per_epoch()),
+        );
+
+        let signing_method = self.doppelganger_bypassed_signing_method(validator_pubkey)?;
+
+        let signature = signing_method
+            .get_signature::<E, FullPayload<E>>(
+                SignableMessage::ProposerPreferences(&preferences),
+                signing_context,
+                &self.spec,
+                &self.task_executor,
+            )
+            .await
+            .map_err(Error::SpecificError)?;
+
+        Ok(SignedProposerPreferences {
+            message: preferences,
+            signature,
         })
     }
 }

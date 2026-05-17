@@ -38,6 +38,6 @@ types = { workspace = true }
 zeroize = { workspace = true, optional = true }
 
 [dev-dependencies]
-rand = { workspace = true }
-test_random_derive = { path = "../../common/test_random_derive" }
+arbitrary = { workspace = true }
 tokio = { workspace = true }
+types = { workspace = true, features = ["arbitrary"] }
