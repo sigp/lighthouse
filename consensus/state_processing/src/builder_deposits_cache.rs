@@ -1,7 +1,7 @@
 use crate::per_block_processing::is_valid_deposit_signature_batch;
 use lru::LruCache;
 use parking_lot::Mutex;
-use tracing::debug;
+use tracing::{debug, instrument};
 use tree_hash::{Hash256, TreeHash};
 use types::{
     BeaconState, ChainSpec, DepositData, DepositRequest, EthSpec, PendingDeposit,
@@ -10,14 +10,37 @@ use types::{
 
 use std::num::NonZeroUsize;
 
-// TODO(pawan): analyze size of cache
-const CACHE_SIZE: NonZeroUsize = new_non_zero_usize(1<<18);
+/// This is a very high limit to enable worst case testing.
+/// The actual lru storage ends up being quite small in the worst case.
+///
+/// The internal hashmap representation would take 32 bytes for key + 1 byte for the bool.
+/// With additional overhead in the LRU cache, each entry would come out to ~88 bytes.
+///
+/// So worst case storage is ~25MB.
+///
+/// In practice, current mainnet gas limits would not allow more than a couple hundred deposits
+/// every slot.
+const CACHE_SIZE: NonZeroUsize = new_non_zero_usize(262144);
 
+
+/// A simple cache that performs signature verification on `PendingDeposit` entries in the
+/// beacon state for 0x03 credentials and caches the result.
+///
+/// The key is the hash_tree_root of the `Deposit` and the value is the verification result.
+/// In gloas, there are 2 places where we need to do bulk signature verification:
+/// 1. `onboard_builders_from_pending_deposits` in `upgrade_to_gloas` happens at the fork transition.
+/// If the `pending_deposits` queue at fork has many signatures to verify, then verifying them
+/// in the hot path could be very expensive.
+/// 2. `process_deposit_requests_post_gloas` in `process_operations` can contain upto 8192 signatures to
+/// verify in the hot block verification path based on limits today. Since the deposits are received a
+/// couple seconds before the actual deposits processing, we can cache those signatures too to ensure
+/// the deposit processing is just a lookup operation in the worst case.
 pub struct OnboardBuildersCache {
     cache: Mutex<LruCache<Hash256, bool>>,
 }
 
 impl OnboardBuildersCache {
+    /// Returns `None` if gloas is not scheduled currently.
     pub fn new(spec: &ChainSpec) -> Option<Self> {
         if spec.is_gloas_scheduled() {
             Some(Self {
@@ -33,6 +56,7 @@ impl OnboardBuildersCache {
     ///
     /// Further block imports that result in additional deposits should be handled by the
     /// [`Self::add_new_pending_deposits`] method.
+    #[instrument(skip_all)]
     pub fn seed_from_state<E: EthSpec>(&self, state: &BeaconState<E>, spec: &ChainSpec) {
         let Some(pending_deposits) = state.pending_deposits().ok() else {
             return;
@@ -52,6 +76,7 @@ impl OnboardBuildersCache {
 
     /// Gets the new deposits added to the `pending_cache` for `state.slot.
     /// Signature verifies and caches them for later use.
+    #[instrument(skip_all)]
     pub fn add_new_pending_deposits<E: EthSpec>(
         &self,
         current_state: &BeaconState<E>,
@@ -117,6 +142,7 @@ impl OnboardBuildersCache {
 
     /// Pre-verifies builder deposit signatures from execution payload deposit requests
     /// and caches the results for later use during `process_deposit_requests_post_gloas`.
+    #[instrument(skip_all)]
     pub fn cache_deposit_requests(&self, deposit_requests: &[DepositRequest], spec: &ChainSpec) {
         let mut builder_deposits = Vec::new();
         let mut builder_deposit_keys = Vec::new();

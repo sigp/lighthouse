@@ -1,8 +1,7 @@
 use crate::builder_deposits_cache::OnboardBuildersCache;
-use crate::per_block_processing::process_operations::{
-    VerifyBuilderSignature, is_pending_validator,
-};
-use crate::per_block_processing::process_operations::apply_deposit_for_builder;
+use crate::per_block_processing::is_valid_deposit_signature;
+use crate::per_block_processing::process_operations::is_pending_validator;
+use bls::PublicKeyBytes;
 use milhouse::{List, Vector};
 use safe_arith::SafeArith;
 use ssz_types::BitVector;
@@ -10,13 +9,13 @@ use ssz_types::FixedVector;
 use std::collections::HashMap;
 use std::mem;
 use std::sync::Arc;
+use tracing::instrument;
 use tree_hash::TreeHash;
 use typenum::Unsigned;
-use bls::PublicKeyBytes;
 use types::{
-    BeaconState, BeaconStateError as Error, BeaconStateGloas, BuilderPendingPayment, ChainSpec,
-    EthSpec, ExecutionPayloadBid, ExecutionRequests, Fork,
-    is_builder_withdrawal_credential,
+    Address, BeaconState, BeaconStateError as Error, BeaconStateGloas, Builder,
+    BuilderPendingPayment, ChainSpec, DepositData, EthSpec, ExecutionPayloadBid, ExecutionRequests,
+    Fork, is_builder_withdrawal_credential,
 };
 
 /// Controls how builder onboarding is handled during the Gloas fork `upgrade_to_gloas`.
@@ -52,6 +51,7 @@ impl GloasVerificationContext {
 }
 
 /// Transform a `Fulu` state into a `Gloas` state.
+#[instrument(skip_all)]
 pub fn upgrade_to_gloas<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
     context: GloasVerificationContext,
@@ -169,10 +169,7 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
             onboard_builders_from_pending_deposits(&mut post, None, spec)?;
             initialize_ptc_window(&mut post, spec)?;
         }
-        GloasVerificationContext::CommitteesOnly => {
-            // TODO(pawan): check if `initialize_ptc_window` can be done here.
-            // In some isolated benchmarks, it took 300ms, but that seems too high.
-        }
+        GloasVerificationContext::CommitteesOnly => {}
     }
 
     Ok(post)
@@ -183,6 +180,7 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
 /// The window contains:
 /// - One epoch of empty entries (previous epoch)
 /// - Computed PTC for the current epoch through `1 + MIN_SEED_LOOKAHEAD` epochs
+#[instrument(skip_all)]
 fn initialize_ptc_window<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
@@ -213,6 +211,10 @@ fn initialize_ptc_window<E: EthSpec>(
 }
 
 /// Applies any pending deposit for builders, effectively onboarding builders at the fork.
+///
+/// This function is optimised to use the builder onboarding cache which signature verifies
+/// and caches all 0x03 `PendingDeposits` before the fork to ensure that the fork upgrade is fast.
+#[instrument(skip_all)]
 fn onboard_builders_from_pending_deposits<E: EthSpec>(
     state: &mut BeaconState<E>,
     builder_onboarding_cache: Option<&OnboardBuildersCache>,
@@ -220,9 +222,9 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
 ) -> Result<(), Error> {
     let current_pending_deposits = state.pending_deposits()?.clone();
 
-    // A temporary lookup for builders that are added in the loop.
-    // TODO(gloas): can be removed if we end up creating a builder pubkey cache.
+    // At fork time the builders list is empty and all deposits are new registrations.
     let mut builder_pubkey_to_index: HashMap<PublicKeyBytes, u64> = HashMap::new();
+    let mut builders_vec: Vec<Builder> = Vec::with_capacity(current_pending_deposits.len());
     let mut pending_deposits = List::empty();
 
     for deposit in &current_pending_deposits {
@@ -233,7 +235,6 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
 
         let builder_index = builder_pubkey_to_index.get(&deposit.pubkey).copied();
 
-        // Equivalent to if deposit.pubkey not in builder_pubkeys:
         if builder_index.is_none() {
             if !is_builder_withdrawal_credential(deposit.withdrawal_credentials, spec)
                 || is_pending_validator::<E>(&pending_deposits, &deposit.pubkey, spec)
@@ -243,30 +244,71 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
             }
         }
 
-        let verify_signature = if let Some(cache) = builder_onboarding_cache {
-            cache.cached_is_valid_signature(deposit).into()
+        // Use the builder onboarding cache to get the signature verification result.
+        let is_valid_signature = if let Some(cache) = builder_onboarding_cache {
+            cache.cached_is_valid_signature(deposit)
         } else {
-            VerifyBuilderSignature::Verify
+            None
         };
 
-        if builder_index.is_none() {
-            let next_index = state.builders()?.len() as u64;
-            builder_pubkey_to_index.insert(deposit.pubkey, next_index);
-        }
+        // Note: this is a deviation from the spec. The spec simply calls `state.add_builder_to_registry`.
+        // `state.add_builder_to_registry` adds the deposits sequentially
+        // with `milhouse::List::push`. For a high number of deposits, this get significantly slower,
+        // since its a O(nlogn) operation.
+        match builder_index {
+            Some(idx) => {
+                // Top-up existing builder.
+                builders_vec
+                    .get_mut(idx as usize)
+                    .ok_or(Error::UnknownBuilder(idx))?
+                    .balance
+                    .safe_add_assign(deposit.amount)?;
+            }
+            None => {
+                // New builder registration — verify signature then add to vec.
+                let valid = match is_valid_signature {
+                    Some(v) => v,
+                    None => {
+                        let deposit_data = DepositData {
+                            pubkey: deposit.pubkey,
+                            withdrawal_credentials: deposit.withdrawal_credentials,
+                            amount: deposit.amount,
+                            signature: deposit.signature.clone(),
+                        };
+                        is_valid_deposit_signature(&deposit_data, spec).is_ok()
+                    }
+                };
 
-        apply_deposit_for_builder(
-            state,
-            builder_index,
-            deposit.pubkey,
-            deposit.withdrawal_credentials,
-            deposit.amount,
-            deposit.signature.clone(),
-            deposit.slot,
-            verify_signature,
-            spec,
-        )?;
+                if valid {
+                    let next_index = builders_vec.len() as u64;
+                    builder_pubkey_to_index.insert(deposit.pubkey, next_index);
+
+                    let version = *deposit
+                        .withdrawal_credentials
+                        .as_slice()
+                        .first()
+                        .ok_or(Error::WithdrawalCredentialMissingVersion)?;
+                    let execution_address = deposit
+                        .withdrawal_credentials
+                        .as_slice()
+                        .get(12..)
+                        .and_then(|bytes| Address::try_from(bytes).ok())
+                        .ok_or(Error::WithdrawalCredentialMissingAddress)?;
+
+                    builders_vec.push(Builder {
+                        pubkey: deposit.pubkey,
+                        version,
+                        execution_address,
+                        balance: deposit.amount,
+                        deposit_epoch: deposit.slot.epoch(E::slots_per_epoch()),
+                        withdrawable_epoch: spec.far_future_epoch,
+                    });
+                }
+            }
+        }
     }
 
+    *state.builders_mut()? = List::new(builders_vec)?;
     *state.pending_deposits_mut()? = pending_deposits;
 
     Ok(())
