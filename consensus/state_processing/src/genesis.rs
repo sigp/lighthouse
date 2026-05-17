@@ -4,8 +4,8 @@ use super::per_block_processing::{
 use crate::common::DepositDataTree;
 use crate::upgrade::electra::upgrade_state_to_electra;
 use crate::upgrade::{
-    upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb, upgrade_to_fulu,
-    upgrade_to_gloas,
+    GloasVerificationContext, upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella,
+    upgrade_to_deneb, upgrade_to_fulu, upgrade_to_gloas,
 };
 use fixed_bytes::FixedBytesExtended;
 use safe_arith::{ArithError, SafeArith};
@@ -162,7 +162,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         .gloas_fork_epoch
         .is_some_and(|fork_epoch| fork_epoch == E::genesis_epoch())
     {
-        upgrade_to_gloas(&mut state, None, spec)?;
+        upgrade_to_gloas(&mut state, GloasVerificationContext::FullVerification, spec)?;
 
         // Remove intermediate Fulu fork from `state.fork`.
         state.fork_mut().previous_version = spec.gloas_fork_version;

@@ -37,7 +37,8 @@ async fn runs_without_error() {
 mod release_tests {
     use super::*;
     use crate::{
-        EpochProcessingError, SlotProcessingError, per_slot_processing::per_slot_processing,
+        EpochProcessingError, GloasVerificationContext, SlotProcessingError,
+        per_slot_processing::per_slot_processing,
     };
     use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
     use std::sync::Arc;
@@ -81,7 +82,7 @@ mod release_tests {
         // Check the state is valid before starting this test.
         process_epoch(&mut altair_state.clone(), &spec)
             .expect("state passes intial epoch processing");
-        per_slot_processing(&mut altair_state.clone(), None, None, &spec)
+        per_slot_processing(&mut altair_state.clone(), None, GloasVerificationContext::FullVerification, &spec)
             .expect("state passes intial slot processing");
 
         // Modify the spec so altair never happens.
@@ -98,7 +99,7 @@ mod release_tests {
             Err(EpochProcessingError::InconsistentStateFork(expected_err))
         );
         assert_eq!(
-            per_slot_processing(&mut altair_state.clone(), None, None, &spec),
+            per_slot_processing(&mut altair_state.clone(), None, GloasVerificationContext::FullVerification, &spec),
             Err(SlotProcessingError::InconsistentStateFork(expected_err))
         );
     }
@@ -141,7 +142,7 @@ mod release_tests {
         // Check the state is valid before starting this test.
         process_epoch(&mut base_state.clone(), &spec)
             .expect("state passes intial epoch processing");
-        per_slot_processing(&mut base_state.clone(), None, None, &spec)
+        per_slot_processing(&mut base_state.clone(), None, GloasVerificationContext::FullVerification, &spec)
             .expect("state passes intial slot processing");
 
         // Modify the spec so Altair happens at the first epoch.
@@ -158,7 +159,7 @@ mod release_tests {
             Err(EpochProcessingError::InconsistentStateFork(expected_err))
         );
         assert_eq!(
-            per_slot_processing(&mut base_state.clone(), None, None, &spec),
+            per_slot_processing(&mut base_state.clone(), None, GloasVerificationContext::FullVerification, &spec),
             Err(SlotProcessingError::InconsistentStateFork(expected_err))
         );
     }

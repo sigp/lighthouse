@@ -120,8 +120,8 @@ use slasher::Slasher;
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
-    BlockSignatureStrategy, ConsensusContext, SigVerifiedOp, VerifyBlockRoot, VerifyOperation,
-    builder_deposits_cache::OnboardBuildersCache,
+    BlockSignatureStrategy, ConsensusContext, GloasVerificationContext, SigVerifiedOp,
+    VerifyBlockRoot, VerifyOperation, builder_deposits_cache::OnboardBuildersCache,
     common::get_attesting_indices_from_state,
     epoch_cache::initialize_epoch_cache,
     per_block_processing,
@@ -1518,7 +1518,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     match per_slot_processing(
                         &mut state,
                         skip_state_root,
-                        self.builder_onboarding_cache.as_deref(),
+                        GloasVerificationContext::from_cache(self.builder_onboarding_cache.clone()),
                         &self.spec,
                     ) {
                         Ok(_) => (),

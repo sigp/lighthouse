@@ -1,7 +1,7 @@
 use crate::{
-    BlockProcessingError, BlockSignatureStrategy, ConsensusContext, SlotProcessingError,
-    VerifyBlockRoot, per_block_processing, per_epoch_processing::EpochProcessingSummary,
-    per_slot_processing,
+    BlockProcessingError, BlockSignatureStrategy, ConsensusContext, GloasVerificationContext,
+    SlotProcessingError, VerifyBlockRoot, per_block_processing,
+    per_epoch_processing::EpochProcessingSummary, per_slot_processing,
 };
 use itertools::Itertools;
 use std::iter::Peekable;
@@ -231,7 +231,7 @@ where
                 }
 
                 let summary =
-                    per_slot_processing(&mut self.state, Some(state_root), None, self.spec)
+                    per_slot_processing(&mut self.state, Some(state_root), GloasVerificationContext::FullVerification, self.spec)
                         .map_err(BlockReplayError::from)?;
 
                 if let Some(ref mut post_slot_hook) = self.post_slot_hook {
@@ -279,7 +279,7 @@ where
                 }
 
                 let summary =
-                    per_slot_processing(&mut self.state, Some(state_root), None, self.spec)
+                    per_slot_processing(&mut self.state, Some(state_root), GloasVerificationContext::FullVerification, self.spec)
                         .map_err(BlockReplayError::from)?;
 
                 if let Some(ref mut post_slot_hook) = self.post_slot_hook {

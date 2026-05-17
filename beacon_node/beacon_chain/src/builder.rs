@@ -38,7 +38,7 @@ use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::AllCaches;
 use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use state_processing::genesis::genesis_block;
-use state_processing::per_slot_processing;
+use state_processing::{GloasVerificationContext, per_slot_processing};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
@@ -446,7 +446,7 @@ where
                 "Advancing checkpoint state to boundary"
             );
             while weak_subj_state.slot() % slots_per_epoch != 0 {
-                per_slot_processing(&mut weak_subj_state, None, None, &self.spec)
+                per_slot_processing(&mut weak_subj_state, None, GloasVerificationContext::FullVerification, &self.spec)
                     .map_err(|e| format!("Error advancing state: {e:?}"))?;
             }
         }

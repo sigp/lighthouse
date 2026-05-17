@@ -12,4 +12,4 @@ pub use capella::upgrade_to_capella;
 pub use deneb::upgrade_to_deneb;
 pub use electra::upgrade_to_electra;
 pub use fulu::upgrade_to_fulu;
-pub use gloas::upgrade_to_gloas;
+pub use gloas::{GloasVerificationContext, upgrade_to_gloas};

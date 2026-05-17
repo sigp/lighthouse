@@ -20,8 +20,8 @@ use fixed_bytes::FixedBytesExtended;
 use logging::create_test_tracing_subscriber;
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
-    BlockProcessingError, BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
-    common::{attesting_indices_base, attesting_indices_electra},
+    BlockProcessingError, BlockSignatureStrategy, ConsensusContext, GloasVerificationContext,
+    VerifyBlockRoot, common::{attesting_indices_base, attesting_indices_electra},
     per_block_processing, per_slot_processing,
 };
 use std::marker::PhantomData;
@@ -1696,7 +1696,7 @@ async fn add_base_block_to_altair_chain() {
     {
         let mut state = state;
         let mut ctxt = ConsensusContext::new(base_block.slot());
-        per_slot_processing(&mut state, None, None, &harness.chain.spec).unwrap();
+        per_slot_processing(&mut state, None, GloasVerificationContext::FullVerification, &harness.chain.spec).unwrap();
         assert!(matches!(
             per_block_processing(
                 &mut state,
@@ -1848,7 +1848,7 @@ async fn add_altair_block_to_base_chain() {
     {
         let mut state = state;
         let mut ctxt = ConsensusContext::new(altair_block.slot());
-        per_slot_processing(&mut state, None, None, &harness.chain.spec).unwrap();
+        per_slot_processing(&mut state, None, GloasVerificationContext::FullVerification, &harness.chain.spec).unwrap();
         assert!(matches!(
             per_block_processing(
                 &mut state,

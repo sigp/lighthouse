@@ -5,6 +5,7 @@
 //! duplication and protect against some easy-to-make mistakes when performing state advances.
 
 use crate::*;
+use crate::upgrade::GloasVerificationContext;
 use fixed_bytes::FixedBytesExtended;
 use tracing::instrument;
 use types::{BeaconState, ChainSpec, EthSpec, Hash256, Slot};
@@ -40,7 +41,7 @@ pub fn complete_state_advance<E: EthSpec>(
         // future iterations.
         let state_root_opt = state_root_opt.take();
 
-        per_slot_processing(state, state_root_opt, None, spec)
+        per_slot_processing(state, state_root_opt, GloasVerificationContext::FullVerification, spec)
             .map_err(Error::PerSlotProcessing)?;
     }
 
@@ -96,7 +97,7 @@ pub fn partial_state_advance<E: EthSpec>(
         // with the correct state root.
         let state_root = initial_state_root.take().unwrap_or_else(Hash256::zero);
 
-        per_slot_processing(state, Some(state_root), None, spec)
+        per_slot_processing(state, Some(state_root), GloasVerificationContext::CommitteesOnly, spec)
             .map_err(Error::PerSlotProcessing)?;
     }
 

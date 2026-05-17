@@ -46,5 +46,6 @@ pub use per_epoch_processing::{
     errors::EpochProcessingError, process_epoch as per_epoch_processing,
 };
 pub use per_slot_processing::{Error as SlotProcessingError, per_slot_processing};
+pub use upgrade::GloasVerificationContext;
 pub use types::{EpochCache, EpochCacheError, EpochCacheKey};
 pub use verify_operation::{SigVerifiedOp, TransformPersist, VerifyOperation, VerifyOperationAt};

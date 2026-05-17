@@ -81,8 +81,8 @@ use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use state_processing::per_block_processing::errors::IntoWithIndex;
 use state_processing::{
-    AllCaches, BlockProcessingError, BlockSignatureStrategy, ConsensusContext, SlotProcessingError,
-    VerifyBlockRoot,
+    AllCaches, BlockProcessingError, BlockSignatureStrategy, ConsensusContext,
+    GloasVerificationContext, SlotProcessingError, VerifyBlockRoot,
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
     per_block_processing, per_slot_processing,
     state_advance::partial_state_advance,
@@ -1542,7 +1542,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 state_root
             };
 
-            if let Some(summary) = per_slot_processing(&mut state, Some(state_root), chain.builder_onboarding_cache.as_deref(), &chain.spec)? {
+            if let Some(summary) = per_slot_processing(&mut state, Some(state_root), GloasVerificationContext::from_cache(chain.builder_onboarding_cache.clone()), &chain.spec)? {
                 // Expose Prometheus metrics.
                 if let Err(e) = summary.observe_metrics() {
                     error!(
