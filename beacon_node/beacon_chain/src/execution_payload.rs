@@ -18,15 +18,13 @@ use execution_layer::{
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slot_clock::SlotClock;
-use ssz_types::VariableList;
 use state_processing::per_block_processing::{
     compute_timestamp_at_slot, get_expected_withdrawals, is_execution_enabled,
     partially_verify_execution_payload,
 };
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use tracing::{Instrument, debug, debug_span, info, warn};
-use tree_hash::TreeHash;
+use tracing::{Instrument, debug_span, warn};
 use types::execution::BlockProductionVersion;
 use types::*;
 
@@ -47,7 +45,6 @@ pub enum NotifyExecutionLayer {
 pub struct PayloadNotifier<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
     pub block: Arc<SignedBeaconBlock<T::EthSpec>>,
-    pub inclusion_list_transactions: Transactions<T::EthSpec>,
     payload_verification_status: Option<PayloadVerificationStatus>,
 }
 
@@ -100,38 +97,10 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
             Some(PayloadVerificationStatus::Irrelevant)
         };
 
-        let inclusion_list_transactions = if chain
-            .spec
-            .is_focil_enabled_for_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch()))
-        {
-            // Inclusion lists are those submitted for the prior slot.
-            let il_slot = block.slot().saturating_sub(1_u64);
-            let inclusion_list_transactions =
-                chain
-                    .inclusion_list_cache
-                    .read()
-                    .get_inclusion_list_transactions(il_slot, true)
-                    .unwrap_or(VariableList::new(vec![]).map_err(|_| {
-                        BlockError::InternalError("Cant create empty IL".to_string())
-                    })?);
-
-            info!(
-                tx_count = inclusion_list_transactions.len(),
-                slot = ?il_slot,
-                "Adding inclusion list transactions in the Payload Notifier"
-            );
-            inclusion_list_transactions
-        } else {
-            // TODO(heze) what should be done here in terms of error handling
-            VariableList::new(vec![])
-                .map_err(|_| BlockError::InternalError("Cant create empty IL".to_string()))?
-        };
-
         Ok(Self {
             chain,
             block,
             payload_verification_status,
-            inclusion_list_transactions,
         })
     }
 
@@ -141,8 +110,9 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         } else {
             notify_new_payload(
                 &self.chain,
-                self.block.message(),
-                self.inclusion_list_transactions,
+                self.block.message().slot(),
+                self.block.message().parent_root(),
+                self.block.message().try_into()?,
             )
             .await
         }
@@ -160,26 +130,15 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.9/specs/bellatrix/beacon-chain.md#notify_new_payload
 pub async fn notify_new_payload<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
-    block: BeaconBlockRef<'_, T::EthSpec>,
-    il_transactions: Transactions<T::EthSpec>,
+    slot: Slot,
+    parent_beacon_block_root: Hash256,
+    new_payload_request: NewPayloadRequest<'_, T::EthSpec>,
 ) -> Result<PayloadVerificationStatus, BlockError> {
-    let slot = block.slot();
-    let parent_beacon_block_root = block.parent_root();
     let execution_layer = chain
         .execution_layer
         .as_ref()
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
 
-    // TODO(eip-7805) we can remove this later
-    if !il_transactions.is_empty() {
-        info!(
-            il_tx_count = il_transactions.len(),
-            "Submit new payload with il_transactions"
-        );
-    }
-
-    let new_payload_request =
-        NewPayloadRequest::try_from_block_and_il_transactions(block, il_transactions)?;
     let execution_block_hash = new_payload_request.execution_payload_ref().block_hash();
     let new_payload_response = execution_layer
         .notify_new_payload(new_payload_request.clone())
@@ -220,25 +179,6 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
                 if let Some(latest_valid_hash) =
                     latest_valid_hash.filter(|hash| *hash != ExecutionBlockHash::zero())
                 {
-                    // This block has not yet been applied to fork choice, so the latest block that was
-                    // imported to fork choice was the parent.
-                    // If the payload is invalid because it didn't satisfy the inclusion list
-                    // transactions for this slot, update the fork choice store before processing
-                    // the invalid EL payload.
-                    if *validation_error == Some("INVALID_INCLUSION_LIST".to_string()) {
-                        debug!(
-                            slot = ?block.slot(),
-                            blocK_root = %block.tree_hash_root(),
-                            "Unsatisfied inclusion list"
-                        );
-                        chain
-                            .record_payload_inclusion_list_satisfaction(
-                                block.tree_hash_root(),
-                                false,
-                            )
-                            .await?;
-                    }
-
                     chain
                         .process_invalid_execution_payload(&InvalidationOperation::InvalidateMany {
                             head_block_root: parent_beacon_block_root,
@@ -264,74 +204,6 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
                 // Returning an error here should be sufficient to invalidate the block. We have no
                 // information to indicate its parent is invalid, so no need to run
                 // `BeaconChain::process_invalid_execution_payload`.
-                Err(ExecutionPayloadError::RejectedByExecutionEngine { status }.into())
-            }
-        },
-        Err(e) => Err(ExecutionPayloadError::RequestFailed(e).into()),
-    }
-}
-
-/// Notify the EL with a pre-built `NewPayloadRequest`. Used for Gloas where the payload
-/// comes from a `SignedExecutionPayloadEnvelope` rather than the beacon block body.
-pub async fn notify_new_payload_with_request<T: BeaconChainTypes>(
-    chain: &Arc<BeaconChain<T>>,
-    slot: Slot,
-    parent_beacon_block_root: Hash256,
-    new_payload_request: NewPayloadRequest<'_, T::EthSpec>,
-) -> Result<PayloadVerificationStatus, BlockError> {
-    let execution_layer = chain
-        .execution_layer
-        .as_ref()
-        .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
-
-    let execution_block_hash = new_payload_request.execution_payload_ref().block_hash();
-    let new_payload_response = execution_layer
-        .notify_new_payload(new_payload_request.clone())
-        .await;
-
-    match new_payload_response {
-        Ok(status) => match status {
-            PayloadStatus::Valid => Ok(PayloadVerificationStatus::Verified),
-            PayloadStatus::Syncing | PayloadStatus::Accepted => {
-                Ok(PayloadVerificationStatus::Optimistic)
-            }
-            PayloadStatus::Invalid {
-                latest_valid_hash,
-                ref validation_error,
-            } => {
-                warn!(
-                    ?validation_error,
-                    ?latest_valid_hash,
-                    ?execution_block_hash,
-                    %slot,
-                    method = "new_payload",
-                    "Invalid execution payload"
-                );
-
-                if let Some(latest_valid_hash) =
-                    latest_valid_hash.filter(|hash| *hash != ExecutionBlockHash::zero())
-                {
-                    chain
-                        .process_invalid_execution_payload(&InvalidationOperation::InvalidateMany {
-                            head_block_root: parent_beacon_block_root,
-                            always_invalidate_head: false,
-                            latest_valid_ancestor: latest_valid_hash,
-                        })
-                        .await?;
-                }
-
-                Err(ExecutionPayloadError::RejectedByExecutionEngine { status }.into())
-            }
-            PayloadStatus::InvalidBlockHash {
-                ref validation_error,
-            } => {
-                warn!(
-                    ?validation_error,
-                    ?execution_block_hash,
-                    %slot,
-                    method = "new_payload",
-                    "Invalid execution payload block hash"
-                );
                 Err(ExecutionPayloadError::RejectedByExecutionEngine { status }.into())
             }
         },

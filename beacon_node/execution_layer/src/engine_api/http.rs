@@ -72,9 +72,6 @@ pub const ENGINE_GET_BLOBS_TIMEOUT: Duration = Duration::from_secs(1);
 pub const ENGINE_GET_INCLUSION_LIST_V1: &str = "engine_getInclusionListV1";
 pub const ENGINE_GET_INCLUSION_LIST_TIMEOUT: Duration = Duration::from_secs(1);
 
-pub const ENGINE_IS_INCLUSION_LIST_SATISFIED_V1: &str = "engine_isInclusionListSatisfiedV1";
-pub const ENGINE_IS_INCLUSION_LIST_SATISFIED_TIMEOUT: Duration = Duration::from_secs(1);
-
 /// This error is returned during a `chainId` call by Geth.
 pub const EIP155_ERROR_STR: &str = "chain not synced beyond EIP-155 replay-protection fork block";
 /// This code is returned by all clients when a method is not supported
@@ -105,7 +102,6 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_GET_BLOBS_V1,
     ENGINE_GET_BLOBS_V2,
     ENGINE_GET_INCLUSION_LIST_V1,
-    ENGINE_IS_INCLUSION_LIST_SATISFIED_V1,
 ];
 
 /// We opt to initialize the JsonClientVersionV1 rather than the ClientVersionV1
@@ -758,8 +754,11 @@ impl HttpJsonRpc {
 
     pub async fn update_payload_with_inclusion_list<E: EthSpec>(&self) {}
 
-    pub async fn get_inclusion_list<E: EthSpec>(&self) -> Result<Option<Vec<String>>, Error> {
-        let params = json!([]);
+    pub async fn get_inclusion_list<E: EthSpec>(
+        &self,
+        parent_hash: ExecutionBlockHash,
+    ) -> Result<Option<Vec<String>>, Error> {
+        let params = json!([parent_hash]);
 
         self.rpc_request(
             ENGINE_GET_INCLUSION_LIST_V1,
@@ -945,45 +944,6 @@ impl HttpJsonRpc {
             new_payload_request_gloas
                 .execution_requests
                 .get_execution_requests_list(),
-        ]);
-
-        let response: JsonPayloadStatusV1 = self
-            .rpc_request(
-                ENGINE_NEW_PAYLOAD_V5,
-                params,
-                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
-            )
-            .await?;
-
-        Ok(response.into())
-    }
-
-    pub async fn new_payload_v5_heze<E: EthSpec>(
-        &self,
-        new_payload_request_heze: NewPayloadRequestHeze<'_, E>,
-    ) -> Result<PayloadStatusV1, Error> {
-        let il_transactions: Vec<String> = new_payload_request_heze
-            .il_transactions
-            .iter()
-            .map(|tx| {
-                let bytes: Vec<u8> = tx.clone().into();
-                format!("0x{}", hex::encode(bytes))
-            })
-            .collect();
-
-        let params = json!([
-            JsonExecutionPayload::Heze(
-                new_payload_request_heze
-                    .execution_payload
-                    .clone()
-                    .try_into()?
-            ),
-            new_payload_request_heze.versioned_hashes,
-            new_payload_request_heze.parent_beacon_block_root,
-            new_payload_request_heze
-                .execution_requests
-                .get_execution_requests_list(),
-            il_transactions
         ]);
 
         let response: JsonPayloadStatusV1 = self
@@ -1348,26 +1308,6 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
-    pub async fn is_inclusion_list_satisfied(
-        &self,
-        execution_payload_hash: ExecutionBlockHash,
-        inclusion_list_transactions: Vec<Vec<u8>>,
-    ) -> Result<bool, Error> {
-        let hex_transactions: Vec<String> = inclusion_list_transactions
-            .into_iter()
-            .map(|tx| format!("0x{}", hex::encode(tx)))
-            .collect();
-
-        let params = json!([execution_payload_hash, hex_transactions]);
-
-        self.rpc_request(
-            ENGINE_IS_INCLUSION_LIST_SATISFIED_V1,
-            params,
-            ENGINE_IS_INCLUSION_LIST_SATISFIED_TIMEOUT * self.execution_timeout_multiplier,
-        )
-        .await
-    }
-
     pub async fn get_payload_bodies_by_hash_v1<E: EthSpec>(
         &self,
         block_hashes: Vec<ExecutionBlockHash>,
@@ -1458,8 +1398,6 @@ impl HttpJsonRpc {
             get_inclusion_list_v1: capabilities.contains(ENGINE_GET_INCLUSION_LIST_V1),
             get_blobs_v3: capabilities.contains(ENGINE_GET_BLOBS_V3),
             forkchoice_updated_v5: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V5),
-            is_inclusion_list_satisfied_v1: capabilities
-                .contains(ENGINE_IS_INCLUSION_LIST_SATISFIED_V1),
         })
     }
 

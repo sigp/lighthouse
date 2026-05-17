@@ -29,12 +29,14 @@ use types::{
     Address, Attestation, AttestationElectra, AttesterSlashing, AttesterSlashingElectra,
     BeaconBlock, BeaconBlockBodyGloas, BeaconBlockBodyHeze, BeaconBlockGloas, BeaconBlockHeze,
     BeaconState, BeaconStateError, BuilderIndex, ChainSpec, Deposit, Eth1Data, EthSpec,
-    ExecutionBlockHash, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze,
-    ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, FullPayload, Graffiti,
-    Hash256, PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
-    SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas,
-    SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope, SignedVoluntaryExit, Slot,
-    SyncAggregate, Withdrawal, Withdrawals,
+    ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze,
+    ExecutionPayloadEnvelope, ExecutionPayloadEnvelopeGloas, ExecutionPayloadEnvelopeHeze,
+    ExecutionRequests, ForkName, FullPayload, Graffiti, Hash256, PayloadAttestation,
+    ProposerSlashing, RelativeEpoch, SignedBeaconBlock, SignedBlsToExecutionChange,
+    SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze,
+    SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeGloas,
+    SignedExecutionPayloadEnvelopeHeze, SignedVoluntaryExit, Slot, SyncAggregate, Withdrawal,
+    Withdrawals,
 };
 
 use crate::pending_payload_envelopes::PendingEnvelopeData;
@@ -72,8 +74,8 @@ pub struct PartialBeaconBlock<E: EthSpec> {
 
 /// Data needed to construct an ExecutionPayloadEnvelope.
 /// The envelope requires the beacon_block_root which can only be computed after the block exists.
-pub struct ExecutionPayloadData<E: types::EthSpec> {
-    pub payload: ExecutionPayloadGloas<E>,
+pub struct ExecutionPayloadData<E: EthSpec> {
+    pub payload: ExecutionPayload<E>,
     pub execution_requests: ExecutionRequests<E>,
     pub builder_index: BuilderIndex,
     pub slot: Slot,
@@ -156,7 +158,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let parent_execution_requests = if parent_payload_status == PayloadStatus::Full {
             parent_envelope
                 .as_ref()
-                .map(|env| env.message.execution_requests.clone())
+                .map(|env| env.message().execution_requests().clone())
                 .ok_or(BlockProductionError::MissingParentExecutionPayload)?
         } else {
             ExecutionRequests::default()
@@ -595,36 +597,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 })
             }
             BeaconState::Heze(_) => {
-                // Compute inclusion_list_bits for the previous slot's ILs
-                let il_slot = slot.saturating_sub(1_u64);
-                let inclusion_list_bits = state
-                    .get_inclusion_list_committee(il_slot, &self.spec)
-                    .map(|committee| {
-                        self.inclusion_list_cache
-                            .read()
-                            .get_inclusion_list_bits(il_slot, &committee, false)
-                    })
-                    .unwrap_or_default();
                 let heze_bid = match signed_execution_payload_bid {
                     SignedExecutionPayloadBid::Heze(bid) => bid,
-                    SignedExecutionPayloadBid::Gloas(gloas_bid) => SignedExecutionPayloadBidHeze {
-                        message: ExecutionPayloadBidHeze {
-                            parent_block_hash: gloas_bid.message.parent_block_hash,
-                            parent_block_root: gloas_bid.message.parent_block_root,
-                            block_hash: gloas_bid.message.block_hash,
-                            prev_randao: gloas_bid.message.prev_randao,
-                            fee_recipient: gloas_bid.message.fee_recipient,
-                            gas_limit: gloas_bid.message.gas_limit,
-                            builder_index: gloas_bid.message.builder_index,
-                            slot: gloas_bid.message.slot,
-                            value: gloas_bid.message.value,
-                            execution_payment: gloas_bid.message.execution_payment,
-                            blob_kzg_commitments: gloas_bid.message.blob_kzg_commitments,
-                            execution_requests_root: gloas_bid.message.execution_requests_root,
-                            inclusion_list_bits,
-                        },
-                        signature: gloas_bid.signature,
-                    },
+                    SignedExecutionPayloadBid::Gloas(_) => {
+                        return Err(BlockProductionError::GloasNotImplemented(
+                            "Gloas bid variant used with Heze state".to_owned(),
+                        ));
+                    }
                 };
                 BeaconBlock::Heze(BeaconBlockHeze {
                     slot,
@@ -719,17 +698,44 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(payload_data) = payload_data {
             let beacon_block_root = block.tree_hash_root();
             let parent_beacon_block_root = block.parent_root();
-            let execution_payload_envelope = ExecutionPayloadEnvelope {
-                payload: payload_data.payload,
-                execution_requests: payload_data.execution_requests,
-                builder_index: payload_data.builder_index,
-                beacon_block_root,
-                parent_beacon_block_root,
+
+            let envelope = match payload_data.payload {
+                ExecutionPayload::Gloas(payload) => {
+                    ExecutionPayloadEnvelope::Gloas(ExecutionPayloadEnvelopeGloas {
+                        payload,
+                        execution_requests: payload_data.execution_requests,
+                        builder_index: payload_data.builder_index,
+                        beacon_block_root,
+                        parent_beacon_block_root,
+                    })
+                }
+                ExecutionPayload::Heze(payload) => {
+                    ExecutionPayloadEnvelope::Heze(ExecutionPayloadEnvelopeHeze {
+                        payload,
+                        execution_requests: payload_data.execution_requests,
+                        builder_index: payload_data.builder_index,
+                        beacon_block_root,
+                        parent_beacon_block_root,
+                    })
+                }
+                _ => {
+                    return Err(BlockProductionError::InvalidPayloadFork);
+                }
             };
 
-            let signed_envelope = SignedExecutionPayloadEnvelope {
-                message: execution_payload_envelope,
-                signature: Signature::empty(),
+            let signed_envelope = match &envelope {
+                ExecutionPayloadEnvelope::Gloas(msg) => {
+                    SignedExecutionPayloadEnvelope::Gloas(SignedExecutionPayloadEnvelopeGloas {
+                        message: msg.clone(),
+                        signature: Signature::empty(),
+                    })
+                }
+                ExecutionPayloadEnvelope::Heze(msg) => {
+                    SignedExecutionPayloadEnvelope::Heze(SignedExecutionPayloadEnvelopeHeze {
+                        message: msg.clone(),
+                        signature: Signature::empty(),
+                    })
+                }
             };
 
             // Verify the envelope against the state. This performs no state mutation.
@@ -750,7 +756,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.pending_payload_envelopes.write().insert(
                 envelope_slot,
                 PendingEnvelopeData {
-                    envelope: signed_envelope.message,
+                    envelope,
                     blobs: Some(blobs),
                 },
             );
@@ -876,19 +882,60 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // TODO(gloas) since we are defaulting to local building, execution payment is 0
         // execution payment should only be set to > 0 for trusted building.
-        let bid = ExecutionPayloadBidGloas::<T::EthSpec> {
-            parent_block_hash,
-            parent_block_root: parent_root,
-            block_hash: payload.block_hash,
-            prev_randao: payload.prev_randao,
-            fee_recipient: Address::ZERO,
-            gas_limit: payload.gas_limit,
-            builder_index,
-            slot: produce_at_slot,
-            value: bid_value,
-            execution_payment: EXECUTION_PAYMENT_TRUSTLESS_BUILD,
-            blob_kzg_commitments,
-            execution_requests_root: execution_requests.tree_hash_root(),
+        let fork_name = self.spec.fork_name_at_slot::<T::EthSpec>(produce_at_slot);
+        let signed_bid = match fork_name {
+            ForkName::Heze => {
+                // Compute inclusion_list_bits from the previous slot's observed ILs.
+                let il_slot = produce_at_slot.saturating_sub(1_u64);
+                let inclusion_list_bits = state
+                    .get_inclusion_list_committee(il_slot, &self.spec)
+                    .map(|committee| {
+                        self.inclusion_list_cache
+                            .read()
+                            .get_inclusion_list_bits(il_slot, &committee, false)
+                    })
+                    .unwrap_or_default();
+
+                let bid = ExecutionPayloadBidHeze::<T::EthSpec> {
+                    parent_block_hash,
+                    parent_block_root: parent_root,
+                    block_hash: payload.block_hash(),
+                    prev_randao: payload.prev_randao(),
+                    fee_recipient: Address::ZERO,
+                    gas_limit: payload.gas_limit(),
+                    builder_index,
+                    slot: produce_at_slot,
+                    value: bid_value,
+                    execution_payment: EXECUTION_PAYMENT_TRUSTLESS_BUILD,
+                    blob_kzg_commitments,
+                    execution_requests_root: execution_requests.tree_hash_root(),
+                    inclusion_list_bits,
+                };
+                SignedExecutionPayloadBid::Heze(SignedExecutionPayloadBidHeze {
+                    message: bid,
+                    signature: Signature::infinity().map_err(BlockProductionError::BlsError)?,
+                })
+            }
+            _ => {
+                let bid = ExecutionPayloadBidGloas::<T::EthSpec> {
+                    parent_block_hash,
+                    parent_block_root: parent_root,
+                    block_hash: payload.block_hash(),
+                    prev_randao: payload.prev_randao(),
+                    fee_recipient: Address::ZERO,
+                    gas_limit: payload.gas_limit(),
+                    builder_index,
+                    slot: produce_at_slot,
+                    value: bid_value,
+                    execution_payment: EXECUTION_PAYMENT_TRUSTLESS_BUILD,
+                    blob_kzg_commitments,
+                    execution_requests_root: execution_requests.tree_hash_root(),
+                };
+                SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
+                    message: bid,
+                    signature: Signature::infinity().map_err(BlockProductionError::BlsError)?,
+                })
+            }
         };
 
         // Store payload data for envelope construction after block is created
@@ -901,10 +948,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         Ok((
-            SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
-                message: bid,
-                signature: Signature::infinity().map_err(BlockProductionError::BlsError)?,
-            }),
+            signed_bid,
             state,
             LocalBuildResult {
                 payload_data,
@@ -1050,7 +1094,7 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
             let mut withdrawals_state = state.clone();
             apply_parent_execution_payload(
                 &mut withdrawals_state,
-                &envelope.message.execution_requests,
+                envelope.message().execution_requests(),
                 spec,
             )?;
             Withdrawals::<T::EthSpec>::from(get_expected_withdrawals(&withdrawals_state, spec)?)
@@ -1231,7 +1275,10 @@ fn filter_voluntary_exits_for_parent_execution_requests<E: EthSpec>(
 mod tests {
     use super::*;
     use ssz_types::VariableList;
-    use types::{ConsolidationRequest, Epoch, MainnetEthSpec, VoluntaryExit, WithdrawalRequest};
+    use types::{
+        ConsolidationRequest, Epoch, ExecutionPayloadGloas, MainnetEthSpec, VoluntaryExit,
+        WithdrawalRequest,
+    };
 
     type TestSpec = MainnetEthSpec;
 
@@ -1399,7 +1446,7 @@ mod tests {
     fn local_build(payload_gwei: u64, should_override_builder: bool) -> LocalBuildResult<TestSpec> {
         LocalBuildResult {
             payload_data: ExecutionPayloadData {
-                payload: types::ExecutionPayloadGloas::default(),
+                payload: ExecutionPayload::Gloas(ExecutionPayloadGloas::default()),
                 execution_requests: ExecutionRequests::default(),
                 builder_index: BUILDER_INDEX_SELF_BUILD,
                 slot: Slot::new(0),

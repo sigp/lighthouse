@@ -44,7 +44,6 @@ use tokio::{
 use tokio_stream::wrappers::WatchStream;
 use tracing::{Instrument, debug, debug_span, error, info, instrument, warn};
 use tree_hash::TreeHash;
-use types::ExecutionPayloadGloas;
 use types::ExecutionPayloadHeze;
 use types::builder::BuilderBid;
 use types::execution::BlockProductionVersion;
@@ -115,13 +114,6 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
             },
             BuilderBid::Electra(builder_bid) => BlockProposalContents::PayloadAndBlobs {
                 payload: ExecutionPayloadHeader::Electra(builder_bid.header).into(),
-                block_value: builder_bid.value,
-                kzg_commitments: builder_bid.blob_kzg_commitments,
-                blobs_and_proofs: None,
-                requests: Some(builder_bid.execution_requests),
-            },
-            BuilderBid::Heze(builder_bid) => BlockProposalContents::PayloadAndBlobs {
-                payload: ExecutionPayloadHeader::Heze(builder_bid.header).into(),
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
                 blobs_and_proofs: None,
@@ -217,7 +209,7 @@ pub enum BlockProposalContentsType<E: EthSpec> {
 }
 
 pub struct BlockProposalContentsGloas<E: EthSpec> {
-    pub payload: ExecutionPayloadGloas<E>,
+    pub payload: ExecutionPayload<E>,
     pub payload_value: Uint256,
     pub blob_kzg_commitments: KzgCommitments<E>,
     pub blobs_and_proofs: (BlobsList<E>, KzgProofs<E>),
@@ -228,7 +220,20 @@ pub struct BlockProposalContentsGloas<E: EthSpec> {
 impl<E: EthSpec> From<GetPayloadResponseGloas<E>> for BlockProposalContentsGloas<E> {
     fn from(response: GetPayloadResponseGloas<E>) -> Self {
         Self {
-            payload: response.execution_payload,
+            payload: ExecutionPayload::Gloas(response.execution_payload),
+            payload_value: response.block_value,
+            blob_kzg_commitments: response.blobs_bundle.commitments,
+            blobs_and_proofs: (response.blobs_bundle.blobs, response.blobs_bundle.proofs),
+            execution_requests: response.requests,
+            should_override_builder: response.should_override_builder,
+        }
+    }
+}
+
+impl<E: EthSpec> From<GetPayloadResponseHeze<E>> for BlockProposalContentsGloas<E> {
+    fn from(response: GetPayloadResponseHeze<E>) -> Self {
+        Self {
+            payload: ExecutionPayload::Heze(response.execution_payload),
             payload_value: response.block_value,
             blob_kzg_commitments: response.blobs_bundle.commitments,
             blobs_and_proofs: (response.blobs_bundle.blobs, response.blobs_bundle.proofs),
@@ -958,7 +963,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 // convert via BlockProposalContentsHeze then into Gloas.
                 let heze: BlockProposalContentsHeze<E> = resp.into();
                 BlockProposalContentsGloas {
-                    payload: ExecutionPayloadGloas {
+                    payload: ExecutionPayload::Heze(ExecutionPayloadHeze {
                         parent_hash: heze.payload.parent_hash,
                         fee_recipient: heze.payload.fee_recipient,
                         state_root: heze.payload.state_root,
@@ -978,7 +983,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                         excess_blob_gas: heze.payload.excess_blob_gas,
                         block_access_list: heze.payload.block_access_list,
                         slot_number: heze.payload.slot_number,
-                    },
+                    }),
                     payload_value: heze.payload_value,
                     blob_kzg_commitments: heze.blob_kzg_commitments,
                     blobs_and_proofs: heze.blobs_and_proofs,
@@ -1562,22 +1567,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
             .map_err(Error::EngineError)
     }
 
-    pub async fn is_inclusion_list_satisfied(
-        &self,
-        payload_block_hash: ExecutionBlockHash,
-        inclusion_list_transactions: Vec<Vec<u8>>,
-    ) -> Result<bool, Error> {
-        self.engine()
-            .request(|engine| {
-                engine
-                    .api
-                    .is_inclusion_list_satisfied(payload_block_hash, inclusion_list_transactions)
-            })
-            .await
-            .map_err(Box::new)
-            .map_err(Error::EngineError)
-    }
-
     /// Update engine sync status.
     pub async fn upcheck(&self) {
         self.engine().upcheck().await;
@@ -2006,9 +1995,16 @@ impl<E: EthSpec> ExecutionLayer<E> {
         }
     }
 
-    pub async fn get_inclusion_list(&self) -> Result<Transactions<E>, Error> {
+    pub async fn get_inclusion_list(
+        &self,
+        parent_hash: ExecutionBlockHash,
+    ) -> Result<Transactions<E>, Error> {
         debug!("Requesting inclusion list from EL");
-        let raw_transactions = self.engine().api.get_inclusion_list::<E>().await?;
+        let raw_transactions = self
+            .engine()
+            .api
+            .get_inclusion_list::<E>(parent_hash)
+            .await?;
 
         let mut transactions = vec![];
 

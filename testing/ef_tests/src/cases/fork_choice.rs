@@ -33,9 +33,9 @@ use std::time::Duration;
 use types::{
     Attestation, AttestationRef, AttesterSlashing, AttesterSlashingRef, BeaconBlock, BeaconState,
     BlobSidecar, BlobsList, BlockImportSource, Checkpoint, DataColumnSidecar,
-    DataColumnSidecarList, DataColumnSubnetId, ExecutionBlockHash, Hash256, IndexedAttestation,
-    KzgProof, ProposerPreparationData, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
-    Uint256,
+    DataColumnSidecarList, DataColumnSubnetId, ExecutionBlockHash, ForkVersionDecode, Hash256,
+    IndexedAttestation, KzgProof, ProposerPreparationData, SignedBeaconBlock,
+    SignedExecutionPayloadEnvelope, Slot, Uint256,
 };
 
 // When set to true, cache any states fetched from the db.
@@ -294,8 +294,12 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                     execution_payload,
                     valid,
                 } => {
-                    let envelope =
-                        ssz_decode_file(&path.join(format!("{execution_payload}.ssz_snappy")))?;
+                    let envelope = ssz_decode_file_with(
+                        &path.join(format!("{execution_payload}.ssz_snappy")),
+                        |bytes| {
+                            SignedExecutionPayloadEnvelope::from_ssz_bytes_by_fork(bytes, fork_name)
+                        },
+                    )?;
                     Ok(Step::OnExecutionPayload {
                         execution_payload: envelope,
                         valid,
@@ -990,8 +994,8 @@ impl<E: EthSpec> Tester<E> {
         signed_envelope: &SignedExecutionPayloadEnvelope<E>,
         valid: bool,
     ) -> Result<(), Error> {
-        let block_root = signed_envelope.message.beacon_block_root;
-        let block_hash = signed_envelope.message.payload.block_hash;
+        let block_root = signed_envelope.message().beacon_block_root();
+        let block_hash = signed_envelope.message().payload().block_hash();
         let store = &self.harness.chain.store;
         let spec = &self.harness.chain.spec;
 

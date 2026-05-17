@@ -114,9 +114,6 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Electra(header) => {
                 header.fee_recipient = fee_recipient;
             }
-            ExecutionPayloadHeaderRefMut::Heze(header) => {
-                header.fee_recipient = fee_recipient;
-            }
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
                 header.fee_recipient = fee_recipient;
             }
@@ -135,9 +132,6 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
                 header.gas_limit = gas_limit;
             }
             ExecutionPayloadHeaderRefMut::Electra(header) => {
-                header.gas_limit = gas_limit;
-            }
-            ExecutionPayloadHeaderRefMut::Heze(header) => {
                 header.gas_limit = gas_limit;
             }
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
@@ -164,9 +158,6 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Electra(header) => {
                 header.parent_hash = ExecutionBlockHash::from_root(parent_hash);
             }
-            ExecutionPayloadHeaderRefMut::Heze(header) => {
-                header.parent_hash = ExecutionBlockHash::from_root(parent_hash);
-            }
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
                 header.parent_hash = ExecutionBlockHash::from_root(parent_hash);
             }
@@ -185,9 +176,6 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
                 header.prev_randao = prev_randao;
             }
             ExecutionPayloadHeaderRefMut::Electra(header) => {
-                header.prev_randao = prev_randao;
-            }
-            ExecutionPayloadHeaderRefMut::Heze(header) => {
                 header.prev_randao = prev_randao;
             }
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
@@ -210,9 +198,6 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Electra(header) => {
                 header.block_number = block_number;
             }
-            ExecutionPayloadHeaderRefMut::Heze(header) => {
-                header.block_number = block_number;
-            }
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
                 header.block_number = block_number;
             }
@@ -233,9 +218,6 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Electra(header) => {
                 header.timestamp = timestamp;
             }
-            ExecutionPayloadHeaderRefMut::Heze(header) => {
-                header.timestamp = timestamp;
-            }
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
                 header.timestamp = timestamp;
             }
@@ -254,9 +236,6 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
                 header.withdrawals_root = withdrawals_root;
             }
             ExecutionPayloadHeaderRefMut::Electra(header) => {
-                header.withdrawals_root = withdrawals_root;
-            }
-            ExecutionPayloadHeaderRefMut::Heze(header) => {
                 header.withdrawals_root = withdrawals_root;
             }
             ExecutionPayloadHeaderRefMut::Fulu(header) => {
@@ -288,10 +267,6 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
                 header.block_hash = ExecutionBlockHash::from_root(header.tree_hash_root());
             }
             ExecutionPayloadHeaderRefMut::Electra(header) => {
-                header.extra_data = extra_data;
-                header.block_hash = ExecutionBlockHash::from_root(header.tree_hash_root());
-            }
-            ExecutionPayloadHeaderRefMut::Heze(header) => {
                 header.extra_data = extra_data;
                 header.block_hash = ExecutionBlockHash::from_root(header.tree_hash_root());
             }

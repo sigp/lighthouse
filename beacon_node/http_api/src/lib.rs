@@ -1046,7 +1046,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::query::<api_types::BroadcastValidationQuery>())
         .and(warp::path::end())
         .and(warp_utils::json::json())
-        .and(consensus_version_header_filter)
+        .and(consensus_version_header_filter.clone())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
@@ -1569,6 +1569,7 @@ pub fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
+        consensus_version_header_filter.clone(),
     );
 
     // GET beacon/execution_payload_envelope/{block_id}

@@ -129,11 +129,17 @@ pub async fn handle_rpc<E: EthSpec>(
                     })
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
                 ENGINE_NEW_PAYLOAD_V5 => {
+                    // V5 is for Gloas; fall back to Heze for backward compat
                     get_param::<JsonExecutionPayloadGloas<E>>(params, 0)
                         .map(|jep| JsonExecutionPayload::Gloas(jep))
+                        .or_else(|_| {
+                            get_param::<JsonExecutionPayloadHeze<E>>(params, 0)
+                                .map(|jep| JsonExecutionPayload::Heze(jep))
+                        })
                         .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
                 }
                 ENGINE_NEW_PAYLOAD_V6 => {
+                    // V6 is for Heze (Bogota EL fork)
                     get_param::<JsonExecutionPayloadHeze<E>>(params, 0)
                         .map(|jep| JsonExecutionPayload::Heze(jep))
                         .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?

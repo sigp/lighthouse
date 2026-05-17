@@ -65,6 +65,13 @@ pub const QUEUED_SAMPLING_REQUESTS_DELAY: Duration = Duration::from_secs(12);
 /// For how long to queue delayed column reconstruction.
 pub const QUEUED_RECONSTRUCTION_DELAY: Duration = Duration::from_millis(150);
 
+/// Maximum number of times an envelope can be retried for transient EL errors.
+const MAX_ENVELOPE_RETRIES: u8 = 3;
+
+/// Fallback timeout multiplier for retry envelopes (in slots). If no BlockImported event
+/// triggers the retry within this duration, the envelope is dispatched anyway.
+const RETRY_ENVELOPE_TIMEOUT_SLOTS: u32 = 1;
+
 /// Set an arbitrary upper-bound on the number of queued blocks to avoid DoS attacks. The fact that
 /// we signature-verify blocks before putting them in the queue *should* protect against this, but
 /// it's nice to have extra protection.
@@ -101,8 +108,12 @@ pub const RECONSTRUCTION_DEADLINE: (u64, u64) = (1, 4);
 pub enum ReprocessQueueMessage {
     /// A block that has been received early and we should queue for later processing.
     EarlyBlock(QueuedGossipBlock),
+    /// An execution payload envelope that arrived before its slot and should be queued for later processing.
+    EarlyEnvelope(QueuedGossipEnvelope),
     /// An execution payload envelope that references a block not yet in fork choice.
     UnknownBlockForEnvelope(QueuedGossipEnvelope),
+    /// An execution payload envelope whose EL verification failed transiently and should be retried.
+    RetryEnvelope(QueuedGossipEnvelope),
     /// A gossip block for hash `X` is being imported, we should queue the rpc block for the same
     /// hash until the gossip block is imported.
     RpcBlock(QueuedRpcBlock),
@@ -227,6 +238,8 @@ impl<E: EthSpec> From<QueuedBackfillBatch> for WorkEvent<E> {
 enum InboundEvent {
     /// A gossip block that was queued for later processing and is ready for import.
     ReadyGossipBlock(QueuedGossipBlock),
+    /// An early envelope that has been queued until its slot arrives and is now ready for import.
+    ReadyEarlyEnvelope(QueuedGossipEnvelope),
     /// An envelope whose block has been imported and is now ready for processing.
     ReadyEnvelope(Hash256),
     /// A rpc block that was queued because the same gossip block was being imported
@@ -240,6 +253,8 @@ enum InboundEvent {
     ReadyBackfillSync(QueuedBackfillBatch),
     /// A column reconstruction that was queued is ready for processing.
     ReadyColumnReconstruction(QueuedColumnReconstruction),
+    /// A retry envelope's fallback timeout expired; dispatch it regardless.
+    ReadyRetryEnvelope(Hash256),
     /// A message sent to the `ReprocessQueue`
     Msg(ReprocessQueueMessage),
 }
@@ -254,6 +269,8 @@ struct ReprocessQueue<S> {
     /* Queues */
     /// Queue to manage scheduled early blocks.
     gossip_block_delay_queue: DelayQueue<QueuedGossipBlock>,
+    /// Queue to manage early envelopes (arrived before their slot).
+    early_envelope_delay_queue: DelayQueue<QueuedGossipEnvelope>,
     /// Queue to manage envelope timeouts (keyed by block root).
     envelope_delay_queue: DelayQueue<Hash256>,
     /// Queue to manage scheduled early blocks.
@@ -282,6 +299,11 @@ struct ReprocessQueue<S> {
     awaiting_lc_updates_per_parent_root: HashMap<Hash256, Vec<QueuedLightClientUpdateId>>,
     /// Column reconstruction per block root. `None` means reconstruction was already dispatched.
     queued_column_reconstructions: HashMap<Hash256, Option<DelayKey>>,
+    /// Envelopes awaiting retry after a transient EL error, keyed by block root.
+    /// Dispatched when a `BlockImported` event fires, or after a fallback timeout.
+    retry_envelopes_per_root: HashMap<Hash256, (QueuedGossipEnvelope, DelayKey, u8)>,
+    /// Delay queue for retry envelope fallback timeouts (keyed by block root).
+    retry_envelope_delay_queue: DelayQueue<Hash256>,
     /// Queued backfill batches
     queued_backfill_batches: Vec<QueuedBackfillBatch>,
 
@@ -290,6 +312,8 @@ struct ReprocessQueue<S> {
     next_attestation: usize,
     next_lc_update: usize,
     early_block_debounce: TimeLatch,
+    #[allow(dead_code)]
+    early_envelope_debounce: TimeLatch,
     envelope_delay_debounce: TimeLatch,
     rpc_block_debounce: TimeLatch,
     attestation_delay_debounce: TimeLatch,
@@ -340,6 +364,15 @@ impl<S: SlotClock> Stream for ReprocessQueue<S> {
             Poll::Ready(None) | Poll::Pending => (),
         }
 
+        match self.early_envelope_delay_queue.poll_expired(cx) {
+            Poll::Ready(Some(queued_envelope)) => {
+                return Poll::Ready(Some(InboundEvent::ReadyEarlyEnvelope(
+                    queued_envelope.into_inner(),
+                )));
+            }
+            Poll::Ready(None) | Poll::Pending => (),
+        }
+
         match self.envelope_delay_queue.poll_expired(cx) {
             Poll::Ready(Some(block_root)) => {
                 return Poll::Ready(Some(InboundEvent::ReadyEnvelope(block_root.into_inner())));
@@ -382,6 +415,15 @@ impl<S: SlotClock> Stream for ReprocessQueue<S> {
             Poll::Ready(Some(reconstruction)) => {
                 return Poll::Ready(Some(InboundEvent::ReadyColumnReconstruction(
                     reconstruction.into_inner(),
+                )));
+            }
+            Poll::Ready(None) | Poll::Pending => (),
+        }
+
+        match self.retry_envelope_delay_queue.poll_expired(cx) {
+            Poll::Ready(Some(block_root)) => {
+                return Poll::Ready(Some(InboundEvent::ReadyRetryEnvelope(
+                    block_root.into_inner(),
                 )));
             }
             Poll::Ready(None) | Poll::Pending => (),
@@ -450,6 +492,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
             work_reprocessing_rx,
             ready_work_tx,
             gossip_block_delay_queue: DelayQueue::new(),
+            early_envelope_delay_queue: DelayQueue::new(),
             envelope_delay_queue: DelayQueue::new(),
             rpc_block_delay_queue: DelayQueue::new(),
             attestations_delay_queue: DelayQueue::new(),
@@ -464,9 +507,12 @@ impl<S: SlotClock> ReprocessQueue<S> {
             awaiting_lc_updates_per_parent_root: HashMap::new(),
             queued_backfill_batches: Vec::new(),
             queued_column_reconstructions: HashMap::new(),
+            retry_envelopes_per_root: HashMap::new(),
+            retry_envelope_delay_queue: DelayQueue::new(),
             next_attestation: 0,
             next_lc_update: 0,
             early_block_debounce: TimeLatch::default(),
+            early_envelope_debounce: TimeLatch::default(),
             envelope_delay_debounce: TimeLatch::default(),
             rpc_block_debounce: TimeLatch::default(),
             attestation_delay_debounce: TimeLatch::default(),
@@ -533,6 +579,36 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     }
                 }
             }
+            // An envelope that arrived before its slot. Queue it until the appropriate slot arrives.
+            InboundEvent::Msg(EarlyEnvelope(early_envelope)) => {
+                let envelope_slot = early_envelope.beacon_block_slot;
+                let block_root = early_envelope.beacon_block_root;
+
+                if let Some(duration_till_slot) = self.slot_clock.duration_to_slot(envelope_slot) {
+                    self.early_envelope_delay_queue.insert(
+                        early_envelope,
+                        duration_till_slot + ADDITIONAL_QUEUED_BLOCK_DELAY,
+                    );
+                } else {
+                    // Slot has already arrived; dispatch immediately if possible.
+                    if let Some(now) = self.slot_clock.now()
+                        && envelope_slot <= now
+                    {
+                        if self
+                            .ready_work_tx
+                            .try_send(ReadyWork::Envelope(early_envelope))
+                            .is_err()
+                        {
+                            error!(
+                                ?block_root,
+                                "Failed to send early envelope for immediate processing"
+                            );
+                        }
+                    } else {
+                        debug!(?block_root, %envelope_slot, "Dropping early envelope, cannot determine slot timing");
+                    }
+                }
+            }
             // An envelope that references an unknown block. Queue it until the block is
             // imported, or until the timeout expires.
             InboundEvent::Msg(UnknownBlockForEnvelope(queued_envelope)) => {
@@ -578,6 +654,55 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 // Store the envelope keyed by block root.
                 self.awaiting_envelopes_per_root
                     .insert(block_root, (queued_envelope, delay_key));
+            }
+            // A rpc block arrived for processing at the same time when a gossip block
+            // for the same block hash is being imported. We wait for `QUEUED_RPC_BLOCK_DELAY`
+            // and then send the rpc block back for processing assuming the gossip import
+            // has completed by then.
+            InboundEvent::Msg(RetryEnvelope(queued_envelope)) => {
+                let block_root = queued_envelope.beacon_block_root;
+
+                // Check if we already have a retry pending for this root.
+                if let Some((_existing, _delay_key, count)) =
+                    self.retry_envelopes_per_root.get(&block_root)
+                    && *count >= MAX_ENVELOPE_RETRIES
+                {
+                    warn!(
+                        ?block_root,
+                        retries = *count,
+                        "Envelope exceeded max retries for transient EL error, dropping"
+                    );
+                    return;
+                }
+
+                // Determine retry count from any prior attempt.
+                let retry_count = self
+                    .retry_envelopes_per_root
+                    .get(&block_root)
+                    .map_or(1, |(_, _, c)| c + 1);
+
+                // Remove any existing entry (and its delay key) before reinserting.
+                if let Some((_old_envelope, old_delay_key, _)) =
+                    self.retry_envelopes_per_root.remove(&block_root)
+                {
+                    self.retry_envelope_delay_queue.remove(&old_delay_key);
+                }
+
+                debug!(
+                    ?block_root,
+                    retry_count,
+                    "Queuing envelope for retry after transient EL error (waiting for BlockImported)"
+                );
+
+                // Register a fallback timeout of 1 slot duration.
+                let fallback_timeout =
+                    self.slot_clock.slot_duration() * RETRY_ENVELOPE_TIMEOUT_SLOTS;
+                let delay_key = self
+                    .retry_envelope_delay_queue
+                    .insert(block_root, fallback_timeout);
+
+                self.retry_envelopes_per_root
+                    .insert(block_root, (queued_envelope, delay_key, retry_count));
             }
             // A rpc block arrived for processing at the same time when a gossip block
             // for the same block hash is being imported. We wait for `QUEUED_RPC_BLOCK_DELAY`
@@ -745,6 +870,27 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     }
                 }
 
+                // Dispatch any retry envelopes waiting on this block root.
+                if let Some((envelope, delay_key, retry_count)) =
+                    self.retry_envelopes_per_root.remove(&block_root)
+                {
+                    self.retry_envelope_delay_queue.remove(&delay_key);
+                    debug!(
+                        ?block_root,
+                        retry_count, "Dispatching retry envelope after BlockImported"
+                    );
+                    if self
+                        .ready_work_tx
+                        .try_send(ReadyWork::Envelope(envelope))
+                        .is_err()
+                    {
+                        error!(
+                            ?block_root,
+                            "Failed to send retry envelope for reprocessing after block import"
+                        );
+                    }
+                }
+
                 // Unqueue the attestations we have for this root, if any.
                 if let Some(queued_ids) = self.awaiting_attestations_per_root.remove(&block_root) {
                     let mut sent_count = 0;
@@ -900,6 +1046,20 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     error!("Failed to pop queued block");
                 }
             }
+            // An early envelope whose slot has now arrived; dispatch for processing.
+            InboundEvent::ReadyEarlyEnvelope(ready_envelope) => {
+                let block_root = ready_envelope.beacon_block_root;
+                if self
+                    .ready_work_tx
+                    .try_send(ReadyWork::Envelope(ready_envelope))
+                    .is_err()
+                {
+                    error!(
+                        ?block_root,
+                        "Failed to send early envelope after slot arrived"
+                    );
+                }
+            }
             // An envelope's timeout has expired. Send it for processing regardless of
             // whether the block has been imported.
             InboundEvent::ReadyEnvelope(block_root) => {
@@ -1051,6 +1211,28 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         hint = "system may be overloaded",
                         "Ignored scheduled column reconstruction"
                     );
+                }
+            }
+            // Fallback timeout for a retry envelope — dispatch it even though no
+            // BlockImported arrived.
+            InboundEvent::ReadyRetryEnvelope(block_root) => {
+                if let Some((envelope, _delay_key, retry_count)) =
+                    self.retry_envelopes_per_root.remove(&block_root)
+                {
+                    debug!(
+                        ?block_root,
+                        retry_count, "Retry envelope fallback timeout expired, dispatching"
+                    );
+                    if self
+                        .ready_work_tx
+                        .try_send(ReadyWork::Envelope(envelope))
+                        .is_err()
+                    {
+                        error!(
+                            ?block_root,
+                            "Failed to send retry envelope after fallback timeout"
+                        );
+                    }
                 }
             }
         }

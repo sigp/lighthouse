@@ -57,25 +57,9 @@ impl<T: BeaconChainTypes> GossipVerifiedInclusionList<T> {
             return Err(GossipInclusionListError::TooManyTransactions);
         }
 
-        // TODO(focil): Spec says message.slot must equal current_slot with
-        // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance. We currently also accept current_slot - 1
-        // and add an attestation-deadline check that is not in the spec.
-        // See: https://github.com/ethereum/consensus-specs/blob/master/specs/heze/p2p-interface.md#inclusion_list
-        if message_slot != current_slot && message_slot != current_slot - 1 {
-            return Err(GossipInclusionListError::InvalidSlot {
-                message_slot,
-                current_slot,
-            });
-        }
-
-        let attestation_deadline = chain.spec.get_slot_duration() / 3;
-
-        let inclusion_list_delay_total =
-            get_slot_delay_ms(timestamp_now(), message_slot, &chain.slot_clock);
-
-        let exceeds_attestation_deadline = attestation_deadline >= inclusion_list_delay_total;
-
-        if exceeds_attestation_deadline {
+        // [IGNORE] The slot `message.slot` is equal to the current slot
+        // (with a MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance)
+        if message_slot != current_slot && message_slot != current_slot + 1 {
             return Err(GossipInclusionListError::InvalidSlot {
                 message_slot,
                 current_slot,

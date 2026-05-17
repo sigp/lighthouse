@@ -43,9 +43,10 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{
     AttesterSlashing, BlobSidecar, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Epoch,
-    EthSpec, ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, Hash256,
+    EthSpec, ExecutionPayloadEnvelopeGloas, ExecutionPayloadGloas, ExecutionRequests, Hash256,
     MainnetEthSpec, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedExecutionPayloadEnvelope, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
+    SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeGloas, SignedVoluntaryExit,
+    SingleAttestation, Slot, SubnetId,
 };
 use types::{
     BlobSidecarList,
@@ -2132,8 +2133,8 @@ fn make_test_payload_envelope(
     slot: Slot,
     beacon_block_root: Hash256,
 ) -> SignedExecutionPayloadEnvelope<E> {
-    SignedExecutionPayloadEnvelope {
-        message: ExecutionPayloadEnvelope {
+    SignedExecutionPayloadEnvelope::Gloas(SignedExecutionPayloadEnvelopeGloas {
+        message: ExecutionPayloadEnvelopeGloas {
             payload: ExecutionPayloadGloas {
                 slot_number: slot,
                 ..ExecutionPayloadGloas::default()
@@ -2144,7 +2145,7 @@ fn make_test_payload_envelope(
             parent_beacon_block_root: Hash256::ZERO,
         },
         signature: Signature::empty(),
-    }
+    })
 }
 
 #[tokio::test]

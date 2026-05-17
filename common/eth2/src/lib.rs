@@ -46,7 +46,9 @@ use ssz::{Decode, Encode};
 use std::fmt;
 use std::future::Future;
 use std::time::Duration;
-use types::{PayloadAttestationData, PayloadAttestationMessage, SignedProposerPreferences};
+use types::{
+    ForkVersionDecode, PayloadAttestationData, PayloadAttestationMessage, SignedProposerPreferences,
+};
 
 pub const V1: EndpointVersion = EndpointVersion(1);
 pub const V2: EndpointVersion = EndpointVersion(2);
@@ -2783,6 +2785,7 @@ impl BeaconNodeHttpClient {
         &self,
         slot: Slot,
         builder_index: u64,
+        fork_name: ForkName,
     ) -> Result<ExecutionPayloadEnvelope<E>, Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -2799,7 +2802,8 @@ impl BeaconNodeHttpClient {
 
         let response_bytes = opt_response.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))?;
 
-        ExecutionPayloadEnvelope::from_ssz_bytes(&response_bytes).map_err(Error::InvalidSsz)
+        ExecutionPayloadEnvelope::from_ssz_bytes_by_fork(&response_bytes, fork_name)
+            .map_err(Error::InvalidSsz)
     }
 
     /// `POST v1/beacon/execution_payload_envelope`
@@ -2886,15 +2890,18 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_execution_payload_envelope_ssz<E: EthSpec>(
         &self,
         block_id: BlockId,
+        fork_name: ForkName,
     ) -> Result<Option<SignedExecutionPayloadEnvelope<E>>, Error> {
         let path = self.get_beacon_execution_payload_envelope_path(block_id)?;
         let opt_response = self
             .get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_beacon_blocks_ssz)
             .await?;
         match opt_response {
-            Some(bytes) => SignedExecutionPayloadEnvelope::from_ssz_bytes(&bytes)
-                .map(Some)
-                .map_err(Error::InvalidSsz),
+            Some(bytes) => {
+                SignedExecutionPayloadEnvelope::from_ssz_bytes_by_fork(&bytes, fork_name)
+                    .map(Some)
+                    .map_err(Error::InvalidSsz)
+            }
             None => Ok(None),
         }
     }

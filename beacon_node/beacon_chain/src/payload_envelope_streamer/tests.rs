@@ -7,8 +7,8 @@ use futures::StreamExt;
 use std::collections::HashMap;
 use task_executor::test_utils::TestRuntime;
 use types::{
-    ExecutionBlockHash, ExecutionPayloadEnvelope, ExecutionPayloadGloas, Hash256, MinimalEthSpec,
-    SignedExecutionPayloadEnvelope, Slot,
+    ExecutionBlockHash, ExecutionPayloadEnvelopeGloas, ExecutionPayloadGloas, Hash256,
+    MinimalEthSpec, SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeGloas, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -62,20 +62,22 @@ fn build_chain(
             } else {
                 ExecutionBlockHash::from_root(Hash256::from_low_u64_be(i))
             };
-            Some(SignedExecutionPayloadEnvelope {
-                message: ExecutionPayloadEnvelope {
-                    payload: ExecutionPayloadGloas {
-                        block_hash,
-                        slot_number: slot,
-                        ..Default::default()
+            Some(SignedExecutionPayloadEnvelope::Gloas(
+                SignedExecutionPayloadEnvelopeGloas {
+                    message: ExecutionPayloadEnvelopeGloas {
+                        payload: ExecutionPayloadGloas {
+                            block_hash,
+                            slot_number: slot,
+                            ..Default::default()
+                        },
+                        execution_requests: Default::default(),
+                        builder_index: 0,
+                        beacon_block_root: block_root,
+                        parent_beacon_block_root: Hash256::ZERO,
                     },
-                    execution_requests: Default::default(),
-                    builder_index: 0,
-                    beacon_block_root: block_root,
-                    parent_beacon_block_root: Hash256::ZERO,
+                    signature: Signature::empty(),
                 },
-                signature: Signature::empty(),
-            })
+            ))
         } else {
             None
         };

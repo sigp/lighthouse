@@ -9,7 +9,11 @@ use tree_hash_derive::TreeHash;
 pub type InclusionListCommittee<E> = FixedVector<u64, <E as EthSpec>::InclusionListCommitteeSize>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Educe, Decode, TreeHash)]
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary), arbitrary(bound = "E: EthSpec"))]
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
+)]
 #[serde(bound = "E: EthSpec")]
 #[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]
 pub struct InclusionList<E: EthSpec> {
