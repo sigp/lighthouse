@@ -1,6 +1,5 @@
 use crate::kzg_ext::KzgCommitments;
 use crate::state::BeaconStateError;
-use crate::test_utils::TestRandom;
 use crate::{Address, EthSpec, ExecutionBlockHash, ForkName, Hash256, SignedRoot, Slot};
 use context_deserialize::context_deserialize;
 use educe::Educe;
@@ -8,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::BitVector;
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 #[superstruct(
@@ -23,7 +21,6 @@ use tree_hash_derive::TreeHash;
             Encode,
             Decode,
             TreeHash,
-            TestRandom,
             Educe,
         ),
         educe(PartialEq, Hash(bound(E: EthSpec))),

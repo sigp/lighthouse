@@ -1,16 +1,15 @@
-use crate::test_utils::TestRandom;
 use crate::{EthSpec, Hash256, SignedRoot, Slot, Transactions};
 use bls::{PublicKeyBytes, Signature};
 use educe::Educe;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::FixedVector;
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 pub type InclusionListCommittee<E> = FixedVector<u64, <E as EthSpec>::InclusionListCommitteeSize>;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Educe, Decode, TreeHash, TestRandom)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Educe, Decode, TreeHash)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary), arbitrary(bound = "E: EthSpec"))]
 #[serde(bound = "E: EthSpec")]
 #[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]
 pub struct InclusionList<E: EthSpec> {

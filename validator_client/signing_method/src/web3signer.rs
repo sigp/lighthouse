@@ -23,6 +23,7 @@ pub enum MessageType {
     // TODO(gloas) verify w/ web3signer specs
     ExecutionPayloadEnvelope,
     PayloadAttestation,
+    ProposerPreferences,
 }
 
 #[derive(Debug, PartialEq, Copy, Clone, Serialize)]
@@ -83,6 +84,7 @@ pub enum Web3SignerObject<'a, E: EthSpec, Payload: AbstractExecPayload<E>> {
     InclusionList(&'a InclusionList<E>),
     ExecutionPayloadEnvelope(&'a ExecutionPayloadEnvelope<E>),
     PayloadAttestationData(&'a PayloadAttestationData),
+    ProposerPreferences(&'a ProposerPreferences),
 }
 
 impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> Web3SignerObject<'a, E, Payload> {
@@ -156,6 +158,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> Web3SignerObject<'a, E, Pa
             Web3SignerObject::InclusionList(_) => MessageType::InclusionList,
             Web3SignerObject::ExecutionPayloadEnvelope(_) => MessageType::ExecutionPayloadEnvelope,
             Web3SignerObject::PayloadAttestationData(_) => MessageType::PayloadAttestation,
+            Web3SignerObject::ProposerPreferences(_) => MessageType::ProposerPreferences,
         }
     }
 }
