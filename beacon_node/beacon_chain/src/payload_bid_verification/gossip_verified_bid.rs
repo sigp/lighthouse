@@ -43,9 +43,6 @@ pub(crate) fn verify_bid_consistency<E: EthSpec>(
     if bid.fee_recipient != proposer_preferences.message.fee_recipient {
         return Err(PayloadBidError::InvalidFeeRecipient);
     }
-    if bid.gas_limit != proposer_preferences.message.gas_limit {
-        return Err(PayloadBidError::InvalidGasLimit);
-    }
 
     let max_blobs_per_block =
         spec.max_blobs_per_block(bid_slot.epoch(E::slots_per_epoch())) as usize;
@@ -161,7 +158,23 @@ impl<T: BeaconChainTypes> GossipVerifiedPayloadBid<T> {
             });
         }
 
-        // TODO(gloas) [IGNORE] bid.parent_block_hash is the block hash of a known execution payload in fork choice.
+        // TODO(gloas): [IGNORE] bid.parent_block_hash is the block hash of a known execution
+        // payload in fork choice.
+
+        // TODO(gloas): This uses head state's bid gas_limit as parent_gas_limit, which is only
+        // correct when the bid's parent is the head. If the parent is an ancestor further back
+        // this check may be inaccurate. Fixing this requires storing
+        // gas_limit in fork choice or looking it up from the store by parent_block_hash. Taking the above
+        // TODO into consideration maybe should persist parent block hash and gas limit in fork choice?
+        if let Ok(parent_bid) = head_state.latest_execution_payload_bid() {
+            if !is_gas_limit_target_compatible(
+                parent_bid.gas_limit,
+                signed_bid.message.gas_limit,
+                proposer_preferences.message.target_gas_limit,
+            ) {
+                return Err(PayloadBidError::InvalidGasLimit);
+            }
+        }
 
         drop(fork_choice);
 
@@ -263,8 +276,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 }
 
+/// Check if `gas_limit` is compatible with `target_gas_limit` under the
+/// EIP-1559 transition rule from `parent_gas_limit`.
+pub fn is_gas_limit_target_compatible(
+    parent_gas_limit: u64,
+    gas_limit: u64,
+    target_gas_limit: u64,
+) -> bool {
+    let max_gas_limit_difference = (parent_gas_limit / 1024).max(1).saturating_sub(1);
+    let min_gas_limit = parent_gas_limit.saturating_sub(max_gas_limit_difference);
+    let max_gas_limit = parent_gas_limit.saturating_add(max_gas_limit_difference);
+
+    if target_gas_limit >= min_gas_limit && target_gas_limit <= max_gas_limit {
+        gas_limit == target_gas_limit
+    } else if target_gas_limit > max_gas_limit {
+        gas_limit == max_gas_limit
+    } else {
+        gas_limit == min_gas_limit
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::is_gas_limit_target_compatible;
     use bls::Signature;
     use kzg::KzgCommitment;
     use ssz_types::VariableList;
@@ -288,11 +322,11 @@ mod tests {
         }
     }
 
-    fn make_preferences(fee_recipient: Address, gas_limit: u64) -> SignedProposerPreferences {
+    fn make_preferences(fee_recipient: Address, target_gas_limit: u64) -> SignedProposerPreferences {
         SignedProposerPreferences {
             message: ProposerPreferences {
                 fee_recipient,
-                gas_limit,
+                target_gas_limit,
                 ..ProposerPreferences::default()
             },
             signature: Signature::empty(),

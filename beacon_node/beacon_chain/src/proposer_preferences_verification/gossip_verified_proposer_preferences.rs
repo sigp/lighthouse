@@ -178,7 +178,7 @@ mod tests {
             proposal_slot,
             validator_index,
             fee_recipient: Address::ZERO,
-            gas_limit: 30_000_000,
+            target_gas_limit: 30_000_000,
         }
     }
 

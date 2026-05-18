@@ -131,7 +131,7 @@ fn make_signed_preferences(
             proposal_slot,
             validator_index,
             fee_recipient: Address::ZERO,
-            gas_limit: 30_000_000,
+            target_gas_limit: 30_000_000,
         },
         signature: Signature::empty(),
     })
@@ -271,7 +271,7 @@ fn same_validator_different_dependent_root_not_deduplicated() {
                 validator_index: 42,
                 checkpoint_root: Hash256::repeat_byte(0xaa),
                 fee_recipient: Address::ZERO,
-                gas_limit: 30_000_000,
+                target_gas_limit: 30_000_000,
             },
             signature: Signature::empty(),
         }),

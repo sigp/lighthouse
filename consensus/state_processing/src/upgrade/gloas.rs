@@ -80,6 +80,7 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         // Execution Bid
         latest_execution_payload_bid: ExecutionPayloadBid {
             block_hash: pre.latest_execution_payload_header.block_hash,
+            gas_limit: pre.latest_execution_payload_header.gas_limit,
             execution_requests_root: ExecutionRequests::<E>::default().tree_hash_root(),
             ..Default::default()
         },
