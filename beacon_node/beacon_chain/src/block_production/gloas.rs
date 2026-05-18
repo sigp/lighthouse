@@ -6,7 +6,6 @@ use bls::{PublicKeyBytes, Signature};
 use execution_layer::{
     BlockProposalContentsGloas, BuilderParams, PayloadAttributes, PayloadParameters,
 };
-use fork_choice::PayloadStatus;
 use operation_pool::CompactAttestationRef;
 use ssz::Encode;
 use state_processing::common::{get_attesting_indices_from_state, get_indexed_payload_attestation};
@@ -115,7 +114,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let BlockProductionState {
             state,
             state_root: state_root_opt,
-            parent_payload_status,
             parent_envelope,
         } = block_production_state;
 
@@ -125,7 +123,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.produce_block_on_state_gloas(
             state,
             state_root_opt,
-            parent_payload_status,
             parent_envelope,
             slot,
             randao_reveal,
@@ -142,7 +139,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         state: BeaconState<T::EthSpec>,
         state_root_opt: Option<Hash256>,
-        parent_payload_status: PayloadStatus,
         parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
         produce_at_slot: Slot,
         randao_reveal: Signature,
@@ -150,8 +146,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         verification: ProduceBlockVerification,
         builder_boost_factor: Option<u64>,
     ) -> Result<BlockProductionResult<T::EthSpec>, BlockProductionError> {
-        // Extract the parent's execution requests from the envelope (if parent was full).
-        let parent_execution_requests = if parent_payload_status == PayloadStatus::Full {
+        let parent_root = if state.slot() > 0 {
+            *state
+                .get_block_root(state.slot() - 1)
+                .map_err(|_| BlockProductionError::UnableToGetBlockRootFromState)?
+        } else {
+            state.latest_block_header().canonical_root()
+        };
+
+        let should_build_on_full = self
+            .canonical_head
+            .fork_choice_read_lock()
+            .should_build_on_full(&parent_root)
+            .map_err(|e| {
+                BlockProductionError::BeaconChain(Box::new(BeaconChainError::ForkChoiceError(e)))
+            })?;
+
+        // Extract the parent's execution requests from the envelope (if building on full).
+        let parent_execution_requests = if should_build_on_full {
             parent_envelope
                 .as_ref()
                 .map(|env| env.message.execution_requests.clone())
@@ -197,7 +209,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .clone()
             .produce_execution_payload_bid(
                 state,
-                parent_payload_status,
+                parent_root,
+                should_build_on_full,
                 parent_envelope,
                 produce_at_slot,
                 BID_VALUE_SELF_BUILD,
@@ -700,12 +713,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// data needed to construct the `ExecutionPayloadEnvelope` after the beacon block is
     /// created, plus the EL block value and `should_override_builder` flag used by the
     /// caller to compare against any cached p2p builder bid.
-    #[allow(clippy::type_complexity)]
+    #[allow(clippy::type_complexity, clippy::too_many_arguments)]
     #[instrument(level = "debug", skip_all)]
     pub async fn produce_execution_payload_bid(
         self: Arc<Self>,
         state: BeaconState<T::EthSpec>,
-        parent_payload_status: PayloadStatus,
+        parent_root: Hash256,
+        should_build_on_full: bool,
         parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
         produce_at_slot: Slot,
         bid_value: u64,
@@ -722,14 +736,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // The builder MUST have enough excess balance to fulfill this bid (i.e. `value`) and all pending payments.
 
         // TODO(gloas) add metrics for execution payload bid production
-
-        let parent_root = if state.slot() > 0 {
-            *state
-                .get_block_root(state.slot() - 1)
-                .map_err(|_| BlockProductionError::UnableToGetBlockRootFromState)?
-        } else {
-            state.latest_block_header().canonical_root()
-        };
 
         let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
 
@@ -751,20 +757,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let parent_bid = state.latest_execution_payload_bid()?;
 
-        // TODO(gloas): need should_extend_payload check here as well
         let parent_block_slot = state.latest_block_header().slot;
         let parent_is_pre_gloas = !self
             .spec
             .fork_name_at_slot::<T::EthSpec>(parent_block_slot)
             .gloas_enabled();
-        let parent_block_hash =
-            if parent_payload_status == PayloadStatus::Full || parent_is_pre_gloas {
-                // Build on parent bid's payload.
-                parent_bid.block_hash
-            } else {
-                // Skip parent bid's payload. For genesis this is the EL genesis hash.
-                parent_bid.parent_block_hash
-            };
+        let parent_block_hash = if should_build_on_full || parent_is_pre_gloas {
+            // Build on parent bid's payload.
+            parent_bid.block_hash
+        } else {
+            // Skip parent bid's payload. For genesis this is the EL genesis hash.
+            parent_bid.parent_block_hash
+        };
 
         // TODO(gloas) this should be BlockProductionVersion::V4
         // V3 is okay for now as long as we're not connected to a builder

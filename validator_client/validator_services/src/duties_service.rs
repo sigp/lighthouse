@@ -1757,8 +1757,7 @@ async fn poll_beacon_proposers<S: ValidatorStore, T: SlotClock + 'static>(
 
     match checkpoint_result {
         Ok(Some(response)) => {
-            *duties_service.finalized_checkpoint_root.write() =
-                Some(response.data.finalized.root);
+            *duties_service.finalized_checkpoint_root.write() = Some(response.data.finalized.root);
         }
         Ok(None) => {
             warn!("Finality checkpoints not available from beacon node");

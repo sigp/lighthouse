@@ -2183,7 +2183,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let beacon_block_root = head.beacon_block_root;
 
-
         // TODO(gloas) do we want to use a dedicated envelope cache instead?
         // Maybe the new gloas DA cache? (Or should the gloas DA cache use
         // the envelopes_times_cache internally?

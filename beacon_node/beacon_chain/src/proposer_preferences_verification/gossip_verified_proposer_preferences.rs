@@ -195,8 +195,7 @@ mod tests {
         let current_slot = Slot::new(2 * E::slots_per_epoch());
         let prefs = make_preferences(Slot::new(3), 0);
 
-        let result =
-            verify_preferences_consistency::<E>(&prefs, current_slot, &state(), &spec());
+        let result = verify_preferences_consistency::<E>(&prefs, current_slot, &state(), &spec());
         assert!(matches!(
             result,
             Err(ProposerPreferencesError::InvalidProposalEpoch { .. })
@@ -208,8 +207,7 @@ mod tests {
         let current_slot = Slot::new(E::slots_per_epoch());
         let prefs = make_preferences(Slot::new(3 * E::slots_per_epoch() + 1), 0);
 
-        let result =
-            verify_preferences_consistency::<E>(&prefs, current_slot, &state(), &spec());
+        let result = verify_preferences_consistency::<E>(&prefs, current_slot, &state(), &spec());
         assert!(matches!(
             result,
             Err(ProposerPreferencesError::InvalidProposalEpoch { .. })
@@ -221,8 +219,7 @@ mod tests {
         let current_slot = Slot::new(10);
         let prefs = make_preferences(Slot::new(9), 0);
 
-        let result =
-            verify_preferences_consistency::<E>(&prefs, current_slot, &state(), &spec());
+        let result = verify_preferences_consistency::<E>(&prefs, current_slot, &state(), &spec());
         assert!(matches!(
             result,
             Err(ProposerPreferencesError::ProposalSlotAlreadyPassed { .. })
@@ -234,8 +231,7 @@ mod tests {
         let current_slot = Slot::new(10);
         let prefs = make_preferences(Slot::new(10), 0);
 
-        let result =
-            verify_preferences_consistency::<E>(&prefs, current_slot, &state(), &spec());
+        let result = verify_preferences_consistency::<E>(&prefs, current_slot, &state(), &spec());
         assert!(matches!(
             result,
             Err(ProposerPreferencesError::ProposalSlotAlreadyPassed { .. })

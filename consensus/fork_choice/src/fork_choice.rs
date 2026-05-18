@@ -1532,6 +1532,13 @@ where
             && self.is_finalized_checkpoint_or_descendant(*block_root)
     }
 
+    /// Called by the proposer to decide whether to build on the full or empty parent.
+    pub fn should_build_on_full(&self, block_root: &Hash256) -> Result<bool, Error<T::Error>> {
+        self.proto_array
+            .should_build_on_full::<E>(block_root)
+            .map_err(Error::ProtoArrayStringError)
+    }
+
     /// Returns whether the proposer should extend the execution payload chain of the given block.
     pub fn should_extend_payload(&self, block_root: &Hash256) -> Result<bool, Error<T::Error>> {
         let proposer_boost_root = self.fc_store.proposer_boost_root();

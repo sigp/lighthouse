@@ -608,12 +608,9 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
     let proposer_index = state.get_beacon_proposer_index(slot, &spec).unwrap();
     let randao_reveal = harness.sign_randao_reveal(&state, proposer_index, slot);
 
-    let (parent_payload_status, parent_envelope) = {
+    let parent_envelope = {
         let head = harness.chain.canonical_head.cached_head();
-        (
-            head.head_payload_status(),
-            head.snapshot.execution_envelope.clone(),
-        )
+        head.snapshot.execution_envelope.clone()
     };
 
     let graffiti_settings = GraffitiSettings::new(
@@ -626,7 +623,6 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
         .produce_block_on_state_gloas(
             state,
             None,
-            parent_payload_status,
             parent_envelope,
             slot,
             randao_reveal,

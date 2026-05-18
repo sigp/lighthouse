@@ -1009,6 +1009,29 @@ impl ProtoArrayForkChoice {
         })
     }
 
+    /// Called by the proposer to decide whether to build on the full or empty
+    /// parent pending node. Returns false if the PTC has voted the data as unavailable.
+    pub fn should_build_on_full<E: EthSpec>(&self, block_root: &Hash256) -> Result<bool, String> {
+        let block_index = self
+            .proto_array
+            .indices
+            .get(block_root)
+            .ok_or_else(|| format!("Unknown block root: {block_root:?}"))?;
+        let proto_node = self
+            .proto_array
+            .nodes
+            .get(*block_index)
+            .ok_or_else(|| format!("Missing node at index: {block_index}"))?;
+        let fc_node = IndexedForkChoiceNode {
+            root: proto_node.root(),
+            proto_node_index: *block_index,
+            payload_status: proto_node.get_parent_payload_status(),
+        };
+        self.proto_array
+            .should_build_on_full::<E>(&fc_node, proto_node)
+            .map_err(|e| format!("{e:?}"))
+    }
+
     /// Returns whether the proposer should extend the parent's execution payload chain.
     ///
     /// This checks timeliness, data availability, and proposer boost conditions per the spec.

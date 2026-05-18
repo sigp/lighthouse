@@ -560,7 +560,7 @@ impl ForkChoiceTestDefinition {
                     node_v29.ptc_participation =
                         BitVector::from_bytes(smallvec::smallvec![0xFF; 64])
                             .expect("valid 512-bit bitvector");
-                    // Per spec, is_payload_timely/is_payload_data_available require
+                    // Per spec, payload_timeliness/payload_data_availability require
                     // the payload to be in payload_states (payload_received).
                     node_v29.payload_received = is_timely || is_data_available;
                 }
