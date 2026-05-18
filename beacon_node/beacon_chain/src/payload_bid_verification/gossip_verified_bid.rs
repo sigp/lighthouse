@@ -166,14 +166,14 @@ impl<T: BeaconChainTypes> GossipVerifiedPayloadBid<T> {
         // this check may be inaccurate. Fixing this requires storing
         // gas_limit in fork choice or looking it up from the store by parent_block_hash. Taking the above
         // TODO into consideration maybe should persist parent block hash and gas limit in fork choice?
-        if let Ok(parent_bid) = head_state.latest_execution_payload_bid() {
-            if !is_gas_limit_target_compatible(
+        if let Ok(parent_bid) = head_state.latest_execution_payload_bid()
+            && !is_gas_limit_target_compatible(
                 parent_bid.gas_limit,
                 signed_bid.message.gas_limit,
                 proposer_preferences.message.target_gas_limit,
-            ) {
-                return Err(PayloadBidError::InvalidGasLimit);
-            }
+            )
+        {
+            return Err(PayloadBidError::InvalidGasLimit);
         }
 
         drop(fork_choice);
@@ -298,7 +298,6 @@ pub fn is_gas_limit_target_compatible(
 
 #[cfg(test)]
 mod tests {
-    use super::is_gas_limit_target_compatible;
     use bls::Signature;
     use kzg::KzgCommitment;
     use ssz_types::VariableList;

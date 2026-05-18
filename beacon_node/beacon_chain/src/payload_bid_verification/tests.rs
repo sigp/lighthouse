@@ -248,7 +248,7 @@ fn make_signed_preferences(
     proposal_slot: Slot,
     validator_index: u64,
     fee_recipient: Address,
-    gas_limit: u64,
+    target_gas_limit: u64,
 ) -> Arc<SignedProposerPreferences> {
     Arc::new(SignedProposerPreferences {
         message: ProposerPreferences {
@@ -256,7 +256,7 @@ fn make_signed_preferences(
             proposal_slot,
             validator_index,
             fee_recipient,
-            gas_limit,
+            target_gas_limit,
         },
         signature: Signature::empty(),
     })

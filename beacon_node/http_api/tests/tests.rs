@@ -2929,7 +2929,7 @@ impl ApiTester {
             proposal_slot,
             validator_index: validator_index as u64,
             fee_recipient: Address::repeat_byte(0xaa),
-            gas_limit: 30_000_000,
+            target_gas_limit: 30_000_000,
         };
 
         let epoch = proposal_slot.epoch(E::slots_per_epoch());
