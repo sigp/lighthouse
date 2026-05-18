@@ -298,6 +298,7 @@ pub fn is_gas_limit_target_compatible(
 
 #[cfg(test)]
 mod tests {
+    use super::is_gas_limit_target_compatible;
     use bls::Signature;
     use kzg::KzgCommitment;
     use ssz_types::VariableList;
@@ -418,13 +419,57 @@ mod tests {
     }
 
     #[test]
-    fn test_gas_limit_mismatch() {
-        let (state, spec) = state_and_spec();
-        let current_slot = Slot::new(10);
-        let bid = make_bid(current_slot, Address::ZERO, 30_000_000);
-        let prefs = make_preferences(Address::ZERO, 50_000_000);
+    fn test_is_gas_limit_target_compatible_increase_within_limit() {
+        assert!(is_gas_limit_target_compatible(
+            60_000_000, 60_000_100, 60_000_100
+        ));
+    }
 
-        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
-        assert!(matches!(result, Err(PayloadBidError::InvalidGasLimit)));
+    #[test]
+    fn test_is_gas_limit_target_compatible_increase_exceeding_limit() {
+        // max_diff = 60_000_000 / 1024 - 1 = 58_592
+        // max_gas_limit = 60_000_000 + 58_592 = 60_058_592
+        assert!(is_gas_limit_target_compatible(
+            60_000_000,
+            60_058_592,
+            100_000_000
+        ));
+    }
+
+    #[test]
+    fn test_is_gas_limit_target_compatible_increase_exceeding_off_by_one() {
+        assert!(!is_gas_limit_target_compatible(
+            60_000_000,
+            60_058_593,
+            100_000_000
+        ));
+    }
+
+    #[test]
+    fn test_is_gas_limit_target_compatible_decrease_within_limit() {
+        assert!(is_gas_limit_target_compatible(
+            60_000_000, 59_999_990, 59_999_990
+        ));
+    }
+
+    #[test]
+    fn test_is_gas_limit_target_compatible_decrease_exceeding_limit() {
+        // min_gas_limit = 60_000_000 - 58_592 = 59_941_408
+        assert!(is_gas_limit_target_compatible(
+            60_000_000, 59_941_408, 30_000_000
+        ));
+    }
+
+    #[test]
+    fn test_is_gas_limit_target_compatible_target_equals_parent() {
+        assert!(is_gas_limit_target_compatible(
+            60_000_000, 60_000_000, 60_000_000
+        ));
+    }
+
+    #[test]
+    fn test_is_gas_limit_target_compatible_parent_underflows() {
+        // parent=1023: max(1023/1024, 1) - 1 = max(0, 1) - 1 = 0, no change allowed
+        assert!(is_gas_limit_target_compatible(1023, 1023, 60_000_000));
     }
 }
