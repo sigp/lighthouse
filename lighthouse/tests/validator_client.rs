@@ -262,7 +262,7 @@ fn graffiti_file_with_pk_flag() {
         });
 }
 
-// Tests for graffiti_append flag
+// Tests for graffiti-append flag
 #[test]
 fn graffiti_append_default() {
     CommandLineTest::new().run().with_config(|config| {
