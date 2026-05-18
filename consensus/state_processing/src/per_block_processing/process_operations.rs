@@ -916,25 +916,24 @@ pub fn process_deposit_requests_post_gloas<E: EthSpec>(
 /// Check if there is a pending deposit for a new validator with the given pubkey.
 // TODO(gloas): cache the deposit signature validation or remove this loop entirely if possible,
 // it is `O(n * m)` where `n` is max 8192 and `m` is max 128M.
-fn is_pending_validator<E: EthSpec>(
-    state: &BeaconState<E>,
+pub fn is_pending_validator<'a>(
+    pending_deposits: impl IntoIterator<Item = &'a PendingDeposit>,
     pubkey: &PublicKeyBytes,
     spec: &ChainSpec,
-) -> Result<bool, BlockProcessingError> {
-    for deposit in state.pending_deposits()?.iter() {
-        if deposit.pubkey == *pubkey {
-            let deposit_data = DepositData {
-                pubkey: deposit.pubkey,
-                withdrawal_credentials: deposit.withdrawal_credentials,
-                amount: deposit.amount,
-                signature: deposit.signature.clone(),
-            };
-            if is_valid_deposit_signature(&deposit_data, spec).is_ok() {
-                return Ok(true);
-            }
-        }
-    }
-    Ok(false)
+) -> bool {
+    pending_deposits.into_iter().any(|deposit| {
+        deposit.pubkey == *pubkey
+            && is_valid_deposit_signature(
+                &DepositData {
+                    pubkey: deposit.pubkey,
+                    withdrawal_credentials: deposit.withdrawal_credentials,
+                    amount: deposit.amount,
+                    signature: deposit.signature.clone(),
+                },
+                spec,
+            )
+            .is_ok()
+    })
 }
 
 pub fn process_deposit_request_post_gloas<E: EthSpec>(
@@ -964,7 +963,7 @@ pub fn process_deposit_request_post_gloas<E: EthSpec>(
     if is_builder
         || (has_builder_prefix
             && !is_validator
-            && !is_pending_validator(state, &deposit_request.pubkey, spec)?)
+            && !is_pending_validator(state.pending_deposits()?, &deposit_request.pubkey, spec))
     {
         // Apply builder deposits immediately
         apply_deposit_for_builder(
@@ -1003,7 +1002,7 @@ pub fn apply_deposit_for_builder<E: EthSpec>(
     signature: SignatureBytes,
     slot: Slot,
     spec: &ChainSpec,
-) -> Result<(), BeaconStateError> {
+) -> Result<Option<BuilderIndex>, BeaconStateError> {
     match builder_index_opt {
         None => {
             // Verify the deposit signature (proof of possession) which is not checked by the deposit contract
@@ -1014,13 +1013,16 @@ pub fn apply_deposit_for_builder<E: EthSpec>(
                 signature,
             };
             if is_valid_deposit_signature(&deposit_data, spec).is_ok() {
-                state.add_builder_to_registry(
+                let builder_index = state.add_builder_to_registry(
                     pubkey,
                     withdrawal_credentials,
                     amount,
                     slot,
                     spec,
                 )?;
+                Ok(Some(builder_index))
+            } else {
+                Ok(None)
             }
         }
         Some(builder_index) => {
@@ -1030,9 +1032,9 @@ pub fn apply_deposit_for_builder<E: EthSpec>(
                 .ok_or(BeaconStateError::UnknownBuilder(builder_index))?
                 .balance
                 .safe_add_assign(amount)?;
+            Ok(Some(builder_index))
         }
     }
-    Ok(())
 }
 
 // Make sure to build the pubkey cache before calling this function
