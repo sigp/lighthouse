@@ -325,7 +325,7 @@ mod test {
             .deterministic_keypairs(8)
             .fresh_ephemeral_store()
             .build();
-        let (mut state, _) = harness.get_current_state_and_root();
+        let mut state = harness.get_current_state();
         state
             .build_committee_cache(RelativeEpoch::Current, &harness.chain.spec)
             .unwrap();

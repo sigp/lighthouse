@@ -2,8 +2,9 @@ use crate::{
     build_block_contents,
     version::{
         ResponseIncludesVersion, add_consensus_block_value_header, add_consensus_version_header,
-        add_execution_payload_blinded_header, add_execution_payload_value_header,
-        add_ssz_content_type_header, beacon_response, inconsistent_fork_rejection,
+        add_execution_payload_blinded_header, add_execution_payload_included_header,
+        add_execution_payload_value_header, add_ssz_content_type_header, beacon_response,
+        inconsistent_fork_rejection,
     },
 };
 use beacon_chain::graffiti_calculator::GraffitiSettings;
@@ -83,7 +84,16 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
             warp_utils::reject::custom_bad_request(format!("failed to fetch a block: {:?}", e))
         })?;
 
-    build_response_v4::<T>(block, consensus_block_value, accept_header, &chain.spec)
+    // TODO(gloas): wire up for stateless mode (#8828).
+    let execution_payload_included = false;
+
+    build_response_v4::<T>(
+        block,
+        consensus_block_value,
+        execution_payload_included,
+        accept_header,
+        &chain.spec,
+    )
 }
 
 #[instrument(
@@ -133,6 +143,7 @@ pub async fn produce_block_v3<T: BeaconChainTypes>(
 pub fn build_response_v4<T: BeaconChainTypes>(
     block: BeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
     consensus_block_value: u64,
+    execution_payload_included: bool,
     accept_header: Option<api_types::Accept>,
     spec: &ChainSpec,
 ) -> Result<Response<Body>, warp::Rejection> {
@@ -146,6 +157,7 @@ pub fn build_response_v4<T: BeaconChainTypes>(
     let metadata = ProduceBlockV4Metadata {
         consensus_version: fork_name,
         consensus_block_value: consensus_block_value_wei,
+        execution_payload_included,
     };
 
     match accept_header {
@@ -155,6 +167,7 @@ pub fn build_response_v4<T: BeaconChainTypes>(
             .map(|res: Response<Body>| add_ssz_content_type_header(res))
             .map(|res: Response<Body>| add_consensus_version_header(res, fork_name))
             .map(|res| add_consensus_block_value_header(res, consensus_block_value_wei))
+            .map(|res| add_execution_payload_included_header(res, execution_payload_included))
             .map_err(|e| -> warp::Rejection {
                 warp_utils::reject::custom_server_error(format!("failed to create response: {}", e))
             }),
@@ -165,7 +178,8 @@ pub fn build_response_v4<T: BeaconChainTypes>(
         })
         .into_response())
         .map(|res| add_consensus_version_header(res, fork_name))
-        .map(|res| add_consensus_block_value_header(res, consensus_block_value_wei)),
+        .map(|res| add_consensus_block_value_header(res, consensus_block_value_wei))
+        .map(|res| add_execution_payload_included_header(res, execution_payload_included)),
     }
 }
 

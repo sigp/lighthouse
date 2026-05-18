@@ -1,6 +1,6 @@
 use crate::execution::{ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef};
 use crate::state::BeaconStateError;
-use crate::{EthSpec, ForkName};
+use crate::{Epoch, EthSpec, ForkName};
 use bls::Signature;
 use context_deserialize::{ContextDeserialize, context_deserialize};
 use educe::Educe;
@@ -65,6 +65,10 @@ impl<E: EthSpec> SignedExecutionPayloadBid<E> {
         }
     }
 
+    pub fn epoch(&self) -> Epoch {
+        self.message().slot().epoch(E::slots_per_epoch())
+    }
+
     pub fn empty_gloas() -> Self {
         Self::Gloas(SignedExecutionPayloadBidGloas {
             message: ExecutionPayloadBidGloas::default(),
@@ -87,6 +91,17 @@ impl<'a, E: EthSpec> SignedExecutionPayloadBidRef<'a, E> {
             *self,
             |inner, cons| { cons(&inner.message) }
         )
+    }
+
+    pub fn epoch(&self) -> Epoch {
+        self.message().slot().epoch(E::slots_per_epoch())
+    }
+
+    pub fn to_owned(&self) -> SignedExecutionPayloadBid<E> {
+        match self {
+            Self::Gloas(inner) => SignedExecutionPayloadBid::Gloas((*inner).clone()),
+            Self::Heze(inner) => SignedExecutionPayloadBid::Heze((*inner).clone()),
+        }
     }
 }
 

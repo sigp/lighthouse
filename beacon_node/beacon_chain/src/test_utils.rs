@@ -1638,6 +1638,15 @@ where
         mut state: Cow<BeaconState<E>>,
         state_root: Hash256,
     ) -> Result<Attestation<E>, BeaconChainError> {
+        assert_eq!(
+            state.get_latest_block_root(state_root),
+            beacon_block_root,
+            "State must match beacon block root, state slot {:?} attestation slot {:?} state root {:?}",
+            state.latest_block_header().slot,
+            slot,
+            state_root,
+        );
+
         let epoch = slot.epoch(E::slots_per_epoch());
 
         if state.slot() > slot {
@@ -1662,6 +1671,13 @@ where
             *state.get_block_root(target_slot)?
         };
 
+        let payload_present = state.fork_name_unchecked().gloas_enabled()
+            && state.latest_block_header().slot != slot
+            && self
+                .chain
+                .canonical_head
+                .block_has_canonical_payload(&beacon_block_root, &self.spec)?;
+
         Ok(Attestation::empty_for_signing(
             index,
             committee_len,
@@ -1672,7 +1688,7 @@ where
                 epoch,
                 root: target_root,
             },
-            false,
+            payload_present,
             &self.spec,
         )?)
     }
@@ -2929,11 +2945,42 @@ where
             .await
             .expect("newPayload should succeed");
 
-        // Store the envelope.
+        // Store the envelope and the data columns derived from the block.
+        //
+        // Production stores columns inside `import_available_execution_payload_envelope` after
+        // the cache is satisfied. The harness sidesteps that flow but must still persist columns
+        // or the `DataColumnMissing` invariant fires for any block with `num_expected_blobs > 0`.
+        let block = self
+            .chain
+            .store
+            .get_blinded_block(&block_root)
+            .expect("should read block from store")
+            .expect("block should exist in store");
+        let mut ops = vec![];
+        let block_with_full_payload = self
+            .chain
+            .store
+            .make_full_block(&block_root, block.clone())
+            .expect("should reconstruct full block");
+        let columns =
+            generate_data_column_sidecars_from_block(&block_with_full_payload, &self.spec);
+        if !columns.is_empty()
+            && let Some(store_op) = self.chain.get_blobs_or_columns_store_op(
+                block_root,
+                block.slot(),
+                AvailableBlockData::DataColumns(columns),
+            )
+        {
+            ops.push(store_op);
+        }
+        ops.push(store::StoreOp::PutPayloadEnvelope(
+            block_root,
+            std::sync::Arc::new(signed_envelope),
+        ));
         self.chain
             .store
-            .put_payload_envelope(&block_root, &signed_envelope)
-            .expect("should store envelope");
+            .do_atomically_with_block_and_blobs_cache(ops)
+            .expect("should persist envelope and columns");
 
         // Update fork choice so it knows the payload was received.
         self.chain
@@ -2954,11 +3001,10 @@ where
         block: Arc<SignedBeaconBlock<E>>,
     ) -> RangeSyncBlock<E> {
         let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
-        let has_blobs = block
-            .message()
-            .body()
-            .blob_kzg_commitments()
-            .is_ok_and(|c| !c.is_empty());
+        // For Gloas, kzg commitments live in the bid (`signed_execution_payload_bid`), so the
+        // body's `blob_kzg_commitments()` accessor returns Err. `num_expected_blobs` already
+        // handles both shapes.
+        let has_blobs = block.num_expected_blobs() > 0;
         if !has_blobs {
             return RangeSyncBlock::new(
                 block,
@@ -3205,13 +3251,11 @@ where
         &self,
         slot: Slot,
         state: BeaconState<E>,
-        state_root: Hash256,
         validators: &[usize],
     ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError> {
         self.add_attested_block_at_slot_with_sync(
             slot,
             state,
-            state_root,
             validators,
             SyncCommitteeStrategy::NoValidators,
         )
@@ -3222,18 +3266,18 @@ where
         &self,
         slot: Slot,
         state: BeaconState<E>,
-        state_root: Hash256,
         validators: &[usize],
         sync_committee_strategy: SyncCommitteeStrategy,
     ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError> {
-        let (block_hash, block, state) = self.add_block_at_slot(slot, state).await?;
-        self.attest_block(&state, state_root, block_hash, &block.0, validators);
+        let (block_hash, block, mut new_state) = self.add_block_at_slot(slot, state).await?;
+        let new_state_root = new_state.canonical_root().unwrap();
+        self.attest_block(&new_state, new_state_root, block_hash, &block.0, validators);
 
         if sync_committee_strategy == SyncCommitteeStrategy::AllValidators
-            && state.current_sync_committee().is_ok()
+            && new_state.current_sync_committee().is_ok()
         {
             self.sync_committee_sign_block(
-                &state,
+                &new_state,
                 block_hash.into(),
                 slot,
                 if (slot + 1).epoch(E::slots_per_epoch())
@@ -3247,19 +3291,17 @@ where
             );
         }
 
-        Ok((block_hash, state))
+        Ok((block_hash, new_state))
     }
 
     pub async fn add_attested_blocks_at_slots(
         &self,
         state: BeaconState<E>,
-        state_root: Hash256,
         slots: &[Slot],
         validators: &[usize],
     ) -> AddBlocksResult<E> {
         self.add_attested_blocks_at_slots_with_sync(
             state,
-            state_root,
             slots,
             validators,
             SyncCommitteeStrategy::NoValidators,
@@ -3270,7 +3312,6 @@ where
     pub async fn add_attested_blocks_at_slots_with_sync(
         &self,
         state: BeaconState<E>,
-        state_root: Hash256,
         slots: &[Slot],
         validators: &[usize],
         sync_committee_strategy: SyncCommitteeStrategy,
@@ -3278,7 +3319,6 @@ where
         assert!(!slots.is_empty());
         self.add_attested_blocks_at_slots_given_lbh(
             state,
-            state_root,
             slots,
             validators,
             None,
@@ -3335,7 +3375,6 @@ where
     pub async fn add_attested_blocks_at_slots_with_lc_data(
         &self,
         mut state: BeaconState<E>,
-        state_root: Hash256,
         slots: &[Slot],
         validators: &[usize],
         mut latest_block_hash: Option<SignedBeaconBlockHash>,
@@ -3349,7 +3388,6 @@ where
                 .add_attested_block_at_slot_with_sync(
                     *slot,
                     state,
-                    state_root,
                     validators,
                     sync_committee_strategy,
                 )
@@ -3375,7 +3413,6 @@ where
     async fn add_attested_blocks_at_slots_given_lbh(
         &self,
         mut state: BeaconState<E>,
-        state_root: Hash256,
         slots: &[Slot],
         validators: &[usize],
         mut latest_block_hash: Option<SignedBeaconBlockHash>,
@@ -3389,7 +3426,6 @@ where
             let (block_hash, new_state) = Box::pin(self.add_attested_block_at_slot_with_sync(
                 *slot,
                 state,
-                state_root,
                 validators,
                 sync_committee_strategy,
             ))
@@ -3453,14 +3489,8 @@ where
         for epoch in min_epoch.as_u64()..=max_epoch.as_u64() {
             let mut new_chains = vec![];
 
-            for (
-                mut head_state,
-                slots,
-                validators,
-                mut block_hashes,
-                mut state_hashes,
-                head_block,
-            ) in chains
+            for (head_state, slots, validators, mut block_hashes, mut state_hashes, head_block) in
+                chains
             {
                 let epoch_slots = slots
                     .iter()
@@ -3468,11 +3498,9 @@ where
                     .copied()
                     .collect::<Vec<_>>();
 
-                let head_state_root = head_state.update_tree_hash_cache().unwrap();
                 let (new_block_hashes, new_state_hashes, new_head_block, new_head_state) = self
                     .add_attested_blocks_at_slots_given_lbh(
                         head_state,
-                        head_state_root,
                         &epoch_slots,
                         &validators,
                         Some(head_block),
@@ -3634,7 +3662,7 @@ where
         sync_committee_strategy: SyncCommitteeStrategy,
         light_client_strategy: LightClientStrategy,
     ) -> Hash256 {
-        let (mut state, slots) = match block_strategy {
+        let (state, slots) = match block_strategy {
             BlockStrategy::OnCanonicalHead => {
                 let current_slot: u64 = self.get_current_slot().into();
                 let slots: Vec<Slot> = (current_slot..(current_slot + (num_blocks as u64)))
@@ -3663,12 +3691,10 @@ where
             AttestationStrategy::SomeValidators(vals) => vals,
         };
 
-        let state_root = state.update_tree_hash_cache().unwrap();
         let (_, _, last_produced_block_hash, _) = match light_client_strategy {
             LightClientStrategy::Enabled => {
                 self.add_attested_blocks_at_slots_with_lc_data(
                     state,
-                    state_root,
                     &slots,
                     &validators,
                     None,
@@ -3679,7 +3705,6 @@ where
             LightClientStrategy::Disabled => {
                 self.add_attested_blocks_at_slots_with_sync(
                     state,
-                    state_root,
                     &slots,
                     &validators,
                     sync_committee_strategy,
@@ -3883,7 +3908,27 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
         SignedBeaconBlock::Fulu(SignedBeaconBlockFulu {
             ref mut message, ..
         }) => add_blob_transactions!(message, FullPayloadFulu<E>, num_blobs, u, fork_name),
-        // TODO(EIP-7732) Add `SignedBeaconBlock::Gloas` and `SignedBeaconBlock::Heze` variants
+        // TODO(EIP-7732) add `SignedBeaconBlock::Heze` variants
+        SignedBeaconBlock::Gloas(SignedBeaconBlockGloas {
+            ref mut message, ..
+        }) => {
+            // For Gloas, commitments are in the bid, not directly in the body.
+            // BlobSidecars cannot be created for Gloas because there's no merkle proof
+            // from the block body to the commitments. Return early with empty blob_sidecars.
+            let num_blobs = match num_blobs {
+                NumBlobs::Random => u.int_in_range(DEFAULT_MIN_BLOBS..=DEFAULT_MAX_BLOBS)?,
+                NumBlobs::Number(n) => n,
+                NumBlobs::None => 0,
+            };
+            let (bundle, _transactions) =
+                execution_layer::test_utils::generate_blobs::<E>(num_blobs, fork_name).unwrap();
+            message
+                .body
+                .signed_execution_payload_bid
+                .message
+                .blob_kzg_commitments = bundle.commitments.clone();
+            return Ok((block, blob_sidecars));
+        }
         _ => return Ok((block, blob_sidecars)),
     };
 

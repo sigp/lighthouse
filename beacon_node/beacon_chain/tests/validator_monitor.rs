@@ -46,8 +46,7 @@ async fn missed_blocks_across_epochs() {
 
     let harness = get_harness(VALIDATOR_COUNT, vec![]);
     let validator_monitor = &harness.chain.validator_monitor;
-    let mut genesis_state = harness.get_current_state();
-    let genesis_state_root = genesis_state.update_tree_hash_cache().unwrap();
+    let genesis_state = harness.get_current_state();
     let genesis_block_root = harness.head_block_root();
 
     // Skip a slot in the first epoch (to prime the cache inside the missed block function) and then
@@ -64,7 +63,7 @@ async fn missed_blocks_across_epochs() {
         .collect::<Vec<_>>();
 
     let (block_roots_by_slot, state_roots_by_slot, _, head_state) = harness
-        .add_attested_blocks_at_slots(genesis_state, genesis_state_root, &slots, &all_validators)
+        .add_attested_blocks_at_slots(genesis_state, &slots, &all_validators)
         .await;
 
     // Prime the proposer shuffling cache.

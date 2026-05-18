@@ -246,7 +246,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             if let Err(e) =
                 Box::pin(chain.process_gossip_data_columns(sampling_columns, publish_fn)).await
             {
-                let msg = format!("Invalid data column: {e}");
+                let msg = format!("Invalid data column: {e:?}");
                 return if let BroadcastValidation::Gossip = validation_level {
                     Err(warp_utils::reject::broadcast_without_import(msg))
                 } else {

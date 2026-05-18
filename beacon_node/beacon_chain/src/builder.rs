@@ -12,6 +12,7 @@ use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sideca
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::observed_data_sidecars::ObservedDataSidecars;
+use crate::pending_payload_cache::PendingPayloadCache;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::persisted_custody::load_custody_context;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
@@ -849,12 +850,13 @@ where
                     It is highly recommended to purge your db and checkpoint sync. For more information please \
                     read this blog post: https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity"
                 )
+            } else {
+                return Err(
+                    "The current head state is outside the weak subjectivity period. A node in this state is susceptible to long range attacks. You should purge your db and \
+                    checkpoint sync. For more information please read this blog post: https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity \
+                    If you understand the risks, it is possible to ignore this error with the --ignore-ws-check flag.".to_string()
+                );
             }
-            return Err(
-                "The current head state is outside the weak subjectivity period. A node in this state is susceptible to long range attacks. You should purge your db and \
-                checkpoint sync. For more information please read this blog post: https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity \
-                If you understand the risks, it is possible to ignore this error with the --ignore-ws-check flag.".to_string()
-            );
         }
 
         let validator_pubkey_cache = self
@@ -986,6 +988,7 @@ where
             )
         };
         debug!(?custody_context, "Loaded persisted custody context");
+        let custody_context = Arc::new(custody_context);
 
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
@@ -1062,13 +1065,21 @@ where
             data_availability_checker: Arc::new(
                 DataAvailabilityChecker::new(
                     complete_blob_backfill,
-                    slot_clock,
+                    slot_clock.clone(),
                     self.kzg.clone(),
-                    Arc::new(custody_context),
-                    self.spec,
+                    custody_context.clone(),
+                    self.spec.clone(),
                     enable_partial_columns,
                 )
                 .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
+            ),
+            pending_payload_cache: Arc::new(
+                PendingPayloadCache::new(
+                    self.kzg.clone(),
+                    custody_context.clone(),
+                    self.spec.clone(),
+                )
+                .map_err(|e| format!("Error initializing PendingPayloadCache: {:?}", e))?,
             ),
             kzg: self.kzg.clone(),
             rng: Arc::new(Mutex::new(rng)),

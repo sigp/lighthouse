@@ -1085,10 +1085,22 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         block_root: Hash256,
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
+        let slot = self
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block(&block_root)
+            .map(|block| block.slot)
+            .or_else(|| self.chain.slot().ok())
+            .ok_or_else(|| {
+                RpcRequestSendError::InternalError(format!(
+                    "Unable to determine slot for block {block_root:?}"
+                ))
+            })?;
+
         let custody_indexes_imported = self
             .chain
-            .data_availability_checker
-            .cached_data_column_indexes(&block_root)
+            .cached_data_column_indexes(&block_root, slot)
             .unwrap_or_default();
 
         let current_epoch = self.chain.epoch().map_err(|e| {
