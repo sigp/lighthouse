@@ -1282,7 +1282,7 @@ impl ChainSpec {
             gloas_fork_epoch: None,
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
-            min_builder_withdrawability_delay: Epoch::new(64),
+            min_builder_withdrawability_delay: Epoch::new(8192),
             churn_limit_quotient_gloas: option_wrapper(|| u64::checked_pow(2, 15))
                 .expect("calculation does not overflow"),
             consolidation_churn_limit_quotient: option_wrapper(|| u64::checked_pow(2, 16))
@@ -1708,7 +1708,7 @@ impl ChainSpec {
             gloas_fork_epoch: None,
             builder_payment_threshold_numerator: 6,
             builder_payment_threshold_denominator: 10,
-            min_builder_withdrawability_delay: Epoch::new(64),
+            min_builder_withdrawability_delay: Epoch::new(8192),
             churn_limit_quotient_gloas: option_wrapper(|| u64::checked_pow(2, 15))
                 .expect("calculation does not overflow"),
             consolidation_churn_limit_quotient: option_wrapper(|| u64::checked_pow(2, 16))
@@ -2418,7 +2418,7 @@ const fn default_contribution_due_bps() -> u64 {
 }
 
 const fn default_min_builder_withdrawability_delay() -> u64 {
-    64
+    8192
 }
 
 const fn default_churn_limit_quotient_gloas() -> u64 {
