@@ -300,8 +300,18 @@ async fn ptc_cache_is_primed_at_gloas_fork_boundary() {
         .mock_execution_layer()
         .build();
 
+    harness.extend_to_slot(fork_boundary_slot).await;
+
     for slot in test_slots {
-        harness.extend_to_slot(slot).await;
+        harness.chain.slot_clock.set_slot(slot.as_u64());
+        assert!(
+            harness
+                .chain
+                .shuffling_cache
+                .read()
+                .check_gloas_ptcs_invariant(&harness.spec),
+            "shuffling cache should satisfy the Gloas PTC invariant"
+        );
 
         let head = harness.chain.canonical_head.cached_head();
         let state = &head.snapshot.beacon_state;

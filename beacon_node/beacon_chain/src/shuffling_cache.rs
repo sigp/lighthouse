@@ -53,6 +53,22 @@ impl<E: EthSpec> CachedShuffling<E> {
             .as_ref()?
             .get(slot.as_usize() % E::slots_per_epoch() as usize)
     }
+
+    fn ensure_ptcs_for_gloas_shuffling(
+        &self,
+        shuffling_epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<(), BeaconChainError> {
+        if shuffling_requires_ptcs(shuffling_epoch, spec) && self.ptcs.is_none() {
+            Err(BeaconChainError::MissingPtcForGloasShuffling { shuffling_epoch })
+        } else {
+            Ok(())
+        }
+    }
+}
+
+fn shuffling_requires_ptcs(shuffling_epoch: Epoch, spec: &ChainSpec) -> bool {
+    spec.fork_name_at_epoch(shuffling_epoch).gloas_enabled()
 }
 
 #[derive(Clone)]
@@ -151,31 +167,53 @@ impl<E: EthSpec> ShufflingCache<E> {
         self.cache.contains_key(key)
     }
 
+    /// Check that all entries for Gloas epochs have PTCs.
+    #[cfg(test)]
+    pub fn check_gloas_ptcs_invariant(&self, spec: &ChainSpec) -> bool {
+        self.cache.iter().all(|(key, item)| {
+            if shuffling_requires_ptcs(key.shuffling_epoch, spec) {
+                match item {
+                    CacheItem::Committee(cached_shuffling) => cached_shuffling.ptcs.is_some(),
+                    CacheItem::Promise(_) => true,
+                }
+            } else {
+                true
+            }
+        })
+    }
+
     pub fn insert_committee_cache<C: ToArcCommitteeCache>(
         &mut self,
         key: AttestationShufflingId,
         committee_cache: &C,
-    ) {
+        spec: &ChainSpec,
+    ) -> Result<(), BeaconChainError> {
         self.insert_committee_cache_with_ptc(
             key,
             CachedShuffling::new(committee_cache.to_arc_committee_cache(), None),
-        );
+            spec,
+        )
     }
 
     pub fn insert_committee_cache_with_ptc(
         &mut self,
         key: AttestationShufflingId,
         cached_shuffling: CachedShuffling<E>,
-    ) {
-        if self
-            .cache
-            .get(&key)
+        spec: &ChainSpec,
+    ) -> Result<(), BeaconChainError> {
+        cached_shuffling.ensure_ptcs_for_gloas_shuffling(key.shuffling_epoch, spec)?;
+
+        match self.cache.get(&key) {
+            Some(CacheItem::Committee(existing)) => {
+                existing.ensure_ptcs_for_gloas_shuffling(key.shuffling_epoch, spec)?;
+            }
             // Replace the committee if it's not present or if it's a promise. A bird in the hand is
             // worth two in the promise-bush!
-            .is_none_or(CacheItem::is_promise)
-        {
-            self.insert_cache_item(key, CacheItem::Committee(cached_shuffling));
+            Some(CacheItem::Promise(_)) | None => {
+                self.insert_cache_item(key, CacheItem::Committee(cached_shuffling));
+            }
         }
+        Ok(())
     }
 
     /// Prunes the cache first before inserting a new cache item.
@@ -286,6 +324,7 @@ where
         drop(shuffling_cache);
 
         let cached_shuffling = cache_item.wait()?;
+        cached_shuffling.ensure_ptcs_for_gloas_shuffling(shuffling_epoch, spec)?;
         map_fn(&cached_shuffling, shuffling_id.shuffling_decision_block)
     } else {
         // Create an entry in the cache that "promises" this value will eventually be computed.
@@ -338,12 +377,18 @@ where
         // If the `head_block` is already ahead of that slot, then we should load the state at that
         // slot, as we've determined above that the `shuffling_epoch` cache will not be too far in
         // the past.
-        let target_slot = std::cmp::max(
+        let mut target_slot = std::cmp::max(
             shuffling_epoch
                 .saturating_sub(1_u64)
                 .start_slot(T::EthSpec::slots_per_epoch()),
             head_block.slot,
         );
+        if spec.gloas_fork_epoch == Some(shuffling_epoch) {
+            target_slot = std::cmp::max(
+                target_slot,
+                shuffling_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+            );
+        }
 
         // If the head state is useful for this request, use it. Otherwise, read a state from disk
         // that is advanced as close as possible to `target_slot`.
@@ -365,7 +410,9 @@ where
 
         // If the state is still in an earlier epoch, advance it to the `target_slot` so that its
         // next epoch committee cache matches the `shuffling_epoch`.
-        if state.current_epoch() + 1 < shuffling_epoch {
+        let advance_to_gloas_fork = spec.gloas_fork_epoch == Some(shuffling_epoch)
+            && state.current_epoch() < shuffling_epoch;
+        if state.current_epoch() + 1 < shuffling_epoch || advance_to_gloas_fork {
             // Advance the state into the required slot, using the "partial" method since the state
             // roots are not relevant for the shuffling.
             partial_state_advance(&mut state, Some(state_root), target_slot, spec)
@@ -394,7 +441,7 @@ where
 
         shuffling_cache_lock
             .write()
-            .insert_committee_cache_with_ptc(shuffling_id, cached_shuffling.clone());
+            .insert_committee_cache_with_ptc(shuffling_id, cached_shuffling.clone(), spec)?;
 
         metrics::stop_timer(committee_building_timer);
 
@@ -410,7 +457,7 @@ pub fn get_ptcs_for_shuffling_epoch<E: EthSpec>(
     shuffling_epoch: Epoch,
     spec: &ChainSpec,
 ) -> Result<Option<Vec<PTC<E>>>, BeaconStateError> {
-    if state.fork_name_unchecked().gloas_enabled() {
+    if shuffling_requires_ptcs(shuffling_epoch, spec) {
         shuffling_epoch
             .slot_iter(E::slots_per_epoch())
             .map(|slot| state.get_ptc(slot, spec))
@@ -525,6 +572,12 @@ mod test {
         };
 
         ShufflingCache::new(TEST_CACHE_SIZE, head_shuffling_ids)
+    }
+
+    fn test_spec() -> ChainSpec {
+        // Use a Fulu spec specifically because behaviour changes at Gloas.
+        // The Gloas tests explicitly enable Gloas.
+        ForkName::Fulu.make_genesis_spec(E::default_spec())
     }
 
     fn cached_shuffling(committee_cache: Arc<CommitteeCache>) -> CachedShuffling<E> {
@@ -696,9 +749,12 @@ mod test {
     #[test]
     fn should_insert_committee_cache() {
         let mut cache = new_shuffling_cache();
+        let spec = test_spec();
         let id_a = shuffling_id(1);
         let committee_cache_a = Arc::new(CommitteeCache::default());
-        cache.insert_committee_cache(id_a.clone(), &committee_cache_a);
+        cache
+            .insert_committee_cache(id_a.clone(), &committee_cache_a, &spec)
+            .unwrap();
         assert!(
             matches!(cache.get(&id_a).unwrap(), CacheItem::Committee(cached_shuffling) if cached_shuffling.committee_cache == committee_cache_a),
             "should insert committee cache"
@@ -706,14 +762,34 @@ mod test {
     }
 
     #[test]
+    fn should_reject_gloas_committee_cache_without_ptc() {
+        let mut cache = new_shuffling_cache();
+        let spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
+        let id = shuffling_id(1);
+        let committee_cache = Arc::new(CommitteeCache::default());
+
+        let result = cache.insert_committee_cache(id.clone(), &committee_cache, &spec);
+
+        assert!(matches!(
+            result,
+            Err(BeaconChainError::MissingPtcForGloasShuffling { shuffling_epoch })
+                if shuffling_epoch == id.shuffling_epoch
+        ));
+        assert!(!cache.contains(&id), "should not insert invalid cache");
+    }
+
+    #[test]
     fn should_prune_committee_cache_with_lowest_epoch() {
         let mut cache = new_shuffling_cache();
+        let spec = test_spec();
         let shuffling_id_and_committee_caches = (0..(TEST_CACHE_SIZE + 1))
             .map(|i| (shuffling_id(i as u64), Arc::new(CommitteeCache::default())))
             .collect::<Vec<_>>();
 
         for (shuffling_id, committee_cache) in shuffling_id_and_committee_caches.iter() {
-            cache.insert_committee_cache(shuffling_id.clone(), committee_cache);
+            cache
+                .insert_committee_cache(shuffling_id.clone(), committee_cache, &spec)
+                .unwrap();
         }
 
         for i in 1..(TEST_CACHE_SIZE + 1) {
@@ -737,6 +813,7 @@ mod test {
     #[test]
     fn should_retain_head_state_shufflings() {
         let mut cache = new_shuffling_cache();
+        let spec = test_spec();
         let current_epoch = 10;
         let committee_cache = Arc::new(CommitteeCache::default());
 
@@ -746,7 +823,9 @@ mod test {
                 shuffling_epoch: (current_epoch + 1).into(),
                 shuffling_decision_block: Hash256::from_low_u64_be(current_epoch + i as u64),
             };
-            cache.insert_committee_cache(shuffling_id, &committee_cache);
+            cache
+                .insert_committee_cache(shuffling_id, &committee_cache, &spec)
+                .unwrap();
         }
 
         // Now, update the head shuffling ids
@@ -759,12 +838,19 @@ mod test {
         cache.update_head_shuffling_ids(head_shuffling_ids.clone());
 
         // Insert head state shuffling ids. Should not be overridden by other shuffling ids.
-        cache.insert_committee_cache(head_shuffling_ids.current.clone(), &committee_cache);
-        cache.insert_committee_cache(head_shuffling_ids.next.clone(), &committee_cache);
-        cache.insert_committee_cache(
-            head_shuffling_ids.previous.clone().unwrap(),
-            &committee_cache,
-        );
+        cache
+            .insert_committee_cache(head_shuffling_ids.current.clone(), &committee_cache, &spec)
+            .unwrap();
+        cache
+            .insert_committee_cache(head_shuffling_ids.next.clone(), &committee_cache, &spec)
+            .unwrap();
+        cache
+            .insert_committee_cache(
+                head_shuffling_ids.previous.clone().unwrap(),
+                &committee_cache,
+                &spec,
+            )
+            .unwrap();
 
         // Insert a few entries for older epochs.
         for i in 0..TEST_CACHE_SIZE {
@@ -772,7 +858,9 @@ mod test {
                 shuffling_epoch: Epoch::from(i),
                 shuffling_decision_block: Hash256::from_low_u64_be(i as u64),
             };
-            cache.insert_committee_cache(shuffling_id, &committee_cache);
+            cache
+                .insert_committee_cache(shuffling_id, &committee_cache, &spec)
+                .unwrap();
         }
 
         assert!(

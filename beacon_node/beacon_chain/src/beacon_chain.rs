@@ -4909,18 +4909,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<(), BlockError> {
         for relative_epoch in [RelativeEpoch::Current, RelativeEpoch::Next] {
             let shuffling_id = AttestationShufflingId::new(block_root, state, relative_epoch)?;
+            let shuffling_epoch = relative_epoch.into_epoch(state.current_epoch());
 
             let shuffling_is_cached = self.shuffling_cache.read().contains(&shuffling_id);
+
+            // Skip priming the cache for `shuffling_epoch` if it is Gloas but the state is not:
+            // we do not have the PTCs on hand in this case.
+            if self
+                .spec
+                .fork_name_at_epoch(shuffling_epoch)
+                .gloas_enabled()
+                && !state.fork_name_unchecked().gloas_enabled()
+            {
+                continue;
+            }
 
             if !shuffling_is_cached {
                 state.build_committee_cache(relative_epoch, &self.spec)?;
                 let committee_cache = state.committee_cache(relative_epoch)?;
-                let shuffling_epoch = relative_epoch.into_epoch(state.current_epoch());
                 let ptcs = get_ptcs_for_shuffling_epoch(state, shuffling_epoch, &self.spec)?;
                 let cached_shuffling = CachedShuffling::new(committee_cache.clone(), ptcs);
                 self.shuffling_cache
                     .write()
-                    .insert_committee_cache_with_ptc(shuffling_id, cached_shuffling);
+                    .insert_committee_cache_with_ptc(shuffling_id, cached_shuffling, &self.spec)?;
             }
         }
         Ok(())

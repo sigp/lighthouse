@@ -397,25 +397,39 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
         let committee_cache = state
             .committee_cache(RelativeEpoch::Next)
             .map_err(BeaconChainError::from)?;
-        let ptcs = get_ptcs_for_shuffling_epoch(
-            &state,
-            RelativeEpoch::Next.into_epoch(state.current_epoch()),
-            &beacon_chain.spec,
-        )
-        .map_err(BeaconChainError::from)?;
-        let cached_shuffling = CachedShuffling::new(committee_cache.clone(), ptcs);
-        beacon_chain
-            .shuffling_cache
-            .write()
-            .insert_committee_cache_with_ptc(shuffling_id.clone(), cached_shuffling);
+        let shuffling_epoch = RelativeEpoch::Next.into_epoch(state.current_epoch());
 
-        debug!(
-            ?head_block_root,
-            next_epoch_shuffling_root = ?shuffling_id.shuffling_decision_block,
-            state_epoch = %state.current_epoch(),
-            current_epoch = %current_slot.epoch(T::EthSpec::slots_per_epoch()),
-            "Primed proposer and attester caches"
-        );
+        if beacon_chain
+            .spec
+            .fork_name_at_epoch(shuffling_epoch)
+            .gloas_enabled()
+            && !state.fork_name_unchecked().gloas_enabled()
+        {
+            debug!(
+                %shuffling_epoch,
+                "Skipping priming of attester cache for Gloas boundary epoch"
+            );
+        } else {
+            let ptcs = get_ptcs_for_shuffling_epoch(&state, shuffling_epoch, &beacon_chain.spec)
+                .map_err(BeaconChainError::from)?;
+            let cached_shuffling = CachedShuffling::new(committee_cache.clone(), ptcs);
+            beacon_chain
+                .shuffling_cache
+                .write()
+                .insert_committee_cache_with_ptc(
+                    shuffling_id.clone(),
+                    cached_shuffling,
+                    &beacon_chain.spec,
+                )?;
+
+            debug!(
+                ?head_block_root,
+                next_epoch_shuffling_root = ?shuffling_id.shuffling_decision_block,
+                state_epoch = %state.current_epoch(),
+                current_epoch = %current_slot.epoch(T::EthSpec::slots_per_epoch()),
+                "Primed proposer and attester caches"
+            );
+        }
     }
 
     let final_slot = state.slot();
