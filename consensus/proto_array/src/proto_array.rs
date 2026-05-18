@@ -155,6 +155,10 @@ pub struct ProtoNode {
     /// Tiebreak derived as: `num_set_bits() > ptc_size / 2`.
     #[superstruct(only(V29))]
     pub payload_data_availability_votes: BitVector<U512>,
+    /// Tracks which PTC members have cast a vote. 
+    /// Bit i set means PTC member i has submitted a payload attestation.
+    #[superstruct(only(V29))]
+    pub ptc_participation: BitVector<U512>,
     /// Whether the execution payload for this block has been received and validated locally.
     /// Maps to `root in store.payload_states` in the spec.
     #[superstruct(only(V29), partial_getter(copy))]
@@ -605,6 +609,7 @@ impl ProtoArray {
                 execution_payload_parent_hash,
                 payload_timeliness_votes: BitVector::default(),
                 payload_data_availability_votes: BitVector::default(),
+                ptc_participation: BitVector::default(),
                 payload_received: false,
                 proposer_index,
                 // Spec: `record_block_timeliness` + `get_forkchoice_store`.

@@ -640,6 +640,9 @@ impl ProtoArrayForkChoice {
             .map_err(|e| {
                 format!("process_payload_attestation: data availability set failed: {e:?}")
             })?;
+        v29.ptc_participation
+            .set(ptc_index, true)
+            .map_err(|e| format!("process_payload_attestation: participation set failed: {e:?}"))?;
 
         Ok(())
     }
