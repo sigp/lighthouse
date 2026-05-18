@@ -200,6 +200,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await
             .map_err(BlockProductionError::TokioJoin)??;
 
+        // Use the parent_root from the partial block (computed after state advance)
+        // rather than the one computed before state advance, which may differ after re-orgs.
+        let parent_root = partial_beacon_block.parent_root;
+
         // Part 2/3 (async)
         //
         // Produce a local execution payload bid, then select between it and any cached

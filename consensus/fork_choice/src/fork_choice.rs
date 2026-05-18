@@ -1354,6 +1354,17 @@ where
         // wrong-slot by the time they make it to here (TOCTOU).
         self.validate_on_payload_attestation(payload_attestation, is_from_block)?;
 
+        // PTC votes can only change the vote for their assigned beacon block, return early otherwise.
+        let block = self
+            .proto_array
+            .get_block(&payload_attestation.data.beacon_block_root)
+            .ok_or(InvalidPayloadAttestation::UnknownHeadBlock {
+                beacon_block_root: payload_attestation.data.beacon_block_root,
+            })?;
+        if block.slot != payload_attestation.data.slot {
+            return Ok(());
+        }
+
         // Resolve validator indices to all PTC committee positions. A validator may
         // appear multiple times in the PTC committee.
         let mut ptc_indices: Vec<usize> = Vec::new();
