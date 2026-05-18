@@ -192,18 +192,26 @@ impl PayloadAttributes {
         slot_number: Option<u64>,
         target_gas_limit: Option<u64>,
     ) -> Self {
-        match (withdrawals, parent_beacon_block_root, slot_number, target_gas_limit) {
-            (Some(withdrawals), Some(parent_beacon_block_root), Some(slot_number), Some(target_gas_limit)) => {
-                PayloadAttributes::V4(PayloadAttributesV4 {
-                    timestamp,
-                    prev_randao,
-                    suggested_fee_recipient,
-                    withdrawals,
-                    parent_beacon_block_root,
-                    slot_number,
-                    target_gas_limit,
-                })
-            }
+        match (
+            withdrawals,
+            parent_beacon_block_root,
+            slot_number,
+            target_gas_limit,
+        ) {
+            (
+                Some(withdrawals),
+                Some(parent_beacon_block_root),
+                Some(slot_number),
+                Some(target_gas_limit),
+            ) => PayloadAttributes::V4(PayloadAttributesV4 {
+                timestamp,
+                prev_randao,
+                suggested_fee_recipient,
+                withdrawals,
+                parent_beacon_block_root,
+                slot_number,
+                target_gas_limit,
+            }),
             (Some(withdrawals), Some(parent_beacon_block_root), _, _) => {
                 PayloadAttributes::V3(PayloadAttributesV3 {
                     timestamp,

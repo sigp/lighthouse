@@ -322,7 +322,10 @@ mod tests {
         }
     }
 
-    fn make_preferences(fee_recipient: Address, target_gas_limit: u64) -> SignedProposerPreferences {
+    fn make_preferences(
+        fee_recipient: Address,
+        target_gas_limit: u64,
+    ) -> SignedProposerPreferences {
         SignedProposerPreferences {
             message: ProposerPreferences {
                 fee_recipient,
