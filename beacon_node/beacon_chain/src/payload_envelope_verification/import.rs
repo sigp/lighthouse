@@ -55,6 +55,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
+        // Pre-verify builder deposit signatures while awaiting EL verification.
+        if let Some(ref cache) = self.builder_onboarding_cache {
+            let cache = cache.clone();
+            let deposits = unverified_envelope
+                .signed_envelope
+                .message
+                .execution_requests
+                .deposits
+                .clone();
+            let spec = self.spec.clone();
+            self.task_executor.spawn_blocking(
+                move || cache.cache_deposit_requests(&deposits, &spec),
+                "pre_verify_builder_deposits",
+            );
+        }
         // TODO(gloas) insert the pre-executed envelope into some type of cache?
 
         let _full_timer = metrics::start_timer(&metrics::ENVELOPE_PROCESSING_TIMES);
@@ -67,18 +82,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let execution_pending = unverified_envelope
                 .into_execution_pending_envelope(&chain, notify_execution_layer)?;
             publish_fn()?;
-
-            // Pre-verify builder deposit signatures while awaiting EL verification.
-            if let Some(ref cache) = chain.builder_onboarding_cache {
-                cache.cache_deposit_requests(
-                    &execution_pending
-                        .signed_envelope
-                        .message
-                        .execution_requests
-                        .deposits,
-                    &chain.spec,
-                );
-            }
 
             // Record the time it took to complete consensus verification.
             if let Some(timestamp) = chain.slot_clock.now_duration() {

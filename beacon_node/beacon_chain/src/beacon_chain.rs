@@ -512,8 +512,10 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub pending_payload_cache: Arc<PendingPayloadCache<T>>,
     /// The KZG trusted setup used by this chain.
     pub kzg: Arc<Kzg>,
-    /// RNG instance used by the chain. Currently used for shuffling column sidecars in block publishing.
+    /// Pre-validates builder deposit signatures.
+    /// Only required when gloas is enabled.
     pub builder_onboarding_cache: Option<Arc<OnboardBuildersCache>>,
+    /// RNG instance used by the chain. Currently used for shuffling column sidecars in block publishing.
     pub rng: Arc<Mutex<Box<dyn RngCore + Send>>>,
 }
 

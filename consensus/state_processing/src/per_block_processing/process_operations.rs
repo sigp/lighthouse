@@ -1029,7 +1029,9 @@ pub fn process_deposit_requests_post_gloas<E: EthSpec>(
         }
     }
 
-    let cache_hits = builder_signature_deposits.len().saturating_sub(uncached_deposits.len());
+    let cache_hits = builder_signature_deposits
+        .len()
+        .saturating_sub(uncached_deposits.len());
     let batch_len = uncached_deposits.len();
     let batch_results = is_valid_deposit_signature_batch(uncached_deposits, spec);
 
