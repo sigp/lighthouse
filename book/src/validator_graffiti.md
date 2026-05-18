@@ -99,13 +99,13 @@ A `null` response indicates that the request is successful.
 In the interest of obtaining client diversity data, Lighthouse will by default automatically append client version info
 to user graffiti in the proposed blocks.
 
-For example, you set the graffiti in the validator client as `This is my graffiti`. You are using Lighthouse (LH) v8.1.3
-with commit hash `176cce5` and Reth (RH) v2.2.0 with commit hash `88505c7`. The appended graffiti will include:
+For example, you set the graffiti in the validator client as `This is my graffiti`. You are using Lighthouse (`LH`) v8.1.3
+with commit hash `176cce5` and Reth (`RH`) v2.2.0 with commit hash `88505c7`. The appended graffiti will include:
 
 - Execution layer client code
-- First two bytes of the EL commit hash
+- First two bytes of the execution layer commit hash
 - Consensus layer client code
-- First two bytes of the CL commit hash
+- First two bytes of the consensus layer commit hash
 
 When the user graffiti is less than 20 characters, as in the above example, the appended graffiti when proposing a block
 will be: `This is my graffiti RH8850LH176c`.
