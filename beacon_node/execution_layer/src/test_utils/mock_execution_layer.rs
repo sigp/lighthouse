@@ -105,6 +105,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             None,
             None,
             None,
+            None,
         );
 
         // Insert a proposer to ensure the fork choice updated command works.
@@ -143,6 +144,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             timestamp,
             prev_randao,
             suggested_fee_recipient,
+            None,
             None,
             None,
             None,
@@ -196,6 +198,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             timestamp,
             prev_randao,
             suggested_fee_recipient,
+            None,
             None,
             None,
             None,

@@ -403,6 +403,8 @@ where
         .get_suggested_fee_recipient(proposer_index)
         .await;
 
+    let target_gas_limit = execution_layer.get_proposer_gas_limit(proposer_index).await;
+
     let slot_number = if fork.gloas_enabled() {
         Some(builder_params.slot.as_u64())
     } else {
@@ -416,9 +418,8 @@ where
         withdrawals,
         parent_beacon_block_root,
         slot_number,
+        target_gas_limit,
     );
-
-    let target_gas_limit = execution_layer.get_proposer_gas_limit(proposer_index).await;
     let payload_parameters = PayloadParameters {
         parent_hash,
         parent_gas_limit: latest_execution_payload_header_gas_limit,

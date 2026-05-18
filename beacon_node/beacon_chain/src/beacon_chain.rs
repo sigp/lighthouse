@@ -6478,6 +6478,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None
             };
 
+            let target_gas_limit = if prepare_slot_fork.gloas_enabled() {
+                execution_layer.get_proposer_gas_limit(proposer).await
+            } else {
+                None
+            };
+
             let payload_attributes = PayloadAttributes::new(
                 self.slot_clock
                     .start_of(prepare_slot)
@@ -6488,6 +6494,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 withdrawals.map(Into::into),
                 parent_beacon_block_root,
                 slot_number,
+                target_gas_limit,
             );
 
             execution_layer
