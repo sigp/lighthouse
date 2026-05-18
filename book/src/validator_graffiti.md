@@ -4,15 +4,12 @@ Lighthouse provides four options for setting validator graffiti.
 
 ## 1. Using the "--graffiti-file" flag on the validator client
 
-Users can specify a file with the `--graffiti-file` flag. This option is useful for dynamically changing graffitis for
-various use cases (e.g. drawing on the beaconcha.in graffiti wall). This file is loaded once on startup and reloaded
-every time a validator is chosen to propose a block.
+Users can specify a file with the `--graffiti-file` flag. This option is useful for dynamically changing graffitis for various use cases (e.g. drawing on the beaconcha.in graffiti wall). This file is loaded once on startup and reloaded every time a validator is chosen to propose a block.
 
 Usage:
 `lighthouse vc --graffiti-file graffiti_file.txt`
 
-The file should contain key value pairs corresponding to validator public keys and their associated graffiti. The file
-can also contain a `default` key for the default case.
+The file should contain key value pairs corresponding to validator public keys and their associated graffiti. The file can also contain a `default` key for the default case.
 
 ```text
 default: default_graffiti
@@ -29,17 +26,13 @@ default: Lighthouse
 0xa5566f9ec3c6e1fdf362634ebec9ef7aceb0e460e5079714808388e5d48f4ae1e12897fed1bea951c17fa389d511e477: mr v was here
 ```
 
-Lighthouse will first search for the graffiti corresponding to the public key of the proposing validator, if there are
-no matches for the public key, then it uses the graffiti corresponding to the default key if present.
+Lighthouse will first search for the graffiti corresponding to the public key of the proposing validator, if there are no matches for the public key, then it uses the graffiti corresponding to the default key if present.
 
 ## 2. Setting the graffiti in the `validator_definitions.yml`
 
-Users can set validator specific graffitis in `validator_definitions.yml` with the `graffiti` key. This option is
-recommended for static setups where the graffitis won't change on every new block proposal.
+Users can set validator specific graffitis in `validator_definitions.yml` with the `graffiti` key. This option is recommended for static setups where the graffitis won't change on every new block proposal.
 
-You can also update the graffitis in the `validator_definitions.yml` file using
-the [Lighthouse API](api_vc_endpoints.html#patch-lighthousevalidatorsvoting_pubkey). See example
-in [Set Graffiti via HTTP](#set-graffiti-via-http).
+You can also update the graffitis in the `validator_definitions.yml` file using the [Lighthouse API](api_vc_endpoints.html#patch-lighthousevalidatorsvoting_pubkey). See example in [Set Graffiti via HTTP](#set-graffiti-via-http).
 
 Below is an example of the validator_definitions.yml with validator specific graffitis:
 
@@ -67,8 +60,7 @@ Usage: `lighthouse vc --graffiti example`
 
 ## 4. Using the "--graffiti" flag on the beacon node
 
-Users can also specify a common graffiti using the `--graffiti` flag on the beacon node as a common graffiti for all
-validators.
+Users can also specify a common graffiti using the `--graffiti` flag on the beacon node as a common graffiti for all validators.
 
 Usage: `lighthouse bn --graffiti fortytwo`
 
@@ -76,10 +68,8 @@ Usage: `lighthouse bn --graffiti fortytwo`
 >
 > 1. Read from `--graffiti-file` if provided.
 > 1. If `--graffiti-file` is not provided or errors, read graffiti from `validator_definitions.yml`.
-> 1. If graffiti is not specified in `validator_definitions.yml`, load the graffiti passed in the `--graffiti` flag on
-     the validator client.
-> 1. If the `--graffiti` flag on the validator client is not passed, load the graffiti passed in the `--graffiti` flag
-     on the beacon node.
+> 1. If graffiti is not specified in `validator_definitions.yml`, load the graffiti passed in the `--graffiti` flag on the validator client.
+> 1. If the `--graffiti` flag on the validator client is not passed, load the graffiti passed in the `--graffiti` flag on the beacon node.
 > 1. If the `--graffiti` flag is not passed, load the default Lighthouse graffiti.
 
 ## Set Graffiti via HTTP
