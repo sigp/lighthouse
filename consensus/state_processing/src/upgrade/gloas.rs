@@ -171,6 +171,8 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
 
     let mut pending_deposits = List::empty();
 
+    // TODO(gloas): introduce a global builder pubkey cache, see:
+    // https://github.com/sigp/lighthouse/issues/8783
     let mut builder_pubkey_to_index = state
         .builders()?
         .iter()
