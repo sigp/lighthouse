@@ -207,8 +207,12 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
             .expect("path must be valid OsStr")
             .to_string();
         let spec = &testing_spec::<E>(fork_name);
-        let steps: Vec<Step<String, String, Vec<String>, String, String, String, String, String>> =
-            yaml_decode_file(&path.join("steps.yaml"))?;
+
+        #[allow(clippy::type_complexity)]
+        let steps: Vec<
+            Step<String, String, Vec<String>, String, String, String, String, String>,
+        > = yaml_decode_file(&path.join("steps.yaml"))?;
+
         // Resolve the object names in `steps.yaml` into actual decoded block/attestation objects.
         let steps = steps
             .into_iter()
