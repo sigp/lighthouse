@@ -108,6 +108,7 @@ pub struct ChainSpec {
     pub proposer_reorg_cutoff_bps: u64,
     pub attestation_due_bps: u64,
     pub attestation_due_bps_gloas: u64,
+    pub payload_due_bps: u64,
     pub payload_attestation_due_bps: u64,
     pub aggregate_due_bps: u64,
     pub sync_message_due_bps: u64,
@@ -118,6 +119,7 @@ pub struct ChainSpec {
      */
     pub unaggregated_attestation_due: Duration,
     pub unaggregated_attestation_due_gloas: Duration,
+    pub payload_due: Duration,
     pub payload_attestation_due: Duration,
     pub aggregate_attestation_due: Duration,
     pub sync_message_due: Duration,
@@ -894,6 +896,11 @@ impl ChainSpec {
         }
     }
 
+    /// Spec: `get_payload_due_ms`.
+    pub fn get_payload_due(&self) -> Duration {
+        self.payload_due
+    }
+
     /// Spec: `get_payload_attestation_due_ms`.
     pub fn get_payload_attestation_due(&self) -> Duration {
         self.payload_attestation_due
@@ -974,6 +981,9 @@ impl ChainSpec {
         self.unaggregated_attestation_due_gloas = self
             .compute_slot_component_duration(self.attestation_due_bps_gloas)
             .expect("invalid chain spec: cannot compute unaggregated_attestation_due_gloas");
+        self.payload_due = self
+            .compute_slot_component_duration(self.payload_due_bps)
+            .expect("invalid chain spec: cannot compute payload_due");
         self.payload_attestation_due = self
             .compute_slot_component_duration(self.payload_attestation_due_bps)
             .expect("invalid chain spec: cannot compute payload_attestation_due");
@@ -1108,6 +1118,7 @@ impl ChainSpec {
             proposer_reorg_cutoff_bps: 1667,
             attestation_due_bps: 3333,
             attestation_due_bps_gloas: 2500,
+            payload_due_bps: 7500,
             payload_attestation_due_bps: 7500,
             aggregate_due_bps: 6667,
             sync_message_due_bps: 3333,
@@ -1118,6 +1129,7 @@ impl ChainSpec {
              */
             unaggregated_attestation_due: Duration::from_millis(3999),
             unaggregated_attestation_due_gloas: Duration::from_millis(3000),
+            payload_due: Duration::from_millis(9000),
             payload_attestation_due: Duration::from_millis(9000),
             aggregate_attestation_due: Duration::from_millis(8000),
             sync_message_due: Duration::from_millis(3999),
@@ -1440,6 +1452,7 @@ impl ChainSpec {
              */
             unaggregated_attestation_due: Duration::from_millis(1999),
             unaggregated_attestation_due_gloas: Duration::from_millis(1500),
+            payload_due: Duration::from_millis(4500),
             payload_attestation_due: Duration::from_millis(4500),
             aggregate_attestation_due: Duration::from_millis(4000),
             sync_message_due: Duration::from_millis(1999),
@@ -1531,6 +1544,7 @@ impl ChainSpec {
             proposer_reorg_cutoff_bps: 1667,
             attestation_due_bps: 3333,
             attestation_due_bps_gloas: 2500,
+            payload_due_bps: 7500,
             payload_attestation_due_bps: 7500,
             aggregate_due_bps: 6667,
 
@@ -1540,6 +1554,7 @@ impl ChainSpec {
              */
             unaggregated_attestation_due: Duration::from_millis(1666),
             unaggregated_attestation_due_gloas: Duration::from_millis(1250),
+            payload_due: Duration::from_millis(3750),
             payload_attestation_due: Duration::from_millis(3750),
             aggregate_attestation_due: Duration::from_millis(3333),
             sync_message_due: Duration::from_millis(1666),
@@ -2136,6 +2151,9 @@ pub struct Config {
     #[serde(default = "default_attestation_due_bps_gloas")]
     #[serde(with = "serde_utils::quoted_u64")]
     attestation_due_bps_gloas: u64,
+    #[serde(default = "default_payload_due_bps")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    payload_due_bps: u64,
     #[serde(default = "default_payload_attestation_due_bps")]
     #[serde(with = "serde_utils::quoted_u64")]
     payload_attestation_due_bps: u64,
@@ -2377,6 +2395,10 @@ const fn default_attestation_due_bps() -> u64 {
 
 const fn default_attestation_due_bps_gloas() -> u64 {
     2500
+}
+
+const fn default_payload_due_bps() -> u64 {
+    7500
 }
 
 const fn default_payload_attestation_due_bps() -> u64 {
@@ -2656,6 +2678,7 @@ impl Config {
             proposer_reorg_cutoff_bps: spec.proposer_reorg_cutoff_bps,
             attestation_due_bps: spec.attestation_due_bps,
             attestation_due_bps_gloas: spec.attestation_due_bps_gloas,
+            payload_due_bps: spec.payload_due_bps,
             payload_attestation_due_bps: spec.payload_attestation_due_bps,
             aggregate_due_bps: spec.aggregate_due_bps,
             sync_message_due_bps: spec.sync_message_due_bps,
@@ -2759,6 +2782,7 @@ impl Config {
             proposer_reorg_cutoff_bps,
             attestation_due_bps,
             attestation_due_bps_gloas,
+            payload_due_bps,
             payload_attestation_due_bps,
             aggregate_due_bps,
             sync_message_due_bps,
@@ -2867,6 +2891,7 @@ impl Config {
             proposer_reorg_cutoff_bps,
             attestation_due_bps,
             attestation_due_bps_gloas,
+            payload_due_bps,
             payload_attestation_due_bps,
             aggregate_due_bps,
             sync_message_due_bps,
