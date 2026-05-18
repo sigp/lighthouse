@@ -2390,7 +2390,7 @@ impl BeaconNodeHttpClient {
                 .append_pair("builder_boost_factor", &builder_booster_factor.to_string());
         }
 
-        // Only append the HTTP URL request if the graffiti_policy is to PreserveUserGraffiti
+        // Only append the HTTP URL request if the graffiti_policy is PreserveUserGraffiti
         // If AppendClientVersions (default), then we do not modify the HTTP URL request
         // so that the default case is compliant to the spec
         if let Some(GraffitiPolicy::PreserveUserGraffiti) = graffiti_policy {

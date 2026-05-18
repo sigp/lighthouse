@@ -8,10 +8,6 @@ participants:
     cl_extra_params:
       - --target-peers=3
     count: 2
-    vc_extra_params:
-      - --graffiti-append=false
-      - --graffiti=testing123
-
   - cl_type: lighthouse
     cl_image: lighthouse:local
     el_type: geth
