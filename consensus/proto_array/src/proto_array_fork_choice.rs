@@ -1010,8 +1010,12 @@ impl ProtoArrayForkChoice {
     }
 
     /// Called by the proposer to decide whether to build on the full or empty
-    /// parent pending node. Returns false if the PTC has voted the data as unavailable.
-    pub fn should_build_on_full<E: EthSpec>(&self, block_root: &Hash256) -> Result<bool, String> {
+    /// parent. Returns false if the PTC has voted the data as unavailable.
+    pub fn should_build_on_full<E: EthSpec>(
+        &self,
+        block_root: &Hash256,
+        head_payload_status: PayloadStatus,
+    ) -> Result<bool, String> {
         let block_index = self
             .proto_array
             .indices
@@ -1025,7 +1029,7 @@ impl ProtoArrayForkChoice {
         let fc_node = IndexedForkChoiceNode {
             root: proto_node.root(),
             proto_node_index: *block_index,
-            payload_status: proto_node.get_parent_payload_status(),
+            payload_status: head_payload_status,
         };
         self.proto_array
             .should_build_on_full::<E>(&fc_node, proto_node)

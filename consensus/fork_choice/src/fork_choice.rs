@@ -1544,9 +1544,13 @@ where
     }
 
     /// Called by the proposer to decide whether to build on the full or empty parent.
-    pub fn should_build_on_full(&self, block_root: &Hash256) -> Result<bool, Error<T::Error>> {
+    pub fn should_build_on_full(
+        &self,
+        block_root: &Hash256,
+        head_payload_status: PayloadStatus,
+    ) -> Result<bool, Error<T::Error>> {
         self.proto_array
-            .should_build_on_full::<E>(block_root)
+            .should_build_on_full::<E>(block_root, head_payload_status)
             .map_err(Error::ProtoArrayStringError)
     }
 

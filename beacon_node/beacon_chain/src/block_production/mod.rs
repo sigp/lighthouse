@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use proto_array::ProposerHeadError;
+use proto_array::{PayloadStatus, ProposerHeadError};
 use slot_clock::SlotClock;
 use tracing::{debug, error, info, instrument, warn};
 use types::{BeaconState, Hash256, SignedExecutionPayloadEnvelope, Slot};
@@ -17,6 +17,7 @@ pub(crate) struct BlockProductionState<E: types::EthSpec> {
     pub state: BeaconState<E>,
     pub state_root: Option<Hash256>,
     pub parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+    pub head_payload_status: PayloadStatus,
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
@@ -37,13 +38,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Atomically read some values from the head whilst avoiding holding cached head `Arc` any
         // longer than necessary. If the head has a payload envelope (Gloas full head), cheaply
         // clone the `Arc` so we can pass it to block production without a DB load.
-        let (head_slot, head_block_root, head_state_root, head_envelope) = {
+        let (head_slot, head_block_root, head_state_root, head_envelope, head_payload_status) = {
             let head = self.canonical_head.cached_head();
             (
                 head.head_slot(),
                 head.head_block_root(),
                 head.head_state_root(),
                 head.snapshot.execution_envelope.clone(),
+                head.head_payload_status(),
             )
         };
         let result = if head_slot < slot {
@@ -68,6 +70,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     state: re_org_state,
                     state_root: Some(re_org_state_root),
                     parent_envelope: None,
+                    head_payload_status,
                 }
             } else {
                 // Fetch the head state advanced through to `slot`, which should be present in the
@@ -82,6 +85,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     state,
                     state_root: Some(state_root),
                     parent_envelope: head_envelope,
+                    head_payload_status,
                 }
             }
         } else {
@@ -98,6 +102,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 state,
                 state_root: None,
                 parent_envelope: None,
+                head_payload_status,
             }
         };
 

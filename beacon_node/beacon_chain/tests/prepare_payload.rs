@@ -623,6 +623,7 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
         .produce_block_on_state_gloas(
             state,
             None,
+            PayloadStatus::Full,
             parent_envelope,
             slot,
             randao_reveal,

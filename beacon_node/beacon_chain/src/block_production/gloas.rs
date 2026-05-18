@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use proto_array::PayloadStatus;
+
 use bls::{PublicKeyBytes, Signature};
 use execution_layer::{
     BlockProposalContentsGloas, BuilderParams, PayloadAttributes, PayloadParameters,
@@ -115,6 +117,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state,
             state_root: state_root_opt,
             parent_envelope,
+            head_payload_status,
         } = block_production_state;
 
         // Part 2/2 (async, with some blocking components)
@@ -123,6 +126,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.produce_block_on_state_gloas(
             state,
             state_root_opt,
+            head_payload_status,
             parent_envelope,
             slot,
             randao_reveal,
@@ -139,6 +143,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         state: BeaconState<T::EthSpec>,
         state_root_opt: Option<Hash256>,
+        head_payload_status: PayloadStatus,
         parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
         produce_at_slot: Slot,
         randao_reveal: Signature,
@@ -157,7 +162,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let should_build_on_full = self
             .canonical_head
             .fork_choice_read_lock()
-            .should_build_on_full(&parent_root)
+            .should_build_on_full(&parent_root, head_payload_status)
             .map_err(|e| {
                 BlockProductionError::BeaconChain(Box::new(BeaconChainError::ForkChoiceError(e)))
             })?;

@@ -101,6 +101,17 @@ impl TestContext {
             root: Hash256::ZERO,
         };
 
+        // Set a non-zero gas_limit on latest_execution_payload_bid so the gas limit
+        // compatibility check doesn't reject all bids at genesis.
+        if let Ok(bid) = state.latest_execution_payload_bid_mut() {
+            bid.gas_limit = 30_000_000;
+        }
+        // Update body_root to reflect the modified bid (genesis block embeds it).
+        let genesis_body_root = genesis_block(&state, &spec)
+            .expect("should build genesis block")
+            .body_root();
+        state.latest_block_header_mut().body_root = genesis_body_root;
+
         let inactive_keypair = &keypairs[NUM_BUILDERS];
         let inactive_creds = builder_withdrawal_credentials(&inactive_keypair.pk, &spec);
         let inactive_builder_index = state
