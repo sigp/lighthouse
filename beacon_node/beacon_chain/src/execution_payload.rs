@@ -411,7 +411,7 @@ where
                 .unwrap_or(latest_execution_payload_header_gas_limit),
         )
     } else {
-        None
+        execution_layer.get_proposer_gas_limit(proposer_index).await
     };
 
     let slot_number = if fork.gloas_enabled() {
