@@ -386,6 +386,7 @@ impl<S, T> DutiesServiceBuilder<S, T> {
         Ok(DutiesService {
             attesters: Default::default(),
             proposers: Default::default(),
+            finalized_checkpoint_root: Default::default(),
             sync_duties: SyncDutiesMap::new(self.sync_selection_proof_config),
             ptc_duties: Default::default(),
             validator_store: self
@@ -416,6 +417,8 @@ pub struct DutiesService<S, T> {
     /// Maps an epoch to all *local* proposers in this epoch. Notably, this does not contain
     /// proposals for any validators which are not registered locally.
     pub proposers: RwLock<ProposerMap>,
+    /// The most recently observed finalized checkpoint root from the beacon node.
+    pub finalized_checkpoint_root: RwLock<Option<Hash256>>,
     /// Map from validator index to sync committee duties.
     pub sync_duties: SyncDutiesMap,
     /// Maps an epoch to PTC duties for locally-managed validators.
@@ -1738,6 +1741,30 @@ async fn poll_beacon_proposers<S: ValidatorStore, T: SlotClock + 'static>(
                 "Detected new block proposer"
             );
             validator_metrics::inc_counter(&validator_metrics::PROPOSAL_CHANGED);
+        }
+    }
+
+    // Update the finalized checkpoint root.
+    let checkpoint_result = duties_service
+        .beacon_nodes
+        .first_success(|beacon_node| async move {
+            beacon_node
+                .get_beacon_states_finality_checkpoints(StateId::Head)
+                .await
+                .map_err(|e| format!("Failed to get finality checkpoints: {e:?}"))
+        })
+        .await;
+
+    match checkpoint_result {
+        Ok(Some(response)) => {
+            *duties_service.finalized_checkpoint_root.write() =
+                Some(response.data.finalized.root);
+        }
+        Ok(None) => {
+            warn!("Finality checkpoints not available from beacon node");
+        }
+        Err(e) => {
+            error!(err = %e, "Failed to get finality checkpoints");
         }
     }
 
