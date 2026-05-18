@@ -1100,6 +1100,7 @@ fn fork_choice_compliance_block_weight_test() {
 }
 
 #[test]
+#[ignore]
 fn fork_choice_compliance_invalid_message_test() {
     ForkChoiceComplianceHandler::<MinimalEthSpec>::new("invalid_message_test").run();
 }

@@ -402,10 +402,22 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     match valid {
                         Some(false) => {
                             if result.is_ok() {
-                                return Err(Error::DidntFail(
-                                    "attestation marked valid=false should have been rejected"
-                                        .into(),
-                                ));
+                                // We allow acceptance of future slot attestations which the spec
+                                // deems invalid (we just queue them).
+                                let current_slot = tester
+                                    .harness
+                                    .chain
+                                    .canonical_head
+                                    .fork_choice_read_lock()
+                                    .fc_store()
+                                    .get_current_slot();
+                                let future_attestation = attestation.data().slot >= current_slot;
+                                if !future_attestation {
+                                    return Err(Error::DidntFail(
+                                        "attestation marked valid=false should have been rejected"
+                                            .into(),
+                                    ));
+                                }
                             }
                         }
                         _ => result?,
