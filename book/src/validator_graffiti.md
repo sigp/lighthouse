@@ -114,16 +114,16 @@ Given that the total size of the graffiti is 32 bytes, if the appended graffiti 
 client version info will automatically be shortened. Some examples are as follows, where the last part of the graffiti is the
 appended client version info.
 
-(When the user graffiti is between 20-23 characters)
+When the user graffiti is between 20-23 characters:
 `This is my graffiti yo RH88LH17`
 
-(When the user graffiti is between 24-27 characters)
+When the user graffiti is between 24-27 characters:
 `This is my graffiti string RHLH`
 
-(When the user graffiti is between 28-29 characters)
+When the user graffiti is between 28-29 characters:
 `This is my graffiti string yo RH`
 
-(When the user graffiti is between 30-32 characters, no client version info will be appended)
+When the user graffiti is between 30-32 characters, no client version info will be appended:
 `This is my graffiti string yo yo`
 
 To opt out from this, use the flag `--graffiti-append false` on the validator client. This will retain your own
