@@ -4,14 +4,13 @@ use milhouse::{List, Vector};
 use safe_arith::SafeArith;
 use ssz_types::BitVector;
 use ssz_types::FixedVector;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::mem;
 use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
     BeaconState, BeaconStateError as Error, BeaconStateGloas, BuilderPendingPayment, ChainSpec,
-    EthSpec, ExecutionPayloadBid, ExecutionRequests, Fork,
-    is_builder_withdrawal_credential,
+    EthSpec, ExecutionPayloadBid, ExecutionRequests, Fork, is_builder_withdrawal_credential,
 };
 
 /// Transform a `Fulu` state into a `Gloas` state.
@@ -177,7 +176,7 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
         .iter()
         .enumerate()
         .map(|(i, b)| (b.pubkey, i as u64))
-        .collect::<HashMap<_,_>>();
+        .collect::<HashMap<_, _>>();
 
     for deposit in &current_pending_deposits {
         // Deposits for existing validators stay in the pending queue.
@@ -199,7 +198,7 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
         }
 
         let builder_index = builder_pubkey_to_index.get(&deposit.pubkey).copied();
-    
+
         if let Some(new_builder_index) = apply_deposit_for_builder(
             state,
             builder_index,
@@ -210,9 +209,11 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
             deposit.slot,
             spec,
         )? {
-            // Instead of recomputing the list of builders, update the hashmap if a new 
-            // builder index was added to the state.
-            builder_pubkey_to_index.entry(deposit.pubkey).or_insert(new_builder_index);
+            // If a new builder index was added to the state, update the hashmap
+            // instead of recomputing the list of builders.
+            builder_pubkey_to_index
+                .entry(deposit.pubkey)
+                .or_insert(new_builder_index);
         }
     }
 
