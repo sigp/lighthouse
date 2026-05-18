@@ -1339,34 +1339,44 @@ where
     pub fn on_payload_attestation(
         &mut self,
         system_time_current_slot: Slot,
-        attestation: &IndexedPayloadAttestation<E>,
+        payload_attestation: &IndexedPayloadAttestation<E>,
         is_from_block: AttestationFromBlock,
         ptc: &[usize],
     ) -> Result<(), Error<T::Error>> {
         self.update_time(system_time_current_slot)?;
 
-        if attestation.data.beacon_block_root.is_zero() {
+        if payload_attestation.data.beacon_block_root.is_zero() {
             return Ok(());
         }
 
         // TODO(gloas): Should ignore wrong-slot payload attestations at the caller, they could
         // have been processed at the correct slot when received on gossip, but then have the
         // wrong-slot by the time they make it to here (TOCTOU).
-        self.validate_on_payload_attestation(attestation, is_from_block)?;
+        self.validate_on_payload_attestation(payload_attestation, is_from_block)?;
 
-        // Resolve validator indices to PTC committee positions.
-        let ptc_indices: Vec<usize> = attestation
-            .attesting_indices
-            .iter()
-            .filter_map(|validator_index| ptc.iter().position(|&p| p == *validator_index as usize))
-            .collect();
+        // Resolve validator indices to all PTC committee positions. A validator may
+        // appear multiple times in the PTC committee.
+        let mut ptc_indices: Vec<usize> = Vec::new();
+        let mut validators_found = 0;
+        for validator_index in payload_attestation.attesting_indices.iter() {
+            let mut found = false;
+            for (ptc_index, &ptc_validator_index) in ptc.iter().enumerate() {
+                if ptc_validator_index == *validator_index as usize {
+                    ptc_indices.push(ptc_index);
+                    found = true;
+                }
+            }
+            if found {
+                validators_found += 1;
+            }
+        }
 
         // Check that all the attesters are in the PTC
-        if ptc_indices.len() != attestation.attesting_indices.len() {
+        if validators_found != payload_attestation.attesting_indices.len() {
             return Err(
                 InvalidPayloadAttestation::PayloadAttestationAttestersNotInPtc {
-                    attesting_indices_len: attestation.attesting_indices.len(),
-                    attesting_indices_in_ptc: ptc_indices.len(),
+                    attesting_indices_len: payload_attestation.attesting_indices.len(),
+                    attesting_indices_in_ptc: validators_found,
                 }
                 .into(),
             );
@@ -1374,10 +1384,10 @@ where
 
         for &ptc_index in &ptc_indices {
             self.proto_array.process_payload_attestation(
-                attestation.data.beacon_block_root,
+                payload_attestation.data.beacon_block_root,
                 ptc_index,
-                attestation.data.payload_present,
-                attestation.data.blob_data_available,
+                payload_attestation.data.payload_present,
+                payload_attestation.data.blob_data_available,
             )?;
         }
 

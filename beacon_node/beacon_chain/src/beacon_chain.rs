@@ -2186,7 +2186,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // TODO(gloas) do we want to use a dedicated envelope cache instead?
         // Maybe the new gloas DA cache? (Or should the gloas DA cache use
-        // the envelopes_times_cache internally?)
+        // the envelopes_times_cache internally?
         // The payload is considered present only if it was observed before
         // the payload due deadline (PAYLOAD_DUE_BPS into the slot).
         let payload_due = self.spec.get_payload_due();
