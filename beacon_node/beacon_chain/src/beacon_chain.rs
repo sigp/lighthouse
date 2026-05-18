@@ -6478,6 +6478,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None
             };
 
+            // TODO(gloas): Use a sensible default (e.g. parent_gas_limit) if the proposer
+            // has no registered gas limit preference.
             let target_gas_limit = if prepare_slot_fork.gloas_enabled() {
                 execution_layer.get_proposer_gas_limit(proposer).await
             } else {

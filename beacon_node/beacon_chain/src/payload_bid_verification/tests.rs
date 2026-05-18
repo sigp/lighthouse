@@ -252,7 +252,7 @@ fn make_signed_preferences(
 ) -> Arc<SignedProposerPreferences> {
     Arc::new(SignedProposerPreferences {
         message: ProposerPreferences {
-            checkpoint_root: Hash256::ZERO,
+            dependent_root: Hash256::ZERO,
             proposal_slot,
             validator_index,
             fee_recipient,

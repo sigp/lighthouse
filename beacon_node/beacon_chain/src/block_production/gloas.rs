@@ -1062,7 +1062,12 @@ where
         .get_suggested_fee_recipient(proposer_index)
         .await;
     let slot_number = Some(builder_params.slot.as_u64());
-    let target_gas_limit = execution_layer.get_proposer_gas_limit(proposer_index).await;
+    let target_gas_limit = Some(
+        execution_layer
+            .get_proposer_gas_limit(proposer_index)
+            .await
+            .unwrap_or(parent_gas_limit),
+    );
 
     let payload_attributes = PayloadAttributes::new(
         timestamp,

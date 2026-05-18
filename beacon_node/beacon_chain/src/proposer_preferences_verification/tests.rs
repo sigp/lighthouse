@@ -127,7 +127,7 @@ fn make_signed_preferences(
 ) -> Arc<SignedProposerPreferences> {
     Arc::new(SignedProposerPreferences {
         message: ProposerPreferences {
-            checkpoint_root: Hash256::ZERO,
+            dependent_root: Hash256::ZERO,
             proposal_slot,
             validator_index,
             fee_recipient: Address::ZERO,
@@ -269,7 +269,7 @@ fn same_validator_different_dependent_root_not_deduplicated() {
             message: ProposerPreferences {
                 proposal_slot: slot,
                 validator_index: 42,
-                checkpoint_root: Hash256::repeat_byte(0xaa),
+                dependent_root: Hash256::repeat_byte(0xaa),
                 fee_recipient: Address::ZERO,
                 target_gas_limit: 30_000_000,
             },

@@ -2925,7 +2925,7 @@ impl ApiTester {
             .expect("slot index should be in lookahead") as usize;
 
         let preferences = ProposerPreferences {
-            checkpoint_root: Hash256::ZERO,
+            dependent_root: Hash256::ZERO,
             proposal_slot,
             validator_index: validator_index as u64,
             fee_recipient: Address::repeat_byte(0xaa),

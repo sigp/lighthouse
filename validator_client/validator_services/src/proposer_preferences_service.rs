@@ -104,17 +104,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
     }
 
     async fn publish_proposer_preferences(&self, current_epoch: Epoch, fork_name: ForkName) {
-        let duties = {
+        let (dependent_root, duties) = {
             let proposers = self.duties_service.proposers.read();
             match proposers.get(&current_epoch) {
-                Some((_root, duties)) => duties.clone(),
+                Some((root, duties)) => (*root, duties.clone()),
                 None => return,
             }
-        };
-
-        let Some(checkpoint_root) = *self.duties_service.finalized_checkpoint_root.read() else {
-            warn!("Finalized checkpoint root not yet available, skipping proposer preferences");
-            return;
         };
 
         let preferences_to_sign: Vec<_> = {
@@ -137,7 +132,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
                 result.push((
                     duty.pubkey,
                     ProposerPreferences {
-                        checkpoint_root,
+                        dependent_root,
                         proposal_slot: duty.slot,
                         validator_index: duty.validator_index,
                         fee_recipient,

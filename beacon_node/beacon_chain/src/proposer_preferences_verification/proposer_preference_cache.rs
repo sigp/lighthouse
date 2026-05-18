@@ -37,24 +37,24 @@ impl GossipVerifiedProposerPreferenceCache {
     pub fn get_seen_validator(
         &self,
         slot: &Slot,
-        checkpoint_root: Hash256,
+        dependent_root: Hash256,
         validator_index: u64,
     ) -> bool {
         self.seen
             .read()
             .get(slot)
-            .is_some_and(|seen| seen.contains(&(checkpoint_root, validator_index)))
+            .is_some_and(|seen| seen.contains(&(dependent_root, validator_index)))
     }
 
     pub fn insert_seen_validator(&self, preferences: &GossipVerifiedProposerPreferences) {
         let slot = preferences.signed_preferences.message.proposal_slot;
-        let checkpoint_root = preferences.signed_preferences.message.checkpoint_root;
+        let dependent_root = preferences.signed_preferences.message.dependent_root;
         let validator_index = preferences.signed_preferences.message.validator_index;
         self.seen
             .write()
             .entry(slot)
             .or_default()
-            .insert((checkpoint_root, validator_index));
+            .insert((dependent_root, validator_index));
     }
 
     pub fn prune(&self, current_slot: Slot) {
@@ -78,12 +78,12 @@ mod tests {
     fn make_gossip_verified(
         slot: Slot,
         validator_index: u64,
-        checkpoint_root: Hash256,
+        dependent_root: Hash256,
     ) -> GossipVerifiedProposerPreferences {
         GossipVerifiedProposerPreferences {
             signed_preferences: Arc::new(SignedProposerPreferences {
                 message: ProposerPreferences {
-                    checkpoint_root,
+                    dependent_root,
                     proposal_slot: slot,
                     validator_index,
                     fee_recipient: Address::ZERO,
