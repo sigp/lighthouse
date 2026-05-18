@@ -93,3 +93,26 @@ curl -X PATCH "http://localhost:5062/lighthouse/validators/0xb0148e6348264131bf4
 ```
 
 A `null` response indicates that the request is successful.
+
+## Automatically append client version info to user graffiti
+
+In the interest of obtaining client diversity data, Lighthouse will by default automatically append client version info to user graffiti in the proposed blocks.
+
+For example, you set the graffiti in the validator client as `This is my graffiti`. You are using Lighthouse (LH) v8.1.3 with commit hash `176cce5` and Reth (RH) v2.2.0 with commit hash `88505c7`. The appended graffiti will include:
+
+- Execution layer client code
+- First two bytes of the EL commit hash
+- Consensus layer client code
+- First two bytes of the CL commit hash
+
+In the above example, the appended graffiti when proposing a block will be: `This is my graffiti RH8850LH176c`.
+
+Given that the total size of the graffiti is 32 bytes, if the appended graffiti exceeds the size, the appended client version info will be automatically reduced. Some examples are as follows, where the last part of the graffiti is the appended client version info.
+
+`This is my graffiti yo RH88LH17`
+
+`This is my graffiti string RHLH`
+
+`This is my graffiti string yo RH`
+
+To opt out from this, use the flag `--graffiti_append false` on the validator client. This will only retain your graffiti when proposing a block, without any client appended info.
