@@ -13,11 +13,11 @@
 //! 1. We are required to store an additional `BeaconState` for the head block. This consumes
 //!    memory.
 //! 2. There's a possibility that the head block is never built upon, causing wasted CPU cycles.
+use crate::shuffling_cache::CachedPTCs;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::{
-    BeaconChain, BeaconChainError, BeaconChainTypes,
-    chain_config::FORK_CHOICE_LOOKAHEAD_FACTOR,
-    shuffling_cache::{CachedShuffling, get_ptcs_for_shuffling_epoch},
+    BeaconChain, BeaconChainError, BeaconChainTypes, chain_config::FORK_CHOICE_LOOKAHEAD_FACTOR,
+    shuffling_cache::CachedShuffling,
 };
 use slot_clock::SlotClock;
 use state_processing::per_slot_processing;
@@ -410,17 +410,12 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
                 "Skipping priming of attester cache for Gloas boundary epoch"
             );
         } else {
-            let ptcs = get_ptcs_for_shuffling_epoch(&state, shuffling_epoch, &beacon_chain.spec)
-                .map_err(BeaconChainError::from)?;
+            let ptcs = CachedPTCs::from_state(&state, shuffling_epoch, &beacon_chain.spec)?;
             let cached_shuffling = CachedShuffling::new(committee_cache.clone(), ptcs);
             beacon_chain
                 .shuffling_cache
                 .write()
-                .insert_committee_cache_with_ptcs(
-                    shuffling_id.clone(),
-                    cached_shuffling,
-                    &beacon_chain.spec,
-                )?;
+                .insert_committee_cache(shuffling_id.clone(), cached_shuffling)?;
 
             debug!(
                 ?head_block_root,

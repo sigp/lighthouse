@@ -391,7 +391,7 @@ pub fn get_beacon_state_committees<T: BeaconChainTypes>(
                                     if let Some(shuffling) = maybe_cached_shuffling {
                                         shuffling
                                     } else {
-                                        let possibly_built_cache =
+                                        let committee_cache =
                                             match RelativeEpoch::from_epoch(current_epoch, epoch) {
                                                 Ok(relative_epoch)
                                                     if state.committee_cache_is_initialized(
@@ -444,28 +444,24 @@ pub fn get_beacon_state_committees<T: BeaconChainTypes>(
                                         // size is not the default value).
                                         if chain.config.shuffling_cache_size
                                             != beacon_chain::shuffling_cache::DEFAULT_CACHE_SIZE
-                                            && let Some(shuffling_id) = shuffling_id
-                                            && let Some(mut cache_write) = chain
+                                            && let Some(_shuffling_id) = shuffling_id
+                                            && let Some(_cache_write) = chain
                                                 .shuffling_cache
                                                 .try_write_for(std::time::Duration::from_secs(1))
                                         {
-                                            let decision_block_root =
-                                                shuffling_id.shuffling_decision_block;
-                                            if let Err(error) = cache_write.insert_committee_cache(
-                                                shuffling_id.clone(),
-                                                &possibly_built_cache,
-                                                &chain.spec,
-                                            ) {
-                                                tracing::warn!(
-                                                    %epoch,
-                                                    ?decision_block_root,
-                                                    ?error,
-                                                    "Priming committee cache failed"
-                                                );
-                                            }
+                                            // TODO: Do we really need to insert into the committee
+                                            // cache? Then we need to be able to produce PTCs for
+                                            // historical epochs, or limit the range of query.epoch
+                                            // against the state_id
+                                            // Theoretically we COULD compute the PTC for historical
+                                            // epochs, but should we? If we don't we need to insert
+                                            // historical committees to the cache without PTC, so we
+                                            // have to have a type of entry that does not have a PTC
+                                            // just to support the caching in this route: I persoanlly
+                                            // hate this.
                                         }
 
-                                        possibly_built_cache
+                                        committee_cache
                                     };
 
                                 // Use either the supplied slot or all slots in the epoch.

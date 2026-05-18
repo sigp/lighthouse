@@ -77,9 +77,7 @@ use crate::persisted_custody::persist_custody_context;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::pre_finalization_cache::PreFinalizationBlockCache;
 use crate::proposer_preferences_verification::proposer_preference_cache::GossipVerifiedProposerPreferenceCache;
-use crate::shuffling_cache::{
-    CachedShuffling, ShufflingCache, get_ptcs_for_shuffling_epoch, with_cached_shuffling,
-};
+use crate::shuffling_cache::{CachedPTCs, CachedShuffling, ShufflingCache, with_cached_shuffling};
 use crate::sync_committee_verification::{
     Error as SyncCommitteeError, VerifiedSyncCommitteeMessage, VerifiedSyncContribution,
 };
@@ -4927,11 +4925,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if !shuffling_is_cached {
                 state.build_committee_cache(relative_epoch, &self.spec)?;
                 let committee_cache = state.committee_cache(relative_epoch)?;
-                let ptcs = get_ptcs_for_shuffling_epoch(state, shuffling_epoch, &self.spec)?;
+                let ptcs = CachedPTCs::from_state(state, shuffling_epoch, &self.spec)?;
                 let cached_shuffling = CachedShuffling::new(committee_cache.clone(), ptcs);
                 self.shuffling_cache
                     .write()
-                    .insert_committee_cache_with_ptcs(shuffling_id, cached_shuffling, &self.spec)?;
+                    .insert_committee_cache(shuffling_id, cached_shuffling)?;
             }
         }
         Ok(())
