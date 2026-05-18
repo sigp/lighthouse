@@ -254,6 +254,8 @@ pub struct PrePayloadAttributes {
     pub parent_block_number: Option<u64>,
     /// The block root of the block being built upon (same block as fcU `headBlockHash`).
     pub parent_beacon_block_root: Hash256,
+    /// The gas limit of the parent execution payload (used as fallback target_gas_limit for Gloas).
+    pub parent_gas_limit: Option<u64>,
 }
 
 /// Information about a state/block at a specific slot.
@@ -5076,11 +5078,44 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         };
 
+        let parent_gas_limit = if cached_head
+            .snapshot
+            .beacon_state
+            .fork_name_unchecked()
+            .gloas_enabled()
+        {
+            Some(
+                cached_head
+                    .snapshot
+                    .beacon_state
+                    .latest_execution_payload_bid()?
+                    .gas_limit,
+            )
+        // If the beacon state is not a gloas variant, but the proposal slot is
+        // that indicates we are at the fork boundary. Fallback to fetching the gas limit
+        // from the latest execution payload header.
+        } else if self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(proposal_slot)
+            .gloas_enabled()
+        {
+            Some(
+                cached_head
+                    .snapshot
+                    .beacon_state
+                    .latest_execution_payload_header()?
+                    .gas_limit(),
+            )
+        } else {
+            None
+        };
+
         Ok(Some(PrePayloadAttributes {
             proposer_index,
             prev_randao,
             parent_block_number,
             parent_beacon_block_root: proposer_head,
+            parent_gas_limit,
         }))
     }
 
@@ -6478,10 +6513,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None
             };
 
-            // TODO(gloas): Use a sensible default (e.g. parent_gas_limit) if the proposer
-            // has no registered gas limit preference.
             let target_gas_limit = if prepare_slot_fork.gloas_enabled() {
-                execution_layer.get_proposer_gas_limit(proposer).await
+                // TODO(gloas) fallback to some sensible default value
+                execution_layer
+                    .get_proposer_gas_limit(proposer)
+                    .await
+                    .or(pre_payload_attributes.parent_gas_limit)
             } else {
                 None
             };
