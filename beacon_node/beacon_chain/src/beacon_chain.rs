@@ -6356,6 +6356,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Return `Ok(Some(head_block_root))` if this node prepared to propose at the next slot on
     /// top of `head_block_root`.
+    #[instrument(level = "debug", skip_all, fields(%current_slot))]
     pub async fn prepare_beacon_proposer(
         self: &Arc<Self>,
         current_slot: Slot,
