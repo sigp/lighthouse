@@ -1509,15 +1509,26 @@ impl ProtoArray {
         proto_node: &ProtoNode,
         proposer_boost_root: Hash256,
     ) -> Result<bool, Error> {
-        // Per spec: is_payload_inclusion_list_satisfied returns false unless the
-        // root is in the map AND the value is true.
-        if !self
-            .payload_inclusion_list_satisfaction
-            .get(&fc_node.root)
-            .copied()
-            .unwrap_or(false)
+        // Per spec (Gloas): if not is_payload_verified(store, root): return False
+        // In our implementation, payload_received == True means the envelope was received.
+        if !proto_node
+            .payload_received()
+            .map_err(|_| Error::InvalidNodeVariant { block_root: fc_node.root })?
         {
             return Ok(false);
+        }
+
+        // Per spec (Heze/FOCIL): is_payload_inclusion_list_satisfied check.
+        // Only applies when the IL satisfaction map has entries (i.e., heze is active).
+        // For gloas-only slots where no IL exists, the map won't contain the root,
+        // but we should NOT gate on this — only check if the root IS in the map.
+        if let Some(&satisfied) = self
+            .payload_inclusion_list_satisfaction
+            .get(&fc_node.root)
+        {
+            if !satisfied {
+                return Ok(false);
+            }
         }
 
         // Per spec: `proposer_root == Root()` is one of the `or` conditions that
