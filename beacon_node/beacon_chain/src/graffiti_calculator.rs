@@ -62,7 +62,7 @@ impl GraffitiSettings {
         validator_graffiti
             .map(|graffiti| Self::Specified {
                 graffiti,
-                policy: policy.unwrap_or(GraffitiPolicy::PreserveUserGraffiti),
+                policy: policy.unwrap_or_default(),
             })
             .unwrap_or(Self::Unspecified)
     }
