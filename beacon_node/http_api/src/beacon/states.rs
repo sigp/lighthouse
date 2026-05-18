@@ -449,10 +449,20 @@ pub fn get_beacon_state_committees<T: BeaconChainTypes>(
                                                 .shuffling_cache
                                                 .try_write_for(std::time::Duration::from_secs(1))
                                         {
-                                            cache_write.insert_committee_cache(
-                                                shuffling_id,
+                                            let decision_block_root =
+                                                shuffling_id.shuffling_decision_block;
+                                            if let Err(error) = cache_write.insert_committee_cache(
+                                                shuffling_id.clone(),
                                                 &possibly_built_cache,
-                                            );
+                                                &chain.spec,
+                                            ) {
+                                                tracing::warn!(
+                                                    %epoch,
+                                                    ?decision_block_root,
+                                                    ?error,
+                                                    "Priming committee cache failed"
+                                                );
+                                            }
                                         }
 
                                         possibly_built_cache

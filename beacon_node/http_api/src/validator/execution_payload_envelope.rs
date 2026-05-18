@@ -12,7 +12,7 @@ use types::Slot;
 use warp::http::Response;
 use warp::{Filter, Rejection};
 
-// GET validator/execution_payload_envelope/{slot}/{builder_index}
+// GET validator/execution_payload_envelope/{slot}
 pub fn get_validator_execution_payload_envelope<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
     chain_filter: ChainFilter<T>,
@@ -27,11 +27,6 @@ pub fn get_validator_execution_payload_envelope<T: BeaconChainTypes>(
                 "Invalid slot".to_string(),
             ))
         }))
-        .and(warp::path::param::<u64>().or_else(|_| async {
-            Err(warp_utils::reject::custom_bad_request(
-                "Invalid builder_index".to_string(),
-            ))
-        }))
         .and(warp::path::end())
         .and(warp::header::optional::<Accept>("accept"))
         .and(not_while_syncing_filter)
@@ -39,10 +34,6 @@ pub fn get_validator_execution_payload_envelope<T: BeaconChainTypes>(
         .and(chain_filter)
         .then(
             |slot: Slot,
-             // TODO(gloas) we're only doing local building
-             // we'll need to implement builder index logic
-             // eventually.
-             _builder_index: u64,
              accept_header: Option<Accept>,
              not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,

@@ -87,7 +87,7 @@ impl<T: BeaconChainTypes> VerifiedPayloadAttestationMessage<T> {
             ctx.spec,
             beacon_block_root,
             message_epoch,
-            |cached_shuffling, _| Ok::<_, Error>(cached_shuffling.ptc.clone()),
+            |cached_shuffling, _| Ok::<_, Error>(cached_shuffling.ptc_for_slot(slot).cloned()),
         )?
         .ok_or(Error::MissingPTC { slot })?;
 
