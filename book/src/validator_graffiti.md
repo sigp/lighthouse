@@ -137,4 +137,4 @@ appended client version info.
 `This is my graffiti string yo yo`
 
 To opt out from this, use the flag `--graffiti-append false` on the validator client. This will retain your own
-graffiti when proposing a block, without any client appended info.
+graffiti when proposing a block, without appending any client version info.
