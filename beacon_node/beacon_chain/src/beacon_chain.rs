@@ -4931,7 +4931,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let cached_shuffling = CachedShuffling::new(committee_cache.clone(), ptcs);
                 self.shuffling_cache
                     .write()
-                    .insert_committee_cache_with_ptc(shuffling_id, cached_shuffling, &self.spec)?;
+                    .insert_committee_cache_with_ptcs(shuffling_id, cached_shuffling, &self.spec)?;
             }
         }
         Ok(())

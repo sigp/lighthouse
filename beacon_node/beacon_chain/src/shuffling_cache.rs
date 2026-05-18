@@ -188,14 +188,14 @@ impl<E: EthSpec> ShufflingCache<E> {
         committee_cache: &C,
         spec: &ChainSpec,
     ) -> Result<(), BeaconChainError> {
-        self.insert_committee_cache_with_ptc(
+        self.insert_committee_cache_with_ptcs(
             key,
             CachedShuffling::new(committee_cache.to_arc_committee_cache(), None),
             spec,
         )
     }
 
-    pub fn insert_committee_cache_with_ptc(
+    pub fn insert_committee_cache_with_ptcs(
         &mut self,
         key: AttestationShufflingId,
         cached_shuffling: CachedShuffling<E>,
@@ -441,7 +441,7 @@ where
 
         shuffling_cache_lock
             .write()
-            .insert_committee_cache_with_ptc(shuffling_id, cached_shuffling.clone(), spec)?;
+            .insert_committee_cache_with_ptcs(shuffling_id, cached_shuffling.clone(), spec)?;
 
         metrics::stop_timer(committee_building_timer);
 
