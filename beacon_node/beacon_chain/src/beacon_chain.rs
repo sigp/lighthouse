@@ -5112,6 +5112,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )
     }
 
+    #[instrument(
+        level = "debug",
+        skip_all,
+        fields(%proposal_slot, ?forkchoice_update_params.head_root)
+    )]
     pub fn get_expected_withdrawals(
         &self,
         forkchoice_update_params: &ForkchoiceUpdateParameters,
