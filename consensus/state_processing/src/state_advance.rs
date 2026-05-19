@@ -105,7 +105,7 @@ pub fn partial_state_advance<E: EthSpec>(
         per_slot_processing(
             state,
             Some(state_root),
-            GloasVerificationContext::CommitteesOnly,
+            GloasVerificationContext::SkipBuilderOnboarding,
             spec,
         )
         .map_err(Error::PerSlotProcessing)?;

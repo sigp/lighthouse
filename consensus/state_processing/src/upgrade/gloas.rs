@@ -32,13 +32,13 @@ pub enum GloasVerificationContext {
     /// that need to be onboarded at the fork boundary. This variant should be used
     /// for tests and other non-production paths.
     FullVerification,
-    /// Skip `onboard_builders_from_pending_deposits` entirely which is sufficient for
-    /// paths that do a state advance only for committee calculation.
+    /// Skip `onboard_builders_from_pending_deposits` but still initialize the PTC window.
     ///
     /// `onboard_builders_from_pending_deposits` only modifies `state.pending_deposits` and
-    /// `state.builders` which don't affect committee calculation.
-    /// TODO(pawan): triple check this is true.
-    CommitteesOnly,
+    /// `state.builders` which don't affect committee or PTC calculation. This variant is
+    /// used by `partial_state_advance` where callers need committee and PTC lookups but
+    /// don't need the builder registry to be fully populated.
+    SkipBuilderOnboarding,
 }
 
 impl GloasVerificationContext {
@@ -169,7 +169,9 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
             onboard_builders_from_pending_deposits(&mut post, None, spec)?;
             initialize_ptc_window(&mut post, spec)?;
         }
-        GloasVerificationContext::CommitteesOnly => {}
+        GloasVerificationContext::SkipBuilderOnboarding => {
+            initialize_ptc_window(&mut post, spec)?;
+        }
     }
 
     Ok(post)
