@@ -211,8 +211,8 @@ impl<E: EthSpec> ShufflingCache<E> {
         cached_shuffling: CachedShuffling<E>,
     ) -> Result<(), BeaconChainError> {
         match self.cache.get(&key) {
-            Some(CacheItem::Committee(_existing)) => {
-                // What should we do?
+            Some(CacheItem::Committee(_)) => {
+                // Calculation is deterministic, so no need to replace the existing entry.
             }
             // Replace the committee if it's not present or if it's a promise. A bird in the hand is
             // worth two in the promise-bush!
