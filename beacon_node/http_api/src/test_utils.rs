@@ -294,7 +294,7 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
         beacon_processor_send: Some(beacon_processor_send),
         sse_logging_components: None,
         historical_committee_cache: Arc::new(HistoricalCommitteeCache::new(
-            NonZeroUsize::new(16).unwrap(),
+            NonZeroUsize::new(http_config.historical_committee_cache_size).unwrap(),
         )),
     });
 

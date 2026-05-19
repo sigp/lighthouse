@@ -642,7 +642,7 @@ where
                 sse_logging_components: runtime_context.sse_logging_components.clone(),
                 historical_committee_cache: Arc::new(http_api::HistoricalCommitteeCache::new(
                     NonZeroUsize::new(self.http_api_config.historical_committee_cache_size)
-                        .unwrap_or(NonZeroUsize::new(1).expect("1 > 0")),
+                        .unwrap_or(NonZeroUsize::MIN),
                 )),
             });
 
