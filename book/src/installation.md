@@ -34,4 +34,15 @@ After [The Merge](https://ethereum.org/en/roadmap/merge/) on 15<sup>th</sup> Sep
 
 > *Note: 16 GB RAM is becoming rather limited due to the increased resources required. 16 GB RAM would likely result in out of memory errors in the case of a spike in computing demand (e.g., caused by a bug) or during periods of non-finality of the beacon chain. Users with 16 GB RAM also have a limited choice when it comes to selecting an execution client, which does not help with the [client diversity](https://clientdiversity.org/). We therefore recommend users to have at least 32 GB RAM for long term health of the node, while also giving users the flexibility to change client should the thought arise.
 
-Last update: April 2023
+### Blob storage considerations
+
+The system requirements above cover a default beacon node with a modest validator workload. Running with full blob retention — and especially as a [supernode archive](./advanced_blobs.md) — significantly increases both CPU and storage demands.
+
+If you intend to store blob history beyond the rolling retention window, or if you plan to run with `--supernode` or `--semi-supernode`, plan for:
+
+- **CPU:** a faster single-core clock (around 5 GHz) helps keep up with blob verification under load.
+- **Storage:** several TiB of fast SSD space. Storing the full set of data columns as a supernode, or running with `--prune-blobs false`, can require multiple TiB of additional storage on top of the standard beacon node database.
+
+See the [Blobs](./advanced_blobs.md) page for the supported retention modes, the `--prune-blobs` and `--blob-prune-margin-epochs` flags, and detailed notes on supernode sizing.
+
+Last update: May 2026
