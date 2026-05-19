@@ -205,10 +205,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await
             .map_err(BlockProductionError::TokioJoin)??;
 
-        // Use the parent_root from the partial block (computed after state advance)
-        // rather than the one computed before state advance, which may differ after re-orgs.
-        let parent_root = partial_beacon_block.parent_root;
-
         // Part 2/3 (async)
         //
         // Produce a local execution payload bid, then select between it and any cached
@@ -218,7 +214,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .clone()
             .produce_execution_payload_bid(
                 state,
-                parent_root,
                 should_build_on_full,
                 parent_envelope,
                 produce_at_slot,
@@ -727,7 +722,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn produce_execution_payload_bid(
         self: Arc<Self>,
         state: BeaconState<T::EthSpec>,
-        parent_root: Hash256,
         should_build_on_full: bool,
         parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
         produce_at_slot: Slot,
@@ -745,6 +739,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // The builder MUST have enough excess balance to fulfill this bid (i.e. `value`) and all pending payments.
 
         // TODO(gloas) add metrics for execution payload bid production
+
+        let parent_root = if state.slot() > 0 {
+            *state
+                .get_block_root(state.slot() - 1)
+                .map_err(|_| BlockProductionError::UnableToGetBlockRootFromState)?
+        } else {
+            state.latest_block_header().canonical_root()
+        };
 
         let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
 
