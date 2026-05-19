@@ -1,8 +1,11 @@
 use super::{BlockComponent, PeerId, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS};
+use crate::sync::block_lookups::{
+    BlobDownloadResponse, BlockDownloadResponse, CustodyDownloadResponse, PayloadDownloadResponse,
+};
 use crate::sync::manager::BlockProcessType;
 use crate::sync::network_context::{
-    LookupRequestResult, PeerGroup, ReqId, RpcRequestSendError, SendErrorProcessor,
-    SyncNetworkContext,
+    LookupRequestResult, PeerGroup, ReqId, RpcRequestSendError, RpcResponseError,
+    SendErrorProcessor, SyncNetworkContext,
 };
 use beacon_chain::BeaconChainTypes;
 use beacon_chain::BlockProcessStatus;
@@ -1018,11 +1021,10 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     // -- Download response handlers --
 
     /// Handle a block download response. Updates download state and advances the lookup.
-    #[allow(clippy::type_complexity)]
     pub fn on_block_download_response(
         &mut self,
         req_id: ReqId,
-        result: Result<(Arc<SignedBeaconBlock<T::EthSpec>>, PeerGroup, Duration), ()>,
+        result: BlockDownloadResponse<T::EthSpec>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
         let BlockRequest::Downloading { state, .. } = &mut self.block_request else {
@@ -1038,7 +1040,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     pub fn on_blob_download_response(
         &mut self,
         req_id: ReqId,
-        result: Result<(FixedBlobSidecarList<T::EthSpec>, PeerGroup, Duration), ()>,
+        result: BlobDownloadResponse<T::EthSpec>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
         let Some(DataRequest {
@@ -1058,7 +1060,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     pub fn on_custody_download_response(
         &mut self,
         req_id: ReqId,
-        result: Result<(DataColumnSidecarList<T::EthSpec>, PeerGroup, Duration), ()>,
+        result: CustodyDownloadResponse<T::EthSpec>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
         let Some(DataRequest {
@@ -1075,18 +1077,10 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     }
 
     /// Handle a payload envelope download response. Updates download state and advances the lookup.
-    #[allow(clippy::type_complexity)]
     pub fn on_payload_download_response(
         &mut self,
         req_id: ReqId,
-        result: Result<
-            (
-                Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
-                PeerGroup,
-                Duration,
-            ),
-            (),
-        >,
+        result: PayloadDownloadResponse<T::EthSpec>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
         let Some(PayloadRequest {
@@ -1142,8 +1136,14 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     }
 
     /// Returns true if this lookup has zero peers
-    pub fn has_no_peers(&self) -> bool {
-        self.peers.read().is_empty()
+    pub fn has_peers(&self) -> bool {
+        if !self.peers.read().is_empty() {
+            return true;
+        }
+
+        let gloas_child_peers = self.gloas_child_peers.read();
+        !gloas_child_peers.is_empty()
+            && gloas_child_peers.values().any(|set| !set.read().is_empty())
     }
 }
 
@@ -1273,7 +1273,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
         &mut self,
         req_id: ReqId,
         block_root: Hash256,
-        result: Result<(T, PeerGroup, Duration), ()>,
+        result: Result<(T, PeerGroup, Duration), RpcResponseError>,
     ) -> Result<(), LookupRequestError> {
         match result {
             Ok((value, peer_group, seen_timestamp)) => self.on_download_success(
@@ -1285,7 +1285,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
                     peer_group,
                 },
             ),
-            Err(()) => self.on_download_failure(req_id),
+            Err(_) => self.on_download_failure(req_id),
         }
     }
 

@@ -450,17 +450,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             debug!(?id, "Block returned for single block lookup not present");
             return;
         };
-        let block_root = lookup.block_root();
-        // The downstream state machine only needs success / failure: details about RPC
-        // failures (peer info, error category) are logged here before being collapsed, so
-        // debugging still has the full context.
-        let response = match response {
-            Ok(ok) => Ok(ok),
-            Err(err) => {
-                debug!(?block_root, ?id, ?err, "Block download failed");
-                Err(())
-            }
-        };
         let result = lookup.on_block_download_response(id.req_id, response, cx);
         self.on_lookup_result(id.lookup_id, result, "block_download_response", cx);
     }
@@ -475,14 +464,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             debug!(?id, "Blob returned for single block lookup not present");
             return;
         };
-        let block_root = lookup.block_root();
-        let response = match response {
-            Ok(ok) => Ok(ok),
-            Err(err) => {
-                debug!(?block_root, ?id, ?err, "Blob download failed");
-                Err(())
-            }
-        };
         let result = lookup.on_blob_download_response(id.req_id, response, cx);
         self.on_lookup_result(id.lookup_id, result, "blob_download_response", cx);
     }
@@ -496,14 +477,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let Some(lookup) = self.single_block_lookups.get_mut(&id.lookup_id) else {
             debug!(?id, "Custody returned for single block lookup not present");
             return;
-        };
-        let block_root = lookup.block_root();
-        let response = match response {
-            Ok(ok) => Ok(ok),
-            Err(err) => {
-                debug!(?block_root, ?id, ?err, "Custody download failed");
-                Err(())
-            }
         };
         let result = lookup.on_custody_download_response(id.req_id, response, cx);
         self.on_lookup_result(id.lookup_id, result, "custody_download_response", cx);
@@ -522,14 +495,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             );
             return;
         };
-        let block_root = lookup.block_root();
-        let response = match response {
-            Ok(ok) => Ok(ok),
-            Err(err) => {
-                debug!(?block_root, ?id, ?err, "Payload envelope download failed");
-                Err(())
-            }
-        };
         let result = lookup.on_payload_download_response(id.req_id, response, cx);
         self.on_lookup_result(id.lookup_id, result, "payload_download_response", cx);
     }
@@ -539,7 +504,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn peer_disconnected(&mut self, peer_id: &PeerId) {
         for (id, lookup) in self.single_block_lookups.iter_mut() {
             lookup.remove_peer(peer_id);
-            if lookup.has_no_peers() {
+            if !lookup.has_peers() {
                 debug!(%id, "Lookup has no peers");
             }
         }
@@ -901,7 +866,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .filter(|lookup| {
                 // Do not drop lookup that are awaiting events to prevent inconsinstencies. If a
                 // lookup gets stuck, it will be eventually pruned by `drop_stuck_lookups`
-                lookup.has_no_peers()
+                !lookup.has_peers()
                     && lookup.elapsed_since_created()
                         > Duration::from_secs(LOOKUP_MAX_DURATION_NO_PEERS_SECS)
                     && !lookup.is_awaiting_event()
