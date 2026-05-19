@@ -1,4 +1,5 @@
 use crate::StateId;
+use crate::caches::{HistoricalCommitteeCache, HistoricalShufflingId};
 use crate::task_spawner::{Priority, TaskSpawner};
 use crate::utils::ResponseFilter;
 use crate::validator::pubkey_to_validator_index;
@@ -13,7 +14,10 @@ use eth2::types::{
 };
 use ssz::Encode;
 use std::sync::Arc;
-use types::{AttestationShufflingId, BeaconStateError, CommitteeCache, EthSpec, RelativeEpoch};
+use types::{
+    AttestationShufflingId, BeaconStateError, CommitteeCache, EthSpec, RelativeEpoch,
+    RelativeEpochError,
+};
 use warp::filters::BoxedFilter;
 use warp::http::Response;
 use warp::hyper::Body;
@@ -25,6 +29,8 @@ type BeaconStatesPath<T> = BoxedFilter<(
     TaskSpawner<<T as BeaconChainTypes>::EthSpec>,
     Arc<BeaconChain<T>>,
 )>;
+
+type BeaconStatesCommitteesFilter = BoxedFilter<(Arc<HistoricalCommitteeCache>,)>;
 
 // GET beacon/states/{state_id}/pending_consolidations
 pub fn get_beacon_state_pending_consolidations<T: BeaconChainTypes>(
@@ -337,17 +343,20 @@ pub fn get_beacon_state_sync_committees<T: BeaconChainTypes>(
 // GET beacon/states/{state_id}/committees?slot,index,epoch
 pub fn get_beacon_state_committees<T: BeaconChainTypes>(
     beacon_states_path: BeaconStatesPath<T>,
+    beacon_states_committees_filter: BeaconStatesCommitteesFilter,
 ) -> ResponseFilter {
     beacon_states_path
         .clone()
         .and(warp::path("committees"))
         .and(warp::query::<eth2::types::CommitteesQuery>())
+        .and(beacon_states_committees_filter)
         .and(warp::path::end())
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             query: eth2::types::CommitteesQuery| {
+             query: eth2::types::CommitteesQuery,
+             historical_committee_cache: Arc<HistoricalCommitteeCache>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
                     let (data, execution_optimistic, finalized) = state_id
                         .map_state_and_execution_optimistic_and_finalized(
@@ -364,33 +373,33 @@ pub fn get_beacon_state_committees<T: BeaconChainTypes>(
                                 let shuffling_id = if let Ok(Some(shuffling_decision_block)) =
                                     chain.block_root_at_slot(decision_slot, WhenSlotSkipped::Prev)
                                 {
-                                    Some(AttestationShufflingId {
-                                        shuffling_epoch: epoch,
-                                        shuffling_decision_block,
-                                    })
+                                    Some(HistoricalShufflingId::ShufflingId(
+                                        AttestationShufflingId {
+                                            shuffling_epoch: epoch,
+                                            shuffling_decision_block,
+                                        },
+                                    ))
+                                } else if epoch < chain.head().finalized_checkpoint().epoch {
+                                    // Use the case for finalized epochs
+                                    Some(HistoricalShufflingId::FinalizedEpoch(epoch))
                                 } else {
                                     None
                                 };
 
                                 // Attempt to read from the chain cache if there exists a
                                 // shuffling_id
-                                let maybe_cached_shuffling = if let Some(shuffling_id) =
-                                    shuffling_id.as_ref()
-                                {
-                                    chain
-                                        .shuffling_cache
-                                        .try_write_for(std::time::Duration::from_secs(1))
-                                        .and_then(|mut cache_write| cache_write.get(shuffling_id))
-                                        .and_then(|cache_item| cache_item.wait().ok())
-                                } else {
-                                    None
-                                };
+                                let maybe_cached_shuffling =
+                                    if let Some(shuffling_id) = shuffling_id.as_ref() {
+                                        historical_committee_cache.get(shuffling_id)
+                                    } else {
+                                        None
+                                    };
 
                                 let committee_cache =
                                     if let Some(shuffling) = maybe_cached_shuffling {
                                         shuffling
                                     } else {
-                                        let possibly_built_cache = match RelativeEpoch::from_epoch(
+                                        let committee_cache = match RelativeEpoch::from_epoch(
                                             current_epoch,
                                             epoch,
                                         ) {
@@ -401,11 +410,19 @@ pub fn get_beacon_state_committees<T: BeaconChainTypes>(
                                             {
                                                 state.committee_cache(relative_epoch).cloned()
                                             }
-                                            _ => CommitteeCache::initialized(
-                                                state,
-                                                epoch,
-                                                &chain.spec,
-                                            ),
+                                            Ok(_) | Err(RelativeEpochError::EpochTooLow { .. }) => {
+                                                CommitteeCache::initialized(
+                                                    state,
+                                                    epoch,
+                                                    &chain.spec,
+                                                )
+                                            }
+                                            Err(RelativeEpochError::EpochTooHigh { .. }) => {
+                                                Err(BeaconStateError::EpochOutOfBounds)
+                                            }
+                                            Err(RelativeEpochError::ArithError(e)) => {
+                                                Err(BeaconStateError::ArithError(e))
+                                            }
                                         }
                                         .map_err(|e| match e {
                                             BeaconStateError::EpochOutOfBounds => {
@@ -419,22 +436,12 @@ pub fn get_beacon_state_committees<T: BeaconChainTypes>(
                                             ),
                                         })?;
 
-                                        // Attempt to write to the beacon cache (only if the cache
-                                        // size is not the default value).
-                                        if chain.config.shuffling_cache_size
-                                            != beacon_chain::shuffling_cache::DEFAULT_CACHE_SIZE
-                                            && let Some(shuffling_id) = shuffling_id
-                                            && let Some(mut cache_write) = chain
-                                                .shuffling_cache
-                                                .try_write_for(std::time::Duration::from_secs(1))
-                                        {
-                                            cache_write.insert_committee_cache(
-                                                shuffling_id,
-                                                &possibly_built_cache,
-                                            );
+                                        if let Some(shuffling_id) = shuffling_id {
+                                            historical_committee_cache
+                                                .insert(shuffling_id, committee_cache.clone());
                                         }
 
-                                        possibly_built_cache
+                                        committee_cache
                                     };
 
                                 // Use either the supplied slot or all slots in the epoch.
