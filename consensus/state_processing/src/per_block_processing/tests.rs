@@ -453,8 +453,8 @@ async fn deposit_signature_batch_returns_true_for_valid_and_false_for_invalid() 
     );
 
     assert_eq!(result.len(), 10);
-    assert_eq!(result[1], false);
-    assert_eq!(result[8], false);
+    assert!(!result[1]);
+    assert!(!result[8]);
     assert!(
         result
             .iter()
@@ -495,7 +495,7 @@ async fn deposit_signature_batch_falls_back_to_individual_verification() {
     );
 
     assert_eq!(result.len(), 10);
-    assert_eq!(result[3], false);
+    assert!(!result[3]);
     assert!(
         result
             .iter()
@@ -746,7 +746,7 @@ async fn process_deposit_requests_post_gloas_preserves_pre_state_pending_validat
 
     process_operations::process_deposit_requests_post_gloas(
         &mut state,
-        &[builder_prefixed_request.clone()],
+        std::slice::from_ref(&builder_prefixed_request),
         None,
         &spec,
     )
