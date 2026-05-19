@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
-use proto_array::{PayloadStatus, ProposerHeadError};
+use fork_choice::PayloadStatus;
+use proto_array::ProposerHeadError;
 use slot_clock::SlotClock;
 use tracing::{debug, error, info, instrument, warn};
 use types::{BeaconState, Hash256, SignedExecutionPayloadEnvelope, Slot};
