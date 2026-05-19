@@ -16,8 +16,8 @@ mod gloas;
 pub(crate) struct BlockProductionState<E: types::EthSpec> {
     pub state: BeaconState<E>,
     pub state_root: Option<Hash256>,
+    pub parent_payload_status: PayloadStatus,
     pub parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
-    pub head_payload_status: PayloadStatus,
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
@@ -38,7 +38,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Atomically read some values from the head whilst avoiding holding cached head `Arc` any
         // longer than necessary. If the head has a payload envelope (Gloas full head), cheaply
         // clone the `Arc` so we can pass it to block production without a DB load.
-        let (head_slot, head_block_root, head_state_root, head_envelope, head_payload_status) = {
+        let (head_slot, head_block_root, head_state_root, head_envelope, parent_payload_status) = {
             let head = self.canonical_head.cached_head();
             (
                 head.head_slot(),
@@ -69,8 +69,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 BlockProductionState {
                     state: re_org_state,
                     state_root: Some(re_org_state_root),
+                    parent_payload_status,
                     parent_envelope: None,
-                    head_payload_status,
                 }
             } else {
                 // Fetch the head state advanced through to `slot`, which should be present in the
@@ -84,8 +84,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 BlockProductionState {
                     state,
                     state_root: Some(state_root),
+                    parent_payload_status,
                     parent_envelope: head_envelope,
-                    head_payload_status,
                 }
             }
         } else {
@@ -101,8 +101,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             BlockProductionState {
                 state,
                 state_root: None,
+                parent_payload_status,
                 parent_envelope: None,
-                head_payload_status,
             }
         };
 

@@ -1014,7 +1014,7 @@ impl ProtoArrayForkChoice {
     pub fn should_build_on_full<E: EthSpec>(
         &self,
         block_root: &Hash256,
-        head_payload_status: PayloadStatus,
+        parent_payload_status: PayloadStatus,
     ) -> Result<bool, String> {
         let block_index = self
             .proto_array
@@ -1029,7 +1029,7 @@ impl ProtoArrayForkChoice {
         let fc_node = IndexedForkChoiceNode {
             root: proto_node.root(),
             proto_node_index: *block_index,
-            payload_status: head_payload_status,
+            payload_status: parent_payload_status,
         };
         self.proto_array
             .should_build_on_full::<E>(&fc_node, proto_node)

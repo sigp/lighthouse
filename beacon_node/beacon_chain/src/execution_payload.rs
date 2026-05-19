@@ -403,16 +403,7 @@ where
         .get_suggested_fee_recipient(proposer_index)
         .await;
 
-    let target_gas_limit = if fork.gloas_enabled() {
-        Some(
-            execution_layer
-                .get_proposer_gas_limit(proposer_index)
-                .await
-                .unwrap_or(latest_execution_payload_header_gas_limit),
-        )
-    } else {
-        execution_layer.get_proposer_gas_limit(proposer_index).await
-    };
+    let target_gas_limit = execution_layer.get_proposer_gas_limit(proposer_index).await;
 
     let slot_number = if fork.gloas_enabled() {
         Some(builder_params.slot.as_u64())

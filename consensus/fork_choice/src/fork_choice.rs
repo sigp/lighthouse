@@ -1547,10 +1547,10 @@ where
     pub fn should_build_on_full(
         &self,
         block_root: &Hash256,
-        head_payload_status: PayloadStatus,
+        parent_payload_status: PayloadStatus,
     ) -> Result<bool, Error<T::Error>> {
         self.proto_array
-            .should_build_on_full::<E>(block_root, head_payload_status)
+            .should_build_on_full::<E>(block_root, parent_payload_status)
             .map_err(Error::ProtoArrayStringError)
     }
 

@@ -1192,7 +1192,7 @@ where
             // Load the parent's payload envelope and status from the cached head.
             // TODO(gloas): we may want to pass these as arguments to support cases where we build
             // on alternate chains to the head.
-            let (parent_envelope, head_payload_status) = {
+            let (parent_envelope, parent_payload_status) = {
                 let head = self.chain.canonical_head.cached_head();
                 (
                     head.snapshot.execution_envelope.clone(),
@@ -1205,7 +1205,7 @@ where
                 .produce_block_on_state_gloas(
                     state,
                     None,
-                    head_payload_status,
+                    parent_payload_status,
                     parent_envelope,
                     slot,
                     randao_reveal,
