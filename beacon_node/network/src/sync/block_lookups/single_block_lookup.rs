@@ -116,9 +116,7 @@ impl AwaitingParent {
         spec: &ChainSpec,
     ) -> Result<Self, String> {
         if spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
-            Err(format!(
-                "AwaitingParent can not be created from a Gloas header"
-            ))
+            Err("AwaitingParent can not be created from a Gloas header".to_owned())
         } else {
             Ok(Self {
                 parent_root,
