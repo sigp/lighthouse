@@ -908,7 +908,7 @@ pub fn process_deposit_requests_pre_gloas<E: EthSpec>(
 /// Check if there is a pending deposit for a new validator with the given pubkey.
 // TODO(gloas): cache the deposit signature validation or remove this loop entirely if possible,
 // it is `O(n * m)` where `n` is max 8192 and `m` is max 128M.
-#[instrument(name = "is_pending_validator", skip_all, level = "debug")]
+#[instrument(skip_all, level = "debug")]
 pub fn is_pending_validator<E: EthSpec>(
     deposits: &List<PendingDeposit, E::PendingDepositsLimit>,
     pubkey: &PublicKeyBytes,
@@ -954,7 +954,7 @@ impl From<Option<bool>> for VerifyBuilderSignature {
 ///
 /// TODO(gloas): this could be more efficient in the builder case, see:
 /// https://github.com/sigp/lighthouse/issues/8783
-#[instrument(name = "get_builder_index", skip_all, level = "debug")]
+#[instrument(skip_all, level = "debug")]
 fn get_builder_index<E: EthSpec>(
     state: &BeaconState<E>,
     pubkey: &PublicKeyBytes,
