@@ -3387,18 +3387,6 @@ async fn weak_subjectivity_sync_test(
                 .store
                 .put_payload_envelope(&block_root, envelope)
                 .unwrap();
-        } else if snapshot.beacon_block.fork_name_unchecked().gloas_enabled()
-            && snapshot.beacon_block.slot() > 0
-            && let Some(envelope) = harness
-                .chain
-                .store
-                .get_payload_envelope(&block_root)
-                .unwrap()
-        {
-            beacon_chain
-                .store
-                .put_payload_envelope(&block_root, &envelope)
-                .unwrap();
         }
     }
 
