@@ -192,14 +192,15 @@ pub enum BlockProcessType {
     SingleBlock { id: Id },
     SingleBlob { id: Id },
     SingleCustodyColumn(Id),
+    SinglePayloadEnvelope(Id),
 }
 
 impl BlockProcessType {
     pub fn id(&self) -> Id {
         match self {
-            BlockProcessType::SingleBlock { id }
-            | BlockProcessType::SingleBlob { id }
-            | BlockProcessType::SingleCustodyColumn(id) => *id,
+            BlockProcessType::SingleBlock { id } | BlockProcessType::SingleBlob { id } => *id,
+            BlockProcessType::SingleCustodyColumn(id)
+            | BlockProcessType::SinglePayloadEnvelope(id) => *id,
         }
     }
 }

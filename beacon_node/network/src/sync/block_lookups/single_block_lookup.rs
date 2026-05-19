@@ -345,6 +345,8 @@ enum PayloadRequestState<E: EthSpec> {
         state: SingleLookupRequestState<Arc<SignedExecutionPayloadEnvelope<E>>>,
     },
     Downloaded {
+        #[educe(Debug(ignore))]
+        envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
         peer_group: PeerGroup,
     },
     Processing {
@@ -831,19 +833,29 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                         }
                         if let Some(result) = state.take_download_result() {
                             request.state = PayloadRequestState::Downloaded {
+                                envelope: result.value,
                                 peer_group: result.peer_group,
                             };
                         } else {
                             break;
                         }
                     }
-                    PayloadRequestState::Downloaded { peer_group } => {
+                    PayloadRequestState::Downloaded {
+                        envelope,
+                        peer_group,
+                    } => {
                         if !self.block_request.is_complete() {
                             break;
                         }
-                        // TODO(gloas): send payload for processing
-                        // cx.send_payload_for_processing(...)
+                        let envelope = envelope.clone();
                         let peer_group = peer_group.clone();
+                        cx.send_payload_for_processing(
+                            block_root,
+                            envelope,
+                            Duration::ZERO,
+                            BlockProcessType::SinglePayloadEnvelope(id),
+                        )
+                        .map_err(LookupRequestError::SendFailedProcessor)?;
                         request.state = PayloadRequestState::Processing { peer_group };
                         // Processing needs an async trigger.
                         break;
@@ -968,36 +980,46 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         }
     }
 
-    /// Handle payload processing result.
-    #[allow(dead_code)]
+    /// Handle payload envelope processing result (Gloas only).
     pub fn on_payload_processing_result(
         &mut self,
-        result_is_ok: bool,
+        result: BlockProcessingResult,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
-        let Some(request) = &mut self.payload_request else {
+        let Some(PayloadRequest {
+            state: PayloadRequestState::Processing { peer_group },
+            ..
+        }) = &self.payload_request
+        else {
             return Err(LookupRequestError::BadState(
                 "payload processing result but not in Processing state".to_owned(),
             ));
         };
+        let peer_group = peer_group.clone();
 
-        if !matches!(request.state, PayloadRequestState::Processing { .. }) {
-            return Err(LookupRequestError::BadState(
-                "payload processing result but not in Processing state".to_owned(),
-            ));
-        }
-        if result_is_ok {
-            request.state = PayloadRequestState::Complete;
-            self.continue_requests(cx)
-        } else {
-            // Bump the shared processing-failure counter to bound retries.
-            self.failed_processing = self.failed_processing.saturating_add(1);
-            request.state = PayloadRequestState::Downloading {
-                state: SingleLookupRequestState::new_with_processing_failures(
-                    self.failed_processing,
-                ),
-            };
-            self.continue_requests(cx)
+        match result {
+            BlockProcessingResult::Imported(_) => {
+                if let Some(req) = &mut self.payload_request {
+                    req.state = PayloadRequestState::Complete;
+                }
+                self.continue_requests(cx)
+            }
+            BlockProcessingResult::Error { penalty, reason } => {
+                if let Some((action, whom)) = penalty {
+                    whom.apply(action, &peer_group, reason, cx);
+                }
+                // Bump the shared processing-failure counter so retries stay bounded against
+                // MAX_ATTEMPTS, then transition back to Downloading to redownload from another peer.
+                self.failed_processing = self.failed_processing.saturating_add(1);
+                if let Some(req) = &mut self.payload_request {
+                    req.state = PayloadRequestState::Downloading {
+                        state: SingleLookupRequestState::new_with_processing_failures(
+                            self.failed_processing,
+                        ),
+                    };
+                }
+                self.continue_requests(cx)
+            }
         }
     }
 

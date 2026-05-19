@@ -438,6 +438,56 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         });
     }
 
+    /// Attempt to verify and import an execution payload envelope received via RPC.
+    #[instrument(
+        name = "lh_process_lookup_envelope",
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(?block_root),
+    )]
+    pub async fn process_lookup_envelope(
+        self: Arc<NetworkBeaconProcessor<T>>,
+        block_root: Hash256,
+        envelope: Arc<types::SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        _seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) {
+        debug!(
+            slot = %envelope.slot(),
+            ?process_type,
+            "Processing RPC payload envelope"
+        );
+
+        // Gossip verification covers signature / slot / builder-index / block-hash checks
+        // independently of gossip propagation, so we can reuse it for RPC-fetched envelopes.
+        let result = match self
+            .chain
+            .clone()
+            .verify_envelope_for_gossip(envelope.clone())
+            .await
+        {
+            Ok(verified) => {
+                self.chain
+                    .process_execution_payload_envelope(
+                        block_root,
+                        verified,
+                        NotifyExecutionLayer::Yes,
+                        BlockImportSource::Lookup,
+                        || Ok(()),
+                    )
+                    .await
+            }
+            Err(e) => Err(e),
+        };
+
+        let result = classify_envelope_result(result, &process_type);
+        self.send_sync_message(SyncMessage::BlockComponentProcessed {
+            process_type,
+            result,
+        });
+    }
+
     pub fn process_historic_data_columns(
         &self,
         batch_id: CustodyBackfillBatchId,
@@ -1079,6 +1129,9 @@ fn classify_processing_result(
         BlockProcessType::SingleBlob { .. } | BlockProcessType::SingleCustodyColumn(_) => {
             "lookup_data_processing_failure"
         }
+        // Payload envelopes flow through classify_envelope_result; this branch shouldn't fire,
+        // but produce a sensible reason in case it ever does.
+        BlockProcessType::SinglePayloadEnvelope(_) => "lookup_envelope_processing_failure",
     };
     BlockProcessingResult::Error {
         penalty: Some((
@@ -1086,5 +1139,58 @@ fn classify_processing_result(
             WhichPeerToPenalize::BlockPeer,
         )),
         reason,
+    }
+}
+
+/// Translate an envelope-processing outcome into a `BlockProcessingResult`. Mirrors
+/// `classify_processing_result` for the Gloas payload-envelope path.
+fn classify_envelope_result(
+    result: Result<
+        AvailabilityProcessingStatus,
+        beacon_chain::payload_envelope_verification::EnvelopeError,
+    >,
+    _process_type: &BlockProcessType,
+) -> BlockProcessingResult {
+    use beacon_chain::payload_envelope_verification::EnvelopeError;
+
+    let no_penalty = |reason| BlockProcessingResult::Error {
+        penalty: None,
+        reason,
+    };
+    let penalize = |reason| BlockProcessingResult::Error {
+        penalty: Some((
+            PeerAction::LowToleranceError,
+            WhichPeerToPenalize::BlockPeer,
+        )),
+        reason,
+    };
+    match result {
+        Ok(AvailabilityProcessingStatus::Imported(_)) => {
+            BlockProcessingResult::Imported("envelope_imported")
+        }
+        Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
+            BlockProcessingResult::Imported("envelope_missing_components")
+        }
+        Err(
+            EnvelopeError::BeaconChainError(_)
+            | EnvelopeError::BeaconStateError(_)
+            | EnvelopeError::ImportError(_)
+            | EnvelopeError::UnknownValidator { .. }
+            | EnvelopeError::PriorToFinalization { .. }
+            | EnvelopeError::BlockRootUnknown { .. },
+        ) => no_penalty("envelope_non_attributable"),
+        Err(EnvelopeError::ExecutionPayloadError(epe)) if !epe.penalize_peer() => {
+            no_penalty("envelope_execution_payload")
+        }
+        // Anything else: peer served an invalid envelope.
+        Err(
+            EnvelopeError::BadSignature
+            | EnvelopeError::BuilderIndexMismatch { .. }
+            | EnvelopeError::SlotMismatch { .. }
+            | EnvelopeError::BlockHashMismatch { .. }
+            | EnvelopeError::IncorrectBlockProposer { .. }
+            | EnvelopeError::EnvelopeProcessingError(_)
+            | EnvelopeError::ExecutionPayloadError(_),
+        ) => penalize("lookup_envelope_processing_failure"),
     }
 }

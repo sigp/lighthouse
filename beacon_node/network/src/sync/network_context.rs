@@ -1768,6 +1768,34 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             })
     }
 
+    pub fn send_payload_for_processing(
+        &self,
+        block_root: Hash256,
+        envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) -> Result<(), SendErrorProcessor> {
+        let beacon_processor = self
+            .beacon_processor_if_enabled()
+            .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;
+
+        debug!(
+            ?block_root,
+            ?process_type,
+            "Sending payload envelope for processing"
+        );
+
+        beacon_processor
+            .send_lookup_envelope(block_root, envelope, seen_timestamp, process_type)
+            .map_err(|e| {
+                error!(
+                    error = ?e,
+                    "Failed to send sync payload envelope to processor"
+                );
+                SendErrorProcessor::SendError
+            })
+    }
+
     pub fn send_custody_columns_for_processing(
         &self,
         _id: Id,

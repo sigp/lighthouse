@@ -523,6 +523,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             BlockProcessType::SingleBlob { .. } | BlockProcessType::SingleCustodyColumn(_) => {
                 self.on_data_processing_result(lookup_id, result, cx)
             }
+            BlockProcessType::SinglePayloadEnvelope(_) => {
+                self.on_payload_processing_result(lookup_id, result, cx)
+            }
         };
         self.on_lookup_result(lookup_id, lookup_result, "processing_result", cx);
     }
@@ -567,6 +570,26 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             "Received data processing result"
         );
         lookup.on_data_processing_result(result, cx)
+    }
+
+    /// Handle payload envelope processing result (Gloas only).
+    fn on_payload_processing_result(
+        &mut self,
+        lookup_id: SingleLookupId,
+        result: BlockProcessingResult,
+        cx: &mut SyncNetworkContext<T>,
+    ) -> Result<LookupResult, LookupRequestError> {
+        let Some(lookup) = self.single_block_lookups.get_mut(&lookup_id) else {
+            debug!(id = lookup_id, "Unknown single block lookup");
+            return Err(LookupRequestError::UnknownLookup);
+        };
+        debug!(
+            block_root = ?lookup.block_root(),
+            id = lookup_id,
+            ?result,
+            "Received payload envelope processing result"
+        );
+        lookup.on_payload_processing_result(result, cx)
     }
 
     pub fn on_external_processing_result(
