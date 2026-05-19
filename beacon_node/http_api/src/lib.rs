@@ -41,7 +41,8 @@ use crate::beacon::execution_payload_envelope::{
     post_beacon_execution_payload_envelope_ssz,
 };
 use crate::beacon::pool::*;
-use crate::caches::HistoricalCommitteeCache;
+use crate::caches::DEFAULT_HISTORICAL_COMMITTEE_CACHE_SIZE;
+pub use crate::caches::HistoricalCommitteeCache;
 use crate::light_client::{get_light_client_bootstrap, get_light_client_updates};
 use crate::utils::{AnyVersionFilter, EthV1Filter};
 use crate::validator::post_validator_liveness_epoch;
@@ -151,6 +152,7 @@ pub struct Config {
     #[serde(with = "eth2::types::serde_status_code")]
     pub duplicate_block_status_code: StatusCode,
     pub target_peers: usize,
+    pub historical_committee_cache_size: usize,
 }
 
 impl Default for Config {
@@ -166,6 +168,7 @@ impl Default for Config {
             enable_beacon_processor: true,
             duplicate_block_status_code: StatusCode::ACCEPTED,
             target_peers: 100,
+            historical_committee_cache_size: DEFAULT_HISTORICAL_COMMITTEE_CACHE_SIZE,
         }
     }
 }
