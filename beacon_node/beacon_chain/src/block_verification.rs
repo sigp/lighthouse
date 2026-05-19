@@ -286,6 +286,10 @@ pub enum BlockError {
     /// TODO: We may need to penalize the peer that gave us a potentially invalid rpc blob.
     /// https://github.com/sigp/lighthouse/issues/4546
     AvailabilityCheck(AvailabilityCheckError),
+    /// The payload envelope's block root is unknown.
+    EnvelopeBlockRootUnknown(Hash256),
+    /// Optimistic sync is not supported for Gloas payload envelopes.
+    OptimisticSyncNotSupported { block_root: Hash256 },
     /// A Blob with a slot after PeerDAS is received and is not required to be imported.
     /// This can happen because we stay subscribed to the blob subnet after 2 epochs, as we could
     /// still receive valid blobs from a Deneb epoch after PeerDAS is activated.
@@ -624,7 +628,8 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
             consensus_context,
         });
     }
-
+    // TODO(gloas) When implementing range and backfill sync for gloas
+    // we need a batch verify kzg function in the new da checker as well.
     chain
         .data_availability_checker
         .batch_verify_kzg_for_available_blocks(&available_blocks)?;

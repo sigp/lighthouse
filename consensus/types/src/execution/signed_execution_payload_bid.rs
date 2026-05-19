@@ -23,6 +23,14 @@ pub struct SignedExecutionPayloadBid<E: EthSpec> {
 }
 
 impl<E: EthSpec> SignedExecutionPayloadBid<E> {
+    pub fn epoch(&self) -> crate::Epoch {
+        self.message.slot.epoch(E::slots_per_epoch())
+    }
+
+    pub fn slot(&self) -> crate::Slot {
+        self.message.slot
+    }
+
     pub fn empty() -> Self {
         Self {
             message: ExecutionPayloadBid::default(),
