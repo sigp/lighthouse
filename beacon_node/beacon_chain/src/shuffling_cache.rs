@@ -401,8 +401,6 @@ where
         let (mut state, state_root) = if let Some((state, state_root)) = head_state_opt {
             (state, state_root)
         } else {
-            // We assume that the `Pending` state has the same shufflings as a `Full` state for the
-            // same block. Analysis: https://hackmd.io/@dapplion/gloas_dependant_root
             let (state_root, state) = store
                 .get_advanced_hot_state(head_block_root, target_slot, head_block.state_root)
                 .map_err(BeaconChainError::DBError)?
