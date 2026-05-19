@@ -65,8 +65,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .deposits
                 .clone();
             let spec = self.spec.clone();
-            self.task_executor.spawn_blocking(
+            let executor = self.task_executor.clone();
+            // Using rayon pool here since `cache_deposit_requests` uses rayon threads to
+            // perform the signature verification in batches.
+            executor.spawn_blocking_with_rayon(
                 move || cache.cache_deposit_requests(&deposits, &spec),
+                task_executor::RayonPoolType::HighPriority,
                 "pre_verify_builder_deposits",
             );
         }

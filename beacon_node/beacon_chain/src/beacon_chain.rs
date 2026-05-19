@@ -4549,8 +4549,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(builder_onboarding_cache) = &self.builder_onboarding_cache {
             let cache = builder_onboarding_cache.clone();
             let spec = self.spec.clone();
-            self.task_executor.spawn_blocking(
+            let executor = self.task_executor.clone();
+            // Using rayon pool here since `add_new_pending_deposits` uses rayon threads to
+            // perform the signature verification in batches.
+            // // We have until the fork transition for the cache to be used, so we use the low priority pool.
+            executor.spawn_blocking_with_rayon(
                 move || cache.add_new_pending_deposits::<T::EthSpec>(&state, &spec),
+                RayonPoolType::LowPriority,
                 "pre_verify_deposits",
             );
         }

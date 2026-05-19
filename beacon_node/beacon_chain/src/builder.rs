@@ -1166,8 +1166,12 @@ where
         if let Some(onboarding_cache) = &beacon_chain.builder_onboarding_cache {
             let cache = onboarding_cache.clone();
             let spec = self.spec.clone();
-            beacon_chain.task_executor.spawn_blocking(
+            let executor = beacon_chain.task_executor.clone();
+            // Using rayon pool here since `seed_from_state` uses rayon threads to
+            // perform the signature verification in batches.
+            executor.spawn_blocking_with_rayon(
                 move || cache.seed_from_state(&head.beacon_state, &spec),
+                task_executor::RayonPoolType::HighPriority,
                 "initialize_builder_onboarding_cache",
             );
         }
