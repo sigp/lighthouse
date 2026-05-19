@@ -69,7 +69,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 BlockProductionState {
                     state: re_org_state,
                     state_root: Some(re_org_state_root),
-                    parent_payload_status: head_payload_status,
+                    parent_payload_status: PayloadStatus::Pending,
                     parent_envelope: None,
                 }
             } else {
