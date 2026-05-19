@@ -6221,10 +6221,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .contains_block(root)
     }
 
-    // TODO(gloas): implement this once issue #8956 is resolved
     pub fn envelope_is_known_to_fork_choice(&self, root: &Hash256) -> bool {
-        // for now just check the database
-        self.store.payload_envelope_exists(root).unwrap_or(false)
+        self.canonical_head
+            .fork_choice_read_lock()
+            .is_payload_received(root)
     }
 
     /// Determines the beacon proposer for the next slot. If that proposer is registered in the

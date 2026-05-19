@@ -720,17 +720,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             MessageAcceptance::Accept,
                         );
                     }
-                    GossipDataColumnError::ParentUnknown { parent_root, .. } => {
+                    GossipDataColumnError::ParentUnknown { parent_root, slot } => {
                         debug!(
                             action = "requesting parent",
                             %block_root,
                             %parent_root,
                             "Unknown parent hash for column"
                         );
-                        self.send_sync_message(SyncMessage::UnknownParentDataColumn(
+                        self.send_sync_message(SyncMessage::UnknownParentSidecarHeader {
                             peer_id,
-                            column_sidecar,
-                        ));
+                            block_root,
+                            parent_root,
+                            slot,
+                        });
                     }
                     GossipDataColumnError::PubkeyCacheTimeout
                     | GossipDataColumnError::BeaconChainError(_) => {
@@ -926,7 +928,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         %parent_root,
                         "Unknown parent hash for partial column"
                     );
-                    self.send_sync_message(SyncMessage::UnknownParentPartialDataColumn {
+                    self.send_sync_message(SyncMessage::UnknownParentSidecarHeader {
                         peer_id,
                         block_root,
                         parent_root,
@@ -1143,10 +1145,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             %commitment,
                             "Unknown parent hash for blob"
                         );
-                        self.send_sync_message(SyncMessage::UnknownParentBlob(
+                        self.send_sync_message(SyncMessage::UnknownParentSidecarHeader {
                             peer_id,
-                            blob_sidecar,
-                        ));
+                            block_root: root,
+                            parent_root,
+                            slot,
+                        });
                     }
                     GossipBlobError::PubkeyCacheTimeout | GossipBlobError::BeaconChainError(_) => {
                         crit!(

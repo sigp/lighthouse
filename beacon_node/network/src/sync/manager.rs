@@ -43,7 +43,7 @@ use super::range_sync::{EPOCHS_PER_BATCH, RangeSync, RangeSyncType};
 use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
-use crate::sync::block_lookups::{BlockComponent, DownloadResult};
+use crate::sync::block_lookups::{AwaitingParent, BlockComponent, DownloadResult};
 use crate::sync::custody_backfill_sync::CustodyBackFillSync;
 use crate::sync::network_context::{PeerGroup, RpcResponseResult};
 use beacon_chain::block_verification_types::AsBlock;
@@ -71,7 +71,7 @@ use strum::IntoStaticStr;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace};
 use types::{
-    BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, Hash256, SignedBeaconBlock,
+    BlobSidecar, ChainSpec, DataColumnSidecar, EthSpec, ForkContext, Hash256, SignedBeaconBlock,
     SignedExecutionPayloadEnvelope, Slot,
 };
 
@@ -142,14 +142,8 @@ pub enum SyncMessage<E: EthSpec> {
     /// A block with an unknown parent has been received.
     UnknownParentBlock(PeerId, Arc<SignedBeaconBlock<E>>, Hash256),
 
-    /// A blob with an unknown parent has been received.
-    UnknownParentBlob(PeerId, Arc<BlobSidecar<E>>),
-
-    /// A data column with an unknown parent has been received.
-    UnknownParentDataColumn(PeerId, Arc<DataColumnSidecar<E>>),
-
-    /// A partial data column with an unknown parent has been received.
-    UnknownParentPartialDataColumn {
+    /// A sidecar with an unknown parent has been received.
+    UnknownParentSidecarHeader {
         peer_id: PeerId,
         block_root: Hash256,
         parent_root: Hash256,
@@ -874,8 +868,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 self.handle_unknown_parent(
                     peer_id,
                     block_root,
-                    parent_root,
                     block_slot,
+                    AwaitingParent::from_block(&block),
                     BlockComponent::Block(DownloadResult {
                         value: block.block_cloned(),
                         block_root,
@@ -884,97 +878,34 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }),
                 );
             }
-            SyncMessage::UnknownParentBlob(peer_id, blob) => {
-                let blob_slot = blob.slot();
-                let block_root = blob.block_root();
-                let parent_root = blob.block_parent_root();
-                debug!(%block_root, %parent_root, "Received unknown parent blob message");
-                self.handle_unknown_parent(
-                    peer_id,
-                    block_root,
-                    parent_root,
-                    blob_slot,
-                    BlockComponent::Blob(DownloadResult {
-                        value: parent_root,
-                        block_root,
-                        seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
-                        peer_group: PeerGroup::from_single(peer_id),
-                    }),
-                );
-            }
-            SyncMessage::UnknownParentDataColumn(peer_id, data_column) => {
-                let data_column_slot = data_column.slot();
-                let block_root = data_column.block_root();
-                match data_column.as_ref() {
-                    DataColumnSidecar::Fulu(column) => {
-                        let parent_root = column.block_parent_root();
-                        debug!(%block_root, %parent_root, "Received unknown parent data column message");
-                        self.handle_unknown_parent(
-                            peer_id,
-                            block_root,
-                            parent_root,
-                            data_column_slot,
-                            BlockComponent::DataColumn(DownloadResult {
-                                value: parent_root,
-                                block_root,
-                                seen_timestamp: self
-                                    .chain
-                                    .slot_clock
-                                    .now_duration()
-                                    .unwrap_or_default(),
-                                peer_group: PeerGroup::from_single(peer_id),
-                            }),
-                        );
-                    }
-                    // In Gloas, data columns identify the beacon block root but do not carry
-                    // parent root. Treat as an unknown block-root trigger (attestation-style).
-                    // The peer is marked as data-capable since it sent us a data column.
-                    DataColumnSidecar::Gloas(_) => {
-                        match self.should_search_for_block(Some(data_column_slot), &peer_id) {
-                            Ok(_) => {
-                                if self.block_lookups.search_unknown_block_with_data_peer(
-                                    block_root,
-                                    &[peer_id],
-                                    &mut self.network,
-                                ) {
-                                    debug!(
-                                        ?block_root,
-                                        "Created unknown block lookup from Gloas data column"
-                                    );
-                                } else {
-                                    debug!(?block_root, "No lookup created from Gloas data column");
-                                }
-                            }
-                            Err(reason) => {
-                                debug!(
-                                    %block_root,
-                                    reason,
-                                    "Ignoring Gloas data column unknown block request"
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-            SyncMessage::UnknownParentPartialDataColumn {
+            SyncMessage::UnknownParentSidecarHeader {
                 peer_id,
                 block_root,
                 parent_root,
                 slot,
             } => {
-                debug!(%block_root, %parent_root, "Received unknown parent partial column message");
-                self.handle_unknown_parent(
-                    peer_id,
-                    block_root,
+                debug!(%block_root, %parent_root, "Received unknown parent sidecar message");
+                match AwaitingParent::from_block_header::<T::EthSpec>(
                     parent_root,
                     slot,
-                    BlockComponent::PartialDataColumn(DownloadResult {
-                        value: parent_root,
-                        block_root,
-                        seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
-                        peer_group: PeerGroup::from_single(peer_id),
-                    }),
-                );
+                    self.spec(),
+                ) {
+                    Ok(awaiting_parent) => {
+                        self.handle_unknown_parent(
+                            peer_id,
+                            block_root,
+                            slot,
+                            awaiting_parent,
+                            BlockComponent::Sidecar,
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            ?e,
+                            "Sent UnknownParentSidecarHeader with post-Gloas sidecar"
+                        );
+                    }
+                }
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_root) => {
                 if !self.notified_unknown_roots.contains(&(peer_id, block_root)) {
@@ -1054,8 +985,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         &mut self,
         peer_id: PeerId,
         block_root: Hash256,
-        parent_root: Hash256,
         slot: Slot,
+        awaiting_parent: AwaitingParent,
         block_component: BlockComponent<T::EthSpec>,
     ) {
         match self.should_search_for_block(Some(slot), &peer_id) {
@@ -1063,6 +994,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 if self.block_lookups.search_child_and_parent(
                     block_root,
                     block_component,
+                    awaiting_parent,
                     peer_id,
                     &mut self.network,
                 ) {
@@ -1070,13 +1002,18 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 } else {
                     debug!(
                         ?block_root,
-                        ?parent_root,
+                        %awaiting_parent,
                         "No lookup created for child and parent"
                     );
                 }
             }
             Err(reason) => {
-                debug!(%block_root, %parent_root, reason, "Ignoring unknown parent request");
+                debug!(
+                    %block_root,
+                    %awaiting_parent,
+                    reason,
+                    "Ignoring unknown parent request"
+                );
             }
         }
     }
@@ -1525,6 +1462,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
             }
         }
+    }
+
+    fn spec(&self) -> &ChainSpec {
+        &self.network_globals().spec
     }
 }
 

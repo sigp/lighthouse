@@ -21,16 +21,14 @@
 //! returned to this module as `LookupRequestResult` variants.
 
 use self::parent_chain::{NodeChain, compute_parent_chains};
-pub use self::single_block_lookup::DownloadResult;
-use self::single_block_lookup::{
-    AwaitingParent, LookupRequestError, LookupResult, PeerType, SingleBlockLookup,
-};
+pub use self::single_block_lookup::{AwaitingParent, DownloadResult};
+use self::single_block_lookup::{LookupRequestError, LookupResult, SingleBlockLookup};
 use super::manager::{BlockProcessType, BlockProcessingResult, SLOT_IMPORT_TOLERANCE};
 use super::network_context::{PeerGroup, RpcResponseError, SyncNetworkContext};
 use crate::metrics;
 use crate::sync::SyncMessage;
 use crate::sync::block_lookups::parent_chain::find_oldest_fork_ancestor;
-use beacon_chain::block_verification_types::AsBlock;
+use crate::sync::block_lookups::single_block_lookup::PeerType;
 use beacon_chain::data_availability_checker::{
     AvailabilityCheckError, AvailabilityCheckErrorCategory,
 };
@@ -87,28 +85,7 @@ type PayloadDownloadResponse<E> =
 
 pub enum BlockComponent<E: EthSpec> {
     Block(DownloadResult<Arc<SignedBeaconBlock<E>>>),
-    Blob(DownloadResult<Hash256>),
-    DataColumn(DownloadResult<Hash256>),
-    PartialDataColumn(DownloadResult<Hash256>),
-}
-
-impl<E: EthSpec> BlockComponent<E> {
-    fn parent_root(&self) -> Hash256 {
-        match self {
-            BlockComponent::Block(block) => block.value.parent_root(),
-            BlockComponent::Blob(parent_root)
-            | BlockComponent::DataColumn(parent_root)
-            | BlockComponent::PartialDataColumn(parent_root) => parent_root.value,
-        }
-    }
-    fn get_type(&self) -> &'static str {
-        match self {
-            BlockComponent::Block(_) => "block",
-            BlockComponent::Blob(_) => "blob",
-            BlockComponent::DataColumn(_) => "data_column",
-            BlockComponent::PartialDataColumn(_) => "partial_data_column",
-        }
-    }
+    Sidecar,
 }
 
 pub type SingleLookupId = u32;
@@ -200,31 +177,26 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         block_root: Hash256,
         block_component: BlockComponent<T::EthSpec>,
+        awaiting_parent: AwaitingParent,
         peer_id: PeerId,
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
-        let parent_root = block_component.parent_root();
-
         // We don't know the child's fork yet (no block downloaded), use PreGloas conservatively.
         // The correct AwaitingParent will be set when the child's block downloads.
-        let awaiting = AwaitingParent::pre_gloas(parent_root);
         let parent_lookup_exists =
-            self.search_parent_of_child(awaiting, block_root, &[peer_id], cx);
+            self.search_parent_of_child(awaiting_parent, block_root, &[peer_id], cx);
         // Only create the child lookup if the parent exists
         if parent_lookup_exists {
             // `search_parent_of_child` ensures that the parent lookup exists so we can safely wait for it
             self.new_current_lookup(
                 block_root,
                 Some(block_component),
-                Some(parent_root),
+                Some(awaiting_parent),
                 // On a `UnknownParentBlock` or `UnknownParentBlob` event the peer is not required
                 // to have the rest of the block components (refer to decoupled blob gossip). Create
                 // the lookup with zero peers to house the block components.
                 &[],
-                &PeerType {
-                    data: false,
-                    payload: false,
-                },
+                &PeerType::PreGloas,
                 cx,
             )
         } else {
@@ -242,41 +214,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         peer_source: &[PeerId],
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
-        self.new_current_lookup(
-            block_root,
-            None,
-            None,
-            peer_source,
-            &PeerType {
-                data: false,
-                payload: false,
-            },
-            cx,
-        )
-    }
-
-    /// Search for a block triggered by a Gloas data column. The peer that sent the data column
-    /// is a valid data source, so mark it as data-capable.
-    ///
-    /// Returns true if the lookup is created or already exists
-    #[must_use = "only reference the new lookup if returns true"]
-    pub fn search_unknown_block_with_data_peer(
-        &mut self,
-        block_root: Hash256,
-        peer_source: &[PeerId],
-        cx: &mut SyncNetworkContext<T>,
-    ) -> bool {
-        self.new_current_lookup(
-            block_root,
-            None,
-            None,
-            peer_source,
-            &PeerType {
-                data: true,
-                payload: false,
-            },
-            cx,
-        )
+        self.new_current_lookup(block_root, None, None, peer_source, &PeerType::PreGloas, cx)
     }
 
     /// A block or blob triggers the search of a parent.
@@ -391,24 +329,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         // Child's peers can serve block, and data + payload if the parent is full.
         // In Gloas, data and payload are coupled: empty blocks have neither.
         // Pre-Gloas: data is always needed with block, payload is never needed.
-        let peer_type = if awaiting_parent.is_post_gloas() {
-            let is_full = self
-                .single_block_lookups
-                .values()
-                .find(|l| l.is_for_block(block_root_to_search))
-                .map(|parent| parent.is_full_payload(&awaiting_parent))
-                .unwrap_or(false);
-            PeerType {
-                data: is_full,
-                payload: is_full,
-            }
-        } else {
-            PeerType {
-                data: true,
-                payload: false,
-            }
+        let peer_type = match awaiting_parent.parent_hash() {
+            Some(parent_hash) => PeerType::PostGloas(parent_hash),
+            None => PeerType::PreGloas,
         };
-
         // `block_root_to_search` is a failed chain check happens inside new_current_lookup
         self.new_current_lookup(block_root_to_search, None, None, peers, &peer_type, cx)
     }
@@ -421,7 +345,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         block_root: Hash256,
         block_component: Option<BlockComponent<T::EthSpec>>,
-        awaiting_parent: Option<Hash256>,
+        awaiting_parent: Option<AwaitingParent>,
         peers: &[PeerId],
         peer_type: &PeerType,
         cx: &mut SyncNetworkContext<T>,
@@ -436,16 +360,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         if let Some((&lookup_id, lookup)) = self
             .single_block_lookups
             .iter_mut()
-            .find(|(_id, lookup)| lookup.is_for_block(block_root))
+            .find(|(_id, lookup)| lookup.block_root() == block_root)
         {
             if let Some(block_component) = block_component {
-                let component_type = block_component.get_type();
                 let imported = lookup.add_child_components(block_component);
                 if !imported {
-                    debug!(
-                        ?block_root,
-                        component_type, "Lookup child component ignored"
-                    );
+                    debug!(?block_root, "Lookup child component ignored");
                 }
             }
 
@@ -462,7 +382,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             && !self
                 .single_block_lookups
                 .iter()
-                .any(|(_, lookup)| lookup.is_for_block(awaiting_parent))
+                .any(|(_, lookup)| lookup.block_root() == awaiting_parent.parent_root())
         {
             warn!(block_root = ?awaiting_parent, "Ignoring child lookup parent lookup not found");
             return false;
@@ -477,13 +397,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         // If we know that this lookup has unknown parent (is awaiting a parent lookup to resolve),
         // signal here to hold processing downloaded data.
-        let mut lookup = SingleBlockLookup::new(
-            block_root,
-            peers,
-            peer_type,
-            cx.next_id(),
-            awaiting_parent.map(AwaitingParent::pre_gloas),
-        );
+        let mut lookup =
+            SingleBlockLookup::new(block_root, peers, peer_type, cx.next_id(), awaiting_parent);
         let _guard = lookup.span.clone().entered();
 
         // Add block components to the new request
@@ -771,10 +686,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
                 // Use the data kind to pick a penalty string the peer-scoring tests
                 // distinguish on (blobs vs custody columns).
-                let penalty_msg = match lookup.data_is_columns() {
-                    Some(true) => "lookup_custody_column_processing_failure",
-                    _ => "lookup_blobs_processing_failure",
-                };
+                let penalty_msg = "lookup_data_processing_failure";
 
                 match &e {
                     // No penalization for internal / non-attributable errors
@@ -818,7 +730,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let Some((id, lookup)) = self
             .single_block_lookups
             .iter_mut()
-            .find(|(_, lookup)| lookup.is_for_block(block_root))
+            .find(|(_, lookup)| lookup.block_root() == block_root)
         else {
             // Ok to ignore gossip process events
             return;
@@ -1111,18 +1023,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 .iter()
                 .find(|(_, l)| l.block_root() == parent_root)
             {
-                let peer_type = if awaiting.is_post_gloas() {
-                    let is_full = parent_lookup.is_full_payload(&awaiting);
-                    PeerType {
-                        data: is_full,
-                        payload: is_full,
-                    }
-                } else {
-                    PeerType {
-                        data: true,
-                        payload: false,
-                    }
-                };
+                let peer_type = PeerType::from_awaiting_parent(awaiting);
                 self.add_peers_to_lookup_and_ancestors(parent_id, peers, &peer_type, cx)
             } else {
                 Err(format!("Lookup references unknown parent {parent_root:?}"))

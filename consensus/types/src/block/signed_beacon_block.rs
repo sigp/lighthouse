@@ -13,7 +13,7 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    ExecutionBlockHash,
+    ExecPayload, ExecutionBlockHash,
     block::{
         BLOB_KZG_COMMITMENTS_INDEX, BeaconBlock, BeaconBlockAltair, BeaconBlockBase,
         BeaconBlockBellatrix, BeaconBlockBodyBellatrix, BeaconBlockBodyCapella,
@@ -353,6 +353,16 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             .blob_kzg_commitments()
             .map(|c| c.len())
             .unwrap_or(0)
+    }
+
+    pub fn execution_hash(&self) -> Option<ExecutionBlockHash> {
+        if let Ok(bid) = self.message().body().signed_execution_payload_bid() {
+            return Some(bid.message.block_hash);
+        }
+        if let Ok(payload) = self.message().body().execution_payload() {
+            return Some(payload.block_hash());
+        }
+        None
     }
 
     /// Used for displaying commitments in logs.

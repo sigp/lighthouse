@@ -1522,6 +1522,15 @@ where
             .map_err(Error::ProtoArrayStringError)
     }
 
+    /// Returns whether the execution payload for the block has been received.
+    ///
+    /// Returns `false` for pre-Gloas blocks, unknown blocks, or blocks that are not
+    /// descendants of the finalized root.
+    pub fn is_payload_received(&self, block_root: &Hash256) -> bool {
+        self.is_finalized_checkpoint_or_descendant(*block_root)
+            && self.proto_array.is_payload_received(block_root)
+    }
+
     /// Returns an `ExecutionStatus` if the block is known **and** a descendant of the finalized root.
     pub fn get_block_execution_status(&self, block_root: &Hash256) -> Option<ExecutionStatus> {
         if self.is_finalized_checkpoint_or_descendant(*block_root) {
