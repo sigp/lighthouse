@@ -238,7 +238,6 @@ impl<E: EthSpec> BlockRequest<E> {
 #[derive(Debug)]
 struct DataRequest<E: EthSpec> {
     peers: PeerSet,
-    slot: Slot,
     state: DataRequestState<E>,
 }
 
@@ -317,19 +316,9 @@ impl<E: EthSpec> DataDownload<E> {
 
     fn take_download_result(&mut self) -> Option<(DownloadedData<E>, PeerGroup)> {
         match self {
-            DataDownload::Blobs {
-                expected_blobs,
-                state,
-                ..
-            } => state.take_download_result().map(|r| {
-                (
-                    DownloadedData::Blobs {
-                        blobs: r.value,
-                        expected_blobs: *expected_blobs,
-                    },
-                    r.peer_group,
-                )
-            }),
+            DataDownload::Blobs { state, .. } => state
+                .take_download_result()
+                .map(|r| (DownloadedData::Blobs(r.value), r.peer_group)),
             DataDownload::Columns { state, .. } => state
                 .take_download_result()
                 .map(|r| (DownloadedData::Columns(r.value), r.peer_group)),
@@ -342,34 +331,13 @@ impl<E: EthSpec> DataDownload<E> {
             DataDownload::Columns { state, .. } => state.is_awaiting_event(),
         }
     }
-
-    fn peek_downloaded_peer_group(&self) -> Option<&PeerGroup> {
-        match self {
-            DataDownload::Blobs { state, .. } => state.peek_downloaded_peer_group(),
-            DataDownload::Columns { state, .. } => state.peek_downloaded_peer_group(),
-        }
-    }
 }
 
 /// Downloaded data, waiting to be sent for processing
 #[derive(Debug)]
 enum DownloadedData<E: EthSpec> {
-    Blobs {
-        blobs: FixedBlobSidecarList<E>,
-        expected_blobs: usize,
-    },
+    Blobs(FixedBlobSidecarList<E>),
     Columns(DataColumnSidecarList<E>),
-}
-
-/// Enough info to reconstruct a fresh `DataDownload` when we need to retry data download
-/// after a processing failure. We can't call `create_data_request` again from here because
-/// we're past the `WaitingForBlock` state and don't have the `SyncNetworkContext` (and
-/// therefore no `ChainSpec`) — so the request kind (blobs vs columns, plus the expected
-/// blob count) is cached alongside the in-flight request instead.
-#[derive(Debug, Clone, Copy)]
-enum DataDownloadKind {
-    Blobs { expected_blobs: usize },
-    Columns,
 }
 
 // === Payload request: WaitingForBlock → Downloading → Downloaded → Processing → Complete ===
@@ -501,7 +469,7 @@ pub struct SingleBlockLookup<T: BeaconChainTypes> {
     peers: PeerSet,
     /// Peers for payload download (0 initially, Gloas only).
     #[educe(Debug(method(fmt_peer_map_as_len)))]
-    gload_child_peers: GloasChildPeers,
+    gloas_child_peers: GloasChildPeers,
 
     // Parent tracking
     awaiting_parent: Option<AwaitingParent>,
@@ -557,7 +525,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             data_request: None,
             payload_request: None,
             peers: block_peers,
-            gload_child_peers: Arc::new(RwLock::new(gloas_child_peers)),
+            gloas_child_peers: Arc::new(RwLock::new(gloas_child_peers)),
             awaiting_parent,
             created: Instant::now(),
             failed_processing: 0,
@@ -632,9 +600,14 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.block_request.peer()
     }
 
-    /// Returns custody column peer group if data has been downloaded. Used for peer penalization.
+    /// Returns the peer group that served the downloaded data (blobs or custody columns) if
+    /// available, used for peer penalization on data-processing failures.
     pub fn data_peer_group(&self) -> Option<&PeerGroup> {
-        todo!();
+        match &self.data_request.as_ref()?.state {
+            DataRequestState::Downloaded { peer_group, .. }
+            | DataRequestState::Processing { peer_group } => Some(peer_group),
+            DataRequestState::Downloading(_) | DataRequestState::Complete => None,
+        }
     }
 
     // -- Main state machine driver --
@@ -701,25 +674,24 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                     }
 
                     let parent_root = block.parent_root();
-                    // Zero hash is the parent of the genesis block — not a real block.
-                    if parent_root == Hash256::ZERO {
-                        todo!();
-                    }
-
-                    let Some(parent_in_fork_choice) = cx
-                        .chain
-                        .canonical_head
-                        .fork_choice_read_lock()
-                        .get_block(&parent_root)
-                    else {
+                    // Zero hash is the parent of the genesis block — not a real block, so no
+                    // parent-known check is needed. Fall through to send the block for processing.
+                    if parent_root != Hash256::ZERO
+                        && cx
+                            .chain
+                            .canonical_head
+                            .fork_choice_read_lock()
+                            .get_block(&parent_root)
+                            .is_none()
+                    {
                         let awaiting_parent = AwaitingParent::from_block(block);
-                        self.awaiting_parent = Some(awaiting_parent.clone());
+                        self.awaiting_parent = Some(awaiting_parent);
                         return Ok(LookupResult::ParentUnknown {
                             awaiting_parent,
                             block_root: self.block_root,
                             peers: self.all_peers(),
                         });
-                    };
+                    }
 
                     let block = block.clone();
                     let peer = *peer;
@@ -765,7 +737,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                             .map_err(LookupRequestError::InternalError)?;
                         self.data_request = Some(DataRequest {
                             peers,
-                            slot: block.slot(),
                             state: DataRequestState::new(
                                 block.slot(),
                                 self.block_root,
@@ -798,7 +769,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                     }
                     DataRequestState::Downloaded { data, peer_group } => {
                         match data {
-                            DownloadedData::Blobs { blobs, .. } => {
+                            DownloadedData::Blobs(blobs) => {
                                 cx.send_blobs_for_processing(
                                     id,
                                     self.block_root,
@@ -935,7 +906,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             let Some(execution_hash) = execution_hash else {
                 return Err("execution_hash is None post gloas".to_string());
             };
-            self.gload_child_peers
+            self.gloas_child_peers
                 .write()
                 .entry(execution_hash)
                 .or_default()
@@ -1139,16 +1110,15 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         match peer_type {
             PeerType::PostGloas(execution_hash) => {
                 // This peer claims to have imported a child of this block with parent_hash. We
-                // can't known if the child is full or empty until we know the payload hash of this
-                // lookup
-                added
-                    != self
-                        .gload_child_peers
-                        .write()
-                        .entry(*execution_hash)
-                        .or_default()
-                        .write()
-                        .insert(peer_id);
+                // can't know whether the child is full or empty until we know the payload hash of
+                // this lookup.
+                added |= self
+                    .gloas_child_peers
+                    .write()
+                    .entry(*execution_hash)
+                    .or_default()
+                    .write()
+                    .insert(peer_id);
             }
             PeerType::PreGloas => {}
         }
@@ -1161,7 +1131,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     /// Remove peer from available peers.
     pub fn remove_peer(&mut self, peer_id: &PeerId) {
         self.peers.write().remove(peer_id);
-        for set in self.gload_child_peers.write().values_mut() {
+        for set in self.gloas_child_peers.write().values_mut() {
             set.write().remove(peer_id);
         }
     }

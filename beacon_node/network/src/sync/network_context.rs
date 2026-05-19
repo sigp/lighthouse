@@ -955,6 +955,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
         block_root: Hash256,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
+        // Skip the download if fork-choice already saw this envelope (e.g. imported via gossip
+        // before the lookup got here).
+        if self.chain.envelope_is_known_to_fork_choice(&block_root) {
+            return Ok(LookupRequestResult::NoRequestNeeded(
+                "envelope already known to fork-choice",
+            ));
+        }
+
         let active_request_count_by_peer = self.active_request_count_by_peer();
         let Some(peer_id) = lookup_peers
             .read()

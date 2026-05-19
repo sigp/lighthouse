@@ -1018,7 +1018,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         if let Some(awaiting) = lookup.awaiting_parent() {
             let parent_root = awaiting.parent_root();
-            if let Some((&parent_id, parent_lookup)) = self
+            if let Some((&parent_id, _)) = self
                 .single_block_lookups
                 .iter()
                 .find(|(_, l)| l.block_root() == parent_root)

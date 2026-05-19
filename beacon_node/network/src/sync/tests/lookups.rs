@@ -1522,7 +1522,12 @@ impl TestRig {
     }
 
     fn trigger_unknown_parent_blob(&mut self, peer_id: PeerId, blob: Arc<BlobSidecar<E>>) {
-        self.send_sync_message(SyncMessage::UnknownParentBlob(peer_id, blob));
+        self.send_sync_message(SyncMessage::UnknownParentSidecarHeader {
+            peer_id,
+            block_root: blob.block_root(),
+            parent_root: blob.block_parent_root(),
+            slot: blob.slot(),
+        });
     }
 
     fn trigger_unknown_parent_column(
@@ -1530,7 +1535,17 @@ impl TestRig {
         peer_id: PeerId,
         column: Arc<DataColumnSidecar<E>>,
     ) {
-        self.send_sync_message(SyncMessage::UnknownParentDataColumn(peer_id, column));
+        let DataColumnSidecar::Fulu(col) = column.as_ref() else {
+            panic!(
+                "trigger_unknown_parent_column is Fulu-only; Gloas columns use the partial-column path"
+            );
+        };
+        self.send_sync_message(SyncMessage::UnknownParentSidecarHeader {
+            peer_id,
+            block_root: col.block_root(),
+            parent_root: col.block_parent_root(),
+            slot: col.slot(),
+        });
     }
 
     fn trigger_unknown_block_from_attestation(&mut self, block_root: Hash256, peer_id: PeerId) {
