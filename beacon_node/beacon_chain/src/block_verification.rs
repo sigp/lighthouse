@@ -48,9 +48,6 @@
 // returned alongside.
 #![allow(clippy::result_large_err)]
 
-use crate::attestation_verification::{
-    Error as AttestationVerificationError, obtain_indexed_attestation_and_committees_per_slot,
-};
 use crate::beacon_snapshot::PreProcessingSnapshot;
 use crate::blob_verification::GossipBlobError;
 use crate::block_verification_types::{AsBlock, BlockImportData, LookupBlock, RangeSyncBlock};
@@ -1656,18 +1653,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
          * free real estate.
          */
         let current_slot = chain.slot()?;
-        let mut indexed_attestations = vec![];
-        for attestation in block.message().body().attestations() {
-            match obtain_indexed_attestation_and_committees_per_slot(chain, attestation) {
-                Ok((indexed_attestation, _)) => indexed_attestations.push(indexed_attestation),
-                Err(AttestationVerificationError::BeaconChainError(e)) => {
-                    return Err(BlockError::BeaconChainError(e));
-                }
-                // Ignore invalid attestations whilst importing attestations from a block. The
-                // block might be very old and therefore the attestations useless to fork choice.
-                Err(_) => {}
-            }
-        }
         let mut fork_choice = chain.canonical_head.fork_choice_write_lock();
 
         // Register each attester slashing in the block with fork choice.
@@ -1676,10 +1661,14 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         }
 
         // Register each attestation in the block with fork choice.
-        for indexed_attestation in indexed_attestations {
+        for (i, attestation) in block.message().body().attestations().enumerate() {
+            let indexed_attestation = consensus_context
+                .get_indexed_attestation(&state, attestation)
+                .map_err(|e| BlockError::PerBlockProcessingError(e.into_with_index(i)))?;
+
             match fork_choice.on_attestation(
                 current_slot,
-                indexed_attestation.to_ref(),
+                indexed_attestation,
                 AttestationFromBlock::True,
                 &chain.spec,
             ) {
