@@ -554,6 +554,11 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.block_root
     }
 
+    /// Check the block root matches the requested block root.
+    pub fn is_for_block(&self, block_root: Hash256) -> bool {
+        self.block_root == block_root
+    }
+
     pub fn awaiting_parent(&self) -> Option<AwaitingParent> {
         self.awaiting_parent
     }

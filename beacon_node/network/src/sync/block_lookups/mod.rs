@@ -360,7 +360,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         if let Some((&lookup_id, lookup)) = self
             .single_block_lookups
             .iter_mut()
-            .find(|(_id, lookup)| lookup.block_root() == block_root)
+            .find(|(_id, lookup)| lookup.is_for_block(block_root))
         {
             if let Some(block_component) = block_component {
                 let imported = lookup.add_child_components(block_component);
@@ -382,7 +382,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             && !self
                 .single_block_lookups
                 .iter()
-                .any(|(_, lookup)| lookup.block_root() == awaiting_parent.parent_root())
+                .any(|(_, lookup)| lookup.is_for_block(awaiting_parent.parent_root()))
         {
             warn!(block_root = ?awaiting_parent, "Ignoring child lookup parent lookup not found");
             return false;
@@ -730,7 +730,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let Some((id, lookup)) = self
             .single_block_lookups
             .iter_mut()
-            .find(|(_, lookup)| lookup.block_root() == block_root)
+            .find(|(_, lookup)| lookup.is_for_block(block_root))
         else {
             // Ok to ignore gossip process events
             return;
