@@ -115,6 +115,7 @@ impl TestContext {
         GossipVerificationContext {
             slot_clock: &self.slot_clock,
             spec: &self.spec,
+            builder_onboarding_cache: None,
             observed_payload_attesters: &self.observed_payload_attesters,
             canonical_head: &self.canonical_head,
             validator_pubkey_cache: &self.validator_pubkey_cache,
@@ -373,6 +374,7 @@ async fn stale_head_with_partial_advance() {
         &mut reference_state,
         Some(head.snapshot.beacon_state_root()),
         target_slot,
+        harness.chain.builder_onboarding_cache.as_deref(),
         &harness.spec,
     )
     .expect("should advance reference state");

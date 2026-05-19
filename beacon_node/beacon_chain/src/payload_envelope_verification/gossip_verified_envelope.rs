@@ -3,6 +3,7 @@ use std::sync::Arc;
 use educe::Educe;
 use eth2::types::{EventKind, SseExecutionPayloadGossip};
 use parking_lot::{Mutex, RwLock};
+use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use store::DatabaseBlock;
 use tracing::debug;
 use types::{
@@ -26,6 +27,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub canonical_head: &'a CanonicalHead<T>,
     pub store: &'a BeaconStore<T>,
     pub spec: &'a ChainSpec,
+    pub builder_onboarding_cache: Option<&'a OnboardBuildersCache>,
     pub beacon_proposer_cache: &'a Mutex<BeaconProposerCache>,
     pub validator_pubkey_cache: &'a RwLock<ValidatorPubkeyCache<T>>,
     pub genesis_validators_root: Hash256,
@@ -173,6 +175,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
                     opt_snapshot = Some(Box::new(snapshot.clone()));
                     Ok::<_, EnvelopeError>((snapshot.state_root, snapshot.pre_state))
                 },
+                ctx.builder_onboarding_cache,
                 ctx.spec,
             )?;
             let expected_proposer = proposer.index;
@@ -247,6 +250,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             canonical_head: &self.canonical_head,
             store: &self.store,
             spec: &self.spec,
+            builder_onboarding_cache: self.builder_onboarding_cache.as_deref(),
             beacon_proposer_cache: &self.beacon_proposer_cache,
             validator_pubkey_cache: &self.validator_pubkey_cache,
             genesis_validators_root: self.genesis_validators_root,

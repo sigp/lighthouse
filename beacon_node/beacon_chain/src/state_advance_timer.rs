@@ -289,7 +289,7 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
     if let Some(summary) = per_slot_processing(
         &mut state,
         Some(head_state_root),
-        GloasVerificationContext::from_cache(beacon_chain.builder_onboarding_cache.clone()),
+        GloasVerificationContext::from_cache(beacon_chain.builder_onboarding_cache.as_deref()),
         &beacon_chain.spec,
     )
     .map_err(BeaconChainError::from)?

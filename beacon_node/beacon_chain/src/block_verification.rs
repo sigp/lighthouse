@@ -79,6 +79,7 @@ use safe_arith::ArithError;
 use slot_clock::SlotClock;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
+use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use state_processing::per_block_processing::errors::IntoWithIndex;
 use state_processing::{
     AllCaches, BlockProcessingError, BlockSignatureStrategy, ConsensusContext,
@@ -609,6 +610,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         &mut parent.pre_state,
         parent.beacon_state_root,
         highest_slot,
+        chain.builder_onboarding_cache.as_deref(),
         &chain.spec,
     )?;
 
@@ -1109,6 +1111,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             &mut parent.pre_state,
             parent.beacon_state_root,
             block.slot(),
+            chain.builder_onboarding_cache.as_deref(),
             &chain.spec,
         )?;
 
@@ -1180,6 +1183,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             &mut parent.pre_state,
             parent.beacon_state_root,
             block.slot(),
+            chain.builder_onboarding_cache.as_deref(),
             &chain.spec,
         )?;
 
@@ -1545,7 +1549,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             if let Some(summary) = per_slot_processing(
                 &mut state,
                 Some(state_root),
-                GloasVerificationContext::from_cache(chain.builder_onboarding_cache.clone()),
+                GloasVerificationContext::from_cache(chain.builder_onboarding_cache.as_deref()),
                 &chain.spec,
             )? {
                 // Expose Prometheus metrics.
@@ -2094,6 +2098,7 @@ pub fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec, Err: BlockBlobEr
     state: &'a mut BeaconState<E>,
     state_root_opt: Option<Hash256>,
     block_slot: Slot,
+    builder_onboarding_cache: Option<&OnboardBuildersCache>,
     spec: &ChainSpec,
 ) -> Result<Cow<'a, BeaconState<E>>, Err> {
     let block_epoch = block_slot.epoch(E::slots_per_epoch());
@@ -2113,8 +2118,14 @@ pub fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec, Err: BlockBlobEr
 
         // Advance the state into the same epoch as the block. Use the "partial" method since state
         // roots are not important for proposer/attester shuffling.
-        partial_state_advance(&mut state, state_root_opt, target_slot, spec)
-            .map_err(BeaconChainError::from)?;
+        partial_state_advance(
+            &mut state,
+            state_root_opt,
+            target_slot,
+            builder_onboarding_cache,
+            spec,
+        )
+        .map_err(BeaconChainError::from)?;
 
         state.build_committee_cache(RelativeEpoch::Previous, spec)?;
         state.build_committee_cache(RelativeEpoch::Current, spec)?;

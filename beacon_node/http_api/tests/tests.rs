@@ -7539,6 +7539,7 @@ impl ApiTester {
                 &mut state,
                 Some(state_root),
                 proposal_slot,
+                self.chain.builder_onboarding_cache.as_deref(),
                 &self.chain.spec,
             );
         }

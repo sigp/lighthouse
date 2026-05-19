@@ -1687,6 +1687,7 @@ async fn proposer_lookahead_gloas_fork_epoch() {
         &mut head_state,
         head_state_root,
         gloas_fork_epoch,
+        None,
         spec,
     )
     .unwrap();

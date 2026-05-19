@@ -39,7 +39,7 @@ impl From<ssz::BitfieldError> for Error {
 pub fn per_slot_processing<E: EthSpec>(
     state: &mut BeaconState<E>,
     state_root: Option<Hash256>,
-    gloas_context: GloasVerificationContext,
+    gloas_context: GloasVerificationContext<'_>,
     spec: &ChainSpec,
 ) -> Result<Option<EpochProcessingSummary<E>>, Error> {
     // Verify that the `BeaconState` instantiation matches the fork at `state.slot()`.

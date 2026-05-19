@@ -8,7 +8,6 @@ use ssz_types::BitVector;
 use ssz_types::FixedVector;
 use std::collections::HashMap;
 use std::mem;
-use std::sync::Arc;
 use tracing::instrument;
 use tree_hash::TreeHash;
 use typenum::Unsigned;
@@ -23,26 +22,19 @@ use types::{
 /// This is also useful for caching builder deposit signatures post gloas so that
 /// potentially expensive operations doesn't slow down block processing in the block verification
 /// path.
-pub enum GloasVerificationContext {
+pub enum GloasVerificationContext<'a> {
     /// Use the pre-computed builder signature cache.
-    CachedVerification(Arc<OnboardBuildersCache>),
+    CachedVerification(&'a OnboardBuildersCache),
     /// Verify each builder deposit signature individually.
     ///
     /// This can be significantly slower if there are many builder deposits
     /// that need to be onboarded at the fork boundary. This variant should be used
     /// for tests and other non-production paths.
     FullVerification,
-    /// Skip `onboard_builders_from_pending_deposits` but still initialize the PTC window.
-    ///
-    /// `onboard_builders_from_pending_deposits` only modifies `state.pending_deposits` and
-    /// `state.builders` which don't affect committee or PTC calculation. This variant is
-    /// used by `partial_state_advance` where callers need committee and PTC lookups but
-    /// don't need the builder registry to be fully populated.
-    SkipBuilderOnboarding,
 }
 
-impl GloasVerificationContext {
-    pub fn from_cache(cache: Option<Arc<OnboardBuildersCache>>) -> Self {
+impl<'a> GloasVerificationContext<'a> {
+    pub fn from_cache(cache: Option<&'a OnboardBuildersCache>) -> Self {
         match cache {
             Some(c) => GloasVerificationContext::CachedVerification(c),
             None => GloasVerificationContext::FullVerification,
@@ -54,7 +46,7 @@ impl GloasVerificationContext {
 #[instrument(skip_all)]
 pub fn upgrade_to_gloas<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
-    context: GloasVerificationContext,
+    context: GloasVerificationContext<'_>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let post = upgrade_state_to_gloas(pre_state, context, spec)?;
@@ -66,7 +58,7 @@ pub fn upgrade_to_gloas<E: EthSpec>(
 
 pub fn upgrade_state_to_gloas<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
-    context: GloasVerificationContext,
+    context: GloasVerificationContext<'_>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<E>, Error> {
     let epoch = pre_state.current_epoch();
@@ -160,17 +152,13 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         epoch_cache: mem::take(&mut pre.epoch_cache),
     });
     // [New in Gloas:EIP7732]
+    initialize_ptc_window(&mut post, spec)?;
     match context {
-        GloasVerificationContext::CachedVerification(ref cache) => {
-            onboard_builders_from_pending_deposits(&mut post, Some(cache.as_ref()), spec)?;
-            initialize_ptc_window(&mut post, spec)?;
+        GloasVerificationContext::CachedVerification(cache) => {
+            onboard_builders_from_pending_deposits(&mut post, Some(cache), spec)?;
         }
         GloasVerificationContext::FullVerification => {
             onboard_builders_from_pending_deposits(&mut post, None, spec)?;
-            initialize_ptc_window(&mut post, spec)?;
-        }
-        GloasVerificationContext::SkipBuilderOnboarding => {
-            initialize_ptc_window(&mut post, spec)?;
         }
     }
 

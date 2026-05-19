@@ -10,6 +10,7 @@ use eth2::types::{EventKind, ForkVersionedResponse};
 use parking_lot::RwLock;
 use safe_arith::SafeArith;
 use slot_clock::SlotClock;
+use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use state_processing::per_block_processing::signature_sets::indexed_payload_attestation_signature_set;
 use state_processing::state_advance::partial_state_advance;
 use std::borrow::Cow;
@@ -18,6 +19,7 @@ use types::{ChainSpec, EthSpec, IndexedPayloadAttestation, PTC, PayloadAttestati
 pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub slot_clock: &'a T::SlotClock,
     pub spec: &'a ChainSpec,
+    pub builder_onboarding_cache: Option<&'a OnboardBuildersCache>,
     pub observed_payload_attesters: &'a RwLock<ObservedPayloadAttesters<T::EthSpec>>,
     pub canonical_head: &'a CanonicalHead<T>,
     pub validator_pubkey_cache: &'a RwLock<ValidatorPubkeyCache<T>>,
@@ -113,8 +115,14 @@ impl<T: BeaconChainTypes> VerifiedPayloadAttestationMessage<T> {
                 .map_err(BeaconChainError::from)?
                 < message_epoch
             {
-                partial_state_advance(&mut state, Some(state_root), target_slot, ctx.spec)
-                    .map_err(BeaconChainError::from)?;
+                partial_state_advance(
+                    &mut state,
+                    Some(state_root),
+                    target_slot,
+                    ctx.builder_onboarding_cache,
+                    ctx.spec,
+                )
+                .map_err(BeaconChainError::from)?;
             }
 
             Some(state)
@@ -202,6 +210,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         GossipVerificationContext {
             slot_clock: &self.slot_clock,
             spec: &self.spec,
+            builder_onboarding_cache: self.builder_onboarding_cache.as_deref(),
             observed_payload_attesters: &self.observed_payload_attesters,
             canonical_head: &self.canonical_head,
             validator_pubkey_cache: &self.validator_pubkey_cache,

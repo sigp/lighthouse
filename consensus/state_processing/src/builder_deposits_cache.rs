@@ -403,10 +403,7 @@ mod tests {
         let invalid_0 = make_invalid_builder_deposit(&KEYPAIRS[2], &spec);
         let invalid_1 = make_invalid_builder_deposit(&KEYPAIRS[3], &spec);
 
-        cache.cache_pending_deposits(
-            vec![&valid_0, &invalid_0, &valid_1, &invalid_1],
-            &spec,
-        );
+        cache.cache_pending_deposits(vec![&valid_0, &invalid_0, &valid_1, &invalid_1], &spec);
 
         assert_eq!(cache.cached_is_valid_signature(&valid_0), Some(true));
         assert_eq!(cache.cached_is_valid_signature(&valid_1), Some(true));

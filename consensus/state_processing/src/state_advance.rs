@@ -4,6 +4,7 @@
 //! These functions are not in the specification, however they're defined here to reduce code
 //! duplication and protect against some easy-to-make mistakes when performing state advances.
 
+use crate::builder_deposits_cache::OnboardBuildersCache;
 use crate::upgrade::GloasVerificationContext;
 use crate::*;
 use fixed_bytes::FixedBytesExtended;
@@ -72,6 +73,7 @@ pub fn partial_state_advance<E: EthSpec>(
     state: &mut BeaconState<E>,
     state_root_opt: Option<Hash256>,
     target_slot: Slot,
+    builder_onboarding_cache: Option<&OnboardBuildersCache>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     check_target_slot(state.slot(), target_slot)?;
@@ -105,7 +107,7 @@ pub fn partial_state_advance<E: EthSpec>(
         per_slot_processing(
             state,
             Some(state_root),
-            GloasVerificationContext::SkipBuilderOnboarding,
+            GloasVerificationContext::from_cache(builder_onboarding_cache),
             spec,
         )
         .map_err(Error::PerSlotProcessing)?;

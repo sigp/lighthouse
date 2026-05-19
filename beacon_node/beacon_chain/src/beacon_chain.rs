@@ -1521,7 +1521,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     match per_slot_processing(
                         &mut state,
                         skip_state_root,
-                        GloasVerificationContext::from_cache(self.builder_onboarding_cache.clone()),
+                        GloasVerificationContext::from_cache(
+                            self.builder_onboarding_cache.as_deref(),
+                        ),
                         &self.spec,
                     ) {
                         Ok(_) => (),
@@ -2126,6 +2128,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         &mut state,
                         Some(advanced_state_root),
                         request_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                        self.builder_onboarding_cache.as_deref(),
                         &self.spec,
                     )
                     .map_err(Error::StateAdvanceError)?;
@@ -5194,6 +5197,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &mut advanced_state,
             Some(unadvanced_state_root),
             proposal_slot,
+            self.builder_onboarding_cache.as_deref(),
             &self.spec,
         )?;
 
@@ -7003,6 +7007,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             proposal_epoch,
             accessor,
             state_provider,
+            self.builder_onboarding_cache.as_deref(),
             &self.spec,
         )
     }
@@ -7160,7 +7165,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if state.current_epoch() + 1 < shuffling_epoch {
                 // Advance the state into the required slot, using the "partial" method since the
                 // state roots are not relevant for the shuffling.
-                partial_state_advance(&mut state, Some(state_root), target_slot, &self.spec)?;
+                partial_state_advance(
+                    &mut state,
+                    Some(state_root),
+                    target_slot,
+                    self.builder_onboarding_cache.as_deref(),
+                    &self.spec,
+                )?;
             }
             metrics::stop_timer(state_skip_timer);
 
