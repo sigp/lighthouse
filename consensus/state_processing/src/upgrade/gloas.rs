@@ -5,7 +5,6 @@ use safe_arith::SafeArith;
 use ssz_types::BitVector;
 use ssz_types::FixedVector;
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::mem;
 use tree_hash::TreeHash;
 use typenum::Unsigned;
@@ -167,11 +166,6 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    // Rather than tracking all `validator_pubkeys` in one place as the spec does, we keep a
-    // hashset for *just* the new validator pubkeys, and use the state's efficient
-    // `get_validator_index` function instead of an O(n) iteration over the full validator list.
-    let mut new_validator_pubkeys = HashSet::new();
-
     // Clone pending deposits to avoid borrow conflicts when mutating state.
     let current_pending_deposits = state.pending_deposits()?.clone();
 
@@ -188,22 +182,21 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
 
     for deposit in &current_pending_deposits {
         // Deposits for existing validators stay in the pending queue.
-        if new_validator_pubkeys.contains(&deposit.pubkey)
-            || state.get_validator_index(&deposit.pubkey)?.is_some()
-        {
+        if state.get_validator_index(&deposit.pubkey)?.is_some() {
             pending_deposits.push(deposit.clone())?;
             continue;
         }
 
         if !builder_pubkey_to_index.contains_key(&deposit.pubkey) {
+            // Deposits without builder withdrawal credentials are for new validators.
             if !is_builder_withdrawal_credential(deposit.withdrawal_credentials, spec) {
-                new_validator_pubkeys.insert(deposit.pubkey);
                 pending_deposits.push(deposit.clone())?;
                 continue;
             }
 
+            // If there is a valid pending deposit for a new validator with this pubkey,
+            // keep this deposit in the pending queue to be applied to that validator later.
             if is_pending_validator(&pending_deposits, &deposit.pubkey, spec) {
-                new_validator_pubkeys.insert(deposit.pubkey);
                 pending_deposits.push(deposit.clone())?;
                 continue;
             }
@@ -221,8 +214,6 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
             deposit.slot,
             spec,
         )? {
-            // If a new builder index was added to the state, update the hashmap
-            // instead of recomputing the list of builders.
             builder_pubkey_to_index
                 .entry(deposit.pubkey)
                 .or_insert(new_builder_index);
