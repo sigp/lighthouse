@@ -2,7 +2,7 @@ use super::{BlockComponent, PeerId, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS};
 use crate::sync::block_lookups::{
     BlobDownloadResponse, BlockDownloadResponse, CustodyDownloadResponse, PayloadDownloadResponse,
 };
-use crate::sync::manager::BlockProcessType;
+use crate::sync::manager::{BlockProcessType, BlockProcessingResult};
 use crate::sync::network_context::{
     LookupRequestResult, PeerGroup, ReqId, RpcRequestSendError, RpcResponseError,
     SendErrorProcessor, SyncNetworkContext,
@@ -190,19 +190,6 @@ impl<E: EthSpec> BlockRequest<E> {
 
     fn peek_slot(&self) -> Option<Slot> {
         self.peek_block().map(|b| b.slot())
-    }
-
-    /// Returns the block peer for error attribution. Available in Downloaded/Processing states.
-    fn peer(&self) -> Option<PeerId> {
-        match self {
-            BlockRequest::Downloaded { peer, .. } | BlockRequest::Processing { peer, .. } => {
-                Some(*peer)
-            }
-            BlockRequest::Downloading { state, .. } => state
-                .peek_downloaded_peer_group()
-                .and_then(|pg| pg.all().next().copied()),
-            BlockRequest::Complete { peer, .. } => *peer,
-        }
     }
 
     fn is_awaiting_event(&self) -> bool {
@@ -603,21 +590,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             }
     }
 
-    /// Returns the block peer if block has been downloaded. Used for peer penalization.
-    pub fn block_peer(&self) -> Option<PeerId> {
-        self.block_request.peer()
-    }
-
-    /// Returns the peer group that served the downloaded data (blobs or custody columns) if
-    /// available, used for peer penalization on data-processing failures.
-    pub fn data_peer_group(&self) -> Option<&PeerGroup> {
-        match &self.data_request.as_ref()?.state {
-            DataRequestState::Downloaded { peer_group, .. }
-            | DataRequestState::Processing { peer_group } => Some(peer_group),
-            DataRequestState::Downloading(_) | DataRequestState::Complete => None,
-        }
-    }
-
     // -- Main state machine driver --
 
     /// Makes progress on all requests of this lookup. Any error is not recoverable and must result
@@ -929,7 +901,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     /// Handle block processing result. Advances the lookup state machine.
     pub fn on_block_processing_result(
         &mut self,
-        result_is_ok: bool,
+        result: BlockProcessingResult,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
         let BlockRequest::Processing { block, peer } = &self.block_request else {
@@ -937,51 +909,62 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 "block processing result but not in Processing state".to_owned(),
             ));
         };
-        if result_is_ok {
-            let block = block.clone();
-            let peer = Some(*peer);
-            self.block_request = BlockRequest::Complete { block, peer };
-            self.continue_requests(cx)
-        } else {
-            // Block processing failed — reset everything and retry from scratch
-            self.reset_requests();
-            self.continue_requests(cx)
+        let block_peer = *peer;
+
+        match result {
+            BlockProcessingResult::Imported(_) => {
+                let block = block.clone();
+                self.block_request = BlockRequest::Complete {
+                    block,
+                    peer: Some(block_peer),
+                };
+                self.continue_requests(cx)
+            }
+            BlockProcessingResult::Error { penalty, reason } => {
+                if let Some((action, whom)) = penalty {
+                    whom.apply(action, &PeerGroup::from_single(block_peer), reason, cx);
+                }
+                // Block processing failed — reset everything and retry from scratch.
+                self.reset_requests();
+                self.continue_requests(cx)
+            }
         }
     }
 
     /// Handle data processing result (blobs or custody columns imported).
     pub fn on_data_processing_result(
         &mut self,
-        result_is_ok: bool,
+        result: BlockProcessingResult,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
-        let Some(request) = &mut self.data_request else {
+        let Some(DataRequest {
+            state: DataRequestState::Processing { peer_group },
+            ..
+        }) = &self.data_request
+        else {
             return Err(LookupRequestError::BadState(
                 "data processing result but not in Processing state".to_owned(),
             ));
         };
+        let peer_group = peer_group.clone();
 
-        if !matches!(
-            request,
-            DataRequest {
-                state: DataRequestState::Processing { .. },
-                ..
+        match result {
+            BlockProcessingResult::Imported(_) => {
+                if let Some(req) = &mut self.data_request {
+                    req.state = DataRequestState::Complete;
+                }
+                self.continue_requests(cx)
             }
-        ) {
-            return Err(LookupRequestError::BadState(
-                "data processing result but not in Processing state".to_owned(),
-            ));
-        }
-        if result_is_ok {
-            request.state = DataRequestState::Complete;
-            self.continue_requests(cx)
-        } else {
-            // Data processing failed — bump the shared processing-failure counter so the
-            // retry is bounded against `SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS`, then reset.
-            self.failed_processing = self.failed_processing.saturating_add(1);
-            // TODO(gloas-sync): Should this persist some state?
-            self.data_request = None;
-            self.continue_requests(cx)
+            BlockProcessingResult::Error { penalty, reason } => {
+                if let Some((action, whom)) = penalty {
+                    whom.apply(action, &peer_group, reason, cx);
+                }
+                // Data processing failed — bump the shared processing-failure counter and rebuild
+                // the data request so retries stay bounded against MAX_ATTEMPTS.
+                self.failed_processing = self.failed_processing.saturating_add(1);
+                self.data_request = None;
+                self.continue_requests(cx)
+            }
         }
     }
 
@@ -1218,13 +1201,6 @@ impl<T: Clone> SingleLookupRequestState<T> {
     fn peek_downloaded_data(&self) -> Option<&T> {
         match &self.state {
             DownloadState::Downloaded(data) => Some(&data.value),
-            _ => None,
-        }
-    }
-
-    fn peek_downloaded_peer_group(&self) -> Option<&PeerGroup> {
-        match &self.state {
-            DownloadState::Downloaded(data) => Some(&data.peer_group),
             _ => None,
         }
     }

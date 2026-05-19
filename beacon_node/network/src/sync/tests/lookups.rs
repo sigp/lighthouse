@@ -12,7 +12,7 @@ use beacon_chain::blob_verification::KzgVerifiedBlob;
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::{
-    AvailabilityProcessingStatus, BlockError, EngineState, NotifyExecutionLayer,
+    AvailabilityProcessingStatus, EngineState, NotifyExecutionLayer,
     block_verification_types::{AsBlock, AvailableBlockData},
     data_availability_checker::Availability,
     test_utils::{
@@ -2160,7 +2160,13 @@ async fn too_many_processing_failures(depth: usize) {
     r.build_chain_and_trigger_last_block(depth).await;
     // Simulate that a peer always returns empty
     r.simulate(
-        SimulateConfig::new().with_process_result(|| BlockError::BlockSlotLimitReached.into()),
+        SimulateConfig::new().with_process_result(|| BlockProcessingResult::Error {
+            penalty: Some((
+                lighthouse_network::PeerAction::MidToleranceError,
+                crate::sync::manager::WhichPeerToPenalize::BlockPeer,
+            )),
+            reason: "lookup_block_processing_failure",
+        }),
     )
     .await;
     // We register multiple penalties, the lookup fails and sync does not progress
@@ -2208,13 +2214,20 @@ async fn unknown_parent_does_not_add_peers_to_itself() {
 }
 
 #[tokio::test]
-/// Assert that if the beacon processor returns Ignored, the lookup is dropped
+/// Assert that if the beacon processor returns a processor-overloaded error, the lookup retries
+/// without penalizing peers and eventually fails after MAX_ATTEMPTS.
 async fn test_single_block_lookup_ignored_response() {
     let mut r = TestRig::default();
     r.build_chain_and_trigger_last_block(1).await;
-    // Send an Ignored response, the request should be dropped
-    r.simulate(SimulateConfig::new().with_process_result(|| BlockProcessingResult::Ignored))
-        .await;
+    // Send a "processor overloaded" response repeatedly. Under the new model this is just an
+    // Error with no peer penalty; the lookup retries until MAX_ATTEMPTS, then drops.
+    r.simulate(
+        SimulateConfig::new().with_process_result(|| BlockProcessingResult::Error {
+            penalty: None,
+            reason: "processor_overloaded",
+        }),
+    )
+    .await;
     // The block was not actually imported
     r.assert_head_slot(0);
     assert_eq!(r.created_lookups(), 1, "no created lookups");
@@ -2229,8 +2242,7 @@ async fn test_single_block_lookup_duplicate_response() {
     r.build_chain_and_trigger_last_block(1).await;
     // Send a DuplicateFullyImported response, the lookup should complete successfully
     r.simulate(
-        SimulateConfig::new()
-            .with_process_result(|| BlockError::DuplicateFullyImported(Hash256::ZERO).into()),
+        SimulateConfig::new().with_process_result(|| BlockProcessingResult::Imported("duplicate")),
     )
     .await;
     // The block was not actually imported
