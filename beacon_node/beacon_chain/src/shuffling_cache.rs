@@ -17,9 +17,9 @@ use crate::{
 
 /// The size of the cache that stores shufflings for quicker verification.
 ///
-/// Each entry should be around `8 + 800,000 + 4,096 = 804,104` bytes in size with 100k validators
+/// Each entry should be around `8 * 2M + 128KB ~= 16 MB` in size with 2M validators
 /// and 32 512-validator PTCs. Therefore, this cache should be approx
-/// `16 * (8 + 800,000 + 131,072) = 14.9 MB`. (Note: this ignores a few extra bytes in the
+/// `16 * 16 MB ~= 256 MB`. (Note: this ignores a few extra bytes in the
 /// caches that should be insignificant compared to the indices).
 pub const DEFAULT_CACHE_SIZE: usize = 16;
 
