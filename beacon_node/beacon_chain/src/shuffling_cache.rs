@@ -72,15 +72,16 @@ impl<E: EthSpec> CachedShuffling<E> {
         }
     }
 
-    pub fn ptc_for_slot(&self, slot: Slot) -> Option<&PTC<E>> {
+    pub fn ptc_for_slot(&self, slot: Slot) -> Result<PTC<E>, BeaconChainError> {
         match &self.ptcs {
-            CachedPTCs::PreGloas => None, // Should we error here?
-            CachedPTCs::PostGloas(ptcs, epoch) => {
-                if slot.epoch(E::slots_per_epoch()) != *epoch {
-                    None // Also we should error here?
+            CachedPTCs::PreGloas => Err(BeaconChainError::AttesterCacheNoPtcPreGloas { slot }),
+            &CachedPTCs::PostGloas(ref ptcs, epoch) => {
+                if slot.epoch(E::slots_per_epoch()) != epoch {
+                    Err(BeaconChainError::AttesterCachePtcOutOfBounds { slot, epoch })
                 } else {
-                    // Note: This may return Option also if construction was buggy
                     ptcs.get(slot.as_usize() % E::slots_per_epoch() as usize)
+                        .cloned()
+                        .ok_or(BeaconChainError::AttesterCachePtcOutOfBounds { slot, epoch })
                 }
             }
         }
