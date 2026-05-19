@@ -25,6 +25,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Load a beacon state from the database for block production. This is a long-running process
     /// that should not be performed in an `async` context.
     ///
+    /// The returned `PayloadStatus` is the payload status of the parent block to be built upon.
     #[instrument(skip_all, level = "debug")]
     pub(crate) fn load_state_for_block_production(
         self: &Arc<Self>,
