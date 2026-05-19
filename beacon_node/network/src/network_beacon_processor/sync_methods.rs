@@ -1115,7 +1115,7 @@ fn classify_processing_result(
             return BlockProcessingResult::Error {
                 penalty: Some((
                     PeerAction::MidToleranceError,
-                    WhichPeerToPenalize::CustodyPeerForColumn(*idx as u64),
+                    WhichPeerToPenalize::CustodyPeerForColumn(*idx),
                 )),
                 reason: "lookup_data_processing_failure",
             };

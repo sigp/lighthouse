@@ -41,7 +41,7 @@ pub struct AwaitingParent {
 
 impl AwaitingParent {
     pub fn is_parent_imported<T: BeaconChainTypes>(&self, cx: &mut SyncNetworkContext<T>) -> bool {
-        if self.parent_root == Hash256::ZERO {
+        if self.parent_is_genesis() {
             // Zero hash is the parent of the genesis block — not a real block, so no
             // parent-known check is needed. Fall through to send the block for processing.
             return true;
