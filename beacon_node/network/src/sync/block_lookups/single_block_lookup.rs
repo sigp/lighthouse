@@ -7,9 +7,9 @@ use crate::sync::network_context::{
     LookupRequestResult, PeerGroup, ReqId, RpcRequestSendError, RpcResponseError,
     SendErrorProcessor, SyncNetworkContext,
 };
-use beacon_chain::BeaconChainTypes;
 use beacon_chain::BlockProcessStatus;
 use beacon_chain::block_verification_types::AsBlock;
+use beacon_chain::{BeaconChainTypes, ExecutionStatus};
 use educe::Educe;
 use lighthouse_network::service::api_types::Id;
 use parking_lot::RwLock;
@@ -36,27 +36,77 @@ use types::{
 #[derive(Debug, Clone, Copy)]
 pub struct AwaitingParent {
     parent_root: Hash256,
-    parent_hash: Option<ExecutionBlockHash>,
+    gloas_bid_parent_hash: Option<ExecutionBlockHash>,
 }
 
 impl AwaitingParent {
+    pub fn is_parent_imported<T: BeaconChainTypes>(&self, cx: &mut SyncNetworkContext<T>) -> bool {
+        if self.parent_root == Hash256::ZERO {
+            // Zero hash is the parent of the genesis block — not a real block, so no
+            // parent-known check is needed. Fall through to send the block for processing.
+            return true;
+        }
+
+        if let Some(parent_block) = cx
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block(&self.parent_root)
+        {
+            if let Some(gloas_bid_parent_hash) = self.gloas_bid_parent_hash {
+                // Post-gloas block, check if it's FULL or EMPTY
+                let parent_hash = match parent_block.execution_status {
+                    ExecutionStatus::Valid(hash) => hash,
+                    ExecutionStatus::Invalid(hash) => hash,
+                    ExecutionStatus::Optimistic(hash) => hash,
+                    ExecutionStatus::Irrelevant(_) => {
+                        // This should never happen!
+                        return false;
+                    }
+                };
+                let is_full = gloas_bid_parent_hash == parent_hash;
+                if is_full {
+                    // Post-gloas block FULL, we need the payload to be imported first
+                    cx.chain
+                        .canonical_head
+                        .fork_choice_read_lock()
+                        .is_payload_received(&self.parent_root)
+                } else {
+                    // Post-gloas block EMPTY, and block is imported
+                    true
+                }
+            } else {
+                // Pre-gloas block
+                true
+            }
+        } else {
+            // Parent is unknown
+            false
+        }
+    }
+
+    pub fn parent_is_genesis(&self) -> bool {
+        self.parent_root == Hash256::ZERO
+    }
+
     pub fn parent_root(&self) -> Hash256 {
         self.parent_root
     }
 
-    pub fn parent_hash(&self) -> Option<ExecutionBlockHash> {
-        self.parent_hash
+    pub fn gloas_bid_parent_hash(&self) -> Option<ExecutionBlockHash> {
+        self.gloas_bid_parent_hash
     }
 
     pub fn from_block<E: EthSpec>(block: &SignedBeaconBlock<E>) -> Self {
-        let parent_hash = if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
-            Some(bid.message.parent_block_hash)
-        } else {
-            None
-        };
         Self {
             parent_root: block.message().parent_root(),
-            parent_hash,
+            gloas_bid_parent_hash: if let Ok(bid) =
+                block.message().body().signed_execution_payload_bid()
+            {
+                Some(bid.message.parent_block_hash)
+            } else {
+                None
+            },
         }
     }
 
@@ -72,7 +122,7 @@ impl AwaitingParent {
         } else {
             Ok(Self {
                 parent_root,
-                parent_hash: None,
+                gloas_bid_parent_hash: None,
             })
         }
     }
@@ -530,7 +580,7 @@ pub enum PeerType {
 
 impl PeerType {
     pub fn from_awaiting_parent(awaiting_parent: AwaitingParent) -> Self {
-        match awaiting_parent.parent_hash() {
+        match awaiting_parent.gloas_bid_parent_hash() {
             Some(parent_hash) => Self::PostGloas(parent_hash),
             None => Self::PreGloas,
         }
@@ -706,18 +756,9 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                         break;
                     }
 
-                    let parent_root = block.parent_root();
-                    // Zero hash is the parent of the genesis block — not a real block, so no
-                    // parent-known check is needed. Fall through to send the block for processing.
-                    if parent_root != Hash256::ZERO
-                        && cx
-                            .chain
-                            .canonical_head
-                            .fork_choice_read_lock()
-                            .get_block(&parent_root)
-                            .is_none()
-                    {
-                        let awaiting_parent = AwaitingParent::from_block(block);
+                    let awaiting_parent = AwaitingParent::from_block(block);
+
+                    if !awaiting_parent.is_parent_imported(cx) {
                         self.awaiting_parent = Some(awaiting_parent);
                         return Ok(LookupResult::ParentUnknown {
                             awaiting_parent,
@@ -753,13 +794,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                     else {
                         break;
                     };
-                    let peers = self
-                        .get_data_peers::<T::EthSpec>(
-                            block.slot(),
-                            block.execution_hash(),
-                            cx.spec(),
-                        )
-                        .map_err(LookupRequestError::InternalError)?;
+                    let peers = self.get_data_peers::<T::EthSpec>(&block);
                     self.data_request = Some(DataRequest {
                         peers,
                         state: DataRequestState::new(
@@ -809,13 +844,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                     else {
                         break;
                     };
-                    let peers = self
-                        .get_data_peers::<T::EthSpec>(
-                            block.slot(),
-                            block.execution_hash(),
-                            cx.spec(),
-                        )
-                        .map_err(LookupRequestError::InternalError)?;
+                    let peers = self.get_data_peers(&block);
                     self.payload_request = Some(PayloadRequest {
                         peers,
                         state: PayloadRequestState::new(block.slot(), cx.spec()),
@@ -883,24 +912,16 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         Ok(LookupResult::Pending)
     }
 
-    fn get_data_peers<E: EthSpec>(
-        &self,
-        slot: Slot,
-        execution_hash: Option<ExecutionBlockHash>,
-        spec: &ChainSpec,
-    ) -> Result<PeerSet, String> {
-        Ok(if spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
-            let Some(execution_hash) = execution_hash else {
-                return Err("execution_hash is None post gloas".to_string());
-            };
+    fn get_data_peers<E: EthSpec>(&self, block: &SignedBeaconBlock<E>) -> PeerSet {
+        if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
             self.gloas_child_peers
                 .write()
-                .entry(execution_hash)
+                .entry(bid.message.block_hash)
                 .or_default()
                 .clone()
         } else {
             self.peers.clone()
-        })
+        }
     }
 
     // -- Processing result handlers --
@@ -1363,7 +1384,7 @@ impl<T: Clone> std::fmt::Debug for DownloadState<T> {
 
 impl std::fmt::Display for AwaitingParent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.parent_hash {
+        match self.gloas_bid_parent_hash {
             Some(parent_hash) => write!(f, "{}/{}", self.parent_root, parent_hash),
             None => write!(f, "{}", self.parent_root),
         }

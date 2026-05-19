@@ -326,7 +326,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         // Child's peers can serve block, and data + payload if the parent is full.
         // In Gloas, data and payload are coupled: empty blocks have neither.
         // Pre-Gloas: data is always needed with block, payload is never needed.
-        let peer_type = match awaiting_parent.parent_hash() {
+        let peer_type = match awaiting_parent.gloas_bid_parent_hash() {
             Some(parent_hash) => PeerType::PostGloas(parent_hash),
             None => PeerType::PreGloas,
         };
