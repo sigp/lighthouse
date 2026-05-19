@@ -1,5 +1,5 @@
 use crate::StateId;
-use crate::caches::HistoricalCommitteeCache;
+use crate::caches::{HistoricalCommitteeCache, HistoricalShufflingId};
 use crate::task_spawner::{Priority, TaskSpawner};
 use crate::utils::ResponseFilter;
 use crate::validator::pubkey_to_validator_index;
@@ -373,20 +373,17 @@ pub fn get_beacon_state_committees<T: BeaconChainTypes>(
                                 let shuffling_id = if let Ok(Some(shuffling_decision_block)) =
                                     chain.block_root_at_slot(decision_slot, WhenSlotSkipped::Prev)
                                 {
-                                    Some(AttestationShufflingId {
-                                        shuffling_epoch: epoch,
-                                        shuffling_decision_block,
-                                    })
-                                } else {
-                                    if epoch < chain.head().finalized_checkpoint().epoch {
-                                        // Use the case for finalized epochs
-                                        Some(AttestationShufflingId {
+                                    Some(HistoricalShufflingId::ShufflingId(
+                                        AttestationShufflingId {
                                             shuffling_epoch: epoch,
-                                            shuffling_decision_block: Hash256::ZERO,
-                                        })
-                                    } else {
-                                        None
-                                    }
+                                            shuffling_decision_block,
+                                        },
+                                    ))
+                                } else if epoch < chain.head().finalized_checkpoint().epoch {
+                                    // Use the case for finalized epochs
+                                    Some(HistoricalShufflingId::FinalizedEpoch(epoch))
+                                } else {
+                                    None
                                 };
 
                                 // Attempt to read from the chain cache if there exists a

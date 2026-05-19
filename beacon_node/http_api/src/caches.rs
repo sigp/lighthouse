@@ -6,8 +6,13 @@ use types::{AttestationShufflingId, CommitteeCache};
 
 const HISTORICAL_COMMITTEE_CACHE_SIZE: usize = 16;
 
+pub enum HistoricalShufflingId {
+    FinalizedEpoch(Epoch),
+    ShufflingId(AttestationShufflingId),
+}
+
 pub struct HistoricalCommitteeCache {
-    committees: Mutex<LruCache<AttestationShufflingId, Arc<CommitteeCache>>>,
+    committees: Mutex<LruCache<HistoricalShufflingId, Arc<CommitteeCache>>>,
 }
 
 impl Default for HistoricalCommitteeCache {
@@ -22,11 +27,11 @@ impl Default for HistoricalCommitteeCache {
 }
 
 impl HistoricalCommitteeCache {
-    pub fn get(&self, id: &AttestationShufflingId) -> Option<Arc<CommitteeCache>> {
+    pub fn get(&self, id: &HistoricalShufflingId) -> Option<Arc<CommitteeCache>> {
         self.committees.lock().get(id).cloned()
     }
 
-    pub fn insert(&self, id: AttestationShufflingId, cache: Arc<CommitteeCache>) {
+    pub fn insert(&self, id: HistoricalShufflingId, cache: Arc<CommitteeCache>) {
         self.committees.lock().put(id, cache);
     }
 }
