@@ -13,7 +13,7 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    ExecPayload, ExecutionBlockHash,
+    ExecutionBlockHash,
     block::{
         BLOB_KZG_COMMITMENTS_INDEX, BeaconBlock, BeaconBlockAltair, BeaconBlockBase,
         BeaconBlockBellatrix, BeaconBlockBodyBellatrix, BeaconBlockBodyCapella,
