@@ -1,10 +1,12 @@
 #![cfg(all(test, not(feature = "fake_crypto"), not(debug_assertions)))]
 
+use crate::builder_deposits_cache::OnboardBuildersCache;
 use crate::per_block_processing::errors::{
     AttestationInvalid, AttesterSlashingInvalid, BlockOperationError, BlockProcessingError,
     DepositInvalid, HeaderInvalid, IndexedAttestationInvalid, IntoWithIndex,
     ProposerSlashingInvalid,
 };
+use crate::upgrade::gloas::GloasVerificationContext;
 use crate::{BlockReplayError, BlockReplayer, per_block_processing};
 use crate::{
     BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot, VerifySignatures,
@@ -764,6 +766,282 @@ async fn process_deposit_requests_post_gloas_preserves_pre_state_pending_validat
         pending_deposits.get(1).unwrap().pubkey,
         builder_prefixed_request.pubkey
     );
+}
+
+// Tests that exercise the cached verification path used in production.
+
+#[tokio::test]
+async fn process_deposit_requests_with_pre_seeded_cache() {
+    let harness = get_gloas_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
+    let spec = harness.spec.clone();
+    let mut state = harness.get_current_state();
+
+    let valid_builder_request = make_deposit_request(
+        &KEYPAIRS[VALIDATOR_COUNT + 1],
+        builder_withdrawal_credentials(&spec),
+        13,
+        &spec,
+        0,
+    );
+
+    let mut invalid_builder_request = make_deposit_request(
+        &KEYPAIRS[VALIDATOR_COUNT + 2],
+        builder_withdrawal_credentials(&spec),
+        17,
+        &spec,
+        1,
+    );
+    invalid_builder_request.signature = SignatureBytes::empty();
+
+    let deposit_requests = [
+        valid_builder_request.clone(),
+        invalid_builder_request.clone(),
+    ];
+
+    // Pre-seed the cache with these deposit requests (simulating payload envelope arrival)
+    let cache = OnboardBuildersCache::new(&spec).unwrap();
+    cache.cache_deposit_requests(&deposit_requests, &spec);
+
+    process_operations::process_deposit_requests_post_gloas(
+        &mut state,
+        &deposit_requests,
+        Some(&cache),
+        &spec,
+    )
+    .unwrap();
+
+    // Valid builder should be onboarded via cache hit
+    assert!(find_builder_index(&state, &valid_builder_request.pubkey).is_some());
+    // Invalid signature should be rejected via cache hit
+    assert!(find_builder_index(&state, &invalid_builder_request.pubkey).is_none());
+}
+
+#[tokio::test]
+async fn process_deposit_requests_cache_partial_hit() {
+    let harness = get_gloas_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
+    let spec = harness.spec.clone();
+    let mut state = harness.get_current_state();
+
+    let cached_request = make_deposit_request(
+        &KEYPAIRS[VALIDATOR_COUNT + 1],
+        builder_withdrawal_credentials(&spec),
+        13,
+        &spec,
+        0,
+    );
+
+    let uncached_request = make_deposit_request(
+        &KEYPAIRS[VALIDATOR_COUNT + 2],
+        builder_withdrawal_credentials(&spec),
+        17,
+        &spec,
+        1,
+    );
+
+    // Only seed cache with first request
+    let cache = OnboardBuildersCache::new(&spec).unwrap();
+    cache.cache_deposit_requests(std::slice::from_ref(&cached_request), &spec);
+
+    process_operations::process_deposit_requests_post_gloas(
+        &mut state,
+        &[cached_request.clone(), uncached_request.clone()],
+        Some(&cache),
+        &spec,
+    )
+    .unwrap();
+
+    // Both should be onboarded: one from cache, one from batch verification fallback
+    assert!(find_builder_index(&state, &cached_request.pubkey).is_some());
+    assert!(find_builder_index(&state, &uncached_request.pubkey).is_some());
+}
+
+/// Helper to create a harness with Fulu genesis and gloas at a later epoch.
+async fn get_fulu_harness_with_gloas_scheduled<E: EthSpec>(
+    gloas_epoch: u64,
+    num_validators: usize,
+) -> BeaconChainHarness<EphemeralHarnessType<E>> {
+    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    spec.gloas_fork_epoch = Some(Epoch::new(gloas_epoch));
+    let spec = Arc::new(spec);
+    let last_slot_of_pre_gloas_epoch = Epoch::new(gloas_epoch).start_slot(E::slots_per_epoch()) - 1;
+    let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
+        .spec(spec.clone())
+        .keypairs(KEYPAIRS[0..num_validators].to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+    let state = harness.get_current_state();
+    if last_slot_of_pre_gloas_epoch > Slot::new(0) {
+        harness
+            .add_attested_blocks_at_slots(
+                state,
+                (1..=last_slot_of_pre_gloas_epoch.as_u64())
+                    .map(Slot::new)
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+                (0..num_validators).collect::<Vec<_>>().as_slice(),
+            )
+            .await;
+    }
+    harness
+}
+
+#[tokio::test]
+async fn upgrade_to_gloas_with_cached_verification() {
+    let harness =
+        get_fulu_harness_with_gloas_scheduled::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT)
+            .await;
+    let spec = harness.spec.clone();
+    let mut state = harness.get_current_state();
+
+    // Add builder pending deposits to the pre-gloas state
+    let valid_keypair = &KEYPAIRS[VALIDATOR_COUNT + 1];
+    let invalid_keypair = &KEYPAIRS[VALIDATOR_COUNT + 2];
+    let builder_creds = builder_withdrawal_credentials(&spec);
+
+    let mut valid_deposit_data = DepositData {
+        pubkey: valid_keypair.pk.compress(),
+        withdrawal_credentials: builder_creds,
+        amount: 256_000_000_000,
+        signature: SignatureBytes::empty(),
+    };
+    valid_deposit_data.signature = valid_deposit_data.create_signature(&valid_keypair.sk, &spec);
+
+    let invalid_deposit_data = DepositData {
+        pubkey: invalid_keypair.pk.compress(),
+        withdrawal_credentials: builder_creds,
+        amount: 256_000_000_000,
+        signature: SignatureBytes::empty(),
+    };
+
+    let slot = state.slot();
+    state
+        .pending_deposits_mut()
+        .unwrap()
+        .push(PendingDeposit {
+            pubkey: valid_deposit_data.pubkey,
+            withdrawal_credentials: valid_deposit_data.withdrawal_credentials,
+            amount: valid_deposit_data.amount,
+            signature: valid_deposit_data.signature.clone(),
+            slot,
+        })
+        .unwrap();
+    state
+        .pending_deposits_mut()
+        .unwrap()
+        .push(PendingDeposit {
+            pubkey: invalid_deposit_data.pubkey,
+            withdrawal_credentials: invalid_deposit_data.withdrawal_credentials,
+            amount: invalid_deposit_data.amount,
+            signature: invalid_deposit_data.signature.clone(),
+            slot,
+        })
+        .unwrap();
+
+    // Seed the cache from the state (production path)
+    let cache = OnboardBuildersCache::new(&spec).unwrap();
+    cache.seed_from_state(&state, &spec);
+
+    // Run upgrade_to_gloas with cached verification
+    crate::upgrade::upgrade_to_gloas(
+        &mut state,
+        GloasVerificationContext::CachedVerification(&cache),
+        &spec,
+    )
+    .unwrap();
+
+    // Valid builder deposit should be onboarded
+    assert!(find_builder_index(&state, &valid_deposit_data.pubkey).is_some());
+    // Invalid signature should be rejected (not added to builders)
+    assert!(find_builder_index(&state, &invalid_deposit_data.pubkey).is_none());
+    // Invalid builder deposit is consumed (dropped) during onboarding, not kept in pending
+    let pending = state.pending_deposits().unwrap();
+    assert!(
+        !pending
+            .iter()
+            .any(|d| d.pubkey == invalid_deposit_data.pubkey)
+    );
+}
+
+#[tokio::test]
+async fn upgrade_to_gloas_cached_matches_full_verification() {
+    let harness =
+        get_fulu_harness_with_gloas_scheduled::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT)
+            .await;
+    let spec = harness.spec.clone();
+    let mut state = harness.get_current_state();
+
+    // Add multiple builder deposits: some valid, some invalid
+    let builder_creds = builder_withdrawal_credentials(&spec);
+    let slot = state.slot();
+
+    for i in 0..4 {
+        let keypair = &KEYPAIRS[VALIDATOR_COUNT + i + 1];
+        let mut deposit_data = DepositData {
+            pubkey: keypair.pk.compress(),
+            withdrawal_credentials: builder_creds,
+            amount: 256_000_000_000,
+            signature: SignatureBytes::empty(),
+        };
+        // Make even-indexed deposits valid, odd-indexed invalid
+        if i % 2 == 0 {
+            deposit_data.signature = deposit_data.create_signature(&keypair.sk, &spec);
+        }
+        state
+            .pending_deposits_mut()
+            .unwrap()
+            .push(PendingDeposit {
+                pubkey: deposit_data.pubkey,
+                withdrawal_credentials: deposit_data.withdrawal_credentials,
+                amount: deposit_data.amount,
+                signature: deposit_data.signature.clone(),
+                slot,
+            })
+            .unwrap();
+    }
+
+    // Run with full verification to get ground truth
+    let mut state_full = state.clone();
+    crate::upgrade::upgrade_to_gloas(
+        &mut state_full,
+        GloasVerificationContext::FullVerification,
+        &spec,
+    )
+    .unwrap();
+
+    // Run with cached verification
+    let mut state_cached = state.clone();
+    let cache = OnboardBuildersCache::new(&spec).unwrap();
+    cache.seed_from_state(&state_cached, &spec);
+    crate::upgrade::upgrade_to_gloas(
+        &mut state_cached,
+        GloasVerificationContext::CachedVerification(&cache),
+        &spec,
+    )
+    .unwrap();
+
+    // Both paths should produce identical builder registries
+    let builders_full = state_full.builders().unwrap();
+    let builders_cached = state_cached.builders().unwrap();
+    assert_eq!(builders_full.len(), builders_cached.len());
+    for i in 0..builders_full.len() {
+        let bf = builders_full.get(i).unwrap();
+        let bc = builders_cached.get(i).unwrap();
+        assert_eq!(bf.pubkey, bc.pubkey);
+        assert_eq!(bf.balance, bc.balance);
+        assert_eq!(bf.execution_address, bc.execution_address);
+    }
+
+    // Both paths should produce identical pending_deposits
+    let pending_full = state_full.pending_deposits().unwrap();
+    let pending_cached = state_cached.pending_deposits().unwrap();
+    assert_eq!(pending_full.len(), pending_cached.len());
+    for i in 0..pending_full.len() {
+        assert_eq!(
+            pending_full.get(i).unwrap().pubkey,
+            pending_cached.get(i).unwrap().pubkey
+        );
+    }
 }
 
 #[tokio::test]
