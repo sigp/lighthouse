@@ -15,7 +15,7 @@ use eth2::types::{
 use ssz::Encode;
 use std::sync::Arc;
 use types::{
-    AttestationShufflingId, BeaconStateError, CommitteeCache, EthSpec, RelativeEpoch,
+    AttestationShufflingId, BeaconStateError, CommitteeCache, EthSpec, Hash256, RelativeEpoch,
     RelativeEpochError,
 };
 use warp::filters::BoxedFilter;
@@ -378,7 +378,15 @@ pub fn get_beacon_state_committees<T: BeaconChainTypes>(
                                         shuffling_decision_block,
                                     })
                                 } else {
-                                    None
+                                    if epoch < chain.head().finalized_checkpoint().epoch {
+                                        // Use the case for finalized epochs
+                                        Some(AttestationShufflingId {
+                                            shuffling_epoch: epoch,
+                                            shuffling_decision_block: Hash256::ZERO,
+                                        })
+                                    } else {
+                                        None
+                                    }
                                 };
 
                                 // Attempt to read from the chain cache if there exists a
