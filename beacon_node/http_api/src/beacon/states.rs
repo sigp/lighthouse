@@ -390,13 +390,14 @@ pub fn get_beacon_state_committees<T: BeaconChainTypes>(
                                         None
                                     };
 
-                                let committee_cache = if let Some(shuffling) =
-                                    maybe_cached_shuffling
-                                {
-                                    shuffling
-                                } else {
-                                    let committee_cache =
-                                        match RelativeEpoch::from_epoch(current_epoch, epoch) {
+                                let committee_cache =
+                                    if let Some(shuffling) = maybe_cached_shuffling {
+                                        shuffling
+                                    } else {
+                                        let committee_cache = match RelativeEpoch::from_epoch(
+                                            current_epoch,
+                                            epoch,
+                                        ) {
                                             Ok(relative_epoch)
                                                 if state.committee_cache_is_initialized(
                                                     relative_epoch,
@@ -418,47 +419,25 @@ pub fn get_beacon_state_committees<T: BeaconChainTypes>(
                                                 Err(BeaconStateError::ArithError(e))
                                             }
                                         }
-                                        .map_err(|e| {
-                                            match e {
-                                                BeaconStateError::EpochOutOfBounds => {
-                                                    let max_sprp =
-                                                        T::EthSpec::slots_per_historical_root()
-                                                            as u64;
-                                                    let first_subsequent_restore_point_slot =
-                                                        ((epoch.start_slot(
-                                                            T::EthSpec::slots_per_epoch(),
-                                                        ) / max_sprp)
-                                                            + 1)
-                                                            * max_sprp;
-                                                    if epoch < current_epoch {
-                                                        warp_utils::reject::custom_bad_request(
-                                                            format!(
-                                                                "epoch out of bounds, \
-                                                                 try state at slot {}",
-                                                                first_subsequent_restore_point_slot,
-                                                            ),
-                                                        )
-                                                    } else {
-                                                        warp_utils::reject::custom_bad_request(
-                                                            "epoch out of bounds, \
-                                                             too far in future"
-                                                                .into(),
-                                                        )
-                                                    }
-                                                }
-                                                _ => warp_utils::reject::unhandled_error(
-                                                    BeaconChainError::from(e),
-                                                ),
+                                        .map_err(|e| match e {
+                                            BeaconStateError::EpochOutOfBounds => {
+                                                warp_utils::reject::custom_bad_request(format!(
+                                                    "epoch {} out of bounds for state at {}",
+                                                    epoch, current_epoch
+                                                ))
                                             }
+                                            _ => warp_utils::reject::unhandled_error(
+                                                BeaconChainError::from(e),
+                                            ),
                                         })?;
 
-                                    if let Some(shuffling_id) = shuffling_id {
-                                        historical_committee_cache
-                                            .insert(shuffling_id, committee_cache.clone());
-                                    }
+                                        if let Some(shuffling_id) = shuffling_id {
+                                            historical_committee_cache
+                                                .insert(shuffling_id, committee_cache.clone());
+                                        }
 
-                                    committee_cache
-                                };
+                                        committee_cache
+                                    };
 
                                 // Use either the supplied slot or all slots in the epoch.
                                 let slots =
