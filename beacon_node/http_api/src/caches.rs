@@ -2,10 +2,11 @@ use lru::LruCache;
 use parking_lot::Mutex;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use types::{AttestationShufflingId, CommitteeCache};
+use types::{AttestationShufflingId, CommitteeCache, Epoch};
 
 const HISTORICAL_COMMITTEE_CACHE_SIZE: usize = 16;
 
+#[derive(Eq, Hash, PartialEq)]
 pub enum HistoricalShufflingId {
     FinalizedEpoch(Epoch),
     ShufflingId(AttestationShufflingId),
