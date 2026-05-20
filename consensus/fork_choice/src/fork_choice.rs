@@ -1363,7 +1363,7 @@ where
 
         // Resolve validator indices to all PTC committee positions. A validator may
         // appear multiple times in the PTC committee.
-        let mut ptc_indices: Vec<usize> = Vec::new();
+        let mut ptc_indices = vec![];
         let mut validators_found = 0;
         for validator_index in payload_attestation.attesting_indices.iter() {
             let mut found = false;
