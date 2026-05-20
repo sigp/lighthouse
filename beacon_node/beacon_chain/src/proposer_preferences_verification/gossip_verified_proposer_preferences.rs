@@ -169,6 +169,7 @@ mod tests {
 
     use super::verify_preferences_consistency;
     use crate::proposer_preferences_verification::ProposerPreferencesError;
+    use crate::test_utils::{fork_name_from_env, test_spec};
 
     type E = MinimalEthSpec;
 
@@ -183,15 +184,19 @@ mod tests {
     }
 
     fn state() -> BeaconState<E> {
-        BeaconState::new(0, <_>::default(), &E::default_spec())
+        let spec = spec();
+        BeaconState::new(0, <_>::default(), &spec)
     }
 
     fn spec() -> ChainSpec {
-        E::default_spec()
+        test_spec::<E>()
     }
 
     #[test]
     fn test_invalid_epoch_too_old() {
+        if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+            return;
+        }
         let current_slot = Slot::new(2 * E::slots_per_epoch());
         let prefs = make_preferences(Slot::new(3), 0);
 
@@ -204,6 +209,9 @@ mod tests {
 
     #[test]
     fn test_invalid_epoch_too_far_ahead() {
+        if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+            return;
+        }
         let current_slot = Slot::new(E::slots_per_epoch());
         let prefs = make_preferences(Slot::new(3 * E::slots_per_epoch() + 1), 0);
 
@@ -216,6 +224,9 @@ mod tests {
 
     #[test]
     fn test_proposal_slot_already_passed() {
+        if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+            return;
+        }
         let current_slot = Slot::new(10);
         let prefs = make_preferences(Slot::new(9), 0);
 
@@ -228,6 +239,9 @@ mod tests {
 
     #[test]
     fn test_proposal_slot_equal_to_current() {
+        if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+            return;
+        }
         let current_slot = Slot::new(10);
         let prefs = make_preferences(Slot::new(10), 0);
 
