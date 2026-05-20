@@ -255,7 +255,7 @@ pub struct PrePayloadAttributes {
     /// The block root of the block being built upon (same block as fcU `headBlockHash`).
     pub parent_beacon_block_root: Hash256,
     /// The gas limit of the parent execution payload (used as fallback target_gas_limit for Gloas).
-    pub parent_gas_limit: Option<u64>,
+    pub parent_gas_limit: u64,
 }
 
 /// Information about a state/block at a specific slot.
@@ -5084,30 +5084,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_name_unchecked()
             .gloas_enabled()
         {
-            Some(
-                cached_head
-                    .snapshot
-                    .beacon_state
-                    .latest_execution_payload_bid()?
-                    .gas_limit,
-            )
-        // If the beacon state is not a gloas variant, but the proposal slot is
-        // that indicates we are at the fork boundary. Fallback to fetching the gas limit
-        // from the latest execution payload header.
-        } else if self
-            .spec
-            .fork_name_at_slot::<T::EthSpec>(proposal_slot)
-            .gloas_enabled()
-        {
-            Some(
-                cached_head
-                    .snapshot
-                    .beacon_state
-                    .latest_execution_payload_header()?
-                    .gas_limit(),
-            )
+            cached_head
+                .snapshot
+                .beacon_state
+                .latest_execution_payload_bid()?
+                .gas_limit
         } else {
-            None
+            cached_head
+                .snapshot
+                .beacon_state
+                .latest_execution_payload_header()?
+                .gas_limit()
         };
 
         Ok(Some(PrePayloadAttributes {
@@ -6521,7 +6508,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "No proposer gas limit configured, falling back to parent gas limit"
                     );
                 }
-                proposer_gas_limit.or(pre_payload_attributes.parent_gas_limit)
+                proposer_gas_limit.or(Some(pre_payload_attributes.parent_gas_limit))
             } else {
                 None
             };
