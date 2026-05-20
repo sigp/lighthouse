@@ -6514,11 +6514,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
 
             let target_gas_limit = if prepare_slot_fork.gloas_enabled() {
-                // TODO(gloas) fallback to some sensible default value
-                execution_layer
-                    .get_proposer_gas_limit(proposer)
-                    .await
-                    .or(pre_payload_attributes.parent_gas_limit)
+                let proposer_gas_limit = execution_layer.get_proposer_gas_limit(proposer).await;
+                if proposer_gas_limit.is_none() {
+                    warn!(
+                        %proposer,
+                        "No proposer gas limit configured, falling back to parent gas limit"
+                    );
+                }
+                proposer_gas_limit.or(pre_payload_attributes.parent_gas_limit)
             } else {
                 None
             };
