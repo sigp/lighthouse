@@ -833,18 +833,11 @@ impl<T: BeaconChainTypes> Router<T> {
         envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
     ) {
         let sync_request_id = match app_request_id {
-            AppRequestId::Sync(sync_id) => match sync_id {
-                id @ SyncRequestId::SinglePayloadEnvelope { .. } => id,
-                other => {
-                    crit!(request = ?other, "PayloadEnvelopesByRoot response on incorrect request");
-                    return;
-                }
-            },
-            AppRequestId::Router => {
-                crit!(%peer_id, "All PayloadEnvelopesByRoot requests belong to sync");
+            AppRequestId::Sync(id @ SyncRequestId::SinglePayloadEnvelope { .. }) => id,
+            other => {
+                crit!(request = ?other, %peer_id, "PayloadEnvelopesByRoot response on incorrect request");
                 return;
             }
-            AppRequestId::Internal => unreachable!("Handled internally"),
         };
 
         trace!(

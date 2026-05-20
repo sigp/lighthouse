@@ -590,7 +590,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Create a new `Work` event for an RPC-fetched payload envelope. `process_lookup_envelope`
     /// reports the result back to sync.
-    #[allow(dead_code)]
     pub fn send_lookup_envelope(
         self: &Arc<Self>,
         block_root: Hash256,

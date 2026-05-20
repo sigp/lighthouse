@@ -418,8 +418,6 @@ pub enum Work<E: EthSpec> {
         process_fn: AsyncFn,
     },
     RpcCustodyColumn(AsyncFn),
-    /// An execution payload envelope fetched via RPC for a single-block lookup. Shares the
-    /// `rpc_blob_queue` for scheduling (similar latency/priority profile).
     RpcEnvelope(AsyncFn),
     ColumnReconstruction(AsyncFn),
     IgnoredRpcBlock {
