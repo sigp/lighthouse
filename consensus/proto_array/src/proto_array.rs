@@ -1545,7 +1545,7 @@ impl ProtoArray {
                 payload_status: fc_node.payload_status,
             });
         }
-        
+
         if fc_node.payload_status == PayloadStatus::Empty {
             return Ok(false);
         }

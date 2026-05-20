@@ -1313,10 +1313,10 @@ impl<E: EthSpec> Tester<E> {
         let participation = &v29.ptc_participation;
 
         for (i, expected_vote) in expected.votes.iter().enumerate() {
-            let actual = if !participation.get(i).unwrap_or(false) {
+            let actual = if !participation.get(i).unwrap() {
                 None // not yet voted
             } else {
-                Some(timeliness_votes.get(i).unwrap_or(false))
+                Some(timeliness_votes.get(i).unwrap())
             };
             if actual != *expected_vote {
                 return Err(Error::NotEqual(format!(
@@ -1357,10 +1357,10 @@ impl<E: EthSpec> Tester<E> {
         let participation = &v29.ptc_participation;
 
         for (i, expected_vote) in expected.votes.iter().enumerate() {
-            let actual = if !participation.get(i).unwrap_or(false) {
+            let actual = if !participation.get(i).unwrap() {
                 None // not yet voted
             } else {
-                Some(availability_votes.get(i).unwrap_or(false))
+                Some(availability_votes.get(i).unwrap())
             };
             if actual != *expected_vote {
                 return Err(Error::NotEqual(format!(
