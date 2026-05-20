@@ -420,7 +420,7 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                                 }
                             }
                         }
-                        _ => result?,
+                        Some(true) | None => result?,
                     }
                 }
                 Step::AttesterSlashing {
@@ -437,7 +437,7 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                                 ));
                             }
                         }
-                        _ => result?,
+                        Some(true) | None => result?,
                     }
                 }
                 Step::PowBlock { pow_block } => tester.process_pow_block(pow_block),
@@ -548,7 +548,7 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                                 ));
                             }
                         }
-                        _ => result?,
+                        Some(true) | None => result?,
                     }
                 }
             }
@@ -650,7 +650,9 @@ impl<E: EthSpec> Tester<E> {
             .slot_clock
             .set_current_time(Duration::from_secs(tick));
 
+        // Compute the slot time manually to ensure the slot clock is correct.
         let slot = self.tick_to_slot(tick).unwrap();
+        assert_eq!(slot, self.harness.chain.slot().unwrap());
         self.harness
             .chain
             .canonical_head
