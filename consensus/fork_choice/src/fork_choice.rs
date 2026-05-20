@@ -1207,7 +1207,6 @@ where
     fn validate_on_payload_attestation(
         &self,
         indexed_payload_attestation: &IndexedPayloadAttestation<E>,
-        is_from_block: AttestationFromBlock,
     ) -> Result<(), InvalidPayloadAttestation> {
         // This check is from `is_valid_indexed_payload_attestation`, but we do it immediately to
         // avoid wasting time on junk attestations.
@@ -1334,7 +1333,7 @@ where
         // have been processed at the correct slot when received on gossip, but then have the
         // wrong-slot by the time they make it to here (TOCTOU).
         // TODO(gloas): Consider inlining validate_on_payload_attestation here to look more like the spec.
-        self.validate_on_payload_attestation(payload_attestation, is_from_block)?;
+        self.validate_on_payload_attestation(payload_attestation)?;
 
         // PTC votes can only change the vote for their assigned beacon block, return early otherwise.
         let block = self
