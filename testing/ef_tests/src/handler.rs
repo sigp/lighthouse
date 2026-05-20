@@ -1008,10 +1008,6 @@ impl<E: EthSpec + TypeName> Handler for GossipValidationHandler<E> {
     fn handler_name(&self) -> String {
         self.handler_name.into()
     }
-
-    fn use_rayon() -> bool {
-        false
-    }
 }
 
 #[derive(Educe)]

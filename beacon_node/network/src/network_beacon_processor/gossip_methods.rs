@@ -2217,25 +2217,24 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 (MessageAcceptance::Ignore, None)
             }
             Err(e) => {
-                // This is likely a fault with the beacon chain and not necessarily a
-                // malicious message from the peer.
                 debug!(
                     validator_index,
                     %peer_id,
                     error = ?e,
-                    "Dropping invalid proposer slashing"
-                );
-
-                // Penalize peer slightly for invalids.
-                self.gossip_penalize_peer(
-                    peer_id,
-                    PeerAction::HighToleranceError,
-                    "invalid_gossip_proposer_slashing",
+                    "Dropping proposer slashing due to an error"
                 );
 
                 if matches!(e, BeaconChainError::ProposerSlashingValidationError(_)) {
+                    // Penalize peer slightly for invalids.
+                    self.gossip_penalize_peer(
+                        peer_id,
+                        PeerAction::HighToleranceError,
+                        "invalid_gossip_proposer_slashing",
+                    );
                     (MessageAcceptance::Reject, None)
                 } else {
+                    // This is likely a fault with the beacon chain and not necessarily a
+                    // malicious message from the peer.
                     (MessageAcceptance::Ignore, None)
                 }
             }
@@ -2288,18 +2287,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 debug!(
                     %peer_id,
                     error = ?e,
-                    "Dropping invalid attester slashing"
-                );
-                // Penalize peer slightly for invalids.
-                self.gossip_penalize_peer(
-                    peer_id,
-                    PeerAction::HighToleranceError,
-                    "invalid_gossip_attester_slashing",
+                    "Dropping attester slashing due to an error"
                 );
 
                 if matches!(e, BeaconChainError::AttesterSlashingValidationError(_)) {
+                    // Penalize peer slightly for invalids.
+                    self.gossip_penalize_peer(
+                        peer_id,
+                        PeerAction::HighToleranceError,
+                        "invalid_gossip_attester_slashing",
+                    );
                     (MessageAcceptance::Reject, None)
                 } else {
+                    // This is likely a fault with the beacon chain and not necessarily a
+                    // malicious message from the peer.
                     (MessageAcceptance::Ignore, None)
                 }
             }
