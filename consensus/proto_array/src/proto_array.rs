@@ -1545,9 +1545,13 @@ impl ProtoArray {
                 payload_status: fc_node.payload_status,
             });
         }
+        
         if fc_node.payload_status == PayloadStatus::Empty {
             return Ok(false);
         }
+        // Check that false votes have not achieved an absolute majority. This allows the payload to be
+        // considered available when either a majority have voted true or not enough votes have
+        // been cast either way.
         Ok(!proto_node.payload_data_availability::<E>(false)?)
     }
 
