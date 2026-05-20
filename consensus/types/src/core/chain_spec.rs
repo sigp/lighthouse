@@ -3719,6 +3719,30 @@ mod yaml_tests {
         let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
         let tiny_due = custom_spec.get_unaggregated_attestation_due();
         assert_eq!(tiny_due, Duration::from_millis(1)); // 12000 * 1 / 10000 = 1.2 -> 1
+
+        // Test payload due (7500 bps = 75% of 12s = 9s)
+        let spec = ChainSpec::mainnet().compute_derived_values::<MainnetEthSpec>();
+        let payload_due = spec.get_payload_due();
+        assert_eq!(payload_due, Duration::from_millis(9000)); // 12000 * 7500 / 10000
+
+        // Test payload attestation due (7500 bps = 75% of 12s = 9s)
+        let payload_att_due = spec.get_payload_attestation_due();
+        assert_eq!(payload_att_due, Duration::from_millis(9000)); // 12000 * 7500 / 10000
+
+        // Test gloas attestation due (2500 bps = 25% of 12s = 3s)
+        assert_eq!(
+            spec.unaggregated_attestation_due_gloas,
+            Duration::from_millis(3000)
+        ); // 12000 * 2500 / 10000
+
+        // Test gloas with custom bps
+        let mut custom_spec = spec;
+        custom_spec.attestation_due_bps_gloas = 5000;
+        let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
+        assert_eq!(
+            custom_spec.unaggregated_attestation_due_gloas,
+            Duration::from_millis(6000)
+        ); // 12000 * 5000 / 10000
     }
 
     #[test]
@@ -3740,6 +3764,19 @@ mod yaml_tests {
             Duration::from_millis(8000)
         );
 
+        // Mainnet payload due: 12000ms slots, 7500 bps = 9000ms
+        assert_eq!(mainnet.get_payload_due(), Duration::from_millis(9000));
+        assert_eq!(
+            mainnet.get_payload_attestation_due(),
+            Duration::from_millis(9000)
+        );
+
+        // Mainnet gloas: 12000ms slots, 2500 bps = 3000ms
+        assert_eq!(
+            mainnet.unaggregated_attestation_due_gloas,
+            Duration::from_millis(3000)
+        );
+
         // Minimal spec: 6000ms slots, 3333 bps = 1999ms, 6667 bps = 4000ms
         let minimal = ChainSpec::minimal();
         assert_eq!(
@@ -3754,6 +3791,18 @@ mod yaml_tests {
         assert_eq!(
             minimal.get_contribution_message_due(),
             Duration::from_millis(4000)
+        );
+        // Minimal payload due: 6000ms slots, 7500 bps = 4500ms
+        assert_eq!(minimal.get_payload_due(), Duration::from_millis(4500));
+        assert_eq!(
+            minimal.get_payload_attestation_due(),
+            Duration::from_millis(4500)
+        );
+
+        // Minimal gloas: 6000ms slots, 2500 bps = 1500ms
+        assert_eq!(
+            minimal.unaggregated_attestation_due_gloas,
+            Duration::from_millis(1500)
         );
 
         // Gnosis spec: 5000ms slots, 3333 bps = 1666ms, 6667 bps = 3333ms
@@ -3770,6 +3819,18 @@ mod yaml_tests {
         assert_eq!(
             gnosis.get_contribution_message_due(),
             Duration::from_millis(3333)
+        );
+        // Gnosis payload due: 5000ms slots, 7500 bps = 3750ms
+        assert_eq!(gnosis.get_payload_due(), Duration::from_millis(3750));
+        assert_eq!(
+            gnosis.get_payload_attestation_due(),
+            Duration::from_millis(3750)
+        );
+
+        // Gnosis gloas: 5000ms slots, 2500 bps = 1250ms
+        assert_eq!(
+            gnosis.unaggregated_attestation_due_gloas,
+            Duration::from_millis(1250)
         );
     }
 
