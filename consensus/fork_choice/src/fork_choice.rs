@@ -1514,6 +1514,14 @@ where
         }
     }
 
+    /// Returns whether the execution payload for a block has been received.
+    ///
+    /// Returns `false` for unknown blocks and pre-Gloas nodes.
+    pub fn is_payload_received(&self, block_root: &Hash256) -> bool {
+        self.proto_array.is_payload_received(block_root)
+            && self.is_finalized_checkpoint_or_descendant(*block_root)
+    }
+
     /// Returns whether the proposer should extend the execution payload chain of the given block.
     pub fn should_extend_payload(&self, block_root: &Hash256) -> Result<bool, Error<T::Error>> {
         let proposer_boost_root = self.fc_store.proposer_boost_root();
