@@ -1564,6 +1564,17 @@ impl ProtoArray {
         proto_node: &ProtoNode,
         proposer_boost_root: Hash256,
     ) -> Result<bool, Error> {
+        let Ok(node) = proto_node.as_v29() else {
+            return Err(Error::InvalidNodeVariant {
+                block_root: fc_node.root,
+            });
+        };
+
+        // Spec equivalent to `if not is_payload_verified(store, root): return False`
+        if !node.payload_received {
+            return Ok(false);
+        }
+
         // Per spec: `proposer_root == Root()` is one of the `or` conditions that
         // makes `should_extend_payload` return True.
         if proposer_boost_root.is_zero() {
