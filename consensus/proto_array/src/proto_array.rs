@@ -218,7 +218,9 @@ impl ProtoNode {
         } else {
             // We take into consideration only participating ptc votes. An unset bit
             // in `payload_timeliness_votes` could be an absent vote or a no vote.
-            node.ptc_participation.num_set_bits() - node.payload_timeliness_votes.num_set_bits()
+            node.ptc_participation
+                .num_set_bits()
+                .saturating_sub(node.payload_timeliness_votes.num_set_bits())
         };
         Ok(matching_votes > E::payload_timely_threshold())
     }
@@ -244,8 +246,9 @@ impl ProtoNode {
         } else {
             // We take into consideration only participating ptc votes. An unset bit
             // in `payload_data_availability_votes` could be an absent vote or a no vote.
-            node.ptc_participation.num_set_bits()
-                - node.payload_data_availability_votes.num_set_bits()
+            node.ptc_participation
+                .num_set_bits()
+                .saturating_sub(node.payload_data_availability_votes.num_set_bits())
         };
         Ok(matching_votes > E::data_availability_timely_threshold())
     }
