@@ -49,9 +49,7 @@ use crate::sync::block_lookups::{
 use crate::sync::custody_backfill_sync::CustodyBackFillSync;
 use crate::sync::network_context::{PeerGroup, RpcResponseResult};
 use beacon_chain::block_verification_types::AsBlock;
-use beacon_chain::{
-    AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
-};
+use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
 use futures::StreamExt;
 use lighthouse_network::SyncInfo;
 use lighthouse_network::rpc::RPCError;
@@ -205,11 +203,55 @@ impl BlockProcessType {
     }
 }
 
+/// The classified outcome of submitting a block / blob / column for processing. The producer
+/// (`network_beacon_processor`) translates the raw beacon-chain `Result<_, BlockError>` into this
+/// shape so the lookup state machine only has to resolve "which peer to penalize" symbolically.
 #[derive(Debug)]
 pub enum BlockProcessingResult {
-    Ok(AvailabilityProcessingStatus),
-    Err(BlockError),
-    Ignored,
+    /// Data was imported (or already present, or otherwise satisfies the lookup). `info` is a
+    /// short stable identifier suitable for debug logs / metrics.
+    Imported(&'static str),
+    /// Block processing reported an unknown parent. The lookup re-arms itself behind a parent
+    /// lookup for `parent_root` rather than retrying or penalizing.
+    ParentUnknown { parent_root: Hash256 },
+    /// Processing failed. `penalty` is `Some` when an attributable peer should be downscored.
+    Error {
+        penalty: Option<(PeerAction, WhichPeerToPenalize)>,
+        reason: &'static str,
+    },
+}
+
+/// Symbolic identifier for the peer(s) the lookup should resolve and downscore. The consumer
+/// passes in the relevant `PeerGroup` (a singleton for block processing, the in-flight data peer
+/// group for data processing) and `apply` selects from it.
+#[derive(Debug, Clone, Copy)]
+pub enum WhichPeerToPenalize {
+    /// All peers in the passed `PeerGroup` (typically a singleton constructed from the block peer
+    /// or the blob peer — i.e. the peer responsible for the component as a whole).
+    BlockPeer,
+    /// The custody peer(s) that served a specific column index in the passed `PeerGroup`.
+    CustodyPeerForColumn(u64),
+}
+
+impl WhichPeerToPenalize {
+    /// Resolve this symbolic identifier against `peer_group` and downscore the matching peer(s).
+    pub fn apply<T: BeaconChainTypes>(
+        self,
+        action: PeerAction,
+        peer_group: &PeerGroup,
+        reason: &'static str,
+        cx: &mut SyncNetworkContext<T>,
+    ) {
+        let peers: Vec<PeerId> = match self {
+            WhichPeerToPenalize::BlockPeer => peer_group.all().copied().collect(),
+            WhichPeerToPenalize::CustodyPeerForColumn(idx) => {
+                peer_group.of_index(idx as usize).copied().collect()
+            }
+        };
+        for peer in peers {
+            cx.report_peer(peer, action, reason);
+        }
+    }
 }
 
 /// The result of processing multiple blocks (a chain segment).
@@ -1452,20 +1494,5 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
             }
         }
-    }
-}
-
-impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingResult {
-    fn from(result: Result<AvailabilityProcessingStatus, BlockError>) -> Self {
-        match result {
-            Ok(status) => BlockProcessingResult::Ok(status),
-            Err(e) => BlockProcessingResult::Err(e),
-        }
-    }
-}
-
-impl From<BlockError> for BlockProcessingResult {
-    fn from(e: BlockError) -> Self {
-        BlockProcessingResult::Err(e)
     }
 }
