@@ -1,11 +1,13 @@
 mod block_root;
 mod check_deposit_data;
+mod consume_era_files;
 mod generate_bootnode_enr;
 mod http_sync;
 mod indexed_attestations;
 mod mnemonic_validators;
 mod mock_el;
 mod parse_ssz;
+mod produce_era_files;
 mod skip_slots;
 mod state_root;
 mod transition_blocks;
@@ -572,6 +574,58 @@ fn main() {
                 )
         )
         .subcommand(
+            Command::new("consume-era-files")
+                .about("Import ERA files into an empty database, producing a ready-to-use beacon node DB.")
+                .arg(
+                    Arg::new("datadir")
+                        .long("datadir")
+                        .value_name("PATH")
+                        .action(ArgAction::Set)
+                        .required(true)
+                        .help("Path to the beacon node data directory (will create chain_db, freezer_db, blobs_db inside).")
+                        .display_order(0)
+                )
+                .arg(
+                    Arg::new("era-dir")
+                        .long("era-dir")
+                        .value_name("PATH")
+                        .action(ArgAction::Set)
+                        .required(true)
+                        .help("Directory containing ERA files to import.")
+                        .display_order(0)
+                )
+                .arg(
+                    Arg::new("era-trusted-state")
+                        .long("era-trusted-state")
+                        .value_name("ERA_NUMBER:STATE_ROOT")
+                        .action(ArgAction::Set)
+                        .help("Use the given ERA as the reference state and verify its root. Only imports ERAs 0..=ERA_NUMBER. Example: '758:0xabcd...'")
+                        .display_order(0)
+                )
+        )
+        .subcommand(
+            Command::new("produce-era-files")
+                .about("Produce ERA files from a fully reconstructed beacon node database.")
+                .arg(
+                    Arg::new("datadir")
+                        .long("datadir")
+                        .value_name("PATH")
+                        .action(ArgAction::Set)
+                        .required(true)
+                        .help("Path to the beacon node data directory (containing chain_db, freezer_db, blobs_db).")
+                        .display_order(0)
+                )
+                .arg(
+                    Arg::new("output-dir")
+                        .long("output-dir")
+                        .value_name("PATH")
+                        .action(ArgAction::Set)
+                        .required(true)
+                        .help("Directory to write ERA files to. Created if it does not exist.")
+                        .display_order(0)
+                )
+        )
+        .subcommand(
             Command::new("http-sync")
                 .about("Manual sync")
                 .arg(
@@ -765,6 +819,13 @@ fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> 
         }
         Some(("mock-el", matches)) => mock_el::run::<E>(env, matches)
             .map_err(|e| format!("Failed to run mock-el command: {}", e)),
+        Some(("consume-era-files", matches)) => {
+            let network_config = get_network_config()?;
+            consume_era_files::run::<E>(env, network_config, matches)
+                .map_err(|e| format!("Failed to consume ERA files: {}", e))
+        }
+        Some(("produce-era-files", matches)) => produce_era_files::run::<E>(env, matches)
+            .map_err(|e| format!("Failed to produce ERA files: {}", e)),
         Some(("http-sync", matches)) => {
             let network_config = get_network_config()?;
             http_sync::run::<E>(env, network_config, matches)

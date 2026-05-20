@@ -44,4 +44,8 @@ impl HistoricalSummary {
             state_summary_root: state.state_roots().tree_hash_root(),
         }
     }
+
+    pub fn block_summary_root(&self) -> Hash256 {
+        self.block_summary_root
+    }
 }
