@@ -1233,11 +1233,6 @@ where
             });
         }
 
-        // PTC votes can only change the vote for their assigned beacon block, return early otherwise
-        if block.slot != indexed_payload_attestation.data.slot {
-            return Ok(());
-        }
-
         // Gossip payload attestations must be for the current slot.
         // NOTE: signature is assumed to have been verified by caller.
         // https://github.com/ethereum/consensus-specs/blob/master/specs/gloas/fork-choice.md
