@@ -7,6 +7,7 @@ use beacon_chain::data_column_verification::{GossipDataColumnError, observe_goss
 use beacon_chain::fetch_blobs::{
     EngineGetBlobsOutput, FetchEngineBlobError, fetch_and_process_engine_blobs,
 };
+use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError};
 use beacon_processor::{
     BeaconProcessorSend, DuplicateCache, GossipAggregatePackage, GossipAttestationPackage, Work,
@@ -31,6 +32,10 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tracing::{debug, error, instrument, trace, warn};
 use types::*;
+use {
+    beacon_chain::builder::Witness, beacon_processor::BeaconProcessorChannels,
+    slot_clock::ManualSlotClock, store::MemoryStore, tokio::sync::mpsc::UnboundedSender,
+};
 
 pub use sync_methods::ChainSegmentProcessId;
 use types::data::FixedBlobSidecarList;
@@ -1241,12 +1246,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 }
 
-use beacon_chain::test_utils::{BaseHarnessType, BeaconChainHarness};
-use {
-    beacon_chain::builder::Witness, beacon_processor::BeaconProcessorChannels,
-    slot_clock::ManualSlotClock, store::MemoryStore, tokio::sync::mpsc::UnboundedSender,
-};
-
 pub(crate) type TestBeaconChainType<E> =
     Witness<ManualSlotClock, E, MemoryStore<E>, MemoryStore<E>>;
 
@@ -1282,10 +1281,9 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
         (network_beacon_processor, beacon_processor_rx)
     }
 
-    // TODO: add comment
-    pub fn null_from_harness(
-        harness: &BeaconChainHarness<BaseHarnessType<E, MemoryStore<E>, MemoryStore<E>>>,
-    ) -> Self {
+    /// Constructs a mostly non-functional `NetworkBeaconProcessor` from a test harness,
+    /// suitable for directly calling gossip processing methods in tests.
+    pub fn null_from_harness(harness: &BeaconChainHarness<EphemeralHarnessType<E>>) -> Self {
         let network_globals = NetworkGlobals::new_test_globals(
             vec![],
             Arc::new(NetworkConfig::default()),

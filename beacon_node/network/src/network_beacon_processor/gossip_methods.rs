@@ -2232,7 +2232,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     PeerAction::HighToleranceError,
                     "invalid_gossip_proposer_slashing",
                 );
-                (MessageAcceptance::Ignore, None)
+
+                if matches!(e, BeaconChainError::ProposerSlashingValidationError(_)) {
+                    (MessageAcceptance::Reject, None)
+                } else {
+                    (MessageAcceptance::Ignore, None)
+                }
             }
         };
 
@@ -2291,7 +2296,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     PeerAction::HighToleranceError,
                     "invalid_gossip_attester_slashing",
                 );
-                (MessageAcceptance::Ignore, None)
+
+                if matches!(e, BeaconChainError::AttesterSlashingValidationError(_)) {
+                    (MessageAcceptance::Reject, None)
+                } else {
+                    (MessageAcceptance::Ignore, None)
+                }
             }
         };
 
@@ -2304,6 +2314,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         if let Some(slashing) = verified_slashing_opt {
             metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_VERIFIED_TOTAL);
 
+            // Register the slashing with any monitored validators.
             self.chain
                 .validator_monitor
                 .read()
