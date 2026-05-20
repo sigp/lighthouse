@@ -1233,20 +1233,6 @@ where
             });
         }
 
-        // Gossip payload attestations must be for the current slot.
-        // NOTE: signature is assumed to have been verified by caller.
-        // https://github.com/ethereum/consensus-specs/blob/master/specs/gloas/fork-choice.md
-        if matches!(is_from_block, AttestationFromBlock::False)
-            && indexed_payload_attestation.data.slot != self.fc_store.get_current_slot()
-        {
-            return Err(
-                InvalidPayloadAttestation::PayloadAttestationNotCurrentSlot {
-                    attestation_slot: indexed_payload_attestation.data.slot,
-                    current_slot: self.fc_store.get_current_slot(),
-                },
-            );
-        }
-
         Ok(())
     }
 
@@ -1359,6 +1345,19 @@ where
             })?;
         if block.slot != payload_attestation.data.slot {
             return Ok(());
+        }
+
+        // Gossip payload attestations must be for the current slot.
+        if matches!(is_from_block, AttestationFromBlock::False)
+            && payload_attestation.data.slot != self.fc_store.get_current_slot()
+        {
+            return Err(
+                InvalidPayloadAttestation::PayloadAttestationNotCurrentSlot {
+                    attestation_slot: payload_attestation.data.slot,
+                    current_slot: self.fc_store.get_current_slot(),
+                }
+                .into(),
+            );
         }
 
         // Resolve validator indices to all PTC committee positions. A validator may
