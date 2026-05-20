@@ -171,7 +171,7 @@ impl<T: BeaconChainTypes> GossipVerifiedPayloadBid<T> {
                 parent_bid.gas_limit,
                 signed_bid.message.gas_limit,
                 proposer_preferences.message.target_gas_limit,
-            )
+            )?
         {
             return Err(PayloadBidError::InvalidGasLimit);
         }
@@ -282,17 +282,24 @@ pub fn is_gas_limit_target_compatible(
     parent_gas_limit: u64,
     gas_limit: u64,
     target_gas_limit: u64,
-) -> bool {
-    let max_gas_limit_difference = (parent_gas_limit / 1024).max(1).saturating_sub(1);
-    let min_gas_limit = parent_gas_limit.saturating_sub(max_gas_limit_difference);
-    let max_gas_limit = parent_gas_limit.saturating_add(max_gas_limit_difference);
+) -> Result<bool, PayloadBidError> {
+    let max_gas_limit_difference = (parent_gas_limit / 1024)
+        .max(1)
+        .checked_sub(1)
+        .ok_or(PayloadBidError::InvalidGasLimit)?;
+    let min_gas_limit = parent_gas_limit
+        .checked_sub(max_gas_limit_difference)
+        .ok_or(PayloadBidError::InvalidGasLimit)?;
+    let max_gas_limit = parent_gas_limit
+        .checked_add(max_gas_limit_difference)
+        .ok_or(PayloadBidError::InvalidGasLimit)?;
 
     if target_gas_limit >= min_gas_limit && target_gas_limit <= max_gas_limit {
-        gas_limit == target_gas_limit
+        Ok(gas_limit == target_gas_limit)
     } else if target_gas_limit > max_gas_limit {
-        gas_limit == max_gas_limit
+        Ok(gas_limit == max_gas_limit)
     } else {
-        gas_limit == min_gas_limit
+        Ok(gas_limit == min_gas_limit)
     }
 }
 
@@ -420,56 +427,40 @@ mod tests {
 
     #[test]
     fn test_is_gas_limit_target_compatible_increase_within_limit() {
-        assert!(is_gas_limit_target_compatible(
-            60_000_000, 60_000_100, 60_000_100
-        ));
+        assert!(is_gas_limit_target_compatible(60_000_000, 60_000_100, 60_000_100).unwrap());
     }
 
     #[test]
     fn test_is_gas_limit_target_compatible_increase_exceeding_limit() {
         // max_diff = 60_000_000 / 1024 - 1 = 58_592
         // max_gas_limit = 60_000_000 + 58_592 = 60_058_592
-        assert!(is_gas_limit_target_compatible(
-            60_000_000,
-            60_058_592,
-            100_000_000
-        ));
+        assert!(is_gas_limit_target_compatible(60_000_000, 60_058_592, 100_000_000).unwrap());
     }
 
     #[test]
     fn test_is_gas_limit_target_compatible_increase_exceeding_off_by_one() {
-        assert!(!is_gas_limit_target_compatible(
-            60_000_000,
-            60_058_593,
-            100_000_000
-        ));
+        assert!(!is_gas_limit_target_compatible(60_000_000, 60_058_593, 100_000_000).unwrap());
     }
 
     #[test]
     fn test_is_gas_limit_target_compatible_decrease_within_limit() {
-        assert!(is_gas_limit_target_compatible(
-            60_000_000, 59_999_990, 59_999_990
-        ));
+        assert!(is_gas_limit_target_compatible(60_000_000, 59_999_990, 59_999_990).unwrap());
     }
 
     #[test]
     fn test_is_gas_limit_target_compatible_decrease_exceeding_limit() {
         // min_gas_limit = 60_000_000 - 58_592 = 59_941_408
-        assert!(is_gas_limit_target_compatible(
-            60_000_000, 59_941_408, 30_000_000
-        ));
+        assert!(is_gas_limit_target_compatible(60_000_000, 59_941_408, 30_000_000).unwrap());
     }
 
     #[test]
     fn test_is_gas_limit_target_compatible_target_equals_parent() {
-        assert!(is_gas_limit_target_compatible(
-            60_000_000, 60_000_000, 60_000_000
-        ));
+        assert!(is_gas_limit_target_compatible(60_000_000, 60_000_000, 60_000_000).unwrap());
     }
 
     #[test]
     fn test_is_gas_limit_target_compatible_parent_underflows() {
         // parent=1023: max(1023/1024, 1) - 1 = max(0, 1) - 1 = 0, no change allowed
-        assert!(is_gas_limit_target_compatible(1023, 1023, 60_000_000));
+        assert!(is_gas_limit_target_compatible(1023, 1023, 60_000_000).unwrap());
     }
 }
