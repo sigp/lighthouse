@@ -6339,6 +6339,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .contains_block(root)
     }
 
+    pub fn envelope_is_known_to_fork_choice(&self, root: &Hash256) -> bool {
+        self.canonical_head
+            .fork_choice_read_lock()
+            .is_payload_received(root)
+    }
+
     /// Determines the beacon proposer for the next slot. If that proposer is registered in the
     /// `execution_layer`, provide the `execution_layer` with the necessary information to produce
     /// `PayloadAttributes` for future calls to fork choice.

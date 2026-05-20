@@ -426,6 +426,34 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         });
     }
 
+    /// Attempt to verify and import an execution payload envelope received via RPC.
+    // TODO(gloas): plumb into envelope verification / import once the chain APIs land.
+    #[allow(dead_code)]
+    #[instrument(
+        name = "lh_process_lookup_envelope",
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(?block_root),
+    )]
+    pub async fn process_lookup_envelope(
+        self: Arc<NetworkBeaconProcessor<T>>,
+        block_root: Hash256,
+        _envelope: Arc<types::SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        _seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) {
+        debug!(
+            ?block_root,
+            ?process_type,
+            "Processing RPC payload envelope (stub)"
+        );
+        self.send_sync_message(SyncMessage::BlockComponentProcessed {
+            process_type,
+            result: crate::sync::manager::BlockProcessingResult::Ignored,
+        });
+    }
+
     pub fn process_historic_data_columns(
         &self,
         batch_id: CustodyBackfillBatchId,
