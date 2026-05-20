@@ -427,7 +427,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Attempt to verify and import an execution payload envelope received via RPC.
-    #[allow(dead_code)]
     #[instrument(
         name = "lh_process_lookup_envelope",
         parent = None,
