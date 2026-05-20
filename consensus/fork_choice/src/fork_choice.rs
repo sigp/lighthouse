@@ -1347,6 +1347,7 @@ where
         // TODO(gloas): Should ignore wrong-slot payload attestations at the caller, they could
         // have been processed at the correct slot when received on gossip, but then have the
         // wrong-slot by the time they make it to here (TOCTOU).
+        // TODO(gloas): Consider inlining validate_on_payload_attestation here to look more like the spec.
         self.validate_on_payload_attestation(payload_attestation, is_from_block)?;
 
         // PTC votes can only change the vote for their assigned beacon block, return early otherwise.
