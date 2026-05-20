@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use lighthouse_network::rpc::methods::PayloadEnvelopesByRootRequest;
 use std::sync::Arc;
 use types::{EthSpec, ForkContext, Hash256, SignedExecutionPayloadEnvelope};

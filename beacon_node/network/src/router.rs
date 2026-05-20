@@ -840,10 +840,6 @@ impl<T: BeaconChainTypes> Router<T> {
             }
         };
 
-        trace!(
-            %peer_id,
-            "Received PayloadEnvelopesByRoot Response"
-        );
         self.send_to_sync(SyncMessage::RpcPayloadEnvelope {
             sync_request_id,
             peer_id,

@@ -16,7 +16,6 @@ pub use data_columns_by_range::DataColumnsByRangeRequestItems;
 pub use data_columns_by_root::{
     DataColumnsByRootRequestItems, DataColumnsByRootSingleBlockRequest,
 };
-#[allow(unused_imports)]
 pub use payload_envelopes_by_root::{
     PayloadEnvelopesByRootRequestItems, PayloadEnvelopesByRootSingleRequest,
 };

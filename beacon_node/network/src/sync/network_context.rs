@@ -1573,7 +1573,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.on_rpc_response_result(resp, peer_id)
     }
 
-    #[allow(dead_code)]
     pub(crate) fn on_single_payload_envelope_response(
         &mut self,
         id: SingleLookupReqId,

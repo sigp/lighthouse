@@ -1283,13 +1283,20 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    // TODO(gloas): wire into block_lookups once the envelope lookup state machine lands.
     fn on_single_payload_envelope_response(
         &mut self,
-        _id: SingleLookupReqId,
-        _peer_id: PeerId,
-        _envelope: RpcEvent<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+        id: SingleLookupReqId,
+        peer_id: PeerId,
+        envelope: RpcEvent<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
     ) {
+        if let Some(_resp) = self
+            .network
+            .on_single_payload_envelope_response(id, peer_id, envelope)
+        {
+            // TODO(gloas): dispatch into
+            // `block_lookups.on_download_response::<PayloadEnvelopeRequestState<_>>(...)` once
+            // the envelope lookup state machine lands.
+        }
     }
 
     fn on_single_blob_response(

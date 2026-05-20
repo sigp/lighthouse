@@ -427,7 +427,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Attempt to verify and import an execution payload envelope received via RPC.
-    // TODO(gloas): plumb into envelope verification / import once the chain APIs land.
     #[allow(dead_code)]
     #[instrument(
         name = "lh_process_lookup_envelope",
@@ -439,18 +438,49 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn process_lookup_envelope(
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
-        _envelope: Arc<types::SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        envelope: Arc<types::SignedExecutionPayloadEnvelope<T::EthSpec>>,
         _seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) {
         debug!(
             ?block_root,
+            slot = %envelope.slot(),
             ?process_type,
-            "Processing RPC payload envelope (stub)"
+            "Processing RPC payload envelope"
         );
+
+        // Gossip verification runs the same signature / slot / builder-index / block-hash checks
+        // independently of gossip propagation, so we can reuse it for RPC-fetched envelopes.
+        #[allow(clippy::result_large_err)]
+        let result = match self
+            .chain
+            .clone()
+            .verify_envelope_for_gossip(envelope.clone())
+            .await
+        {
+            Ok(verified) => {
+                self.chain
+                    .process_execution_payload_envelope(
+                        block_root,
+                        verified,
+                        NotifyExecutionLayer::Yes,
+                        BlockImportSource::Lookup,
+                        || Ok(()),
+                    )
+                    .await
+            }
+            Err(e) => Err(e),
+        };
+
+        // TODO(gloas): structured penalty classification arrives with the envelope lookup state
+        // machine; for now, fold the EnvelopeError into BlockError::InternalError so it flows
+        // through the existing `BlockProcessingResult::Err` path.
+        let result: Result<AvailabilityProcessingStatus, BlockError> =
+            result.map_err(|e| BlockError::InternalError(format!("envelope: {e}")));
+
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type,
-            result: crate::sync::manager::BlockProcessingResult::Ignored,
+            result: result.into(),
         });
     }
 
