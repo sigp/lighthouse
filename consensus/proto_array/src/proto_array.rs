@@ -201,14 +201,16 @@ impl ProtoNode {
     /// Returns whether the execution payload for the node is considered `timely`
     /// (or not `timely` when `timely` is `false`), taking into consideration local
     /// availability and PTC votes.
-    pub fn payload_timeliness<E: EthSpec>(&self, timely: bool) -> bool {
+    pub fn payload_timeliness<E: EthSpec>(&self, timely: bool) -> Result<bool, Error> {
         let Ok(node) = self.as_v29() else {
-            return false;
+            return Err(Error::InvalidNodeVariant {
+                block_root: self.root(),
+            });
         };
 
         // Equivalent to `if not is_payload_verified(store, root)` in the spec.
         if !node.payload_received {
-            return !timely;
+            return Ok(!timely);
         }
 
         let matching_votes = if timely {
@@ -218,21 +220,23 @@ impl ProtoNode {
             // in `payload_timeliness_votes` could be an absent vote or a no vote.
             node.ptc_participation.num_set_bits() - node.payload_timeliness_votes.num_set_bits()
         };
-        matching_votes > E::payload_timely_threshold()
+        Ok(matching_votes > E::payload_timely_threshold())
     }
 
     /// Checks if `available` matches our view of payload data availability.
     /// Return whether the blob data for the node is considered `available`
     /// (or not, when `available` is `False`), taking into consideration local
     /// availability and PTC votes.
-    pub fn payload_data_availability<E: EthSpec>(&self, available: bool) -> bool {
+    pub fn payload_data_availability<E: EthSpec>(&self, available: bool) -> Result<bool, Error> {
         let Ok(node) = self.as_v29() else {
-            return false;
+            return Err(Error::InvalidNodeVariant {
+                block_root: self.root(),
+            });
         };
 
         // Equivalent to `if not is_payload_verified(store, root)` in the spec.
         if !node.payload_received {
-            return !available;
+            return Ok(!available);
         }
 
         let matching_votes = if available {
@@ -243,7 +247,7 @@ impl ProtoNode {
             node.ptc_participation.num_set_bits()
                 - node.payload_data_availability_votes.num_set_bits()
         };
-        matching_votes > E::data_availability_timely_threshold()
+        Ok(matching_votes > E::data_availability_timely_threshold())
     }
 }
 
@@ -1544,7 +1548,7 @@ impl ProtoArray {
         if fc_node.payload_status == PayloadStatus::Empty {
             return Ok(false);
         }
-        Ok(!proto_node.payload_data_availability::<E>(false))
+        Ok(!proto_node.payload_data_availability::<E>(false)?)
     }
 
     pub fn should_extend_payload<E: EthSpec>(
@@ -1577,8 +1581,8 @@ impl ProtoArray {
             .ok_or(Error::InvalidNodeIndex(parent_index))?
             .root();
 
-        Ok((proto_node.payload_timeliness::<E>(true)
-            && proto_node.payload_data_availability::<E>(true))
+        Ok((proto_node.payload_timeliness::<E>(true)?
+            && proto_node.payload_data_availability::<E>(true)?)
             || proposer_boost_parent_root != fc_node.root
             || proposer_boost_node.is_parent_node_full())
     }
