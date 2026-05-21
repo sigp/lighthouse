@@ -6,7 +6,7 @@ use std::{
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::{
-    NetworkGlobals, PeerAction, PeerId,
+    NetworkGlobals, PeerId,
     service::api_types::{CustodyBackFillBatchRequestId, CustodyBackfillBatchId},
     types::CustodyBackFillState,
 };
@@ -607,12 +607,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                         debug!(
                             ?error,
                             ?faulty_peer,
-                            "Custody backfill sync penalizing peer"
-                        );
-                        network.report_peer(
-                            faulty_peer,
-                            PeerAction::MidToleranceError,
-                            "Peer failed to serve columns",
+                            "Custody backfill sync: peer failed to serve columns (not penalizing)"
                         );
                     }
                 }
