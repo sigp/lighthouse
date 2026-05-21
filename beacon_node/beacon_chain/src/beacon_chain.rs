@@ -4929,7 +4929,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let cached_shuffling = CachedShuffling::new(committee_cache.clone(), ptcs);
                 self.shuffling_cache
                     .write()
-                    .insert_committee_cache(shuffling_id, cached_shuffling)?;
+                    .insert_committee_cache(shuffling_id, cached_shuffling);
             }
         }
         Ok(())

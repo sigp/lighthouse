@@ -209,18 +209,16 @@ impl<E: EthSpec> ShufflingCache<E> {
         &mut self,
         key: AttestationShufflingId,
         cached_shuffling: CachedShuffling<E>,
-    ) -> Result<(), BeaconChainError> {
+    ) {
         match self.cache.get(&key) {
             Some(CacheItem::Committee(_)) => {
                 // Calculation is deterministic, so no need to replace the existing entry.
             }
-            // Replace the committee if it's not present or if it's a promise. A bird in the hand is
-            // worth two in the promise-bush!
+            // A bird in the hand is worth two in the promise-bush!
             Some(CacheItem::Promise(_)) | None => {
                 self.insert_cache_item(key, CacheItem::Committee(cached_shuffling));
             }
         }
-        Ok(())
     }
 
     /// Prunes the cache first before inserting a new cache item.
@@ -444,7 +442,7 @@ where
 
         shuffling_cache_lock
             .write()
-            .insert_committee_cache(shuffling_id, cached_shuffling.clone())?;
+            .insert_committee_cache(shuffling_id, cached_shuffling.clone());
 
         metrics::stop_timer(committee_building_timer);
 
@@ -714,9 +712,7 @@ mod test {
         let mut cache = new_shuffling_cache();
         let id_a = shuffling_id(1);
         let committee_cache_a = Arc::new(CommitteeCache::default());
-        cache
-            .insert_committee_cache(id_a.clone(), cached_shuffling(committee_cache_a.clone()))
-            .unwrap();
+        cache.insert_committee_cache(id_a.clone(), cached_shuffling(committee_cache_a.clone()));
         assert!(
             matches!(cache.get(&id_a).unwrap(), CacheItem::Committee(cached_shuffling) if cached_shuffling.committee_cache == committee_cache_a),
             "should insert committee cache"
@@ -731,12 +727,10 @@ mod test {
             .collect::<Vec<_>>();
 
         for (shuffling_id, committee_cache) in shuffling_id_and_committee_caches.iter() {
-            cache
-                .insert_committee_cache(
-                    shuffling_id.clone(),
-                    cached_shuffling(committee_cache.clone()),
-                )
-                .unwrap();
+            cache.insert_committee_cache(
+                shuffling_id.clone(),
+                cached_shuffling(committee_cache.clone()),
+            );
         }
 
         for i in 1..(TEST_CACHE_SIZE + 1) {
@@ -769,9 +763,7 @@ mod test {
                 shuffling_epoch: (current_epoch + 1).into(),
                 shuffling_decision_block: Hash256::from_low_u64_be(current_epoch + i as u64),
             };
-            cache
-                .insert_committee_cache(shuffling_id, cached_shuffling(committee_cache.clone()))
-                .unwrap();
+            cache.insert_committee_cache(shuffling_id, cached_shuffling(committee_cache.clone()));
         }
 
         // Now, update the head shuffling ids
@@ -784,24 +776,18 @@ mod test {
         cache.update_head_shuffling_ids(head_shuffling_ids.clone());
 
         // Insert head state shuffling ids. Should not be overridden by other shuffling ids.
-        cache
-            .insert_committee_cache(
-                head_shuffling_ids.current.clone(),
-                cached_shuffling(committee_cache.clone()),
-            )
-            .unwrap();
-        cache
-            .insert_committee_cache(
-                head_shuffling_ids.next.clone(),
-                cached_shuffling(committee_cache.clone()),
-            )
-            .unwrap();
-        cache
-            .insert_committee_cache(
-                head_shuffling_ids.previous.clone().unwrap(),
-                cached_shuffling(committee_cache.clone()),
-            )
-            .unwrap();
+        cache.insert_committee_cache(
+            head_shuffling_ids.current.clone(),
+            cached_shuffling(committee_cache.clone()),
+        );
+        cache.insert_committee_cache(
+            head_shuffling_ids.next.clone(),
+            cached_shuffling(committee_cache.clone()),
+        );
+        cache.insert_committee_cache(
+            head_shuffling_ids.previous.clone().unwrap(),
+            cached_shuffling(committee_cache.clone()),
+        );
 
         // Insert a few entries for older epochs.
         for i in 0..TEST_CACHE_SIZE {
@@ -809,9 +795,7 @@ mod test {
                 shuffling_epoch: Epoch::from(i),
                 shuffling_decision_block: Hash256::from_low_u64_be(i as u64),
             };
-            cache
-                .insert_committee_cache(shuffling_id, cached_shuffling(committee_cache.clone()))
-                .unwrap();
+            cache.insert_committee_cache(shuffling_id, cached_shuffling(committee_cache.clone()));
         }
 
         assert!(
