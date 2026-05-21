@@ -40,27 +40,25 @@ use tracing::{debug, debug_span};
 use types::{BeaconState, Checkpoint, Epoch, EthSpec, Hash256, RelativeEpoch, Slot};
 
 #[derive(Debug, strum::IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum Error {
-    #[strum(serialize = "node_not_found")]
     NodeNotFound(Hash256),
-    #[strum(serialize = "ancestor_lookup")]
-    AncestorNotFound { block: Hash256, slot: Slot },
-    #[strum(serialize = "checkpoint_lookup")]
+    AncestorNotFound {
+        block: Hash256,
+        slot: Slot,
+    },
     UnrealizedJustificationNotFound(Hash256),
-    #[strum(serialize = "checkpoint_lookup")]
-    CheckpointBlockNotFound { block: Hash256, epoch: types::Epoch },
-    #[strum(serialize = "missing_score")]
+    CheckpointBlockNotFound {
+        block: Hash256,
+        epoch: types::Epoch,
+    },
     MissingPrecomputedScore(Hash256),
-    #[strum(serialize = "block_epoch_none")]
     BlockEpochNone(Hash256),
-    #[strum(serialize = "committee_cache")]
     CommitteeCache(String),
-    #[strum(serialize = "unset_slot")]
     UnsetSlotAssignment(usize),
     /// The state's epoch window does not cover `current_slot`'s epoch.
     /// This means the state is too stale to provide committee assignments for the
     /// slots FCR needs to query.
-    #[strum(serialize = "stale_state")]
     StaleStateForAssignments {
         current_slot_epoch: Epoch,
         state_epoch: Epoch,
