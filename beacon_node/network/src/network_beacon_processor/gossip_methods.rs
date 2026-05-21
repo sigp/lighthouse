@@ -64,8 +64,8 @@ use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
 use beacon_processor::{
     DuplicateCache, GossipAggregatePackage, GossipAttestationBatch,
     work_reprocessing_queue::{
-        QueuedAggregate, QueuedGossipBlock, QueuedGossipEnvelope, QueuedLightClientUpdate,
-        QueuedUnaggregate, ReprocessQueueMessage,
+        QueuedAggregate, QueuedGossipBlock, QueuedGossipDataColumn, QueuedGossipEnvelope,
+        QueuedLightClientUpdate, QueuedUnaggregate, ReprocessQueueMessage,
     },
 };
 
@@ -728,19 +728,46 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         ..
                     } => {
                         debug!(
-                            action = "ignoring",
+                            action = "queuing for reprocessing",
                             %unknown_block_root,
                             "Unknown block root for column"
                         );
-                        // TODO(gloas): wire this into proper lookup sync. Sending
-                        // `UnknownBlockHashFromAttestation` here is a Fulu-shaped fallback that
-                        // mixes column processing with the attestation lookup path and is not
-                        // the right primitive for Gloas column lookups.
                         self.propagate_validation_result(
-                            message_id,
+                            message_id.clone(),
                             peer_id,
                             MessageAcceptance::Ignore,
                         );
+
+                        // Queue the column for reprocessing when the block arrives.
+                        let processor = self.clone();
+                        let reprocess_msg = ReprocessQueueMessage::UnknownBlockDataColumn(
+                            QueuedGossipDataColumn {
+                                beacon_block_root: unknown_block_root,
+                                process_fn: Box::new(move || {
+                                    // Re-dispatch through the normal gossip column processing path.
+                                    let _ = processor.send_gossip_data_column_sidecar(
+                                        message_id,
+                                        peer_id,
+                                        subnet_id,
+                                        column_sidecar,
+                                        seen_duration,
+                                    );
+                                }),
+                            },
+                        );
+                        if self
+                            .beacon_processor_send
+                            .try_send(WorkEvent {
+                                drop_during_sync: false,
+                                work: Work::Reprocess(reprocess_msg),
+                            })
+                            .is_err()
+                        {
+                            debug!(
+                                %unknown_block_root,
+                                "Failed to queue data column for reprocessing"
+                            );
+                        }
                     }
                     GossipDataColumnError::InvalidVariant
                     | GossipDataColumnError::PubkeyCacheTimeout

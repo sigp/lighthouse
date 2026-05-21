@@ -123,6 +123,8 @@ pub enum ReprocessQueueMessage {
     UnknownLightClientOptimisticUpdate(QueuedLightClientUpdate),
     /// A new backfill batch that needs to be scheduled for processing.
     BackfillSync(QueuedBackfillBatch),
+    /// A gossip data column that references an unknown block.
+    UnknownBlockDataColumn(QueuedGossipDataColumn),
     /// A delayed column reconstruction that needs checking
     DelayColumnReconstruction(QueuedColumnReconstruction),
 }
@@ -138,6 +140,7 @@ pub enum ReadyWork {
     LightClientUpdate(QueuedLightClientUpdate),
     BackfillSync(QueuedBackfillBatch),
     ColumnReconstruction(QueuedColumnReconstruction),
+    DataColumn(QueuedGossipDataColumn),
 }
 
 /// An Attestation for which the corresponding block was not seen while processing, queued for
@@ -198,6 +201,12 @@ pub struct QueuedColumnReconstruction {
     pub block_root: Hash256,
     pub slot: Slot,
     pub process_fn: AsyncFn,
+}
+
+/// A gossip data column that references an unknown block, queued for later reprocessing.
+pub struct QueuedGossipDataColumn {
+    pub beacon_block_root: Hash256,
+    pub process_fn: BlockingFn,
 }
 
 impl<E: EthSpec> TryFrom<WorkEvent<E>> for QueuedBackfillBatch {
@@ -284,10 +293,15 @@ struct ReprocessQueue<S> {
     queued_column_reconstructions: HashMap<Hash256, Option<DelayKey>>,
     /// Queued backfill batches
     queued_backfill_batches: Vec<QueuedBackfillBatch>,
+    /// Queued gossip data columns awaiting their block.
+    queued_gossip_data_columns: FnvHashMap<usize, (QueuedGossipDataColumn, DelayKey)>,
+    /// Data columns per block root.
+    awaiting_data_columns_per_root: HashMap<Hash256, Vec<usize>>,
 
     /* Aux */
     /// Next attestation id, used for both aggregated and unaggregated attestations
     next_attestation: usize,
+    next_data_column: usize,
     next_lc_update: usize,
     early_block_debounce: TimeLatch,
     envelope_delay_debounce: TimeLatch,
@@ -464,7 +478,10 @@ impl<S: SlotClock> ReprocessQueue<S> {
             awaiting_lc_updates_per_parent_root: HashMap::new(),
             queued_backfill_batches: Vec::new(),
             queued_column_reconstructions: HashMap::new(),
+            queued_gossip_data_columns: FnvHashMap::default(),
+            awaiting_data_columns_per_root: HashMap::new(),
             next_attestation: 0,
+            next_data_column: 0,
             next_lc_update: 0,
             early_block_debounce: TimeLatch::default(),
             envelope_delay_debounce: TimeLatch::default(),
@@ -688,6 +705,30 @@ impl<S: SlotClock> ReprocessQueue<S> {
 
                 self.next_attestation += 1;
             }
+            InboundEvent::Msg(UnknownBlockDataColumn(queued_data_column)) => {
+                if self.queued_gossip_data_columns.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
+                    return;
+                }
+
+                let col_id = self.next_data_column;
+
+                // Register the delay (reuse attestation delay queue with offset IDs).
+                let delay_key = self
+                    .attestations_delay_queue
+                    .insert(QueuedAttestationId::Unaggregate(col_id.wrapping_add(10_000_000)), QUEUED_ATTESTATION_DELAY);
+
+                // Register this column for the corresponding block root.
+                self.awaiting_data_columns_per_root
+                    .entry(queued_data_column.beacon_block_root)
+                    .or_default()
+                    .push(col_id);
+
+                // Store the column and its info.
+                self.queued_gossip_data_columns
+                    .insert(col_id, (queued_data_column, delay_key));
+
+                self.next_data_column += 1;
+            }
             InboundEvent::Msg(UnknownLightClientOptimisticUpdate(
                 queued_light_client_optimistic_update,
             )) => {
@@ -798,6 +839,29 @@ impl<S: SlotClock> ReprocessQueue<S> {
                             sent_count,
                             "Ignored scheduled attestation(s) for block"
                         );
+                    }
+                }
+
+                // Unqueue the data columns we have for this root, if any.
+                if let Some(queued_ids) =
+                    self.awaiting_data_columns_per_root.remove(&block_root)
+                {
+                    for col_id in queued_ids {
+                        if let Some((data_column, delay_key)) =
+                            self.queued_gossip_data_columns.remove(&col_id)
+                        {
+                            self.attestations_delay_queue.remove(&delay_key);
+                            if self
+                                .ready_work_tx
+                                .try_send(ReadyWork::DataColumn(data_column))
+                                .is_err()
+                            {
+                                error!(
+                                    ?block_root,
+                                    "Failed to send data column for reprocessing"
+                                );
+                            }
+                        }
                     }
                 }
             }
