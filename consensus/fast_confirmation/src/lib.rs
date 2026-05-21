@@ -117,6 +117,11 @@ pub struct FastConfirmationRule {
     /// start; this implementation reads from the head state directly and skips
     /// `process_slots`, accepting that validator activations/exits/slashings due
     /// to be realized at an unprocessed epoch boundary are missing.
+    ///
+    /// `checkpoint.root` is repurposed here to carry the **dependent root** of
+    /// the cached epoch (the block at the previous epoch's last slot), used as
+    /// the chain-identity component of the cache key — *not* a justified-block
+    /// root like the anchored snapshots' `checkpoint.root`.
     head_balance_source: BalanceSourceData,
 
     // === Internal bookkeeping ===
@@ -187,9 +192,25 @@ impl FastConfirmationRule {
         current_slot: Slot,
     ) -> Result<(), Error> {
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
+        // `checkpoint.root` holds the dependent root: the block at the last
+        // slot of the previous epoch (slot 0 / genesis for epoch 0). Two
+        // chains share the same validator-set view at `current_epoch` iff
+        // they share this root, so it's the right chain-identity cache key.
+        let checkpoint = Checkpoint {
+            epoch: current_epoch,
+            root: *state
+                .get_block_root(
+                    current_epoch
+                        .start_slot(E::slots_per_epoch())
+                        .saturating_sub(1u64),
+                )
+                .map_err(|e| Error::CommitteeCache(format!("dep_root lookup: {e:?}")))?,
+        };
 
-        // Skip rebuild if balance source is already for this epoch.
-        if self.head_balance_source.checkpoint.epoch == current_epoch
+        // Cache hit only when same epoch AND same dependent chain. A re-org
+        // that pivots before the previous-epoch boundary changes `dep_root`,
+        // forcing a rebuild against the new fork's validator set.
+        if self.head_balance_source.checkpoint == checkpoint
             && !self.head_balance_source.effective_balances.is_empty()
         {
             return Ok(());
@@ -199,10 +220,6 @@ impl FastConfirmationRule {
             RelativeEpoch::Next
         } else {
             RelativeEpoch::Current
-        };
-        let checkpoint = Checkpoint {
-            epoch: current_epoch,
-            root: Hash256::ZERO,
         };
 
         self.head_balance_source =
