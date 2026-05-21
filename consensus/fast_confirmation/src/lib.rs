@@ -72,15 +72,6 @@ const COMMITTEE_WEIGHT_ESTIMATION_ADJUSTMENT_FACTOR: u64 = 5;
 // Data types
 // ---------------------------------------------------------------------------
 
-/// Format for `set_head_slot_assignments` input.
-#[derive(Debug, Clone, Copy)]
-pub enum AssignmentFormat {
-    /// Production format: `validator_count * 3` slots (one per epoch offset).
-    ThreeColumn,
-    /// Benchmark format: `validator_count * 2` slots (auto-expanded to 3-column).
-    TwoColumn,
-}
-
 /// Per-validator committee slot assignments across a 3-epoch window.
 ///
 /// Each active validator is assigned to exactly one committee slot per epoch.
@@ -119,7 +110,7 @@ const NUM_EPOCH_COLUMNS: usize = 3;
 
 /// Sentinel value for unset slot assignments. Using `u64::MAX` instead of `Slot(0)`
 /// avoids ambiguity with genesis slot 0 and allows hard error detection on read.
-const UNSET_SLOT: Slot = Slot::new(u64::MAX);
+pub const UNSET_SLOT: Slot = Slot::new(u64::MAX);
 
 impl SlotAssignments {
     /// Create an empty assignment table.
@@ -159,24 +150,11 @@ impl SlotAssignments {
 
     /// Set assignments from external data (for benchmarks).
     ///
-    /// - `ThreeColumn`: `assignments.len() == validator_count * 3` (direct use)
-    /// - `TwoColumn`: `assignments.len() == validator_count * 2` (auto-expanded,
-    ///   fills columns 1 and 2, leaving column 0 as `Slot(0)`)
-    fn set_from(&mut self, assignments: Vec<Slot>, format: AssignmentFormat) {
-        match format {
-            AssignmentFormat::ThreeColumn => {
-                self.slots = assignments;
-            }
-            AssignmentFormat::TwoColumn => {
-                let validator_count = assignments.len() / 2;
-                let mut expanded = vec![UNSET_SLOT; validator_count * NUM_EPOCH_COLUMNS];
-                for val_idx in 0..validator_count {
-                    expanded[val_idx * NUM_EPOCH_COLUMNS + 1] = assignments[val_idx * 2];
-                    expanded[val_idx * NUM_EPOCH_COLUMNS + 2] = assignments[val_idx * 2 + 1];
-                }
-                self.slots = expanded;
-            }
-        }
+    /// `assignments` must be in the canonical 3-column layout:
+    /// `assignments.len() == validator_count * 3`. Use `UNSET_SLOT` to mark
+    /// columns that should be treated as having no assignment.
+    fn set_from(&mut self, assignments: Vec<Slot>) {
+        self.slots = assignments;
     }
 
     /// Rebuild assignments from a beacon state for the given slot.
@@ -466,8 +444,11 @@ impl FastConfirmationRule {
     }
 
     /// Directly set committee slot assignments (for benchmarks that lack a real BeaconState).
-    pub fn set_head_slot_assignments(&mut self, assignments: Vec<Slot>, format: AssignmentFormat) {
-        self.head_assignments.set_from(assignments, format);
+    ///
+    /// `assignments` must be in the canonical 3-column layout
+    /// (`validator_count * 3`). Use `UNSET_SLOT` for columns with no assignment.
+    pub fn set_head_slot_assignments(&mut self, assignments: Vec<Slot>) {
+        self.head_assignments.set_from(assignments);
     }
 
     fn rebuild_head_balance_source<E: EthSpec>(

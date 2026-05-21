@@ -150,13 +150,17 @@ fn build_chain(num_validators: usize) -> BenchData {
     fcr.previous_epoch_observed_justified_checkpoint = justified_checkpoint;
 
     // Synthetic committee slot assignments: spread validators across the epoch.
+    // Canonical 3-column layout: column 0 (previous epoch) is left UNSET because
+    // the bench scenario runs entirely within epoch 0; columns 1 and 2 (current
+    // and next) hold the validator's slot.
     let spe = E::slots_per_epoch() as usize;
-    let mut assignments = vec![Slot::new(0); num_validators * 2];
+    let mut assignments = vec![fast_confirmation::UNSET_SLOT; num_validators * 3];
     for val_idx in 0..num_validators {
-        assignments[val_idx * 2] = Slot::new((val_idx % spe) as u64);
-        assignments[val_idx * 2 + 1] = Slot::new((val_idx % spe) as u64);
+        let slot = Slot::new((val_idx % spe) as u64);
+        assignments[val_idx * 3 + 1] = slot;
+        assignments[val_idx * 3 + 2] = slot;
     }
-    fcr.set_head_slot_assignments(assignments, fast_confirmation::AssignmentFormat::TwoColumn);
+    fcr.set_head_slot_assignments(assignments);
 
     BenchData {
         proto_array,
