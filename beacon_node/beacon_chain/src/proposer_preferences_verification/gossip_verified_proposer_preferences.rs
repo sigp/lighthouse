@@ -91,7 +91,7 @@ impl GossipVerifiedProposerPreferences {
         }
         drop(fork_choice);
 
-        if !head_state.is_valid_proposal_slot(&signed_preferences.message)? {
+        if !head_state.is_valid_proposal_slot(&signed_preferences.message, ctx.spec)? {
             return Err(ProposerPreferencesError::InvalidProposalSlot {
                 validator_index,
                 proposal_slot,
