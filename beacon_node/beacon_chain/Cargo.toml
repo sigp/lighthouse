@@ -91,10 +91,6 @@ types = { workspace = true, features = ["arbitrary"] }
 name = "benches"
 harness = false
 
-[[bench]]
-name = "fcr_bench"
-harness = false
-
 [[test]]
 name = "beacon_chain_tests"
 path = "tests/main.rs"

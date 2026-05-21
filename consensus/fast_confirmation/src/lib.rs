@@ -95,8 +95,10 @@ pub struct FastConfirmationRule {
     pub previous_slot_head: Hash256,
     pub current_slot_head: Hash256,
 
-    // === Balance source snapshots ===
+    // === Balance source snapshots (paired with the observed-justified checkpoints) ===
+    /// Snapshot at `previous_epoch_observed_justified_checkpoint`; used to re-confirm.
     pub previous_balance_source: BalanceSourceData,
+    /// Snapshot at `current_epoch_observed_justified_checkpoint`; used to advance.
     pub current_balance_source: BalanceSourceData,
 
     // === Config ===
@@ -171,6 +173,7 @@ impl FastConfirmationRule {
     ///
     /// `assignments` must be in the canonical 3-column layout
     /// (`validator_count * 3`). Use `UNSET_SLOT` for columns with no assignment.
+    #[cfg(feature = "bench-helpers")]
     pub fn set_head_slot_assignments(&mut self, assignments: Vec<Slot>) {
         self.head_assignments.set_from(assignments);
     }

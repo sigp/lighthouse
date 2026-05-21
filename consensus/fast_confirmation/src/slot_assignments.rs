@@ -89,6 +89,7 @@ impl SlotAssignments {
     /// `assignments` must be in the canonical 3-column layout:
     /// `assignments.len() == validator_count * 3`. Use `UNSET_SLOT` to mark
     /// columns that should be treated as having no assignment.
+    #[cfg(feature = "bench-helpers")]
     pub(crate) fn set_from(&mut self, assignments: Vec<Slot>) {
         self.slots = assignments;
     }
