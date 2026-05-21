@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tracing::{debug, error};
 use types::core::{EthSpec, Hash256};
 use types::data::{
-    CellBitmap, PartialDataColumn, PartialDataColumnHeader, PartialDataColumnPartsMetadata,
+    PartialDataColumn, PartialDataColumnHeader, PartialDataColumnPartsMetadata,
     PartialDataColumnSidecar, PartialDataColumnSidecarRef,
 };
 
@@ -32,12 +32,8 @@ impl<E: EthSpec> OutgoingPartialColumn<E> {
         header_sent_set: HeaderSentSet,
     ) -> Self {
         // For now, always request all cells
-        let mut requests = partial_column.sidecar.cells_present_bitmap.clone();
-        for idx in 0..requests.len() {
-            requests
-                .set(idx, true)
-                .expect("Bound asserted via `len` above");
-        }
+        let mut requests = partial_column.sidecar.cells_present_bitmap.clone_zeroed();
+        requests.not_inplace();
         let metadata = PartialDataColumnPartsMetadata::<E> {
             available: partial_column.sidecar.cells_present_bitmap.clone(),
             requests,
@@ -45,10 +41,7 @@ impl<E: EthSpec> OutgoingPartialColumn<E> {
         .into();
 
         let header_message = PartialDataColumnSidecarRef {
-            cells_present_bitmap: CellBitmap::<E>::with_capacity(
-                partial_column.sidecar.cells_present_bitmap.len(),
-            )
-            .expect("Taking length from bitmap with same bound"),
+            cells_present_bitmap: partial_column.sidecar.cells_present_bitmap.clone_zeroed(),
             column: vec![],
             kzg_proofs: vec![],
             header: Some(header).into(),
@@ -210,7 +203,7 @@ impl<E: EthSpec> Partial for OutgoingPartialColumn<E> {
                 let send = self
                     .partial_column
                     .sidecar
-                    .filter(|idx| want.get(idx).expect("Bound checked above"))
+                    .filter(|idx| want.get(idx).unwrap_or(false))
                     .map_err(|err| {
                         error!(?err, "Unexpected error filtering sidecar");
                         PartialError::InvalidFormat
@@ -262,6 +255,7 @@ mod tests {
     use fixed_bytes::FixedBytesExtended;
     use libp2p::identity::Keypair;
     use ssz_types::FixedVector;
+    use types::CellBitmap;
     use types::block::{BeaconBlockHeader, SignedBeaconBlockHeader};
     use types::core::{MinimalEthSpec, Slot};
     use types::data::PartialDataColumnHeader;
