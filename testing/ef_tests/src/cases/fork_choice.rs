@@ -1218,9 +1218,10 @@ impl<E: EthSpec> Tester<E> {
             .slot()
             .map_err(|e| Error::InternalError(format!("Failed to get slot: {e:?}")))?;
 
-        // Explicitly run FCR confirmation. In spec tests, spec_test_mode is enabled
-        // so `on_fast_confirmation` only tracks variables. We trigger the full
-        // confirmation step here, matching the spec's `with_fast_confirmation` flag.
+        // Explicitly trigger the confirmation step. `find_head()` above already
+        // ran the FCR setup via `on_fast_confirmation` (with `spec_test_mode`
+        // suppressing the confirmation), so the caches are warm; we just need
+        // to compute and store the new confirmed root.
         let fork_choice_lock = self.harness.chain.canonical_head.fork_choice_read_lock();
         let head_root = cached_head.head_block_root();
         let finalized_cp = fork_choice_lock.finalized_checkpoint();
@@ -1232,18 +1233,20 @@ impl<E: EthSpec> Tester<E> {
 
         if let Some(ref fcr_mutex) = self.harness.chain.canonical_head.fast_confirmation {
             let mut fcr = fcr_mutex.lock();
-            fcr.run_confirmation::<E>(
-                head_root,
-                &finalized_cp,
-                &justified_cp,
-                &unrealized_justified_cp,
-                current_slot,
-                proto_array,
-                votes,
-                equivocating_indices,
-                &cached_head.snapshot.beacon_state,
-            )
-            .map_err(|e| Error::InternalError(format!("FCR run_confirmation failed: {e:?}")))?;
+            fcr.confirmed_root = fcr
+                .get_latest_confirmed::<E>(
+                    head_root,
+                    &finalized_cp,
+                    &justified_cp,
+                    &unrealized_justified_cp,
+                    current_slot,
+                    proto_array,
+                    votes,
+                    equivocating_indices,
+                )
+                .map_err(|e| {
+                    Error::InternalError(format!("FCR get_latest_confirmed failed: {e:?}"))
+                })?;
         }
         drop(fork_choice_lock);
 

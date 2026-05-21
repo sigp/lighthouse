@@ -128,9 +128,9 @@ pub struct FastConfirmationRule {
 
     /// When `true`, `on_fast_confirmation` updates tracking variables but skips
     /// the `get_latest_confirmed` call. The spec test runner runs FCR implicitly
-    /// at the start of each slot; the Lighthouse test harness instead drives
-    /// confirmation explicitly from `check_confirmed_root` via `run_confirmation`,
-    /// so the auto-run is disabled here. Always `false` in production.
+    /// at the start of each slot; the Lighthouse test harness mirrors that by
+    /// calling `get_latest_confirmed` explicitly per check, so the auto-run is
+    /// disabled here. Always `false` in production.
     spec_test_mode: bool,
 }
 
@@ -166,7 +166,8 @@ impl FastConfirmationRule {
     }
 
     /// Enable spec test mode: `on_fast_confirmation` still tracks variables but
-    /// does not update `confirmed_root`. Call `run_confirmation` explicitly.
+    /// does not update `confirmed_root`. Call `get_latest_confirmed` explicitly
+    /// when the test needs the confirmation result.
     pub fn set_spec_test_mode(&mut self, enabled: bool) {
         self.spec_test_mode = enabled;
     }
@@ -294,48 +295,6 @@ impl FastConfirmationRule {
                 equivocating_indices,
             )?;
         }
-
-        Ok(())
-    }
-
-    /// Explicitly trigger the confirmation finding step.
-    ///
-    /// In spec tests, `spec_test_mode` is `true` so this must be called manually
-    /// from the test harness — the spec runner runs FCR implicitly at the start
-    /// of each slot, which we mirror via explicit invocation per check.
-    #[allow(clippy::too_many_arguments)]
-    pub fn run_confirmation<E: EthSpec>(
-        &mut self,
-        head_root: Hash256,
-        finalized_checkpoint: &Checkpoint,
-        justified_checkpoint: &Checkpoint,
-        unrealized_justified_checkpoint: &Checkpoint,
-        current_slot: Slot,
-        proto_array: &ProtoArray,
-        votes: &[VoteTracker],
-        equivocating_indices: &BTreeSet<u64>,
-        state: &BeaconState<E>,
-    ) -> Result<(), Error> {
-        // Ensure variables and committee data are up to date.
-        self.update_fast_confirmation_variables::<E>(
-            head_root,
-            unrealized_justified_checkpoint,
-            current_slot,
-        );
-        self.head_assignments.rebuild::<E>(state, current_slot)?;
-        self.rebuild_head_balance_source::<E>(state, current_slot)?;
-        self.update_balance_sources(state)?;
-
-        self.confirmed_root = self.get_latest_confirmed::<E>(
-            head_root,
-            finalized_checkpoint,
-            justified_checkpoint,
-            unrealized_justified_checkpoint,
-            current_slot,
-            proto_array,
-            votes,
-            equivocating_indices,
-        )?;
 
         Ok(())
     }
