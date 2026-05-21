@@ -112,10 +112,11 @@ pub struct FastConfirmationRule {
     head_assignments: SlotAssignments,
 
     // === FFG data from the head state ===
-    /// Effective balances for the current store epoch as seen from the head state.
-    ///
-    /// This is the implementation's approximation of the spec's pulled-up head state
-    /// balance source and is used only by the FFG helpers.
+    /// Approximates the spec's `get_pulled_up_head_state` (FCR spec, "State helpers").
+    /// The spec advances the head state via `process_slots` to the current epoch's
+    /// start; this implementation reads from the head state directly and skips
+    /// `process_slots`, accepting that validator activations/exits/slashings due
+    /// to be realized at an unprocessed epoch boundary are missing.
     head_balance_source: BalanceSourceData,
 
     // === Internal bookkeeping ===
@@ -126,9 +127,10 @@ pub struct FastConfirmationRule {
     last_update_slot: Option<Slot>,
 
     /// When `true`, `on_fast_confirmation` updates tracking variables but skips
-    /// the `get_latest_confirmed` call. Spec tests set this so FCR is only
-    /// triggered at explicit orchestration points (the spec's `with_fast_confirmation`).
-    /// Always `false` in production.
+    /// the `get_latest_confirmed` call. The spec test runner runs FCR implicitly
+    /// at the start of each slot; the Lighthouse test harness instead drives
+    /// confirmation explicitly from `check_confirmed_root` via `run_confirmation`,
+    /// so the auto-run is disabled here. Always `false` in production.
     spec_test_mode: bool,
 }
 
@@ -236,7 +238,7 @@ impl FastConfirmationRule {
     // Top-level entry point: on_fast_confirmation
     // -----------------------------------------------------------------------
 
-    /// Spec: `on_fast_confirmation(store)`.
+    /// Spec: `on_fast_confirmation(fcr_store)`.
     ///
     /// Called after head selection, while the fork-choice read lock is held.
     /// All parameters are borrowed from fork choice. The `state` is used to
@@ -299,7 +301,8 @@ impl FastConfirmationRule {
     /// Explicitly trigger the confirmation finding step.
     ///
     /// In spec tests, `spec_test_mode` is `true` so this must be called manually
-    /// at the orchestration points that correspond to the spec's `with_fast_confirmation`.
+    /// from the test harness — the spec runner runs FCR implicitly at the start
+    /// of each slot, which we mirror via explicit invocation per check.
     #[allow(clippy::too_many_arguments)]
     pub fn run_confirmation<E: EthSpec>(
         &mut self,
@@ -1100,6 +1103,19 @@ impl FastConfirmationRule {
             .map(|n| n.root())
     }
 
+    /// Return `true` if the block's execution payload is `Optimistic` or `Invalid`.
+    /// Pre-bellatrix `Irrelevant` payloads and missing nodes are treated as not
+    /// optimistic (the spec MUST applies post-merge). A missing node will be
+    /// rejected later by `block_slot`, so this returning `false` here is safe.
+    fn is_optimistic_or_invalid(&self, root: Hash256, proto_array: &ProtoArray) -> bool {
+        proto_array
+            .indices
+            .get(&root)
+            .and_then(|&idx| proto_array.nodes.get(idx))
+            .and_then(|n| n.execution_status().ok())
+            .is_some_and(|s| s.is_optimistic_or_invalid())
+    }
+
     fn is_ancestor(
         &self,
         block_root: Hash256,
@@ -1360,6 +1376,10 @@ impl FastConfirmationRule {
 
     /// Spec: `is_one_confirmed` — uses a precomputed attestation score from
     /// `precompute_chain_attestation_scores` instead of iterating all validators.
+    ///
+    /// Spec MUST: returns `false` if the block's execution status is optimistic
+    /// or invalid (i.e. not VALID per Optimistic-sync), so an unvalidated payload
+    /// can never be fed to the EL as `safe_block_hash`.
     #[allow(clippy::too_many_arguments)]
     fn is_one_confirmed_with_score<E: EthSpec>(
         &self,
@@ -1371,6 +1391,10 @@ impl FastConfirmationRule {
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
     ) -> Result<bool, Error> {
+        if self.is_optimistic_or_invalid(block_root, proto_array) {
+            return Ok(false);
+        }
+
         let block_slot = self.block_slot(block_root, proto_array)?;
         let Some(parent_root) = self.parent_root(block_root, proto_array) else {
             return Ok(false);
