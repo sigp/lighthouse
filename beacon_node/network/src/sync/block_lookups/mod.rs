@@ -586,27 +586,18 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let action = match result {
             BlockProcessingResult::Imported(fully_imported, _info) => {
                 // `on_processing_success` is called here to ensure the request state is updated
-                // prior to checking if all components have been processed (relevant for the
-                // `!fully_imported` case below).
+                // prior to checking if all components have been processed (relevant for
+                // MissingComponents).
                 request_state.on_processing_success()?;
 
                 if fully_imported {
                     Action::Continue
+                } else if lookup.all_components_processed() {
+                    return Err(LookupRequestError::Failed(
+                        "missing components after all processed".to_owned(),
+                    ));
                 } else {
-                    // Block processing returned `Ok(MissingComponents)`: the block is valid but
-                    // data sidecars are still required to satisfy availability. The lookup must
-                    // stay alive and re-issue component requests; completing it here would drop
-                    // the lookup before the data is fetched.
-                    if lookup.all_components_processed() {
-                        // Defensive: if every component has been processed but the producer still
-                        // sees missing components, the lookup state and the DA checker have
-                        // diverged. Treat as an internal bug and drop the lookup.
-                        return Err(LookupRequestError::Failed(
-                            "missing components after all processed".to_owned(),
-                        ));
-                    } else {
-                        Action::Retry
-                    }
+                    Action::Retry
                 }
             }
             BlockProcessingResult::ParentUnknown { parent_root } => {

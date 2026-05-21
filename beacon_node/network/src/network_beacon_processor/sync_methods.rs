@@ -243,8 +243,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         // Sync handles these results
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
-            result: result.into(),
             process_type,
+            result: result.into(),
         });
 
         // Drop the handle to remove the entry from the cache
@@ -354,8 +354,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         // Sync handles these results
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
-            result: result.into(),
             process_type,
+            result: result.into(),
         });
     }
 
@@ -431,8 +431,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
 
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
-            result: result.into(),
             process_type,
+            result: result.into(),
         });
     }
 
@@ -1014,40 +1014,26 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 }
 
-/// The classified outcome of submitting a block / blob / column for processing. The producer
-/// (`network_beacon_processor`) translates the raw beacon-chain `Result<_, BlockError>` into this
-/// shape so the lookup state machine only has to resolve "which peer to penalize" symbolically.
+/// The classified outcome of submitting a block / blob / column for processing, ready for the
+/// lookup state machine to act on without re-inspecting `BlockError`.
 #[derive(Debug)]
 pub enum BlockProcessingResult {
-    /// Data was sent for processing and the producer treats this as a non-failure outcome for
-    /// the lookup. `fully_imported` is `true` when the lookup's block-and-data state is complete
-    /// (block imported, duplicate, or genesis); `false` when the block is valid but data
-    /// sidecars are still required (`MissingComponents`) and the lookup should keep fetching.
-    /// `info` is a short stable identifier suitable for debug logs / metrics.
+    /// `fully_imported` is true if the lookup is complete; false if `MissingComponents` (the
+    /// lookup must keep fetching). `info` is a stable label for logs / metrics.
     Imported(bool, &'static str),
-    /// Block processing reported an unknown parent. The lookup re-arms itself behind a parent
-    /// lookup for `parent_root` rather than retrying or penalizing.
-    ParentUnknown { parent_root: Hash256 },
+    ParentUnknown {
+        parent_root: Hash256,
+    },
     /// Processing failed. `penalty` is `Some` when an attributable peer should be downscored;
-    /// its third element is the `&'static str` passed to `report_peer` for scoring telemetry.
-    /// `reason` is a free-form description used for debug logs only.
+    /// the third tuple element is the `report_peer` telemetry msg. `reason` is for logs only.
     Error {
         penalty: Option<(PeerAction, WhichPeerToPenalize, &'static str)>,
         reason: String,
     },
 }
 
-/// Translate the beacon-chain processing outcome into a `BlockProcessingResult` the lookup state
-/// machine can act on directly. The policy decisions about *whether* and *which peer-class* to
-/// penalize live here, on the producer side, so consumers only need to resolve the symbolic
-/// `WhichPeerToPenalize` to an actual peer id at penalty time.
 impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingResult {
     fn from(result: Result<AvailabilityProcessingStatus, BlockError>) -> Self {
-        // Emit the full `BlockError` debug repr before consuming `result` so downstream debugging
-        // isn't limited to the symbolic `reason` strings carried by `BlockProcessingResult`.
-
-        /// Penalty against the block peer, using `err`'s variant name (via `IntoStaticStr`) as the
-        /// peer-scoring telemetry message.
         fn block_peer_penalty<E: Into<&'static str>>(
             err: E,
         ) -> Option<(PeerAction, WhichPeerToPenalize, &'static str)> {
@@ -1082,10 +1068,7 @@ impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingR
                             (&e).into(),
                         )),
                         inner => match inner.category() {
-                            // Internal AC errors are our fault; do not penalize the peer.
                             AvailabilityCheckErrorCategory::Internal => None,
-                            // Malicious AC errors (bad blobs, bad columns w/o index, kzg
-                            // mismatch, etc.) are attributable to the data peer.
                             AvailabilityCheckErrorCategory::Malicious => block_peer_penalty(inner),
                         },
                     },
@@ -1096,9 +1079,8 @@ impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingR
                             None
                         }
                     }
-                    // All remaining invalid blocks attribute to the block peer (which is also the data
-                    // peer pre-Gloas). Listed explicitly to keep this match exhaustive so future
-                    // `BlockError` variants force a compile error and a deliberate classification choice.
+                    // Remaining invalid blocks: penalize the block peer. Listed explicitly so a
+                    // new `BlockError` variant forces a compile error here.
                     BlockError::FutureSlot { .. }
                     | BlockError::StateRootMismatch { .. }
                     | BlockError::WouldRevertFinalizedSlot { .. }
@@ -1131,21 +1113,16 @@ impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingR
     }
 }
 
-/// Symbolic identifier for the peer(s) the lookup should resolve and downscore. The consumer
-/// passes in the relevant `PeerGroup` (a singleton for block processing, the in-flight data peer
-/// group for data processing) and `apply` selects from it.
+/// Selector for which peer(s) in a `PeerGroup` to downscore.
 #[derive(Debug, Clone, Copy)]
 pub enum WhichPeerToPenalize {
-    /// All peers in the passed `PeerGroup` (typically a singleton constructed from the block peer
-    /// or the blob peer — i.e. the peer responsible for the component as a whole).
+    /// All peers in the group (block peer, or all data peers).
     BlockPeer,
-    /// The custody peer(s) that served a specific column index in the passed `PeerGroup`.
+    /// Only the peer(s) that served the given column index.
     CustodyPeerForColumn(u64),
 }
 
 impl WhichPeerToPenalize {
-    /// Resolve this symbolic identifier against `peer_group` and downscore the matching peer(s)
-    /// with the given action and telemetry message.
     pub fn apply<T: BeaconChainTypes>(
         self,
         action: PeerAction,

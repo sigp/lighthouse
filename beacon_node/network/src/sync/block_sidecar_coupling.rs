@@ -62,7 +62,7 @@ enum RangeBlockDataRequest<E: EthSpec> {
 }
 
 #[derive(Debug)]
-pub(crate) enum CouplingError {
+pub enum CouplingError {
     InternalError(String),
     /// The peer we requested the columns from was faulty/malicious
     DataColumnPeerFailure {
