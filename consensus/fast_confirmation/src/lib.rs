@@ -32,7 +32,8 @@
 //! The original spec functions (`is_one_confirmed`, `get_attestation_score`) are not
 //! present — only the optimized equivalents are used.
 
-use crate::metrics;
+pub mod metrics;
+
 use proto_array::core::{ProtoArray, VoteTracker};
 use std::collections::{BTreeSet, HashMap};
 use tracing::{debug, debug_span};

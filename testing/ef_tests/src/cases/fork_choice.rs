@@ -1194,7 +1194,7 @@ impl<E: EthSpec> Tester<E> {
     fn get_fcr_field<T: Clone>(
         &self,
         field_name: &str,
-        f: impl FnOnce(&beacon_chain::fast_confirmation::FastConfirmationRule) -> T,
+        f: impl FnOnce(&fast_confirmation::FastConfirmationRule) -> T,
     ) -> Result<T, Error> {
         let fcr_mutex = self
             .harness

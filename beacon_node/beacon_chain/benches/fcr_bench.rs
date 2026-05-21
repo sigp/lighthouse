@@ -6,8 +6,8 @@
 use std::collections::BTreeSet;
 use std::time::Duration;
 
-use beacon_chain::fast_confirmation::{BalanceSourceData, FastConfirmationRule};
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use fast_confirmation::{BalanceSourceData, FastConfirmationRule};
 use fixed_bytes::FixedBytesExtended;
 use proto_array::core::{ProtoArray, VoteTracker};
 use proto_array::{Block, ExecutionStatus, JustifiedBalances, ProtoArrayForkChoice};
@@ -156,7 +156,7 @@ fn build_chain(num_validators: usize) -> BenchData {
         assignments[val_idx * 2] = Slot::new((val_idx % spe) as u64);
         assignments[val_idx * 2 + 1] = Slot::new((val_idx % spe) as u64);
     }
-    fcr.set_head_slot_assignments(assignments, beacon_chain::AssignmentFormat::TwoColumn);
+    fcr.set_head_slot_assignments(assignments, fast_confirmation::AssignmentFormat::TwoColumn);
 
     BenchData {
         proto_array,

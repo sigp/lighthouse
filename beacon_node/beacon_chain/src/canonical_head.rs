@@ -34,7 +34,6 @@
 //! the head block root. This is unacceptable for fast-responding functions like the networking
 //! stack.
 
-use crate::fast_confirmation::FastConfirmationRule;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::BlockShufflingIds;
 use crate::{
@@ -46,6 +45,7 @@ use crate::{
     validator_monitor::get_slot_delay_ms,
 };
 use eth2::types::{EventKind, SseChainReorg, SseFinalizedCheckpoint, SseLateHead};
+use fast_confirmation::{FastConfirmationRule, metrics as fcr_metrics};
 use fork_choice::{
     ExecutionStatus, ForkChoiceStore, ForkChoiceView, ForkchoiceUpdateParameters, PayloadStatus,
     ProtoBlock, ResetPayloadStatuses,
@@ -715,7 +715,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // FCR is a read-only observer and errors must never affect consensus.
         if let Some(ref fcr_mutex) = self.canonical_head.fast_confirmation {
             let mut fcr = fcr_mutex.lock();
-            let _fcr_timer = metrics::start_timer(&metrics::FCR_TIMES);
+            let _fcr_timer = metrics::start_timer(&fcr_metrics::FCR_TIMES);
             let old_confirmed = fcr.confirmed_root;
 
             let head_root = new_view.head_block_root;
@@ -739,10 +739,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             ) {
                 error!(error = ?e, "Fast Confirmation Rule error, continuing without FCR");
                 let label: &'static str = (&e).into();
-                metrics::inc_counter_vec(&metrics::FCR_ERRORS, &[label]);
+                metrics::inc_counter_vec(&fcr_metrics::FCR_ERRORS, &[label]);
             } else {
                 if fcr.confirmed_root != old_confirmed {
-                    metrics::inc_counter(&metrics::FCR_CONFIRMED_ROOT_CHANGES);
+                    metrics::inc_counter(&fcr_metrics::FCR_CONFIRMED_ROOT_CHANGES);
                 }
                 if let Some(confirmed_slot) = proto_array
                     .indices
@@ -751,20 +751,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .map(|n| n.slot())
                 {
                     metrics::set_gauge(
-                        &metrics::FCR_CONFIRMED_ROOT_SLOT,
+                        &fcr_metrics::FCR_CONFIRMED_ROOT_SLOT,
                         confirmed_slot.as_u64() as i64,
                     );
                     let delay = current_slot
                         .as_u64()
                         .saturating_sub(confirmed_slot.as_u64());
-                    metrics::set_gauge(&metrics::FCR_CONFIRMATION_DELAY_SLOTS, delay as i64);
+                    metrics::set_gauge(&fcr_metrics::FCR_CONFIRMATION_DELAY_SLOTS, delay as i64);
                 }
                 let balance_epoch = fcr.current_balance_source.checkpoint.epoch;
                 let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
                 let age = current_epoch
                     .as_u64()
                     .saturating_sub(balance_epoch.as_u64());
-                metrics::set_gauge(&metrics::FCR_BALANCE_SOURCE_AGE_EPOCHS, age as i64);
+                metrics::set_gauge(&fcr_metrics::FCR_BALANCE_SOURCE_AGE_EPOCHS, age as i64);
             }
         }
 
