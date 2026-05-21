@@ -7,6 +7,7 @@ use proto_array::PayloadStatus;
 use bls::{PublicKeyBytes, Signature};
 use execution_layer::{
     BlockProposalContentsGloas, BuilderParams, PayloadAttributes, PayloadParameters,
+    DEFAULT_GAS_LIMIT,
 };
 use operation_pool::CompactAttestationRef;
 use ssz::Encode;
@@ -968,10 +969,7 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
         compute_timestamp_at_slot(state, state.slot(), spec).map_err(BeaconStateError::from)?;
     let random = *state.get_randao_mix(current_epoch)?;
 
-    // TODO(gloas): this gas limit calc is not necessarily right
     let parent_bid = state.latest_execution_payload_bid()?;
-    let latest_gas_limit = parent_bid.gas_limit;
-
     let is_parent_block_full = parent_block_hash == parent_bid.block_hash;
 
     let withdrawals = if is_parent_block_full {
@@ -1007,7 +1005,6 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
                     random,
                     proposer_index,
                     parent_block_hash,
-                    latest_gas_limit,
                     builder_params,
                     withdrawals,
                     parent_beacon_block_root,
@@ -1035,7 +1032,6 @@ async fn prepare_execution_payload<T>(
     random: Hash256,
     proposer_index: u64,
     parent_block_hash: ExecutionBlockHash,
-    parent_gas_limit: u64,
     builder_params: BuilderParams,
     withdrawals: Vec<Withdrawal>,
     parent_beacon_block_root: Hash256,
@@ -1077,7 +1073,7 @@ where
         execution_layer
             .get_proposer_gas_limit(proposer_index)
             .await
-            .unwrap_or(parent_gas_limit),
+            .unwrap_or(DEFAULT_GAS_LIMIT),
     );
 
     let payload_attributes = PayloadAttributes::new(
@@ -1091,7 +1087,7 @@ where
     );
     let payload_parameters = PayloadParameters {
         parent_hash: parent_block_hash,
-        parent_gas_limit,
+        parent_gas_limit: target_gas_limit.unwrap_or(DEFAULT_GAS_LIMIT),
         proposer_gas_limit: target_gas_limit,
         payload_attributes: &payload_attributes,
         forkchoice_update_params: &forkchoice_update_params,

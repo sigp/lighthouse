@@ -73,6 +73,8 @@ pub const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
 /// Name for the default file used for the jwt secret.
 pub const DEFAULT_JWT_FILE: &str = "jwt.hex";
 
+pub const DEFAULT_GAS_LIMIT: u64 = 60_000_000;
+
 /// A fee recipient address for use during block production. Only used as a very last resort if
 /// there is no address provided by the user.
 ///
