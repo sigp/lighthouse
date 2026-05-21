@@ -175,6 +175,8 @@ impl<E: EthSpec> FailedAtt<E> {
 }
 
 /// `MessageAcceptance` doesn't implement clone so we do a manual match here.
+/// TODO: remove this once `Clone` is available on this type:
+/// https://github.com/libp2p/rust-libp2p/pull/6445
 fn clone_message_acceptance(a: &MessageAcceptance) -> MessageAcceptance {
     match a {
         MessageAcceptance::Accept => MessageAcceptance::Accept,
