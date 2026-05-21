@@ -7,6 +7,7 @@ use crate::version::{
     execution_optimistic_finalized_beacon_response,
 };
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
+use beacon_chain::payload_envelope_verification::EnvelopeError;
 use beacon_chain::{BeaconChain, BeaconChainTypes, NotifyExecutionLayer};
 use bytes::Bytes;
 use eth2::types as api_types;
@@ -148,7 +149,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
             PubsubMessage::ExecutionPayload(Box::new(envelope_for_gossip)),
         )
         .map_err(|_| {
-            beacon_chain::payload_envelope_verification::EnvelopeError::BeaconChainError(Arc::new(
+            EnvelopeError::BeaconChainError(Arc::new(
                 beacon_chain::BeaconChainError::UnableToPublish,
             ))
         })
@@ -272,7 +273,7 @@ fn build_gloas_data_columns<T: BeaconChainTypes>(
             let index = *col.index();
             match GossipVerifiedDataColumn::new_for_block_publishing(col, chain) {
                 Ok(verified) => Some(verified),
-                Err(GossipDataColumnError::PriorKnownUnpublished) => None,
+                Err(GossipDataColumnError::PriorKnown { .. }) => None,
                 Err(e) => {
                     warn!(
                         %slot,

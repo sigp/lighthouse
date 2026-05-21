@@ -119,10 +119,12 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
             .cached_blob_indexes(block_root)
     }
 
-    pub(crate) fn cached_data_column_indexes(&self, block_root: &Hash256) -> Option<Vec<u64>> {
-        self.chain
-            .data_availability_checker
-            .cached_data_column_indexes(block_root)
+    pub(crate) fn cached_data_column_indexes(
+        &self,
+        block_root: &Hash256,
+        slot: Slot,
+    ) -> Option<Vec<u64>> {
+        self.chain.cached_data_column_indexes(block_root, slot)
     }
 
     pub(crate) async fn process_engine_blobs(
