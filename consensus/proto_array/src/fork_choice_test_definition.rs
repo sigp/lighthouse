@@ -343,7 +343,7 @@ impl ForkChoiceTestDefinition {
                             block_root,
                             attestation_slot,
                             false,
-                            false,
+                            true,
                             MainnetEthSpec::slots_per_epoch(),
                         )
                         .unwrap_or_else(|_| {
