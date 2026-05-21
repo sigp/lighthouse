@@ -38,7 +38,7 @@ pub(crate) fn verify_preferences_consistency<E: EthSpec>(
         });
     }
 
-    if !head_state.is_valid_proposal_slot(preferences)? {
+    if !head_state.is_valid_proposal_slot(preferences, spec)? {
         return Err(ProposerPreferencesError::InvalidProposalSlot {
             validator_index,
             proposal_slot,

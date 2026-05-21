@@ -6,8 +6,8 @@ use proto_array::PayloadStatus;
 
 use bls::{PublicKeyBytes, Signature};
 use execution_layer::{
-    BlockProposalContentsGloas, BuilderParams, PayloadAttributes, PayloadParameters,
-    DEFAULT_GAS_LIMIT,
+    BlockProposalContentsGloas, BuilderParams, DEFAULT_GAS_LIMIT, PayloadAttributes,
+    PayloadParameters,
 };
 use operation_pool::CompactAttestationRef;
 use ssz::Encode;
