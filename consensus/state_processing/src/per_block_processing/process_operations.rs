@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::collections::{HashMap, VecDeque};
 
 use super::*;
 use crate::VerifySignatures;
@@ -13,11 +13,12 @@ use crate::per_block_processing::builder::{
 use crate::per_block_processing::errors::{BlockProcessingError, ExitInvalid, IntoWithIndex};
 use crate::per_block_processing::signature_sets::{exit_signature_set, get_pubkey_from_state};
 use crate::per_block_processing::verify_payload_attestation::verify_payload_attestation;
-use bls::{PublicKeyBytes, SignatureBytes};
+use bls::PublicKeyBytes;
 use milhouse::List;
 use ssz_types::FixedVector;
 use typenum::U33;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
+use types::{Address, Builder};
 
 pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     state: &mut BeaconState<E>,
@@ -908,7 +909,6 @@ pub fn process_deposit_requests_pre_gloas<E: EthSpec>(
 /// Check if there is a pending deposit for a new validator with the given pubkey.
 // TODO(gloas): cache the deposit signature validation or remove this loop entirely if possible,
 // it is `O(n * m)` where `n` is max 8192 and `m` is max 128M.
-#[instrument(skip_all, level = "debug")]
 pub fn is_pending_validator<E: EthSpec>(
     deposits: &List<PendingDeposit, E::PendingDepositsLimit>,
     pubkey: &PublicKeyBytes,
@@ -938,106 +938,86 @@ pub enum VerifyBuilderSignature {
     VerifiedInvalid,
 }
 
-impl From<Option<bool>> for VerifyBuilderSignature {
-    fn from(value: Option<bool>) -> Self {
-        match value {
-            Some(true) => VerifyBuilderSignature::VerifiedValid,
-            Some(false) => VerifyBuilderSignature::VerifiedInvalid,
-            None => VerifyBuilderSignature::Verify,
-        }
-    }
-}
-
-/// Returns `Ok(true)` if a builder with the given pubkey exists in the state.
-/// Otherwise returns `Ok(false)`. Returns an error if this function is called with a
-/// pre-gloas state.
-///
-/// TODO(gloas): this could be more efficient in the builder case, see:
-/// https://github.com/sigp/lighthouse/issues/8783
-#[instrument(skip_all, level = "debug")]
-fn get_builder_index<E: EthSpec>(
-    state: &BeaconState<E>,
-    pubkey: &PublicKeyBytes,
-) -> Result<Option<u64>, BlockProcessingError> {
-    Ok(state
-        .builders()?
-        .iter()
-        .enumerate()
-        .find(|(_, builder)| builder.pubkey == *pubkey)
-        .map(|(i, _)| i as u64))
-}
-
 pub fn process_deposit_requests_post_gloas<E: EthSpec>(
     state: &mut BeaconState<E>,
     deposit_requests: &[DepositRequest],
     onboarding_cache: Option<&OnboardBuildersCache>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    let now = Instant::now();
-    let mut builder_signature_request_indices = Vec::with_capacity(deposit_requests.len());
-    let mut builder_signature_deposits = Vec::with_capacity(deposit_requests.len());
+    let mut new_builder_signature_candidates = Vec::with_capacity(deposit_requests.len());
+    let slot = state.slot();
+    let current_epoch = state.current_epoch();
 
-    // Step 1: Collect all requests that could create a new builder when evaluated against the current
-    // state.
+    // Contains the pubkey to index mapping for existing builders and any new builders
+    // added with the `deposit_requests` coming in.
+    // TODO(gloas): can potentially skip this if we add a builder pubkey cache later.
+    let state_builders = state.builders()?;
+    let mut builder_index_map = HashMap::with_capacity(state_builders.len());
+    // A one pass cache for repeated calls to `get_index_for_new_builder`.
+    // state.builders() allows reusing indices. This holds the list of indices where
+    // potentially new builders can be inserted.
+    // Doing this avoids walking through the entire `state.builders` list and appending
+    // in the end everytime we want to insert a new builder.
+    // For a high number of builder deposits, this can take quite long.
+    let mut reusable_builder_indices = VecDeque::new();
+
+    for (index, builder) in state_builders.iter().enumerate() {
+        builder_index_map.insert(builder.pubkey, index as BuilderIndex);
+        if builder.withdrawable_epoch <= current_epoch && builder.balance == 0 {
+            reusable_builder_indices.push_back(index as BuilderIndex);
+        }
+    }
+
+    // Step 1: Collect all requests that could create a new builder when evaluated against the
+    // current state.
     for (request_index, deposit_request) in deposit_requests.iter().enumerate() {
-        let is_builder = get_builder_index(state, &deposit_request.pubkey)?.is_some();
+        let is_builder = builder_index_map.contains_key(&deposit_request.pubkey);
         let is_validator = state
             .get_validator_index(&deposit_request.pubkey)?
             .is_some();
         let has_builder_prefix =
             is_builder_withdrawal_credential(deposit_request.withdrawal_credentials, spec);
 
-        // Intentionally not checking `!is_pending_validator` to avoid potentially expensive operation
-        // in the first pass. This may result in more signatures to verify but potentially avoids a double
-        // loop with a signature verification.
-        // TODO(pawan): reevaluate if this is best for the worst case.
         if !is_builder && has_builder_prefix && !is_validator {
-            builder_signature_request_indices.push(request_index);
-            builder_signature_deposits.push(DepositData {
-                pubkey: deposit_request.pubkey,
-                withdrawal_credentials: deposit_request.withdrawal_credentials,
-                amount: deposit_request.amount,
-                signature: deposit_request.signature.clone(),
-            });
+            new_builder_signature_candidates.push((
+                request_index,
+                DepositData {
+                    pubkey: deposit_request.pubkey,
+                    withdrawal_credentials: deposit_request.withdrawal_credentials,
+                    amount: deposit_request.amount,
+                    signature: deposit_request.signature.clone(),
+                },
+            ));
         }
     }
 
     // Step 2: Check cache for already-verified signatures, batch verify the rest.
-    let sig_now = Instant::now();
     let mut builder_signature_results_by_request =
         vec![VerifyBuilderSignature::Verify; deposit_requests.len()];
 
-    let mut uncached_indices = Vec::new();
+    let mut uncached_request_indices = Vec::new();
     let mut uncached_deposits = Vec::new();
 
-    for (deposit_data, &request_index) in builder_signature_deposits
-        .iter()
-        .zip(builder_signature_request_indices.iter())
-    {
+    for (request_index, deposit_data) in &new_builder_signature_candidates {
         let cached_result = onboarding_cache.and_then(|c| c.get(deposit_data));
-        if let Some(is_valid) = cached_result {
-            if let Some(res) = builder_signature_results_by_request.get_mut(request_index) {
-                *res = if is_valid {
-                    VerifyBuilderSignature::VerifiedValid
-                } else {
-                    VerifyBuilderSignature::VerifiedInvalid
-                };
-            }
-        } else {
-            uncached_indices.push(request_index);
-            uncached_deposits.push(deposit_data.clone());
+        if let Some(result) = builder_signature_results_by_request.get_mut(*request_index) {
+            *result = match cached_result {
+                Some(true) => VerifyBuilderSignature::VerifiedValid,
+                Some(false) => VerifyBuilderSignature::VerifiedInvalid,
+                None => {
+                    uncached_request_indices.push(*request_index);
+                    uncached_deposits.push(deposit_data.clone());
+                    VerifyBuilderSignature::Verify
+                }
+            };
         }
     }
 
-    let cache_hits = builder_signature_deposits
-        .len()
-        .saturating_sub(uncached_deposits.len());
-    let batch_len = uncached_deposits.len();
     let batch_results = is_valid_deposit_signature_batch(uncached_deposits, spec);
 
-    for (&request_index, is_valid) in uncached_indices.iter().zip(batch_results) {
-        if let Some(slot) = builder_signature_results_by_request.get_mut(request_index) {
-            *slot = if is_valid {
+    for (&request_index, is_valid) in uncached_request_indices.iter().zip(batch_results) {
+        if let Some(res) = builder_signature_results_by_request.get_mut(request_index) {
+            *res = if is_valid {
                 VerifyBuilderSignature::VerifiedValid
             } else {
                 VerifyBuilderSignature::VerifiedInvalid
@@ -1045,17 +1025,10 @@ pub fn process_deposit_requests_post_gloas<E: EthSpec>(
         }
     }
 
-    tracing::debug!(
-        verified = batch_len,
-        cache_hits,
-        time = sig_now.elapsed().as_millis(),
-        "Completed processing deposit signatures"
-    );
-
     // Step 3: Second pass over the requests that is equivalent to the spec function only
     // with the signature verification cached.
     for (request_index, deposit_request) in deposit_requests.iter().enumerate() {
-        let builder_index = get_builder_index(state, &deposit_request.pubkey)?;
+        let builder_index = builder_index_map.get(&deposit_request.pubkey).copied();
         let is_builder = builder_index.is_some();
 
         let is_validator = state
@@ -1063,7 +1036,6 @@ pub fn process_deposit_requests_post_gloas<E: EthSpec>(
             .is_some();
         let has_builder_prefix =
             is_builder_withdrawal_credential(deposit_request.withdrawal_credentials, spec);
-
         if is_builder
             || (has_builder_prefix
                 && !is_validator
@@ -1073,24 +1045,88 @@ pub fn process_deposit_requests_post_gloas<E: EthSpec>(
                     spec,
                 ))
         {
-            apply_deposit_for_builder(
-                state,
-                builder_index,
-                deposit_request.pubkey,
-                deposit_request.withdrawal_credentials,
-                deposit_request.amount,
-                deposit_request.signature.clone(),
-                state.slot(),
-                builder_signature_results_by_request
-                    .get(request_index)
-                    .copied()
-                    .unwrap_or(VerifyBuilderSignature::Verify),
-                spec,
-            )?;
-            continue;
+            // Directly increase the balance if existing builder and move on
+            // to the next deposit.
+            // The signature validity is irrelevant in the case when
+            // the builder already exists in the state.
+            if let Some(builder_index) = builder_index {
+                state
+                    .builders_mut()?
+                    .get_mut(builder_index as usize)
+                    .ok_or(BeaconStateError::UnknownBuilder(builder_index))?
+                    .balance
+                    .safe_add_assign(deposit_request.amount)?;
+                continue;
+            }
+
+            // If the builder does not exist in the state, then we need to
+            // verify the signature and only add builders that have a valid
+            // signature.
+            let verify_signature = builder_signature_results_by_request
+                .get(request_index)
+                .copied()
+                .unwrap_or(VerifyBuilderSignature::Verify);
+
+            let is_valid = match verify_signature {
+                VerifyBuilderSignature::Verify => {
+                    let deposit_data = deposit_request.into();
+                    is_valid_deposit_signature(&deposit_data, spec).is_ok()
+                }
+                VerifyBuilderSignature::VerifiedValid => true,
+                VerifyBuilderSignature::VerifiedInvalid => false,
+            };
+
+            // Signature is valid, create the builder and insert it in the correct location
+            if is_valid {
+                let version = *deposit_request
+                    .withdrawal_credentials
+                    .as_slice()
+                    .first()
+                    .ok_or(BeaconStateError::WithdrawalCredentialMissingVersion)?;
+                let execution_address = deposit_request
+                    .withdrawal_credentials
+                    .as_slice()
+                    .get(12..)
+                    .and_then(|bytes| Address::try_from(bytes).ok())
+                    .ok_or(BeaconStateError::WithdrawalCredentialMissingAddress)?;
+
+                let builder = Builder {
+                    pubkey: deposit_request.pubkey,
+                    version,
+                    execution_address,
+                    balance: deposit_request.amount,
+                    deposit_epoch: slot.epoch(E::slots_per_epoch()),
+                    withdrawable_epoch: spec.far_future_epoch,
+                };
+                // There are reusable indices that opened up because of older builders getting
+                // evicted, reuse the indices by inserting the new builder in the correct
+                // location
+                let new_index = if let Some(reusable_index) = reusable_builder_indices.pop_front() {
+                    let old_pubkey = state
+                        .builders()?
+                        .get(reusable_index as usize)
+                        .ok_or(BeaconStateError::UnknownBuilder(reusable_index))?
+                        .pubkey;
+                    builder_index_map.remove(&old_pubkey);
+                    *state
+                        .builders_mut()?
+                        .get_mut(reusable_index as usize)
+                        .ok_or(BeaconStateError::UnknownBuilder(reusable_index))? = builder;
+                    reusable_index
+                } else {
+                    // There are no reusable indices, insert at the end.
+                    let builders = state.builders_mut()?;
+                    let next_index = builders.len() as BuilderIndex;
+                    builders.push(builder)?;
+                    next_index
+                };
+
+                // Keep the local mapping updated
+                builder_index_map.insert(deposit_request.pubkey, new_index);
+                continue;
+            }
         }
 
-        let slot = state.slot();
         state.pending_deposits_mut()?.push(PendingDeposit {
             pubkey: deposit_request.pubkey,
             withdrawal_credentials: deposit_request.withdrawal_credentials,
@@ -1100,68 +1136,6 @@ pub fn process_deposit_requests_post_gloas<E: EthSpec>(
         })?;
     }
 
-    tracing::debug!(
-        count = deposit_requests.len(),
-        time = now.elapsed().as_millis(),
-        "Completed processing deposits"
-    );
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn apply_deposit_for_builder<E: EthSpec>(
-    state: &mut BeaconState<E>,
-    builder_index_opt: Option<BuilderIndex>,
-    pubkey: PublicKeyBytes,
-    withdrawal_credentials: Hash256,
-    amount: u64,
-    signature: SignatureBytes,
-    slot: Slot,
-    verify_signature: VerifyBuilderSignature,
-    spec: &ChainSpec,
-) -> Result<(), BeaconStateError> {
-    match builder_index_opt {
-        None => {
-            // Verify the deposit signature (proof of possession) which is not checked by the deposit contract
-            let deposit_data = DepositData {
-                pubkey,
-                withdrawal_credentials,
-                amount,
-                signature,
-            };
-            match verify_signature {
-                VerifyBuilderSignature::Verify => {
-                    if is_valid_deposit_signature(&deposit_data, spec).is_ok() {
-                        state.add_builder_to_registry(
-                            pubkey,
-                            withdrawal_credentials,
-                            amount,
-                            slot,
-                            spec,
-                        )?;
-                    }
-                }
-                VerifyBuilderSignature::VerifiedValid => {
-                    state.add_builder_to_registry(
-                        pubkey,
-                        withdrawal_credentials,
-                        amount,
-                        slot,
-                        spec,
-                    )?;
-                }
-                VerifyBuilderSignature::VerifiedInvalid => {}
-            }
-        }
-        Some(builder_index) => {
-            state
-                .builders_mut()?
-                .get_mut(builder_index as usize)
-                .ok_or(BeaconStateError::UnknownBuilder(builder_index))?
-                .balance
-                .safe_add_assign(amount)?;
-        }
-    }
     Ok(())
 }
 

@@ -4555,7 +4555,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let executor = self.task_executor.clone();
             // Using rayon pool here since `add_new_pending_deposits` uses rayon threads to
             // perform the signature verification in batches.
-            // // We have until the fork transition for the cache to be used, so we use the low priority pool.
+            // We have until the fork transition for the cache to be used, so we use the low priority pool.
             executor.spawn_blocking_with_rayon(
                 move || cache.add_new_pending_deposits::<T::EthSpec>(&state, &spec),
                 RayonPoolType::LowPriority,

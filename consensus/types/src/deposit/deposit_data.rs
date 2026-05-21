@@ -5,6 +5,7 @@ use ssz_derive::{Decode, Encode};
 use tree_hash_derive::TreeHash;
 
 use crate::{
+    DepositRequest, PendingDeposit,
     core::{ChainSpec, Hash256, SignedRoot},
     deposit::DepositMessage,
     fork::ForkName,
@@ -44,6 +45,28 @@ impl DepositData {
         let msg = self.as_deposit_message().signing_root(domain);
 
         SignatureBytes::from(secret_key.sign(msg))
+    }
+}
+
+impl From<&DepositRequest> for DepositData {
+    fn from(value: &DepositRequest) -> Self {
+        DepositData {
+            pubkey: value.pubkey,
+            withdrawal_credentials: value.withdrawal_credentials,
+            amount: value.amount,
+            signature: value.signature.clone(),
+        }
+    }
+}
+
+impl From<&PendingDeposit> for DepositData {
+    fn from(value: &PendingDeposit) -> Self {
+        DepositData {
+            pubkey: value.pubkey,
+            withdrawal_credentials: value.withdrawal_credentials,
+            amount: value.amount,
+            signature: value.signature.clone(),
+        }
     }
 }
 
