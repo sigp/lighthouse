@@ -601,17 +601,18 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                         exceeded_retries: _,
                     } = coupling_error
                 {
-                    for (column_index, faulty_peer) in faulty_peers {
+                    let unique_faulty_peers: HashSet<PeerId> =
+                        faulty_peers.iter().map(|(_, peer)| *peer).collect();
+                    for faulty_peer in unique_faulty_peers {
                         debug!(
                             ?error,
-                            ?column_index,
                             ?faulty_peer,
                             "Custody backfill sync penalizing peer"
                         );
                         network.report_peer(
                             faulty_peer,
                             PeerAction::LowToleranceError,
-                            "Peer failed to serve column",
+                            "Peer failed to serve columns",
                         );
                     }
                 }

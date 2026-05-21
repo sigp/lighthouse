@@ -36,6 +36,7 @@ struct TestContext {
     preferences_cache: GossipVerifiedProposerPreferenceCache,
     slot_clock: TestingSlotClock,
     spec: ChainSpec,
+    genesis_block_root: Hash256,
 }
 
 impl TestContext {
@@ -91,6 +92,7 @@ impl TestContext {
             preferences_cache: GossipVerifiedProposerPreferenceCache::default(),
             slot_clock,
             spec,
+            genesis_block_root: block_root,
         }
     }
 
@@ -124,10 +126,11 @@ impl TestContext {
 fn make_signed_preferences(
     proposal_slot: Slot,
     validator_index: u64,
+    dependent_root: Hash256,
 ) -> Arc<SignedProposerPreferences> {
     Arc::new(SignedProposerPreferences {
         message: ProposerPreferences {
-            dependent_root: Hash256::ZERO,
+            dependent_root,
             proposal_slot,
             validator_index,
             fee_recipient: Address::ZERO,
@@ -145,13 +148,14 @@ fn already_seen_validator() {
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(1);
+    let root = ctx.genesis_block_root;
 
     let verified = GossipVerifiedProposerPreferences {
-        signed_preferences: make_signed_preferences(slot, 42),
+        signed_preferences: make_signed_preferences(slot, 42, root),
     };
     ctx.preferences_cache.insert_seen_validator(&verified);
 
-    let prefs = make_signed_preferences(slot, 42);
+    let prefs = make_signed_preferences(slot, 42, root);
     let result = GossipVerifiedProposerPreferences::new(prefs, &gossip);
     assert!(matches!(
         result,
@@ -171,7 +175,7 @@ fn invalid_epoch_too_far_ahead() {
     let gossip = ctx.gossip_ctx();
 
     let far_slot = Slot::new(3 * E::slots_per_epoch());
-    let prefs = make_signed_preferences(far_slot, 0);
+    let prefs = make_signed_preferences(far_slot, 0, ctx.genesis_block_root);
     let result = GossipVerifiedProposerPreferences::new(prefs, &gossip);
     assert!(matches!(
         result,
@@ -187,7 +191,7 @@ fn proposal_slot_already_passed() {
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
 
-    let prefs = make_signed_preferences(Slot::new(0), 0);
+    let prefs = make_signed_preferences(Slot::new(0), 0, ctx.genesis_block_root);
     let result = GossipVerifiedProposerPreferences::new(prefs, &gossip);
     assert!(matches!(
         result,
@@ -207,7 +211,7 @@ fn wrong_proposer_for_slot() {
     let actual_proposer = ctx.proposer_at_slot(slot);
     let wrong_validator = if actual_proposer == 0 { 1 } else { 0 };
 
-    let prefs = make_signed_preferences(slot, wrong_validator);
+    let prefs = make_signed_preferences(slot, wrong_validator, ctx.genesis_block_root);
     let result = GossipVerifiedProposerPreferences::new(prefs, &gossip);
     assert!(matches!(
         result,
@@ -223,9 +227,10 @@ fn correct_proposer_bad_signature() {
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(1);
+    let root = ctx.genesis_block_root;
 
     let actual_proposer = ctx.proposer_at_slot(slot);
-    let prefs = make_signed_preferences(slot, actual_proposer);
+    let prefs = make_signed_preferences(slot, actual_proposer, root);
     let result = GossipVerifiedProposerPreferences::new(prefs, &gossip);
     assert!(matches!(
         result,
@@ -233,7 +238,7 @@ fn correct_proposer_bad_signature() {
     ));
     assert!(
         !ctx.preferences_cache
-            .get_seen_validator(&slot, Hash256::ZERO, actual_proposer)
+            .get_seen_validator(&slot, root, actual_proposer)
     );
     assert!(ctx.preferences_cache.get_preferences(&slot).is_none());
 }
@@ -247,11 +252,28 @@ fn validator_index_out_of_bounds() {
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(1);
 
-    let prefs = make_signed_preferences(slot, u64::MAX);
+    let prefs = make_signed_preferences(slot, u64::MAX, ctx.genesis_block_root);
     let result = GossipVerifiedProposerPreferences::new(prefs, &gossip);
     assert!(matches!(
         result,
         Err(ProposerPreferencesError::InvalidProposalSlot { .. })
+    ));
+}
+
+#[test]
+fn dependent_root_unknown() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
+    let slot = Slot::new(1);
+
+    let prefs = make_signed_preferences(slot, 0, Hash256::repeat_byte(0xff));
+    let result = GossipVerifiedProposerPreferences::new(prefs, &gossip);
+    assert!(matches!(
+        result,
+        Err(ProposerPreferencesError::DependentRootUnknown { .. })
     ));
 }
 

@@ -4111,6 +4111,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 ProposerPreferencesError::AlreadySeen { .. }
                 | ProposerPreferencesError::InvalidProposalEpoch { .. }
                 | ProposerPreferencesError::ProposalSlotAlreadyPassed { .. }
+                | ProposerPreferencesError::DependentRootUnknown { .. }
+                | ProposerPreferencesError::DependentRootNotCanonical { .. }
                 | ProposerPreferencesError::BeaconChainError(_)
                 | ProposerPreferencesError::BeaconStateError(_)
                 | ProposerPreferencesError::UnableToReadSlot,
