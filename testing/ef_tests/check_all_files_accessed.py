@@ -79,6 +79,8 @@ excluded_paths = [
     "tests/.*/.*/networking/.*",
     # TODO: fast confirmation rule not merged yet
     "tests/.*/.*/fast_confirmation",
+    # TODO: fork choice compliance invalid_message tests not implemented yet
+    "tests/minimal/.*/fork_choice_compliance/invalid_message_test/.*"
 ]
 
 
