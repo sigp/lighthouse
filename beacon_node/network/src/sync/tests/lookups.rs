@@ -1,6 +1,7 @@
 use super::*;
 use crate::NetworkMessage;
-use crate::network_beacon_processor::{BlockProcessingResult, WhichPeerToPenalize};
+use crate::network_beacon_processor::BlockProcessingResult;
+use crate::network_beacon_processor::sync_methods::WhichPeerToPenalize;
 use crate::network_beacon_processor::{
     ChainSegmentProcessId, InvalidBlockStorage, NetworkBeaconProcessor,
 };

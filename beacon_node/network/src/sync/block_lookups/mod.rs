@@ -593,6 +593,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 if fully_imported {
                     Action::Continue
                 } else if lookup.all_components_processed() {
+                    // We don't request for other block components until being sure that the block has
+                    // data. If we request blobs / columns to a peer we are sure those must exist.
+                    // Therefore if all components are processed and we still receive `MissingComponents`
+                    // it indicates an internal bug.
                     return Err(LookupRequestError::Failed(
                         "missing components after all processed".to_owned(),
                     ));

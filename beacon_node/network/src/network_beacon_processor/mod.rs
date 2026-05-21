@@ -32,8 +32,6 @@ use tokio::sync::mpsc::{self, error::TrySendError};
 use tracing::{debug, error, instrument, trace, warn};
 use types::*;
 
-#[allow(unused_imports)]
-pub use sync_methods::WhichPeerToPenalize;
 pub use sync_methods::{BlockProcessingResult, ChainSegmentProcessId};
 use types::data::FixedBlobSidecarList;
 
@@ -41,7 +39,7 @@ pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
 
 mod gossip_methods;
 mod rpc_methods;
-mod sync_methods;
+pub(crate) mod sync_methods;
 mod tests;
 
 pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
