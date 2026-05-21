@@ -325,8 +325,8 @@ pub enum StateSkipConfig {
 }
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
-    type HotStore: store::ItemStore<Self::EthSpec>;
-    type ColdStore: store::ItemStore<Self::EthSpec>;
+    type HotStore: store::ItemStore;
+    type ColdStore: store::ItemStore;
     type SlotClock: slot_clock::SlotClock;
     type EthSpec: types::EthSpec;
 }
@@ -6352,6 +6352,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.canonical_head
             .fork_choice_read_lock()
             .contains_block(root)
+    }
+
+    pub fn envelope_is_known_to_fork_choice(&self, root: &Hash256) -> bool {
+        self.canonical_head
+            .fork_choice_read_lock()
+            .is_payload_received(root)
     }
 
     /// Determines the beacon proposer for the next slot. If that proposer is registered in the

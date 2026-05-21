@@ -120,6 +120,7 @@ pub struct BeaconProcessorQueueLengths {
     rpc_block_queue: usize,
     rpc_blob_queue: usize,
     rpc_custody_column_queue: usize,
+    rpc_envelope_queue: usize,
     column_reconstruction_queue: usize,
     chain_segment_queue: usize,
     backfill_chain_segment: usize,
@@ -195,6 +196,8 @@ impl BeaconProcessorQueueLengths {
             // We don't request more than `PARENT_DEPTH_TOLERANCE` (32) lookups, so we can limit
             // this queue size. With 48 max blobs per block, each column sidecar list could be up to 12MB.
             rpc_custody_column_queue: 64,
+            // Bounded by `PARENT_DEPTH_TOLERANCE`; one envelope per Gloas block.
+            rpc_envelope_queue: 1024,
             column_reconstruction_queue: 1,
             chain_segment_queue: 64,
             backfill_chain_segment: 64,
@@ -253,6 +256,7 @@ pub struct WorkQueues<E: EthSpec> {
     pub rpc_block_queue: FifoQueue<Work<E>>,
     pub rpc_blob_queue: FifoQueue<Work<E>>,
     pub rpc_custody_column_queue: FifoQueue<Work<E>>,
+    pub rpc_envelope_queue: FifoQueue<Work<E>>,
     pub column_reconstruction_queue: LifoQueue<Work<E>>,
     pub chain_segment_queue: FifoQueue<Work<E>>,
     pub backfill_chain_segment: FifoQueue<Work<E>>,
@@ -323,6 +327,7 @@ impl<E: EthSpec> WorkQueues<E> {
         let rpc_block_queue = FifoQueue::new(queue_lengths.rpc_block_queue);
         let rpc_blob_queue = FifoQueue::new(queue_lengths.rpc_blob_queue);
         let rpc_custody_column_queue = FifoQueue::new(queue_lengths.rpc_custody_column_queue);
+        let rpc_envelope_queue = FifoQueue::new(queue_lengths.rpc_envelope_queue);
         let column_reconstruction_queue = LifoQueue::new(queue_lengths.column_reconstruction_queue);
         let chain_segment_queue = FifoQueue::new(queue_lengths.chain_segment_queue);
         let backfill_chain_segment = FifoQueue::new(queue_lengths.backfill_chain_segment);
@@ -391,6 +396,7 @@ impl<E: EthSpec> WorkQueues<E> {
             rpc_block_queue,
             rpc_blob_queue,
             rpc_custody_column_queue,
+            rpc_envelope_queue,
             chain_segment_queue,
             column_reconstruction_queue,
             backfill_chain_segment,
