@@ -5,7 +5,8 @@ use eth2::beacon_response::{
 };
 use eth2::{
     CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER,
-    EXECUTION_PAYLOAD_BLINDED_HEADER, EXECUTION_PAYLOAD_VALUE_HEADER, SSZ_CONTENT_TYPE_HEADER,
+    EXECUTION_PAYLOAD_BLINDED_HEADER, EXECUTION_PAYLOAD_INCLUDED_HEADER,
+    EXECUTION_PAYLOAD_VALUE_HEADER, SSZ_CONTENT_TYPE_HEADER,
 };
 use serde::Serialize;
 use types::{ForkName, InconsistentFork, Uint256};
@@ -84,6 +85,19 @@ pub fn add_execution_payload_blinded_header<T: Reply>(
         reply,
         EXECUTION_PAYLOAD_BLINDED_HEADER,
         execution_payload_blinded.to_string(),
+    )
+    .into_response()
+}
+
+/// Add the `Eth-Execution-Payload-Included` header to a response.
+pub fn add_execution_payload_included_header<T: Reply>(
+    reply: T,
+    execution_payload_included: bool,
+) -> Response {
+    reply::with_header(
+        reply,
+        EXECUTION_PAYLOAD_INCLUDED_HEADER,
+        execution_payload_included.to_string(),
     )
     .into_response()
 }

@@ -36,6 +36,7 @@ use rand::SeedableRng;
 use rand::rngs::{OsRng, StdRng};
 use slasher::Slasher;
 use slasher_service::SlasherService;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -639,6 +640,10 @@ where
                 network_globals: self.network_globals.clone(),
                 beacon_processor_send: Some(beacon_processor_channels.beacon_processor_tx.clone()),
                 sse_logging_components: runtime_context.sse_logging_components.clone(),
+                historical_committee_cache: Arc::new(http_api::HistoricalCommitteeCache::new(
+                    NonZeroUsize::new(self.http_api_config.historical_committee_cache_size)
+                        .unwrap_or(NonZeroUsize::MIN),
+                )),
             });
 
             let exit = runtime_context.executor.exit();

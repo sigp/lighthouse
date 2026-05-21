@@ -14,7 +14,6 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
-use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::{BlockType, ChainSpec, EthSpec, Graffiti, Slot};
 use validator_store::{Error as ValidatorStoreError, SignedBlock, UnsignedBlock, ValidatorStore};
 
@@ -479,6 +478,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                             slot,
                             randao_reveal_ref,
                             graffiti.as_ref(),
+                            None,
                             builder_boost_factor,
                             self_ref.graffiti_policy,
                         )
@@ -506,6 +506,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                                     slot,
                                     randao_reveal_ref,
                                     graffiti.as_ref(),
+                                    None,
                                     builder_boost_factor,
                                     self_ref.graffiti_policy,
                                 )
@@ -652,16 +653,13 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
     ) -> Result<(), BlockError> {
         info!(slot = slot.as_u64(), "Fetching execution payload envelope");
 
-        // Fetch the envelope from the beacon node. Use builder_index=BUILDER_INDEX_SELF_BUILD for local building.
+        // Fetch the envelope from the beacon node.
         // TODO(gloas): Use proposer_fallback once multi-BN is supported.
         let envelope = self
             .beacon_nodes
             .first_success(|beacon_node| async move {
                 beacon_node
-                    .get_validator_execution_payload_envelope_ssz::<S::E>(
-                        slot,
-                        BUILDER_INDEX_SELF_BUILD,
-                    )
+                    .get_validator_execution_payload_envelope_ssz::<S::E>(slot)
                     .await
                     .map_err(|e| {
                         BlockError::Recoverable(format!(
