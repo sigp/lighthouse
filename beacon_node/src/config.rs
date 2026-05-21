@@ -741,6 +741,24 @@ pub fn get_config<E: EthSpec>(
 
     client_config.chain.disable_proposer_reorg = cli_args.get_flag("disable-proposer-reorgs");
 
+    if clap_utils::parse_optional::<u64>(cli_args, "proposer-reorg-threshold")?.is_some() {
+        warn!("The proposer-reorg-threshold flag is deprecated");
+    }
+
+    if clap_utils::parse_optional::<u64>(cli_args, "proposer-reorg-epochs-since-finalization")?
+        .is_some()
+    {
+        warn!("The proposer-reorg-epochs-since-finalization flag is deprecated");
+    }
+
+    if clap_utils::parse_optional::<u64>(cli_args, "proposer-reorg-cutoff")?.is_some() {
+        warn!("The proposer-reorg-cutoff flag is deprecated");
+    }
+
+    if clap_utils::parse_optional::<u64>(cli_args, "proposer-reorg-parent-threshold")?.is_some() {
+        warn!("The proposer-reorg-parent-threshold flag is deprecated");
+    }
+
     if let Some(disallowed_offsets_str) =
         clap_utils::parse_optional::<String>(cli_args, "proposer-reorg-disallowed-offsets")?
     {
