@@ -382,6 +382,7 @@ pub async fn proposer_boost_re_org_weight_misprediction() {
 /// - `num_empty_votes`: percentage of comm of attestations for the parent block
 /// - `num_head_votes`: number of attestations for the head block
 /// - `should_re_org`: whether the proposer should build on the parent rather than the head
+#[allow(clippy::large_stack_frames)]
 pub async fn proposer_boost_re_org_test(
     ReOrgTest {
         head_slot,

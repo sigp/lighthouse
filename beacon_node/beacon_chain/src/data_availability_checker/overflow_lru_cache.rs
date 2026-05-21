@@ -109,7 +109,7 @@ impl<E: EthSpec> PendingComponents<E> {
             .unwrap_or(false)
     }
 
-    /// Returns the indices of cached custody columns
+    /// Returns the indices of cached sampling columns
     pub fn get_cached_data_columns_indices(&self) -> Vec<ColumnIndex> {
         self.verified_data_columns
             .iter()
@@ -804,7 +804,7 @@ mod test {
     fn get_store_with_spec<E: EthSpec>(
         db_path: &TempDir,
         spec: Arc<ChainSpec>,
-    ) -> Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>> {
+    ) -> Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>> {
         let hot_path = db_path.path().join("hot_db");
         let cold_path = db_path.path().join("cold_db");
         let blobs_path = db_path.path().join("blobs_db");
@@ -868,8 +868,8 @@ mod test {
     )
     where
         E: EthSpec,
-        Hot: ItemStore<E>,
-        Cold: ItemStore<E>,
+        Hot: ItemStore,
+        Cold: ItemStore,
     {
         let chain = &harness.chain;
         let head = chain.head_snapshot();
@@ -952,8 +952,8 @@ mod test {
     where
         E: EthSpec,
         T: BeaconChainTypes<
-                HotStore = BeaconNodeBackend<E>,
-                ColdStore = BeaconNodeBackend<E>,
+                HotStore = BeaconNodeBackend,
+                ColdStore = BeaconNodeBackend,
                 EthSpec = E,
             >,
     {

@@ -250,19 +250,16 @@ impl<E: EthSpec> DataColumnSidecarFulu<E> {
     }
 
     /// Convert this full data column into a verifiable partial data column.
-    pub fn to_partial(&self) -> PartialDataColumn<E> {
+    /// Note: This is not expected to ever fail.
+    pub fn to_partial(&self) -> Result<PartialDataColumn<E>, PartialDataColumnSidecarError> {
         let cell_count = self.column.len();
-        let mut bitmap =
-            CellBitmap::<E>::with_capacity(cell_count).expect("our column has the same bound");
-        for idx in 0..cell_count {
-            bitmap
-                .set(idx, true)
-                .expect("The correct size is initialized right above");
-        }
+        let mut bitmap = CellBitmap::<E>::with_capacity(cell_count)
+            .map_err(|_| PartialDataColumnSidecarError::UnexpectedBounds)?;
+        bitmap.not_inplace();
 
         let block_root = self.block_root();
 
-        PartialDataColumn {
+        Ok(PartialDataColumn {
             block_root,
             index: self.index,
             sidecar: PartialDataColumnSidecar {
@@ -276,7 +273,7 @@ impl<E: EthSpec> DataColumnSidecarFulu<E> {
                 })
                 .into(),
             },
-        }
+        })
     }
 }
 
