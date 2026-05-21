@@ -556,7 +556,9 @@ impl<E: EthSpec> PeerManager<E> {
                     // Don't ban on this because we want to retry with a block by root request.
                     if matches!(
                         protocol,
-                        Protocol::BlobsByRoot | Protocol::DataColumnsByRoot
+                        Protocol::BlobsByRoot
+                            | Protocol::DataColumnsByRoot
+                            | Protocol::DataColumnsByRange
                     ) {
                         return;
                     }
