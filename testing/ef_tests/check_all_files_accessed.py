@@ -77,8 +77,6 @@ excluded_paths = [
     "tests/.*/manifest.yaml",
     # TODO: gossip condition tests not implemented yet
     "tests/.*/.*/networking/.*",
-    # TODO: fast confirmation rule not merged yet
-    "tests/.*/.*/fast_confirmation",
 ]
 
 
