@@ -326,7 +326,7 @@ fn preferences_for_next_epoch_slot() {
     let next_epoch_slot = Slot::new(E::slots_per_epoch() + 1);
     let actual_proposer = ctx.proposer_at_slot(next_epoch_slot);
 
-    let prefs = make_signed_preferences(next_epoch_slot, actual_proposer);
+    let prefs = make_signed_preferences(next_epoch_slot, actual_proposer, ctx.genesis_block_root);
     let result = GossipVerifiedProposerPreferences::new(prefs, &gossip);
     // Should pass consistency checks but fail on signature (empty sig).
     assert!(
