@@ -13,11 +13,11 @@
 //! 1. We are required to store an additional `BeaconState` for the head block. This consumes
 //!    memory.
 //! 2. There's a possibility that the head block is never built upon, causing wasted CPU cycles.
-use crate::shuffling_cache::CachedPTCs;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::{
-    BeaconChain, BeaconChainError, BeaconChainTypes, chain_config::FORK_CHOICE_LOOKAHEAD_FACTOR,
-    shuffling_cache::CachedShuffling,
+    BeaconChain, BeaconChainError, BeaconChainTypes,
+    chain_config::FORK_CHOICE_LOOKAHEAD_FACTOR,
+    shuffling_cache::{CachedPTCs, CachedShuffling},
 };
 use slot_clock::SlotClock;
 use state_processing::per_slot_processing;
@@ -396,26 +396,16 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
                 .map_err(BeaconChainError::from)?;
         let committee_cache = state
             .committee_cache(RelativeEpoch::Next)
-            .map_err(BeaconChainError::from)?;
+            .map_err(BeaconChainError::from)?
+            .clone();
         let shuffling_epoch = RelativeEpoch::Next.into_epoch(state.current_epoch());
 
-        if beacon_chain
-            .spec
-            .fork_name_at_epoch(shuffling_epoch)
-            .gloas_enabled()
-            && !state.fork_name_unchecked().gloas_enabled()
+        if let Some(ptcs) = CachedPTCs::try_from_state(&state, shuffling_epoch, &beacon_chain.spec)?
         {
-            debug!(
-                %shuffling_epoch,
-                "Skipping priming of attester cache for Gloas boundary epoch"
+            beacon_chain.shuffling_cache.write().insert_committee_cache(
+                shuffling_id.clone(),
+                CachedShuffling::new(committee_cache, ptcs),
             );
-        } else {
-            let ptcs = CachedPTCs::from_state(&state, shuffling_epoch, &beacon_chain.spec)?;
-            let cached_shuffling = CachedShuffling::new(committee_cache.clone(), ptcs);
-            beacon_chain
-                .shuffling_cache
-                .write()
-                .insert_committee_cache(shuffling_id.clone(), cached_shuffling);
 
             debug!(
                 ?head_block_root,
@@ -423,6 +413,11 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
                 state_epoch = %state.current_epoch(),
                 current_epoch = %current_slot.epoch(T::EthSpec::slots_per_epoch()),
                 "Primed proposer and attester caches"
+            );
+        } else {
+            debug!(
+                %shuffling_epoch,
+                "Skipping priming of attester cache for Gloas boundary epoch"
             );
         }
     }

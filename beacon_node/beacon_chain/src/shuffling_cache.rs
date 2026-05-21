@@ -7,8 +7,8 @@ use parking_lot::RwLock;
 use state_processing::state_advance::partial_state_advance;
 use tracing::debug;
 use types::{
-    AttestationShufflingId, BeaconState, ChainSpec, Epoch, EthSpec, Hash256, PTC, RelativeEpoch,
-    Slot, state::CommitteeCache,
+    AttestationShufflingId, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256, PTC,
+    RelativeEpoch, Slot, state::CommitteeCache,
 };
 
 use crate::{
@@ -47,19 +47,24 @@ pub enum CachedPTCs<E: EthSpec> {
 }
 
 impl<E: EthSpec> CachedPTCs<E> {
-    pub fn from_state(
+    /// Returns `None` at the Gloas fork boundary (pre-Gloas state, Gloas shuffling epoch); the
+    /// on-demand miss path in `with_cached_shuffling` handles those.
+    pub fn try_from_state(
         state: &BeaconState<E>,
         epoch: Epoch,
         spec: &ChainSpec,
-    ) -> Result<Self, BeaconChainError> {
+    ) -> Result<Option<Self>, BeaconChainError> {
         if shuffling_requires_ptcs(epoch, spec) {
+            if !state.fork_name_unchecked().gloas_enabled() {
+                return Ok(None);
+            }
             let ptcs = epoch
                 .slot_iter(E::slots_per_epoch())
                 .map(|slot| state.get_ptc(slot, spec))
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok(Self::PostGloas(ptcs, epoch))
+            Ok(Some(Self::PostGloas(ptcs, epoch)))
         } else {
-            Ok(Self::PreGloas)
+            Ok(Some(Self::PreGloas))
         }
     }
 }
@@ -436,7 +441,11 @@ where
             .committee_cache(relative_epoch)
             .map_err(BeaconChainError::from)?
             .clone();
-        let ptcs = CachedPTCs::from_state(&state, shuffling_epoch, spec)?;
+        // The state has been advanced through the upgrade if needed, so `try_from_state`
+        // cannot return None here.
+        let ptcs = CachedPTCs::try_from_state(&state, shuffling_epoch, spec)?.ok_or(
+            BeaconChainError::BeaconStateError(BeaconStateError::IncorrectStateVariant),
+        )?;
         let shuffling_decision_block = shuffling_id.shuffling_decision_block;
         let cached_shuffling = CachedShuffling::new(committee_cache, ptcs);
 
@@ -815,5 +824,42 @@ mod test {
             cache.cache_size,
             "should limit cache size"
         );
+    }
+
+    /// Pre-Gloas state across the Gloas fork: epoch G-1 returns `Some(PreGloas)`, epoch G and
+    /// G+1 return `None` (the boundary skip).
+    #[test]
+    fn try_from_state_skips_at_gloas_boundary() {
+        create_test_tracing_subscriber();
+
+        let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+        let gloas_fork_epoch = Epoch::new(2);
+        spec.gloas_fork_epoch = Some(gloas_fork_epoch);
+
+        let harness = BeaconChainHarness::builder(MinimalEthSpec)
+            .spec(Arc::new(spec.clone()))
+            .deterministic_keypairs(8)
+            .fresh_ephemeral_store()
+            .build();
+        let state = harness.get_current_state();
+        assert!(!state.fork_name_unchecked().gloas_enabled());
+
+        for (epoch, expect_pre_gloas) in [
+            (gloas_fork_epoch - 1, true),
+            (gloas_fork_epoch, false),
+            (gloas_fork_epoch + 1, false),
+        ] {
+            let result = CachedPTCs::<E>::try_from_state(&state, epoch, &spec)
+                .expect("must not error at the boundary");
+            if expect_pre_gloas {
+                assert!(
+                    matches!(result, Some(CachedPTCs::PreGloas)),
+                    "epoch {}: expected Some(PreGloas)",
+                    epoch
+                );
+            } else {
+                assert!(result.is_none(), "epoch {}: expected None", epoch);
+            }
+        }
     }
 }
