@@ -524,11 +524,15 @@ pub(crate) fn publish_column_sidecars<T: BeaconChainTypes>(
         if chain.config.enable_partial_columns
             && let DataColumnSidecar::Fulu(fulu_data_col) = data_col.as_ref()
         {
-            let mut partial = fulu_data_col.to_partial();
-            if let Some(header) = partial.sidecar.header.take() {
-                partial_header = Some(header);
+            match fulu_data_col.to_partial() {
+                Ok(mut partial) => {
+                    if let Some(header) = partial.sidecar.header.take() {
+                        partial_header = Some(header);
+                    }
+                    partial_columns.push(Arc::new(partial));
+                }
+                Err(err) => crit!(?err, "Could not convert from full to partial"),
             }
-            partial_columns.push(Arc::new(partial));
         }
 
         let subnet = DataColumnSubnetId::from_column_index(*data_col.index(), &chain.spec);
