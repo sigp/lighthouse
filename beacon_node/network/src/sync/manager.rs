@@ -40,7 +40,9 @@ use super::network_context::{
 };
 use super::peer_sync_info::{PeerSyncType, remote_sync_type};
 use super::range_sync::{EPOCHS_PER_BATCH, RangeSync, RangeSyncType};
-use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
+use crate::network_beacon_processor::{
+    BlockProcessingResult, ChainSegmentProcessId, NetworkBeaconProcessor,
+};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::{
@@ -199,57 +201,6 @@ impl BlockProcessType {
             BlockProcessType::SingleBlock { id }
             | BlockProcessType::SingleBlob { id }
             | BlockProcessType::SingleCustodyColumn(id) => *id,
-        }
-    }
-}
-
-/// The classified outcome of submitting a block / blob / column for processing. The producer
-/// (`network_beacon_processor`) translates the raw beacon-chain `Result<_, BlockError>` into this
-/// shape so the lookup state machine only has to resolve "which peer to penalize" symbolically.
-#[derive(Debug)]
-pub enum BlockProcessingResult {
-    /// Data was imported (or already present, or otherwise satisfies the lookup). `info` is a
-    /// short stable identifier suitable for debug logs / metrics.
-    Imported(&'static str),
-    /// Block processing reported an unknown parent. The lookup re-arms itself behind a parent
-    /// lookup for `parent_root` rather than retrying or penalizing.
-    ParentUnknown { parent_root: Hash256 },
-    /// Processing failed. `penalty` is `Some` when an attributable peer should be downscored.
-    Error {
-        penalty: Option<(PeerAction, WhichPeerToPenalize)>,
-        reason: &'static str,
-    },
-}
-
-/// Symbolic identifier for the peer(s) the lookup should resolve and downscore. The consumer
-/// passes in the relevant `PeerGroup` (a singleton for block processing, the in-flight data peer
-/// group for data processing) and `apply` selects from it.
-#[derive(Debug, Clone, Copy)]
-pub enum WhichPeerToPenalize {
-    /// All peers in the passed `PeerGroup` (typically a singleton constructed from the block peer
-    /// or the blob peer — i.e. the peer responsible for the component as a whole).
-    BlockPeer,
-    /// The custody peer(s) that served a specific column index in the passed `PeerGroup`.
-    CustodyPeerForColumn(u64),
-}
-
-impl WhichPeerToPenalize {
-    /// Resolve this symbolic identifier against `peer_group` and downscore the matching peer(s).
-    pub fn apply<T: BeaconChainTypes>(
-        self,
-        action: PeerAction,
-        peer_group: &PeerGroup,
-        reason: &'static str,
-        cx: &mut SyncNetworkContext<T>,
-    ) {
-        let peers: Vec<PeerId> = match self {
-            WhichPeerToPenalize::BlockPeer => peer_group.all().copied().collect(),
-            WhichPeerToPenalize::CustodyPeerForColumn(idx) => {
-                peer_group.of_index(idx as usize).copied().collect()
-            }
-        };
-        for peer in peers {
-            cx.report_peer(peer, action, reason);
         }
     }
 }

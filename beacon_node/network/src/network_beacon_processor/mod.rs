@@ -32,7 +32,10 @@ use tokio::sync::mpsc::{self, error::TrySendError};
 use tracing::{debug, error, instrument, trace, warn};
 use types::*;
 
-pub use sync_methods::ChainSegmentProcessId;
+pub use sync_methods::{BlockProcessingResult, ChainSegmentProcessId};
+// Re-exported for test construction of `BlockProcessingResult::Error.penalty` tuples.
+#[allow(unused_imports)]
+pub use sync_methods::WhichPeerToPenalize;
 use types::data::FixedBlobSidecarList;
 
 pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;

@@ -23,9 +23,10 @@
 use self::parent_chain::{NodeChain, compute_parent_chains};
 pub use self::single_block_lookup::DownloadResult;
 use self::single_block_lookup::{LookupRequestError, LookupResult, SingleBlockLookup};
-use super::manager::{BlockProcessType, BlockProcessingResult, SLOT_IMPORT_TOLERANCE};
+use super::manager::{BlockProcessType, SLOT_IMPORT_TOLERANCE};
 use super::network_context::{PeerGroup, RpcResponseError, SyncNetworkContext};
 use crate::metrics;
+use crate::network_beacon_processor::BlockProcessingResult;
 use crate::sync::SyncMessage;
 use crate::sync::block_lookups::parent_chain::find_oldest_fork_ancestor;
 use beacon_chain::BeaconChainTypes;
@@ -583,24 +584,29 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         );
 
         let action = match result {
-            BlockProcessingResult::Imported(info) => {
+            BlockProcessingResult::Imported(fully_imported, _info) => {
                 // `on_processing_success` is called here to ensure the request state is updated
-                // prior to checking if all components have been processed (relevant for
-                // MissingComponents).
+                // prior to checking if all components have been processed (relevant for the
+                // `!fully_imported` case below).
                 request_state.on_processing_success()?;
 
-                if info == "missing_components" {
+                if fully_imported {
+                    Action::Continue
+                } else {
+                    // Block processing returned `Ok(MissingComponents)`: the block is valid but
+                    // data sidecars are still required to satisfy availability. The lookup must
+                    // stay alive and re-issue component requests; completing it here would drop
+                    // the lookup before the data is fetched.
                     if lookup.all_components_processed() {
-                        // We don't request for other block components until being sure that the
-                        // block has data. If we request blobs / columns to a peer we are sure
-                        // those must exist. Therefore if all components are processed and we
-                        // still receive `MissingComponents` it indicates an internal bug.
-                        return Err(LookupRequestError::MissingComponentsAfterAllProcessed);
+                        // Defensive: if every component has been processed but the producer still
+                        // sees missing components, the lookup state and the DA checker have
+                        // diverged. Treat as an internal bug and drop the lookup.
+                        return Err(LookupRequestError::Failed(
+                            "missing components after all processed".to_owned(),
+                        ));
                     } else {
                         Action::Retry
                     }
-                } else {
-                    Action::Continue
                 }
             }
             BlockProcessingResult::ParentUnknown { parent_root } => {
@@ -624,8 +630,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     "Lookup component processing failed; retrying"
                 );
                 let peer_group = request_state.on_processing_failure()?;
-                if let Some((action_kind, whom)) = penalty {
-                    whom.apply(action_kind, &peer_group, reason, cx);
+                if let Some((action_kind, whom, msg)) = penalty {
+                    whom.apply(action_kind, &peer_group, msg, cx);
                 }
                 Action::Retry
             }

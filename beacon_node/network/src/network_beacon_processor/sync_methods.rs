@@ -3,8 +3,8 @@ use crate::network_beacon_processor::{FUTURE_SLOT_TOLERANCE, NetworkBeaconProces
 use crate::sync::BatchProcessResult;
 use crate::sync::manager::CustodyBatchProcessResult;
 use crate::sync::{
-    ChainId,
-    manager::{BlockProcessType, BlockProcessingResult, SyncMessage, WhichPeerToPenalize},
+    ChainId, PeerGroup, SyncNetworkContext,
+    manager::{BlockProcessType, SyncMessage},
 };
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::block_verification_types::{AsBlock, RangeSyncBlock};
@@ -22,6 +22,7 @@ use beacon_processor::{
 };
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::PeerAction;
+use lighthouse_network::PeerId;
 use lighthouse_network::service::api_types::CustodyBackfillBatchId;
 use logging::crit;
 use std::sync::Arc;
@@ -101,7 +102,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 process_type,
                 result: BlockProcessingResult::Error {
                     penalty: None,
-                    reason: "processor_overloaded",
+                    reason: "ignored_processor_overloaded".to_string(),
                 },
             });
         };
@@ -242,7 +243,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         // Sync handles these results
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
-            result: classify_processing_result(result, &process_type, block_root),
+            result: result.into(),
             process_type,
         });
 
@@ -353,7 +354,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         // Sync handles these results
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
-            result: classify_processing_result(result, &process_type, block_root),
+            result: result.into(),
             process_type,
         });
     }
@@ -430,7 +431,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
 
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
-            result: classify_processing_result(result, &process_type, block_root),
+            result: result.into(),
             process_type,
         });
     }
@@ -1013,111 +1014,153 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 }
 
+/// The classified outcome of submitting a block / blob / column for processing. The producer
+/// (`network_beacon_processor`) translates the raw beacon-chain `Result<_, BlockError>` into this
+/// shape so the lookup state machine only has to resolve "which peer to penalize" symbolically.
+#[derive(Debug)]
+pub enum BlockProcessingResult {
+    /// Data was sent for processing and the producer treats this as a non-failure outcome for
+    /// the lookup. `fully_imported` is `true` when the lookup's block-and-data state is complete
+    /// (block imported, duplicate, or genesis); `false` when the block is valid but data
+    /// sidecars are still required (`MissingComponents`) and the lookup should keep fetching.
+    /// `info` is a short stable identifier suitable for debug logs / metrics.
+    Imported(bool, &'static str),
+    /// Block processing reported an unknown parent. The lookup re-arms itself behind a parent
+    /// lookup for `parent_root` rather than retrying or penalizing.
+    ParentUnknown { parent_root: Hash256 },
+    /// Processing failed. `penalty` is `Some` when an attributable peer should be downscored;
+    /// its third element is the `&'static str` passed to `report_peer` for scoring telemetry.
+    /// `reason` is a free-form description used for debug logs only.
+    Error {
+        penalty: Option<(PeerAction, WhichPeerToPenalize, &'static str)>,
+        reason: String,
+    },
+}
+
 /// Translate the beacon-chain processing outcome into a `BlockProcessingResult` the lookup state
 /// machine can act on directly. The policy decisions about *whether* and *which peer-class* to
 /// penalize live here, on the producer side, so consumers only need to resolve the symbolic
 /// `WhichPeerToPenalize` to an actual peer id at penalty time.
-fn classify_processing_result(
-    result: Result<AvailabilityProcessingStatus, BlockError>,
-    process_type: &BlockProcessType,
-    block_root: Hash256,
-) -> BlockProcessingResult {
-    // Emit the full `BlockError` debug repr before consuming `result` so downstream debugging
-    // isn't limited to the symbolic `reason` strings carried by `BlockProcessingResult`.
-    if let Err(e) = &result {
-        match e {
-            BlockError::BeaconChainError(_) | BlockError::InternalError(_) => {
-                error!(?block_root, ?process_type, error = ?e, "Internal error processing lookup component");
+impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingResult {
+    fn from(result: Result<AvailabilityProcessingStatus, BlockError>) -> Self {
+        // Emit the full `BlockError` debug repr before consuming `result` so downstream debugging
+        // isn't limited to the symbolic `reason` strings carried by `BlockProcessingResult`.
+
+        /// Penalty against the block peer, using `err`'s variant name (via `IntoStaticStr`) as the
+        /// peer-scoring telemetry message.
+        fn block_peer_penalty<E: Into<&'static str>>(
+            err: E,
+        ) -> Option<(PeerAction, WhichPeerToPenalize, &'static str)> {
+            Some((
+                PeerAction::MidToleranceError,
+                WhichPeerToPenalize::BlockPeer,
+                err.into(),
+            ))
+        }
+        match result {
+            Ok(AvailabilityProcessingStatus::Imported(_)) => Self::Imported(true, "imported"),
+            Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
+                Self::Imported(false, "missing_components")
             }
-            BlockError::AvailabilityCheck(inner)
-                if inner.category() == AvailabilityCheckErrorCategory::Internal =>
-            {
-                warn!(?block_root, ?process_type, error = ?e, "Internal availability check failure");
-            }
-            _ => {
-                debug!(?block_root, ?process_type, error = ?e, "Lookup component processing failed");
+            Err(e) => {
+                let penalty = match &e {
+                    BlockError::DuplicateFullyImported(_) => {
+                        return Self::Imported(true, "duplicate");
+                    }
+                    BlockError::GenesisBlock => return Self::Imported(true, "genesis"),
+                    BlockError::ParentUnknown { parent_root, .. } => {
+                        return Self::ParentUnknown {
+                            parent_root: *parent_root,
+                        };
+                    }
+                    BlockError::BeaconChainError(_) | BlockError::InternalError(_) => None,
+                    BlockError::DuplicateImportStatusUnknown(_) => None,
+                    BlockError::AvailabilityCheck(inner) => match inner {
+                        AvailabilityCheckError::InvalidColumn((Some(idx), _)) => Some((
+                            PeerAction::MidToleranceError,
+                            WhichPeerToPenalize::CustodyPeerForColumn(*idx),
+                            (&e).into(),
+                        )),
+                        inner => match inner.category() {
+                            // Internal AC errors are our fault; do not penalize the peer.
+                            AvailabilityCheckErrorCategory::Internal => None,
+                            // Malicious AC errors (bad blobs, bad columns w/o index, kzg
+                            // mismatch, etc.) are attributable to the data peer.
+                            AvailabilityCheckErrorCategory::Malicious => block_peer_penalty(inner),
+                        },
+                    },
+                    BlockError::ExecutionPayloadError(epe) => {
+                        if epe.penalize_peer() {
+                            block_peer_penalty(epe)
+                        } else {
+                            None
+                        }
+                    }
+                    // All remaining invalid blocks attribute to the block peer (which is also the data
+                    // peer pre-Gloas). Listed explicitly to keep this match exhaustive so future
+                    // `BlockError` variants force a compile error and a deliberate classification choice.
+                    BlockError::FutureSlot { .. }
+                    | BlockError::StateRootMismatch { .. }
+                    | BlockError::WouldRevertFinalizedSlot { .. }
+                    | BlockError::NotFinalizedDescendant { .. }
+                    | BlockError::BlockSlotLimitReached
+                    | BlockError::IncorrectBlockProposer { .. }
+                    | BlockError::UnknownValidator(_)
+                    | BlockError::InvalidSignature(_)
+                    | BlockError::BlockIsNotLaterThanParent { .. }
+                    | BlockError::NonLinearParentRoots
+                    | BlockError::NonLinearSlots
+                    | BlockError::PerBlockProcessingError(_)
+                    | BlockError::WeakSubjectivityConflict
+                    | BlockError::InconsistentFork(_)
+                    | BlockError::ParentExecutionPayloadInvalid { .. }
+                    | BlockError::KnownInvalidExecutionPayload(_)
+                    | BlockError::Slashable
+                    | BlockError::EnvelopeBlockRootUnknown(_)
+                    | BlockError::OptimisticSyncNotSupported { .. }
+                    | BlockError::BlobNotRequired(_)
+                    | BlockError::InvalidBlobCount { .. }
+                    | BlockError::BidParentRootMismatch { .. } => block_peer_penalty(&e),
+                };
+                Self::Error {
+                    penalty,
+                    reason: format!("{e:?}"),
+                }
             }
         }
     }
+}
 
-    let no_penalty = |reason| BlockProcessingResult::Error {
-        penalty: None,
-        reason,
-    };
-    let block_peer_penalty = || BlockProcessingResult::Error {
-        penalty: Some((
-            PeerAction::MidToleranceError,
-            WhichPeerToPenalize::BlockPeer,
-        )),
-        reason: match process_type {
-            BlockProcessType::SingleBlock { .. } => "lookup_block_processing_failure",
-            BlockProcessType::SingleBlob { .. } | BlockProcessType::SingleCustodyColumn(_) => {
-                "lookup_data_processing_failure"
+/// Symbolic identifier for the peer(s) the lookup should resolve and downscore. The consumer
+/// passes in the relevant `PeerGroup` (a singleton for block processing, the in-flight data peer
+/// group for data processing) and `apply` selects from it.
+#[derive(Debug, Clone, Copy)]
+pub enum WhichPeerToPenalize {
+    /// All peers in the passed `PeerGroup` (typically a singleton constructed from the block peer
+    /// or the blob peer — i.e. the peer responsible for the component as a whole).
+    BlockPeer,
+    /// The custody peer(s) that served a specific column index in the passed `PeerGroup`.
+    CustodyPeerForColumn(u64),
+}
+
+impl WhichPeerToPenalize {
+    /// Resolve this symbolic identifier against `peer_group` and downscore the matching peer(s)
+    /// with the given action and telemetry message.
+    pub fn apply<T: BeaconChainTypes>(
+        self,
+        action: PeerAction,
+        peer_group: &PeerGroup,
+        msg: &'static str,
+        cx: &mut SyncNetworkContext<T>,
+    ) {
+        let peers: Vec<PeerId> = match self {
+            WhichPeerToPenalize::BlockPeer => peer_group.all().copied().collect(),
+            WhichPeerToPenalize::CustodyPeerForColumn(idx) => {
+                peer_group.of_index(idx as usize).copied().collect()
             }
-        },
-    };
-    match result {
-        Ok(AvailabilityProcessingStatus::Imported(_)) => {
-            BlockProcessingResult::Imported("imported")
+        };
+        for peer in peers {
+            cx.report_peer(peer, action, msg);
         }
-        Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
-            BlockProcessingResult::Imported("missing_components")
-        }
-        Err(BlockError::DuplicateFullyImported(_)) => BlockProcessingResult::Imported("duplicate"),
-        Err(BlockError::GenesisBlock) => BlockProcessingResult::Imported("genesis"),
-        Err(BlockError::ParentUnknown { parent_root, .. }) => {
-            BlockProcessingResult::ParentUnknown { parent_root }
-        }
-        Err(BlockError::BeaconChainError(_)) | Err(BlockError::InternalError(_)) => {
-            no_penalty("internal_error")
-        }
-        Err(BlockError::DuplicateImportStatusUnknown(_)) => no_penalty("duplicate_unknown_status"),
-        Err(BlockError::AvailabilityCheck(ref inner))
-            if inner.category() == AvailabilityCheckErrorCategory::Internal =>
-        {
-            no_penalty("availability_internal")
-        }
-        Err(BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
-            no_penalty("execution_payload")
-        }
-        // Bad-column attribution: only meaningful for the data path, but classify uniformly —
-        // block-side processing won't produce this variant.
-        Err(BlockError::AvailabilityCheck(AvailabilityCheckError::InvalidColumn((
-            Some(idx),
-            _,
-        )))) => BlockProcessingResult::Error {
-            penalty: Some((
-                PeerAction::MidToleranceError,
-                WhichPeerToPenalize::CustodyPeerForColumn(idx),
-            )),
-            reason: "lookup_data_processing_failure",
-        },
-        // All remaining invalid blocks attribute to the block peer (which is also the data peer
-        // pre-Gloas). Listed explicitly to keep this match exhaustive so future `BlockError`
-        // variants force a compile error and a deliberate classification choice.
-        Err(BlockError::FutureSlot { .. })
-        | Err(BlockError::StateRootMismatch { .. })
-        | Err(BlockError::WouldRevertFinalizedSlot { .. })
-        | Err(BlockError::NotFinalizedDescendant { .. })
-        | Err(BlockError::BlockSlotLimitReached)
-        | Err(BlockError::IncorrectBlockProposer { .. })
-        | Err(BlockError::UnknownValidator(_))
-        | Err(BlockError::InvalidSignature(_))
-        | Err(BlockError::BlockIsNotLaterThanParent { .. })
-        | Err(BlockError::NonLinearParentRoots)
-        | Err(BlockError::NonLinearSlots)
-        | Err(BlockError::PerBlockProcessingError(_))
-        | Err(BlockError::WeakSubjectivityConflict)
-        | Err(BlockError::InconsistentFork(_))
-        | Err(BlockError::ExecutionPayloadError(_))
-        | Err(BlockError::ParentExecutionPayloadInvalid { .. })
-        | Err(BlockError::KnownInvalidExecutionPayload(_))
-        | Err(BlockError::Slashable)
-        | Err(BlockError::AvailabilityCheck(_))
-        | Err(BlockError::EnvelopeBlockRootUnknown(_))
-        | Err(BlockError::OptimisticSyncNotSupported { .. })
-        | Err(BlockError::BlobNotRequired(_))
-        | Err(BlockError::InvalidBlobCount { .. })
-        | Err(BlockError::BidParentRootMismatch { .. }) => block_peer_penalty(),
     }
 }

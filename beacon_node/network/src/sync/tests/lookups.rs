@@ -1,15 +1,13 @@
 use super::*;
 use crate::NetworkMessage;
+use crate::network_beacon_processor::{BlockProcessingResult, WhichPeerToPenalize};
 use crate::network_beacon_processor::{
     ChainSegmentProcessId, InvalidBlockStorage, NetworkBeaconProcessor,
 };
 use crate::sync::block_lookups::{BlockLookupSummary, PARENT_DEPTH_TOLERANCE};
 use crate::sync::{
     SyncMessage,
-    manager::{
-        BatchProcessResult, BlockProcessType, BlockProcessingResult, SyncManager,
-        WhichPeerToPenalize,
-    },
+    manager::{BatchProcessResult, BlockProcessType, SyncManager},
 };
 use beacon_chain::blob_verification::KzgVerifiedBlob;
 use beacon_chain::block_verification_types::LookupBlock;
@@ -2094,8 +2092,9 @@ async fn too_many_processing_failures(depth: usize) {
             penalty: Some((
                 PeerAction::MidToleranceError,
                 WhichPeerToPenalize::BlockPeer,
+                "lookup_block_processing_failure",
             )),
-            reason: "lookup_block_processing_failure",
+            reason: "lookup_block_processing_failure".to_string(),
         }),
     )
     .await;
@@ -2152,7 +2151,7 @@ async fn test_single_block_lookup_ignored_response() {
     r.simulate(
         SimulateConfig::new().with_process_result(|| BlockProcessingResult::Error {
             penalty: None,
-            reason: "processor_overloaded",
+            reason: "processor_overloaded".to_string(),
         }),
     )
     .await;
@@ -2171,7 +2170,8 @@ async fn test_single_block_lookup_duplicate_response() {
     r.build_chain_and_trigger_last_block(1).await;
     // Send a DuplicateFullyImported response, the lookup should complete successfully
     r.simulate(
-        SimulateConfig::new().with_process_result(|| BlockProcessingResult::Imported("duplicate")),
+        SimulateConfig::new()
+            .with_process_result(|| BlockProcessingResult::Imported(true, "duplicate")),
     )
     .await;
     // The block was not actually imported
@@ -2576,7 +2576,7 @@ async fn crypto_on_fail_with_invalid_block_signature() {
         r.assert_no_penalties();
     } else {
         r.assert_failed_lookup_sync();
-        r.assert_penalties_of_type("lookup_block_processing_failure");
+        r.assert_penalties_of_type("InvalidSignature");
     }
 }
 
@@ -2594,7 +2594,7 @@ async fn crypto_on_fail_with_bad_blob_proposer_signature() {
         r.assert_no_penalties();
     } else {
         r.assert_failed_lookup_sync();
-        r.assert_penalties_of_type("lookup_blobs_processing_failure");
+        r.assert_penalties_of_type("InvalidSignature");
     }
 }
 
@@ -2612,7 +2612,7 @@ async fn crypto_on_fail_with_bad_blob_kzg_proof() {
         r.assert_no_penalties();
     } else {
         r.assert_failed_lookup_sync();
-        r.assert_penalties_of_type("lookup_blobs_processing_failure");
+        r.assert_penalties_of_type("InvalidBlobs");
     }
 }
 
@@ -2630,7 +2630,7 @@ async fn crypto_on_fail_with_bad_column_proposer_signature() {
         r.assert_no_penalties();
     } else {
         r.assert_failed_lookup_sync();
-        r.assert_penalties_of_type("lookup_custody_column_processing_failure");
+        r.assert_penalties_of_type("InvalidSignature");
     }
 }
 
@@ -2648,6 +2648,6 @@ async fn crypto_on_fail_with_bad_column_kzg_proof() {
         r.assert_no_penalties();
     } else {
         r.assert_failed_lookup_sync();
-        r.assert_penalties_of_type("lookup_custody_column_processing_failure");
+        r.assert_penalties_of_type("AvailabilityCheck");
     }
 }
