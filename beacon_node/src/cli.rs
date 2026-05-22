@@ -674,8 +674,19 @@ pub fn cli_app() -> Command {
             Arg::new("enable-partial-columns")
                 .long("enable-partial-columns")
                 .help("Enable partial messages for data columns. This can reduce the amount of \
-                data sent over the network.")
+                data sent over the network. Enabled by default on Hoodi and Sepolia; use \
+                --disable-partial-columns to opt out.")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("disable-partial-columns")
+                .long("disable-partial-columns")
+                .help("Disable partial messages for data columns. Use this on Hoodi or Sepolia \
+                to opt out of the default-enabled behavior.")
+                .action(ArgAction::SetTrue)
+                .conflicts_with("enable-partial-columns")
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
         )

@@ -482,6 +482,9 @@ Flags:
       --disable-packet-filter
           Disables the discovery packet filter. Useful for testing in smaller
           networks
+      --disable-partial-columns
+          Disable partial messages for data columns. Use this on Hoodi or
+          Sepolia to opt out of the default-enabled behavior.
       --disable-proposer-reorgs
           Do not attempt to reorg late blocks from other validators when
           proposing.
@@ -499,7 +502,8 @@ Flags:
           --listen-address and the UDP port will be --discovery-port.
       --enable-partial-columns
           Enable partial messages for data columns. This can reduce the amount
-          of data sent over the network.
+          of data sent over the network. Enabled by default on Hoodi and
+          Sepolia; use --disable-partial-columns to opt out.
       --enable-private-discovery
           Lighthouse by default does not discover private IP addresses. Set this
           flag to enable connection attempts to local addresses.
