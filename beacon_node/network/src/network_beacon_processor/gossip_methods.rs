@@ -4058,7 +4058,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 PayloadBidError::BadSignature
                 | PayloadBidError::InvalidBuilder { .. }
                 | PayloadBidError::InvalidFeeRecipient
-                | PayloadBidError::InvalidGasLimit
                 | PayloadBidError::ExecutionPaymentNonZero { .. }
                 | PayloadBidError::InvalidBlobKzgCommitments { .. },
             ) => {
@@ -4076,6 +4075,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | PayloadBidError::ParentBlockRootUnknown { .. }
                 | PayloadBidError::ParentBlockRootNotCanonical { .. }
                 | PayloadBidError::BuilderCantCoverBid { .. }
+                | PayloadBidError::InvalidGasLimit
                 | PayloadBidError::BeaconStateError(_)
                 | PayloadBidError::InternalError(_)
                 | PayloadBidError::InvalidBidSlot { .. }
