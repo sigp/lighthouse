@@ -78,6 +78,37 @@ async fn get_harness_at_fork<E: EthSpec>(
     harness
 }
 
+/// Helper to create a harness with Fulu genesis and gloas at a later epoch.
+async fn get_fulu_harness_with_gloas_scheduled<E: EthSpec>(
+    gloas_epoch: u64,
+    num_validators: usize,
+) -> BeaconChainHarness<EphemeralHarnessType<E>> {
+    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    spec.gloas_fork_epoch = Some(Epoch::new(gloas_epoch));
+    let spec = Arc::new(spec);
+    let last_slot_of_pre_gloas_epoch = Epoch::new(gloas_epoch).start_slot(E::slots_per_epoch()) - 1;
+    let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
+        .spec(spec.clone())
+        .keypairs(KEYPAIRS[0..num_validators].to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+    let state = harness.get_current_state();
+    if last_slot_of_pre_gloas_epoch > Slot::new(0) {
+        harness
+            .add_attested_blocks_at_slots(
+                state,
+                (1..=last_slot_of_pre_gloas_epoch.as_u64())
+                    .map(Slot::new)
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+                (0..num_validators).collect::<Vec<_>>().as_slice(),
+            )
+            .await;
+    }
+    harness
+}
+
 fn builder_withdrawal_credentials(spec: &ChainSpec) -> Hash256 {
     let mut credentials = [0u8; 32];
     credentials[0] = spec.builder_withdrawal_prefix_byte;
@@ -718,6 +749,70 @@ async fn process_deposit_requests_post_gloas_preserves_existing_builder_before_v
 }
 
 #[tokio::test]
+async fn process_deposit_requests_post_gloas_does_not_reuse_topped_up_builder_index() {
+    let harness = get_gloas_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
+    let spec = harness.spec.clone();
+    let mut state = harness.get_current_state();
+
+    let reusable_builder_keypair = &KEYPAIRS[VALIDATOR_COUNT + 7];
+    let reusable_builder_credentials = builder_withdrawal_credentials(&spec);
+    let slot = state.slot();
+    let reusable_builder_index = state
+        .add_builder_to_registry(
+            reusable_builder_keypair.pk.compress(),
+            reusable_builder_credentials,
+            11,
+            slot,
+            &spec,
+        )
+        .unwrap() as usize;
+
+    let current_epoch = state.current_epoch();
+    let reusable_builder = state
+        .builders_mut()
+        .unwrap()
+        .get_mut(reusable_builder_index)
+        .unwrap();
+    reusable_builder.balance = 0;
+    reusable_builder.withdrawable_epoch = current_epoch;
+
+    let mut existing_builder_top_up = make_deposit_request(
+        reusable_builder_keypair,
+        reusable_builder_credentials,
+        29,
+        &spec,
+        0,
+    );
+    existing_builder_top_up.signature = SignatureBytes::empty();
+
+    let new_builder_request = make_deposit_request(
+        &KEYPAIRS[VALIDATOR_COUNT + 8],
+        builder_withdrawal_credentials(&spec),
+        31,
+        &spec,
+        1,
+    );
+
+    process_operations::process_deposit_requests_post_gloas(
+        &mut state,
+        &[existing_builder_top_up.clone(), new_builder_request.clone()],
+        None,
+        &spec,
+    )
+    .unwrap();
+
+    let builders = state.builders().unwrap();
+    assert_eq!(builders.len(), 2);
+
+    let topped_up_builder = builders.get(reusable_builder_index).unwrap();
+    assert_eq!(topped_up_builder.pubkey, existing_builder_top_up.pubkey);
+    assert_eq!(topped_up_builder.balance, existing_builder_top_up.amount);
+
+    let new_builder_index = find_builder_index(&state, &new_builder_request.pubkey).unwrap();
+    assert_ne!(new_builder_index, reusable_builder_index);
+}
+
+#[tokio::test]
 async fn process_deposit_requests_post_gloas_preserves_pre_state_pending_validator_path() {
     let harness = get_gloas_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
     let spec = harness.spec.clone();
@@ -853,37 +948,6 @@ async fn process_deposit_requests_cache_partial_hit() {
     // Both should be onboarded: one from cache, one from batch verification fallback
     assert!(find_builder_index(&state, &cached_request.pubkey).is_some());
     assert!(find_builder_index(&state, &uncached_request.pubkey).is_some());
-}
-
-/// Helper to create a harness with Fulu genesis and gloas at a later epoch.
-async fn get_fulu_harness_with_gloas_scheduled<E: EthSpec>(
-    gloas_epoch: u64,
-    num_validators: usize,
-) -> BeaconChainHarness<EphemeralHarnessType<E>> {
-    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
-    spec.gloas_fork_epoch = Some(Epoch::new(gloas_epoch));
-    let spec = Arc::new(spec);
-    let last_slot_of_pre_gloas_epoch = Epoch::new(gloas_epoch).start_slot(E::slots_per_epoch()) - 1;
-    let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
-        .spec(spec.clone())
-        .keypairs(KEYPAIRS[0..num_validators].to_vec())
-        .fresh_ephemeral_store()
-        .mock_execution_layer()
-        .build();
-    let state = harness.get_current_state();
-    if last_slot_of_pre_gloas_epoch > Slot::new(0) {
-        harness
-            .add_attested_blocks_at_slots(
-                state,
-                (1..=last_slot_of_pre_gloas_epoch.as_u64())
-                    .map(Slot::new)
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-                (0..num_validators).collect::<Vec<_>>().as_slice(),
-            )
-            .await;
-    }
-    harness
 }
 
 #[tokio::test]

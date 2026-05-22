@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap};
 
 use super::*;
 use crate::VerifySignatures;
@@ -959,12 +959,12 @@ pub fn process_deposit_requests_post_gloas<E: EthSpec>(
     // Doing this avoids walking through the entire `state.builders` list and appending
     // in the end everytime we want to insert a new builder.
     // For a high number of builder deposits, this can take quite long.
-    let mut reusable_builder_indices = VecDeque::new();
+    let mut reusable_builder_indices = BTreeSet::new();
 
     for (index, builder) in state_builders.iter().enumerate() {
         builder_index_map.insert(builder.pubkey, index as BuilderIndex);
         if builder.withdrawable_epoch <= current_epoch && builder.balance == 0 {
-            reusable_builder_indices.push_back(index as BuilderIndex);
+            reusable_builder_indices.insert(index as BuilderIndex);
         }
     }
 
@@ -1056,6 +1056,12 @@ pub fn process_deposit_requests_post_gloas<E: EthSpec>(
                     .ok_or(BeaconStateError::UnknownBuilder(builder_index))?
                     .balance
                     .safe_add_assign(deposit_request.amount)?;
+                // If the existing builder's balance was 0, then its no longer the
+                // case after the top-up. We cannot reuse its index anymore, remove
+                // the index from the set.
+                if deposit_request.amount > 0 && reusable_builder_indices.contains(&builder_index) {
+                    reusable_builder_indices.remove(&builder_index);
+                }
                 continue;
             }
 
@@ -1101,7 +1107,7 @@ pub fn process_deposit_requests_post_gloas<E: EthSpec>(
                 // There are reusable indices that opened up because of older builders getting
                 // evicted, reuse the indices by inserting the new builder in the correct
                 // location
-                let new_index = if let Some(reusable_index) = reusable_builder_indices.pop_front() {
+                let new_index = if let Some(reusable_index) = reusable_builder_indices.pop_first() {
                     let old_pubkey = state
                         .builders()?
                         .get(reusable_index as usize)
@@ -1123,6 +1129,9 @@ pub fn process_deposit_requests_post_gloas<E: EthSpec>(
 
                 // Keep the local mapping updated
                 builder_index_map.insert(deposit_request.pubkey, new_index);
+                continue;
+            } else {
+                // signature is invalid, cannot create a new builder. drop the deposit and continue
                 continue;
             }
         }
