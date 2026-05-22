@@ -130,8 +130,8 @@ impl BlockId {
                         .map_err(warp_utils::reject::unhandled_error)?;
                     Ok((*root, execution_optimistic, finalized))
                 } else if chain.early_attester_cache.get_block(*root).is_some() {
-                    // The block is in fork choice and the early attester cache but not yet
-                    // persisted to the DB (post-fork-choice, pre-DB-write race window).
+                    // Fall back to the early attester cache for blocks that are in fork choice
+                    // but haven't been written to disk yet.
                     let execution_optimistic = chain
                         .canonical_head
                         .fork_choice_read_lock()
@@ -159,7 +159,7 @@ impl BlockId {
             return Ok(Some(block));
         }
         // Fall back to the early attester cache for blocks that are in fork choice
-        // but haven't been written to disk yet
+        // but haven't been written to disk yet.
         Ok(chain
             .early_attester_cache
             .get_block(*root)
