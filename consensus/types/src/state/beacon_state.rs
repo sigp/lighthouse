@@ -44,8 +44,8 @@ use crate::{
         FINALIZED_ROOT_INDEX_ELECTRA, NEXT_SYNC_COMMITTEE_INDEX, NEXT_SYNC_COMMITTEE_INDEX_ELECTRA,
     },
     state::{
-        BlockRootsIter, CommitteeCache, EpochCache, EpochCacheError, ExitCache, HistoricalBatch,
-        HistoricalSummary, ProgressiveBalancesCache, PubkeyCache, SlashingsCache,
+        BlockRootsIter, BuilderPubkeyCache, CommitteeCache, EpochCache, EpochCacheError, ExitCache,
+        HistoricalBatch, HistoricalSummary, ProgressiveBalancesCache, PubkeyCache, SlashingsCache,
         get_active_validator_indices,
     },
     sync_committee::{SyncCommittee, SyncDuty},
@@ -118,6 +118,7 @@ pub enum BeaconStateError {
         cache_len: usize,
         registry_len: usize,
     },
+    BuilderPubkeyCacheInconsistent,
     PreviousCommitteeCacheUninitialized,
     CurrentCommitteeCacheUninitialized,
     TotalActiveBalanceCacheUninitialized,
@@ -695,6 +696,13 @@ where
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[metastruct(exclude)]
     pub pubkey_cache: PubkeyCache,
+    #[serde(skip_serializing, skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    #[metastruct(exclude)]
+    #[superstruct(only(Gloas))]
+    pub builder_pubkey_cache: BuilderPubkeyCache,
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
@@ -2050,6 +2058,7 @@ impl<E: EthSpec> BeaconState<E> {
         // up elsewhere. It has been retconned into the spec to support index reuse but so far
         // index reuse is only relevant for builders.
         let builder_index = self.get_index_for_new_builder()?;
+        self.update_builder_pubkey_cache()?;
         let builders = self.builders_mut()?;
 
         let version = *withdrawal_credentials
@@ -2078,6 +2087,11 @@ impl<E: EthSpec> BeaconState<E> {
                 .get_mut(builder_index as usize)
                 .ok_or(BeaconStateError::UnknownBuilder(builder_index))? = builder;
         }
+
+        if !self.builder_pubkey_cache_mut()?.set(builder_index, pubkey) {
+            return Err(BeaconStateError::BuilderPubkeyCacheInconsistent);
+        }
+
         Ok(builder_index)
     }
 
@@ -2390,6 +2404,7 @@ impl<E: EthSpec> BeaconState<E> {
         self.drop_committee_cache(RelativeEpoch::Current)?;
         self.drop_committee_cache(RelativeEpoch::Next)?;
         self.drop_pubkey_cache();
+        self.drop_builder_pubkey_cache();
         self.drop_progressive_balances_cache();
         *self.exit_cache_mut() = ExitCache::default();
         *self.slashings_cache_mut() = SlashingsCache::default();
@@ -2582,6 +2597,51 @@ impl<E: EthSpec> BeaconState<E> {
     /// Completely drops the `pubkey_cache`, replacing it with a new, empty cache.
     pub fn drop_pubkey_cache(&mut self) {
         *self.pubkey_cache_mut() = PubkeyCache::default()
+    }
+
+    /// Appends newly added builders to the pubkey cache. No-op on pre-Gloas states.
+    #[instrument(skip_all, level = "debug")]
+    pub fn update_builder_pubkey_cache(&mut self) -> Result<(), BeaconStateError> {
+        let Ok(builders) = self.builders() else {
+            return Ok(());
+        };
+        let builders_len = builders.len();
+        let cache_len = self.builder_pubkey_cache()?.len();
+
+        if cache_len == builders_len {
+            return Ok(());
+        }
+
+        let mut cache = mem::take(self.builder_pubkey_cache_mut()?);
+        for (i, builder) in self.builders()?.iter().enumerate().skip(cache.len()) {
+            let idx = i as BuilderIndex;
+            if !cache.append(builder.pubkey, idx) {
+                *self.builder_pubkey_cache_mut()? = cache;
+                return Err(BeaconStateError::BuilderPubkeyCacheInconsistent);
+            }
+        }
+        *self.builder_pubkey_cache_mut()? = cache;
+
+        Ok(())
+    }
+
+    /// Resets the `builder_pubkey_cache` to an empty cache.
+    pub fn drop_builder_pubkey_cache(&mut self) {
+        if let Ok(cache) = self.builder_pubkey_cache_mut() {
+            *cache = BuilderPubkeyCache::default();
+        }
+    }
+
+    /// Looks up a builder index by pubkey. Returns `Ok(None)` on pre-Gloas states.
+    pub fn get_builder_index(
+        &mut self,
+        pubkey: &PublicKeyBytes,
+    ) -> Result<Option<BuilderIndex>, BeaconStateError> {
+        if self.builders().is_err() {
+            return Ok(None);
+        }
+        self.update_builder_pubkey_cache()?;
+        Ok(self.builder_pubkey_cache()?.get_index(pubkey))
     }
 
     pub fn has_pending_mutations(&self) -> bool {

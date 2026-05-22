@@ -944,14 +944,7 @@ pub fn process_deposit_request_post_gloas<E: EthSpec>(
     // [New in Gloas:EIP7732]
     // Regardless of the withdrawal credentials prefix, if a builder/validator
     // already exists with this pubkey, apply the deposit to their balance
-    // TODO(gloas): this could be more efficient in the builder case, see:
-    // https://github.com/sigp/lighthouse/issues/8783
-    let builder_index = state
-        .builders()?
-        .iter()
-        .enumerate()
-        .find(|(_, builder)| builder.pubkey == deposit_request.pubkey)
-        .map(|(i, _)| i as u64);
+    let builder_index = state.get_builder_index(&deposit_request.pubkey)?;
     let is_builder = builder_index.is_some();
 
     let validator_index = state.get_validator_index(&deposit_request.pubkey)?;
