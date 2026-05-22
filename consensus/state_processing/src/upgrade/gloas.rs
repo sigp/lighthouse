@@ -9,8 +9,9 @@ use std::mem;
 use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
-    BeaconState, BeaconStateError as Error, BeaconStateGloas, BuilderPendingPayment, ChainSpec,
-    EthSpec, ExecutionPayloadBid, ExecutionRequests, Fork, is_builder_withdrawal_credential,
+    BeaconState, BeaconStateError as Error, BeaconStateGloas, BuilderPendingPayment,
+    BuilderPubkeyCache, ChainSpec, EthSpec, ExecutionPayloadBid, ExecutionRequests, Fork,
+    is_builder_withdrawal_credential,
 };
 
 /// Transform a `Fulu` state into a `Gloas` state.
@@ -116,6 +117,7 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         progressive_balances_cache: mem::take(&mut pre.progressive_balances_cache),
         committee_caches: mem::take(&mut pre.committee_caches),
         pubkey_cache: mem::take(&mut pre.pubkey_cache),
+        builder_pubkey_cache: BuilderPubkeyCache::default(),
         exit_cache: mem::take(&mut pre.exit_cache),
         slashings_cache: mem::take(&mut pre.slashings_cache),
         epoch_cache: mem::take(&mut pre.epoch_cache),

@@ -1,6 +1,7 @@
 mod activation_queue;
 mod balance;
 mod beacon_state;
+mod builder_pubkey_cache;
 #[macro_use]
 mod committee_cache;
 mod epoch_cache;
@@ -19,6 +20,7 @@ pub use beacon_state::{
     BeaconStateDeneb, BeaconStateElectra, BeaconStateError, BeaconStateFulu, BeaconStateGloas,
     BeaconStateHash, BeaconStateRef, CACHED_EPOCHS, DEFAULT_PRE_ELECTRA_WS_PERIOD, Validators,
 };
+pub use builder_pubkey_cache::BuilderPubkeyCache;
 pub use committee_cache::{
     CommitteeCache, compute_committee_index_in_epoch, compute_committee_range_in_epoch,
     get_active_validator_indices,
