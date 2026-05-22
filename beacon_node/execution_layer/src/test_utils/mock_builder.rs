@@ -282,7 +282,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
 #[derive(Clone)]
 pub struct PayloadParametersCloned {
     pub parent_hash: ExecutionBlockHash,
-    pub parent_gas_limit: u64,
+    pub parent_gas_limit: Option<u64>,
     pub proposer_gas_limit: Option<u64>,
     pub payload_attributes: PayloadAttributes,
     pub forkchoice_update_params: ForkchoiceUpdateParameters,
@@ -972,7 +972,7 @@ impl<E: EthSpec> MockBuilder<E> {
 
         let payload_parameters = PayloadParametersCloned {
             parent_hash: head_execution_hash,
-            parent_gas_limit: head_gas_limit,
+            parent_gas_limit: Some(head_gas_limit),
             proposer_gas_limit: Some(proposer_gas_limit),
             payload_attributes,
             forkchoice_update_params,

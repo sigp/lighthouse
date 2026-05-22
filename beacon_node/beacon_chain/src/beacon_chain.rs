@@ -96,8 +96,8 @@ use eth2::types::{
     SseExtendedPayloadAttributes, SseHead,
 };
 use execution_layer::{
-    BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer,
-    FailedCondition, PayloadAttributes, PayloadStatus,
+    BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth,
+    DEFAULT_GAS_LIMIT, ExecutionLayer, FailedCondition, PayloadAttributes, PayloadStatus,
 };
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::{
@@ -254,8 +254,6 @@ pub struct PrePayloadAttributes {
     pub parent_block_number: Option<u64>,
     /// The block root of the block being built upon (same block as fcU `headBlockHash`).
     pub parent_beacon_block_root: Hash256,
-    /// The gas limit of the parent execution payload (used as fallback target_gas_limit for Gloas).
-    pub parent_gas_limit: u64,
 }
 
 /// Information about a state/block at a specific slot.
@@ -5078,31 +5076,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         };
 
-        let parent_gas_limit = if cached_head
-            .snapshot
-            .beacon_state
-            .fork_name_unchecked()
-            .gloas_enabled()
-        {
-            cached_head
-                .snapshot
-                .beacon_state
-                .latest_execution_payload_bid()?
-                .gas_limit
-        } else {
-            cached_head
-                .snapshot
-                .beacon_state
-                .latest_execution_payload_header()?
-                .gas_limit()
-        };
-
         Ok(Some(PrePayloadAttributes {
             proposer_index,
             prev_randao,
             parent_block_number,
             parent_beacon_block_root: proposer_head,
-            parent_gas_limit,
         }))
     }
 
@@ -6508,7 +6486,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "No proposer gas limit configured, falling back to parent gas limit"
                     );
                 }
-                proposer_gas_limit.or(Some(pre_payload_attributes.parent_gas_limit))
+                proposer_gas_limit.or(Some(DEFAULT_GAS_LIMIT))
             } else {
                 None
             };

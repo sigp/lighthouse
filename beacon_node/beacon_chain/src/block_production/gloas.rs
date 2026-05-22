@@ -1069,12 +1069,10 @@ where
         .get_suggested_fee_recipient(proposer_index)
         .await;
     let slot_number = Some(builder_params.slot.as_u64());
-    let target_gas_limit = Some(
-        execution_layer
-            .get_proposer_gas_limit(proposer_index)
-            .await
-            .unwrap_or(DEFAULT_GAS_LIMIT),
-    );
+    let target_gas_limit = execution_layer
+        .get_proposer_gas_limit(proposer_index)
+        .await
+        .unwrap_or(DEFAULT_GAS_LIMIT);
 
     let payload_attributes = PayloadAttributes::new(
         timestamp,
@@ -1083,12 +1081,12 @@ where
         Some(withdrawals),
         Some(parent_beacon_block_root),
         slot_number,
-        target_gas_limit,
+        Some(target_gas_limit),
     );
     let payload_parameters = PayloadParameters {
         parent_hash: parent_block_hash,
-        parent_gas_limit: target_gas_limit.unwrap_or(DEFAULT_GAS_LIMIT),
-        proposer_gas_limit: target_gas_limit,
+        parent_gas_limit: None,
+        proposer_gas_limit: Some(target_gas_limit),
         payload_attributes: &payload_attributes,
         forkchoice_update_params: &forkchoice_update_params,
         current_fork: fork,

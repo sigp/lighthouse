@@ -423,7 +423,7 @@ where
     let target_gas_limit = execution_layer.get_proposer_gas_limit(proposer_index).await;
     let payload_parameters = PayloadParameters {
         parent_hash,
-        parent_gas_limit: latest_execution_payload_header_gas_limit,
+        parent_gas_limit: Some(latest_execution_payload_header_gas_limit),
         proposer_gas_limit: target_gas_limit,
         payload_attributes: &payload_attributes,
         forkchoice_update_params: &forkchoice_update_params,
