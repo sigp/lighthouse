@@ -3702,35 +3702,32 @@ where
         block: &SignedBeaconBlock<E>,
         custody_columns_opt: Option<HashSet<ColumnIndex>>,
     ) {
-        let is_peerdas_enabled = self.chain.spec.is_peer_das_enabled_for_epoch(block.epoch());
-        if is_peerdas_enabled {
-            let custody_columns = custody_columns_opt.unwrap_or_else(|| {
-                let epoch = block.slot().epoch(E::slots_per_epoch());
-                self.chain
-                    .sampling_columns_for_epoch(epoch)
-                    .iter()
-                    .copied()
-                    .collect()
-            });
+        assert!(self.chain.spec.is_peer_das_enabled_for_epoch(block.epoch()));
+        let custody_columns = custody_columns_opt.unwrap_or_else(|| {
+            let epoch = block.slot().epoch(E::slots_per_epoch());
+            self.chain
+                .sampling_columns_for_epoch(epoch)
+                .iter()
+                .copied()
+                .collect()
+        });
 
-            let verified_columns = generate_data_column_sidecars_from_block(block, &self.spec)
-                .into_iter()
-                .filter(|c| custody_columns.contains(c.index()))
-                .map(|sidecar| {
-                    let subnet_id =
-                        DataColumnSubnetId::from_column_index(*sidecar.index(), &self.spec);
-                    self.chain
-                        .verify_data_column_sidecar_for_gossip(sidecar, subnet_id)
-                })
-                .collect::<Result<Vec<_>, _>>()
+        let verified_columns = generate_data_column_sidecars_from_block(block, &self.spec)
+            .into_iter()
+            .filter(|c| custody_columns.contains(c.index()))
+            .map(|sidecar| {
+                let subnet_id = DataColumnSubnetId::from_column_index(*sidecar.index(), &self.spec);
+                self.chain
+                    .verify_data_column_sidecar_for_gossip(sidecar, subnet_id)
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        if !verified_columns.is_empty() {
+            self.chain
+                .process_gossip_data_columns(verified_columns, || Ok(()))
+                .await
                 .unwrap();
-
-            if !verified_columns.is_empty() {
-                self.chain
-                    .process_gossip_data_columns(verified_columns, || Ok(()))
-                    .await
-                    .unwrap();
-            }
         }
     }
 }
