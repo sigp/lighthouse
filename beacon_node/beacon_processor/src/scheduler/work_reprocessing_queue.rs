@@ -76,6 +76,9 @@ const MAXIMUM_QUEUED_ENVELOPES: usize = 16;
 /// How many attestations we keep before new ones get dropped.
 const MAXIMUM_QUEUED_ATTESTATIONS: usize = 16_384;
 
+/// How many columns we keep before new ones get dropped.
+const MAXIMUM_QUEUED_DATA_COLUMNS: usize = 256;
+
 /// How many light client updates we keep before new ones get dropped.
 const MAXIMUM_QUEUED_LIGHT_CLIENT_UPDATES: usize = 128;
 
@@ -717,7 +720,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 self.next_attestation += 1;
             }
             InboundEvent::Msg(UnknownBlockDataColumn(queued_data_column)) => {
-                if self.queued_gossip_data_columns.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
+                if self.queued_gossip_data_columns.len() >= MAXIMUM_QUEUED_DATA_COLUMNS {
                     return;
                 }
 
