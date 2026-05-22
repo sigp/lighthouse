@@ -2,7 +2,10 @@
 //! channel and stores a global RPC ID to perform requests.
 
 use self::custody::{ActiveCustodyRequest, Error as CustodyRequestError};
-pub use self::requests::{BlocksByRootSingleRequest, DataColumnsByRootSingleBlockRequest};
+pub use self::requests::{
+    BlocksByRootSingleRequest, DataColumnsByRootSingleBlockRequest,
+    PayloadEnvelopesByRootSingleRequest,
+};
 use super::SyncMessage;
 use super::block_sidecar_coupling::RangeBlockComponentsRequest;
 use super::manager::BlockProcessType;
@@ -41,7 +44,6 @@ use requests::{
     ActiveRequests, BlobsByRangeRequestItems, BlobsByRootRequestItems, BlocksByRangeRequestItems,
     BlocksByRootRequestItems, DataColumnsByRangeRequestItems, DataColumnsByRootRequestItems,
     PayloadEnvelopesByRangeRequestItems, PayloadEnvelopesByRootRequestItems,
-    PayloadEnvelopesByRootSingleRequest,
 };
 #[cfg(test)]
 use slot_clock::SlotClock;
@@ -206,6 +208,9 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
         ActiveRequests<SingleLookupReqId, BlocksByRootRequestItems<T::EthSpec>>,
     /// A mapping of active BlobsByRoot requests, including both current slot and parent lookups.
     blobs_by_root_requests: ActiveRequests<SingleLookupReqId, BlobsByRootRequestItems<T::EthSpec>>,
+    /// A mapping of active PayloadEnvelopesByRoot requests
+    payload_envelopes_by_root_requests:
+        ActiveRequests<SingleLookupReqId, PayloadEnvelopesByRootRequestItems<T::EthSpec>>,
     /// A mapping of active DataColumnsByRoot requests
     data_columns_by_root_requests:
         ActiveRequests<DataColumnsByRootRequestId, DataColumnsByRootRequestItems<T::EthSpec>>,
@@ -223,9 +228,6 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
         PayloadEnvelopesByRangeRequestId,
         PayloadEnvelopesByRangeRequestItems<T::EthSpec>,
     >,
-    /// A mapping of active PayloadEnvelopesByRoot requests
-    payload_envelopes_by_root_requests:
-        ActiveRequests<SingleLookupReqId, PayloadEnvelopesByRootRequestItems<T::EthSpec>>,
     /// Mapping of active custody column requests for a block root
     custody_by_root_requests: FnvHashMap<CustodyRequester, ActiveCustodyRequest<T>>,
 
@@ -311,12 +313,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             request_id: 1,
             blocks_by_root_requests: ActiveRequests::new("blocks_by_root"),
             blobs_by_root_requests: ActiveRequests::new("blobs_by_root"),
+            payload_envelopes_by_root_requests: ActiveRequests::new("payload_envelopes_by_root"),
             data_columns_by_root_requests: ActiveRequests::new("data_columns_by_root"),
             blocks_by_range_requests: ActiveRequests::new("blocks_by_range"),
             blobs_by_range_requests: ActiveRequests::new("blobs_by_range"),
             data_columns_by_range_requests: ActiveRequests::new("data_columns_by_range"),
             payload_envelopes_by_range_requests: ActiveRequests::new("payload_envelopes_by_range"),
-            payload_envelopes_by_root_requests: ActiveRequests::new("payload_envelopes_by_root"),
             custody_by_root_requests: <_>::default(),
             components_by_range_requests: FnvHashMap::default(),
             custody_backfill_data_column_batch_requests: FnvHashMap::default(),
@@ -341,12 +343,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             request_id: _,
             blocks_by_root_requests,
             blobs_by_root_requests,
+            payload_envelopes_by_root_requests,
             data_columns_by_root_requests,
             blocks_by_range_requests,
             blobs_by_range_requests,
             data_columns_by_range_requests,
             payload_envelopes_by_range_requests,
-            payload_envelopes_by_root_requests,
             // custody_by_root_requests is a meta request of data_columns_by_root_requests
             custody_by_root_requests: _,
             // components_by_range_requests is a meta request of various _by_range requests
@@ -366,6 +368,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .active_requests_of_peer(peer_id)
             .into_iter()
             .map(|id| SyncRequestId::SingleBlob { id: *id });
+        let payload_envelopes_by_root_ids = payload_envelopes_by_root_requests
+            .active_requests_of_peer(peer_id)
+            .into_iter()
+            .map(|id| SyncRequestId::SinglePayloadEnvelope { id: *id });
         let data_column_by_root_ids = data_columns_by_root_requests
             .active_requests_of_peer(peer_id)
             .into_iter()
@@ -392,6 +398,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .map(|id| SyncRequestId::SinglePayloadEnvelope { id: *id });
         blocks_by_root_ids
             .chain(blobs_by_root_ids)
+            .chain(payload_envelopes_by_root_ids)
             .chain(data_column_by_root_ids)
             .chain(blocks_by_range_ids)
             .chain(blobs_by_range_ids)
@@ -450,12 +457,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             request_id: _,
             blocks_by_root_requests,
             blobs_by_root_requests,
+            payload_envelopes_by_root_requests,
             data_columns_by_root_requests,
             blocks_by_range_requests,
             blobs_by_range_requests,
             data_columns_by_range_requests,
             payload_envelopes_by_range_requests,
-            payload_envelopes_by_root_requests,
             // custody_by_root_requests is a meta request of data_columns_by_root_requests
             custody_by_root_requests: _,
             // components_by_range_requests is a meta request of various _by_range requests
@@ -474,6 +481,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         for peer_id in blocks_by_root_requests
             .iter_request_peers()
             .chain(blobs_by_root_requests.iter_request_peers())
+            .chain(payload_envelopes_by_root_requests.iter_request_peers())
             .chain(data_columns_by_root_requests.iter_request_peers())
             .chain(blocks_by_range_requests.iter_request_peers())
             .chain(blobs_by_range_requests.iter_request_peers())
@@ -1005,6 +1013,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
         block_root: Hash256,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
+        // Skip the download if fork-choice already saw this envelope (e.g. imported via gossip
+        // before the lookup got here).
+        if self.chain.envelope_is_known_to_fork_choice(&block_root) {
+            return Ok(LookupRequestResult::NoRequestNeeded(
+                "envelope already known to fork-choice",
+            ));
+        }
+
+
         let active_request_count_by_peer = self.active_request_count_by_peer();
         let Some(peer_id) = lookup_peers
             .read()
@@ -1027,10 +1044,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             req_id: self.next_id(),
         };
 
-        let request = PayloadEnvelopesByRootSingleRequest(block_root);
+        let request = PayloadEnvelopesByRootSingleRequest { block_root };
 
         let network_request = RequestType::PayloadEnvelopesByRoot(
             request
+                .clone()
                 .into_request(&self.fork_context)
                 .map_err(RpcRequestSendError::InternalError)?,
         );
@@ -1230,7 +1248,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .fork_choice_read_lock()
             .get_block(&block_root)
             .map(|block| block.slot)
-            .unwrap_or_else(|| self.chain.slot().unwrap_or_default());
+            .or_else(|| self.chain.slot().ok())
+            .ok_or_else(|| {
+                RpcRequestSendError::InternalError(format!(
+                    "Unable to determine slot for block {block_root:?}"
+                ))
+            })?;
 
         let custody_indexes_imported = self
             .chain
@@ -1688,6 +1711,27 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.on_rpc_response_result(resp, peer_id)
     }
 
+    pub(crate) fn on_single_payload_envelope_response(
+        &mut self,
+        id: SingleLookupReqId,
+        peer_id: PeerId,
+        rpc_event: RpcEvent<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+    ) -> Option<RpcResponseResult<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>> {
+        let resp = self
+            .payload_envelopes_by_root_requests
+            .on_response(id, rpc_event);
+        let resp = resp.map(|res| {
+            res.and_then(|(mut envelopes, seen_timestamp)| {
+                match envelopes.pop() {
+                    Some(envelope) => Ok((envelope, seen_timestamp)),
+                    // Should never happen, we enforce at least 1 chunk.
+                    None => Err(LookupVerifyError::NotEnoughResponsesReturned { actual: 0 }.into()),
+                }
+            })
+        });
+        self.on_rpc_response_result(resp, peer_id)
+    }
+
     #[allow(clippy::type_complexity)]
     pub(crate) fn on_data_columns_by_root_response(
         &mut self,
@@ -1886,6 +1930,35 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 error!(
                     error = ?e,
                     "Failed to send sync blobs to processor"
+                );
+                SendErrorProcessor::SendError
+            })
+    }
+
+    #[allow(dead_code)]
+    pub fn send_payload_for_processing(
+        &self,
+        block_root: Hash256,
+        envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) -> Result<(), SendErrorProcessor> {
+        let beacon_processor = self
+            .beacon_processor_if_enabled()
+            .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;
+
+        debug!(
+            ?block_root,
+            ?process_type,
+            "Sending payload envelope for processing"
+        );
+
+        beacon_processor
+            .send_lookup_envelope(block_root, envelope, seen_timestamp, process_type)
+            .map_err(|e| {
+                error!(
+                    error = ?e,
+                    "Failed to send sync payload envelope to processor"
                 );
                 SendErrorProcessor::SendError
             })

@@ -7,7 +7,7 @@ use crate::pending_payload_cache::pending_column::PendingColumn;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{Span, debug, debug_span, error};
+use tracing::{Span, debug, debug_span};
 use types::DataColumnSidecar;
 use types::{ColumnIndex, EthSpec, Hash256, SignedExecutionPayloadBid};
 
@@ -20,6 +20,7 @@ pub struct PendingComponents<E: EthSpec> {
     pub bid: Arc<SignedExecutionPayloadBid<E>>,
     /// a cached post executed payload envelope
     pub envelope: Option<AvailabilityPendingExecutedEnvelope<E>>,
+    /// A column entry in this map may only have some cells filled in (i.e. a partial data column)
     pub verified_data_columns: HashMap<ColumnIndex, PendingColumn<E>>,
     pub reconstruction_started: bool,
     pub(crate) span: Span,
@@ -30,41 +31,25 @@ impl<E: EthSpec> PendingComponents<E> {
         self.bid.message.blob_kzg_commitments.len()
     }
 
-    /// Returns the completed custody columns.
-    ///
-    /// Skips columns that are not yet complete and logs an error if a complete column fails to
-    /// build (a spec-bound invariant would have to be violated; should never happen in practice).
+    /// Returns columns that have all cells present.
     pub fn get_cached_data_columns(&self) -> Vec<Arc<DataColumnSidecar<E>>> {
-        let blob_count = self.num_blobs_expected();
         let slot = self.bid.message.slot;
         let block_root = self.block_root;
         self.verified_data_columns
             .iter()
-            .filter(|(_, col)| col.is_complete(blob_count))
-            .filter_map(
-                |(col_idx, col)| match col.to_sidecar(*col_idx, slot, block_root) {
-                    Ok(sidecar) => Some(sidecar),
-                    Err(e) => {
-                        error!(
-                            ?e,
-                            column_index = %col_idx,
-                            ?block_root,
-                            "Failed to build sidecar for complete column"
-                        );
-                        None
-                    }
-                },
-            )
+            .filter_map(|(col_idx, col)| col.to_full_sidecar(*col_idx, slot, block_root))
             .collect()
     }
 
-    /// Returns the indices of cached custody columns
+    /// Returns the indices of columns that have all cells present.
     pub fn get_cached_data_columns_indices(&self) -> Vec<ColumnIndex> {
+        let slot = self.bid.message.slot;
+        let block_root = self.block_root;
         self.verified_data_columns
             .iter()
             .filter_map(|(col_idx, col)| {
-                col.is_complete(self.num_blobs_expected())
-                    .then_some(*col_idx)
+                col.to_full_sidecar(*col_idx, slot, block_root)
+                    .map(|_| *col_idx)
             })
             .collect()
     }
@@ -106,10 +91,7 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     pub fn num_completed_columns(&self) -> usize {
-        self.verified_data_columns
-            .values()
-            .filter(|col| col.is_complete(self.num_blobs_expected()))
-            .count()
+        self.get_cached_data_columns().len()
     }
 
     /// Returns `Some` if the envelope and all required data columns have been received.
@@ -134,20 +116,19 @@ impl<E: EthSpec> PendingComponents<E> {
             });
             vec![]
         } else {
-            let num_completed_columns = self.num_completed_columns();
-            match num_completed_columns.cmp(&num_expected_columns) {
+            let columns = self.get_cached_data_columns();
+            match columns.len().cmp(&num_expected_columns) {
                 Ordering::Greater => {
-                    // Should never happen
                     return Err(AvailabilityCheckError::Unexpected(format!(
-                        "too many columns got {num_completed_columns} expected {num_expected_columns}"
+                        "too many columns: got {} expected {num_expected_columns}",
+                        columns.len()
                     )));
                 }
                 Ordering::Equal => {
                     self.span.in_scope(|| {
                         debug!("All data columns received, data is available");
                     });
-
-                    self.get_cached_data_columns()
+                    columns
                 }
                 Ordering::Less => {
                     // Not enough data columns received yet
@@ -183,7 +164,7 @@ impl<E: EthSpec> PendingComponents<E> {
         format!(
             "envelope {}, data_columns {}/{}",
             self.envelope.is_some(),
-            self.verified_data_columns.len(),
+            self.num_completed_columns(),
             num_expected_columns
         )
     }

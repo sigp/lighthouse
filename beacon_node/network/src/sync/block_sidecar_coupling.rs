@@ -644,7 +644,6 @@ mod tests {
             DataColumnsByRangeRequestId, DataColumnsByRangeRequester, Id, RangeRequestId,
         },
     };
-    use rand::SeedableRng;
     use std::{collections::HashMap, sync::Arc};
     use tracing::Span;
     use types::{
@@ -726,11 +725,12 @@ mod tests {
 
     #[test]
     fn empty_blobs_into_responses() {
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
         let blocks = (0..4)
             .map(|_| {
                 // Always generate some blobs.
-                generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Number(3), &mut rng)
+                generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Number(3), &mut u)
+                    .unwrap()
                     .0
                     .into()
             })
@@ -772,15 +772,16 @@ mod tests {
             .custody_context()
             .sampling_columns_for_epoch(Epoch::new(0), &spec)
             .to_vec();
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
         let blocks = (0..4)
             .map(|_| {
                 generate_rand_block_and_data_columns::<E>(
                     ForkName::Fulu,
                     NumBlobs::Number(1),
-                    &mut rng,
+                    &mut u,
                     &spec,
                 )
+                .unwrap()
             })
             .collect::<Vec<_>>();
 
@@ -884,15 +885,16 @@ mod tests {
             Span::none(),
         );
 
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
         let blocks = (0..4)
             .map(|_| {
                 generate_rand_block_and_data_columns::<E>(
                     ForkName::Fulu,
                     NumBlobs::Number(1),
-                    &mut rng,
+                    &mut u,
                     &spec,
                 )
+                .unwrap()
             })
             .collect::<Vec<_>>();
 
@@ -942,15 +944,16 @@ mod tests {
             .custody_context()
             .sampling_columns_for_epoch(Epoch::new(0), &spec)
             .to_vec();
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
         let blocks = (0..2)
             .map(|_| {
                 generate_rand_block_and_data_columns::<E>(
                     ForkName::Fulu,
                     NumBlobs::Number(1),
-                    &mut rng,
+                    &mut u,
                     &spec,
                 )
+                .unwrap()
             })
             .collect::<Vec<_>>();
 
@@ -1040,15 +1043,16 @@ mod tests {
             .custody_context()
             .sampling_columns_for_epoch(Epoch::new(0), &spec)
             .to_vec();
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
         let blocks = (0..2)
             .map(|_| {
                 generate_rand_block_and_data_columns::<E>(
                     ForkName::Fulu,
                     NumBlobs::Number(1),
-                    &mut rng,
+                    &mut u,
                     &spec,
                 )
+                .unwrap()
             })
             .collect::<Vec<_>>();
 
@@ -1156,15 +1160,16 @@ mod tests {
             .custody_context()
             .sampling_columns_for_epoch(Epoch::new(0), &spec)
             .to_vec();
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
         let blocks = (0..1)
             .map(|_| {
                 generate_rand_block_and_data_columns::<E>(
                     ForkName::Fulu,
                     NumBlobs::Number(1),
-                    &mut rng,
+                    &mut u,
                     &spec,
                 )
+                .unwrap()
             })
             .collect::<Vec<_>>();
 

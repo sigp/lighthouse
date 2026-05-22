@@ -36,9 +36,9 @@ use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_execution_payload};
 use crate::fetch_blobs::EngineGetBlobsOutput;
+use crate::kzg_utils::reconstruct_blobs;
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
-use crate::kzg_utils::reconstruct_blobs;
 use crate::light_client_finality_update_verification::{
     Error as LightClientFinalityUpdateError, VerifiedLightClientFinalityUpdate,
 };
@@ -97,8 +97,8 @@ use eth2::types::{
     SseExtendedPayloadAttributes, SseHead,
 };
 use execution_layer::{
-    BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer,
-    FailedCondition, PayloadAttributes, PayloadStatus,
+    BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth,
+    DEFAULT_GAS_LIMIT, ExecutionLayer, FailedCondition, PayloadAttributes, PayloadStatus,
 };
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::{
@@ -326,8 +326,8 @@ pub enum StateSkipConfig {
 }
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
-    type HotStore: store::ItemStore<Self::EthSpec>;
-    type ColdStore: store::ItemStore<Self::EthSpec>;
+    type HotStore: store::ItemStore;
+    type ColdStore: store::ItemStore;
     type SlotClock: slot_clock::SlotClock;
     type EthSpec: types::EthSpec;
 }
@@ -1360,6 +1360,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+
     /// Returns the data columns at the given root, if any.
     ///
     /// ## Errors
@@ -2233,12 +2234,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // TODO(gloas) do we want to use a dedicated envelope cache instead?
         // Maybe the new gloas DA cache? (Or should the gloas DA cache use
-        // the envelopes_times_cache internally?)
+        // the envelopes_times_cache internally?
+        // The payload is considered present only if it was observed before
+        // the payload due deadline (PAYLOAD_DUE_BPS into the slot).
+        let payload_due = self.spec.get_payload_due();
         let payload_present = self
             .envelope_times_cache
             .read()
             .cache
-            .contains_key(&beacon_block_root);
+            .get(&beacon_block_root)
+            .and_then(|entry| entry.timestamps.observed)
+            .is_some_and(|observed| {
+                let slot_start = self.slot_clock.start_of(request_slot);
+                slot_start.is_some_and(|start| observed.saturating_sub(start) < payload_due)
+            });
 
         // TODO(EIP-7732): Check blob data availability. For now, default to true.
         let blob_data_available = true;
@@ -3485,12 +3494,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(None);
         };
 
-        // If this block has already been imported to forkchoice it must have been available
-        if self
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(&block_root)
-        {
+        if self.is_block_data_imported(block_root, slot) {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
@@ -3573,13 +3577,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        // If this block has already been imported to forkchoice it must have been available, so
-        // we don't need to process its blobs again.
-        if self
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(&block_root)
-        {
+        if self.is_block_data_imported(block_root, slot) {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
@@ -3704,15 +3702,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             ));
         };
 
-        // If this block has already been imported to forkchoice it must have been available, so
-        // we don't need to process its columns again.
-        // TODO(gloas) the block will be available in fork choice for gloas. This does not indicate availability
-        // anymore.
-        if self
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(&block_root)
-        {
+        if self.is_block_data_imported(block_root, slot) {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
@@ -3755,14 +3745,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )>,
         BlockError,
     > {
-        // As of now we only reconstruct data columns on supernodes, so if the block is already
-        // available on a supernode, there's no need to reconstruct as the node must already have
-        // all columns.
-        if self
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(&block_root)
-        {
+        // As of now we only reconstruct data columns on supernodes, so if all availability data
+        // for the block is already imported, there's nothing left to reconstruct.
+        if self.is_block_data_imported(block_root, slot) {
             return Ok(None);
         }
 
@@ -3851,6 +3836,32 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             Ok(())
         }
+    }
+
+    /// Returns true when no further availability data for `block_root` should be processed.
+    ///
+    /// Pre-Gloas:
+    /// - true once the block is fully imported into fork choice.
+    ///
+    /// Gloas:
+    /// - true only once the payload envelope and required data columns are fully imported.
+    ///   The beacon block itself may already be present in fork choice before this is true.
+    fn is_block_data_imported(&self, block_root: Hash256, slot: Slot) -> bool {
+        let is_gloas = self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(slot)
+            .gloas_enabled();
+
+        let fork_choice = self.canonical_head.fork_choice_read_lock();
+        if !fork_choice.contains_block(&block_root) {
+            return false;
+        }
+
+        if !is_gloas {
+            return true;
+        }
+
+        fork_choice.is_payload_received(&block_root)
     }
 
     /// Returns `Ok(block_root)` if the given `unverified_block` was successfully verified and
@@ -6498,6 +6509,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .contains_block(root)
     }
 
+    pub fn envelope_is_known_to_fork_choice(&self, root: &Hash256) -> bool {
+        self.canonical_head
+            .fork_choice_read_lock()
+            .is_payload_received(root)
+    }
+
     /// Determines the beacon proposer for the next slot. If that proposer is registered in the
     /// `execution_layer`, provide the `execution_layer` with the necessary information to produce
     /// `PayloadAttributes` for future calls to fork choice.
@@ -6629,6 +6646,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None
             };
 
+            let target_gas_limit = if prepare_slot_fork.gloas_enabled() {
+                let proposer_gas_limit = execution_layer.get_proposer_gas_limit(proposer).await;
+                if proposer_gas_limit.is_none() {
+                    warn!(
+                        %proposer,
+                        "No proposer gas limit configured, falling back to parent gas limit"
+                    );
+                }
+                proposer_gas_limit.or(Some(DEFAULT_GAS_LIMIT))
+            } else {
+                None
+            };
+
             let payload_attributes = PayloadAttributes::new(
                 self.slot_clock
                     .start_of(prepare_slot)
@@ -6639,6 +6669,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 withdrawals.map(Into::into),
                 parent_beacon_block_root,
                 slot_number,
+                target_gas_limit,
             );
 
             execution_layer

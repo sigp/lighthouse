@@ -4,15 +4,17 @@ use types::{EthSpec, ForkContext, Hash256, SignedExecutionPayloadEnvelope};
 
 use super::{ActiveRequestItems, LookupVerifyError};
 
-#[derive(Debug, Copy, Clone)]
-pub struct PayloadEnvelopesByRootSingleRequest(pub Hash256);
+#[derive(Debug, Clone)]
+pub struct PayloadEnvelopesByRootSingleRequest {
+    pub block_root: Hash256,
+}
 
 impl PayloadEnvelopesByRootSingleRequest {
     pub fn into_request(
         self,
         fork_context: &ForkContext,
     ) -> Result<PayloadEnvelopesByRootRequest, String> {
-        PayloadEnvelopesByRootRequest::new(vec![self.0], fork_context)
+        PayloadEnvelopesByRootRequest::new(vec![self.block_root], fork_context)
     }
 }
 
@@ -33,17 +35,16 @@ impl<E: EthSpec> PayloadEnvelopesByRootRequestItems<E> {
 impl<E: EthSpec> ActiveRequestItems for PayloadEnvelopesByRootRequestItems<E> {
     type Item = Arc<SignedExecutionPayloadEnvelope<E>>;
 
-    /// Append a response to the single chunk request. If the chunk is valid, the request is
-    /// resolved immediately.
-    /// The active request SHOULD be dropped after `add_response` returns an error
+    /// Append a response to the single chunk request. We expect exactly one envelope per
+    /// block root. Returns `true` when the single expected item has been received.
     fn add(&mut self, envelope: Self::Item) -> Result<bool, LookupVerifyError> {
-        let beacon_block_root = envelope.beacon_block_root();
-        if self.request.0 != beacon_block_root {
-            return Err(LookupVerifyError::UnrequestedBlockRoot(beacon_block_root));
+        let block_root = envelope.message.beacon_block_root;
+        if self.request.block_root != block_root {
+            return Err(LookupVerifyError::UnrequestedBlockRoot(block_root));
         }
 
         self.items.push(envelope);
-        // Always returns true, payload envelopes by root expects a single response
+        // Always returns true, we expect a single envelope per block root
         Ok(true)
     }
 

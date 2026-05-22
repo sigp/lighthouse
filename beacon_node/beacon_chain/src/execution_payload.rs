@@ -342,7 +342,7 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
     Ok(join_handle)
 }
 
-/// Prepares an execution payload for inclusion in a block.
+/// Prepares an execution payload (pre-gloas) for inclusion in a block.
 ///
 /// ## Errors
 ///
@@ -373,6 +373,13 @@ where
 {
     let spec = &chain.spec;
     let fork = spec.fork_name_at_slot::<T::EthSpec>(builder_params.slot);
+
+    if fork.gloas_enabled() {
+        return Err(BlockProductionError::InvalidBlockVariant(
+            "Called pre-gloas prepare_execution_payload on a gloas block".to_string(),
+        ));
+    }
+
     let execution_layer = chain
         .execution_layer
         .as_ref()
@@ -403,25 +410,20 @@ where
         .get_suggested_fee_recipient(proposer_index)
         .await;
 
-    let slot_number = if fork.gloas_enabled() {
-        Some(builder_params.slot.as_u64())
-    } else {
-        None
-    };
-
     let payload_attributes = PayloadAttributes::new(
         timestamp,
         random,
         suggested_fee_recipient,
         withdrawals,
         parent_beacon_block_root,
-        slot_number,
+        None,
+        None,
     );
 
     let target_gas_limit = execution_layer.get_proposer_gas_limit(proposer_index).await;
     let payload_parameters = PayloadParameters {
         parent_hash,
-        parent_gas_limit: latest_execution_payload_header_gas_limit,
+        parent_gas_limit: Some(latest_execution_payload_header_gas_limit),
         proposer_gas_limit: target_gas_limit,
         payload_attributes: &payload_attributes,
         forkchoice_update_params: &forkchoice_update_params,

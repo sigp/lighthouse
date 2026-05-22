@@ -2929,7 +2929,7 @@ impl ApiTester {
             proposal_slot,
             validator_index: validator_index as u64,
             fee_recipient: Address::repeat_byte(0xaa),
-            gas_limit: 30_000_000,
+            target_gas_limit: 30_000_000,
         };
 
         let epoch = proposal_slot.epoch(E::slots_per_epoch());
@@ -4288,6 +4288,7 @@ impl ApiTester {
         );
         // TODO(gloas): check why consensus block value is 0
         // assert!(!metadata.consensus_block_value.is_zero());
+        assert!(!metadata.execution_payload_included);
 
         let block_root = block.tree_hash_root();
         let envelope = self
@@ -4360,7 +4361,7 @@ impl ApiTester {
 
             let (response, metadata) = self
                 .client
-                .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, None, None)
+                .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, None, None, None)
                 .await
                 .unwrap();
             let block = response.data;
@@ -4369,7 +4370,7 @@ impl ApiTester {
 
             let envelope = self
                 .client
-                .get_validator_execution_payload_envelope::<E>(slot, BUILDER_INDEX_SELF_BUILD)
+                .get_validator_execution_payload_envelope::<E>(slot)
                 .await
                 .unwrap()
                 .data;
@@ -4423,7 +4424,7 @@ impl ApiTester {
 
             let (block, metadata) = self
                 .client
-                .get_validator_blocks_v4_ssz::<E>(slot, &randao_reveal, None, None, None)
+                .get_validator_blocks_v4_ssz::<E>(slot, &randao_reveal, None, None, None, None)
                 .await
                 .unwrap();
 
@@ -4431,7 +4432,7 @@ impl ApiTester {
 
             let envelope = self
                 .client
-                .get_validator_execution_payload_envelope_ssz::<E>(slot, BUILDER_INDEX_SELF_BUILD)
+                .get_validator_execution_payload_envelope_ssz::<E>(slot)
                 .await
                 .unwrap();
 
@@ -4807,7 +4808,8 @@ impl ApiTester {
             .client
             .get_validator_payload_attestation_data(slot)
             .await
-            .unwrap();
+            .unwrap()
+            .expect("expected payload attestation data for slot with block");
 
         assert_eq!(response.version(), Some(fork_name));
 
@@ -4823,7 +4825,8 @@ impl ApiTester {
             .client
             .get_validator_payload_attestation_data_ssz(slot)
             .await
-            .unwrap();
+            .unwrap()
+            .expect("expected SSZ payload attestation data for slot with block");
 
         assert_eq!(ssz_result, expected);
 
@@ -4859,7 +4862,7 @@ impl ApiTester {
             // Produce and publish a block.
             let (response, _metadata) = self
                 .client
-                .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, None, None)
+                .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, None, None, None)
                 .await
                 .unwrap();
             let block = response.data;
@@ -4876,7 +4879,7 @@ impl ApiTester {
             // Retrieve and publish the envelope.
             let envelope = self
                 .client
-                .get_validator_execution_payload_envelope::<E>(slot, BUILDER_INDEX_SELF_BUILD)
+                .get_validator_execution_payload_envelope::<E>(slot)
                 .await
                 .unwrap()
                 .data;
@@ -4894,6 +4897,7 @@ impl ApiTester {
                 .get_validator_payload_attestation_data(slot)
                 .await
                 .unwrap()
+                .expect("expected payload attestation data for slot with block")
                 .into_data();
 
             assert_eq!(pa_data.beacon_block_root, block_root);
@@ -4922,6 +4926,26 @@ impl ApiTester {
             Ok(result) => panic!("query for pre-Gloas slot should fail, got: {result:?}"),
             Err(e) => assert_eq!(e.status().unwrap(), 400),
         }
+
+        self
+    }
+
+    pub async fn test_get_validator_payload_attestation_data_no_block(self) -> Self {
+        // Advance the slot clock without producing a block
+        self.harness.advance_slot();
+        let slot = self.chain.slot().unwrap();
+
+        // Should return None when no block exists for the slot
+        let result = self
+            .client
+            .get_validator_payload_attestation_data(slot)
+            .await
+            .unwrap();
+
+        assert!(
+            result.is_none(),
+            "expected None for empty slot, got: {result:?}"
+        );
 
         self
     }
@@ -8594,6 +8618,17 @@ async fn get_validator_payload_attestation_data_pre_gloas() {
     ApiTester::new()
         .await
         .test_get_validator_payload_attestation_data_pre_gloas()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_payload_attestation_data_no_block() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_get_validator_payload_attestation_data_no_block()
         .await;
 }
 

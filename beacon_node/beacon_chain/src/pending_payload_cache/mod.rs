@@ -51,7 +51,7 @@ use types::new_non_zero_usize;
 ///
 /// `PendingComponents` are now never removed from the cache manually and are only removed via LRU
 /// eviction to prevent race conditions (#7961), so we expect this cache to be full all the time.
-const OVERFLOW_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
+const AVAILABILITY_CACHE_CAPACITY: NonZeroUsize = new_non_zero_usize(32);
 
 /// This type is returned after adding a bid / column to the `DataAvailabilityChecker`.
 ///
@@ -107,7 +107,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         Ok(Self {
-            availability_cache: RwLock::new(LruCache::new(OVERFLOW_LRU_CAPACITY_NON_ZERO)),
+            availability_cache: RwLock::new(LruCache::new(AVAILABILITY_CACHE_CAPACITY)),
             kzg,
             custody_context,
             spec,
@@ -182,7 +182,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         let epoch = executed_envelope.envelope.epoch();
         let beacon_block_root = executed_envelope.envelope.beacon_block_root();
         let pending_components =
-            self.get_pending_components(beacon_block_root, bid, |pending_components| {
+            self.update_pending_components(beacon_block_root, bid, |pending_components| {
                 pending_components.insert_executed_payload_envelope(executed_envelope);
             })?;
 
@@ -267,7 +267,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         kzg_verified_data_columns: &[KzgVerifiedCustodyDataColumn<T::EthSpec>],
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let pending_components =
-            self.get_pending_components(block_root, bid.clone(), |pending_components| {
+            self.update_pending_components(block_root, bid.clone(), |pending_components| {
                 pending_components.merge_data_columns(kzg_verified_data_columns)
             })?;
 
@@ -311,6 +311,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         let all_data_columns = KzgVerifiedCustodyDataColumn::reconstruct_columns(
             &self.kzg,
             verified_data_columns,
+            bid.message.blob_kzg_commitments.as_ref(),
             &self.spec,
         )
         .map_err(|e| {
@@ -413,8 +414,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     ///
     /// Once the update is complete, the write lock is downgraded and a read guard with a
     /// reference of the updated `PendingComponents` is returned.
-    ///
-    fn get_pending_components<F>(
+    fn update_pending_components<F>(
         &self,
         block_root: Hash256,
         bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>,

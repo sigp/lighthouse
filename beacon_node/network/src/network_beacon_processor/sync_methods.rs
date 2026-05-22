@@ -499,6 +499,63 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         });
     }
 
+    /// Attempt to verify and import an execution payload envelope received via RPC.
+    #[instrument(
+        name = "lh_process_lookup_envelope",
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(?block_root),
+    )]
+    pub async fn process_lookup_envelope(
+        self: Arc<NetworkBeaconProcessor<T>>,
+        block_root: Hash256,
+        envelope: Arc<types::SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        _seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) {
+        debug!(
+            ?block_root,
+            slot = %envelope.slot(),
+            ?process_type,
+            "Processing RPC payload envelope"
+        );
+
+        // Gossip verification runs the same signature / slot / builder-index / block-hash checks
+        // independently of gossip propagation, so we can reuse it for RPC-fetched envelopes.
+        #[allow(clippy::result_large_err)]
+        let result = match self
+            .chain
+            .clone()
+            .verify_envelope_for_gossip(envelope.clone())
+            .await
+        {
+            Ok(verified) => {
+                self.chain
+                    .process_execution_payload_envelope(
+                        block_root,
+                        verified,
+                        NotifyExecutionLayer::Yes,
+                        BlockImportSource::Lookup,
+                        || Ok(()),
+                    )
+                    .await
+            }
+            Err(e) => Err(e),
+        };
+
+        // TODO(gloas): structured penalty classification arrives with the envelope lookup state
+        // machine; for now, fold the EnvelopeError into BlockError::InternalError so it flows
+        // through the existing `BlockProcessingResult::Err` path.
+        let result: Result<AvailabilityProcessingStatus, BlockError> =
+            result.map_err(|e| BlockError::InternalError(format!("envelope: {e}")));
+
+        self.send_sync_message(SyncMessage::BlockComponentProcessed {
+            process_type,
+            result: result.into(),
+        });
+    }
+
     pub fn process_historic_data_columns(
         &self,
         batch_id: CustodyBackfillBatchId,
@@ -831,6 +888,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .map(|block| block.into_available_block())
             .collect::<Vec<_>>();
 
+        // TODO(gloas) when implementing backfill sync for gloas
+        // we need a batch verify kzg function in the new da checker
         match self
             .chain
             .data_availability_checker

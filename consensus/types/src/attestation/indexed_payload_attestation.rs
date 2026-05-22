@@ -1,14 +1,12 @@
-use crate::test_utils::TestRandom;
 use crate::{EthSpec, ForkName, PayloadAttestationData};
 use bls::AggregateSignature;
 use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-#[derive(TestRandom, TreeHash, Debug, Clone, PartialEq, Encode, Decode, Serialize, Deserialize)]
+#[derive(TreeHash, Debug, Clone, PartialEq, Encode, Decode, Serialize, Deserialize)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[serde(bound = "E: EthSpec", deny_unknown_fields)]
 #[cfg_attr(feature = "arbitrary", arbitrary(bound = "E: EthSpec"))]

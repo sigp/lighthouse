@@ -244,6 +244,13 @@ impl<T: BeaconChainTypes> Router<T> {
                     request,
                 ),
             ),
+            RequestType::BlocksByHead(request) => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor.send_blocks_by_head_request(
+                    peer_id,
+                    inbound_request_id,
+                    request,
+                ),
+            ),
             RequestType::PayloadEnvelopesByRoot(request) => self
                 .handle_beacon_processor_send_result(
                     self.network_beacon_processor
@@ -355,6 +362,11 @@ impl<T: BeaconChainTypes> Router<T> {
                     app_request_id,
                     payload_envelope,
                 );
+            }
+            // Lighthouse currently only serves BlocksByHead and does not issue it as a client,
+            // so receiving a response is unexpected. Drop it without crashing.
+            Response::BlocksByHead(_) => {
+                debug!("BlocksByHead response received but not requested by lighthouse");
             }
             // Light client responses should not be received
             Response::LightClientBootstrap(_)
@@ -819,6 +831,7 @@ impl<T: BeaconChainTypes> Router<T> {
         }
     }
 
+    /// Handle a `PayloadEnvelopesByRoot` response from the peer.
     pub fn on_payload_envelopes_by_root_response(
         &mut self,
         peer_id: PeerId,
@@ -826,24 +839,13 @@ impl<T: BeaconChainTypes> Router<T> {
         payload_envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
     ) {
         let sync_request_id = match app_request_id {
-            AppRequestId::Sync(sync_id) => match sync_id {
-                id @ SyncRequestId::SinglePayloadEnvelope { .. } => id,
-                other => {
-                    crit!(request = ?other, "PayloadEnvelopesByRoot response on incorrect request");
-                    return;
-                }
-            },
-            AppRequestId::Router => {
-                crit!(%peer_id, "All PayloadEnvelopesByRoot requests belong to sync");
+            AppRequestId::Sync(id @ SyncRequestId::SinglePayloadEnvelope { .. }) => id,
+            other => {
+                crit!(request = ?other, %peer_id, "PayloadEnvelopesByRoot response on incorrect request");
                 return;
             }
-            AppRequestId::Internal => unreachable!("Handled internally"),
         };
 
-        trace!(
-            %peer_id,
-            "Received PayloadEnvelopesByRoot Response"
-        );
         self.send_to_sync(SyncMessage::RpcPayloadEnvelope {
             sync_request_id,
             peer_id,

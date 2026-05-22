@@ -14,8 +14,8 @@ use beacon_processor::{
 };
 use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::methods::{
-    BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
-    LightClientUpdatesByRangeRequest, PayloadEnvelopesByRangeRequest,
+    BlobsByRangeRequest, BlobsByRootRequest, BlocksByHeadRequest, DataColumnsByRangeRequest,
+    DataColumnsByRootRequest, LightClientUpdatesByRangeRequest, PayloadEnvelopesByRangeRequest,
     PayloadEnvelopesByRootRequest,
 };
 use lighthouse_network::service::api_types::CustodyBackfillBatchId;
@@ -604,6 +604,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    /// Create a new `Work` event for an RPC-fetched payload envelope. `process_lookup_envelope`
+    /// reports the result back to sync.
+    pub fn send_lookup_envelope(
+        self: &Arc<Self>,
+        block_root: Hash256,
+        envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let s = self.clone();
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::RpcEnvelope(Box::pin(async move {
+                s.process_lookup_envelope(block_root, envelope, seen_timestamp, process_type)
+                    .await;
+            })),
+        })
+    }
+
     /// Create a new `Work` event for some custody columns. `process_rpc_custody_columns` reports
     /// the result back to sync.
     pub fn send_rpc_custody_columns(
@@ -712,6 +731,26 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::BlocksByRangeRequest(Box::pin(process_fn)),
+        })
+    }
+
+    /// Create a new work event to process `BlocksByHeadRequest`s from the RPC network.
+    pub fn send_blocks_by_head_request(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        inbound_request_id: InboundRequestId,
+        request: BlocksByHeadRequest,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = async move {
+            processor
+                .handle_blocks_by_head_request(peer_id, inbound_request_id, request)
+                .await;
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::BlocksByHeadRequest(Box::pin(process_fn)),
         })
     }
 
@@ -1244,8 +1283,7 @@ use {
 };
 
 #[cfg(test)]
-pub(crate) type TestBeaconChainType<E> =
-    Witness<ManualSlotClock, E, MemoryStore<E>, MemoryStore<E>>;
+pub(crate) type TestBeaconChainType<E> = Witness<ManualSlotClock, E, MemoryStore, MemoryStore>;
 
 #[cfg(test)]
 impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {

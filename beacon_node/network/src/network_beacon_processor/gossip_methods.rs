@@ -742,15 +742,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             MessageAcceptance::Ignore,
                         );
                     }
-                    GossipDataColumnError::PubkeyCacheTimeout
+                    GossipDataColumnError::InvalidVariant
+                    | GossipDataColumnError::PubkeyCacheTimeout
                     | GossipDataColumnError::BeaconChainError(_) => {
                         crit!(
                             error = ?err,
                             "Internal error when verifying column sidecar"
                         )
                     }
-                    GossipDataColumnError::InvalidVariant
-                    | GossipDataColumnError::ProposalSignatureInvalid
+                    GossipDataColumnError::ProposalSignatureInvalid
                     | GossipDataColumnError::UnknownValidator(_)
                     | GossipDataColumnError::ProposerIndexMismatch { .. }
                     | GossipDataColumnError::IsNotLaterThanParent { .. }
@@ -808,6 +808,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             peer_id,
                             PeerAction::HighToleranceError,
                             "gossip_data_column_high",
+                        );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
+                    GossipDataColumnError::InternalError(err) => {
+                        error!(
+                            error = ?err,
+                            %block_root,
+                            %index,
+                            "Internal error while processing data columns"
                         );
                         self.propagate_validation_result(
                             message_id,
@@ -946,6 +959,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         %unknown_block_root,
                         "Unknown block root for partial column"
                     );
+                    // TODO(gloas): wire this into proper lookup sync. Sending
+                    // `UnknownBlockHashFromAttestation` here is a Fulu-shaped fallback that
+                    // mixes column processing with the attestation lookup path and is not
+                    // the right primitive for Gloas column lookups.
                     self.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
                         peer_id,
                         unknown_block_root,
@@ -1013,6 +1030,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "gossip_partial_data_column_high",
                     );
                 }
+                GossipDataColumnError::InternalError(err) => {
+                    error!(
+                        error = ?err,
+                        %block_root,
+                        %index,
+                        "Internal error while handling partial data column verification"
+                    );
+                }
             },
             GossipPartialDataColumnError::MissingHeader => {
                 metrics::inc_counter(
@@ -1072,7 +1097,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "gossip_partial_data_column_low",
                 );
             }
-            GossipPartialDataColumnError::InternalError(_) => {
+            GossipPartialDataColumnError::InternalError(err) => {
                 error!(
                     error = ?err,
                     %block_root,
@@ -1356,16 +1381,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 &[&data_column_index.to_string()],
             );
 
-            let mut column = col.to_partial();
-            let header = column.sidecar.header.take();
-            if let Some(header) = header {
-                self.send_network_message(NetworkMessage::PublishPartialColumns {
-                    columns: vec![Arc::new(column)],
-                    header: Arc::new(header),
-                });
-            } else {
-                crit!("Converting from full to partial yielded headerless partial")
-            };
+            match col.to_partial() {
+                Ok(mut column) => {
+                    let header = column.sidecar.header.take();
+                    if let Some(header) = header {
+                        self.send_network_message(NetworkMessage::PublishPartialColumns {
+                            columns: vec![Arc::new(column)],
+                            header: Arc::new(header),
+                        });
+                    } else {
+                        crit!("Converting from full to partial yielded headerless partial")
+                    };
+                }
+                Err(err) => crit!(?err, "Could not convert from full to partial"),
+            }
         }
 
         let result = self
@@ -4103,7 +4132,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 PayloadBidError::BadSignature
                 | PayloadBidError::InvalidBuilder { .. }
                 | PayloadBidError::InvalidFeeRecipient
-                | PayloadBidError::InvalidGasLimit
                 | PayloadBidError::ExecutionPaymentNonZero { .. }
                 | PayloadBidError::InvalidBlobKzgCommitments { .. },
             ) => {
@@ -4121,6 +4149,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | PayloadBidError::ParentBlockRootUnknown { .. }
                 | PayloadBidError::ParentBlockRootNotCanonical { .. }
                 | PayloadBidError::BuilderCantCoverBid { .. }
+                | PayloadBidError::InvalidGasLimit
                 | PayloadBidError::BeaconStateError(_)
                 | PayloadBidError::InternalError(_)
                 | PayloadBidError::InvalidBidSlot { .. }

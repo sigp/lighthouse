@@ -669,9 +669,11 @@ pub fn reconstruct_blobs<E: EthSpec>(
     // Sort data columns by index to ensure ascending order for KZG operations
     data_columns.sort_unstable_by_key(|dc| *dc.index());
 
-    let first_data_column = data_columns
-        .first()
-        .ok_or("data_columns should have at least one element".to_string())?;
+    if data_columns.is_empty() {
+        return Err("data_columns should have at least one element".to_string());
+    }
+
+    let first_data_column = &data_columns[0];
 
     let blob_indices: Vec<usize> = match blob_indices_opt {
         Some(indices) => indices.into_iter().map(|i| i as usize).collect(),
@@ -747,9 +749,14 @@ pub fn reconstruct_blobs<E: EthSpec>(
 }
 
 /// Reconstruct all data columns from a subset of data column sidecars (requires at least 50%).
+///
+/// `kzg_commitments` are the commitments for the underlying blobs. For Fulu they live in the
+/// column itself; for Gloas they live in the bid. We take them as a parameter so this function
+/// works for both forks (mirroring `validate_data_columns_with_commitments`).
 pub fn reconstruct_data_columns<E: EthSpec>(
     kzg: &Kzg,
     mut data_columns: Vec<Arc<DataColumnSidecar<E>>>,
+    kzg_commitments: &[KzgCommitment],
     spec: &ChainSpec,
 ) -> Result<DataColumnSidecarList<E>, KzgError> {
     // Sort data columns by index to ensure ascending order for KZG operations
@@ -761,16 +768,7 @@ pub fn reconstruct_data_columns<E: EthSpec>(
             "data_columns should have at least one element".to_string(),
         ))?;
 
-    // TODO(gloas): support data column reconstruction for Gloas
-    // https://github.com/sigp/lighthouse/issues/7413
-    let num_of_blobs = first_data_column
-        .kzg_commitments()
-        .map_err(|_| {
-            KzgError::InconsistentArrayLength(
-                "Gloas data column reconstruction not yet supported".to_string(),
-            )
-        })?
-        .len();
+    let num_of_blobs = kzg_commitments.len();
 
     let blob_cells_and_proofs_vec = (0..num_of_blobs)
         .into_par_iter()
@@ -815,8 +813,9 @@ pub fn reconstruct_data_columns<E: EthSpec>(
 #[cfg(test)]
 mod test {
     use crate::kzg_utils::{
-        blobs_to_data_column_sidecars, blobs_to_data_column_sidecars_gloas, reconstruct_blobs,
-        reconstruct_data_columns, validate_full_data_columns,
+        blob_to_kzg_commitment, blobs_to_data_column_sidecars, blobs_to_data_column_sidecars_gloas,
+        reconstruct_blobs, reconstruct_data_columns, validate_data_columns_with_commitments,
+        validate_full_data_columns,
     };
     use bls::Signature;
     use eth2::types::BlobsBundle;
@@ -845,9 +844,13 @@ mod test {
         test_reconstruct_blobs_from_data_columns_unordered(&kzg, &fulu_spec);
         test_validate_data_columns(&kzg, &fulu_spec);
 
+        test_validate_data_columns_with_commitments(&kzg, &fulu_spec);
+
         let gloas_spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
         test_build_data_columns_gloas(&kzg, &gloas_spec);
         test_build_data_columns_gloas_empty(&kzg, &gloas_spec);
+        test_reconstruct_data_columns_gloas(&kzg, &gloas_spec);
+        test_validate_data_columns_with_commitments_gloas(&kzg, &gloas_spec);
     }
 
     #[track_caller]
@@ -862,6 +865,63 @@ mod test {
 
         let result = validate_full_data_columns(kzg, column_sidecars.iter());
         assert!(result.is_ok());
+    }
+
+    #[track_caller]
+    fn test_validate_data_columns_with_commitments(kzg: &Kzg, spec: &ChainSpec) {
+        let num_of_blobs = 2;
+        let (signed_block, blobs, proofs) =
+            create_test_fulu_block_and_blobs::<E>(num_of_blobs, spec);
+        let blob_refs = blobs.iter().collect::<Vec<_>>();
+        let column_sidecars =
+            blobs_to_data_column_sidecars(&blob_refs, proofs.to_vec(), &signed_block, kzg, spec)
+                .unwrap();
+
+        let commitments = signed_block
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .unwrap();
+
+        let result =
+            validate_data_columns_with_commitments(kzg, column_sidecars.iter(), commitments);
+        assert!(result.is_ok());
+
+        // Verify that wrong commitments cause a failure
+        let bad_commitments = vec![KzgCommitment::empty_for_testing(); num_of_blobs];
+        let result =
+            validate_data_columns_with_commitments(kzg, column_sidecars.iter(), &bad_commitments);
+        assert!(result.is_err());
+    }
+
+    #[track_caller]
+    fn test_validate_data_columns_with_commitments_gloas(kzg: &Kzg, spec: &ChainSpec) {
+        let num_of_blobs = 2;
+        let (blobs, _proofs) = create_test_gloas_blobs::<E>(num_of_blobs);
+        let blob_refs: Vec<_> = blobs.iter().collect();
+        let column_sidecars = blobs_to_data_column_sidecars_gloas::<E>(
+            &blob_refs,
+            Hash256::random(),
+            Slot::new(0),
+            kzg,
+            spec,
+        )
+        .unwrap();
+
+        let commitments: Vec<KzgCommitment> = blobs
+            .iter()
+            .map(|blob| blob_to_kzg_commitment::<E>(kzg, blob).unwrap())
+            .collect();
+
+        let result =
+            validate_data_columns_with_commitments(kzg, column_sidecars.iter(), &commitments);
+        assert!(result.is_ok());
+
+        // Verify that wrong commitments cause a failure
+        let bad_commitments = vec![KzgCommitment::empty_for_testing(); num_of_blobs];
+        let result =
+            validate_data_columns_with_commitments(kzg, column_sidecars.iter(), &bad_commitments);
+        assert!(result.is_err());
     }
 
     #[track_caller]
@@ -976,11 +1036,18 @@ mod test {
         let column_sidecars =
             blobs_to_data_column_sidecars(&blob_refs, proofs.to_vec(), &signed_block, kzg, spec)
                 .unwrap();
+        let commitments = signed_block
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .unwrap()
+            .clone();
 
         // Now reconstruct
         let reconstructed_columns = reconstruct_data_columns(
             kzg,
             column_sidecars.iter().as_slice()[0..column_sidecars.len() / 2].to_vec(),
+            &commitments,
             spec,
         )
         .unwrap();
@@ -1000,12 +1067,49 @@ mod test {
         let column_sidecars =
             blobs_to_data_column_sidecars(&blob_refs, proofs.to_vec(), &signed_block, kzg, spec)
                 .unwrap();
+        let commitments = signed_block
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .unwrap()
+            .clone();
 
         // Test reconstruction with columns in reverse order (non-ascending)
         let mut subset_columns: Vec<_> =
             column_sidecars.iter().as_slice()[0..column_sidecars.len() / 2].to_vec();
         subset_columns.reverse(); // This would fail without proper sorting in reconstruct_data_columns
-        let reconstructed_columns = reconstruct_data_columns(kzg, subset_columns, spec).unwrap();
+        let reconstructed_columns =
+            reconstruct_data_columns(kzg, subset_columns, &commitments, spec).unwrap();
+
+        for i in 0..E::number_of_columns() {
+            assert_eq!(reconstructed_columns.get(i), column_sidecars.get(i), "{i}");
+        }
+    }
+
+    /// Reconstruct a full Gloas column set from a 50% subset and assert the recovered sidecars
+    /// match the originals. Commitments come from the bid (here mocked via the same
+    /// `KzgCommitments` used to build the columns) since Gloas columns don't carry them.
+    #[track_caller]
+    fn test_reconstruct_data_columns_gloas(kzg: &Kzg, spec: &ChainSpec) {
+        let num_of_blobs = 2;
+        let (blobs, _proofs) = create_test_gloas_blobs::<E>(num_of_blobs);
+        let blob_refs: Vec<_> = blobs.iter().collect();
+        let column_sidecars = blobs_to_data_column_sidecars_gloas::<E>(
+            &blob_refs,
+            Hash256::random(),
+            Slot::new(0),
+            kzg,
+            spec,
+        )
+        .unwrap();
+
+        let commitments =
+            KzgCommitments::<E>::new(vec![KzgCommitment::empty_for_testing(); num_of_blobs])
+                .unwrap();
+
+        let subset = column_sidecars[..column_sidecars.len() / 2].to_vec();
+        let reconstructed_columns =
+            reconstruct_data_columns(kzg, subset, &commitments, spec).unwrap();
 
         for i in 0..E::number_of_columns() {
             assert_eq!(reconstructed_columns.get(i), column_sidecars.get(i), "{i}");

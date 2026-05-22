@@ -4,7 +4,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tree_hash::Hash256;
 use tree_hash_derive::TreeHash;
 
@@ -17,7 +16,6 @@ use crate::{
         LightClientHeaderDeneb, LightClientHeaderElectra, LightClientHeaderFulu,
     },
     sync_committee::SyncAggregate,
-    test_utils::TestRandom,
 };
 
 /// A LightClientOptimisticUpdate is the update we send on each slot,
@@ -25,17 +23,7 @@ use crate::{
 #[superstruct(
     variants(Altair, Capella, Deneb, Electra, Fulu),
     variant_attributes(
-        derive(
-            Debug,
-            Clone,
-            Serialize,
-            Deserialize,
-            Educe,
-            Decode,
-            Encode,
-            TestRandom,
-            TreeHash,
-        ),
+        derive(Debug, Clone, Serialize, Deserialize, Educe, Decode, Encode, TreeHash,),
         educe(PartialEq),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         cfg_attr(
