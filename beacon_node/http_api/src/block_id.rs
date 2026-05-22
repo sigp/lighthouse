@@ -129,6 +129,15 @@ impl BlockId {
                         .is_finalized_block(root, block_slot)
                         .map_err(warp_utils::reject::unhandled_error)?;
                     Ok((*root, execution_optimistic, finalized))
+                } else if chain.early_attester_cache.get_block(*root).is_some() {
+                    // The block is in fork choice and the early attester cache but not yet
+                    // persisted to the DB (post-fork-choice, pre-DB-write race window).
+                    let execution_optimistic = chain
+                        .canonical_head
+                        .fork_choice_read_lock()
+                        .is_optimistic_or_invalid_block(root)
+                        .unwrap_or(false);
+                    Ok((*root, execution_optimistic, false))
                 } else {
                     Err(warp_utils::reject::custom_not_found(format!(
                         "beacon block with root {}",
@@ -143,9 +152,18 @@ impl BlockId {
         root: &Hash256,
         chain: &BeaconChain<T>,
     ) -> Result<Option<SignedBlindedBeaconBlock<T::EthSpec>>, warp::Rejection> {
-        chain
+        if let Some(block) = chain
             .get_blinded_block(root)
-            .map_err(warp_utils::reject::unhandled_error)
+            .map_err(warp_utils::reject::unhandled_error)?
+        {
+            return Ok(Some(block));
+        }
+        // Fall back to the early attester cache for blocks that are in fork choice
+        // but haven't been written to disk yet
+        Ok(chain
+            .early_attester_cache
+            .get_block(*root)
+            .map(|b| b.clone_as_blinded()))
     }
 
     /// Return the `SignedBeaconBlock` identified by `self`.
@@ -253,20 +271,20 @@ impl BlockId {
             }
             _ => {
                 let (root, execution_optimistic, finalized) = self.root(chain)?;
-                chain
+                let block_opt = chain
                     .get_block(&root)
                     .await
-                    .map_err(warp_utils::reject::unhandled_error)
-                    .and_then(|block_opt| {
-                        block_opt
-                            .map(|block| (Arc::new(block), execution_optimistic, finalized))
-                            .ok_or_else(|| {
-                                warp_utils::reject::custom_not_found(format!(
-                                    "beacon block with root {}",
-                                    root
-                                ))
-                            })
-                    })
+                    .map_err(warp_utils::reject::unhandled_error)?;
+                let block = block_opt
+                    .map(Arc::new)
+                    .or_else(|| chain.early_attester_cache.get_block(root))
+                    .ok_or_else(|| {
+                        warp_utils::reject::custom_not_found(format!(
+                            "beacon block with root {}",
+                            root
+                        ))
+                    })?;
+                Ok((block, execution_optimistic, finalized))
             }
         }
     }
@@ -290,16 +308,20 @@ impl BlockId {
         }
 
         let data_column_sidecars = if let Some(indices) = query.indices {
-            indices
-                .iter()
-                .filter_map(|index| chain.get_data_column(&root, index, fork_name).transpose())
-                .collect::<Result<DataColumnSidecarList<T::EthSpec>, _>>()
+            chain
+                .get_data_columns_checking_all_caches(root, &indices)
                 .map_err(warp_utils::reject::unhandled_error)?
         } else {
             chain
-                .get_data_columns(&root, fork_name)
+                .early_attester_cache
+                .get_data_columns(root)
+                .map(Ok)
+                .unwrap_or_else(|| {
+                    chain
+                        .get_data_columns(&root, fork_name)
+                        .map(|opt| opt.unwrap_or_default())
+                })
                 .map_err(warp_utils::reject::unhandled_error)?
-                .unwrap_or_default()
         };
 
         let fork_name = block
