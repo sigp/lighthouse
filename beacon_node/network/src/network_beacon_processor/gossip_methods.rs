@@ -744,7 +744,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             ReprocessQueueMessage::UnknownBlockDataColumn(QueuedGossipDataColumn {
                                 beacon_block_root: unknown_block_root,
                                 process_fn: Box::new(move || {
-                                    // Re-dispatch through the normal gossip column processing path.
                                     let _ = processor.send_gossip_data_column_sidecar(
                                         message_id,
                                         peer_id,
