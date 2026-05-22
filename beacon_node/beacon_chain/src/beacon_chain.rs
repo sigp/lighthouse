@@ -4549,7 +4549,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             current_slot,
         );
 
-        if let Some(builder_onboarding_cache) = &self.builder_onboarding_cache {
+        // If gloas is enabled, we get the deposits from the payload instead of
+        // the state.
+        if !state.fork_name_unchecked().gloas_enabled()
+            && let Some(builder_onboarding_cache) = &self.builder_onboarding_cache
+        {
             let cache = builder_onboarding_cache.clone();
             let spec = self.spec.clone();
             let executor = self.task_executor.clone();
