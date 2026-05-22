@@ -92,45 +92,35 @@ impl GossipVerifiedProposerPreferences {
             return Err(ProposerPreferencesError::DependentRootNotCanonical { dependent_root });
         }
         let dependent_state_root = dependent_block.state_root;
-        let dependent_block_slot = dependent_block.slot;
         drop(fork_choice);
 
-        // Fetch the state at the dependent_root block.
-        // Per spec, we need the checkpoint state at epoch (proposal_epoch - MIN_SEED_LOOKAHEAD).
-        // The dependent_root is the block root at the proposer shuffling decision slot.
-        let (state_root, mut dependent_state) = ctx
-            .store
-            .get_advanced_hot_state(dependent_root, dependent_block_slot, dependent_state_root)
-            .map_err(crate::BeaconChainError::DBError)?
-            .ok_or(ProposerPreferencesError::DependentRootUnknown { dependent_root })?;
-
-        // We need to advance the state to `target_epoch` so epoch transition runs and
-        // `process_proposer_lookahead` populates the lookahead for the proposal epoch.
+        // We need a state at `target_epoch` so we have the correct proposer lookahead.
         let proposal_epoch = proposal_slot.epoch(T::EthSpec::slots_per_epoch());
         let target_epoch = proposal_epoch.saturating_sub(ctx.spec.min_seed_lookahead);
         let target_slot = target_epoch.start_slot(T::EthSpec::slots_per_epoch());
 
-        if dependent_state.current_epoch() < target_epoch {
-            partial_state_advance(
-                &mut dependent_state,
-                Some(state_root),
-                target_slot,
-                ctx.spec,
-            )
-            .map_err(crate::BeaconChainError::StateAdvanceError)?;
+        let (state_root, mut state) = ctx
+            .store
+            .get_advanced_hot_state(dependent_root, target_slot, dependent_state_root)
+            .map_err(crate::BeaconChainError::DBError)?
+            .ok_or(ProposerPreferencesError::DependentRootUnknown { dependent_root })?;
+
+        if state.current_epoch() < target_epoch {
+            partial_state_advance(&mut state, Some(state_root), target_slot, ctx.spec)
+                .map_err(crate::BeaconChainError::StateAdvanceError)?;
         }
 
-        if !dependent_state.is_valid_proposal_slot(&signed_preferences.message, ctx.spec)? {
+        if !state.is_valid_proposal_slot(&signed_preferences.message, ctx.spec)? {
             return Err(ProposerPreferencesError::InvalidProposalSlot {
                 validator_index,
                 proposal_slot,
             });
         }
 
-        // Verify signature using the dependent state (which has the validator pubkeys)
+        // Verify signature
         proposer_preferences_signature_set(
-            &dependent_state,
-            |i| get_pubkey_from_state(&dependent_state, i),
+            &state,
+            |i| get_pubkey_from_state(&state, i),
             &signed_preferences,
             ctx.spec,
         )

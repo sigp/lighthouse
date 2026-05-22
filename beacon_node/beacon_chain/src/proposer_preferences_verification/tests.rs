@@ -6,7 +6,7 @@ use fork_choice::ForkChoice;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state};
 use proto_array::PayloadStatus;
 use slot_clock::{SlotClock, TestingSlotClock};
-use store::{HotColdDB, StoreConfig};
+use store::{HotColdDB, MemoryStore, StoreConfig};
 use types::{
     Address, BeaconBlock, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, MinimalEthSpec,
     ProposerPreferences, SignedBeaconBlock, SignedProposerPreferences, Slot,
@@ -36,6 +36,7 @@ struct TestContext {
     preferences_cache: GossipVerifiedProposerPreferenceCache,
     slot_clock: TestingSlotClock,
     spec: ChainSpec,
+    store: Arc<HotColdDB<E, MemoryStore, MemoryStore>>,
 }
 
 impl TestContext {
@@ -91,6 +92,7 @@ impl TestContext {
             preferences_cache: GossipVerifiedProposerPreferenceCache::default(),
             slot_clock,
             spec,
+            store,
         }
     }
 
@@ -100,6 +102,7 @@ impl TestContext {
             gossip_verified_proposer_preferences_cache: &self.preferences_cache,
             slot_clock: &self.slot_clock,
             spec: &self.spec,
+            store: &self.store,
         }
     }
 
