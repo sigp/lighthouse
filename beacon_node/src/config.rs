@@ -215,6 +215,9 @@ pub fn get_config<E: EthSpec>(
 
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
         client_config.chain.shuffling_cache_size = cache_size;
+        // Mantain backwards compatibility with users customizing `shuffling_cache_size` to tweak
+        // the behaviour of the HTTP API route `beacon/states/committees`
+        client_config.http_api.historical_committee_cache_size = cache_size;
     }
 
     if let Some(batches) = clap_utils::parse_optional(cli_args, "blob-publication-batches")? {

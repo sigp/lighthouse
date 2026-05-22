@@ -25,12 +25,7 @@ const SLOT_DURATION_MILLIS: u64 = 400;
 
 const TEST_LOG_LEVEL: Option<&str> = None;
 
-type TestBeaconChainType = Witness<
-    SystemTimeSlotClock,
-    MainnetEthSpec,
-    MemoryStore<MainnetEthSpec>,
-    MemoryStore<MainnetEthSpec>,
->;
+type TestBeaconChainType = Witness<SystemTimeSlotClock, MainnetEthSpec, MemoryStore, MemoryStore>;
 
 pub struct TestBeaconChain {
     chain: Arc<BeaconChain<TestBeaconChainType>>,

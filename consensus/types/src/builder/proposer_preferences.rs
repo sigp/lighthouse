@@ -18,7 +18,7 @@ pub struct ProposerPreferences {
     pub validator_index: u64,
     pub fee_recipient: Address,
     #[serde(with = "serde_utils::quoted_u64")]
-    pub gas_limit: u64,
+    pub target_gas_limit: u64,
 }
 
 impl SignedRoot for ProposerPreferences {}
