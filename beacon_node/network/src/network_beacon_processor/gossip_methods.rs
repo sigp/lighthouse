@@ -740,8 +740,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                         // Queue the column for reprocessing when the block arrives.
                         let processor = self.clone();
-                        let reprocess_msg = ReprocessQueueMessage::UnknownBlockDataColumn(
-                            QueuedGossipDataColumn {
+                        let reprocess_msg =
+                            ReprocessQueueMessage::UnknownBlockDataColumn(QueuedGossipDataColumn {
                                 beacon_block_root: unknown_block_root,
                                 process_fn: Box::new(move || {
                                     // Re-dispatch through the normal gossip column processing path.
@@ -753,8 +753,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                         seen_duration,
                                     );
                                 }),
-                            },
-                        );
+                            });
                         if self
                             .beacon_processor_send
                             .try_send(WorkEvent {

@@ -853,9 +853,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 }
 
                 // Unqueue the data columns we have for this root, if any.
-                if let Some(queued_ids) =
-                    self.awaiting_data_columns_per_root.remove(&block_root)
-                {
+                if let Some(queued_ids) = self.awaiting_data_columns_per_root.remove(&block_root) {
                     for col_id in queued_ids {
                         if let Some((data_column, delay_key)) =
                             self.queued_gossip_data_columns.remove(&col_id)
@@ -866,10 +864,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                                 .try_send(ReadyWork::DataColumn(data_column))
                                 .is_err()
                             {
-                                error!(
-                                    ?block_root,
-                                    "Failed to send data column for reprocessing"
-                                );
+                                error!(?block_root, "Failed to send data column for reprocessing");
                             }
                         }
                     }
@@ -1723,5 +1718,83 @@ mod tests {
                 .awaiting_envelopes_per_root
                 .contains_key(&overflow_root)
         );
+    }
+
+    /// Tests that a queued gossip data column is released when its block is imported.
+    #[tokio::test]
+    async fn data_column_released_on_block_imported() {
+        create_test_tracing_subscriber();
+
+        let config = BeaconProcessorConfig::default();
+        let (ready_work_tx, mut ready_work_rx) =
+            mpsc::channel::<ReadyWork>(config.max_scheduled_work_queue_len);
+        let (_, reprocess_work_rx) =
+            mpsc::channel::<ReprocessQueueMessage>(config.max_scheduled_work_queue_len);
+        let slot_clock = Arc::new(testing_slot_clock(12));
+        let mut queue = ReprocessQueue::new(ready_work_tx, reprocess_work_rx, slot_clock);
+
+        tokio::time::pause();
+
+        let beacon_block_root = Hash256::repeat_byte(0xbb);
+
+        let msg = ReprocessQueueMessage::UnknownBlockDataColumn(QueuedGossipDataColumn {
+            beacon_block_root,
+            process_fn: Box::new(|| {}),
+        });
+        queue.handle_message(InboundEvent::Msg(msg));
+
+        assert_eq!(queue.awaiting_data_columns_per_root.len(), 1);
+        assert_eq!(queue.queued_gossip_data_columns.len(), 1);
+        assert_eq!(queue.data_columns_delay_queue.len(), 1);
+
+        // Simulate block import.
+        queue.handle_message(InboundEvent::Msg(ReprocessQueueMessage::BlockImported {
+            block_root: beacon_block_root,
+            parent_root: Hash256::repeat_byte(0x00),
+        }));
+
+        // Internal state should be cleaned up.
+        assert!(queue.awaiting_data_columns_per_root.is_empty());
+        assert!(queue.queued_gossip_data_columns.is_empty());
+        assert_eq!(queue.data_columns_delay_queue.len(), 0);
+
+        // The column should have been sent to the ready_work channel.
+        let ready = ready_work_rx.try_recv().expect("column should be ready");
+        assert!(matches!(ready, ReadyWork::DataColumn(_)));
+    }
+
+    /// Tests that an expired gossip data column is pruned cleanly from all internal state.
+    #[tokio::test]
+    async fn prune_awaiting_data_columns_per_root() {
+        create_test_tracing_subscriber();
+
+        let mut queue = test_queue();
+
+        tokio::time::pause();
+
+        let beacon_block_root = Hash256::repeat_byte(0xcd);
+
+        let msg = ReprocessQueueMessage::UnknownBlockDataColumn(QueuedGossipDataColumn {
+            beacon_block_root,
+            process_fn: Box::new(|| {}),
+        });
+        queue.handle_message(InboundEvent::Msg(msg));
+
+        assert_eq!(queue.awaiting_data_columns_per_root.len(), 1);
+        assert!(
+            queue
+                .awaiting_data_columns_per_root
+                .contains_key(&beacon_block_root)
+        );
+
+        // Advance time past the delay so the entry expires.
+        advance_time(&queue.slot_clock, 2 * QUEUED_ATTESTATION_DELAY).await;
+        let ready_msg = queue.next().await.unwrap();
+        assert!(matches!(ready_msg, InboundEvent::ReadyDataColumn(_)));
+        queue.handle_message(ready_msg);
+
+        // All internal state should be cleaned up.
+        assert!(queue.awaiting_data_columns_per_root.is_empty());
+        assert!(queue.queued_gossip_data_columns.is_empty());
     }
 }
