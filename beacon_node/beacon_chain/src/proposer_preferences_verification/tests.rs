@@ -59,14 +59,24 @@ impl TestContext {
             root: Hash256::ZERO,
         };
 
-        let mut genesis_block = BeaconBlock::empty(&spec);
         let genesis_state_root = state
             .update_tree_hash_cache()
             .expect("should hash genesis state");
+
+        let mut anchor_header = state.latest_block_header().clone();
+        if anchor_header.state_root.is_zero() {
+            anchor_header.state_root = genesis_state_root;
+        }
+        let block_root = anchor_header.canonical_root();
+
+        // Build a signed block with the correct state root for the snapshot.
+        let mut genesis_block = BeaconBlock::empty(&spec);
         *genesis_block.state_root_mut() = genesis_state_root;
         let signed_block = SignedBeaconBlock::from_block(genesis_block, Signature::empty());
-        let block_root = signed_block.canonical_root();
 
+        let _ = store
+            .init_anchor_info(Hash256::ZERO, Slot::new(0), Slot::new(0), false)
+            .expect("should init anchor info");
         store
             .put_state(&genesis_state_root, &state)
             .expect("should persist genesis state");
