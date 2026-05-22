@@ -4,6 +4,7 @@ use std::time::Duration;
 use bls::Signature;
 use fork_choice::ForkChoice;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state};
+use parking_lot::Mutex;
 use proto_array::PayloadStatus;
 use slot_clock::{SlotClock, TestingSlotClock};
 use store::{HotColdDB, StoreConfig};
@@ -14,6 +15,7 @@ use types::{
 
 use crate::{
     beacon_fork_choice_store::BeaconForkChoiceStore,
+    beacon_proposer_cache::BeaconProposerCache,
     beacon_snapshot::BeaconSnapshot,
     canonical_head::CanonicalHead,
     proposer_preferences_verification::{
@@ -37,6 +39,7 @@ struct TestContext {
     slot_clock: TestingSlotClock,
     spec: ChainSpec,
     genesis_block_root: Hash256,
+    beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>,
 }
 
 impl TestContext {
@@ -93,6 +96,7 @@ impl TestContext {
             slot_clock,
             spec,
             genesis_block_root: block_root,
+            beacon_proposer_cache: Arc::new(Mutex::new(BeaconProposerCache::default())),
         }
     }
 
@@ -102,6 +106,7 @@ impl TestContext {
             gossip_verified_proposer_preferences_cache: &self.preferences_cache,
             slot_clock: &self.slot_clock,
             spec: &self.spec,
+            beacon_proposer_cache: &self.beacon_proposer_cache,
         }
     }
 

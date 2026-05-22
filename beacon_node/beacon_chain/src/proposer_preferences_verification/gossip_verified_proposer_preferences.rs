@@ -2,10 +2,12 @@ use std::sync::Arc;
 
 use crate::{
     BeaconChain, BeaconChainTypes, CanonicalHead,
+    beacon_proposer_cache::{self, BeaconProposerCache},
     proposer_preferences_verification::{
         ProposerPreferencesError, proposer_preference_cache::GossipVerifiedProposerPreferenceCache,
     },
 };
+use parking_lot::Mutex;
 use slot_clock::SlotClock;
 use state_processing::signature_sets::{get_pubkey_from_state, proposer_preferences_signature_set};
 use tracing::debug;
@@ -42,6 +44,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub gossip_verified_proposer_preferences_cache: &'a GossipVerifiedProposerPreferenceCache,
     pub slot_clock: &'a T::SlotClock,
     pub spec: &'a ChainSpec,
+    pub beacon_proposer_cache: &'a Mutex<BeaconProposerCache>,
 }
 
 /// A wrapper around `SignedProposerPreferences` that has been verified for gossip propagation.
@@ -91,7 +94,26 @@ impl GossipVerifiedProposerPreferences {
         }
         drop(fork_choice);
 
-        if !head_state.is_valid_proposal_slot(&signed_preferences.message, ctx.spec)? {
+        // Look up the proposer for `proposal_slot` via the proposer shuffling cache, keyed by
+        // `(proposal_epoch, dependent_root)` per the spec. The cache handles state advances and
+        // state loading on miss, so we avoid using the (potentially stale at an epoch boundary)
+        // cached head state's `proposer_lookahead` directly.
+        let proposal_epoch = proposal_slot.epoch(T::EthSpec::slots_per_epoch());
+        let head_state_root = cached_head.head_state_root();
+        let proposer = beacon_proposer_cache::with_proposer_cache::<
+            T::EthSpec,
+            _,
+            ProposerPreferencesError,
+        >(
+            ctx.beacon_proposer_cache,
+            dependent_root,
+            proposal_epoch,
+            |proposers| proposers.get_slot::<T::EthSpec>(proposal_slot),
+            || Ok((head_state_root, cached_head.snapshot.beacon_state.clone())),
+            ctx.spec,
+        )?;
+
+        if proposer.index as u64 != validator_index {
             return Err(ProposerPreferencesError::InvalidProposalSlot {
                 validator_index,
                 proposal_slot,
@@ -132,6 +154,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .gossip_verified_proposer_preferences_cache,
             slot_clock: &self.slot_clock,
             spec: &self.spec,
+            beacon_proposer_cache: &self.beacon_proposer_cache,
         }
     }
 
