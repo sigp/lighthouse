@@ -96,8 +96,8 @@ use eth2::types::{
     SseExtendedPayloadAttributes, SseHead,
 };
 use execution_layer::{
-    BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer,
-    FailedCondition, PayloadAttributes, PayloadStatus,
+    BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth,
+    DEFAULT_GAS_LIMIT, ExecutionLayer, FailedCondition, PayloadAttributes, PayloadStatus,
 };
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::{
@@ -2185,12 +2185,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // TODO(gloas) do we want to use a dedicated envelope cache instead?
         // Maybe the new gloas DA cache? (Or should the gloas DA cache use
-        // the envelopes_times_cache internally?)
+        // the envelopes_times_cache internally?
+        // The payload is considered present only if it was observed before
+        // the payload due deadline (PAYLOAD_DUE_BPS into the slot).
+        let payload_due = self.spec.get_payload_due();
         let payload_present = self
             .envelope_times_cache
             .read()
             .cache
-            .contains_key(&beacon_block_root);
+            .get(&beacon_block_root)
+            .and_then(|entry| entry.timestamps.observed)
+            .is_some_and(|observed| {
+                let slot_start = self.slot_clock.start_of(request_slot);
+                slot_start.is_some_and(|start| observed.saturating_sub(start) < payload_due)
+            });
 
         // TODO(EIP-7732): Check blob data availability. For now, default to true.
         let blob_data_available = true;
@@ -6476,6 +6484,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None
             };
 
+            let target_gas_limit = if prepare_slot_fork.gloas_enabled() {
+                let proposer_gas_limit = execution_layer.get_proposer_gas_limit(proposer).await;
+                if proposer_gas_limit.is_none() {
+                    warn!(
+                        %proposer,
+                        "No proposer gas limit configured, falling back to parent gas limit"
+                    );
+                }
+                proposer_gas_limit.or(Some(DEFAULT_GAS_LIMIT))
+            } else {
+                None
+            };
+
             let payload_attributes = PayloadAttributes::new(
                 self.slot_clock
                     .start_of(prepare_slot)
@@ -6486,6 +6507,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 withdrawals.map(Into::into),
                 parent_beacon_block_root,
                 slot_number,
+                target_gas_limit,
             );
 
             execution_layer
