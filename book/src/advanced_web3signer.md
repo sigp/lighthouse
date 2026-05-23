@@ -5,7 +5,7 @@
 [Teku]: https://github.com/consensys/teku
 
 [Web3Signer] is a tool by Consensys which allows *remote signing*. Remote signing is when a
-Validator Client (VC) out-sources the signing of messages to a remote server (e.g., via HTTPS). This
+Validator Client (VC) out-sources the signing of messages to a remote server (e.g., vian HTTPS). This
 means that the VC does not hold the validator private keys.
 
 ## Warnings

@@ -60,7 +60,7 @@ Options:
           flag is used, it additionally requires the explicit use of the
           `--unencrypted-http-transport` flag to ensure the user is aware of the
           risks involved. For access via the Internet, users should apply
-          transport-layer security like a HTTPS reverse-proxy or SSH tunnelling.
+          transport-layer security like an HTTPS reverse-proxy or SSH tunnelling.
       --http-allow-origin <ORIGIN>
           Set the value of the Access-Control-Allow-Origin response HTTP header.
           Use * to allow any origin (not recommended in production). If no value
@@ -107,7 +107,7 @@ Options:
           (e.g. beaconcha.in). This flag sets the endpoint where the beacon node
           metrics will be sent. Note: This will send information to a remote
           sever which may identify and associate your validators, IP address and
-          other personal information. Always use a HTTPS connection and never
+          other personal information. Always use an HTTPS connection and never
           provide an untrusted URL.
       --monitoring-endpoint-period <SECONDS>
           Defines how many seconds to wait between each message sent to the

@@ -13,7 +13,7 @@ signers. It also includes some Lighthouse-specific endpoints which are described
 
 ## Starting the server
 
-A Lighthouse validator client can be configured to expose a HTTP server by supplying the `--http` flag. The default listen address is `http://127.0.0.1:5062`.
+A Lighthouse validator client can be configured to expose an HTTP server by supplying the `--http` flag. The default listen address is `http://127.0.0.1:5062`.
 
 The following CLI flags control the HTTP server:
 

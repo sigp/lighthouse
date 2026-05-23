@@ -2,7 +2,7 @@
 
 ```
 The primary component which connects to the Ethereum 2.0 P2P network and
-downloads, verifies and stores blocks. Provides a HTTP API for querying the
+downloads, verifies and stores blocks. Provides an HTTP API for querying the
 beacon chain and publishing messages to the network.
 
 Usage: lighthouse beacon_node [OPTIONS] --execution-endpoint <EXECUTION-ENDPOINT>
@@ -275,7 +275,7 @@ Options:
           (e.g. beaconcha.in). This flag sets the endpoint where the beacon node
           metrics will be sent. Note: This will send information to a remote
           sever which may identify and associate your validators, IP address and
-          other personal information. Always use a HTTPS connection and never
+          other personal information. Always use an HTTPS connection and never
           provide an untrusted URL.
       --monitoring-endpoint-period <SECONDS>
           Defines how many seconds to wait between each message sent to the

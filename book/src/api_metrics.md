@@ -2,7 +2,7 @@
 
 Lighthouse provides an extensive suite of metrics and monitoring in the
 [Prometheus](https://prometheus.io/docs/introduction/overview/) export format
-via a HTTP server built into Lighthouse.
+via an HTTP server built into Lighthouse.
 
 These metrics are generally consumed by a Prometheus server and displayed via a
 Grafana dashboard. These components are available in a docker-compose format at

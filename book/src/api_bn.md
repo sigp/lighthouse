@@ -148,7 +148,7 @@ data:{"version":"capella","data":{"proposal_slot":"11047","proposer_index":"3360
 
 The HTTP server can be served over TLS by using the `--http-enable-tls`,
 `http-tls-cert` and `http-tls-key` flags.
-This allows the API to be accessed via HTTPS, encrypting traffic to
+This allows the API to be accessed vian HTTPS, encrypting traffic to
 and from the server.
 
 This is particularly useful when connecting validator clients to
