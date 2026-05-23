@@ -43,7 +43,7 @@ struct TestContext {
     keypairs: Vec<Keypair>,
     spec: ChainSpec,
     genesis_block_root: Hash256,
-    store: Arc<store::HotColdDB<E, store::MemoryStore<E>, store::MemoryStore<E>>>,
+    store: Arc<store::HotColdDB<E, store::MemoryStore, store::MemoryStore>>,
 }
 
 impl TestContext {

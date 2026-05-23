@@ -61,8 +61,8 @@ pub struct Witness<TSlotClock, E, THotStore, TColdStore>(
 impl<TSlotClock, E, THotStore, TColdStore> BeaconChainTypes
     for Witness<TSlotClock, E, THotStore, TColdStore>
 where
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
+    THotStore: ItemStore + 'static,
+    TColdStore: ItemStore + 'static,
     TSlotClock: SlotClock + 'static,
     E: EthSpec + 'static,
 {
@@ -116,8 +116,8 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
 impl<TSlotClock, E, THotStore, TColdStore>
     BeaconChainBuilder<Witness<TSlotClock, E, THotStore, TColdStore>>
 where
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
+    THotStore: ItemStore + 'static,
+    TColdStore: ItemStore + 'static,
     TSlotClock: SlotClock + 'static,
     E: EthSpec + 'static,
 {
@@ -1183,8 +1183,8 @@ where
 impl<E, THotStore, TColdStore>
     BeaconChainBuilder<Witness<TestingSlotClock, E, THotStore, TColdStore>>
 where
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
+    THotStore: ItemStore + 'static,
+    TColdStore: ItemStore + 'static,
     E: EthSpec + 'static,
 {
     /// Sets the `BeaconChain` slot clock to `TestingSlotClock`.
@@ -1322,11 +1322,8 @@ mod test {
         let validator_count = 1;
         let genesis_time = 13_371_337;
 
-        let store: HotColdDB<
-            MinimalEthSpec,
-            MemoryStore<MinimalEthSpec>,
-            MemoryStore<MinimalEthSpec>,
-        > = HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal().into()).unwrap();
+        let store: HotColdDB<MinimalEthSpec, MemoryStore, MemoryStore> =
+            HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal().into()).unwrap();
         let spec = MinimalEthSpec::default_spec();
 
         let genesis_state = interop_genesis_state(

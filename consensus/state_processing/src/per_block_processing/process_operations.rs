@@ -915,16 +915,19 @@ pub fn is_pending_validator<E: EthSpec>(
     spec: &ChainSpec,
 ) -> bool {
     for deposit in deposits.iter() {
-        if deposit.pubkey == *pubkey {
-            let deposit_data = DepositData {
-                pubkey: deposit.pubkey,
-                withdrawal_credentials: deposit.withdrawal_credentials,
-                amount: deposit.amount,
-                signature: deposit.signature.clone(),
-            };
-            if is_valid_deposit_signature(&deposit_data, spec).is_ok() {
-                return true;
-            }
+        if deposit.pubkey == *pubkey
+            && is_valid_deposit_signature(
+                &DepositData {
+                    pubkey: deposit.pubkey,
+                    withdrawal_credentials: deposit.withdrawal_credentials,
+                    amount: deposit.amount,
+                    signature: deposit.signature.clone(),
+                },
+                spec,
+            )
+            .is_ok()
+        {
+            return true;
         }
     }
     false

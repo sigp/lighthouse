@@ -15,8 +15,8 @@ use types::{EthSpec, Slot};
 impl<E, Hot, Cold> HotColdDB<E, Hot, Cold>
 where
     E: EthSpec,
-    Hot: ItemStore<E>,
-    Cold: ItemStore<E>,
+    Hot: ItemStore,
+    Cold: ItemStore,
 {
     pub fn reconstruct_historic_states(
         self: &Arc<Self>,
