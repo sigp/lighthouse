@@ -301,7 +301,7 @@ struct ReprocessQueue<S> {
     /// Queued backfill batches
     queued_backfill_batches: Vec<QueuedBackfillBatch>,
     /// Queued gossip data columns awaiting their block, keyed by block root.
-    queued_gossip_data_columns: HashMap<Hash256, (Vec<QueuedGossipDataColumn>, DelayKey)>,
+    awaiting_data_columns_per_root: HashMap<Hash256, (Vec<QueuedGossipDataColumn>, DelayKey)>,
 
     /* Aux */
     /// Next attestation id, used for both aggregated and unaggregated attestations
@@ -490,7 +490,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
             awaiting_lc_updates_per_parent_root: HashMap::new(),
             queued_backfill_batches: Vec::new(),
             queued_column_reconstructions: HashMap::new(),
-            queued_gossip_data_columns: HashMap::new(),
+            awaiting_data_columns_per_root: HashMap::new(),
             next_attestation: 0,
             next_lc_update: 0,
             early_block_debounce: TimeLatch::default(),
@@ -719,12 +719,12 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 let block_root = queued_data_column.beacon_block_root;
 
                 if let Some((columns, _delay_key)) =
-                    self.queued_gossip_data_columns.get_mut(&block_root)
+                    self.awaiting_data_columns_per_root.get_mut(&block_root)
                 {
                     // Append to existing entry; the timer for this root is already running.
                     columns.push(queued_data_column);
                 } else {
-                    if self.queued_gossip_data_columns.len() >= MAXIMUM_QUEUED_DATA_COLUMNS {
+                    if self.awaiting_data_columns_per_root.len() >= MAXIMUM_QUEUED_DATA_COLUMNS {
                         return;
                     }
 
@@ -732,7 +732,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         .data_columns_delay_queue
                         .insert(block_root, QUEUED_ATTESTATION_DELAY);
 
-                    self.queued_gossip_data_columns
+                    self.awaiting_data_columns_per_root
                         .insert(block_root, (vec![queued_data_column], delay_key));
                 }
             }
@@ -851,7 +851,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
 
                 // Unqueue the data columns we have for this root, if any.
                 if let Some((data_columns, delay_key)) =
-                    self.queued_gossip_data_columns.remove(&block_root)
+                    self.awaiting_data_columns_per_root.remove(&block_root)
                 {
                     self.data_columns_delay_queue.remove(&delay_key);
                     for data_column in data_columns {
@@ -1118,7 +1118,8 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 }
             }
             InboundEvent::ReadyDataColumn(block_root) => {
-                if let Some((data_columns, _)) = self.queued_gossip_data_columns.remove(&block_root)
+                if let Some((data_columns, _)) =
+                    self.awaiting_data_columns_per_root.remove(&block_root)
                 {
                     for data_column in data_columns {
                         if self
@@ -1731,7 +1732,11 @@ mod tests {
         queue.handle_message(InboundEvent::Msg(msg));
 
         assert_eq!(queue.awaiting_data_columns_per_root.len(), 1);
-        assert_eq!(queue.queued_gossip_data_columns.len(), 1);
+        assert!(
+            queue
+                .awaiting_data_columns_per_root
+                .contains_key(&beacon_block_root)
+        );
         assert_eq!(queue.data_columns_delay_queue.len(), 1);
 
         // Simulate block import.
@@ -1742,7 +1747,6 @@ mod tests {
 
         // Internal state should be cleaned up.
         assert!(queue.awaiting_data_columns_per_root.is_empty());
-        assert!(queue.queued_gossip_data_columns.is_empty());
         assert_eq!(queue.data_columns_delay_queue.len(), 0);
 
         // The column should have been sent to the ready_work channel.
@@ -1782,6 +1786,5 @@ mod tests {
 
         // All internal state should be cleaned up.
         assert!(queue.awaiting_data_columns_per_root.is_empty());
-        assert!(queue.queued_gossip_data_columns.is_empty());
     }
 }
