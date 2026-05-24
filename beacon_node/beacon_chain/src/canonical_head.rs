@@ -178,13 +178,24 @@ impl<E: EthSpec> CachedHead<E> {
 
     /// Returns the execution block number of the block at the head of the chain.
     ///
-    /// Returns an error if the chain is prior to Bellatrix.
+    /// Returns an error if the chain is prior to Bellatrix or post-Gloas
     pub fn head_block_number(&self) -> Result<u64, BeaconStateError> {
         self.snapshot
             .beacon_block
             .message()
             .execution_payload()
             .map(|payload| payload.block_number())
+    }
+
+    /// Returns the execution block number of the block at the head of the chain.
+    ///
+    /// Returns an error if the chain is prior to Gloas.
+    pub fn head_block_number_gloas(&self) -> Result<u64, BeaconStateError> {
+        self.snapshot
+            .execution_envelope
+            .as_ref()
+            .map(|envelope| envelope.message.payload.block_number)
+            .ok()
     }
 
     /// Returns the active validator count for the current epoch of the head state.
