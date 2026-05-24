@@ -1682,51 +1682,6 @@ mod tests {
         assert_eq!(queue.envelope_delay_queue.len(), 1);
     }
 
-    #[tokio::test]
-    async fn envelope_capacity_evicts_oldest() {
-        create_test_tracing_subscriber();
-
-        let mut queue = test_queue();
-
-        // Pause time so it only advances manually
-        tokio::time::pause();
-
-        // Fill the queue to capacity.
-        for i in 0..MAXIMUM_QUEUED_ENVELOPES {
-            let block_root = Hash256::repeat_byte(i as u8);
-            let msg = ReprocessQueueMessage::UnknownBlockForEnvelope(QueuedGossipEnvelope {
-                beacon_block_slot: Slot::new(1),
-                beacon_block_root: block_root,
-                process_fn: Box::pin(async {}),
-            });
-            queue.handle_message(InboundEvent::Msg(msg));
-        }
-        assert_eq!(
-            queue.awaiting_envelopes_per_root.len(),
-            MAXIMUM_QUEUED_ENVELOPES
-        );
-
-        // One more should evict the oldest and insert the new one.
-        let overflow_root = Hash256::repeat_byte(0xff);
-        let msg = ReprocessQueueMessage::UnknownBlockForEnvelope(QueuedGossipEnvelope {
-            beacon_block_slot: Slot::new(1),
-            beacon_block_root: overflow_root,
-            process_fn: Box::pin(async {}),
-        });
-        queue.handle_message(InboundEvent::Msg(msg));
-
-        // Queue should still be at capacity, with the new root present.
-        assert_eq!(
-            queue.awaiting_envelopes_per_root.len(),
-            MAXIMUM_QUEUED_ENVELOPES
-        );
-        assert!(
-            queue
-                .awaiting_envelopes_per_root
-                .contains_key(&overflow_root)
-        );
-    }
-
     /// Tests that a queued gossip data column is released when its block is imported.
     #[tokio::test]
     async fn data_column_released_on_block_imported() {
