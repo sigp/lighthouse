@@ -52,8 +52,9 @@ pub const QUEUED_ATTESTATION_DELAY: Duration = Duration::from_secs(12);
 /// For how long to queue light client updates for re-processing.
 pub const QUEUED_LIGHT_CLIENT_UPDATE_DELAY: Duration = Duration::from_secs(12);
 
-/// For how long to queue gossip data columns awaiting their block for re-processing.
-pub const QUEUED_GOSSIP_DATA_COLUMN_DELAY: Duration = Duration::from_secs(12);
+/// Data column timeout as a multiplier of slot duration. Columns waiting for their block will be
+/// sent for processing after this many slots worth of time, even if the block hasn't arrived.
+const QUEUED_DATA_COLUMN_DELAY_SLOTS: u32 = 1;
 
 /// Envelope timeout as a multiplier of slot duration. Envelopes waiting for their block will be
 /// sent for processing after this many slots worth of time, even if the block hasn't arrived.
@@ -737,9 +738,10 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     // Append to existing entry; the timer for this root is already running.
                     columns.push(queued_data_column);
                 } else {
-                    let delay_key = self
-                        .data_columns_delay_queue
-                        .insert(block_root, QUEUED_GOSSIP_DATA_COLUMN_DELAY);
+                    let delay_key = self.data_columns_delay_queue.insert(
+                        block_root,
+                        self.slot_clock.slot_duration() * QUEUED_DATA_COLUMN_DELAY_SLOTS,
+                    );
 
                     self.awaiting_data_columns_per_root
                         .insert(block_root, (vec![queued_data_column], delay_key));
@@ -1796,7 +1798,11 @@ mod tests {
         );
 
         // Advance time past the delay so the entry expires.
-        advance_time(&queue.slot_clock, 2 * QUEUED_GOSSIP_DATA_COLUMN_DELAY).await;
+        advance_time(
+            &queue.slot_clock,
+            2 * queue.slot_clock.slot_duration() * QUEUED_DATA_COLUMN_DELAY_SLOTS,
+        )
+        .await;
         let ready_msg = queue.next().await.unwrap();
         assert!(matches!(ready_msg, InboundEvent::ReadyDataColumn(_)));
         queue.handle_message(ready_msg);
