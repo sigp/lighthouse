@@ -435,6 +435,7 @@ impl<T: BeaconChainTypes> Router<T> {
                             subnet_id,
                             column_sidecar,
                             seen_timestamp,
+                            true,
                         ),
                 )
             }

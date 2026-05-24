@@ -649,6 +649,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         subnet_id: DataColumnSubnetId,
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         seen_duration: Duration,
+        allow_reprocess: bool,
     ) {
         let slot = column_sidecar.slot();
         let block_root = column_sidecar.block_root();
@@ -738,33 +739,37 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             MessageAcceptance::Ignore,
                         );
 
-                        // Queue the column for reprocessing when the block arrives.
-                        let processor = self.clone();
-                        let reprocess_msg =
-                            ReprocessQueueMessage::UnknownBlockDataColumn(QueuedGossipDataColumn {
-                                beacon_block_root: unknown_block_root,
-                                process_fn: Box::new(move || {
-                                    let _ = processor.send_gossip_data_column_sidecar(
-                                        message_id,
-                                        peer_id,
-                                        subnet_id,
-                                        column_sidecar,
-                                        seen_duration,
-                                    );
-                                }),
-                            });
-                        if self
-                            .beacon_processor_send
-                            .try_send(WorkEvent {
-                                drop_during_sync: false,
-                                work: Work::Reprocess(reprocess_msg),
-                            })
-                            .is_err()
-                        {
-                            debug!(
-                                %unknown_block_root,
-                                "Failed to queue data column for reprocessing"
+                        if allow_reprocess {
+                            // Queue the column for reprocessing when the block arrives.
+                            let processor = self.clone();
+                            let reprocess_msg = ReprocessQueueMessage::UnknownBlockDataColumn(
+                                QueuedGossipDataColumn {
+                                    beacon_block_root: unknown_block_root,
+                                    process_fn: Box::new(move || {
+                                        let _ = processor.send_gossip_data_column_sidecar(
+                                            message_id,
+                                            peer_id,
+                                            subnet_id,
+                                            column_sidecar,
+                                            seen_duration,
+                                            false, // Do not reprocess this message again.
+                                        );
+                                    }),
+                                },
                             );
+                            if self
+                                .beacon_processor_send
+                                .try_send(WorkEvent {
+                                    drop_during_sync: false,
+                                    work: Work::Reprocess(reprocess_msg),
+                                })
+                                .is_err()
+                            {
+                                debug!(
+                                    %unknown_block_root,
+                                    "Failed to queue data column for reprocessing"
+                                );
+                            }
                         }
                     }
                     GossipDataColumnError::InvalidVariant
