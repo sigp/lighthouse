@@ -178,6 +178,8 @@ pub struct PayloadAttributes {
     pub parent_beacon_block_root: Hash256,
     #[superstruct(only(V4), partial_getter(copy))]
     pub slot_number: u64,
+    #[superstruct(only(V4), partial_getter(copy))]
+    pub target_gas_limit: u64,
 }
 
 impl PayloadAttributes {
@@ -188,19 +190,29 @@ impl PayloadAttributes {
         withdrawals: Option<Vec<Withdrawal>>,
         parent_beacon_block_root: Option<Hash256>,
         slot_number: Option<u64>,
+        target_gas_limit: Option<u64>,
     ) -> Self {
-        match (withdrawals, parent_beacon_block_root, slot_number) {
-            (Some(withdrawals), Some(parent_beacon_block_root), Some(slot_number)) => {
-                PayloadAttributes::V4(PayloadAttributesV4 {
-                    timestamp,
-                    prev_randao,
-                    suggested_fee_recipient,
-                    withdrawals,
-                    parent_beacon_block_root,
-                    slot_number,
-                })
-            }
-            (Some(withdrawals), Some(parent_beacon_block_root), None) => {
+        match (
+            withdrawals,
+            parent_beacon_block_root,
+            slot_number,
+            target_gas_limit,
+        ) {
+            (
+                Some(withdrawals),
+                Some(parent_beacon_block_root),
+                Some(slot_number),
+                Some(target_gas_limit),
+            ) => PayloadAttributes::V4(PayloadAttributesV4 {
+                timestamp,
+                prev_randao,
+                suggested_fee_recipient,
+                withdrawals,
+                parent_beacon_block_root,
+                slot_number,
+                target_gas_limit,
+            }),
+            (Some(withdrawals), Some(parent_beacon_block_root), _, _) => {
                 PayloadAttributes::V3(PayloadAttributesV3 {
                     timestamp,
                     prev_randao,
@@ -209,13 +221,13 @@ impl PayloadAttributes {
                     parent_beacon_block_root,
                 })
             }
-            (Some(withdrawals), None, _) => PayloadAttributes::V2(PayloadAttributesV2 {
+            (Some(withdrawals), None, _, _) => PayloadAttributes::V2(PayloadAttributesV2 {
                 timestamp,
                 prev_randao,
                 suggested_fee_recipient,
                 withdrawals,
             }),
-            (None, _, _) => PayloadAttributes::V1(PayloadAttributesV1 {
+            (None, _, _, _) => PayloadAttributes::V1(PayloadAttributesV1 {
                 timestamp,
                 prev_randao,
                 suggested_fee_recipient,
@@ -260,7 +272,7 @@ impl From<PayloadAttributes> for SsePayloadAttributes {
                 withdrawals,
                 parent_beacon_block_root,
             }),
-            // V4 maps to V3 for SSE (slot_number is not part of the SSE spec)
+            // V4 maps to V3 for SSE (slot_number/target_gas_limit are not part of the SSE spec)
             PayloadAttributes::V4(PayloadAttributesV4 {
                 timestamp,
                 prev_randao,
@@ -268,6 +280,7 @@ impl From<PayloadAttributes> for SsePayloadAttributes {
                 withdrawals,
                 parent_beacon_block_root,
                 slot_number: _,
+                target_gas_limit: _,
             }) => Self::V3(SsePayloadAttributesV3 {
                 timestamp,
                 prev_randao,

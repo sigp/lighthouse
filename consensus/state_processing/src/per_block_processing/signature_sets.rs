@@ -367,13 +367,10 @@ where
     E: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
-    let fork = state.fork();
-
     indexed_payload_attestation_signature_set_from_pubkeys(
         get_pubkey,
         signature,
         indexed_payload_attestation,
-        &fork,
         state.genesis_validators_root(),
         spec,
     )
@@ -383,7 +380,6 @@ pub fn indexed_payload_attestation_signature_set_from_pubkeys<'a, 'b, E, F>(
     get_pubkey: F,
     signature: &'a AggregateSignature,
     indexed_payload_attestation: &'b IndexedPayloadAttestation<E>,
-    fork: &Fork,
     genesis_validators_root: Hash256,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>>
@@ -402,7 +398,8 @@ where
         .data
         .slot
         .epoch(E::slots_per_epoch());
-    let domain = spec.get_domain(epoch, Domain::PTCAttester, fork, genesis_validators_root);
+    let fork = spec.fork_at_epoch(epoch);
+    let domain = spec.get_domain(epoch, Domain::PTCAttester, &fork, genesis_validators_root);
 
     let message = indexed_payload_attestation.data.signing_root(domain);
 

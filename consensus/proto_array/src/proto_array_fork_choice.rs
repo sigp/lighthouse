@@ -640,6 +640,9 @@ impl ProtoArrayForkChoice {
             .map_err(|e| {
                 format!("process_payload_attestation: data availability set failed: {e:?}")
             })?;
+        v29.ptc_participation
+            .set(ptc_index, true)
+            .map_err(|e| format!("process_payload_attestation: participation set failed: {e:?}"))?;
 
         Ok(())
     }
@@ -1004,6 +1007,33 @@ impl ProtoArrayForkChoice {
             execution_payload_block_hash: block.execution_payload_block_hash().ok(),
             proposer_index: block.proposer_index().ok(),
         })
+    }
+
+    /// Called by the proposer to decide whether to build on the full or empty
+    /// parent. Returns false if the PTC has voted the data as unavailable.
+    pub fn should_build_on_full<E: EthSpec>(
+        &self,
+        block_root: &Hash256,
+        parent_payload_status: PayloadStatus,
+    ) -> Result<bool, String> {
+        let block_index = self
+            .proto_array
+            .indices
+            .get(block_root)
+            .ok_or_else(|| format!("Unknown block root: {block_root:?}"))?;
+        let proto_node = self
+            .proto_array
+            .nodes
+            .get(*block_index)
+            .ok_or_else(|| format!("Missing node at index: {block_index}"))?;
+        let fc_node = IndexedForkChoiceNode {
+            root: proto_node.root(),
+            proto_node_index: *block_index,
+            payload_status: parent_payload_status,
+        };
+        self.proto_array
+            .should_build_on_full::<E>(&fc_node, proto_node)
+            .map_err(|e| format!("{e:?}"))
     }
 
     /// Returns whether the proposer should extend the parent's execution payload chain.
