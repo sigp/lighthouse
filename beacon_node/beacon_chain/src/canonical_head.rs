@@ -189,7 +189,7 @@ impl<E: EthSpec> CachedHead<E> {
 
     /// Returns the execution block number of the block at the head of the chain.
     ///
-    /// Returns an error if the chain is prior to Gloas.
+    /// Returns `None` if the chain is prior to Gloas.
     pub fn head_block_number_gloas(&self) -> Option<u64> {
         if let Some(head_block_number) = self
             .snapshot
