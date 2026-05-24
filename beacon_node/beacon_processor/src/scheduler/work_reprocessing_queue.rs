@@ -252,7 +252,7 @@ enum InboundEvent {
     ReadyBackfillSync(QueuedBackfillBatch),
     /// A column reconstruction that was queued is ready for processing.
     ReadyColumnReconstruction(QueuedColumnReconstruction),
-    /// A gossip data column that timed out waiting for its block.
+    /// A gossip data column that is ready for re-processing.
     ReadyDataColumn(Hash256),
     /// A message sent to the `ReprocessQueue`
     Msg(ReprocessQueueMessage),
