@@ -586,22 +586,16 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     return;
                 }
 
-                // When the queue is full, evict the oldest entry to make room for newer envelopes.
+                // When the queue is full, drop the new envelope.
                 if self.awaiting_envelopes_per_root.len() >= MAXIMUM_QUEUED_ENVELOPES {
                     if self.envelope_delay_debounce.elapsed() {
                         warn!(
                             queue_size = MAXIMUM_QUEUED_ENVELOPES,
                             msg = "system resources may be saturated",
-                            "Envelope delay queue is full, evicting oldest entry"
+                            "Envelope delay queue is full, dropping envelope"
                         );
                     }
-                    if let Some(oldest_root) =
-                        self.awaiting_envelopes_per_root.keys().next().copied()
-                        && let Some((_envelope, delay_key)) =
-                            self.awaiting_envelopes_per_root.remove(&oldest_root)
-                    {
-                        self.envelope_delay_queue.remove(&delay_key);
-                    }
+                    return;
                 }
 
                 // Register the timeout.
