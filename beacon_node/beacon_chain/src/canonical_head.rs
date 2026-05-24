@@ -190,12 +190,21 @@ impl<E: EthSpec> CachedHead<E> {
     /// Returns the execution block number of the block at the head of the chain.
     ///
     /// Returns an error if the chain is prior to Gloas.
-    pub fn head_block_number_gloas(&self) -> Result<u64, BeaconStateError> {
-        self.snapshot
+    pub fn head_block_number_gloas(&self) -> Option<u64> {
+        if let Some(head_block_number) = self
+            .snapshot
             .execution_envelope
             .as_ref()
             .map(|envelope| envelope.message.payload.block_number)
-            .ok()
+        {
+            Some(head_block_number)
+        } else {
+            // This fallback is strictly for the fork boundary case when self.snapshot.execution_envelope is `None`.
+            // Note: If there is a missed/orphaned envelope at the fork boundary we wont be able to get the block number using this fallback.
+            // We could try handling that edge case but it doesn't seem worth it. Returning `None` here just means that we don't
+            // emit a payload attributes SSE event further upstream.
+            self.head_block_number().ok()
+        }
     }
 
     /// Returns the active validator count for the current epoch of the head state.
