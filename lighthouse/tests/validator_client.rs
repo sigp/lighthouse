@@ -299,6 +299,13 @@ fn graffiti_append_false_flag() {
         });
 }
 
+#[test]
+#[should_panic]
+fn graffiti_append_old_behaviour() {
+    // Previously the flag is a bool, so passing a None here should panic
+    CommandLineTest::new().flag("graffiti-append", None).run();
+}
+
 // Tests for suggested-fee-recipient flags.
 #[test]
 fn fee_recipient_flag() {

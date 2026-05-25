@@ -96,6 +96,8 @@ A `null` response indicates that the request is successful.
 
 ## Automatically append client version info to user graffiti
 
+> Note: this feature only works when a Lighthouse validator client is connected with a Lighthouse beacon node. 
+
 In the interest of obtaining client diversity data, Lighthouse will by default automatically append client version info
 to user graffiti in proposed blocks.
 
@@ -126,5 +128,4 @@ When the user graffiti is between 28-29 characters:
 When the user graffiti is between 30-32 characters, no client version info will be appended:
 `This is my graffiti string yo yo`
 
-To opt out from this, use the flag `--graffiti-append false` on the validator client. This will retain your own
-graffiti when proposing a block, without appending any client version info.
+To opt out from this, when using a Lighthouse beacon node, use the flag `--graffiti-append false` on the validator client.  This will retain your own graffiti when proposing a block, without appending any client version info.
