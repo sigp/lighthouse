@@ -1285,6 +1285,10 @@ impl ProtoArray {
         spec: &ChainSpec,
     ) -> Result<Option<Hash256>, Error> {
         for node in self.iter_nodes(&block_root) {
+            if node.as_v29().is_err() {
+                return Ok(None);
+            }
+
             if self.get_canonical_payload_status::<E>(
                 node.root(),
                 node.slot(),

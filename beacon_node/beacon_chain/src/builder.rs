@@ -801,7 +801,11 @@ where
                 .get_payload_envelope(&head_block_root)
                 .map_err(|e| format!("Error loading head execution envelope: {:?}", e))?
                 .map(Arc::new)
-        } else {
+        } else if self
+            .spec
+            .fork_name_at_slot::<E>(head_block.slot())
+            .gloas_enabled()
+        {
             let latest_full_block_root_opt = fork_choice
                 .latest_parent_full_block(head_block_root, &self.spec)
                 .map_err(|e| {
@@ -820,6 +824,8 @@ where
                 // TODO(gloas) handle the case where the non-finalized portion of the chain has no canonical payload envelopes.
                 None
             }
+        } else {
+            None
         };
 
         let mut head_snapshot = BeaconSnapshot {

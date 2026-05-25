@@ -344,7 +344,10 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             store
                 .get_payload_envelope(&beacon_block_root)?
                 .map(Arc::new)
-        } else {
+        } else if spec
+            .fork_name_at_slot::<T::EthSpec>(beacon_block.slot())
+            .gloas_enabled()
+        {
             let latest_full_block_root_opt =
                 fork_choice.latest_parent_full_block(beacon_block_root, spec)?;
 
@@ -356,6 +359,8 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
                 // TODO(gloas) handle the case where the non-finalized portion of the chain has no canonical payload envelopes.
                 None
             }
+        } else {
+            None
         };
 
         let snapshot = BeaconSnapshot {
@@ -753,7 +758,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         ))?;
 
                     Some(envelope)
-                } else {
+                } else if self
+                    .spec
+                    .fork_name_at_slot::<T::EthSpec>(beacon_block.slot())
+                    .gloas_enabled()
+                {
                     let fork_choice = self.canonical_head.fork_choice_read_lock();
                     let latest_full_block_root_opt = fork_choice
                         .latest_parent_full_block(new_view.head_block_root, &self.spec)?;
@@ -772,7 +781,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         // TODO(gloas) handle the case where the non-finalized portion of the chain has no canonical payload envelopes.
                         None
                     }
+                } else {
+                    None
                 };
+
                 let (_, beacon_state) = self
                     .store
                     .get_advanced_hot_state(new_view.head_block_root, current_slot, state_root)?
