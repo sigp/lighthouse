@@ -559,6 +559,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             BlockProcessType::SingleCustodyColumn(id) => {
                 self.on_processing_result_inner::<CustodyRequestState<T::EthSpec>>(id, result, cx)
             }
+            // TODO(gloas): route into the payload envelope lookup state machine.
+            BlockProcessType::SinglePayloadEnvelope(_) => Ok(LookupResult::Pending),
         };
         self.on_lookup_result(process_type.id(), lookup_result, "processing_result", cx);
     }

@@ -73,6 +73,8 @@ pub const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
 /// Name for the default file used for the jwt secret.
 pub const DEFAULT_JWT_FILE: &str = "jwt.hex";
 
+pub const DEFAULT_GAS_LIMIT: u64 = 60_000_000;
+
 /// A fee recipient address for use during block production. Only used as a very last resort if
 /// there is no address provided by the user.
 ///
@@ -358,7 +360,10 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BlockProposalContents<E, Paylo
 #[derive(Clone, Copy, Debug)]
 pub struct PayloadParameters<'a> {
     pub parent_hash: ExecutionBlockHash,
-    pub parent_gas_limit: u64,
+    // NOTE: The `parent_gas_limit` is a bit scuffed. We made it optional for Gloas because it
+    // isn't currently required, but it should possibly be made non-optional again if needed.
+    // Or we should superstruct this type.
+    pub parent_gas_limit: Option<u64>,
     pub proposer_gas_limit: Option<u64>,
     pub payload_attributes: &'a PayloadAttributes,
     pub forkchoice_update_params: &'a ForkchoiceUpdateParameters,
@@ -2082,7 +2087,7 @@ fn verify_builder_bid<E: EthSpec>(
 
     let payload_withdrawals_root = header.withdrawals_root().ok();
     let expected_gas_limit = proposer_gas_limit
-        .and_then(|target_gas_limit| expected_gas_limit(parent_gas_limit, target_gas_limit, spec));
+        .and_then(|target_gas_limit| expected_gas_limit(parent_gas_limit?, target_gas_limit, spec));
 
     if header.parent_hash() != parent_hash {
         Err(Box::new(InvalidBuilderPayload::ParentHash {

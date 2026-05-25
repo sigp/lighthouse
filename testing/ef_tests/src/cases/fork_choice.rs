@@ -26,9 +26,11 @@ use execution_layer::{
 };
 use serde::Deserialize;
 use ssz_derive::Decode;
+use ssz_types::VariableList;
 use state_processing::VerifySignatures;
 use state_processing::common::{attesting_indices_base, attesting_indices_electra};
 use state_processing::envelope_processing::verify_execution_payload_envelope;
+use state_processing::per_block_processing::is_valid_indexed_payload_attestation;
 use state_processing::per_block_processing::verify_attester_slashing;
 use state_processing::state_advance::complete_state_advance;
 use std::future::Future;
@@ -69,6 +71,13 @@ pub struct ShouldOverrideFcu {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct PayloadVoteCheck {
+    block_root: Hash256,
+    votes: Vec<Option<bool>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Checks {
     head: Option<Head>,
     time: Option<u64>,
@@ -82,6 +91,8 @@ pub struct Checks {
     get_proposer_head: Option<Hash256>,
     should_override_forkchoice_update: Option<ShouldOverrideFcu>,
     head_payload_status: Option<u8>,
+    payload_timeliness_vote: Option<PayloadVoteCheck>,
+    payload_data_availability_vote: Option<PayloadVoteCheck>,
     viable_for_head_roots_and_weights: Option<Vec<RootAndWeight>>,
 }
 
@@ -120,7 +131,7 @@ pub enum Step<
     TAttesterSlashing,
     TPowBlock,
     TExecutionPayload = String,
-    TPayloadAttestation = String,
+    TPayloadAttestationMessage = String,
 > {
     Tick {
         tick: u64,
@@ -163,11 +174,15 @@ pub enum Step<
         execution_payload: TExecutionPayload,
         valid: bool,
     },
-    PayloadAttestation {
-        payload_attestation: TPayloadAttestation,
-        #[serde(default)]
-        valid: Option<bool>,
+    PayloadAttestationMessage {
+        payload_attestation_message: TPayloadAttestationMessage,
+        #[serde(default = "default_true")]
+        valid: bool,
     },
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -206,10 +221,12 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
             .expect("path must be valid OsStr")
             .to_string();
         let spec = &testing_spec::<E>(fork_name);
+
         #[allow(clippy::type_complexity)]
         let steps: Vec<
             Step<String, String, Vec<String>, String, String, String, String, String>,
         > = yaml_decode_file(&path.join("steps.yaml"))?;
+
         // Resolve the object names in `steps.yaml` into actual decoded block/attestation objects.
         let steps = steps
             .into_iter()
@@ -332,15 +349,18 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                         valid,
                     })
                 }
-                Step::PayloadAttestation {
-                    payload_attestation,
+                Step::PayloadAttestationMessage {
+                    payload_attestation_message,
                     valid,
-                } => ssz_decode_file(&path.join(format!("{payload_attestation}.ssz_snappy"))).map(
-                    |payload_attestation| Step::PayloadAttestation {
-                        payload_attestation,
+                } => {
+                    let msg: PayloadAttestationMessage = ssz_decode_file(
+                        &path.join(format!("{payload_attestation_message}.ssz_snappy")),
+                    )?;
+                    Ok(Step::PayloadAttestationMessage {
+                        payload_attestation_message: msg,
                         valid,
-                    },
-                ),
+                    })
+                }
             })
             .collect::<Result<_, _>>()?;
         let anchor_state = ssz_decode_state(&path.join("anchor_state.ssz_snappy"), spec)?;
@@ -463,6 +483,8 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         get_proposer_head,
                         should_override_forkchoice_update: should_override_fcu,
                         head_payload_status,
+                        payload_timeliness_vote,
+                        payload_data_availability_vote,
                         viable_for_head_roots_and_weights,
                     } = checks.as_ref();
 
@@ -515,6 +537,14 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         tester.check_head_payload_status(*expected_status)?;
                     }
 
+                    if let Some(expected) = payload_timeliness_vote {
+                        tester.check_payload_timeliness_vote(expected)?;
+                    }
+
+                    if let Some(expected) = payload_data_availability_vote {
+                        tester.check_payload_data_availability_vote(expected)?;
+                    }
+
                     if let Some(expected) = viable_for_head_roots_and_weights {
                         tester.check_viable_for_head_roots_and_weights(expected)?;
                     }
@@ -533,23 +563,12 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                 } => {
                     tester.process_execution_payload(execution_payload, *valid)?;
                 }
-                Step::PayloadAttestation {
-                    payload_attestation,
+                Step::PayloadAttestationMessage {
+                    payload_attestation_message,
                     valid,
                 } => {
-                    let result = tester.process_payload_attestation(payload_attestation);
-                    match valid {
-                        Some(false) => {
-                            if result.is_ok() {
-                                return Err(Error::DidntFail(
-                                    "payload attestation marked valid=false should have been \
-                                     rejected"
-                                        .into(),
-                                ));
-                            }
-                        }
-                        Some(true) | None => result?,
-                    }
+                    tester
+                        .process_payload_attestation_message(payload_attestation_message, *valid)?;
                 }
             }
         }
@@ -1056,66 +1075,6 @@ impl<E: EthSpec> Tester<E> {
             .map_err(|e| Error::InternalError(format!("attestation import failed with {:?}", e)))
     }
 
-    pub fn process_payload_attestation(
-        &self,
-        message: &PayloadAttestationMessage,
-    ) -> Result<(), Error> {
-        let slot = message.data.slot;
-
-        let block = {
-            let fork_choice = self.harness.chain.canonical_head.fork_choice_read_lock();
-            fork_choice
-                .get_block(&message.data.beacon_block_root)
-                .ok_or_else(|| {
-                    Error::InternalError(format!(
-                        "payload attestation block {:?} not found",
-                        message.data.beacon_block_root
-                    ))
-                })?
-        };
-        let state = self
-            .harness
-            .chain
-            .store
-            .get_hot_state(&block.state_root, CACHE_STATE_IN_TESTS)
-            .map_err(|e| {
-                Error::InternalError(format!(
-                    "failed to load payload attestation block state: {e:?}"
-                ))
-            })?
-            .ok_or_else(|| {
-                Error::InternalError(format!(
-                    "payload attestation block state {:?} not found",
-                    block.state_root
-                ))
-            })?;
-
-        let ptc = state
-            .get_ptc(slot, &self.spec)
-            .map_err(|e| Error::InternalError(format!("get_ptc failed with {:?}", e)))?;
-
-        let indexed = IndexedPayloadAttestation {
-            attesting_indices: vec![message.validator_index].try_into().map_err(|_| {
-                Error::InternalError("payload attestation indexing failed: too many indices".into())
-            })?,
-            data: message.data.clone(),
-            signature: AggregateSignature::from(&message.signature),
-        };
-
-        let current_slot = self.harness.chain.slot().map_err(|e| {
-            Error::InternalError(format!("reading current slot failed with {:?}", e))
-        })?;
-
-        self.harness
-            .chain
-            .canonical_head
-            .fork_choice_write_lock()
-            .on_payload_attestation(current_slot, &indexed, AttestationFromBlock::False, &ptc.0)
-            .map_err(|e| {
-                Error::InternalError(format!("payload attestation import failed with {:?}", e))
-            })
-    }
-
     pub fn process_attester_slashing(
         &self,
         attester_slashing: AttesterSlashingRef<E>,
@@ -1536,6 +1495,173 @@ impl<E: EthSpec> Tester<E> {
             fcu_params != canonical_fcu_params,
             expected_should_override_fcu.result,
         )
+    }
+
+    pub fn process_payload_attestation_message(
+        &self,
+        msg: &PayloadAttestationMessage,
+        valid: bool,
+    ) -> Result<(), Error> {
+        let slot = msg.data.slot;
+        let block_root = msg.data.beacon_block_root;
+
+        // Get the state at the block to compute the PTC and verify signature.
+        let store = &self.harness.chain.store;
+        let block = store
+            .get_blinded_block(&block_root)
+            .map_err(|e| Error::InternalError(format!("Failed to load block: {e:?}")))?;
+
+        let state_opt = block.and_then(|block| {
+            store
+                .get_hot_state(&block.state_root(), CACHE_STATE_IN_TESTS)
+                .ok()?
+        });
+
+        // Build IndexedPayloadAttestation from the message.
+        let indexed = IndexedPayloadAttestation::<E> {
+            attesting_indices: VariableList::new(vec![msg.validator_index]).unwrap(),
+            data: msg.data.clone(),
+            signature: AggregateSignature::from(&msg.signature),
+        };
+
+        let result = if let Some(ref state) = state_opt {
+            is_valid_indexed_payload_attestation(
+                state,
+                &indexed,
+                VerifySignatures::True,
+                &self.spec,
+            )
+            .map_err(|e| {
+                Error::InternalError(format!(
+                    "payload attestation signature verification failed for validator {}: {:?}",
+                    msg.validator_index, e
+                ))
+            })
+            .and_then(|_| {
+                let ptc = state.get_ptc(slot, &self.spec).map_err(|e| {
+                    Error::InternalError(format!(
+                        "Could not compute PTC for block root {block_root:?} at slot {slot:?}: {e:?}"
+                    ))
+                })?;
+
+                self.harness
+                    .chain
+                    .canonical_head
+                    .fork_choice_write_lock()
+                    .on_payload_attestation(
+                        self.harness.chain.slot().unwrap(),
+                        &indexed,
+                        AttestationFromBlock::False,
+                        &ptc.0,
+                    )
+                    .map_err(|e| {
+                        Error::InternalError(format!(
+                            "on_payload_attestation for validator {} failed: {:?}",
+                            msg.validator_index, e
+                        ))
+                    })
+            })
+        } else {
+            Err(Error::InternalError(format!(
+                "Could not get state for block root {block_root:?} at slot {slot:?}"
+            )))
+        };
+
+        if valid {
+            result?;
+        } else if result.is_ok() {
+            return Err(Error::DidntFail(format!(
+                "payload_attestation_message for validator {} should have failed",
+                msg.validator_index
+            )));
+        }
+
+        Ok(())
+    }
+
+    pub fn check_payload_timeliness_vote(&self, expected: &PayloadVoteCheck) -> Result<(), Error> {
+        let fc = self.harness.chain.canonical_head.fork_choice_read_lock();
+        let proto_array = fc.proto_array().core_proto_array();
+
+        let node_index = proto_array
+            .indices
+            .get(&expected.block_root)
+            .ok_or_else(|| {
+                Error::InternalError(format!(
+                    "Block root {:?} not found in proto array",
+                    expected.block_root
+                ))
+            })?;
+        let node = proto_array
+            .nodes
+            .get(*node_index)
+            .ok_or_else(|| Error::InternalError(format!("Node index {} not found", node_index)))?;
+        let v29 = node
+            .as_v29()
+            .map_err(|_| Error::InternalError("Node is not V29".to_string()))?;
+
+        let timeliness_votes = &v29.payload_timeliness_votes;
+        let participation = &v29.ptc_participation;
+
+        for (i, expected_vote) in expected.votes.iter().enumerate() {
+            let actual = if !participation.get(i).unwrap() {
+                None // not yet voted
+            } else {
+                Some(timeliness_votes.get(i).unwrap())
+            };
+            if actual != *expected_vote {
+                return Err(Error::NotEqual(format!(
+                    "payload_timeliness_vote[{}]: Got {:?} | Expected {:?}",
+                    i, actual, expected_vote
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn check_payload_data_availability_vote(
+        &self,
+        expected: &PayloadVoteCheck,
+    ) -> Result<(), Error> {
+        let fc = self.harness.chain.canonical_head.fork_choice_read_lock();
+        let proto_array = fc.proto_array().core_proto_array();
+
+        let node_index = proto_array
+            .indices
+            .get(&expected.block_root)
+            .ok_or_else(|| {
+                Error::InternalError(format!(
+                    "Block root {:?} not found in proto array",
+                    expected.block_root
+                ))
+            })?;
+        let node = proto_array
+            .nodes
+            .get(*node_index)
+            .ok_or_else(|| Error::InternalError(format!("Node index {} not found", node_index)))?;
+        let v29 = node
+            .as_v29()
+            .map_err(|_| Error::InternalError("Node is not V29".to_string()))?;
+
+        let availability_votes = &v29.payload_data_availability_votes;
+        let participation = &v29.ptc_participation;
+
+        for (i, expected_vote) in expected.votes.iter().enumerate() {
+            let actual = if !participation.get(i).unwrap() {
+                None // not yet voted
+            } else {
+                Some(availability_votes.get(i).unwrap())
+            };
+            if actual != *expected_vote {
+                return Err(Error::NotEqual(format!(
+                    "payload_data_availability_vote[{}]: Got {:?} | Expected {:?}",
+                    i, actual, expected_vote
+                )));
+            }
+        }
+
+        Ok(())
     }
 }
 

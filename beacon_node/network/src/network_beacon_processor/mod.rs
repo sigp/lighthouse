@@ -588,6 +588,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    /// Create a new `Work` event for an RPC-fetched payload envelope. `process_lookup_envelope`
+    /// reports the result back to sync.
+    pub fn send_lookup_envelope(
+        self: &Arc<Self>,
+        block_root: Hash256,
+        envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let s = self.clone();
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::RpcEnvelope(Box::pin(async move {
+                s.process_lookup_envelope(block_root, envelope, seen_timestamp, process_type)
+                    .await;
+            })),
+        })
+    }
+
     /// Create a new `Work` event for some custody columns. `process_rpc_custody_columns` reports
     /// the result back to sync.
     pub fn send_rpc_custody_columns(
@@ -1248,8 +1267,7 @@ use {
 };
 
 #[cfg(test)]
-pub(crate) type TestBeaconChainType<E> =
-    Witness<ManualSlotClock, E, MemoryStore<E>, MemoryStore<E>>;
+pub(crate) type TestBeaconChainType<E> = Witness<ManualSlotClock, E, MemoryStore, MemoryStore>;
 
 #[cfg(test)]
 impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {

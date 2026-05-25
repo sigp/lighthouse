@@ -96,8 +96,8 @@ use eth2::types::{
     SseExtendedPayloadAttributes, SseHead,
 };
 use execution_layer::{
-    BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer,
-    FailedCondition, PayloadAttributes, PayloadStatus,
+    BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth,
+    DEFAULT_GAS_LIMIT, ExecutionLayer, FailedCondition, PayloadAttributes, PayloadStatus,
 };
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::{
@@ -325,8 +325,8 @@ pub enum StateSkipConfig {
 }
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
-    type HotStore: store::ItemStore<Self::EthSpec>;
-    type ColdStore: store::ItemStore<Self::EthSpec>;
+    type HotStore: store::ItemStore;
+    type ColdStore: store::ItemStore;
     type SlotClock: slot_clock::SlotClock;
     type EthSpec: types::EthSpec;
 }
@@ -2186,12 +2186,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // TODO(gloas) do we want to use a dedicated envelope cache instead?
         // Maybe the new gloas DA cache? (Or should the gloas DA cache use
-        // the envelopes_times_cache internally?)
+        // the envelopes_times_cache internally?
+        // The payload is considered present only if it was observed before
+        // the payload due deadline (PAYLOAD_DUE_BPS into the slot).
+        let payload_due = self.spec.get_payload_due();
         let payload_present = self
             .envelope_times_cache
             .read()
             .cache
-            .contains_key(&beacon_block_root);
+            .get(&beacon_block_root)
+            .and_then(|entry| entry.timestamps.observed)
+            .is_some_and(|observed| {
+                let slot_start = self.slot_clock.start_of(request_slot);
+                slot_start.is_some_and(|start| observed.saturating_sub(start) < payload_due)
+            });
 
         // TODO(EIP-7732): Check blob data availability. For now, default to true.
         let blob_data_available = true;
@@ -4909,27 +4917,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let shuffling_id = AttestationShufflingId::new(block_root, state, relative_epoch)?;
             let shuffling_epoch = relative_epoch.into_epoch(state.current_epoch());
 
-            let shuffling_is_cached = self.shuffling_cache.read().contains(&shuffling_id);
-
-            // Skip priming the cache for `shuffling_epoch` if it is Gloas but the state is not:
-            // we do not have the PTCs on hand in this case.
-            if self
-                .spec
-                .fork_name_at_epoch(shuffling_epoch)
-                .gloas_enabled()
-                && !state.fork_name_unchecked().gloas_enabled()
-            {
+            if self.shuffling_cache.read().contains(&shuffling_id) {
                 continue;
             }
 
-            if !shuffling_is_cached {
-                state.build_committee_cache(relative_epoch, &self.spec)?;
-                let committee_cache = state.committee_cache(relative_epoch)?;
-                let ptcs = CachedPTCs::from_state(state, shuffling_epoch, &self.spec)?;
-                let cached_shuffling = CachedShuffling::new(committee_cache.clone(), ptcs);
-                self.shuffling_cache
-                    .write()
-                    .insert_committee_cache(shuffling_id, cached_shuffling)?;
+            state.build_committee_cache(relative_epoch, &self.spec)?;
+            let committee_cache = state.committee_cache(relative_epoch)?.clone();
+
+            if let Some(ptcs) = CachedPTCs::try_from_state(state, shuffling_epoch, &self.spec)? {
+                self.shuffling_cache.write().insert_committee_cache(
+                    shuffling_id,
+                    CachedShuffling::new(committee_cache, ptcs),
+                );
             }
         }
         Ok(())
@@ -6354,6 +6353,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .contains_block(root)
     }
 
+    pub fn envelope_is_known_to_fork_choice(&self, root: &Hash256) -> bool {
+        self.canonical_head
+            .fork_choice_read_lock()
+            .is_payload_received(root)
+    }
+
     /// Determines the beacon proposer for the next slot. If that proposer is registered in the
     /// `execution_layer`, provide the `execution_layer` with the necessary information to produce
     /// `PayloadAttributes` for future calls to fork choice.
@@ -6485,6 +6490,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None
             };
 
+            let target_gas_limit = if prepare_slot_fork.gloas_enabled() {
+                let proposer_gas_limit = execution_layer.get_proposer_gas_limit(proposer).await;
+                if proposer_gas_limit.is_none() {
+                    warn!(
+                        %proposer,
+                        "No proposer gas limit configured, falling back to parent gas limit"
+                    );
+                }
+                proposer_gas_limit.or(Some(DEFAULT_GAS_LIMIT))
+            } else {
+                None
+            };
+
             let payload_attributes = PayloadAttributes::new(
                 self.slot_clock
                     .start_of(prepare_slot)
@@ -6495,6 +6513,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 withdrawals.map(Into::into),
                 parent_beacon_block_root,
                 slot_number,
+                target_gas_limit,
             );
 
             execution_layer

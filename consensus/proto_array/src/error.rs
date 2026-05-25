@@ -1,3 +1,4 @@
+use crate::PayloadStatus;
 use safe_arith::ArithError;
 use types::{Checkpoint, Epoch, ExecutionBlockHash, Hash256, Slot};
 
@@ -62,6 +63,10 @@ pub enum Error {
     },
     NoViableChildren,
     OnBlockRequiresProposerIndex,
+    InvalidPayloadStatus {
+        block_root: Hash256,
+        payload_status: PayloadStatus,
+    },
 }
 
 impl From<ArithError> for Error {
