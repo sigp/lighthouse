@@ -4,7 +4,7 @@ use crate::sync::BatchProcessResult;
 use crate::sync::manager::CustodyBatchProcessResult;
 use crate::sync::{
     ChainId,
-    manager::{BlockProcessType, SyncMessage},
+    manager::{BlockProcessType, BlockProcessingResult, SyncMessage},
 };
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::block_verification_types::{AsBlock, RangeSyncBlock};
@@ -28,7 +28,9 @@ use store::KzgCommitment;
 use tracing::{debug, debug_span, error, info, instrument, warn};
 use types::data::FixedBlobSidecarList;
 use types::kzg_ext::format_kzg_commitments;
-use types::{BlockImportSource, DataColumnSidecarList, Epoch, Hash256};
+use types::{
+    BlockImportSource, DataColumnSidecarList, Epoch, Hash256, SignedExecutionPayloadEnvelope,
+};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
 #[derive(Clone, Debug, PartialEq)]
@@ -71,6 +73,77 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .await;
         };
         Box::pin(process_fn)
+    }
+
+    /// Returns an async closure which processes a payload envelope received via RPC.
+    pub fn generate_rpc_envelope_process_fn(
+        self: Arc<Self>,
+        envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) -> AsyncFn {
+        let process_fn = async move {
+            self.process_rpc_envelope(envelope, seen_timestamp, process_type)
+                .await;
+        };
+        Box::pin(process_fn)
+    }
+
+    /// Process an execution payload envelope received via RPC.
+    async fn process_rpc_envelope(
+        self: Arc<Self>,
+        envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        _seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) {
+        let beacon_block_root = envelope.beacon_block_root();
+
+        // Verify the envelope using the gossip verification path (same checks apply to RPC)
+        let verified_envelope = match self.chain.verify_envelope_for_gossip(envelope).await {
+            Ok(verified) => verified,
+            Err(e) => {
+                debug!(
+                    error = ?e,
+                    ?beacon_block_root,
+                    "RPC payload envelope failed verification"
+                );
+                self.send_sync_message(SyncMessage::BlockComponentProcessed {
+                    process_type,
+                    result: BlockProcessingResult::Err(e.into()),
+                });
+                return;
+            }
+        };
+
+        // Process the verified envelope
+        let result = self
+            .chain
+            .process_execution_payload_envelope(
+                beacon_block_root,
+                verified_envelope,
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
+                #[allow(clippy::result_large_err)]
+                || Ok(()),
+            )
+            .await;
+
+        let processing_result = match result {
+            Ok(status) => BlockProcessingResult::Ok(status),
+            Err(e) => {
+                debug!(
+                    error = ?e,
+                    ?beacon_block_root,
+                    "RPC payload envelope processing failed"
+                );
+                BlockProcessingResult::Err(e.into())
+            }
+        };
+
+        self.send_sync_message(SyncMessage::BlockComponentProcessed {
+            process_type,
+            result: processing_result,
+        });
     }
 
     /// Returns the `process_fn` and `ignore_fn` required when requeuing an RPC block.
@@ -783,6 +856,33 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         downloaded_blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let total_blocks = downloaded_blocks.len();
+
+        // Check if this batch contains GLOaS blocks.
+        let is_gloas_batch = downloaded_blocks
+            .first()
+            .map(|b| matches!(b, RangeSyncBlock::Gloas { .. }))
+            .unwrap_or(false);
+
+        if is_gloas_batch {
+            // GLOaS blocks: store blocks and envelopes directly.
+            // KZG verification for columns was already done during coupling.
+            match self.chain.import_historical_gloas_block_batch(downloaded_blocks) {
+                Ok(imported_blocks) => {
+                    metrics::inc_counter(
+                        &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_SUCCESS_TOTAL,
+                    );
+                    return (imported_blocks, Ok(()));
+                }
+                Err(e) => {
+                    metrics::inc_counter(
+                        &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_FAILED_TOTAL,
+                    );
+                    return self.handle_historical_block_error(e);
+                }
+            }
+        }
+
+        // Pre-GLOaS path: convert to AvailableBlocks and verify KZG.
         let available_blocks = downloaded_blocks
             .into_iter()
             .map(|block| block.into_available_block())
@@ -843,73 +943,81 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_FAILED_TOTAL,
                 );
-                let peer_action = match &e {
-                    HistoricalBlockError::MismatchedBlockRoot {
-                        block_root,
-                        expected_block_root,
-                    } => {
-                        debug!(
-                            error = "mismatched_block_root",
-                            ?block_root,
-                            expected_root = ?expected_block_root,
-                            "Backfill batch processing error"
-                        );
-                        // The peer is faulty if they send blocks with bad roots.
-                        Some(PeerAction::LowToleranceError)
-                    }
-                    HistoricalBlockError::InvalidSignature
-                    | HistoricalBlockError::SignatureSet(_) => {
-                        warn!(
-                            error = ?e,
-                            "Backfill batch processing error"
-                        );
-                        // The peer is faulty if they bad signatures.
-                        Some(PeerAction::LowToleranceError)
-                    }
-                    HistoricalBlockError::MissingOldestBlockRoot { slot } => {
-                        warn!(
-                            %slot,
-                            error = "missing_oldest_block_root",
-                            "Backfill batch processing error"
-                        );
-                        // This is an internal error, do not penalize the peer.
-                        None
-                    }
-
-                    HistoricalBlockError::ValidatorPubkeyCacheTimeout => {
-                        warn!(
-                            error = "pubkey_cache_timeout",
-                            "Backfill batch processing error"
-                        );
-                        // This is an internal error, do not penalize the peer.
-                        None
-                    }
-                    HistoricalBlockError::IndexOutOfBounds => {
-                        error!(
-                            error = ?e,
-                            "Backfill batch OOB error"
-                        );
-                        // This should never occur, don't penalize the peer.
-                        None
-                    }
-                    HistoricalBlockError::StoreError(e) => {
-                        warn!(error = ?e, "Backfill batch processing error");
-                        // This is an internal error, don't penalize the peer.
-                        None
-                    } //
-                      // Do not use a fallback match, handle all errors explicitly
-                };
-                let err_str: &'static str = e.into();
-                (
-                    0,
-                    Err(ChainSegmentFailed {
-                        message: format!("{:?}", err_str),
-                        // This is an internal error, don't penalize the peer.
-                        peer_action,
-                    }),
-                )
+                self.handle_historical_block_error(e)
             }
         }
+    }
+
+    /// Maps a `HistoricalBlockError` to the appropriate peer action and error tuple.
+    fn handle_historical_block_error(
+        &self,
+        e: HistoricalBlockError,
+    ) -> (usize, Result<(), ChainSegmentFailed>) {
+        let peer_action = match &e {
+            HistoricalBlockError::MismatchedBlockRoot {
+                block_root,
+                expected_block_root,
+            } => {
+                debug!(
+                    error = "mismatched_block_root",
+                    ?block_root,
+                    expected_root = ?expected_block_root,
+                    "Backfill batch processing error"
+                );
+                // The peer is faulty if they send blocks with bad roots.
+                Some(PeerAction::LowToleranceError)
+            }
+            HistoricalBlockError::InvalidSignature
+            | HistoricalBlockError::SignatureSet(_) => {
+                warn!(
+                    error = ?e,
+                    "Backfill batch processing error"
+                );
+                // The peer is faulty if they bad signatures.
+                Some(PeerAction::LowToleranceError)
+            }
+            HistoricalBlockError::MissingOldestBlockRoot { slot } => {
+                warn!(
+                    %slot,
+                    error = "missing_oldest_block_root",
+                    "Backfill batch processing error"
+                );
+                // This is an internal error, do not penalize the peer.
+                None
+            }
+
+            HistoricalBlockError::ValidatorPubkeyCacheTimeout => {
+                warn!(
+                    error = "pubkey_cache_timeout",
+                    "Backfill batch processing error"
+                );
+                // This is an internal error, do not penalize the peer.
+                None
+            }
+            HistoricalBlockError::IndexOutOfBounds => {
+                error!(
+                    error = ?e,
+                    "Backfill batch OOB error"
+                );
+                // This should never occur, don't penalize the peer.
+                None
+            }
+            HistoricalBlockError::StoreError(e) => {
+                warn!(error = ?e, "Backfill batch processing error");
+                // This is an internal error, don't penalize the peer.
+                None
+            } //
+              // Do not use a fallback match, handle all errors explicitly
+        };
+        let err_str: &'static str = e.into();
+        (
+            0,
+            Err(ChainSegmentFailed {
+                message: format!("{:?}", err_str),
+                // This is an internal error, don't penalize the peer.
+                peer_action,
+            }),
+        )
     }
 
     /// Helper function to handle a `BlockError` from `process_chain_segment`
@@ -921,6 +1029,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     message: format!("Block has an unknown parent: {}", parent_root),
                     // Peers are faulty if they send non-sequential blocks.
                     peer_action: Some(PeerAction::LowToleranceError),
+                })
+            }
+            BlockError::ParentEnvelopeUnknown { parent_root } => {
+                Err(ChainSegmentFailed {
+                    message: format!(
+                        "Block's parent envelope has not been received: {}",
+                        parent_root
+                    ),
+                    // Don't penalize the peer, the envelope may arrive later.
+                    peer_action: None,
                 })
             }
             BlockError::DuplicateFullyImported(_)

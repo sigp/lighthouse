@@ -19,7 +19,7 @@ use lighthouse_network::{
 };
 use logging::TimeLatch;
 use logging::crit;
-use slot_clock::SlotClock;
+use slot_clock::{SlotClock, timestamp_now};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -349,13 +349,19 @@ impl<T: BeaconChainTypes> Router<T> {
             Response::DataColumnsByRange(data_column) => {
                 self.on_data_columns_by_range_response(peer_id, app_request_id, data_column);
             }
-            Response::PayloadEnvelopesByRoot(envelope) => {
-                self.on_payload_envelopes_by_root_response(peer_id, app_request_id, envelope);
+            Response::PayloadEnvelopesByRoot(payload_envelope) => {
+                self.on_payload_envelopes_by_root_response(
+                    peer_id,
+                    app_request_id,
+                    payload_envelope,
+                );
             }
-            // TODO(EIP-7732): implement outgoing payload envelopes by range responses
-            // once sync manager requests them.
-            Response::PayloadEnvelopesByRange(_) => {
-                debug!("Requesting envelopes by range not supported yet");
+            Response::PayloadEnvelopesByRange(payload_envelope) => {
+                self.on_payload_envelopes_by_range_response(
+                    peer_id,
+                    app_request_id,
+                    payload_envelope,
+                );
             }
             // Lighthouse currently only serves BlocksByHead and does not issue it as a client,
             // so receiving a response is unexpected. Drop it without crashing.
@@ -831,7 +837,7 @@ impl<T: BeaconChainTypes> Router<T> {
         &mut self,
         peer_id: PeerId,
         app_request_id: AppRequestId,
-        envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+        payload_envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
     ) {
         let sync_request_id = match app_request_id {
             AppRequestId::Sync(id @ SyncRequestId::SinglePayloadEnvelope { .. }) => id,
@@ -844,9 +850,32 @@ impl<T: BeaconChainTypes> Router<T> {
         self.send_to_sync(SyncMessage::RpcPayloadEnvelope {
             sync_request_id,
             peer_id,
-            envelope,
+            payload_envelope,
             seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
         });
+    }
+
+    pub fn on_payload_envelopes_by_range_response(
+        &mut self,
+        peer_id: PeerId,
+        app_request_id: AppRequestId,
+        payload_envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+    ) {
+        trace!(
+            %peer_id,
+            "Received PayloadEnvelopesByRange Response"
+        );
+
+        if let AppRequestId::Sync(sync_request_id) = app_request_id {
+            self.send_to_sync(SyncMessage::RpcPayloadEnvelope {
+                peer_id,
+                sync_request_id,
+                payload_envelope,
+                seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
+            });
+        } else {
+            crit!("All payload envelopes by range responses should belong to sync");
+        }
     }
 
     fn handle_beacon_processor_send_result(

@@ -29,9 +29,9 @@ use types::data::{
     PartialDataColumnSidecarError,
 };
 use types::{
-    BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
-    KzgCommitment, PartialDataColumnSidecarRef, SignedBeaconBlockHeader, SignedExecutionPayloadBid,
-    Slot,
+    BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas,
+    DataColumnSubnetId, EthSpec, Hash256, KzgCommitment, PartialDataColumnSidecarRef,
+    SignedBeaconBlockHeader, SignedExecutionPayloadBid, Slot,
 };
 
 /// An error occurred while validating a gossip data column.
@@ -1078,6 +1078,16 @@ pub fn validate_data_column_sidecar_for_gossip_gloas<
             *data_column.index(),
         ));
     }
+
+    if !chain
+        .spec
+        .fork_name_at_slot::<T::EthSpec>(column_slot)
+        .gloas_enabled()
+    {
+        return Err(GossipDataColumnError::InvalidVariant);
+    }
+
+
     verify_index_matches_subnet(&data_column, subnet, &chain.spec)?;
     verify_sidecar_not_from_future_slot(chain, column_slot)?;
     verify_slot_greater_than_latest_finalized_slot(chain, column_slot)?;

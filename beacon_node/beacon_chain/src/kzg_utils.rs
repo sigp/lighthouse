@@ -673,13 +673,24 @@ pub fn reconstruct_blobs<E: EthSpec>(
         return Err("data_columns should have at least one element".to_string());
     }
 
+    let first_data_column = &data_columns[0];
+
     let blob_indices: Vec<usize> = match blob_indices_opt {
         Some(indices) => indices.into_iter().map(|i| i as usize).collect(),
         None => {
-            let num_of_blobs = signed_block
-                .message()
-                .blob_kzg_commitments_len()
-                .ok_or_else(|| "Block does not have blob KZG commitments".to_string())?;
+            // Fulu columns carry commitments inline; Gloas columns don't, so fall back to
+            // the block's payload bid commitments.
+            let num_of_blobs = match first_data_column.kzg_commitments() {
+                Ok(commitments) => commitments.len(),
+                Err(_) => signed_block
+                    .message()
+                    .body()
+                    .signed_execution_payload_bid()
+                    .map(|bid| bid.message.blob_kzg_commitments.len())
+                    .map_err(|_| {
+                        "Gloas blob reconstruction: block missing payload bid".to_string()
+                    })?,
+            };
             (0..num_of_blobs).collect()
         }
     };

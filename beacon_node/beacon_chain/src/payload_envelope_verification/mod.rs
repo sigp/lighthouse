@@ -18,7 +18,9 @@
 //!
 //! ```
 
+use state_processing::BlockProcessingError;
 use state_processing::envelope_processing::EnvelopeProcessingError;
+use std::marker::PhantomData;
 use std::sync::Arc;
 use store::Error as DBError;
 use strum::AsRefStr;
@@ -40,18 +42,35 @@ mod payload_notifier;
 
 pub use execution_pending_envelope::ExecutionPendingEnvelope;
 
-#[derive(Debug)]
+// TODO(gloas): could remove this type completely, or remove the generic
+#[derive(Debug, PartialEq)]
+pub struct EnvelopeImportData<E: EthSpec> {
+    pub block_root: Hash256,
+    _phantom: PhantomData<E>,
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct AvailableEnvelope<E: EthSpec> {
     envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
     pub columns: DataColumnSidecarList<E>,
+    // TODO(gloas) this field is unread, do we need it?
+    #[expect(dead_code)]
+    /// Timestamp at which this envelope first became available (UNIX timestamp, time since 1970).
+    columns_available_timestamp: Option<std::time::Duration>,
 }
 
 impl<E: EthSpec> AvailableEnvelope<E> {
     pub fn new(
         envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
         columns: DataColumnSidecarList<E>,
+        columns_available_timestamp: Option<std::time::Duration>,
     ) -> Self {
-        Self { envelope, columns }
+        Self {
+            envelope,
+            columns,
+            columns_available_timestamp,
+        }
     }
 
     pub fn message(&self) -> &ExecutionPayloadEnvelope<E> {
@@ -88,6 +107,26 @@ pub struct AvailabilityPendingExecutedEnvelope<E: EthSpec> {
     pub envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
     pub block_root: Hash256,
     pub payload_verification_outcome: PayloadVerificationOutcome,
+}
+
+/// A payload envelope that has gone through processing checks and execution by an EL client.
+/// This envelope hasn't necessarily completed data availability checks.
+///
+///
+/// It contains 2 variants:
+/// 1. `Available`: This envelope has been executed and also contains all data to consider it
+///    fully available.
+/// 2. `AvailabilityPending`: This envelope hasn't received all required blobs to consider it
+///    fully available. The envelope is still imported (fork-choice marks the block's payload
+///    as received and the envelope is persisted); column persistence is handled separately
+///    via gossip / engineGetBlobs as columns arrive.
+pub enum ExecutedEnvelope<E: EthSpec> {
+    Available(AvailableExecutedEnvelope<E>),
+    AvailabilityPending {
+        signed_envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+        import_data: EnvelopeImportData<E>,
+        payload_verification_outcome: PayloadVerificationOutcome,
+    },
 }
 
 impl<E: EthSpec> AvailabilityPendingExecutedEnvelope<E> {
@@ -164,6 +203,14 @@ pub enum EnvelopeError {
     ExecutionPayloadError(ExecutionPayloadError),
     /// An error from importing the envelope.
     ImportError(BlockError),
+    /// A block processing error.
+    BlockProcessingError(BlockProcessingError),
+    /// A block error.
+    BlockError(BlockError),
+    /// An internal error.
+    InternalError(String),
+    /// Optimistic sync is not supported.
+    OptimisticSyncNotSupported { block_root: Hash256 },
 }
 
 impl std::fmt::Display for EnvelopeError {

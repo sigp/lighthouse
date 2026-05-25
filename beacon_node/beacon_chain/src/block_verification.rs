@@ -60,6 +60,7 @@ use crate::execution_payload::{
 };
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_block_producers::SeenBlock;
+use crate::payload_envelope_verification::{AvailableEnvelope, EnvelopeError};
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
@@ -324,6 +325,20 @@ pub enum BlockError {
         bid_parent_root: Hash256,
         block_parent_root: Hash256,
     },
+    /// The block is known but its parent execution payload envelope has not been received yet.
+    ///
+    /// ## Peer scoring
+    ///
+    /// It's unclear if this block is valid, but it cannot be fully verified without the parent's
+    /// execution payload envelope.
+    ParentEnvelopeUnknown { parent_root: Hash256 },
+    /// An error occurred while processing the execution payload envelope during range sync.
+    EnvelopeError(Box<EnvelopeError>),
+
+    PayloadEnvelopeError {
+        e: Box<EnvelopeError>,
+        penalize_peer: bool,
+    },
 }
 
 /// Which specific signature(s) are invalid in a SignedBeaconBlock
@@ -490,6 +505,37 @@ impl From<ArithError> for BlockError {
     }
 }
 
+impl From<EnvelopeError> for BlockError {
+    fn from(e: EnvelopeError) -> Self {
+        let penalize_peer = match &e {
+            // REJECT per spec: peer sent invalid envelope data
+            EnvelopeError::BadSignature
+            | EnvelopeError::BuilderIndexMismatch { .. }
+            | EnvelopeError::BlockHashMismatch { .. }
+            | EnvelopeError::SlotMismatch { .. }
+            | EnvelopeError::IncorrectBlockProposer { .. } => true,
+            // IGNORE per spec: not the peer's fault
+            EnvelopeError::BlockRootUnknown { .. }
+            | EnvelopeError::PriorToFinalization { .. }
+            | EnvelopeError::UnknownValidator { .. } => false,
+            // Internal errors: not the peer's fault
+            EnvelopeError::BeaconChainError(_)
+            | EnvelopeError::BeaconStateError(_)
+            | EnvelopeError::BlockProcessingError(_)
+            | EnvelopeError::EnvelopeProcessingError(_)
+            | EnvelopeError::ExecutionPayloadError(_)
+            | EnvelopeError::ImportError(_)
+            | EnvelopeError::BlockError(_)
+            | EnvelopeError::InternalError(_)
+            | EnvelopeError::OptimisticSyncNotSupported { .. } => false,
+        };
+        BlockError::PayloadEnvelopeError {
+            e: Box::new(e),
+            penalize_peer,
+        }
+    }
+}
+
 /// Stores information about verifying a payload against an execution engine.
 #[derive(Debug, PartialEq, Clone, Encode, Decode)]
 pub struct PayloadVerificationOutcome {
@@ -587,10 +633,17 @@ pub(crate) fn process_block_slash_info<T: BeaconChainTypes, TErr: BlockBlobError
 /// The given `chain_segment` must contain only blocks from the same epoch, otherwise an error
 /// will be returned.
 #[instrument(skip_all)]
+#[allow(clippy::type_complexity)]
 pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     mut chain_segment: Vec<(Hash256, RangeSyncBlock<T::EthSpec>)>,
     chain: &BeaconChain<T>,
-) -> Result<Vec<SignatureVerifiedBlock<T>>, BlockError> {
+) -> Result<
+    Vec<(
+        SignatureVerifiedBlock<T>,
+        Option<Box<AvailableEnvelope<T::EthSpec>>>,
+    )>,
+    BlockError,
+> {
     if chain_segment.is_empty() {
         return Ok(vec![]);
     }
@@ -619,14 +672,29 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         let consensus_context =
             ConsensusContext::new(block.slot()).set_current_block_root(block_root);
 
-        let available_block = block.into_available_block();
+        let (available_block, envelope) = match block {
+            RangeSyncBlock::Base(ab) => (ab, None),
+            RangeSyncBlock::Gloas { block, envelope } => {
+                let ab = AvailableBlock::new(
+                    block,
+                    AvailableBlockData::NoData,
+                    &chain.data_availability_checker,
+                    chain.spec.clone(),
+                )
+                .map_err(BlockError::AvailabilityCheck)?;
+                (ab, envelope)
+            }
+        };
         available_blocks.push(available_block.clone());
-        signature_verified_blocks.push(SignatureVerifiedBlock {
-            block: MaybeAvailableBlock::Available(available_block),
-            block_root,
-            parent: None,
-            consensus_context,
-        });
+        signature_verified_blocks.push((
+            SignatureVerifiedBlock {
+                block: MaybeAvailableBlock::Available(available_block),
+                block_root,
+                parent: None,
+                consensus_context,
+            },
+            envelope,
+        ));
     }
     // TODO(gloas) When implementing range and backfill sync for gloas
     // we need a batch verify kzg function in the new da checker as well.
@@ -637,7 +705,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     // verify signatures
     let pubkey_cache = get_validator_pubkey_cache(chain)?;
     let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
-    for svb in &mut signature_verified_blocks {
+    for (svb, _) in &mut signature_verified_blocks {
         signature_verifier
             .include_all_signatures(svb.block.as_block(), &mut svb.consensus_context)?;
     }
@@ -648,7 +716,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
 
     drop(pubkey_cache);
 
-    if let Some(signature_verified_block) = signature_verified_blocks.first_mut() {
+    if let Some((signature_verified_block, _)) = signature_verified_blocks.first_mut() {
         signature_verified_block.parent = Some(parent);
     }
 
@@ -892,22 +960,43 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         let (parent_block, block) =
             verify_parent_block_is_known::<T>(&fork_choice_read_lock, block)?;
 
+        let Ok(bid) = block.message().body().signed_execution_payload_bid() else {
+            return Err(BlockError::InternalError("Invalid variant".to_string()));
+        };
+
         // [New in Gloas]: Verify bid.parent_block_root matches block.parent_root.
-        if let Ok(bid) = block.message().body().signed_execution_payload_bid()
-            && bid.message.parent_block_root != block.message().parent_root()
-        {
+        if bid.message.parent_block_root != block.message().parent_root() {
             return Err(BlockError::BidParentRootMismatch {
                 bid_parent_root: bid.message.parent_block_root,
                 block_parent_root: block.message().parent_root(),
             });
         }
+        // Check that we've received the parent envelope. If not, issue a single envelope
+        // lookup for the parent and queue this block in the reprocess queue.
+        //
+        // The anchor block (proto-array root) is implicitly considered to have its payload
+        // received: there is no envelope to fetch for the anchor (per spec, the anchor is
+        // never added to `store.payloads`), and the anchor is trusted by definition.
+        let parent_is_gloas = chain
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(parent_block.slot)
+            .gloas_enabled();
+        let parent_is_anchor = parent_block.parent_root.is_none();
 
-        // TODO(gloas) The following validation can only be completed once fork choice has been implemented:
-        // The block's parent execution payload (defined by bid.parent_block_hash) has been seen
-        // (via gossip or non-gossip sources) (a client MAY queue blocks for processing
-        // once the parent payload is retrieved). If execution_payload verification of block's execution
-        // payload parent by an execution node is complete, verify the block's execution payload
-        // parent (defined by bid.parent_block_hash) passes all validation.
+        // Check if this block's bid references a payload envelope we haven't received.
+        // Only trigger a lookup if the bid's parent_block_hash matches the parent block's
+        // committed execution_payload_block_hash (meaning this block builds directly on
+        // the parent's payload). If they don't match, the block is building on an older
+        // execution state (e.g. grandparent's) and doesn't need the parent's envelope.
+        if parent_is_gloas
+            && !parent_is_anchor
+            && Some(bid.message.parent_block_hash) == parent_block.execution_payload_block_hash
+            && !fork_choice_read_lock.is_payload_received(&block.message().parent_root())
+        {
+            return Err(BlockError::ParentEnvelopeUnknown {
+                parent_root: block.message().parent_root(),
+            });
+        }
 
         drop(fork_choice_read_lock);
 
@@ -1196,7 +1285,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         let result = info_span!("signature_verify").in_scope(|| signature_verifier.verify());
         match result {
             Ok(_) => {
-                // gloas blocks are always available.
+                // Gloas blocks are always available — data arrives via the envelope.
                 let maybe_available = if chain
                     .spec
                     .fork_name_at_slot::<T::EthSpec>(block.slot())
@@ -1951,12 +2040,51 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
                 BlockError::from(BeaconChainError::MissingBeaconBlock(block.parent_root()))
             })?;
 
+        // For post-Gloas parent blocks, the execution payload arrives via the envelope.
+        // If the parent's execution payload envelope hasn't arrived yet,
+        // return an unknown parent error so the block gets sent to the
+        // reprocess queue.
+        //
+        // Skip this check if the parent is at or before the finalized slot (e.g. after
+        // checkpoint sync the finalized block won't have a stored envelope).
+        let finalized_slot = chain
+            .canonical_head
+            .cached_head()
+            .finalized_checkpoint()
+            .epoch
+            .start_slot(T::EthSpec::slots_per_epoch());
+        if chain
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(parent_block.slot())
+            .gloas_enabled()
+            && parent_block.slot() > finalized_slot
+        {
+            let in_store = chain.store.get_payload_envelope(&root)?.is_some();
+            if !in_store {
+                // If the parent is already in fork choice it was previously imported.
+                // Its envelope may not be in the store if PayloadEnvelopesByRange
+                // didn't return it, but the block itself is valid and trusted.
+                let in_fork_choice = chain
+                    .canonical_head
+                    .fork_choice_read_lock()
+                    .contains_block(&root);
+                if !in_fork_choice {
+                    debug!(
+                        parent_root = %root,
+                        parent_slot = %parent_block.slot(),
+                        %finalized_slot,
+                        "load_parent: parent envelope not in store and not in fork choice",
+                    );
+                    return Err(BlockError::ParentEnvelopeUnknown { parent_root: root });
+                }
+            }
+        }
+
         // Load the parent block's state from the database, returning an error if it is not found.
         // It is an error because if we know the parent block we should also know the parent state.
         // Retrieve any state that is advanced through to at most `block.slot()`: this is
         // particularly important if `block` descends from the finalized/split block, but at a slot
         // prior to the finalized slot (which is invalid and inaccessible in our DB schema).
-        //
         let (parent_state_root, state) = chain
             .store
             .get_advanced_hot_state(root, block.slot(), parent_block.state_root())?

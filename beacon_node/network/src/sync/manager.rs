@@ -45,6 +45,7 @@ use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::{
     BlobRequestState, BlockComponent, BlockRequestState, CustodyRequestState, DownloadResult,
+    EnvelopeRequestState,
 };
 use crate::sync::custody_backfill_sync::CustodyBackFillSync;
 use crate::sync::network_context::{PeerGroup, RpcResponseResult};
@@ -59,13 +60,14 @@ use lighthouse_network::service::api_types::{
     BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
     CustodyBackFillBatchRequestId, CustodyBackfillBatchId, CustodyRequester,
     DataColumnsByRangeRequestId, DataColumnsByRangeRequester, DataColumnsByRootRequestId,
-    DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
+    DataColumnsByRootRequester, Id, PayloadEnvelopesByRangeRequestId, SingleLookupReqId,
+    SyncRequestId,
 };
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::{PeerAction, PeerId};
 use logging::crit;
 use lru_cache::LRUTimeCache;
-use slot_clock::SlotClock;
+use slot_clock::{SlotClock, timestamp_now};
 use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
@@ -137,7 +139,7 @@ pub enum SyncMessage<E: EthSpec> {
     RpcPayloadEnvelope {
         sync_request_id: SyncRequestId,
         peer_id: PeerId,
-        envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+        payload_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
         seen_timestamp: Duration,
     },
 
@@ -149,6 +151,13 @@ pub enum SyncMessage<E: EthSpec> {
 
     /// A data column with an unknown parent has been received.
     UnknownParentDataColumn(PeerId, Arc<DataColumnSidecar<E>>),
+
+    /// A block's parent is known but its execution payload envelope has not been received yet.
+    UnknownParentEnvelope(PeerId, Arc<SignedBeaconBlock<E>>, Hash256),
+
+    /// An execution payload envelope has been imported via the local gossip path.
+    /// Sync uses this to unblock any child lookups that were awaiting this parent envelope.
+    GossipEnvelopeImported { block_root: Hash256 },
 
     /// A partial data column with an unknown parent has been received.
     UnknownParentPartialDataColumn {
@@ -202,7 +211,7 @@ pub enum BlockProcessType {
     SingleBlock { id: Id },
     SingleBlob { id: Id },
     SingleCustodyColumn(Id),
-    SinglePayloadEnvelope(Id),
+    SinglePayloadEnvelope { id: Id, block_root: Hash256 },
 }
 
 impl BlockProcessType {
@@ -211,7 +220,7 @@ impl BlockProcessType {
             BlockProcessType::SingleBlock { id }
             | BlockProcessType::SingleBlob { id }
             | BlockProcessType::SingleCustodyColumn(id)
-            | BlockProcessType::SinglePayloadEnvelope(id) => *id,
+            | BlockProcessType::SinglePayloadEnvelope { id, .. } => *id,
         }
     }
 }
@@ -514,7 +523,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 self.on_single_blob_response(id, peer_id, RpcEvent::RPCError(error))
             }
             SyncRequestId::SinglePayloadEnvelope { id } => {
-                self.on_single_payload_envelope_response(id, peer_id, RpcEvent::RPCError(error))
+                self.on_single_envelope_response(id, peer_id, RpcEvent::RPCError(error))
             }
             SyncRequestId::DataColumnsByRoot(req_id) => {
                 self.on_data_columns_by_root_response(req_id, peer_id, RpcEvent::RPCError(error))
@@ -528,6 +537,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncRequestId::DataColumnsByRange(req_id) => {
                 self.on_data_columns_by_range_response(req_id, peer_id, RpcEvent::RPCError(error))
             }
+            SyncRequestId::SinglePayloadEnvelope { id } => {
+                self.on_single_envelope_response(id, peer_id, RpcEvent::RPCError(error))
+            }
+            SyncRequestId::PayloadEnvelopesByRange(req_id) => self
+                .on_payload_envelopes_by_range_response(req_id, peer_id, RpcEvent::RPCError(error)),
         }
     }
 
@@ -865,12 +879,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncMessage::RpcPayloadEnvelope {
                 sync_request_id,
                 peer_id,
-                envelope,
+                payload_envelope,
                 seen_timestamp,
             } => self.rpc_payload_envelope_received(
                 sync_request_id,
                 peer_id,
-                envelope,
+                payload_envelope,
                 seen_timestamp,
             ),
             SyncMessage::UnknownParentBlock(peer_id, block, block_root) => {
@@ -941,6 +955,35 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         self.handle_unknown_block_root(peer_id, block_root);
                     }
                 }
+            }
+            SyncMessage::UnknownParentEnvelope(peer_id, block, block_root) => {
+                let block_slot = block.slot();
+                let parent_root = block.parent_root();
+                debug!(
+                    %block_root,
+                    %parent_root,
+                    "Parent envelope not yet available, creating envelope lookup"
+                );
+                self.handle_unknown_parent_envelope(
+                    peer_id,
+                    block_root,
+                    parent_root,
+                    block_slot,
+                    BlockComponent::Block(DownloadResult {
+                        value: block.block_cloned(),
+                        block_root,
+                        seen_timestamp: timestamp_now(),
+                        peer_group: PeerGroup::from_single(peer_id),
+                    }),
+                );
+            }
+            SyncMessage::GossipEnvelopeImported { block_root } => {
+                debug!(
+                    %block_root,
+                    "Gossip-imported envelope; unblocking awaiting child lookups"
+                );
+                self.block_lookups
+                    .continue_envelope_child_lookups(block_root, &mut self.network);
             }
             SyncMessage::UnknownParentPartialDataColumn {
                 peer_id,
@@ -1063,6 +1106,55 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
             Err(reason) => {
                 debug!(%block_root, %parent_root, reason, "Ignoring unknown parent request");
+            }
+        }
+    }
+
+    /// Handle a block whose parent block is known but parent envelope is missing.
+    /// Creates an envelope-only lookup for the parent and a child lookup that waits for it.
+    fn handle_unknown_parent_envelope(
+        &mut self,
+        peer_id: PeerId,
+        block_root: Hash256,
+        parent_root: Hash256,
+        slot: Slot,
+        block_component: BlockComponent<T::EthSpec>,
+    ) {
+        // Defensive: if the parent's payload envelope was already received between when
+        // gossip-verification raised `ParentEnvelopeUnknown` and now, no lookup is needed.
+        if self
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .is_payload_received(&parent_root)
+        {
+            debug!(
+                %block_root,
+                %parent_root,
+                "Parent envelope already received, skipping envelope lookup"
+            );
+            return;
+        }
+        match self.should_search_for_block(Some(slot), &peer_id) {
+            Ok(_) => {
+                if self.block_lookups.search_child_and_parent_envelope(
+                    block_root,
+                    block_component,
+                    parent_root,
+                    peer_id,
+                    &mut self.network,
+                ) {
+                    // Lookups created
+                } else {
+                    debug!(
+                        ?block_root,
+                        ?parent_root,
+                        "No lookup created for child and parent envelope"
+                    );
+                }
+            }
+            Err(reason) => {
+                debug!(%block_root, %parent_root, reason, "Ignoring unknown parent envelope request");
             }
         }
     }
@@ -1234,27 +1326,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    // TODO(gloas): dispatch into block_lookups once the envelope lookup state machine lands.
-    fn rpc_payload_envelope_received(
-        &mut self,
-        sync_request_id: SyncRequestId,
-        peer_id: PeerId,
-        envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
-        seen_timestamp: Duration,
-    ) {
-        match sync_request_id {
-            SyncRequestId::SinglePayloadEnvelope { id } => self
-                .on_single_payload_envelope_response(
-                    id,
-                    peer_id,
-                    RpcEvent::from_chunk(envelope, seen_timestamp),
-                ),
-            _ => {
-                crit!(%peer_id, "bad request id for payload envelope");
-            }
-        }
-    }
-
     fn rpc_data_column_received(
         &mut self,
         sync_request_id: SyncRequestId,
@@ -1283,19 +1354,52 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    fn on_single_payload_envelope_response(
+    fn rpc_payload_envelope_received(
+        &mut self,
+        sync_request_id: SyncRequestId,
+        peer_id: PeerId,
+        payload_envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+        seen_timestamp: Duration,
+    ) {
+        match sync_request_id {
+            SyncRequestId::SinglePayloadEnvelope { id } => {
+                self.on_single_envelope_response(
+                    id,
+                    peer_id,
+                    RpcEvent::from_chunk(payload_envelope, seen_timestamp),
+                );
+            }
+            SyncRequestId::PayloadEnvelopesByRange(req_id) => {
+                self.on_payload_envelopes_by_range_response(
+                    req_id,
+                    peer_id,
+                    RpcEvent::from_chunk(payload_envelope, seen_timestamp),
+                );
+            }
+            _ => {
+                crit!(%peer_id, "bad request id for payload_envelope");
+            }
+        }
+    }
+
+    fn on_single_envelope_response(
         &mut self,
         id: SingleLookupReqId,
         peer_id: PeerId,
-        envelope: RpcEvent<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+        rpc_event: RpcEvent<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
     ) {
-        if let Some(_resp) = self
+        if let Some(resp) = self
             .network
-            .on_single_payload_envelope_response(id, peer_id, envelope)
+            .on_single_envelope_response(id, peer_id, rpc_event)
         {
-            // TODO(gloas): dispatch into
-            // `block_lookups.on_download_response::<PayloadEnvelopeRequestState<_>>(...)` once
-            // the envelope lookup state machine lands.
+            self.block_lookups
+                .on_download_response::<EnvelopeRequestState<T::EthSpec>>(
+                    id,
+                    resp.map(|(value, seen_timestamp)| {
+                        (value, PeerGroup::from_single(peer_id), seen_timestamp)
+                    }),
+                    &mut self.network,
+                )
         }
     }
 
@@ -1396,6 +1500,24 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         resp,
                     ),
             }
+        }
+    }
+
+    fn on_payload_envelopes_by_range_response(
+        &mut self,
+        id: PayloadEnvelopesByRangeRequestId,
+        peer_id: PeerId,
+        envelope: RpcEvent<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+    ) {
+        if let Some(resp) = self
+            .network
+            .on_payload_envelopes_by_range_response(id, peer_id, envelope)
+        {
+            self.on_range_components_response(
+                id.parent_request_id,
+                peer_id,
+                RangeBlockComponent::PayloadEnvelope(id, resp),
+            );
         }
     }
 

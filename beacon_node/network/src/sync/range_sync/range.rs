@@ -93,6 +93,22 @@ where
         }
     }
 
+    /// For Gloas, start range sync one epoch earlier so the first batch fetches the
+    /// parent block's payload envelope. Without this, the first block in the batch
+    /// fails `load_parent` because the preceding block's envelope isn't in the store.
+    fn gloas_adjusted_start_epoch(&self, epoch: Epoch) -> Epoch {
+        if self
+            .beacon_chain
+            .spec
+            .gloas_fork_epoch
+            .is_some_and(|gloas_epoch| epoch > gloas_epoch)
+        {
+            epoch.saturating_sub(1_u64)
+        } else {
+            epoch
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn __failed_chains(&mut self) -> Vec<Hash256> {
         self.failed_chains.keys().copied().collect()
@@ -156,8 +172,13 @@ where
                 // Note: We keep current head chains. These can continue syncing whilst we complete
                 // this new finalized chain.
 
+                // Start one epoch earlier for Gloas so the first batch includes
+                // the parent block's envelope. Without this, the first block in the
+                // batch fails because `load_parent` can't find the parent's envelope.
+                let start_epoch = self.gloas_adjusted_start_epoch(local_info.finalized_epoch);
+
                 self.chains.add_peer_or_create_chain(
-                    local_info.finalized_epoch,
+                    start_epoch,
                     remote_info.finalized_root,
                     target_head_slot,
                     peer_id,
@@ -188,6 +209,7 @@ where
 
                 let start_epoch = std::cmp::min(local_info.head_slot, remote_finalized_slot)
                     .epoch(T::EthSpec::slots_per_epoch());
+                let start_epoch = self.gloas_adjusted_start_epoch(start_epoch);
                 self.chains.add_peer_or_create_chain(
                     start_epoch,
                     remote_info.head_root,

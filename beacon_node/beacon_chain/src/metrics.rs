@@ -2158,7 +2158,7 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     );
     set_gauge_by_usize(
         &PENDING_PAYLOAD_CACHE_SIZE,
-        beacon_chain.pending_payload_cache.cache_size(),
+        beacon_chain.pending_payload_cache.block_cache_size(),
     );
 
     if let Some((size, num_lookups)) = beacon_chain.pre_finalization_block_cache.metrics() {

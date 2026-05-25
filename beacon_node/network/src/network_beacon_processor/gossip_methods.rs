@@ -1816,6 +1816,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.send_sync_message(SyncMessage::UnknownParentBlock(peer_id, block, block_root));
                 return None;
             }
+            Err(BlockError::ParentEnvelopeUnknown { parent_root }) => {
+                debug!(
+                    ?block_root,
+                    ?parent_root,
+                    "Parent envelope not yet available for gossip block"
+                );
+                self.send_sync_message(SyncMessage::UnknownParentEnvelope(
+                    peer_id, block, block_root,
+                ));
+                return None;
+            }
             Err(e @ BlockError::BeaconChainError(_)) => {
                 debug!(
                     error = ?e,
@@ -1908,8 +1919,24 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(e @ BlockError::InternalError(_))
             | Err(e @ BlockError::BlobNotRequired(_))
             | Err(e @ BlockError::EnvelopeBlockRootUnknown(_))
+            | Err(e @ BlockError::PayloadEnvelopeError { .. })
             | Err(e @ BlockError::OptimisticSyncNotSupported { .. }) => {
                 error!(error = %e, "Internal block gossip validation error");
+                return None;
+            }
+            Err(BlockError::ParentEnvelopeUnknown { .. }) => {
+                // Gossip validation does not check envelope availability; this should not occur.
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return None;
+            }
+            Err(e @ BlockError::EnvelopeError(_)) => {
+                debug!(error = %e, "Gossip block envelope error");
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return None;
+            }
+            Err(e @ BlockError::PayloadEnvelopeError { .. }) => {
+                debug!(error = %e, "Gossip block payload envelope error");
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
             }
         };
@@ -2104,6 +2131,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     %peer_id,
                     "Block with unknown parent attempted to be processed"
                 );
+            }
+            Err(BlockError::ParentEnvelopeUnknown { parent_root }) => {
+                debug!(
+                    %block_root,
+                    ?parent_root,
+                    "Parent envelope not yet available, need envelope lookup"
+                );
+                // Unlike ParentUnknown, this can legitimately happen during processing
+                // because the parent envelope may not have arrived yet. The lookup
+                // system will handle retrying via Action::ParentEnvelopeUnknown.
             }
             Err(e @ BlockError::ExecutionPayloadError(epe)) if !epe.penalize_peer() => {
                 debug!(
@@ -3977,7 +4014,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     EnvelopeError::PriorToFinalization { .. }
                     | EnvelopeError::BeaconChainError(_)
                     | EnvelopeError::BeaconStateError(_)
-                    | EnvelopeError::ImportError(_) => {
+                    | EnvelopeError::ImportError(_)
+                    | EnvelopeError::BlockProcessingError(_)
+                    | EnvelopeError::BlockError(_)
+                    | EnvelopeError::InternalError(_)
+                    | EnvelopeError::OptimisticSyncNotSupported { .. } => {
                         self.propagate_validation_result(
                             message_id,
                             peer_id,
@@ -4055,13 +4096,46 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // TODO(gloas) metrics
         // register_process_result_metrics(&result, metrics::BlockSource::Gossip, "envelope");
 
-        if let Err(e) = &result {
-            debug!(
-                ?beacon_block_root,
-                %peer_id,
-                error = ?e,
-                "Execution payload envelope processing failed"
-            );
+        match &result {
+            Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
+                // Notify sync so any pending child lookup awaiting this parent envelope unblocks.
+                self.send_sync_message(SyncMessage::GossipEnvelopeImported {
+                    block_root: *block_root,
+                });
+            }
+            Ok(AvailabilityProcessingStatus::MissingComponents(_slot, _block_root)) => {
+                // TODO(gloas): wire this into the envelope DA checker once it exists, analogous to
+                // how `process_availability` drives block import once blobs/columns arrive. Until
+                // then gossip envelopes with missing columns will be stuck until columns arrive via
+                // gossip or engineGetBlobs.
+            }
+            Err(e) => match e {
+                EnvelopeError::ExecutionPayloadError(epe) if !epe.penalize_peer() => {}
+                EnvelopeError::BadSignature
+                | EnvelopeError::BuilderIndexMismatch { .. }
+                | EnvelopeError::SlotMismatch { .. }
+                | EnvelopeError::BlockHashMismatch { .. }
+                | EnvelopeError::UnknownValidator { .. }
+                | EnvelopeError::IncorrectBlockProposer { .. }
+                | EnvelopeError::ExecutionPayloadError(_)
+                | EnvelopeError::EnvelopeProcessingError(_) => {
+                    self.gossip_penalize_peer(
+                        peer_id,
+                        PeerAction::LowToleranceError,
+                        "gossip_envelope_processing_low",
+                    );
+                }
+
+                EnvelopeError::BlockRootUnknown { .. }
+                | EnvelopeError::PriorToFinalization { .. }
+                | EnvelopeError::BeaconChainError(_)
+                | EnvelopeError::BeaconStateError(_)
+                | EnvelopeError::ImportError(_)
+                | EnvelopeError::BlockProcessingError(_)
+                | EnvelopeError::BlockError(_)
+                | EnvelopeError::InternalError(_)
+                | EnvelopeError::OptimisticSyncNotSupported { .. } => {}
+            },
         }
     }
 

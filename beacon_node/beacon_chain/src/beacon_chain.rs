@@ -27,7 +27,7 @@ use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::data_column_verification::{
     GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
     GossipVerifiedPartialDataColumnHeader, KzgVerifiedCustodyPartialDataColumn,
-    KzgVerifiedPartialDataColumn, PartialColumnVerificationResult,
+    KzgVerifiedPartialDataColumn, PartialColumnVerificationResult, load_gloas_payload_bid,
     validate_partial_data_column_sidecar_for_gossip,
 };
 use crate::early_attester_cache::EarlyAttesterCache;
@@ -36,6 +36,7 @@ use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_execution_payload};
 use crate::fetch_blobs::EngineGetBlobsOutput;
+use crate::kzg_utils::reconstruct_blobs;
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
 use crate::light_client_finality_update_verification::{
@@ -1311,6 +1312,54 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get_data_columns(block_root, fork_name)
             .map_err(Error::from)
     }
+
+    /// Returns the blobs at the given root, if any.
+    ///
+    /// Uses the `block.epoch()` to determine whether to retrieve blobs or columns from the store.
+    ///
+    /// If at least 50% of columns are retrieved, blobs will be reconstructed and returned,
+    /// otherwise an error `InsufficientColumnsToReconstructBlobs` is returned.
+    ///
+    /// ## Errors
+    /// May return a database error.
+    pub fn get_or_reconstruct_blobs(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<BlobSidecarList<T::EthSpec>>, Error> {
+        let Some(block) = self.store.get_blinded_block(block_root)? else {
+            return Ok(None);
+        };
+
+        // Gloas removes the standalone `BlobSidecar` shape — KZG commitments live in the bid and
+        // there's no signed-block-header / inclusion-proof to populate a `BlobSidecar` from. The
+        // canonical data is the column sidecar set on disk; callers needing data for a Gloas
+        // block should consume columns directly via `get_data_columns`.
+        if block.fork_name_unchecked().gloas_enabled() {
+            return Ok(None);
+        }
+
+        if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
+            let fork_name = self.spec.fork_name_at_epoch(block.epoch());
+            if let Some(columns) = self.store.get_data_columns(block_root, fork_name)? {
+                let num_required_columns = T::EthSpec::number_of_columns() / 2;
+                let reconstruction_possible = columns.len() >= num_required_columns;
+                if reconstruction_possible {
+                    reconstruct_blobs(&self.kzg, columns, None, &block, &self.spec)
+                        .map(Some)
+                        .map_err(Error::FailedToReconstructBlobs)
+                } else {
+                    Err(Error::InsufficientColumnsToReconstructBlobs {
+                        columns_found: columns.len(),
+                    })
+                }
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(self.get_blobs(block_root)?.blobs())
+        }
+    }
+
 
     /// Returns the data columns at the given root, if any.
     ///
@@ -3020,7 +3069,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 //
                 // Note that `check_block_relevancy` is incapable of returning
                 // `DuplicateImportStatusUnknown` so we don't need to handle that case here.
-                Err(BlockError::DuplicateFullyImported(_)) => continue,
+                Err(BlockError::DuplicateFullyImported(_)) => {
+                    debug!(
+                        block_root = %block_root,
+                        slot = %block.slot(),
+                        "Skipping DuplicateFullyImported block in chain segment",
+                    );
+                    // For Gloas blocks, persist the envelope even though we're
+                    // skipping the block. After checkpoint sync, blocks between
+                    // the finalized checkpoint and the head are already in fork
+                    // choice but their envelopes aren't in the store.
+                    if let RangeSyncBlock::Gloas {
+                        envelope: Some(ref available_envelope),
+                        ..
+                    } = block
+                    {
+                        let (signed_envelope, _columns) = available_envelope.clone().deconstruct();
+                        if let Err(e) = self
+                            .store
+                            .put_payload_envelope(&block_root, &signed_envelope)
+                        {
+                            return Err(Box::new(ChainSegmentResult::Failed {
+                                imported_blocks,
+                                error: BlockError::BeaconChainError(Box::new(e.into())),
+                            }));
+                        }
+                    }
+                    continue;
+                }
                 // If the block is the genesis block, simply ignore this block.
                 Err(BlockError::GenesisBlock) => continue,
                 // If the block is is for a finalized slot, simply ignore this block.
@@ -3036,7 +3112,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // In the case of (2), skipping the block is valid since we should never import it.
                 // However, we will potentially get a `ParentUnknown` on a later block. The sync
                 // protocol will need to ensure this is handled gracefully.
-                Err(BlockError::WouldRevertFinalizedSlot { .. }) => continue,
+                Err(BlockError::WouldRevertFinalizedSlot { .. }) => {
+                    debug!(
+                        block_root = %block_root,
+                        slot = %block.slot(),
+                        "Skipping WouldRevertFinalizedSlot block in chain segment",
+                    );
+                    // For Gloas blocks, persist the envelope even though we're skipping
+                    // the block. This is needed after checkpoint sync: the checkpoint
+                    // block's envelope must be in the store so that `load_parent` can
+                    // verify it when importing the first post-checkpoint block.
+                    if let RangeSyncBlock::Gloas {
+                        envelope: Some(ref available_envelope),
+                        ..
+                    } = block
+                    {
+                        let (signed_envelope, _columns) = available_envelope.clone().deconstruct();
+                        if let Err(e) = self
+                            .store
+                            .put_payload_envelope(&block_root, &signed_envelope)
+                        {
+                            return Err(Box::new(ChainSegmentResult::Failed {
+                                imported_blocks,
+                                error: BlockError::BeaconChainError(Box::new(e.into())),
+                            }));
+                        }
+                    }
+                    continue;
+                }
                 // The block has a known parent that does not descend from the finalized block.
                 // There is no need to process this block or any children.
                 Err(BlockError::NotFinalizedDescendant { block_parent_root }) => {
@@ -3145,11 +3248,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
 
             // Import the blocks into the chain.
-            for signature_verified_block in signature_verified_blocks {
+            for (signature_verified_block, envelope) in signature_verified_blocks {
+                let block_root = signature_verified_block.block_root();
                 let block_slot = signature_verified_block.slot();
+
+                // For Gloas blocks, persist the envelope and notify fork choice
+                // before importing the block. The next block's `load_parent` will
+                // check for this envelope in the store.
+                if let Some(available_envelope) = envelope.clone() {
+                    let (signed_envelope, _columns) = available_envelope.deconstruct();
+                    if let Err(e) = self
+                        .store
+                        .put_payload_envelope(&block_root, &signed_envelope)
+                    {
+                        return ChainSegmentResult::Failed {
+                            imported_blocks,
+                            error: BlockError::BeaconChainError(Box::new(e.into())),
+                        };
+                    }
+                    // Note: we do NOT call on_valid_payload_envelope_received here
+                    // because the block hasn't been added to fork choice yet (that
+                    // happens in process_block below). The fork choice update is
+                    // handled by import_envelope_from_range_sync after process_block.
+                }
+
                 match self
                     .process_block(
-                        signature_verified_block.block_root(),
+                        block_root,
                         signature_verified_block,
                         notify_execution_layer,
                         BlockImportSource::RangeSync,
@@ -3160,6 +3285,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     Ok(status) => {
                         match status {
                             AvailabilityProcessingStatus::Imported(block_root) => {
+                                // Import the envelope if one was provided (Gloas+).
+                                if let Some(envelope) = envelope
+                                    && let Err(e) =
+                                        self.import_envelope_from_range_sync(*envelope, block_root)
+                                {
+                                    return ChainSegmentResult::Failed {
+                                        imported_blocks,
+                                        error: e,
+                                    };
+                                }
                                 // The block was imported successfully.
                                 imported_blocks.push((block_root, block_slot));
                             }
@@ -3301,7 +3436,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             ));
         };
 
-        if self.is_block_data_imported(block_root, slot) {
+        let is_gloas = self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(slot)
+            .gloas_enabled();
+
+        // Before Gloas, if this block has already been imported to fork choice it must have been
+        // available, so we don't need to process its samples again. In Gloas the beacon block is
+        // imported before the payload envelope and data columns, so this check does not apply.
+        if !is_gloas
+            && self
+                .canonical_head
+                .fork_choice_read_lock()
+                .contains_block(&block_root)
+        {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
@@ -3390,9 +3538,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .fork_name_at_slot::<T::EthSpec>(slot)
                 .gloas_enabled()
             {
+                let bid = load_gloas_payload_bid(block_root, self)?
+                    .ok_or(BlockError::EnvelopeBlockRootUnknown(block_root))?;
                 let availability = self
                     .pending_payload_cache
-                    .put_kzg_verified_custody_data_columns(block_root, &merge_result.full_columns)
+                    .put_kzg_verified_custody_data_columns(
+                        block_root,
+                        bid,
+                        &merge_result.full_columns,
+                    )
                     .map_err(BlockError::from)?;
                 self.process_payload_envelope_availability(slot, availability, || Ok(()))
                     .await?
@@ -3603,11 +3757,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .gloas_enabled();
 
         if is_gloas {
+            let bid = load_gloas_payload_bid(block_root, self)?
+                .ok_or(BlockError::EnvelopeBlockRootUnknown(block_root))?;
             let pending_payload_cache = self.pending_payload_cache.clone();
             let result = self
                 .task_executor
                 .spawn_blocking_with_rayon_async(RayonPoolType::HighPriority, move || {
-                    pending_payload_cache.reconstruct_data_columns(&block_root)
+                    pending_payload_cache.reconstruct_data_columns(&block_root, bid)
                 })
                 .await
                 .map_err(|_| BlockError::from(BeaconChainError::RuntimeShutdown))?
@@ -3958,9 +4114,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_name_at_slot::<T::EthSpec>(slot)
             .gloas_enabled()
         {
+            let bid = load_gloas_payload_bid(block_root, self)?
+                .ok_or(BlockError::EnvelopeBlockRootUnknown(block_root))?;
             let availability = self
                 .pending_payload_cache
-                .put_gossip_verified_data_columns(block_root, data_columns)?;
+                .put_gossip_verified_data_columns(block_root, bid, data_columns)?;
             Ok(self
                 .process_payload_envelope_availability(slot, availability, publish_fn)
                 .await?)
@@ -4062,9 +4220,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .fork_name_at_slot::<T::EthSpec>(slot)
                     .gloas_enabled()
                 {
+                    let bid = load_gloas_payload_bid(block_root, self)?
+                        .ok_or(BlockError::EnvelopeBlockRootUnknown(block_root))?;
                     let availability = self
                         .pending_payload_cache
-                        .put_kzg_verified_custody_data_columns(block_root, &data_columns)
+                        .put_kzg_verified_custody_data_columns(block_root, bid, &data_columns)
                         .map_err(BlockError::from)?;
                     Ok(self
                         .process_payload_envelope_availability(slot, availability, || Ok(()))
@@ -4104,9 +4264,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_name_at_slot::<T::EthSpec>(slot)
             .gloas_enabled()
         {
+            let bid = load_gloas_payload_bid(block_root, self)?
+                .ok_or(BlockError::EnvelopeBlockRootUnknown(block_root))?;
             let availability = self
                 .pending_payload_cache
-                .put_rpc_custody_columns(block_root, custody_columns)
+                .put_rpc_custody_columns(block_root, bid, custody_columns)
                 .map_err(BlockError::from)?;
             Ok(self
                 .process_payload_envelope_availability(slot, availability, || Ok(()))

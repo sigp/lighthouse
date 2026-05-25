@@ -137,7 +137,7 @@ impl<E: EthSpec> PendingComponents<E> {
             }
         };
 
-        let available_envelope = AvailableEnvelope::new(envelope.clone(), columns);
+        let available_envelope = AvailableEnvelope::new(envelope.clone(), columns, None);
 
         Ok(Some(AvailableExecutedEnvelope {
             envelope: available_envelope,
