@@ -30,7 +30,7 @@ use kzg::Kzg;
 use logging::crit;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
-use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
+use proto_array::DisallowedReOrgOffsets;
 use rand::RngCore;
 use rayon::prelude::*;
 use slasher::Slasher;
@@ -47,8 +47,8 @@ use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
 use types::data::CustodyIndex;
 use types::{
-    BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList, Epoch, EthSpec,
-    Hash256, SignedBeaconBlock, Slot,
+    BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList, EthSpec, Hash256,
+    SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -173,21 +173,6 @@ where
     /// Set to `None` for no limit.
     pub fn import_max_skip_slots(mut self, n: Option<u64>) -> Self {
         self.chain_config.import_max_skip_slots = n;
-        self
-    }
-
-    /// Sets the proposer re-org threshold.
-    pub fn proposer_re_org_head_threshold(mut self, threshold: Option<ReOrgThreshold>) -> Self {
-        self.chain_config.re_org_head_threshold = threshold;
-        self
-    }
-
-    /// Sets the proposer re-org max epochs since finalization.
-    pub fn proposer_re_org_max_epochs_since_finalization(
-        mut self,
-        epochs_since_finalization: Epoch,
-    ) -> Self {
-        self.chain_config.re_org_max_epochs_since_finalization = epochs_since_finalization;
         self
     }
 

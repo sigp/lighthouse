@@ -3793,7 +3793,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 PayloadBidError::BadSignature
                 | PayloadBidError::InvalidBuilder { .. }
                 | PayloadBidError::InvalidFeeRecipient
-                | PayloadBidError::InvalidGasLimit
                 | PayloadBidError::ExecutionPaymentNonZero { .. }
                 | PayloadBidError::InvalidBlobKzgCommitments { .. },
             ) => {
@@ -3811,6 +3810,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | PayloadBidError::ParentBlockRootUnknown { .. }
                 | PayloadBidError::ParentBlockRootNotCanonical { .. }
                 | PayloadBidError::BuilderCantCoverBid { .. }
+                | PayloadBidError::InvalidGasLimit
                 | PayloadBidError::BeaconStateError(_)
                 | PayloadBidError::InternalError(_)
                 | PayloadBidError::InvalidBidSlot { .. }
@@ -3993,8 +3993,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "payload_attn_invalid_sig",
                 );
             }
-            PayloadAttestationError::BeaconChainError(_)
-            | PayloadAttestationError::BeaconStateError(_) => {
+            PayloadAttestationError::BeaconChainError(_) => {
                 debug!(
                     %peer_id,
                     %message_slot,

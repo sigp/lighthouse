@@ -1209,7 +1209,8 @@ fn check_shuffling_compatible(
             .with_committee_cache(
                 block_root,
                 head_state.current_epoch(),
-                |committee_cache, _| {
+                |cached_shuffling, _| {
+                    let committee_cache = cached_shuffling.committee_cache.as_ref();
                     let state_cache = head_state.committee_cache(RelativeEpoch::Current).unwrap();
                     // We used to check for false negatives here, but had to remove that check
                     // because `shuffling_is_compatible` does not guarantee their absence.
@@ -1247,7 +1248,8 @@ fn check_shuffling_compatible(
             .with_committee_cache(
                 block_root,
                 head_state.previous_epoch(),
-                |committee_cache, _| {
+                |cached_shuffling, _| {
+                    let committee_cache = cached_shuffling.committee_cache.as_ref();
                     let state_cache = head_state.committee_cache(RelativeEpoch::Previous).unwrap();
                     if previous_epoch_shuffling_is_compatible {
                         assert_eq!(committee_cache, state_cache.as_ref());
