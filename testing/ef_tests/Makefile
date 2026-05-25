@@ -12,7 +12,7 @@ BLS_BASE_URL := https://github.com/ethereum/$(BLS_TEST_REPO_NAME)/releases/downl
 
 # Fork-choice compliance tests from consensus-specs CI.
 # Pin to a specific workflow run ID for reproducibility. Update to pull newer vectors.
-COMPLIANCE_RUN_ID ?= 25410712895
+COMPLIANCE_RUN_ID ?= 26135062633
 COMPLIANCE_PRESET ?= minimal
 COMPLIANCE_OUTPUT_DIR := $(OUTPUT_DIR)/tests/$(COMPLIANCE_PRESET)/fulu/fork_choice_compliance
 
