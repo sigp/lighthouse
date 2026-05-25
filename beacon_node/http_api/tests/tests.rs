@@ -2864,7 +2864,7 @@ impl ApiTester {
     pub async fn test_get_node_version_v2(self) -> Self {
         let result = self.client.get_node_version_v2().await.unwrap().data;
 
-        let beacon_node = lighthouse_version::version_with_commit();
+        let beacon_node = eth2::types::version_with_commit();
         let execution_client = self
             .chain
             .execution_layer

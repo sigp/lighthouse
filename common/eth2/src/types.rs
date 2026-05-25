@@ -11,6 +11,7 @@ use bls::{PublicKeyBytes, SecretKey, Signature, SignatureBytes};
 use context_deserialize::ContextDeserialize;
 #[cfg(feature = "network")]
 use enr::{CombinedKey, Enr};
+use lighthouse_version::{COMMIT_PREFIX, VERSION, client_name};
 use mediatype::{MediaType, MediaTypeList, names};
 #[cfg(feature = "network")]
 use multiaddr::Multiaddr;
@@ -606,6 +607,23 @@ pub struct JsonClientVersion {
     pub name: String,
     pub version: String,
     pub commit: String,
+}
+
+/// Returns Lighthouse client version information
+pub fn version_with_commit() -> JsonClientVersion {
+    let version = VERSION
+        .replace("Lighthouse/", "")
+        .split('-')
+        .next()
+        .unwrap_or_default()
+        .to_string();
+
+    JsonClientVersion {
+        code: "LH".to_string(),
+        name: client_name().to_string(),
+        version,
+        commit: COMMIT_PREFIX.to_string(),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

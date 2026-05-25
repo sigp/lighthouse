@@ -1,4 +1,3 @@
-use eth2::types::JsonClientVersion;
 use std::env::consts;
 
 /// Returns the current version of this build of Lighthouse.
@@ -23,23 +22,6 @@ pub const COMMIT_PREFIX: &str = env!("GIT_COMMIT_PREFIX");
 /// `Lighthouse/v8.0.0-67da032/x86_64-linux`
 pub fn version_with_platform() -> String {
     format!("{}/{}-{}", VERSION, consts::ARCH, consts::OS)
-}
-
-/// Returns Lighthouse client version information
-pub fn version_with_commit() -> JsonClientVersion {
-    let version = VERSION
-        .replace("Lighthouse/", "")
-        .split('-')
-        .next()
-        .unwrap_or_default()
-        .to_string();
-
-    JsonClientVersion {
-        code: "LH".to_string(),
-        name: client_name().to_string(),
-        version,
-        commit: COMMIT_PREFIX.to_string(),
-    }
 }
 
 /// Returns semantic versioning information only.

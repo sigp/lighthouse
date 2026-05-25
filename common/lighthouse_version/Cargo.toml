@@ -4,8 +4,5 @@ version = { workspace = true }
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 
-[dependencies]
-eth2 = { workspace = true }
-
 [dev-dependencies]
 regex = { workspace = true }
