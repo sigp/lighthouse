@@ -535,7 +535,6 @@ mod tests {
     use super::*;
     use beacon_chain::{
         PayloadVerificationStatus,
-        block_verification_types::{AvailableBlockData, RangeSyncBlock},
         test_utils::{BeaconChainHarness, EphemeralHarnessType},
     };
     use std::time::Duration;
@@ -562,7 +561,7 @@ mod tests {
         let (block_contents, post_state) = harness
             .make_block(harness.get_current_state(), harness.get_current_slot())
             .await;
-        let block = block_contents.0;
+        let (block, blob_items) = block_contents;
         let block_root = block.canonical_root();
 
         assert!(
@@ -578,14 +577,10 @@ mod tests {
             "precondition: test block must not be imported into fork choice yet"
         );
 
-        let available_block = RangeSyncBlock::new(
-            block.clone(),
-            AvailableBlockData::NoData,
-            &chain.data_availability_checker,
-            chain.spec.clone(),
-        )
-        .unwrap()
-        .into_available_block();
+        let available_block = harness
+            .build_range_sync_block_from_blobs(block.clone(), blob_items)
+            .unwrap()
+            .into_available_block();
 
         let current_slot = harness.get_current_slot();
         let cached_head = chain.canonical_head.cached_head();
