@@ -96,7 +96,7 @@ A `null` response indicates that the request is successful.
 
 ## Automatically append client version info to user graffiti
 
-> Note: this feature only works when a Lighthouse validator client is connected to a Lighthouse beacon node. 
+> Note: this feature only works when a Lighthouse validator client is connected to a Lighthouse beacon node.
 
 In the interest of obtaining client diversity data, Lighthouse will by default automatically append client version info
 to user graffiti in proposed blocks.
