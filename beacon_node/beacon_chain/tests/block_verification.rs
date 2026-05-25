@@ -323,18 +323,34 @@ fn update_data_column_signed_header<E: EthSpec>(
 ) {
     for old_custody_column_sidecar in data_columns.as_mut_slice() {
         let old_column_sidecar = old_custody_column_sidecar.as_data_column();
-        let new_column_sidecar = Arc::new(DataColumnSidecar::Fulu(DataColumnSidecarFulu {
-            index: *old_column_sidecar.index(),
-            column: old_column_sidecar.column().clone(),
-            kzg_commitments: old_column_sidecar.kzg_commitments().unwrap().clone(),
-            kzg_proofs: old_column_sidecar.kzg_proofs().clone(),
-            signed_block_header: signed_block.signed_block_header(),
-            kzg_commitments_inclusion_proof: signed_block
-                .message()
-                .body()
-                .kzg_commitments_merkle_proof()
-                .unwrap(),
-        }));
+        let new_column_sidecar = match old_column_sidecar.as_ref() {
+            DataColumnSidecar::Fulu(_) => {
+                Arc::new(DataColumnSidecar::Fulu(DataColumnSidecarFulu {
+                    index: *old_column_sidecar.index(),
+                    column: old_column_sidecar.column().clone(),
+                    kzg_commitments: old_column_sidecar.kzg_commitments().unwrap().clone(),
+                    kzg_proofs: old_column_sidecar.kzg_proofs().clone(),
+                    signed_block_header: signed_block.signed_block_header(),
+                    kzg_commitments_inclusion_proof: signed_block
+                        .message()
+                        .body()
+                        .kzg_commitments_merkle_proof()
+                        .unwrap(),
+                }))
+            }
+            // Gloas columns reference the block by `beacon_block_root` instead of holding the
+            // block header inline, so updating the parent root just means re-keying the column to
+            // the new canonical root.
+            DataColumnSidecar::Gloas(g) => {
+                Arc::new(DataColumnSidecar::Gloas(types::DataColumnSidecarGloas {
+                    index: g.index,
+                    column: g.column.clone(),
+                    kzg_proofs: g.kzg_proofs.clone(),
+                    slot: g.slot,
+                    beacon_block_root: signed_block.canonical_root(),
+                }))
+            }
+        };
         *old_custody_column_sidecar = CustodyDataColumn::from_asserted_custody(new_column_sidecar);
     }
 }
@@ -1150,8 +1166,13 @@ async fn block_gossip_verification() {
             )
             .await
             .expect("should import valid gossip verified block");
+        if let Some(data_sidecars) = blobs_opt {
+            verify_and_process_gossip_data_sidecars(&harness, data_sidecars).await;
+        }
         // Post-Gloas, store the execution payload envelope so that subsequent blocks can look up
-        // the parent envelope.
+        // the parent envelope. This must run after gossip column processing because marking the
+        // payload as received in fork choice causes the gossip column path's
+        // `is_block_data_imported` gate to reject otherwise-valid columns as duplicates.
         if let Some(ref envelope) = snapshot.execution_envelope {
             harness
                 .chain
@@ -1164,9 +1185,6 @@ async fn block_gossip_verification() {
                 .fork_choice_write_lock()
                 .on_valid_payload_envelope_received(snapshot.beacon_block_root)
                 .expect("should update fork choice with envelope");
-        }
-        if let Some(data_sidecars) = blobs_opt {
-            verify_and_process_gossip_data_sidecars(&harness, data_sidecars).await;
         }
     }
 
@@ -2246,7 +2264,6 @@ async fn rpc_block_allows_construction_past_da_boundary() {
             // Now verify the block is past the DA boundary
             let da_boundary = harness
                 .chain
-                .data_availability_checker
                 .data_availability_boundary()
                 .expect("DA boundary should be set");
             assert!(

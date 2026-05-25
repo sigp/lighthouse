@@ -33,6 +33,7 @@ use crate::data_column_verification::{
     GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn,
     verify_kzg_for_data_column_list,
 };
+use crate::kzg_utils::validate_data_columns_with_commitments;
 use crate::metrics::{
     KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS, KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES,
 };
@@ -490,8 +491,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             AvailableBlockData::Blobs(blobs) => verify_kzg_for_blob_list(blobs.iter(), &self.kzg)
                 .map_err(AvailabilityCheckError::InvalidBlobs),
             AvailableBlockData::DataColumns(columns) => {
-                verify_kzg_for_data_column_list(columns.iter(), &self.kzg)
-                    .map_err(AvailabilityCheckError::InvalidColumn)
+                verify_columns_against_block(&self.kzg, available_block.block(), columns)
             }
         }
     }
@@ -504,24 +504,23 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         available_blocks: &[AvailableBlock<T::EthSpec>],
     ) -> Result<(), AvailabilityCheckError> {
         let mut all_blobs = Vec::new();
-        let mut all_data_columns = Vec::new();
 
         for available_block in available_blocks {
-            match available_block.data().to_owned() {
+            match available_block.data() {
                 AvailableBlockData::NoData => {}
-                AvailableBlockData::Blobs(blobs) => all_blobs.extend(blobs),
-                AvailableBlockData::DataColumns(columns) => all_data_columns.extend(columns),
+                AvailableBlockData::Blobs(blobs) => all_blobs.extend(blobs.iter().cloned()),
+                AvailableBlockData::DataColumns(columns) => {
+                    // Each block has its own commitments. For Gloas they live in the bid; for
+                    // Fulu they live inline on the column. Verify per block and let the helper
+                    // pick the right path.
+                    verify_columns_against_block(&self.kzg, available_block.block(), columns)?;
+                }
             }
         }
 
         if !all_blobs.is_empty() {
             verify_kzg_for_blob_list(all_blobs.iter(), &self.kzg)
                 .map_err(AvailabilityCheckError::InvalidBlobs)?;
-        }
-
-        if !all_data_columns.is_empty() {
-            verify_kzg_for_data_column_list(all_data_columns.iter(), &self.kzg)
-                .map_err(AvailabilityCheckError::InvalidColumn)?;
         }
 
         Ok(())
@@ -605,9 +604,21 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         metrics::inc_counter(&KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS);
         let timer = metrics::start_timer(&metrics::DATA_AVAILABILITY_RECONSTRUCTION_TIME);
 
+        let columns: Vec<_> = verified_data_columns
+            .into_iter()
+            .map(|c| c.into_inner())
+            .collect();
+        // Fulu columns carry their commitments; reconstruction needs the count to drive the
+        // per-blob recovery loop.
+        let kzg_commitments = columns
+            .first()
+            .and_then(|c| c.kzg_commitments().ok().cloned())
+            .ok_or(AvailabilityCheckError::InvalidVariant)?;
+
         let all_data_columns = KzgVerifiedCustodyDataColumn::reconstruct_columns(
             &self.kzg,
-            &verified_data_columns,
+            columns,
+            &kzg_commitments,
             &self.spec,
         )
         .map_err(|e| {
@@ -673,6 +684,35 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         .collect::<Vec<_>>(),
                 ))
             })
+    }
+}
+
+/// Verify a batch of data columns belonging to a single block, picking the right commitment
+/// source for the block's fork (Fulu: inline on column; Gloas: from the embedded payload bid).
+fn verify_columns_against_block<E: EthSpec>(
+    kzg: &Kzg,
+    block: &SignedBeaconBlock<E>,
+    columns: &[Arc<DataColumnSidecar<E>>],
+) -> Result<(), AvailabilityCheckError> {
+    if columns.is_empty() {
+        return Ok(());
+    }
+    if block.fork_name_unchecked().gloas_enabled() {
+        let commitments = block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .map(|bid| bid.message.blob_kzg_commitments.clone())
+            .map_err(|_| {
+                AvailabilityCheckError::Unexpected(
+                    "Gloas block missing signed_execution_payload_bid".to_string(),
+                )
+            })?;
+        validate_data_columns_with_commitments(kzg, columns.iter(), commitments.as_ref())
+            .map_err(AvailabilityCheckError::InvalidColumn)
+    } else {
+        verify_kzg_for_data_column_list(columns.iter(), kzg)
+            .map_err(AvailabilityCheckError::InvalidColumn)
     }
 }
 
@@ -874,10 +914,13 @@ impl<E: EthSpec> AvailableBlock<E> {
 
         match &block_data {
             AvailableBlockData::NoData => {
-                if columns_required {
-                    return Err(AvailabilityCheckError::MissingCustodyColumns);
-                } else if blobs_required {
-                    return Err(AvailabilityCheckError::MissingBlobs);
+                // For Gloas, DA is checked for the PayloadEnvelope, not for the block.
+                if !block.fork_name_unchecked().gloas_enabled() {
+                    if columns_required {
+                        return Err(AvailabilityCheckError::MissingCustodyColumns);
+                    } else if blobs_required {
+                        return Err(AvailabilityCheckError::MissingBlobs);
+                    }
                 }
             }
             AvailableBlockData::Blobs(blobs) => {
@@ -1041,8 +1084,6 @@ mod test {
         EphemeralHarnessType, NumBlobs, generate_data_column_indices_rand_order,
         generate_rand_block_and_data_columns, get_kzg,
     };
-    use rand::SeedableRng;
-    use rand::prelude::StdRng;
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::collections::HashSet;
     use std::sync::Arc;
@@ -1061,7 +1102,7 @@ mod test {
     fn should_exclude_rpc_columns_not_required_for_sampling() {
         // SETUP
         let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
-        let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
+        let mut u = types::test_utils::test_unstructured();
 
         let da_checker = new_da_checker(spec.clone());
         let custody_context = &da_checker.custody_context;
@@ -1093,9 +1134,10 @@ mod test {
         let (_, data_columns) = generate_rand_block_and_data_columns::<E>(
             ForkName::Fulu,
             NumBlobs::Number(1),
-            &mut rng,
+            &mut u,
             &spec,
-        );
+        )
+        .unwrap();
         let block_root = Hash256::random();
         // Get 10 columns using the "latest" CGC (head) that block lookup would use.
         // The CGC change becomes effective after CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS,
@@ -1147,7 +1189,7 @@ mod test {
     fn should_exclude_gossip_columns_not_required_for_sampling() {
         // SETUP
         let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
-        let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
+        let mut u = types::test_utils::test_unstructured();
 
         let da_checker = new_da_checker(spec.clone());
         let custody_context = &da_checker.custody_context;
@@ -1180,9 +1222,10 @@ mod test {
         let (_, data_columns) = generate_rand_block_and_data_columns::<E>(
             ForkName::Fulu,
             NumBlobs::Number(1),
-            &mut rng,
+            &mut u,
             &spec,
-        );
+        )
+        .unwrap();
         let block_root = Hash256::random();
         // Get 10 columns using the "latest" CGC that gossip subscriptions would use.
         // The CGC change becomes effective after CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS,
@@ -1230,7 +1273,7 @@ mod test {
     #[test]
     fn verify_kzg_for_range_sync_blocks_should_not_truncate_data_columns_fulu() {
         let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
-        let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
+        let mut u = types::test_utils::test_unstructured();
         let da_checker = new_da_checker(spec.clone());
 
         // GIVEN multiple RPC blocks with data columns totalling more than 128
@@ -1239,9 +1282,10 @@ mod test {
                 let (block, data_columns) = generate_rand_block_and_data_columns::<E>(
                     ForkName::Fulu,
                     NumBlobs::Number(1),
-                    &mut rng,
+                    &mut u,
                     &spec,
-                );
+                )
+                .unwrap();
 
                 let custody_columns = if index == 0 {
                     // 128 valid data columns in the first block
@@ -1293,7 +1337,7 @@ mod test {
     fn should_exclude_reconstructed_columns_not_required_for_sampling() {
         // SETUP
         let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
-        let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
+        let mut u = types::test_utils::test_unstructured();
 
         let da_checker = new_da_checker(spec.clone());
         let custody_context = &da_checker.custody_context;
@@ -1314,9 +1358,10 @@ mod test {
         let (block, data_columns) = generate_rand_block_and_data_columns::<E>(
             ForkName::Fulu,
             NumBlobs::Number(1),
-            &mut rng,
+            &mut u,
             &spec,
-        );
+        )
+        .unwrap();
         let block_root = Hash256::random();
         // Add the block to the DA checker
         da_checker

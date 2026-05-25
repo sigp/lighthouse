@@ -8,7 +8,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::FixedVector;
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tracing::instrument;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
@@ -33,7 +32,6 @@ use crate::{
     fork::{Fork, ForkName, ForkVersionDecode, InconsistentFork, map_fork_name},
     kzg_ext::format_kzg_commitments,
     state::BeaconStateError,
-    test_utils::TestRandom,
 };
 
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
@@ -77,7 +75,6 @@ impl From<SignedBeaconBlockHash> for Hash256 {
             Decode,
             TreeHash,
             Educe,
-            TestRandom
         ),
         educe(PartialEq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec, Payload: AbstractExecPayload<E>"),
@@ -354,6 +351,12 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
         self.message()
             .body()
             .blob_kzg_commitments()
+            .or_else(|_| {
+                self.message()
+                    .body()
+                    .signed_execution_payload_bid()
+                    .map(|bid| &bid.message.blob_kzg_commitments)
+            })
             .map(|c| c.len())
             .unwrap_or(0)
     }

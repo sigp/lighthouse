@@ -2,10 +2,9 @@ use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::BitList;
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-use crate::{attestation::AttestationData, core::EthSpec, fork::ForkName, test_utils::TestRandom};
+use crate::{attestation::AttestationData, core::EthSpec, fork::ForkName};
 
 /// An attestation that has been included in the state but not yet fully processed.
 ///
@@ -15,7 +14,7 @@ use crate::{attestation::AttestationData, core::EthSpec, fork::ForkName, test_ut
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[context_deserialize(ForkName)]
 pub struct PendingAttestation<E: EthSpec> {
     pub aggregation_bits: BitList<E::MaxValidatorsPerCommittee>,

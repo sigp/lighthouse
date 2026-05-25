@@ -14,8 +14,8 @@ use beacon_processor::{
 };
 use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::methods::{
-    BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
-    LightClientUpdatesByRangeRequest, PayloadEnvelopesByRangeRequest,
+    BlobsByRangeRequest, BlobsByRootRequest, BlocksByHeadRequest, DataColumnsByRangeRequest,
+    DataColumnsByRootRequest, LightClientUpdatesByRangeRequest, PayloadEnvelopesByRangeRequest,
     PayloadEnvelopesByRootRequest,
 };
 use lighthouse_network::service::api_types::CustodyBackfillBatchId;
@@ -526,15 +526,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        proposer_preferences: Box<SignedProposerPreferences>,
+        proposer_preferences: Arc<SignedProposerPreferences>,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = move || {
-            processor.process_gossip_proposer_preferences(
-                message_id,
-                peer_id,
-                Arc::new(*proposer_preferences),
-            )
+            processor.process_gossip_proposer_preferences(message_id, peer_id, proposer_preferences)
         };
 
         self.try_send(BeaconWorkEvent {
@@ -589,6 +585,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::RpcBlobs { process_fn },
+        })
+    }
+
+    /// Create a new `Work` event for an RPC-fetched payload envelope. `process_lookup_envelope`
+    /// reports the result back to sync.
+    pub fn send_lookup_envelope(
+        self: &Arc<Self>,
+        block_root: Hash256,
+        envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let s = self.clone();
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::RpcEnvelope(Box::pin(async move {
+                s.process_lookup_envelope(block_root, envelope, seen_timestamp, process_type)
+                    .await;
+            })),
         })
     }
 
@@ -700,6 +715,26 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::BlocksByRangeRequest(Box::pin(process_fn)),
+        })
+    }
+
+    /// Create a new work event to process `BlocksByHeadRequest`s from the RPC network.
+    pub fn send_blocks_by_head_request(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        inbound_request_id: InboundRequestId,
+        request: BlocksByHeadRequest,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = async move {
+            processor
+                .handle_blocks_by_head_request(peer_id, inbound_request_id, request)
+                .await;
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::BlocksByHeadRequest(Box::pin(process_fn)),
         })
     }
 
@@ -998,6 +1033,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
 
         // Publish partial columns without eager send
+        // TODO(gloas): implement publish partial columns without eager send
         if let Some(assembler) = self.chain.data_availability_checker.partial_assembler() {
             let columns = assembler.get_partials_and_mark_as_local_fetched(block_root, &header);
             if !columns.is_empty() {
@@ -1018,8 +1054,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Attempts to reconstruct all data columns if the conditions checked in
     /// [`DataAvailabilityCheckerInner::check_and_set_reconstruction_started`] are satisfied.
     #[instrument(level = "debug", skip_all, fields(?block_root))]
-    async fn attempt_data_column_reconstruction(self: &Arc<Self>, block_root: Hash256) {
-        let result = self.chain.reconstruct_data_columns(block_root).await;
+    async fn attempt_data_column_reconstruction(self: &Arc<Self>, slot: Slot, block_root: Hash256) {
+        let result = self.chain.reconstruct_data_columns(slot, block_root).await;
 
         match result {
             Ok(Some((availability_processing_status, data_columns_to_publish))) => {
@@ -1231,8 +1267,7 @@ use {
 };
 
 #[cfg(test)]
-pub(crate) type TestBeaconChainType<E> =
-    Witness<ManualSlotClock, E, MemoryStore<E>, MemoryStore<E>>;
+pub(crate) type TestBeaconChainType<E> = Witness<ManualSlotClock, E, MemoryStore, MemoryStore>;
 
 #[cfg(test)]
 impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
