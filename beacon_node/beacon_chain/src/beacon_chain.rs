@@ -113,7 +113,7 @@ use operation_pool::{
     CompactAttestationRef, OperationPool, PersistedOperationPool, ReceivedPreCapella,
 };
 use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
-use proto_array::{DoNotReOrg, ProposerHeadError};
+use proto_array::{DoNotReOrg, ProposerHeadError, ReOrgThreshold};
 use rand::RngCore;
 use safe_arith::SafeArith;
 use slasher::Slasher;
@@ -5239,15 +5239,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_OVERRIDE_FCU_TIMES);
 
         // Never override if proposer re-orgs are disabled.
-        let re_org_head_threshold = self
-            .config
-            .re_org_head_threshold
-            .ok_or(Box::new(DoNotReOrg::ReOrgsDisabled.into()))?;
+        if self.config.disable_proposer_reorg {
+            return Err(Box::new(DoNotReOrg::ReOrgsDisabled.into()));
+        };
 
-        let re_org_parent_threshold = self
-            .config
-            .re_org_parent_threshold
-            .ok_or(Box::new(DoNotReOrg::ReOrgsDisabled.into()))?;
+        let re_org_head_threshold = ReOrgThreshold(self.spec.reorg_head_weight_threshold);
+        let re_org_parent_threshold = ReOrgThreshold(self.spec.reorg_parent_weight_threshold);
+        let re_org_max_epochs_since_finalization =
+            Epoch::new(self.spec.reorg_max_epochs_since_finalization);
 
         let head_block_root = canonical_forkchoice_params.head_root;
 
@@ -5260,7 +5259,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 re_org_head_threshold,
                 re_org_parent_threshold,
                 &self.config.re_org_disallowed_offsets,
-                self.config.re_org_max_epochs_since_finalization,
+                re_org_max_epochs_since_finalization,
             )
             .map_err(|e| e.map_inner_error(Error::ProposerHeadForkChoiceError))?;
 
@@ -5281,7 +5280,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .and_then(|slot_start| {
                     let now = self.slot_clock.now_duration()?;
                     let slot_delay = now.saturating_sub(slot_start);
-                    Some(slot_delay <= self.config.re_org_cutoff(self.spec.get_slot_duration()))
+                    let re_org_cutoff_duration = self
+                        .spec
+                        .compute_slot_component_duration(self.spec.proposer_reorg_cutoff_bps)
+                        .ok()?;
+
+                    Some(slot_delay <= re_org_cutoff_duration)
                 })
                 .unwrap_or(false)
         } else {

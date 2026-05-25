@@ -1331,8 +1331,7 @@ pub fn cli_app() -> Command {
                 .long("proposer-reorg-threshold")
                 .action(ArgAction::Set)
                 .value_name("PERCENT")
-                .help("Percentage of head vote weight below which to attempt a proposer reorg. \
-                       Default: 20%")
+                .help("DEPRECATED. This flag has no effect.")
                 .conflicts_with("disable-proposer-reorgs")
                 .display_order(0)
         )
@@ -1340,8 +1339,7 @@ pub fn cli_app() -> Command {
             Arg::new("proposer-reorg-parent-threshold")
                 .long("proposer-reorg-parent-threshold")
                 .value_name("PERCENT")
-                .help("Percentage of parent vote weight above which to attempt a proposer reorg. \
-                       Default: 160%")
+                .help("DEPRECATED. This flag has no effect.")
                 .conflicts_with("disable-proposer-reorgs")
                 .action(ArgAction::Set)
                 .display_order(0)
@@ -1351,8 +1349,7 @@ pub fn cli_app() -> Command {
                 .long("proposer-reorg-epochs-since-finalization")
                 .action(ArgAction::Set)
                 .value_name("EPOCHS")
-                .help("Maximum number of epochs since finalization at which proposer reorgs are \
-                       allowed. Default: 2")
+                .help("DEPRECATED. This flag has no effect.")
                 .conflicts_with("disable-proposer-reorgs")
                 .display_order(0)
         )
@@ -1361,10 +1358,7 @@ pub fn cli_app() -> Command {
                 .long("proposer-reorg-cutoff")
                 .value_name("MILLISECONDS")
                 .action(ArgAction::Set)
-                .help("Maximum delay after the start of the slot at which to propose a reorging \
-                       block. Lower values can prevent failed reorgs by ensuring the block has \
-                       ample time to propagate and be processed by the network. The default is \
-                       1/12th of a slot (1 second on mainnet)")
+                .help("DEPRECATED. This flag has no effect.")
                 .conflicts_with("disable-proposer-reorgs")
                 .display_order(0)
         )

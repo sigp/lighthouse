@@ -306,10 +306,7 @@ Options:
           values are useful for ensuring the EL is given ample notice. Default:
           1/3 of a slot.
       --proposer-reorg-cutoff <MILLISECONDS>
-          Maximum delay after the start of the slot at which to propose a
-          reorging block. Lower values can prevent failed reorgs by ensuring the
-          block has ample time to propagate and be processed by the network. The
-          default is 1/12th of a slot (1 second on mainnet)
+          DEPRECATED. This flag has no effect.
       --proposer-reorg-disallowed-offsets <N1,N2,...>
           Comma-separated list of integer offsets which can be used to avoid
           proposing reorging blocks at certain slots. An offset of N means that
@@ -318,14 +315,11 @@ Options:
           avoided. Any offsets supplied with this flag will impose additional
           restrictions.
       --proposer-reorg-epochs-since-finalization <EPOCHS>
-          Maximum number of epochs since finalization at which proposer reorgs
-          are allowed. Default: 2
+          DEPRECATED. This flag has no effect.
       --proposer-reorg-parent-threshold <PERCENT>
-          Percentage of parent vote weight above which to attempt a proposer
-          reorg. Default: 160%
+          DEPRECATED. This flag has no effect.
       --proposer-reorg-threshold <PERCENT>
-          Percentage of head vote weight below which to attempt a proposer
-          reorg. Default: 20%
+          DEPRECATED. This flag has no effect.
       --prune-blobs <BOOLEAN>
           Prune blobs from Lighthouse's database when they are older than the
           data data availability boundary relative to the current epoch.
