@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = { workspace = true }
 
 [dependencies]
+bls = { workspace = true }
 eth2 = { workspace = true }
+futures = { workspace = true }
 mockito = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
@@ -12,3 +14,4 @@ sensitive_url = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 types = { workspace = true }
+validator_store = { workspace = true }

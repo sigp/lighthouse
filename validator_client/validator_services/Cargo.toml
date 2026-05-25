@@ -17,9 +17,19 @@ reqwest = { workspace = true }
 safe_arith = { workspace = true }
 slot_clock = { workspace = true }
 task_executor = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = [
+    "rt-multi-thread",
+    "sync",
+    "signal",
+    "macros",
+    "test-util",
+] }
 tracing = { workspace = true }
 tree_hash = { workspace = true }
 types = { workspace = true }
 validator_metrics = { workspace = true }
 validator_store = { workspace = true }
+
+[dev-dependencies]
+mockito = { workspace = true }
+validator_test_rig = { workspace = true }

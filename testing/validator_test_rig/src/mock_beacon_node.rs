@@ -9,7 +9,10 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::info;
-use types::{ChainSpec, ConfigAndPreset, EthSpec, SignedBlindedBeaconBlock};
+use types::{
+    ChainSpec, ConfigAndPreset, EthSpec, ForkName, PayloadAttestationData,
+    PayloadAttestationMessage, SignedBlindedBeaconBlock, Slot,
+};
 
 pub struct MockBeaconNode<E: EthSpec> {
     server: ServerGuard,
@@ -122,6 +125,78 @@ impl<E: EthSpec> MockBeaconNode<E> {
                 }
             }"#,
             )
+            .create()
+    }
+
+    pub fn mock_get_validator_payload_attestation_data(
+        &mut self,
+        data: &PayloadAttestationData,
+        fork_name: ForkName,
+        slot: Slot,
+    ) -> Mock {
+        let path_pattern = Regex::new(&format!(
+            r"^/eth/v1/validator/payload_attestation_data/{}$",
+            slot.as_u64()
+        ))
+        .unwrap();
+
+        let body = serde_json::json!({
+        "version": fork_name.to_string(),
+        "data": data,
+        });
+
+        self.server
+            .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::to_string(&body).unwrap())
+            .create()
+    }
+
+    pub fn mock_post_beacon_pool_payload_attestations(
+        &mut self,
+        received: Arc<Mutex<Vec<Vec<PayloadAttestationMessage>>>>,
+    ) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v1/beacon/pool/payload_attestations$").unwrap();
+
+        self.server
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
+            .match_header("content-type", Matcher::Regex("application/json".into()))
+            .with_status(200)
+            .with_body_from_request(move |request| {
+                let body = request.body().expect("Failed to get request body");
+                let messages: Vec<PayloadAttestationMessage> = serde_json::from_slice(body)
+                    .expect("Failed to deserialize payload attestations");
+                received.lock().unwrap().push(messages);
+                vec![]
+            })
+            .create()
+    }
+
+    /// Mocks `POST /eth/v1/beacon/pool/payload_attestations` (SSZ) with an optional `delay`.                                                                         
+    pub fn mock_post_beacon_pool_payload_attestations_ssz(
+        &mut self,
+        received: Arc<Mutex<Vec<Vec<u8>>>>,
+        delay: Duration,
+    ) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v1/beacon/pool/payload_attestations$").unwrap();
+        let url = self.server.url();
+
+        self.server
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
+            .match_header("content-type", "application/octet-stream")
+            .with_status(200)
+            .with_body_from_request(move |request| {
+                info!(
+                    "Received payload attestation SSZ on server {} with delay {} ms",
+                    url,
+                    delay.as_millis(),
+                );
+                let body = request.body().expect("Failed to get request body");
+                received.lock().unwrap().push(body.to_vec());
+                std::thread::sleep(delay);
+                vec![]
+            })
             .create()
     }
 }

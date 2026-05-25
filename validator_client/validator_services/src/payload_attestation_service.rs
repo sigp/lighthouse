@@ -249,3 +249,138 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::duties_service::DutiesServiceBuilder;
+    use beacon_node_fallback::{
+        BeaconNodeFallback, CandidateBeaconNode, Config as BeaconNodeConfig,
+    };
+    use eth2::types::PtcDuty;
+    use slot_clock::ManualSlotClock;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+    use task_executor::test_utils::TestRuntime;
+    use types::{
+        Epoch, ForkName, Hash256, MainnetEthSpec, PayloadAttestationData,
+        PayloadAttestationMessage, Slot,
+    };
+    use validator_test_rig::mock_beacon_node::MockBeaconNode;
+    use validator_test_rig::mock_validator_store::MockValidatorStore;
+
+    type E = MainnetEthSpec;
+
+    fn build_gloas_spec() -> Arc<ChainSpec> {
+        let mut spec = E::default_spec();
+        spec.gloas_fork_epoch = Some(Epoch::new(0));
+        spec.payload_attestation_due = Duration::from_secs(0);
+        Arc::new(spec)
+    }
+
+    #[tokio::test]
+    async fn start_update_service_publishes_payload_attestation() {
+        let test_runtime = TestRuntime::default();
+        let executor = test_runtime.task_executor.clone();
+        let slot_duration = Duration::from_millis(50);
+        let slot_clock = ManualSlotClock::new(Slot::new(0), Duration::from_secs(0), slot_duration);
+        let spec = build_gloas_spec();
+
+        let attestation_slot = Slot::new(1);
+        let validator_index = 0;
+
+        let validator_store = Arc::new(MockValidatorStore::new(VALIDATOR_INDEX));
+        let pubkey = validator_store.pubkey;
+
+        let duty = PtcDuty {
+            pubkey,
+            validator_index: VALIDATOR_INDEX,
+            slot: attestation_slot,
+        };
+
+        let duties_service = Arc::new(
+            DutiesServiceBuilder::new()
+                .validator_store(validator_store.clone())
+                .slot_clock(slot_clock.clone())
+                .beacon_nodes(Arc::new(BeaconNodeFallback::new(
+                    vec![],
+                    BeaconNodeConfig::default(),
+                    vec![],
+                    spec.clone(),
+                )))
+                .executor(executor.clone())
+                .spec(spec.clone())
+                .build()
+                .expect("build duties service"),
+        );
+
+        duties_service
+            .ptc_duties
+            .write()
+            .insert(Epoch::new(0), (Hash256::repeat_byte(0), vec![duty]));
+
+        let mut mock_beacon_node = MockBeaconNode::<E>::new().await;
+
+        let payload_attestation_data = PayloadAttestationData {
+            beacon_block_root: Hash256::repeat_byte(1),
+            slot: attestation_slot,
+            payload_present: true,
+            blob_data_available: false,
+        };
+
+        mock_beacon_node.mock_get_validator_payload_attestation_data(
+            &payload_attestation_data,
+            ForkName::Gloas,
+            attestation_slot,
+        );
+
+        let received: Arc<Mutex<Vec<Vec<PayloadAttestationMessage>>>> =
+            Arc::new(Mutex::new(Vec::new()));
+
+        mock_beacon_node.mock_post_beacon_pool_payload_attestations(received.clone());
+
+        let candidate = CandidateBeaconNode::new(mock_beacon_node.beacon_api_client.clone(), 0);
+        let beacon_node_fallback = Arc::new(BeaconNodeFallback::new(
+            vec![candidate],
+            BeaconNodeConfig::default(),
+            vec![],
+            spec.clone(),
+        ));
+
+        let service = PayloadAttestationService::new(
+            duties_service,
+            validator_store,
+            slot_clock.clone(),
+            beacon_node_fallback,
+            executor,
+            spec,
+        );
+
+        service.start_update_service().expect("start service");
+
+        // Advance slot clock to slot 1 and wait for the service to process.
+        slot_clock.advance_time(slot_duration);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let received = received.lock().unwrap();
+        assert!(!received.is_empty(), "expected at least one POST request");
+
+        let messages = &received[0];
+        assert_eq!(
+            messages.len(),
+            1,
+            "expected one payload attestation message"
+        );
+
+        let message = &messages[0];
+        assert_eq!(message.validator_index, VALIDATOR_INDEX);
+        assert_eq!(message.data.beacon_block_root, Hash256::repeat_byte(1));
+        assert_eq!(message.data.slot, attestation_slot);
+        assert!(message.data.payload_present);
+        assert!(!message.data.blob_data_available);
+        assert!(
+            !message.signature.is_empty(),
+            "signature should not be empty"
+        );
+    }
+}
