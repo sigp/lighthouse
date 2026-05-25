@@ -427,4 +427,13 @@ mod tests {
     fn default_config() {
         Config::default();
     }
+
+    #[test]
+    fn user_agent_propagates_to_configs() {
+        let user_agent = "Lighthouse/v8.1.3-abcdef".to_string();
+        let config = Config::default().with_user_agent(user_agent.clone());
+
+        assert_eq!(config.user_agent, user_agent);
+        assert_eq!(config.initialized_validators.user_agent, user_agent);
+    }
 }

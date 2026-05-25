@@ -248,4 +248,11 @@ mod tests {
             yaml_serde::to_string(&config).expect("should serde encode default config");
         yaml_serde::from_str::<Config>(&serialized).expect("should serde decode default config");
     }
+
+    #[test]
+    fn user_agent_propagates_to_configs() {
+        let user_agent = "Lighthouse/v8.1.3-abcdef".to_string();
+        let config = Config::default().with_user_agent(user_agent.clone());
+        assert_eq!(config.user_agent, user_agent);
+    }
 }
