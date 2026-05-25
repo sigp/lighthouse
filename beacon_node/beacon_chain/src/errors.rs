@@ -251,6 +251,13 @@ pub enum BeaconChainError {
         request_epoch: Epoch,
         cache_epoch: Epoch,
     },
+    AttesterCachePtcOutOfBounds {
+        slot: Slot,
+        epoch: Epoch,
+    },
+    AttesterCacheNoPtcPreGloas {
+        slot: Slot,
+    },
     SkipProposerPreparation,
     FailedColumnCustodyInfoUpdate,
 }
