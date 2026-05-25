@@ -305,7 +305,12 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     // must have its columns in custody. In that case, set `true = enforce max_requests`
                     // and downscore if data_columns_by_root does not return the expected custody
                     // columns. For the rest of peers, don't downscore if columns are missing.
-                    lookup_peers.contains(&peer_id),
+                    //
+                    // Post-Gloas, blocks and payload envelopes are decoupled. A peer may
+                    // have the block but not yet imported the envelope and data columns.
+                    // Don't enforce max_responses in this case.
+                    lookup_peers.contains(&peer_id)
+                        && !cx.fork_context.current_fork_name().gloas_enabled(),
                 )
                 .map_err(Error::SendFailed)?;
 

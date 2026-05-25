@@ -2857,6 +2857,7 @@ dependencies = [
  "kzg",
  "logging",
  "milhouse",
+ "proto_array",
  "rayon",
  "serde",
  "serde_json",

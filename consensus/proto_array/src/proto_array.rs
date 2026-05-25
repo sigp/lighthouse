@@ -701,11 +701,9 @@ impl ProtoArray {
         justified_balances: &JustifiedBalances,
         spec: &ChainSpec,
     ) -> bool {
-        let reorg_threshold = calculate_committee_fraction::<E>(
-            justified_balances,
-            spec.reorg_head_weight_threshold.unwrap_or(20),
-        )
-        .unwrap_or(0);
+        let reorg_threshold =
+            calculate_committee_fraction::<E>(justified_balances, spec.reorg_head_weight_threshold)
+                .unwrap_or(0);
 
         let head_weight = head_node
             .attestation_score(PayloadStatus::Pending)
