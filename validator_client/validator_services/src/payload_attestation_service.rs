@@ -262,10 +262,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use task_executor::test_utils::TestRuntime;
-    use types::{
-        Epoch, ForkName, Hash256, MainnetEthSpec, PayloadAttestationData,
-        PayloadAttestationMessage, Slot,
-    };
+    use types::{Epoch, ForkName, Hash256, MainnetEthSpec, PayloadAttestationData, Slot};
     use validator_test_rig::mock_beacon_node::MockBeaconNode;
     use validator_test_rig::mock_validator_store::MockValidatorStore;
 
@@ -289,12 +286,12 @@ mod tests {
         let attestation_slot = Slot::new(1);
         let validator_index = 0;
 
-        let validator_store = Arc::new(MockValidatorStore::new(VALIDATOR_INDEX));
+        let validator_store = Arc::new(MockValidatorStore::new(validator_index));
         let pubkey = validator_store.pubkey;
 
         let duty = PtcDuty {
             pubkey,
-            validator_index: VALIDATOR_INDEX,
+            validator_index,
             slot: attestation_slot,
         };
 
@@ -317,25 +314,25 @@ mod tests {
         duties_service
             .ptc_duties
             .write()
-            .insert(Epoch::new(0), (Hash256::repeat_byte(0), vec![duty]));
+            .insert(Epoch::new(0), (Hash256::ZERO, vec![duty]));
 
         let mut mock_beacon_node = MockBeaconNode::<E>::new().await;
 
-        let payload_attestation_data = PayloadAttestationData {
-            beacon_block_root: Hash256::repeat_byte(1),
+        let expected_payload_attestation = PayloadAttestationData {
+            beacon_block_root: Hash256::ZERO,
             slot: attestation_slot,
             payload_present: true,
             blob_data_available: false,
         };
 
         mock_beacon_node.mock_get_validator_payload_attestation_data(
-            &payload_attestation_data,
+            &expected_payload_attestation,
             ForkName::Gloas,
             attestation_slot,
         );
+        println!("mock beacon node is: {:?}", mock_beacon_node);
 
-        let received: Arc<Mutex<Vec<Vec<PayloadAttestationMessage>>>> =
-            Arc::new(Mutex::new(Vec::new()));
+        let received = Arc::new(Mutex::new(Vec::new()));
 
         mock_beacon_node.mock_post_beacon_pool_payload_attestations(received.clone());
 
@@ -356,30 +353,35 @@ mod tests {
             spec,
         );
 
-        service.start_update_service().expect("start service");
+        service.start_update_service().unwrap();
 
         // Advance slot clock to slot 1 and wait for the service to process.
         slot_clock.advance_time(slot_duration);
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        sleep(Duration::from_millis(200)).await;
 
         let received = received.lock().unwrap();
         assert!(!received.is_empty(), "expected at least one POST request");
 
         let messages = &received[0];
+        println!("messages is: {:?}", messages);
         assert_eq!(
             messages.len(),
             1,
             "expected one payload attestation message"
         );
 
-        let message = &messages[0];
-        assert_eq!(message.validator_index, VALIDATOR_INDEX);
-        assert_eq!(message.data.beacon_block_root, Hash256::repeat_byte(1));
-        assert_eq!(message.data.slot, attestation_slot);
-        assert!(message.data.payload_present);
-        assert!(!message.data.blob_data_available);
+        let result = &messages[0];
+        println!("result is: {:?}", result);
+        assert_eq!(result.validator_index, validator_index);
+        assert_eq!(
+            result.data.beacon_block_root,
+            expected_payload_attestation.beacon_block_root
+        );
+        assert_eq!(result.data.slot, attestation_slot);
+        assert!(result.data.payload_present);
+        assert!(!result.data.blob_data_available);
         assert!(
-            !message.signature.is_empty(),
+            !result.signature.is_empty(),
             "signature should not be empty"
         );
     }
