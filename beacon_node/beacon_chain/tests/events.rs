@@ -11,7 +11,8 @@ use std::sync::Arc;
 use types::data::FixedBlobSidecarList;
 use types::{
     BlobSidecar, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas, Domain, EthSpec,
-    MinimalEthSpec, PayloadAttestationData, PayloadAttestationMessage, SignedRoot, Slot,
+    MinimalEthSpec, PayloadAttestationData, PayloadAttestationMessage, SignedExecutionPayloadBid,
+    SignedRoot, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -84,6 +85,15 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
             let epoch = slot.epoch(E::slots_per_epoch());
             random_sidecar.slot = slot;
             random_sidecar.index = harness.chain.sampling_columns_for_epoch(epoch)[0];
+
+            // For gloas, the bid must be known, e.g. in the pending payload cache
+            let mut bid = SignedExecutionPayloadBid::<E>::empty();
+            bid.message.slot = Slot::new(10);
+            harness
+                .chain
+                .pending_payload_cache
+                .insert_bid(random_sidecar.beacon_block_root, Arc::new(bid));
+
             DataColumnSidecar::Gloas(random_sidecar)
         } else {
             let mut random_sidecar = DataColumnSidecarFulu::arbitrary(&mut u).unwrap();

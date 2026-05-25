@@ -28,6 +28,7 @@ hex = { workspace = true }
 kzg = { workspace = true }
 logging = { workspace = true }
 milhouse = { workspace = true }
+proto_array = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -593,7 +593,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             Err(err) => {
                 debug!(batch_epoch = %batch_id, error = ?err, "Batch download failed");
 
-                // If there are any coupling errors, penalize the appropriate peers
+                // If there are any coupling errors, penalize the appropriate peers.
                 if let RpcResponseError::BlockComponentCouplingError(coupling_error) = err
                     && let CouplingError::DataColumnPeerFailure {
                         error,
@@ -601,15 +601,19 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                         exceeded_retries: _,
                     } = coupling_error
                 {
+                    let mut failed_peers = HashSet::new();
                     for (column_index, faulty_peer) in faulty_peers {
                         debug!(
                             ?error,
                             ?column_index,
                             ?faulty_peer,
-                            "Custody backfill sync penalizing peer"
+                            "Custody backfill sync: peer failed to serve column"
                         );
+                        failed_peers.insert(faulty_peer);
+                    }
+                    for peer in failed_peers {
                         network.report_peer(
-                            faulty_peer,
+                            peer,
                             PeerAction::LowToleranceError,
                             "Peer failed to serve column",
                         );

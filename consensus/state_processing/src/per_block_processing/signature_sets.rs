@@ -378,10 +378,11 @@ where
         .data
         .slot
         .epoch(E::slots_per_epoch());
+    let fork = spec.fork_at_epoch(epoch);
     let domain = spec.get_domain(
         epoch,
         Domain::PTCAttester,
-        &state.fork(),
+        &fork,
         state.genesis_validators_root(),
     );
 

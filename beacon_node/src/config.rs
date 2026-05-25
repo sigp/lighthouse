@@ -1,8 +1,6 @@
 use account_utils::{STDIN_INPUTS_FLAG, read_input_from_user};
 use beacon_chain::chain_config::{
-    DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
-    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_PARENT_THRESHOLD,
-    DisallowedReOrgOffsets, INVALID_HOLESKY_BLOCK_ROOT, ReOrgThreshold,
+    DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, DisallowedReOrgOffsets, INVALID_HOLESKY_BLOCK_ROOT,
 };
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::graffiti_calculator::GraffitiOrigin;
@@ -110,7 +108,16 @@ pub fn get_config<E: EthSpec>(
 
     set_network_config(&mut client_config.network, cli_args, &data_dir_ref)?;
 
-    if parse_flag(cli_args, "enable-partial-columns") {
+    let default_partial_columns_enabled = spec
+        .config_name
+        .as_ref()
+        .is_some_and(|name| matches!(name.as_str(), "hoodi" | "sepolia"));
+    let user_disable_partial_columns = parse_flag(cli_args, "disable-partial-columns");
+    let user_enable_partial_columns = parse_flag(cli_args, "enable-partial-columns");
+    let enable_partial_columns = !user_disable_partial_columns
+        && (user_enable_partial_columns || default_partial_columns_enabled);
+
+    if enable_partial_columns {
         // Partial messages assume that each subnet maps to exactly one column.
         // Check this here to avoid weird issues on networks where this is not the case.
         if spec.data_column_sidecar_subnet_count == E::number_of_columns() as u64 {
@@ -215,6 +222,9 @@ pub fn get_config<E: EthSpec>(
 
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
         client_config.chain.shuffling_cache_size = cache_size;
+        // Mantain backwards compatibility with users customizing `shuffling_cache_size` to tweak
+        // the behaviour of the HTTP API route `beacon/states/committees`
+        client_config.http_api.historical_committee_cache_size = cache_size;
     }
 
     if let Some(batches) = clap_utils::parse_optional(cli_args, "blob-publication-batches")? {
@@ -741,41 +751,39 @@ pub fn get_config<E: EthSpec>(
             .individual_tracking_threshold = count;
     }
 
-    if cli_args.get_flag("disable-proposer-reorgs") {
-        client_config.chain.re_org_head_threshold = None;
-        client_config.chain.re_org_parent_threshold = None;
-    } else {
-        client_config.chain.re_org_head_threshold = Some(
-            clap_utils::parse_optional(cli_args, "proposer-reorg-threshold")?
-                .map(ReOrgThreshold)
-                .unwrap_or(DEFAULT_RE_ORG_HEAD_THRESHOLD),
-        );
-        client_config.chain.re_org_max_epochs_since_finalization =
-            clap_utils::parse_optional(cli_args, "proposer-reorg-epochs-since-finalization")?
-                .unwrap_or(DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION);
-        client_config.chain.re_org_cutoff_millis =
-            clap_utils::parse_optional(cli_args, "proposer-reorg-cutoff")?;
+    client_config.chain.disable_proposer_reorg = cli_args.get_flag("disable-proposer-reorgs");
 
-        client_config.chain.re_org_parent_threshold = Some(
-            clap_utils::parse_optional(cli_args, "proposer-reorg-parent-threshold")?
-                .map(ReOrgThreshold)
-                .unwrap_or(DEFAULT_RE_ORG_PARENT_THRESHOLD),
-        );
+    if clap_utils::parse_optional::<u64>(cli_args, "proposer-reorg-threshold")?.is_some() {
+        warn!("The proposer-reorg-threshold flag is deprecated");
+    }
 
-        if let Some(disallowed_offsets_str) =
-            clap_utils::parse_optional::<String>(cli_args, "proposer-reorg-disallowed-offsets")?
-        {
-            let disallowed_offsets = disallowed_offsets_str
-                .split(',')
-                .map(|s| {
-                    s.parse()
-                        .map_err(|e| format!("invalid disallowed-offsets: {e:?}"))
-                })
-                .collect::<Result<Vec<u64>, _>>()?;
-            client_config.chain.re_org_disallowed_offsets =
-                DisallowedReOrgOffsets::new::<E>(disallowed_offsets)
-                    .map_err(|e| format!("invalid disallowed-offsets: {e:?}"))?;
-        }
+    if clap_utils::parse_optional::<u64>(cli_args, "proposer-reorg-epochs-since-finalization")?
+        .is_some()
+    {
+        warn!("The proposer-reorg-epochs-since-finalization flag is deprecated");
+    }
+
+    if clap_utils::parse_optional::<u64>(cli_args, "proposer-reorg-cutoff")?.is_some() {
+        warn!("The proposer-reorg-cutoff flag is deprecated");
+    }
+
+    if clap_utils::parse_optional::<u64>(cli_args, "proposer-reorg-parent-threshold")?.is_some() {
+        warn!("The proposer-reorg-parent-threshold flag is deprecated");
+    }
+
+    if let Some(disallowed_offsets_str) =
+        clap_utils::parse_optional::<String>(cli_args, "proposer-reorg-disallowed-offsets")?
+    {
+        let disallowed_offsets = disallowed_offsets_str
+            .split(',')
+            .map(|s| {
+                s.parse()
+                    .map_err(|e| format!("invalid disallowed-offsets: {e:?}"))
+            })
+            .collect::<Result<Vec<u64>, _>>()?;
+        client_config.chain.re_org_disallowed_offsets =
+            DisallowedReOrgOffsets::new::<E>(disallowed_offsets)
+                .map_err(|e| format!("invalid disallowed-offsets: {e:?}"))?;
     }
 
     client_config.chain.prepare_payload_lookahead =
