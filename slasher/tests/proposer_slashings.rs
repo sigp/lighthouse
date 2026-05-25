@@ -1,8 +1,8 @@
 #![cfg(any(feature = "mdbx", feature = "lmdb", feature = "redb"))]
 
 use slasher::{
-    test_utils::{block as test_block, chain_spec, E},
     Config, Slasher,
+    test_utils::{E, block as test_block, chain_spec},
 };
 use tempfile::tempdir;
 use types::{Epoch, EthSpec};
@@ -56,10 +56,8 @@ fn block_pruning() {
         (config.history_length - 1) * slots_per_epoch as usize + 1
     );
     // Check epochs of all slashings are from within range.
-    assert!(proposer_slashings.iter().all(|slashing| slashing
-        .signed_header_1
-        .message
-        .slot
-        .epoch(slots_per_epoch)
-        > current_epoch - config.history_length as u64));
+    assert!(proposer_slashings.iter().all(|slashing| {
+        slashing.signed_header_1.message.slot.epoch(slots_per_epoch)
+            > current_epoch - config.history_length as u64
+    }));
 }

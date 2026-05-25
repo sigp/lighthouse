@@ -13,7 +13,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::info;
-use warp::{http::Response, Filter};
+use warp::{Filter, http::Response};
 
 #[derive(Debug)]
 pub enum Error {

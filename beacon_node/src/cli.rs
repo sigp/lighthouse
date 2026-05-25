@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use clap::{builder::ArgPredicate, crate_version, Arg, ArgAction, ArgGroup, Command};
-use clap_utils::{get_color_style, FLAG_HEADER};
+use clap::{Arg, ArgAction, ArgGroup, Command, builder::ArgPredicate, crate_version};
+use clap_utils::{FLAG_HEADER, get_color_style};
 use strum::VariantNames;
 
 #[allow(clippy::large_stack_frames)]
@@ -47,33 +47,47 @@ pub fn cli_app() -> Command {
          * Network parameters.
          */
         .arg(
-            Arg::new("subscribe-all-data-column-subnets")
-                .long("subscribe-all-data-column-subnets")
+            Arg::new("supernode")
+                .long("supernode")
+                .alias("subscribe-all-data-column-subnets")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
-                .help("Subscribe to all data column subnets and participate in data custody for \
-                        all columns. This will also advertise the beacon node as being long-lived \
-                        subscribed to all data column subnets. \
-                        NOTE: this is an experimental flag and may change any time without notice!")
+                .help("Run as a voluntary supernode. This node will subscribe to all data column \
+                          subnets, custody all data columns, and perform reconstruction and cross-seeding. \
+                          This requires significantly more bandwidth, storage, and computation requirements but \
+                          the node will have direct access to all blobs via the beacon API and it \
+                          helps network resilience by serving all data columns to syncing peers.")
                 .display_order(0)
-                .hide(true)
         )
         .arg(
-            // TODO(das): remove this before PeerDAS release
+            Arg::new("semi-supernode")
+                .long("semi-supernode")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .conflicts_with("supernode")
+                .help("Run in minimal reconstruction mode. This node will subscribe to and custody \
+                          half of the data columns (enough for reconstruction), enabling efficient \
+                          data availability with lower bandwidth and storage requirements compared to \
+                          a supernode, while still supporting full blob reconstruction.")
+                .display_order(0)
+        )
+        .arg(
             Arg::new("malicious-withhold-count")
                 .long("malicious-withhold-count")
                 .action(ArgAction::Set)
                 .help_heading(FLAG_HEADER)
-                .help("TESTING ONLY do not use this")
+                .help("TESTING ONLY: Withholds a subset of data columns during publishing. \
+                          Do not use in production. Requires the 'testing' feature to be enabled.")
                 .hide(true)
                 .display_order(0)
         )
         .arg(
-            Arg::new("enable-sampling")
-                .long("enable-sampling")
-                .action(ArgAction::SetTrue)
+            Arg::new("advertise-false-custody-group-count")
+                .long("advertise-false-custody-group-count")
+                .action(ArgAction::Set)
                 .help_heading(FLAG_HEADER)
-                .help("Enable peer sampling on data columns. Disabled by default.")
+                .help("TESTING ONLY: Advertises a false custody group count for testing PeerDAS. \
+                          Do not use in production. Requires the 'testing' feature to be enabled.")
                 .hide(true)
                 .display_order(0)
         )
@@ -235,7 +249,6 @@ pub fn cli_app() -> Command {
                 .long("network-load")
                 .value_name("INTEGER")
                 .help("Lighthouse's network can be tuned for bandwidth/performance. Setting this to a high value, will increase the bandwidth lighthouse uses, increasing the likelihood of redundant information in exchange for faster communication. This can increase profit of validators marginally by receiving messages faster on the network. Lower values decrease bandwidth usage, but makes communication slower which can lead to validator performance reduction. Values are in the range [1,5].")
-                .default_value("3")
                 .hide(true)
                 .action(ArgAction::Set)
                 .display_order(0)
@@ -351,7 +364,7 @@ pub fn cli_app() -> Command {
                 .long("libp2p-addresses")
                 .value_name("MULTIADDR")
                 .help("One or more comma-delimited multiaddrs to manually connect to a libp2p peer \
-                       without an ENR.")
+                       without an ENR. DEPRECATED. The --libp2p-addresses flag is deprecated and replaced by --boot-nodes")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -400,6 +413,16 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
+        )
+        .arg(
+            Arg::new("complete-blob-backfill")
+                .long("complete-blob-backfill")
+                .help("Download all blobs back to the Deneb fork epoch. This will likely result in \
+                       the node banning most of its peers.")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("enable-private-discovery")
@@ -647,6 +670,15 @@ pub fn cli_app() -> Command {
                 .hide(true)
                 .display_order(0)
         )
+        .arg(
+            Arg::new("enable-partial-columns")
+                .long("enable-partial-columns")
+                .help("Enable partial messages for data columns. This can reduce the amount of \
+                data sent over the network.")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
+        )
         /*
          * Monitoring metrics
          */
@@ -686,59 +718,6 @@ pub fn cli_app() -> Command {
                        on localhost:5052 and import deposit logs from the execution node.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
-                .display_order(0)
-        )
-
-        /*
-         * Eth1 Integration
-         */
-        .arg(
-            Arg::new("eth1")
-                .long("eth1")
-                .help("DEPRECATED")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .display_order(0)
-                .hide(true)
-        )
-        .arg(
-            Arg::new("dummy-eth1")
-                .long("dummy-eth1")
-                .help("DEPRECATED")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .conflicts_with("eth1")
-                .display_order(0)
-                .hide(true)
-        )
-        .arg(
-            Arg::new("eth1-purge-cache")
-                .long("eth1-purge-cache")
-                .value_name("PURGE-CACHE")
-                .help("Purges the eth1 block and deposit caches")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new("eth1-blocks-per-log-query")
-                .long("eth1-blocks-per-log-query")
-                .value_name("BLOCKS")
-                .help("Specifies the number of blocks that a deposit log query should span. \
-                    This will reduce the size of responses from the Eth1 endpoint.")
-                .default_value("1000")
-                .action(ArgAction::Set)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new("eth1-cache-follow-distance")
-                .long("eth1-cache-follow-distance")
-                .value_name("BLOCKS")
-                .help("Specifies the distance between the Eth1 chain head and the last block which \
-                       should be imported into the cache. Setting this value lower can help \
-                       compensate for irregular Proof-of-Work block times, but setting it too low \
-                       can make the node vulnerable to re-orgs.")
-                .action(ArgAction::Set)
                 .display_order(0)
         )
         .arg(
@@ -790,7 +769,7 @@ pub fn cli_app() -> Command {
                 .long("block-cache-size")
                 .value_name("SIZE")
                 .help("Specifies how many blocks the database should cache in memory")
-                .default_value("5")
+                .default_value("0")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -808,11 +787,23 @@ pub fn cli_app() -> Command {
             Arg::new("hdiff-buffer-cache-size")
                 .long("hdiff-buffer-cache-size")
                 .value_name("SIZE")
-                .help("Number of hierarchical diff (hdiff) buffers to cache in memory. Each buffer \
-                       is around the size of a BeaconState so you should be cautious about setting \
-                       this value too high. This flag is irrelevant for most nodes, which run with \
-                       state pruning enabled.")
+                .help("Number of cold hierarchical diff (hdiff) buffers to cache in memory. Each \
+                       buffer is around the size of a BeaconState so you should be cautious about \
+                       setting this value too high. This flag is irrelevant for most nodes, which \
+                       run with state pruning enabled.")
                 .default_value("16")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("hot-hdiff-buffer-cache-size")
+                .long("hot-hdiff-buffer-cache-size")
+                .value_name("SIZE")
+                .help("Number of hot hierarchical diff (hdiff) buffers to cache in memory. Each \
+                       buffer is around the size of a BeaconState so you should be cautious about \
+                       setting this value too high. Setting this value higher can reduce the time \
+                       taken to store new states on disk at the cost of higher memory usage.")
+                .default_value("1")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -821,7 +812,7 @@ pub fn cli_app() -> Command {
                 .long("state-cache-size")
                 .value_name("STATE_CACHE_SIZE")
                 .help("Specifies the size of the state cache")
-                .default_value("32")
+                .default_value("128")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -915,6 +906,14 @@ pub fn cli_app() -> Command {
                 .help("Unsigned integer to multiply the default execution timeouts by.")
                 .default_value("1")
                 .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("disable-get-blobs")
+                .long("disable-get-blobs")
+                .help("Disables the getBlobs optimisation to fetch blobs from the EL mempool")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .display_order(0)
         )
         .arg(
@@ -1256,9 +1255,12 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("reconstruct-historic-states")
-                .long("reconstruct-historic-states")
-                .help("After a checkpoint sync, reconstruct historic states in the database. This requires syncing all the way back to genesis.")
+            Arg::new("archive")
+                .long("archive")
+                .alias("reconstruct-historic-states")
+                .help("Store all beacon states in the database. When checkpoint syncing, \
+                    states are reconstructed after backfill completes. This requires \
+                    syncing all the way back to genesis.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
@@ -1415,6 +1417,16 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("ignore-ws-check")
+                .long("ignore-ws-check")
+                .help("Using this flag allows a node to run in a state that may expose it to long-range attacks. \
+                    For more information please read this blog post: https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity \
+                    If you understand the risks, you can use this flag to disable the Weak Subjectivity check at startup.")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("builder-fallback-skips")
                 .long("builder-fallback-skips")
                 .help("If this node is proposing a block and has seen this number of skip slots \
@@ -1489,17 +1501,6 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("disable-deposit-contract-sync")
-                .long("disable-deposit-contract-sync")
-                .help("Explicitly disables syncing of deposit logs from the execution node. \
-                      This overrides any previous option that depends on it. \
-                      Useful if you intend to run a non-validating beacon node.")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .conflicts_with("staking")
-                .display_order(0)
-        )
-        .arg(
             Arg::new("disable-optimistic-finalized-sync")
                 .long("disable-optimistic-finalized-sync")
                 .action(ArgAction::SetTrue)
@@ -1507,15 +1508,6 @@ pub fn cli_app() -> Command {
                 .help("Force Lighthouse to verify every execution block hash with the execution \
                        client during finalized sync. By default block hashes will be checked in \
                        Lighthouse and only passed to the EL if initial verification fails.")
-                .display_order(0)
-        )
-        .arg(
-            Arg::new("light-client-server")
-                .long("light-client-server")
-                .help("DEPRECATED")
-                .action(ArgAction::SetTrue)
-
-                .help_heading(FLAG_HEADER)
                 .display_order(0)
         )
         .arg(
@@ -1636,22 +1628,22 @@ pub fn cli_app() -> Command {
                 .value_name("SECONDS")
                 .action(ArgAction::Set)
                 .help_heading(FLAG_HEADER)
-                .help("TESTING ONLY: Artificially delay block publishing by the specified number of seconds. \
-                        This only works for if `BroadcastValidation::Gossip` is used (default). \
-                        DO NOT USE IN PRODUCTION.")
+                .help("TESTING ONLY: Artificially delays block publishing by the specified number of seconds. \
+                       This only works if BroadcastValidation::Gossip is used (default). \
+                       Do not use in production. Requires the 'testing' feature to be enabled.")
                 .hide(true)
                 .display_order(0)
         )
         .arg(
             Arg::new("delay-data-column-publishing")
                 .long("delay-data-column-publishing")
-                .value_name("SECONDS") 
+                .value_name("SECONDS")
                 .action(ArgAction::Set)
                 .help_heading(FLAG_HEADER)
-                .help("TESTING ONLY: Artificially delay data column publishing by the specified number of seconds. \
-                       Limitation: If `delay-block-publishing` is also used, data columns will be delayed for a \
-                       minimum of `delay-block-publishing` seconds.
-                       DO NOT USE IN PRODUCTION.")
+                .help("TESTING ONLY: Artificially delays data column publishing by the specified number of seconds. \
+                       Limitation: If delay-block-publishing is also used, data columns will be delayed for a \
+                       minimum of delay-block-publishing seconds. \
+                       Do not use in production. Requires the 'testing' feature to be enabled.")
                 .hide(true)
                 .display_order(0)
         )

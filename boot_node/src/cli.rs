@@ -1,7 +1,7 @@
 //! Simple logic for spawning a Lighthouse BootNode.
 
 use clap::{Arg, ArgAction, Command};
-use clap_utils::{get_color_style, FLAG_HEADER};
+use clap_utils::{FLAG_HEADER, get_color_style};
 
 // TODO: Add DOS prevention CLI params
 pub fn cli_app() -> Command {

@@ -6,7 +6,7 @@ use crate::{
 use flate2::bufread::{ZlibDecoder, ZlibEncoder};
 use serde::{Deserialize, Serialize};
 use std::borrow::Borrow;
-use std::collections::{btree_map::Entry, BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashSet, btree_map::Entry};
 use std::io::Read;
 use std::sync::Arc;
 use types::{AttesterSlashing, Epoch, EthSpec, IndexedAttestation};
@@ -147,7 +147,7 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
 
     fn next_start_epoch(start_epoch: Epoch, config: &Config) -> Epoch;
 
-    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database;
+    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database<'_>;
 
     fn load<E: EthSpec>(
         db: &SlasherDB<E>,
@@ -290,7 +290,7 @@ impl TargetArrayChunk for MinTargetChunk {
         start_epoch / chunk_size * chunk_size - 1
     }
 
-    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database {
+    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database<'_> {
         &db.databases.min_targets_db
     }
 }
@@ -389,7 +389,7 @@ impl TargetArrayChunk for MaxTargetChunk {
         (start_epoch / chunk_size + 1) * chunk_size
     }
 
-    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database {
+    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database<'_> {
         &db.databases.max_targets_db
     }
 }

@@ -1,0 +1,15 @@
+use serde::{Deserialize, Serialize};
+
+use crate::core::Address;
+
+/// A proposer preparation, created when a validator prepares the beacon node for potential proposers
+/// by supplying information required when proposing blocks for the given validators.
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub struct ProposerPreparationData {
+    /// The validators index.
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub validator_index: u64,
+    /// The fee-recipient address.
+    #[serde(with = "serde_utils::address_hex")]
+    pub fee_recipient: Address,
+}

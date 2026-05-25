@@ -294,7 +294,7 @@ impl BlockTimesCache {
 #[cfg(test)]
 mod test {
     use super::*;
-    use types::FixedBytesExtended;
+    use fixed_bytes::FixedBytesExtended;
 
     #[test]
     fn observed_time_uses_minimum() {

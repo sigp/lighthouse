@@ -1,8 +1,8 @@
 pub use crate::lighthouse::Health;
 pub use crate::lighthouse_vc::std_types::*;
 pub use crate::types::{GenericResponse, VersionData};
+use bls::{PublicKey, PublicKeyBytes};
 use eth2_keystore::Keystore;
-use graffiti::GraffitiString;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 pub use types::*;
@@ -196,4 +196,14 @@ pub struct SingleExportKeystoresResponse {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SetGraffitiRequest {
     pub graffiti: GraffitiString,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct UpdateCandidatesRequest {
+    pub beacon_nodes: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct UpdateCandidatesResponse {
+    pub new_beacon_nodes_list: Vec<String>,
 }

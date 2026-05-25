@@ -83,7 +83,7 @@ impl Environment {
         }
     }
 
-    pub fn create_databases(&self) -> Result<OpenDatabases, Error> {
+    pub fn create_databases(&self) -> Result<OpenDatabases<'_>, Error> {
         match self {
             #[cfg(feature = "mdbx")]
             Self::Mdbx(env) => env.create_databases(),
@@ -95,7 +95,7 @@ impl Environment {
         }
     }
 
-    pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
+    pub fn begin_rw_txn(&self) -> Result<RwTransaction<'_>, Error> {
         match self {
             #[cfg(feature = "mdbx")]
             Self::Mdbx(env) => env.begin_rw_txn().map(RwTransaction::Mdbx),
@@ -194,7 +194,7 @@ impl<'env> RwTransaction<'env> {
 
 impl Cursor<'_> {
     /// Return the first key in the current database while advancing the cursor's position.
-    pub fn first_key(&mut self) -> Result<Option<Key>, Error> {
+    pub fn first_key(&mut self) -> Result<Option<Key<'_>>, Error> {
         match self {
             #[cfg(feature = "mdbx")]
             Cursor::Mdbx(cursor) => cursor.first_key(),
@@ -207,7 +207,7 @@ impl Cursor<'_> {
     }
 
     /// Return the last key in the current database while advancing the cursor's position.
-    pub fn last_key(&mut self) -> Result<Option<Key>, Error> {
+    pub fn last_key(&mut self) -> Result<Option<Key<'_>>, Error> {
         match self {
             #[cfg(feature = "mdbx")]
             Cursor::Mdbx(cursor) => cursor.last_key(),
@@ -219,7 +219,7 @@ impl Cursor<'_> {
         }
     }
 
-    pub fn next_key(&mut self) -> Result<Option<Key>, Error> {
+    pub fn next_key(&mut self) -> Result<Option<Key<'_>>, Error> {
         match self {
             #[cfg(feature = "mdbx")]
             Cursor::Mdbx(cursor) => cursor.next_key(),

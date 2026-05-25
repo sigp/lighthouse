@@ -55,10 +55,9 @@ use std::time::Duration;
 
 use prometheus::core::{Atomic, GenericGauge, GenericGaugeVec};
 pub use prometheus::{
-    exponential_buckets, linear_buckets,
+    DEFAULT_BUCKETS, Encoder, Gauge, GaugeVec, Histogram, HistogramTimer, HistogramVec, IntCounter,
+    IntCounterVec, IntGauge, IntGaugeVec, Result, TextEncoder, exponential_buckets, linear_buckets,
     proto::{Metric, MetricFamily, MetricType},
-    Encoder, Gauge, GaugeVec, Histogram, HistogramTimer, HistogramVec, IntCounter, IntCounterVec,
-    IntGauge, IntGaugeVec, Result, TextEncoder, DEFAULT_BUCKETS,
 };
 
 /// Collect all the metrics for reporting.
@@ -423,10 +422,10 @@ pub trait TryExt {
 
 impl<T, E> TryExt for std::result::Result<T, E> {
     fn discard_timer_on_break(self, timer_opt: &mut Option<HistogramTimer>) -> Self {
-        if self.is_err() {
-            if let Some(timer) = timer_opt.take() {
-                timer.stop_and_discard();
-            }
+        if self.is_err()
+            && let Some(timer) = timer_opt.take()
+        {
+            timer.stop_and_discard();
         }
         self
     }
@@ -434,10 +433,10 @@ impl<T, E> TryExt for std::result::Result<T, E> {
 
 impl<T> TryExt for Option<T> {
     fn discard_timer_on_break(self, timer_opt: &mut Option<HistogramTimer>) -> Self {
-        if self.is_none() {
-            if let Some(timer) = timer_opt.take() {
-                timer.stop_and_discard();
-            }
+        if self.is_none()
+            && let Some(timer) = timer_opt.take()
+        {
+            timer.stop_and_discard();
         }
         self
     }

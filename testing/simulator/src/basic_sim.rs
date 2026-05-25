@@ -1,47 +1,51 @@
 use crate::local_network::LocalNetworkParams;
 use crate::local_network::TERMINAL_BLOCK;
-use crate::{checks, LocalNetwork};
+use crate::{LocalNetwork, checks};
 use clap::ArgMatches;
 
 use crate::retry::with_retry;
 use futures::prelude::*;
 use node_test_rig::{
+    ApiTopic, ValidatorFiles,
     environment::{EnvironmentBuilder, LoggerConfig},
-    testing_validator_config, ApiTopic, ValidatorFiles,
+    testing_validator_config,
 };
 use rayon::prelude::*;
 use std::cmp::max;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
 use environment::tracing_common;
 use tracing_subscriber::prelude::*;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 use logging::build_workspace_filter;
 use tokio::time::sleep;
+use tracing::Level;
 use types::{Epoch, EthSpec, MinimalEthSpec};
 
 const END_EPOCH: u64 = 16;
-const GENESIS_DELAY: u64 = 32;
+const GENESIS_DELAY: u64 = 38;
 const ALTAIR_FORK_EPOCH: u64 = 0;
 const BELLATRIX_FORK_EPOCH: u64 = 0;
 const CAPELLA_FORK_EPOCH: u64 = 0;
 const DENEB_FORK_EPOCH: u64 = 0;
 const ELECTRA_FORK_EPOCH: u64 = 2;
+// const FULU_FORK_EPOCH: u64 = 3;
+// const GLOAS_FORK_EPOCH: u64 = 4;
 
 const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
 #[allow(clippy::large_stack_frames)]
 pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
-    let node_count = matches
+    let (_name, subcommand_matches) = matches.subcommand().expect("subcommand");
+    let node_count = subcommand_matches
         .get_one::<String>("nodes")
         .expect("missing nodes default")
         .parse::<usize>()
         .expect("missing nodes default");
-    let proposer_nodes = matches
+    let proposer_nodes = subcommand_matches
         .get_one::<String>("proposer-nodes")
         .unwrap_or(&String::from("0"))
         .parse::<usize>()
@@ -49,23 +53,25 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     // extra beacon node added with delay
     let extra_nodes: usize = 1;
     println!("PROPOSER-NODES: {}", proposer_nodes);
-    let validators_per_node = matches
+    let validators_per_node = subcommand_matches
         .get_one::<String>("validators-per-node")
         .expect("missing validators-per-node default")
         .parse::<usize>()
         .expect("missing validators-per-node default");
-    let speed_up_factor = matches
+    let speed_up_factor = subcommand_matches
         .get_one::<String>("speed-up-factor")
         .expect("missing speed-up-factor default")
         .parse::<u64>()
         .expect("missing speed-up-factor default");
-    let log_level = matches
+    let log_level = subcommand_matches
         .get_one::<String>("debug-level")
         .expect("missing debug-level");
 
-    let continue_after_checks = matches.get_flag("continue-after-checks");
-    let log_dir = matches.get_one::<String>("log-dir").map(PathBuf::from);
-    let disable_stdout_logging = matches.get_flag("disable-stdout-logging");
+    let continue_after_checks = subcommand_matches.get_flag("continue-after-checks");
+    let log_dir = subcommand_matches
+        .get_one::<String>("log-dir")
+        .map(PathBuf::from);
+    let disable_stdout_logging = subcommand_matches.get_flag("disable-stdout-logging");
 
     println!("Basic Simulator:");
     println!(" nodes: {}", node_count);
@@ -98,7 +104,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         stdout_logging_layer,
         file_logging_layer,
         _sse_logging_layer_opt,
-        _libp2p_discv5_layer,
+        libp2p_discv5_layer,
     ) = tracing_common::construct_logger(
         LoggerConfig {
             path: log_dir,
@@ -138,6 +144,17 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
                 .boxed(),
         );
     }
+    if let Some(libp2p_discv5_layer) = libp2p_discv5_layer {
+        logging_layers.push(
+            libp2p_discv5_layer
+                .with_filter(
+                    EnvFilter::builder()
+                        .with_default_directive(Level::DEBUG.into())
+                        .from_env_lossy(),
+                )
+                .boxed(),
+        );
+    }
 
     if let Err(e) = tracing_subscriber::registry()
         .with(logging_layers)
@@ -157,8 +174,11 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     let latest_fork_version = spec.electra_fork_version;
     let latest_fork_start_epoch = ELECTRA_FORK_EPOCH;
 
-    spec.seconds_per_slot /= speed_up_factor;
-    spec.seconds_per_slot = max(1, spec.seconds_per_slot);
+    let mut slot_duration_ms = spec.get_slot_duration().as_millis() as u64;
+    slot_duration_ms /= speed_up_factor;
+    slot_duration_ms = max(1_000, slot_duration_ms);
+    spec = spec.set_slot_duration_ms::<MinimalEthSpec>(slot_duration_ms);
+
     spec.genesis_delay = genesis_delay;
     spec.min_genesis_time = 0;
     spec.min_genesis_active_validator_count = total_validator_count as u64;
@@ -170,7 +190,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     let spec = Arc::new(spec);
     env.eth2_config.spec = spec.clone();
 
-    let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+    let slot_duration = spec.get_slot_duration();
     let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
     let initial_validator_count = spec.min_genesis_active_validator_count as usize;
 
@@ -235,7 +255,6 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
                         network_1
                             .add_validator_client_with_fallbacks(
                                 validator_config,
-                                i,
                                 beacon_nodes,
                                 files,
                             )
@@ -344,7 +363,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
             network_1.add_beacon_node_with_delay(
                 beacon_config.clone(),
                 mock_execution_config.clone(),
-                END_EPOCH - 1,
+                END_EPOCH - 3,
                 slot_duration,
                 slots_per_epoch
             ),

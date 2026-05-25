@@ -9,4 +9,4 @@ bytes = { workspace = true }
 
 [dev-dependencies]
 hex = { workspace = true }
-yaml-rust2 = "0.8"
+yaml-rust2 = "0.11"

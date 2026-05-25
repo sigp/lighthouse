@@ -32,11 +32,7 @@ mod tests {
     use std::collections::VecDeque;
 
     async fn my_async_func(is_ok: bool) -> Result<(), ()> {
-        if is_ok {
-            Ok(())
-        } else {
-            Err(())
-        }
+        if is_ok { Ok(()) } else { Err(()) }
     }
 
     #[tokio::test]

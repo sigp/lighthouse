@@ -1,29 +1,29 @@
 pub mod cli;
 pub mod config;
-mod latency;
-mod notifier;
 
 use crate::cli::ValidatorClient;
+use crate::duties_service::SelectionProofConfig;
 pub use config::Config;
 use initialized_validators::InitializedValidators;
 use metrics::set_gauge;
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use sensitive_url::SensitiveUrl;
-use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
+use slashing_protection::{SLASHING_PROTECTION_FILENAME, SlashingDatabase};
+use tokio::sync::Mutex;
 
 use account_utils::validator_definitions::ValidatorDefinitions;
 use beacon_node_fallback::{
-    start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode,
+    BeaconNodeFallback, CandidateBeaconNode, beacon_head_monitor::HeadEvent,
+    start_fallback_updater_service,
 };
 use clap::ArgMatches;
 use doppelganger_service::DoppelgangerService;
 use environment::RuntimeContext;
-use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Timeouts};
+use eth2::{BeaconNodeHttpClient, Timeouts};
 use initialized_validators::Error::UnableToOpenVotingKeystore;
 use lighthouse_validator_store::LighthouseValidatorStore;
-use notifier::spawn_notifier;
 use parking_lot::RwLock;
-use reqwest::Certificate;
+use reqwest::{Certificate, ClientBuilder, StatusCode};
 use slot_clock::SlotClock;
 use slot_clock::SystemTimeSlotClock;
 use std::fs::File;
@@ -34,16 +34,20 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::{
     sync::mpsc,
-    time::{sleep, Duration},
+    time::{Duration, sleep},
 };
 use tracing::{debug, error, info, warn};
 use types::{EthSpec, Hash256};
 use validator_http_api::ApiSecret;
+use validator_services::notifier_service::spawn_notifier;
 use validator_services::{
     attestation_service::{AttestationService, AttestationServiceBuilder},
     block_service::{BlockService, BlockServiceBuilder},
     duties_service::{self, DutiesService, DutiesServiceBuilder},
+    latency_service,
+    payload_attestation_service::PayloadAttestationService,
     preparation_service::{PreparationService, PreparationServiceBuilder},
+    proposer_preferences_service::ProposerPreferencesService,
     sync_committee_service::SyncCommitteeService,
 };
 use validator_store::ValidatorStore as ValidatorStoreTrait;
@@ -54,23 +58,23 @@ const RETRY_DELAY: Duration = Duration::from_secs(2);
 /// The time between polls when waiting for genesis.
 const WAITING_FOR_GENESIS_POLL_TIME: Duration = Duration::from_secs(12);
 
-/// Specific timeout constants for HTTP requests involved in different validator duties.
-/// This can help ensure that proper endpoint fallback occurs.
-const HTTP_ATTESTATION_TIMEOUT_QUOTIENT: u32 = 4;
-const HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
-const HTTP_ATTESTATION_SUBSCRIPTIONS_TIMEOUT_QUOTIENT: u32 = 24;
-const HTTP_LIVENESS_TIMEOUT_QUOTIENT: u32 = 4;
-const HTTP_PROPOSAL_TIMEOUT_QUOTIENT: u32 = 2;
-const HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
-const HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT: u32 = 4;
-const HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
-const HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT: u32 = 4;
-const HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT: u32 = 4;
-const HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT: u32 = 4;
-const HTTP_GET_VALIDATOR_BLOCK_TIMEOUT_QUOTIENT: u32 = 4;
-const HTTP_DEFAULT_TIMEOUT_QUOTIENT: u32 = 4;
+/// Compute attestation selection proofs this many slots before they are required.
+///
+/// At start-up selection proofs will be computed with less lookahead out of necessity.
+const SELECTION_PROOF_SLOT_LOOKAHEAD: u64 = 8;
 
-const DOPPELGANGER_SERVICE_NAME: &str = "doppelganger";
+/// The attestation selection proof lookahead for those running with the --distributed flag.
+const SELECTION_PROOF_SLOT_LOOKAHEAD_DVT: u64 = 1;
+
+/// Fraction of a slot at which attestation selection proof signing should happen (2 means half way).
+const SELECTION_PROOF_SCHEDULE_DENOM: u32 = 2;
+
+/// Number of epochs in advance to compute sync selection proofs when not in `distributed` mode.
+pub const AGGREGATION_PRE_COMPUTE_EPOCHS: u64 = 2;
+/// Number of slots in advance to compute sync selection proofs when in `distributed` mode.
+pub const AGGREGATION_PRE_COMPUTE_SLOTS_DISTRIBUTED: u64 = 1;
+
+const MAX_HEAD_EVENT_QUEUE_LEN: usize = 1_024;
 
 type ValidatorStore<E> = LighthouseValidatorStore<SystemTimeSlotClock, E>;
 
@@ -81,13 +85,15 @@ pub struct ProductionValidatorClient<E: EthSpec> {
     block_service: BlockService<ValidatorStore<E>, SystemTimeSlotClock>,
     attestation_service: AttestationService<ValidatorStore<E>, SystemTimeSlotClock>,
     sync_committee_service: SyncCommitteeService<ValidatorStore<E>, SystemTimeSlotClock>,
+    payload_attestation_service: PayloadAttestationService<ValidatorStore<E>, SystemTimeSlotClock>,
+    proposer_preferences_service:
+        ProposerPreferencesService<ValidatorStore<E>, SystemTimeSlotClock>,
     doppelganger_service: Option<Arc<DoppelgangerService>>,
     preparation_service: PreparationService<ValidatorStore<E>, SystemTimeSlotClock>,
     validator_store: Arc<ValidatorStore<E>>,
     slot_clock: SystemTimeSlotClock,
     http_api_listen_addr: Option<SocketAddr>,
     config: Config,
-    beacon_nodes: Arc<BeaconNodeFallback<SystemTimeSlotClock>>,
     genesis_time: u64,
 }
 
@@ -186,6 +192,9 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             info!(new_validators, "Completed validator discovery");
         }
 
+        // Check for all validators' fee recipient
+        validator_defs.check_all_fee_recipients(config.validator_store.fee_recipient)?;
+
         let validators = InitializedValidators::from_definitions(
             validator_defs,
             config.validator_dir.clone(),
@@ -271,7 +280,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         let beacon_node_setup = |x: (usize, &SensitiveUrl)| {
             let i = x.0;
             let url = x.1;
-            let slot_duration = Duration::from_secs(context.eth2_config.spec.seconds_per_slot);
+            let slot_duration = context.eth2_config.spec.get_slot_duration();
 
             let mut beacon_node_http_client_builder = ClientBuilder::new();
 
@@ -292,24 +301,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             // Use quicker timeouts if a fallback beacon node exists.
             let timeouts = if i < last_beacon_node_index && !config.use_long_timeouts {
                 info!("Fallback endpoints are available, using optimized timeouts.");
-                Timeouts {
-                    attestation: slot_duration / HTTP_ATTESTATION_TIMEOUT_QUOTIENT,
-                    attester_duties: slot_duration / HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT,
-                    attestation_subscriptions: slot_duration
-                        / HTTP_ATTESTATION_SUBSCRIPTIONS_TIMEOUT_QUOTIENT,
-                    liveness: slot_duration / HTTP_LIVENESS_TIMEOUT_QUOTIENT,
-                    proposal: slot_duration / HTTP_PROPOSAL_TIMEOUT_QUOTIENT,
-                    proposer_duties: slot_duration / HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT,
-                    sync_committee_contribution: slot_duration
-                        / HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT,
-                    sync_duties: slot_duration / HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT,
-                    get_beacon_blocks_ssz: slot_duration
-                        / HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT,
-                    get_debug_beacon_states: slot_duration / HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT,
-                    get_deposit_snapshot: slot_duration / HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT,
-                    get_validator_block: slot_duration / HTTP_GET_VALIDATOR_BLOCK_TIMEOUT_QUOTIENT,
-                    default: slot_duration / HTTP_DEFAULT_TIMEOUT_QUOTIENT,
-                }
+                Timeouts::use_optimized_timeouts(slot_duration)
             } else {
                 Timeouts::set_all(slot_duration.saturating_mul(config.long_timeouts_multiplier))
             };
@@ -384,11 +376,22 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             context.eth2_config.spec.clone(),
         );
 
-        // Perform some potentially long-running initialization tasks.
-        let (genesis_time, genesis_validators_root) = tokio::select! {
-            tuple = init_from_beacon_node::<E>(&beacon_nodes, &proposer_nodes) => tuple?,
-            () = context.executor.exit() => return Err("Shutting down".to_string())
-        };
+        let (genesis_time, genesis_validators_root) =
+            if let Some(eth2_network_config) = context.eth2_network_config.as_ref() {
+                let time = eth2_network_config
+                    .genesis_time::<E>()?
+                    .ok_or("no genesis time")?;
+                let root = eth2_network_config
+                    .genesis_validators_root::<E>()?
+                    .ok_or("no genesis validators root")?;
+                (time, root)
+            } else {
+                // Perform some potentially long-running initialization tasks.
+                tokio::select! {
+                    tuple = init_from_beacon_node::<E>(&beacon_nodes, &proposer_nodes) => tuple?,
+                    () = context.executor.exit() => return Err("Shutting down".to_string()),
+                }
+            };
 
         // Update the metrics server.
         if let Some(ctx) = &validator_metrics_ctx {
@@ -398,11 +401,22 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         let slot_clock = SystemTimeSlotClock::new(
             context.eth2_config.spec.genesis_slot,
             Duration::from_secs(genesis_time),
-            Duration::from_secs(context.eth2_config.spec.seconds_per_slot),
+            context.eth2_config.spec.get_slot_duration(),
         );
 
         beacon_nodes.set_slot_clock(slot_clock.clone());
         proposer_nodes.set_slot_clock(slot_clock.clone());
+
+        // Only the beacon_nodes are used for attestation duties and thus biconditionally
+        // proposer_nodes do not need head_send ref.
+        let head_monitor_rx = if config.enable_beacon_head_monitor {
+            let (head_monitor_tx, head_receiver) =
+                mpsc::channel::<HeadEvent>(MAX_HEAD_EVENT_QUEUE_LEN);
+            beacon_nodes.set_head_send(Arc::new(head_monitor_tx));
+            Some(Mutex::new(head_receiver))
+        } else {
+            None
+        };
 
         let beacon_nodes = Arc::new(beacon_nodes);
         start_fallback_updater_service::<_, E>(context.executor.clone(), beacon_nodes.clone())?;
@@ -442,6 +456,41 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             validator_store.prune_slashing_protection_db(slot.epoch(E::slots_per_epoch()), true);
         }
 
+        // Define a config to be pass to duties_service.
+        // The defined config here defaults to using selections_endpoint and parallel_sign (i.e., distributed mode)
+        // Other DVT applications, e.g., Anchor can pass in different configs to suit different needs.
+        let attestation_selection_proof_config = if config.distributed {
+            SelectionProofConfig {
+                lookahead_slot: SELECTION_PROOF_SLOT_LOOKAHEAD_DVT,
+                computation_offset: slot_clock.slot_duration() / SELECTION_PROOF_SCHEDULE_DENOM,
+                selections_endpoint: true,
+                parallel_sign: true,
+            }
+        } else {
+            SelectionProofConfig {
+                lookahead_slot: SELECTION_PROOF_SLOT_LOOKAHEAD,
+                computation_offset: slot_clock.slot_duration() / SELECTION_PROOF_SCHEDULE_DENOM,
+                selections_endpoint: false,
+                parallel_sign: false,
+            }
+        };
+
+        let sync_selection_proof_config = if config.distributed {
+            SelectionProofConfig {
+                lookahead_slot: AGGREGATION_PRE_COMPUTE_SLOTS_DISTRIBUTED,
+                computation_offset: Duration::default(),
+                selections_endpoint: true,
+                parallel_sign: true,
+            }
+        } else {
+            SelectionProofConfig {
+                lookahead_slot: E::slots_per_epoch() * AGGREGATION_PRE_COMPUTE_EPOCHS,
+                computation_offset: Duration::default(),
+                selections_endpoint: false,
+                parallel_sign: false,
+            }
+        };
+
         let duties_service = Arc::new(
             DutiesServiceBuilder::new()
                 .slot_clock(slot_clock.clone())
@@ -450,7 +499,8 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                 .spec(context.eth2_config.spec.clone())
                 .executor(context.executor.clone())
                 .enable_high_validator_count_metrics(config.enable_high_validator_count_metrics)
-                .distributed(config.distributed)
+                .attestation_selection_proof_config(attestation_selection_proof_config)
+                .sync_selection_proof_config(sync_selection_proof_config)
                 .disable_attesting(config.disable_attesting)
                 .build()?,
         );
@@ -468,7 +518,8 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .executor(context.executor.clone())
             .chain_spec(context.eth2_config.spec.clone())
             .graffiti(config.graffiti)
-            .graffiti_file(config.graffiti_file.clone());
+            .graffiti_file(config.graffiti_file.clone())
+            .graffiti_policy(config.graffiti_policy);
 
         // If we have proposer nodes, add them to the block service builder.
         if proposer_nodes_num > 0 {
@@ -477,15 +528,17 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
         let block_service = block_service_builder.build()?;
 
-        let attestation_service = AttestationServiceBuilder::new()
+        let attestation_builder = AttestationServiceBuilder::new()
             .duties_service(duties_service.clone())
             .slot_clock(slot_clock.clone())
             .validator_store(validator_store.clone())
             .beacon_nodes(beacon_nodes.clone())
             .executor(context.executor.clone())
+            .head_monitor_rx(head_monitor_rx)
             .chain_spec(context.eth2_config.spec.clone())
-            .disable(config.disable_attesting)
-            .build()?;
+            .disable(config.disable_attesting);
+
+        let attestation_service = attestation_builder.build()?;
 
         let preparation_service = PreparationServiceBuilder::new()
             .slot_clock(slot_clock.clone())
@@ -504,12 +557,32 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             context.executor.clone(),
         );
 
+        let payload_attestation_service = PayloadAttestationService::new(
+            duties_service.clone(),
+            validator_store.clone(),
+            slot_clock.clone(),
+            beacon_nodes.clone(),
+            context.executor.clone(),
+            context.eth2_config.spec.clone(),
+        );
+
+        let proposer_preferences_service = ProposerPreferencesService::new(
+            duties_service.clone(),
+            validator_store.clone(),
+            slot_clock.clone(),
+            beacon_nodes.clone(),
+            context.executor.clone(),
+            context.eth2_config.spec.clone(),
+        );
+
         Ok(Self {
             context,
             duties_service,
             block_service,
             attestation_service,
             sync_committee_service,
+            payload_attestation_service,
+            proposer_preferences_service,
             doppelganger_service,
             preparation_service,
             validator_store,
@@ -517,7 +590,6 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             slot_clock,
             http_api_listen_addr: None,
             genesis_time,
-            beacon_nodes,
         })
     }
 
@@ -563,7 +635,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         };
 
         // Wait until genesis has occurred.
-        wait_for_genesis(&self.beacon_nodes, self.genesis_time).await?;
+        wait_for_genesis(self.genesis_time).await?;
 
         duties_service::start_update_service(self.duties_service.clone(), block_service_tx);
 
@@ -582,6 +654,18 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start sync committee service: {}", e))?;
 
+        if self.context.eth2_config.spec.is_gloas_scheduled() {
+            self.payload_attestation_service
+                .clone()
+                .start_update_service()
+                .map_err(|e| format!("Unable to start payload attestation service: {}", e))?;
+
+            self.proposer_preferences_service
+                .clone()
+                .start_update_service()
+                .map_err(|e| format!("Unable to start proposer preferences service: {}", e))?;
+        }
+
         self.preparation_service
             .clone()
             .start_update_service(&self.context.eth2_config.spec)
@@ -590,8 +674,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         if let Some(doppelganger_service) = self.doppelganger_service.clone() {
             DoppelgangerService::start_update_service(
                 doppelganger_service,
-                self.context
-                    .service_context(DOPPELGANGER_SERVICE_NAME.into()),
+                self.context.clone(),
                 self.validator_store.clone(),
                 self.duties_service.beacon_nodes.clone(),
                 self.duties_service.slot_clock.clone(),
@@ -601,11 +684,17 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             info!("Doppelganger protection disabled.")
         }
 
-        spawn_notifier(self).map_err(|e| format!("Failed to start notifier: {}", e))?;
+        let context = self.context.clone();
+        spawn_notifier(
+            self.duties_service.clone(),
+            context.executor,
+            &self.context.eth2_config.spec,
+        )
+        .map_err(|e| format!("Failed to start notifier: {}", e))?;
 
         if self.config.enable_latency_measurement_service {
-            latency::start_latency_service(
-                self.context.clone(),
+            latency_service::start_latency_service(
+                self.context.executor.clone(),
                 self.duties_service.slot_clock.clone(),
                 self.duties_service.beacon_nodes.clone(),
             );
@@ -698,10 +787,7 @@ async fn init_from_beacon_node<E: EthSpec>(
     Ok((genesis.genesis_time, genesis.genesis_validators_root))
 }
 
-async fn wait_for_genesis(
-    beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock>,
-    genesis_time: u64,
-) -> Result<(), String> {
+async fn wait_for_genesis(genesis_time: u64) -> Result<(), String> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|e| format!("Unable to read system time: {:?}", e))?;
@@ -721,7 +807,7 @@ async fn wait_for_genesis(
         // Start polling the node for pre-genesis information, cancelling the polling as soon as the
         // timer runs out.
         tokio::select! {
-            result = poll_whilst_waiting_for_genesis(beacon_nodes, genesis_time) => result?,
+            result = poll_whilst_waiting_for_genesis(genesis_time) => result?,
             () = sleep(genesis_time - now) => ()
         };
 
@@ -741,46 +827,20 @@ async fn wait_for_genesis(
 
 /// Request the version from the node, looping back and trying again on failure. Exit once the node
 /// has been contacted.
-async fn poll_whilst_waiting_for_genesis(
-    beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock>,
-    genesis_time: Duration,
-) -> Result<(), String> {
+async fn poll_whilst_waiting_for_genesis(genesis_time: Duration) -> Result<(), String> {
     loop {
-        match beacon_nodes
-            .first_success(|beacon_node| async move { beacon_node.get_lighthouse_staking().await })
-            .await
-        {
-            Ok(is_staking) => {
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map_err(|e| format!("Unable to read system time: {:?}", e))?;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| format!("Unable to read system time: {:?}", e))?;
 
-                if !is_staking {
-                    error!(
-                        msg = "this will caused missed duties",
-                        info = "see the --staking CLI flag on the beacon node",
-                        "Staking is disabled for beacon node"
-                    );
-                }
-
-                if now < genesis_time {
-                    info!(
-                        bn_staking_enabled = is_staking,
-                        seconds_to_wait = (genesis_time - now).as_secs(),
-                        "Waiting for genesis"
-                    );
-                } else {
-                    break Ok(());
-                }
-            }
-            Err(e) => {
-                error!(
-                    error = %e,
-                    "Error polling beacon node"
-                );
-            }
+        if now < genesis_time {
+            info!(
+                seconds_to_wait = (genesis_time - now).as_secs(),
+                "Waiting for genesis"
+            );
+        } else {
+            break Ok(());
         }
-
         sleep(WAITING_FOR_GENESIS_POLL_TIME).await;
     }
 }

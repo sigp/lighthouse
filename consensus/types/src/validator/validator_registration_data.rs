@@ -1,0 +1,40 @@
+use bls::{PublicKeyBytes, Signature};
+use serde::{Deserialize, Serialize};
+use ssz_derive::{Decode, Encode};
+use tree_hash_derive::TreeHash;
+
+use crate::core::{Address, ChainSpec, SignedRoot};
+
+/// Validator registration, for use in interacting with servers implementing the builder API.
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode)]
+pub struct SignedValidatorRegistrationData {
+    pub message: ValidatorRegistrationData,
+    pub signature: Signature,
+}
+
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode, TreeHash)]
+pub struct ValidatorRegistrationData {
+    #[serde(with = "serde_utils::address_hex")]
+    pub fee_recipient: Address,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub gas_limit: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub timestamp: u64,
+    pub pubkey: PublicKeyBytes,
+}
+
+impl SignedRoot for ValidatorRegistrationData {}
+
+impl SignedValidatorRegistrationData {
+    pub fn verify_signature(&self, spec: &ChainSpec) -> bool {
+        self.message
+            .pubkey
+            .decompress()
+            .map(|pubkey| {
+                let domain = spec.get_builder_application_domain();
+                let message = self.message.signing_root(domain);
+                self.signature.verify(&pubkey, message)
+            })
+            .unwrap_or(false)
+    }
+}

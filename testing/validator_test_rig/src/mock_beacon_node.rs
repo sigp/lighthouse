@@ -1,7 +1,8 @@
 use eth2::types::{GenericResponse, SyncingData};
-use eth2::{BeaconNodeHttpClient, StatusCode, Timeouts};
+use eth2::{BeaconNodeHttpClient, Timeouts};
 use mockito::{Matcher, Mock, Server, ServerGuard};
 use regex::Regex;
+use reqwest::StatusCode;
 use sensitive_url::SensitiveUrl;
 use std::marker::PhantomData;
 use std::str::FromStr;
@@ -41,7 +42,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
 
     pub fn mock_config_spec(&mut self, spec: &ChainSpec) {
         let path_pattern = Regex::new(r"^/eth/v1/config/spec$").unwrap();
-        let config_and_preset = ConfigAndPreset::from_chain_spec::<E>(spec, None);
+        let config_and_preset = ConfigAndPreset::from_chain_spec::<E>(spec);
         let data = GenericResponse::from(config_and_preset);
         self.server
             .mock("GET", Matcher::Regex(path_pattern.to_string()))

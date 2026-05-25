@@ -3,9 +3,8 @@
 
 use bls::Keypair;
 use eth2_keystore::{
-    default_kdf,
+    DKLEN, Error, Keystore, KeystoreBuilder, default_kdf,
     json_keystore::{Kdf, Pbkdf2, Prf, Scrypt},
-    Error, Keystore, KeystoreBuilder, DKLEN,
 };
 use std::fs::File;
 use tempfile::tempdir;

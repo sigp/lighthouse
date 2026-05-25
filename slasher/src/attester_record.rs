@@ -1,13 +1,15 @@
-use crate::{database::IndexedAttestationId, Error};
+use crate::{Error, database::IndexedAttestationId};
+use bls::AggregateSignature;
 use ssz_derive::{Decode, Encode};
+use ssz_types::VariableList;
 use std::borrow::Cow;
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
     Arc,
+    atomic::{AtomicU64, Ordering},
 };
 use tree_hash::TreeHash as _;
 use tree_hash_derive::TreeHash;
-use types::{AggregateSignature, EthSpec, Hash256, IndexedAttestation, VariableList};
+use types::{EthSpec, Hash256, IndexedAttestation};
 
 #[derive(Debug, Clone, Copy)]
 pub struct AttesterRecord {

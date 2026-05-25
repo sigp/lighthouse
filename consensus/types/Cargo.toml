@@ -4,24 +4,35 @@ version = "0.2.1"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com>"]
 edition = { workspace = true }
 
-[[bench]]
-name = "benches"
-harness = false
+[features]
+default = []
+# Enable +, -, *, /, % operators for Slot and Epoch types.
+# Operations saturate instead of wrapping.
+saturating-arith = []
+sqlite = ["dep:rusqlite"]
+arbitrary = [
+    "dep:arbitrary",
+    "bls/arbitrary",
+    "kzg/arbitrary",
+    "ethereum_ssz/arbitrary",
+    "milhouse/arbitrary",
+    "ssz_types/arbitrary",
+    "swap_or_not_shuffle/arbitrary",
+]
+portable = ["bls/supranational-portable"]
 
 [dependencies]
 alloy-primitives = { workspace = true }
-alloy-rlp = { version = "0.3.4", features = ["derive"] }
-# The arbitrary dependency is enabled by default since Capella to avoid complexity introduced by
-# `AbstractExecPayload`
-arbitrary = { workspace = true, features = ["derive"] }
-bls = { workspace = true, features = ["arbitrary"] }
+alloy-rlp = { workspace = true, features = ["derive"] }
+arbitrary = { workspace = true, features = ["derive"], optional = true }
+bls = { workspace = true }
 compare_fields = { workspace = true }
-compare_fields_derive = { workspace = true }
-derivative = { workspace = true }
+context_deserialize = { workspace = true }
+educe = { workspace = true }
 eth2_interop_keypairs = { path = "../../common/eth2_interop_keypairs" }
 ethereum_hashing = { workspace = true }
 ethereum_serde_utils = { workspace = true }
-ethereum_ssz = { workspace = true, features = ["arbitrary"] }
+ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 fixed_bytes = { workspace = true }
 hex = { workspace = true }
@@ -33,8 +44,9 @@ merkle_proof = { workspace = true }
 metastruct = "0.1.0"
 milhouse = { workspace = true }
 parking_lot = { workspace = true }
+paste = { workspace = true }
 rand = { workspace = true }
-rand_xorshift = "0.3.0"
+rand_xorshift = { workspace = true }
 rayon = { workspace = true }
 regex = { workspace = true }
 rpds = { workspace = true }
@@ -42,30 +54,27 @@ rusqlite = { workspace = true, optional = true }
 safe_arith = { workspace = true }
 serde = { workspace = true, features = ["rc"] }
 serde_json = { workspace = true }
-serde_yaml = { workspace = true }
 smallvec = { workspace = true }
-ssz_types = { workspace = true, features = ["arbitrary"] }
+ssz_types = { workspace = true }
 superstruct = { workspace = true }
-swap_or_not_shuffle = { workspace = true, features = ["arbitrary"] }
+swap_or_not_shuffle = { workspace = true }
 tempfile = { workspace = true }
-test_random_derive = { path = "../../common/test_random_derive" }
 tracing = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
+typenum = { workspace = true }
+yaml_serde = { workspace = true }
 
 [dev-dependencies]
 beacon_chain = { workspace = true }
 criterion = { workspace = true }
-paste = { workspace = true }
 state_processing = { workspace = true }
 tokio = { workspace = true }
+types = { path = ".", features = ["arbitrary"] }
 
-[features]
-default = ["sqlite", "legacy-arith"]
-# Allow saturating arithmetic on slots and epochs. Enabled by default, but deprecated.
-legacy-arith = []
-sqlite = ["dep:rusqlite"]
-# The `arbitrary-fuzz` feature is a no-op provided for backwards compatibility.
-# For simplicity `Arbitrary` is now derived regardless of the feature's presence.
-arbitrary-fuzz = []
-portable = ["bls/supranational-portable"]
+[lints.clippy]
+module_inception = "allow"
+
+[[bench]]
+name = "benches"
+harness = false

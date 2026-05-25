@@ -1,8 +1,8 @@
 use beacon_chain::test_utils::EphemeralHarnessType;
 use http_metrics::Config;
 use logging::create_test_tracing_subscriber;
-use reqwest::header::HeaderValue;
 use reqwest::StatusCode;
+use reqwest::header::HeaderValue;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use tokio::sync::oneshot;

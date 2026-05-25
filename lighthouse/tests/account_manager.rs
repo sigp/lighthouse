@@ -1,31 +1,32 @@
 use account_manager::{
+    CMD as ACCOUNT_CMD, WALLETS_DIR_FLAG,
     validator::{
+        CMD as VALIDATOR_CMD,
         create::*,
         import::{self, CMD as IMPORT_CMD},
         modify::{ALL, CMD as MODIFY_CMD, DISABLE, ENABLE, PUBKEY_FLAG},
-        CMD as VALIDATOR_CMD,
     },
     wallet::{
+        CMD as WALLET_CMD,
         create::{CMD as CREATE_CMD, *},
         list::CMD as LIST_CMD,
-        CMD as WALLET_CMD,
     },
-    CMD as ACCOUNT_CMD, WALLETS_DIR_FLAG, *,
+    *,
 };
 use account_utils::{
+    STDIN_INPUTS_FLAG,
     eth2_keystore::KeystoreBuilder,
     validator_definitions::{SigningDefinition, ValidatorDefinition, ValidatorDefinitions},
-    STDIN_INPUTS_FLAG,
 };
-use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
+use bls::{Keypair, PublicKey};
+use slashing_protection::{SLASHING_PROTECTION_FILENAME, SlashingDatabase};
 use std::env;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::str::from_utf8;
-use tempfile::{tempdir, TempDir};
-use types::{Keypair, PublicKey};
+use tempfile::{TempDir, tempdir};
 use validator_dir::ValidatorDir;
 use zeroize::Zeroizing;
 
@@ -247,9 +248,9 @@ impl TestValidator {
         store_withdrawal_key: bool,
     ) -> Result<Vec<String>, String> {
         let mut cmd = validator_cmd();
-        cmd.arg(format!("--{}", VALIDATOR_DIR_FLAG))
+        cmd.arg(CREATE_CMD)
+            .arg(format!("--{}", VALIDATOR_DIR_FLAG))
             .arg(self.validator_dir.clone().into_os_string())
-            .arg(CREATE_CMD)
             .arg(format!("--{}", WALLETS_DIR_FLAG))
             .arg(self.wallet.base_dir().into_os_string())
             .arg(format!("--{}", WALLET_NAME_FLAG))
@@ -426,9 +427,9 @@ fn validator_import_launchpad() {
     File::create(src_dir.path().join(NOT_KEYSTORE_NAME)).unwrap();
 
     let mut child = validator_cmd()
+        .arg(IMPORT_CMD)
         .arg(format!("--{}", VALIDATOR_DIR_FLAG))
         .arg(dst_dir.path().as_os_str())
-        .arg(IMPORT_CMD)
         .arg(format!("--{}", STDIN_INPUTS_FLAG)) // Using tty does not work well with tests.
         .arg(format!("--{}", import::DIR_FLAG))
         .arg(src_dir.path().as_os_str())
@@ -478,10 +479,10 @@ fn validator_import_launchpad() {
     // Disable all the validators in validator_definition.
     output_result(
         validator_cmd()
-            .arg(format!("--{}", VALIDATOR_DIR_FLAG))
-            .arg(dst_dir.path().as_os_str())
             .arg(MODIFY_CMD)
             .arg(DISABLE)
+            .arg(format!("--{}", VALIDATOR_DIR_FLAG))
+            .arg(dst_dir.path().as_os_str())
             .arg(format!("--{}", ALL)),
     )
     .unwrap();
@@ -513,10 +514,10 @@ fn validator_import_launchpad() {
     // Enable keystore validator again
     output_result(
         validator_cmd()
-            .arg(format!("--{}", VALIDATOR_DIR_FLAG))
-            .arg(dst_dir.path().as_os_str())
             .arg(MODIFY_CMD)
             .arg(ENABLE)
+            .arg(format!("--{}", VALIDATOR_DIR_FLAG))
+            .arg(dst_dir.path().as_os_str())
             .arg(format!("--{}", PUBKEY_FLAG))
             .arg(format!("{}", keystore.public_key().unwrap())),
     )
@@ -559,9 +560,9 @@ fn validator_import_launchpad_no_password_then_add_password() {
 
     let validator_import_key_cmd = || {
         validator_cmd()
+            .arg(IMPORT_CMD)
             .arg(format!("--{}", VALIDATOR_DIR_FLAG))
             .arg(dst_dir.path().as_os_str())
-            .arg(IMPORT_CMD)
             .arg(format!("--{}", STDIN_INPUTS_FLAG)) // Using tty does not work well with tests.
             .arg(format!("--{}", import::DIR_FLAG))
             .arg(src_dir.path().as_os_str())
@@ -699,9 +700,9 @@ fn validator_import_launchpad_password_file() {
         .unwrap();
 
     let mut child = validator_cmd()
+        .arg(IMPORT_CMD)
         .arg(format!("--{}", VALIDATOR_DIR_FLAG))
         .arg(dst_dir.path().as_os_str())
-        .arg(IMPORT_CMD)
         .arg(format!("--{}", import::DIR_FLAG))
         .arg(src_dir.path().as_os_str())
         .arg(format!("--{}", import::REUSE_PASSWORD_FLAG))

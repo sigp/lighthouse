@@ -10,7 +10,7 @@ use lighthouse_network::{Enr, Multiaddr, NetworkGlobals};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-pub use beacon_chain::{BeaconChainTypes, Eth1ChainBackend};
+pub use beacon_chain::BeaconChainTypes;
 pub use builder::ClientBuilder;
 pub use config::{ClientGenesis, Config as ClientConfig};
 pub use eth2_config::Eth2Config;

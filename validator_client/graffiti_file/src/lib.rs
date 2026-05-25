@@ -2,11 +2,11 @@ use bls::PublicKeyBytes;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{prelude::*, BufReader};
+use std::io::{BufReader, prelude::*};
 use std::path::PathBuf;
 use std::str::FromStr;
 use tracing::warn;
-use types::{graffiti::GraffitiString, Graffiti};
+use types::{Graffiti, graffiti::GraffitiString};
 
 #[derive(Debug)]
 #[allow(clippy::enum_variant_names)]
@@ -154,7 +154,7 @@ mod tests {
         let pk5 = PublicKeyBytes::deserialize(&hex::decode(&PK5[2..]).unwrap()).unwrap();
         let pk6 = PublicKeyBytes::deserialize(&hex::decode(&PK6[2..]).unwrap()).unwrap();
 
-        let file_name = temp.into_path().join("graffiti.txt");
+        let file_name = temp.keep().join("graffiti.txt");
 
         let file = File::create(&file_name).unwrap();
         let mut graffiti_file = LineWriter::new(file);

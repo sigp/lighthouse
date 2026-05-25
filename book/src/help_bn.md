@@ -22,7 +22,7 @@ Options:
           Data directory for the blobs database.
       --block-cache-size <SIZE>
           Specifies how many blocks the database should cache in memory
-          [default: 5]
+          [default: 0]
       --boot-nodes <ENR/MULTIADDR LIST>
           One or more comma-delimited base64-encoded ENR's to bootstrap the p2p
           network. Multiaddr is also supported.
@@ -122,15 +122,6 @@ Options:
           The number of epochs to wait between running the migration of data
           from the hot DB to the cold DB. Less frequent runs can be useful for
           minimizing disk writes [default: 1]
-      --eth1-blocks-per-log-query <BLOCKS>
-          Specifies the number of blocks that a deposit log query should span.
-          This will reduce the size of responses from the Eth1 endpoint.
-          [default: 1000]
-      --eth1-cache-follow-distance <BLOCKS>
-          Specifies the distance between the Eth1 chain head and the last block
-          which should be imported into the cache. Setting this value lower can
-          help compensate for irregular Proof-of-Work block times, but setting
-          it too low can make the node vulnerable to re-orgs.
       --execution-endpoint <EXECUTION-ENDPOINT>
           Server endpoint for an execution layer JWT-authenticated HTTP JSON-RPC
           connection. Uses the same endpoint to populate the deposit cache.
@@ -171,10 +162,10 @@ Options:
           Specify your custom graffiti to be included in blocks. Defaults to the
           current version and commit, truncated to fit in 32 bytes.
       --hdiff-buffer-cache-size <SIZE>
-          Number of hierarchical diff (hdiff) buffers to cache in memory. Each
-          buffer is around the size of a BeaconState so you should be cautious
-          about setting this value too high. This flag is irrelevant for most
-          nodes, which run with state pruning enabled. [default: 16]
+          Number of cold hierarchical diff (hdiff) buffers to cache in memory.
+          Each buffer is around the size of a BeaconState so you should be
+          cautious about setting this value too high. This flag is irrelevant
+          for most nodes, which run with state pruning enabled. [default: 16]
       --hierarchy-exponents <EXPONENTS>
           Specifies the frequency for storing full state snapshots and
           hierarchical diffs in the freezer DB. Accepts a comma-separated list
@@ -187,6 +178,12 @@ Options:
       --historic-state-cache-size <SIZE>
           Specifies how many states from the freezer database should be cached
           in memory [default: 1]
+      --hot-hdiff-buffer-cache-size <SIZE>
+          Number of hot hierarchical diff (hdiff) buffers to cache in memory.
+          Each buffer is around the size of a BeaconState so you should be
+          cautious about setting this value too high. Setting this value higher
+          can reduce the time taken to store new states on disk at the cost of
+          higher memory usage. [default: 1]
       --http-address <ADDRESS>
           Set the listen address for the RESTful HTTP API server.
       --http-allow-origin <ORIGIN>
@@ -228,7 +225,8 @@ Options:
           be careful to avoid filling up their disks.
       --libp2p-addresses <MULTIADDR>
           One or more comma-delimited multiaddrs to manually connect to a libp2p
-          peer without an ENR.
+          peer without an ENR. DEPRECATED. The --libp2p-addresses flag is
+          deprecated and replaced by --boot-nodes
       --listen-address [<ADDRESS>...]
           The address lighthouse will listen for UDP and TCP connections. To
           listen over IPv4 and IPv6 set this flag twice with the different
@@ -384,7 +382,7 @@ Options:
           Minimum number of states to cull from the state cache when it gets
           full [default: 1]
       --state-cache-size <STATE_CACHE_SIZE>
-          Specifies the size of the state cache [default: 32]
+          Specifies the size of the state cache [default: 128]
       --suggested-fee-recipient <SUGGESTED-FEE-RECIPIENT>
           Emergency fallback fee recipient for use in case the validator client
           does not have one configured. You should set this flag on the
@@ -395,6 +393,13 @@ Options:
           database.
       --target-peers <target-peers>
           The target number of peers.
+      --telemetry-collector-url <URL>
+          URL of the OpenTelemetry collector to export tracing spans (e.g.,
+          http://localhost:4317). If not set, tracing export is disabled.
+      --telemetry-service-name <NAME>
+          Override the OpenTelemetry service name. Defaults to 'lighthouse-bn'
+          for beacon node, 'lighthouse-vc' for validator client, or 'lighthouse'
+          for other subcommands.
       --trusted-peers <TRUSTED_PEERS>
           One or more comma-delimited trusted peer ids which always have the
           highest score according to the peer scoring system.
@@ -434,6 +439,10 @@ Flags:
           intended for use by block builders, relays and developers. You should
           set a fee recipient on this BN and also consider adjusting the
           --prepare-payload-lookahead flag.
+      --archive
+          Store all beacon states in the database. When checkpoint syncing,
+          states are reconstructed after backfill completes. This requires
+          syncing all the way back to genesis.
       --builder-fallback-disable-checks
           This flag disables all checks related to chain health. This means the
           builder API will always be used for payload construction, regardless
@@ -448,15 +457,13 @@ Flags:
           resource contention which degrades staking performance. Stakers should
           generally choose to avoid this flag since backfill sync is not
           required for staking.
-      --disable-deposit-contract-sync
-          Explicitly disables syncing of deposit logs from the execution node.
-          This overrides any previous option that depends on it. Useful if you
-          intend to run a non-validating beacon node.
       --disable-enr-auto-update
           Discovery automatically updates the nodes local ENR with an external
           IP address and port as seen by other peers on the network. This
           disables this feature, fixing the ENR's IP/PORT to those specified on
           boot.
+      --disable-get-blobs
+          Disables the getBlobs optimisation to fetch blobs from the EL mempool
       --disable-inbound-rate-limiter
           Disables the inbound rate limiter (requests received by this node).
       --disable-light-client-server
@@ -490,11 +497,12 @@ Flags:
           Sets the local ENR IP address and port to match those set for
           lighthouse. Specifically, the IP address will be the value of
           --listen-address and the UDP port will be --discovery-port.
+      --enable-partial-columns
+          Enable partial messages for data columns. This can reduce the amount
+          of data sent over the network.
       --enable-private-discovery
           Lighthouse by default does not discover private IP addresses. Set this
           flag to enable connection attempts to local addresses.
-      --eth1-purge-cache
-          Purges the eth1 block and deposit caches
       --genesis-backfill
           Attempts to download blocks all the way back to genesis when
           checkpoint syncing.
@@ -508,13 +516,17 @@ Flags:
       --http-enable-tls
           Serves the RESTful HTTP API server over TLS. This feature is currently
           experimental.
+      --ignore-ws-check
+          Using this flag allows a node to run in a state that may expose it to
+          long-range attacks. For more information please read this blog post:
+          https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity
+          If you understand the risks, you can use this flag to disable the Weak
+          Subjectivity check at startup.
       --import-all-attestations
           Import and aggregate all attestations, regardless of validator
           subscriptions. This will only import attestations from
           already-subscribed subnets, use with --subscribe-all-subnets to ensure
           all attestations are received for import.
-      --light-client-server
-          DEPRECATED
       --log-color [<log-color>]
           Enables/Disables colors for logs in terminal. Set it to false to
           disable colors. [default: true] [possible values: true, false]
@@ -547,13 +559,16 @@ Flags:
       --purge-db-force
           If present, the chain database will be deleted without confirmation.
           Use with caution.
-      --reconstruct-historic-states
-          After a checkpoint sync, reconstruct historic states in the database.
-          This requires syncing all the way back to genesis.
       --reset-payload-statuses
           When present, Lighthouse will forget the payload statuses of any
           already-imported blocks. This can assist in the recovery from a
           consensus failure caused by the execution layer.
+      --semi-supernode
+          Run in minimal reconstruction mode. This node will subscribe to and
+          custody half of the data columns (enough for reconstruction), enabling
+          efficient data availability with lower bandwidth and storage
+          requirements compared to a supernode, while still supporting full blob
+          reconstruction.
       --shutdown-after-sync
           Shutdown beacon node as soon as sync is completed. Backfill sync will
           not be performed before shutdown.
@@ -571,6 +586,13 @@ Flags:
           Subscribe to all subnets regardless of validator count. This will also
           advertise the beacon node as being long-lived subscribed to all
           subnets.
+      --supernode
+          Run as a voluntary supernode. This node will subscribe to all data
+          column subnets, custody all data columns, and perform reconstruction
+          and cross-seeding. This requires significantly more bandwidth,
+          storage, and computation requirements but the node will have direct
+          access to all blobs via the beacon API and it helps network resilience
+          by serving all data columns to syncing peers.
       --validator-monitor-auto
           Enables the automatic detection and monitoring of validators connected
           to the HTTP API and using the subnet subscription endpoint. This

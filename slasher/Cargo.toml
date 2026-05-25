@@ -3,6 +3,7 @@ name = "slasher"
 version = "0.1.0"
 authors = ["Michael Sproul <michael@sigmaprime.io>"]
 edition = { workspace = true }
+autotests = false
 
 [features]
 default = ["lmdb"]
@@ -13,11 +14,13 @@ portable = ["types/portable"]
 
 [dependencies]
 bincode = { workspace = true }
+bls = { workspace = true }
 byteorder = { workspace = true }
-derivative = { workspace = true }
+educe = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 filesystem = { workspace = true }
+fixed_bytes = { workspace = true }
 flate2 = { version = "1.0.14", features = ["zlib"], default-features = false }
 lmdb-rkv = { git = "https://github.com/sigp/lmdb-rs", rev = "f33845c6469b94265319aac0ed5085597862c27e", optional = true }
 lmdb-rkv-sys = { git = "https://github.com/sigp/lmdb-rs", rev = "f33845c6469b94265319aac0ed5085597862c27e", optional = true }
@@ -37,9 +40,14 @@ strum = { workspace = true }
 tracing = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
+typenum = { workspace = true }
 types = { workspace = true }
 
 [dev-dependencies]
 maplit = { workspace = true }
 rayon = { workspace = true }
 tempfile = { workspace = true }
+
+[[test]]
+name = "slasher_tests"
+path = "tests/main.rs"

@@ -1,4 +1,4 @@
-use crate::per_epoch_processing::single_pass::{process_epoch_single_pass, SinglePassConfig};
+use crate::per_epoch_processing::single_pass::{SinglePassConfig, process_epoch_single_pass};
 use crate::{common::initiate_validator_exit, per_epoch_processing::Error};
 use safe_arith::SafeArith;
 use types::{BeaconState, ChainSpec, EthSpec, Validator};

@@ -1,5 +1,3 @@
-use metrics::{try_create_int_counter, IntCounter, Result as MetricsResult};
-use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 use tracing_subscriber::EnvFilter;
 
@@ -14,7 +12,7 @@ mod utils;
 
 pub use sse_logging_components::SSELoggingComponents;
 pub use tracing_libp2p_discv5_logging_layer::{
-    create_libp2p_discv5_tracing_layer, Libp2pDiscv5TracingLayer,
+    Libp2pDiscv5TracingLayer, create_libp2p_discv5_tracing_layer,
 };
 pub use tracing_logging_layer::LoggingLayer;
 pub use tracing_metrics_layer::MetricsLayer;
@@ -22,15 +20,6 @@ pub use utils::build_workspace_filter;
 
 /// The minimum interval between log messages indicating that a queue is full.
 const LOG_DEBOUNCE_INTERVAL: Duration = Duration::from_secs(30);
-
-pub static INFOS_TOTAL: LazyLock<MetricsResult<IntCounter>> =
-    LazyLock::new(|| try_create_int_counter("info_total", "Count of infos logged"));
-pub static WARNS_TOTAL: LazyLock<MetricsResult<IntCounter>> =
-    LazyLock::new(|| try_create_int_counter("warn_total", "Count of warns logged"));
-pub static ERRORS_TOTAL: LazyLock<MetricsResult<IntCounter>> =
-    LazyLock::new(|| try_create_int_counter("error_total", "Count of errors logged"));
-pub static CRITS_TOTAL: LazyLock<MetricsResult<IntCounter>> =
-    LazyLock::new(|| try_create_int_counter("crit_total", "Count of crits logged"));
 
 /// Provides de-bounce functionality for logging.
 #[derive(Default)]
@@ -53,16 +42,15 @@ impl TimeLatch {
 
 /// Return a tracing subscriber suitable for test usage.
 ///
-/// By default no logs will be printed, but they can be enabled via
-/// the `test_logger` feature.  This feature can be enabled for any
-/// dependent crate by passing `--features logging/test_logger`, e.g.
+/// By default no logs will be printed, logs will be printed by using --nocapture. Example:
 /// ```bash
-/// cargo test -p beacon_chain --features logging/test_logger
+/// cargo test --release  -p beacon_chain -- --nocapture
 /// ```
 pub fn create_test_tracing_subscriber() {
-    if cfg!(feature = "test_logger") {
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::try_new("debug").unwrap())
-            .try_init();
-    }
+    let _ = tracing_subscriber::fmt()
+        .with_test_writer()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug")),
+        )
+        .try_init();
 }

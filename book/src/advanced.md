@@ -19,4 +19,4 @@ tips about how things work under the hood.
 * [Release Candidates](./advanced_release_candidates.md): latest release of Lighthouse to get feedback from users.
 * [Maximal Extractable Value](./advanced_builders.md): use external builders for a potential higher rewards during block proposals
 * [Late Block Re-orgs](./advanced_re-orgs.md): read information about Lighthouse late block re-orgs.
-* [Blobs](./advanced_blobs.md): information about blobs in Deneb upgrade
+* [Blobs](./advanced_blobs.md): information about blobs

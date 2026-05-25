@@ -42,11 +42,12 @@ pub static BEACON_PROCESSOR_WORKERS_SPAWNED_TOTAL: LazyLock<Result<IntCounter>> 
             "The number of workers ever spawned by the gossip processing pool.",
         )
     });
-pub static BEACON_PROCESSOR_WORKERS_ACTIVE_TOTAL: LazyLock<Result<IntGauge>> =
+pub static BEACON_PROCESSOR_WORKERS_ACTIVE_GAUGE_BY_TYPE: LazyLock<Result<IntGaugeVec>> =
     LazyLock::new(|| {
-        try_create_int_gauge(
-            "beacon_processor_workers_active_total",
-            "Count of active workers in the gossip processing pool.",
+        try_create_int_gauge_vec(
+            "beacon_processor_workers_active_gauge_by_type",
+            "Int gauge of the number of active workers per work type",
+            &["type"],
         )
     });
 pub static BEACON_PROCESSOR_IDLE_EVENTS_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
@@ -87,9 +88,9 @@ pub static BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL: LazyLock<Result<IntGaugeVe
 pub static BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_ATTESTATIONS: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
         try_create_int_counter(
-        "beacon_processor_reprocessing_queue_expired_attestations",
-        "Number of queued attestations which have expired before a matching block has been found."
-    )
+            "beacon_processor_reprocessing_queue_expired_attestations",
+            "Number of queued attestations which have expired before a matching block has been found.",
+        )
     });
 pub static BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_ATTESTATIONS: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
@@ -98,15 +99,6 @@ pub static BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_ATTESTATIONS: LazyLock<Re
             "Number of queued attestations where as matching block has been imported.",
         )
     });
-// TODO: This should be labeled instead of N single metrics
-pub static BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_SAMPLING_REQUESTS: LazyLock<
-    Result<IntCounter>,
-> = LazyLock::new(|| {
-    try_create_int_counter(
-        "beacon_processor_reprocessing_queue_matched_sampling_requests",
-        "Number of queued sampling requests where a matching block has been imported.",
-    )
-});
 
 /*
  * Light client update reprocessing queue metrics.
@@ -116,7 +108,7 @@ pub static BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_OPTIMISTIC_UPDATES: LazyL
 > = LazyLock::new(|| {
     try_create_int_counter(
         "beacon_processor_reprocessing_queue_expired_optimistic_updates",
-        "Number of queued light client optimistic updates which have expired before a matching block has been found."
+        "Number of queued light client optimistic updates which have expired before a matching block has been found.",
     )
 });
 pub static BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_OPTIMISTIC_UPDATES: LazyLock<
@@ -124,7 +116,7 @@ pub static BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_OPTIMISTIC_UPDATES: LazyL
 > = LazyLock::new(|| {
     try_create_int_counter(
         "beacon_processor_reprocessing_queue_matched_optimistic_updates",
-        "Number of queued light client optimistic updates where a matching block has been imported."
+        "Number of queued light client optimistic updates where a matching block has been imported.",
     )
 });
 
@@ -137,3 +129,10 @@ pub static BEACON_PROCESSOR_SEND_ERROR_PER_WORK_TYPE: LazyLock<Result<IntCounter
             &["type"],
         )
     });
+pub static BEACON_PROCESSOR_QUEUE_TIME: LazyLock<Result<HistogramVec>> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "beacon_processor_queue_time",
+        "The delay between when a work event was queued in the beacon processor and when it was popped from the queue",
+        &["work_type"],
+    )
+});

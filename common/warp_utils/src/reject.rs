@@ -3,7 +3,7 @@ use std::convert::Infallible;
 use std::error::Error;
 use std::fmt;
 use std::fmt::Debug;
-use warp::{http::StatusCode, reject::Reject, reply::Response, Reply};
+use warp::{Reply, http::StatusCode, reject::Reject, reply::Response};
 
 #[derive(Debug)]
 pub struct ServerSentEventError(pub String);
@@ -110,6 +110,17 @@ pub fn not_synced(msg: String) -> warp::reject::Rejection {
     warp::reject::custom(NotSynced(msg))
 }
 
+/// A 404 Not Found response for when no block has been received for the
+/// requested slot.
+#[derive(Debug)]
+pub struct BlockNotFound(pub String);
+
+impl Reject for BlockNotFound {}
+
+pub fn block_not_found(msg: String) -> warp::reject::Rejection {
+    warp::reject::custom(BlockNotFound(msg))
+}
+
 #[derive(Debug)]
 pub struct InvalidAuthorization(pub String);
 
@@ -199,6 +210,9 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
     } else if let Some(e) = err.find::<crate::reject::NotSynced>() {
         code = StatusCode::SERVICE_UNAVAILABLE;
         message = format!("SERVICE_UNAVAILABLE: beacon node is syncing: {}", e.0);
+    } else if let Some(e) = err.find::<crate::reject::BlockNotFound>() {
+        code = StatusCode::NOT_FOUND;
+        message = format!("NOT_FOUND: {}", e.0);
     } else if let Some(e) = err.find::<crate::reject::InvalidAuthorization>() {
         code = StatusCode::FORBIDDEN;
         message = format!("FORBIDDEN: Invalid auth token: {}", e.0);
@@ -237,15 +251,9 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
 pub async fn convert_rejection<T: Reply>(res: Result<T, warp::Rejection>) -> Response {
     match res {
         Ok(response) => response.into_response(),
-        Err(e) => match handle_rejection(e).await {
-            Ok(reply) => reply.into_response(),
-            // We can simplify this once Rust 1.82 is MSRV
-            #[allow(unreachable_patterns)]
-            Err(_) => warp::reply::with_status(
-                warp::reply::json(&"unhandled error"),
-                eth2::StatusCode::INTERNAL_SERVER_ERROR,
-            )
-            .into_response(),
-        },
+        Err(e) => {
+            let Ok(reply) = handle_rejection(e).await;
+            reply.into_response()
+        }
     }
 }

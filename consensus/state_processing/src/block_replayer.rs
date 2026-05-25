@@ -1,7 +1,7 @@
 use crate::{
-    per_block_processing, per_epoch_processing::EpochProcessingSummary, per_slot_processing,
     BlockProcessingError, BlockSignatureStrategy, ConsensusContext, SlotProcessingError,
-    VerifyBlockRoot,
+    VerifyBlockRoot, per_block_processing, per_epoch_processing::EpochProcessingSummary,
+    per_slot_processing,
 };
 use itertools::Itertools;
 use std::iter::Peekable;
@@ -193,12 +193,11 @@ where
         }
 
         // Otherwise try to source a root from the previous block.
-        if let Some(prev_i) = i.checked_sub(1) {
-            if let Some(prev_block) = blocks.get(prev_i) {
-                if prev_block.slot() == slot {
-                    return Ok(prev_block.state_root());
-                }
-            }
+        if let Some(prev_i) = i.checked_sub(1)
+            && let Some(prev_block) = blocks.get(prev_i)
+            && prev_block.slot() == slot
+        {
+            return Ok(prev_block.state_root());
         }
 
         self.state_root_miss = true;

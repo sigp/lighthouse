@@ -1,6 +1,6 @@
 use filesystem::create_with_600_perms;
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
+use rand::distr::Alphanumeric;
+use rand::{Rng, rng};
 use std::fs;
 use std::path::{Path, PathBuf};
 use warp::Filter;
@@ -58,7 +58,7 @@ impl ApiSecret {
             }
 
             let length = PK_LEN;
-            let pk: String = thread_rng()
+            let pk: String = rng()
                 .sample_iter(&Alphanumeric)
                 .take(length)
                 .map(char::from)

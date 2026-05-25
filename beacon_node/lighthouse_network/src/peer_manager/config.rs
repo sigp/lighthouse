@@ -8,7 +8,7 @@ pub const DEFAULT_PING_INTERVAL_OUTBOUND: u64 = 15;
 pub const DEFAULT_PING_INTERVAL_INBOUND: u64 = 20;
 
 /// Default number of peers to connect to.
-pub const DEFAULT_TARGET_PEERS: usize = 50;
+pub const DEFAULT_TARGET_PEERS: usize = 200;
 
 /// Configurations for the PeerManager.
 #[derive(Debug)]

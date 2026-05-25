@@ -9,7 +9,6 @@ perf.data*
 *.tar.gz
 /bin
 genesis.ssz
-/clippy.toml
 /.cargo
 
 # IntelliJ

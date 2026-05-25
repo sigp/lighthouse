@@ -1,3 +1,4 @@
+use crate::custody_context::NodeCustodyType;
 pub use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -37,7 +38,7 @@ pub struct ChainConfig {
     /// If `None`, there is no weak subjectivity verification.
     pub weak_subjectivity_checkpoint: Option<Checkpoint>,
     /// Determine whether to reconstruct historic states, usually after a checkpoint sync.
-    pub reconstruct_historic_states: bool,
+    pub archive: bool,
     /// The max size of a message that can be sent over the network.
     pub max_network_size: usize,
     /// Maximum percentage of the head committee weight at which to attempt re-orging the canonical head.
@@ -86,6 +87,8 @@ pub struct ChainConfig {
     /// If using a weak-subjectivity sync, whether we should download blocks all the way back to
     /// genesis.
     pub genesis_backfill: bool,
+    /// EXPERIMENTAL: backfill blobs and data columns beyond the data availability window.
+    pub complete_blob_backfill: bool,
     /// Whether to send payload attributes every slot, regardless of connected proposers.
     ///
     /// This is useful for block builders and testing.
@@ -96,8 +99,6 @@ pub struct ChainConfig {
     pub enable_light_client_server: bool,
     /// The number of data columns to withhold / exclude from publishing when proposing a block.
     pub malicious_withhold_count: usize,
-    /// Enable peer sampling on blocks.
-    pub enable_sampling: bool,
     /// Number of batches that the node splits blobs or data columns into during publication.
     /// This doesn't apply if the node is the block proposer. For PeerDAS only.
     pub blob_publication_batches: usize,
@@ -116,6 +117,14 @@ pub struct ChainConfig {
     /// On Holesky there is a block which is added to this set by default but which can be removed
     /// by using `--invalid-block-roots ""`.
     pub invalid_block_roots: HashSet<Hash256>,
+    /// When set to true, the beacon node can be started even if the head state is outside the weak subjectivity period.
+    pub ignore_ws_check: bool,
+    /// Disable the getBlobs optimisation to fetch blobs from the EL mempool.
+    pub disable_get_blobs: bool,
+    /// Whether to enable partial data column support.
+    pub enable_partial_columns: bool,
+    /// The node's custody type, determining how many data columns to custody and sample.
+    pub node_custody_type: NodeCustodyType,
 }
 
 impl Default for ChainConfig {
@@ -123,7 +132,7 @@ impl Default for ChainConfig {
         Self {
             import_max_skip_slots: None,
             weak_subjectivity_checkpoint: None,
-            reconstruct_historic_states: false,
+            archive: false,
             max_network_size: 10 * 1_048_576, // 10M
             re_org_head_threshold: Some(DEFAULT_RE_ORG_HEAD_THRESHOLD),
             re_org_parent_threshold: Some(DEFAULT_RE_ORG_PARENT_THRESHOLD),
@@ -144,28 +153,30 @@ impl Default for ChainConfig {
             optimistic_finalized_sync: true,
             shuffling_cache_size: crate::shuffling_cache::DEFAULT_CACHE_SIZE,
             genesis_backfill: false,
+            complete_blob_backfill: false,
             always_prepare_payload: false,
             epochs_per_migration: crate::migrate::DEFAULT_EPOCHS_PER_MIGRATION,
             enable_light_client_server: true,
             malicious_withhold_count: 0,
-            enable_sampling: false,
             blob_publication_batches: 4,
             blob_publication_batch_interval: Duration::from_millis(300),
             sync_tolerance_epochs: DEFAULT_SYNC_TOLERANCE_EPOCHS,
             block_publishing_delay: None,
             data_column_publishing_delay: None,
             invalid_block_roots: HashSet::new(),
+            ignore_ws_check: false,
+            disable_get_blobs: false,
+            enable_partial_columns: false,
+            node_custody_type: NodeCustodyType::Fullnode,
         }
     }
 }
 
 impl ChainConfig {
     /// The latest delay from the start of the slot at which to attempt a 1-slot re-org.
-    pub fn re_org_cutoff(&self, seconds_per_slot: u64) -> Duration {
+    pub fn re_org_cutoff(&self, slot_duration: Duration) -> Duration {
         self.re_org_cutoff_millis
             .map(Duration::from_millis)
-            .unwrap_or_else(|| {
-                Duration::from_secs(seconds_per_slot) / DEFAULT_RE_ORG_CUTOFF_DENOMINATOR
-            })
+            .unwrap_or_else(|| slot_duration / DEFAULT_RE_ORG_CUTOFF_DENOMINATOR)
     }
 }

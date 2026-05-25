@@ -1,5 +1,5 @@
-use crate::metrics;
 use crate::ExecutionOptimistic;
+use crate::metrics;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::types::StateId as CoreStateId;
 use std::fmt;

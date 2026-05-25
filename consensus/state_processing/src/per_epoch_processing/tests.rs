@@ -2,22 +2,18 @@
 use crate::per_epoch_processing::process_epoch;
 use beacon_chain::test_utils::BeaconChainHarness;
 use beacon_chain::types::{EthSpec, MinimalEthSpec};
-use bls::{FixedBytesExtended, Hash256};
-use env_logger::{Builder, Env};
 use types::Slot;
 
 #[tokio::test]
 async fn runs_without_error() {
-    Builder::from_env(Env::default().default_filter_or("error")).init();
-
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
         .default_spec()
         .deterministic_keypairs(8)
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
     harness.advance_slot();
 
-    let spec = MinimalEthSpec::default_spec();
     let target_slot =
         (MinimalEthSpec::genesis_epoch() + 4).end_slot(MinimalEthSpec::slots_per_epoch());
 
@@ -25,7 +21,6 @@ async fn runs_without_error() {
     harness
         .add_attested_blocks_at_slots(
             state,
-            Hash256::zero(),
             (1..target_slot.as_u64())
                 .map(Slot::new)
                 .collect::<Vec<_>>()
@@ -35,14 +30,14 @@ async fn runs_without_error() {
         .await;
     let mut new_head_state = harness.get_current_state();
 
-    process_epoch(&mut new_head_state, &spec).unwrap();
+    process_epoch(&mut new_head_state, &harness.spec).unwrap();
 }
 
 #[cfg(not(debug_assertions))]
 mod release_tests {
     use super::*;
     use crate::{
-        per_slot_processing::per_slot_processing, EpochProcessingError, SlotProcessingError,
+        EpochProcessingError, SlotProcessingError, per_slot_processing::per_slot_processing,
     };
     use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
     use std::sync::Arc;

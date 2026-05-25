@@ -6,7 +6,7 @@ edition = { workspace = true }
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-eth2 = { workspace = true }
+eth2 = { workspace = true, features = ["lighthouse"] }
 health_metrics = { workspace = true }
 lighthouse_version = { workspace = true }
 metrics = { workspace = true }

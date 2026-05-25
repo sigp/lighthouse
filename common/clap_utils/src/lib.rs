@@ -1,8 +1,8 @@
 //! A helper library for parsing values from `clap::ArgMatches`.
 
-use clap::builder::styling::*;
 use clap::ArgMatches;
-use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
+use clap::builder::styling::*;
+use eth2_network_config::{DEFAULT_HARDCODED_NETWORK, Eth2NetworkConfig};
 use ssz::Decode;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -159,7 +159,7 @@ where
         let chain_config = Config::from_chain_spec::<E>(spec);
         let mut file = std::fs::File::create(dump_path)
             .map_err(|e| format!("Failed to open file for writing chain config: {:?}", e))?;
-        serde_yaml::to_writer(&mut file, &chain_config)
+        yaml_serde::to_writer(&mut file, &chain_config)
             .map_err(|e| format!("Error serializing config: {:?}", e))?;
     }
     Ok(())

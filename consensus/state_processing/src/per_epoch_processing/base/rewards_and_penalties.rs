@@ -1,10 +1,10 @@
 use crate::common::{
-    base::{get_base_reward, SqrtTotalActiveBalance},
+    base::{SqrtTotalActiveBalance, get_base_reward},
     decrease_balance, increase_balance,
 };
 use crate::per_epoch_processing::{
-    base::{TotalBalances, ValidatorStatus, ValidatorStatuses},
     Delta, Error,
+    base::{TotalBalances, ValidatorStatus, ValidatorStatuses},
 };
 use safe_arith::SafeArith;
 use types::{BeaconState, ChainSpec, EthSpec};
@@ -190,16 +190,15 @@ fn get_attestation_deltas<E: EthSpec>(
                 .combine(inactivity_penalty_delta)?;
         }
 
-        if let ProposerRewardCalculation::Include = proposer_reward {
-            if let Some((proposer_index, proposer_delta)) = proposer_delta {
-                if include_validator_delta(proposer_index) {
-                    deltas
-                        .get_mut(proposer_index)
-                        .ok_or(Error::ValidatorStatusesInconsistent)?
-                        .inclusion_delay_delta
-                        .combine(proposer_delta)?;
-                }
-            }
+        if let ProposerRewardCalculation::Include = proposer_reward
+            && let Some((proposer_index, proposer_delta)) = proposer_delta
+            && include_validator_delta(proposer_index)
+        {
+            deltas
+                .get_mut(proposer_index)
+                .ok_or(Error::ValidatorStatusesInconsistent)?
+                .inclusion_delay_delta
+                .combine(proposer_delta)?;
         }
     }
 

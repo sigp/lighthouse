@@ -1,9 +1,8 @@
 use crate::EpochProcessingError;
 use safe_arith::SafeArith;
 use std::sync::Arc;
-use types::beacon_state::BeaconState;
-use types::chain_spec::ChainSpec;
-use types::eth_spec::EthSpec;
+use types::core::{ChainSpec, EthSpec};
+use types::state::BeaconState;
 
 pub fn process_sync_committee_updates<E: EthSpec>(
     state: &mut BeaconState<E>,

@@ -332,11 +332,7 @@ impl Score {
             Some(v) => {
                 // Only reverse when none of the items is NAN,
                 // so that NAN's are never considered.
-                if reverse {
-                    v.reverse()
-                } else {
-                    v
-                }
+                if reverse { v.reverse() } else { v }
             }
             None if self.score().is_nan() && !other.score().is_nan() => Ordering::Less,
             None if !self.score().is_nan() && other.score().is_nan() => Ordering::Greater,

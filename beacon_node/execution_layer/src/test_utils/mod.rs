@@ -2,7 +2,7 @@
 
 use crate::engine_api::auth::JwtKey;
 use crate::engine_api::{
-    auth::Auth, http::JSONRPC_VERSION, ExecutionBlock, PayloadStatusV1, PayloadStatusV1Status,
+    ExecutionBlock, PayloadStatusV1, PayloadStatusV1Status, auth::Auth, http::JSONRPC_VERSION,
 };
 use crate::json_structures::JsonClientVersionV1;
 use bytes::Bytes;
@@ -22,21 +22,19 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::{Arc, LazyLock};
 use tokio::{runtime, sync::oneshot};
 use tracing::info;
-use types::{ChainSpec, EthSpec, ExecutionBlockHash, Uint256};
-use warp::{http::StatusCode, Filter, Rejection};
+use types::{EthSpec, ExecutionBlockHash, Uint256};
+use warp::{Filter, Rejection, http::StatusCode};
 
 use crate::EngineCapabilities;
 pub use execution_block_generator::DEFAULT_GAS_LIMIT;
 pub use execution_block_generator::{
-    generate_blobs, generate_genesis_block, generate_genesis_header, generate_pow_block,
-    mock_el_extra_data, static_valid_tx, Block, ExecutionBlockGenerator,
+    Block, ExecutionBlockGenerator, generate_blobs, generate_genesis_block,
+    generate_genesis_header, generate_pow_block, mock_el_extra_data, static_valid_tx,
 };
 pub use hook::Hook;
-pub use mock_builder::{mock_builder_extra_data, MockBuilder, Operation};
+pub use mock_builder::{MockBuilder, Operation, mock_builder_extra_data};
 pub use mock_execution_layer::MockExecutionLayer;
 
-pub const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;
-pub const DEFAULT_TERMINAL_BLOCK: u64 = 64;
 pub const DEFAULT_JWT_SECRET: [u8; 32] = [42; 32];
 pub const DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI: u128 = 10_000_000_000_000_000;
 pub const DEFAULT_BUILDER_PAYLOAD_VALUE_WEI: u128 = 20_000_000_000_000_000;
@@ -49,6 +47,7 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     forkchoice_updated_v1: true,
     forkchoice_updated_v2: true,
     forkchoice_updated_v3: true,
+    forkchoice_updated_v4: true,
     get_payload_bodies_by_hash_v1: true,
     get_payload_bodies_by_range_v1: true,
     get_payload_v1: true,
@@ -56,9 +55,11 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     get_payload_v3: true,
     get_payload_v4: true,
     get_payload_v5: true,
+    get_payload_v6: true,
     get_client_version_v1: true,
     get_blobs_v1: true,
     get_blobs_v2: true,
+    get_blobs_v3: true,
 };
 
 pub static DEFAULT_CLIENT_VERSION: LazyLock<JsonClientVersionV1> =
@@ -80,27 +81,23 @@ mod mock_execution_layer;
 pub struct MockExecutionConfig {
     pub server_config: Config,
     pub jwt_key: JwtKey,
-    pub terminal_difficulty: Uint256,
-    pub terminal_block: u64,
-    pub terminal_block_hash: ExecutionBlockHash,
     pub shanghai_time: Option<u64>,
     pub cancun_time: Option<u64>,
     pub prague_time: Option<u64>,
     pub osaka_time: Option<u64>,
+    pub amsterdam_time: Option<u64>,
 }
 
 impl Default for MockExecutionConfig {
     fn default() -> Self {
         Self {
             jwt_key: JwtKey::random(),
-            terminal_difficulty: Uint256::from(DEFAULT_TERMINAL_DIFFICULTY),
-            terminal_block: DEFAULT_TERMINAL_BLOCK,
-            terminal_block_hash: ExecutionBlockHash::zero(),
             server_config: Config::default(),
             shanghai_time: None,
             cancun_time: None,
             prague_time: None,
             osaka_time: None,
+            amsterdam_time: None,
         }
     }
 }
@@ -113,18 +110,15 @@ pub struct MockServer<E: EthSpec> {
 }
 
 impl<E: EthSpec> MockServer<E> {
-    pub fn unit_testing(chain_spec: Arc<ChainSpec>) -> Self {
+    pub fn unit_testing() -> Self {
         Self::new(
             &runtime::Handle::current(),
             JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap(),
-            Uint256::from(DEFAULT_TERMINAL_DIFFICULTY),
-            DEFAULT_TERMINAL_BLOCK,
-            ExecutionBlockHash::zero(),
             None, // FIXME(capella): should this be the default?
             None, // FIXME(deneb): should this be the default?
             None, // FIXME(electra): should this be the default?
             None, // FIXME(fulu): should this be the default?
-            chain_spec,
+            None, // FIXME(gloas): should this be the default?
             None,
         )
     }
@@ -132,32 +126,26 @@ impl<E: EthSpec> MockServer<E> {
     pub fn new_with_config(
         handle: &runtime::Handle,
         config: MockExecutionConfig,
-        spec: Arc<ChainSpec>,
         kzg: Option<Arc<Kzg>>,
     ) -> Self {
         create_test_tracing_subscriber();
         let MockExecutionConfig {
             jwt_key,
-            terminal_difficulty,
-            terminal_block,
-            terminal_block_hash,
             server_config,
             shanghai_time,
             cancun_time,
             prague_time,
             osaka_time,
+            amsterdam_time,
         } = config;
         let last_echo_request = Arc::new(RwLock::new(None));
         let preloaded_responses = Arc::new(Mutex::new(vec![]));
         let execution_block_generator = ExecutionBlockGenerator::new(
-            terminal_difficulty,
-            terminal_block,
-            terminal_block_hash,
             shanghai_time,
             cancun_time,
             prague_time,
             osaka_time,
-            spec,
+            amsterdam_time,
             kzg,
         );
 
@@ -214,14 +202,11 @@ impl<E: EthSpec> MockServer<E> {
     pub fn new(
         handle: &runtime::Handle,
         jwt_key: JwtKey,
-        terminal_difficulty: Uint256,
-        terminal_block: u64,
-        terminal_block_hash: ExecutionBlockHash,
         shanghai_time: Option<u64>,
         cancun_time: Option<u64>,
         prague_time: Option<u64>,
         osaka_time: Option<u64>,
-        spec: Arc<ChainSpec>,
+        amsterdam_time: Option<u64>,
         kzg: Option<Arc<Kzg>>,
     ) -> Self {
         Self::new_with_config(
@@ -229,15 +214,12 @@ impl<E: EthSpec> MockServer<E> {
             MockExecutionConfig {
                 server_config: Config::default(),
                 jwt_key,
-                terminal_difficulty,
-                terminal_block,
-                terminal_block_hash,
                 shanghai_time,
                 cancun_time,
                 prague_time,
                 osaka_time,
+                amsterdam_time,
             },
-            spec,
             kzg,
         )
     }
@@ -753,7 +735,7 @@ pub fn serve<E: EthSpec>(
 
     info!(
         listen_address = listening_socket.to_string(),
-        "Metrics HTTP server started"
+        "Mock execution client started"
     );
 
     Ok((listening_socket, server))

@@ -2,11 +2,11 @@ use crate::common::altair::BaseRewardPerIncrement;
 use crate::common::base::SqrtTotalActiveBalance;
 use crate::common::{altair, base};
 use crate::metrics;
+use fixed_bytes::FixedBytesExtended;
 use safe_arith::SafeArith;
-use types::epoch_cache::{EpochCache, EpochCacheError, EpochCacheKey};
-use types::{
-    ActivationQueue, BeaconState, ChainSpec, EthSpec, FixedBytesExtended, ForkName, Hash256,
-};
+use tracing::instrument;
+use types::state::{EpochCache, EpochCacheError, EpochCacheKey};
+use types::{ActivationQueue, BeaconState, ChainSpec, EthSpec, ForkName, Hash256};
 
 /// Precursor to an `EpochCache`.
 pub struct PreEpochCache {
@@ -74,6 +74,8 @@ impl PreEpochCache {
         }
     }
 
+    /// Note: the spec-mandated floor (max with EFFECTIVE_BALANCE_INCREMENT) is applied in
+    /// `into_epoch_cache` and `set_total_active_balance`. This returns the raw sum.
     pub fn get_total_active_balance(&self) -> u64 {
         self.total_active_balance
     }
@@ -84,7 +86,12 @@ impl PreEpochCache {
         spec: &ChainSpec,
     ) -> Result<EpochCache, EpochCacheError> {
         let epoch = self.epoch_key.epoch;
-        let total_active_balance = self.total_active_balance;
+        // Apply the spec-mandated floor from `get_total_balance`:
+        //   max(EFFECTIVE_BALANCE_INCREMENT, sum(...))
+        // This prevents division by zero in base reward calculation when all
+        // validators have zero effective balance.
+        let total_active_balance =
+            std::cmp::max(self.total_active_balance, spec.effective_balance_increment);
         let sqrt_total_active_balance = SqrtTotalActiveBalance::new(total_active_balance);
         let base_reward_per_increment = BaseRewardPerIncrement::new(total_active_balance, spec)?;
 
@@ -122,7 +129,7 @@ pub fn is_epoch_cache_initialized<E: EthSpec>(
     let current_epoch = state.current_epoch();
     let epoch_cache: &EpochCache = state.epoch_cache();
     let decision_block_root = state
-        .proposer_shuffling_decision_root(Hash256::zero())
+        .epoch_cache_decision_root(Hash256::zero())
         .map_err(EpochCacheError::BeaconState)?;
 
     Ok(epoch_cache
@@ -130,6 +137,7 @@ pub fn is_epoch_cache_initialized<E: EthSpec>(
         .is_ok())
 }
 
+#[instrument(skip_all, level = "debug")]
 pub fn initialize_epoch_cache<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
@@ -144,7 +152,7 @@ pub fn initialize_epoch_cache<E: EthSpec>(
     let current_epoch = state.current_epoch();
     let next_epoch = state.next_epoch().map_err(EpochCacheError::BeaconState)?;
     let decision_block_root = state
-        .proposer_shuffling_decision_root(Hash256::zero())
+        .epoch_cache_decision_root(Hash256::zero())
         .map_err(EpochCacheError::BeaconState)?;
 
     state.build_total_active_balance_cache(spec)?;
@@ -174,4 +182,41 @@ pub fn initialize_epoch_cache<E: EthSpec>(
     *state.epoch_cache_mut() = pre_epoch_cache.into_epoch_cache(activation_queue, spec)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use types::Epoch;
+
+    /// Regression test for division-by-zero when all validators have zero effective balance.
+    ///
+    /// When `process_effective_balance_updates` drops all effective balances to 0, the
+    /// `PreEpochCache` accumulates `total_active_balance = 0`. Without the spec-mandated floor
+    /// of `max(EFFECTIVE_BALANCE_INCREMENT, sum)`, `BaseRewardPerIncrement::new()` would divide
+    /// by `integer_sqrt(0) = 0`.
+    #[test]
+    fn into_epoch_cache_zero_total_active_balance() {
+        let spec = ChainSpec::minimal();
+
+        let cache = PreEpochCache {
+            epoch_key: EpochCacheKey {
+                epoch: Epoch::new(1),
+                decision_block_root: Hash256::zero(),
+            },
+            effective_balances: vec![0, 0, 0, 0],
+            total_active_balance: 0,
+        };
+
+        // Verify the raw total is zero.
+        assert_eq!(cache.get_total_active_balance(), 0);
+
+        // This should succeed, not panic with division by zero.
+        let epoch_cache = cache
+            .into_epoch_cache(ActivationQueue::default(), &spec)
+            .expect("into_epoch_cache should not fail with zero total_active_balance");
+
+        // Base reward for validator index 0 should be 0.
+        assert_eq!(epoch_cache.get_base_reward(0).unwrap(), 0);
+    }
 }

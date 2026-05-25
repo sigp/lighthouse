@@ -1,7 +1,7 @@
 use crate::{
+    Error, INFINITY_SIGNATURE, SIGNATURE_BYTES_LEN,
     generic_public_key::TPublicKey,
     generic_signature::{GenericSignature, TSignature},
-    Error, INFINITY_SIGNATURE, SIGNATURE_BYTES_LEN,
 };
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};

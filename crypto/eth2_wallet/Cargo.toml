@@ -3,6 +3,7 @@ name = "eth2_wallet"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
+autotests = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -12,9 +13,13 @@ rand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_repr = { workspace = true }
-tiny-bip39 = "1"
+tiny-bip39 = "2"
 uuid = { workspace = true }
 
 [dev-dependencies]
 hex = { workspace = true }
 tempfile = { workspace = true }
+
+[[test]]
+name = "eth2_wallet_tests"
+path = "tests/main.rs"

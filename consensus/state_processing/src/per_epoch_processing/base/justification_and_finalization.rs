@@ -1,7 +1,7 @@
-use crate::per_epoch_processing::base::TotalBalances;
 use crate::per_epoch_processing::Error;
+use crate::per_epoch_processing::base::TotalBalances;
 use crate::per_epoch_processing::{
-    weigh_justification_and_finalization, JustificationAndFinalizationState,
+    JustificationAndFinalizationState, weigh_justification_and_finalization,
 };
 use safe_arith::SafeArith;
 use types::{BeaconState, ChainSpec, EthSpec};

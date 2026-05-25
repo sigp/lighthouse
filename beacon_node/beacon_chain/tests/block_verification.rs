@@ -1,23 +1,28 @@
 #![cfg(not(debug_assertions))]
-
-use beacon_chain::block_verification_types::{AsBlock, ExecutedBlock, RpcBlock};
+// TODO(gloas) we probably need similar test for payload envelope verification
+use beacon_chain::block_verification_types::{AsBlock, ExecutedBlock, LookupBlock, RangeSyncBlock};
+use beacon_chain::data_availability_checker::{AvailabilityCheckError, AvailableBlockData};
 use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::{
-    test_utils::{
-        test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
-    },
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, ExecutionPendingBlock,
+    WhenSlotSkipped,
+    custody_context::NodeCustodyType,
+    test_utils::{
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, test_spec,
+    },
 };
 use beacon_chain::{
     BeaconSnapshot, BlockError, ChainConfig, ChainSegmentResult, IntoExecutionPendingBlock,
     InvalidSignature, NotifyExecutionLayer,
 };
+use bls::{AggregateSignature, Keypair, Signature};
+use fixed_bytes::FixedBytesExtended;
 use logging::create_test_tracing_subscriber;
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
+    BlockProcessingError, BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
     common::{attesting_indices_base, attesting_indices_electra},
-    per_block_processing::{per_block_processing, BlockSignatureStrategy},
-    per_slot_processing, BlockProcessingError, ConsensusContext, VerifyBlockRoot,
+    per_block_processing, per_slot_processing,
 };
 use std::marker::PhantomData;
 use std::sync::{Arc, LazyLock};
@@ -26,24 +31,26 @@ use types::{test_utils::generate_deterministic_keypair, *};
 
 type E = MainnetEthSpec;
 
-// Should ideally be divisible by 3.
-const VALIDATOR_COUNT: usize = 24;
+// Gloas requires >= 1 validator per slot for PTC committee computation, so >= 32 for MainnetEthSpec.
+const VALIDATOR_COUNT: usize = 32;
 const CHAIN_SEGMENT_LENGTH: usize = 64 * 5;
 const BLOCK_INDICES: &[usize] = &[0, 1, 32, 64, 68 + 1, 129, CHAIN_SEGMENT_LENGTH - 1];
-// Default custody group count for tests
-const CGC: usize = 8;
 
 /// A cached set of keys.
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
+// TODO(#8633): Delete this unnecessary enum and refactor this file to use `AvailableBlockData` instead.
 enum DataSidecars<E: EthSpec> {
     Blobs(BlobSidecarList<E>),
     DataColumns(Vec<CustodyDataColumn<E>>),
 }
 
 async fn get_chain_segment() -> (Vec<BeaconSnapshot<E>>, Vec<Option<DataSidecars<E>>>) {
-    let harness = get_harness(VALIDATOR_COUNT);
+    // The assumption that you can re-import a block based on what you have in your DB
+    // is no longer true, as fullnodes stores less than what they sample.
+    // We use a supernode here to build a chain segment.
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
 
     harness
         .extend_chain(
@@ -72,14 +79,17 @@ async fn get_chain_segment() -> (Vec<BeaconSnapshot<E>>, Vec<Option<DataSidecars
 
         segment.push(BeaconSnapshot {
             beacon_block_root: snapshot.beacon_block_root,
+            execution_envelope: snapshot.execution_envelope,
             beacon_block: Arc::new(full_block),
             beacon_state: snapshot.beacon_state,
         });
 
+        let fork_name = snapshot.beacon_block.fork_name_unchecked();
+
         let data_sidecars = if harness.spec.is_peer_das_enabled_for_epoch(block_epoch) {
             harness
                 .chain
-                .get_data_columns(&snapshot.beacon_block_root)
+                .get_data_columns(&snapshot.beacon_block_root, fork_name)
                 .unwrap()
                 .map(|columns| {
                     columns
@@ -102,14 +112,18 @@ async fn get_chain_segment() -> (Vec<BeaconSnapshot<E>>, Vec<Option<DataSidecars
     (segment, segment_sidecars)
 }
 
-fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
+fn get_harness(
+    validator_count: usize,
+    node_custody_type: NodeCustodyType,
+) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .default_spec()
         .chain_config(ChainConfig {
-            reconstruct_historic_states: true,
+            archive: true,
             ..ChainConfig::default()
         })
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .node_custody_type(node_custody_type)
         .fresh_ephemeral_store()
         .mock_execution_layer()
         .build();
@@ -119,35 +133,106 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
     harness
 }
 
-fn chain_segment_blocks(
+fn chain_segment_blocks<T>(
     chain_segment: &[BeaconSnapshot<E>],
     chain_segment_sidecars: &[Option<DataSidecars<E>>],
-    spec: &ChainSpec,
-) -> Vec<RpcBlock<E>> {
+    chain: Arc<BeaconChain<T>>,
+) -> Vec<RangeSyncBlock<E>>
+where
+    T: BeaconChainTypes<EthSpec = E>,
+{
     chain_segment
         .iter()
         .zip(chain_segment_sidecars.iter())
         .map(|(snapshot, data_sidecars)| {
             let block = snapshot.beacon_block.clone();
-            build_rpc_block(block, data_sidecars, spec)
+            build_range_sync_block(block, data_sidecars, chain.clone())
         })
         .collect()
 }
 
-fn build_rpc_block(
+fn build_range_sync_block<T>(
     block: Arc<SignedBeaconBlock<E>>,
     data_sidecars: &Option<DataSidecars<E>>,
-    spec: &ChainSpec,
-) -> RpcBlock<E> {
+    chain: Arc<BeaconChain<T>>,
+) -> RangeSyncBlock<E>
+where
+    T: BeaconChainTypes<EthSpec = E>,
+{
     match data_sidecars {
         Some(DataSidecars::Blobs(blobs)) => {
-            RpcBlock::new(None, block, Some(blobs.clone())).unwrap()
+            let block_data = AvailableBlockData::new_with_blobs(blobs.clone());
+            RangeSyncBlock::new(
+                block,
+                block_data,
+                &chain.data_availability_checker,
+                chain.spec.clone(),
+            )
+            .unwrap()
         }
         Some(DataSidecars::DataColumns(columns)) => {
-            RpcBlock::new_with_custody_columns(None, block, columns.clone(), columns.len(), spec)
-                .unwrap()
+            let block_data = AvailableBlockData::new_with_data_columns(
+                columns
+                    .iter()
+                    .map(|c| c.as_data_column().clone())
+                    .collect::<Vec<_>>(),
+            );
+            RangeSyncBlock::new(
+                block,
+                block_data,
+                &chain.data_availability_checker,
+                chain.spec.clone(),
+            )
+            .unwrap()
         }
-        None => RpcBlock::new_without_blobs(None, block, 0),
+        None => RangeSyncBlock::new(
+            block,
+            AvailableBlockData::NoData,
+            &chain.data_availability_checker,
+            chain.spec.clone(),
+        )
+        .unwrap(),
+    }
+}
+
+/// Pre-store execution payload envelopes in the harness's store.
+///
+/// Post-Gloas, block N+1 needs block N's envelope to be available when it is
+/// imported. This function stores all envelopes from the chain segment so that
+/// `process_chain_segment` can import all blocks successfully.
+// TODO(gloas): this is a bit of a hack that can be removed once `process_chain_segment` handles
+// payload envelopes
+fn store_envelopes_for_chain_segment(
+    chain_segment: &[BeaconSnapshot<E>],
+    harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+) {
+    for snapshot in chain_segment {
+        if let Some(ref envelope) = snapshot.execution_envelope {
+            harness
+                .chain
+                .store
+                .put_payload_envelope(&snapshot.beacon_block_root, envelope)
+                .expect("should store envelope");
+        }
+    }
+}
+
+/// Update fork choice with envelope payload status for all blocks in the chain segment.
+///
+/// Must be called after the blocks have been imported into fork choice.
+fn update_fork_choice_with_envelopes(
+    chain_segment: &[BeaconSnapshot<E>],
+    harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+) {
+    for snapshot in chain_segment {
+        if snapshot.execution_envelope.is_some() {
+            // Call may fail if block was invalid (it will have no fork choice node).
+            let _ = harness
+                .chain
+                .canonical_head
+                .fork_choice_write_lock()
+                .on_valid_payload_envelope_received(snapshot.beacon_block_root);
+        }
     }
 }
 
@@ -238,28 +323,45 @@ fn update_data_column_signed_header<E: EthSpec>(
 ) {
     for old_custody_column_sidecar in data_columns.as_mut_slice() {
         let old_column_sidecar = old_custody_column_sidecar.as_data_column();
-        let new_column_sidecar = Arc::new(DataColumnSidecar::<E> {
-            index: old_column_sidecar.index,
-            column: old_column_sidecar.column.clone(),
-            kzg_commitments: old_column_sidecar.kzg_commitments.clone(),
-            kzg_proofs: old_column_sidecar.kzg_proofs.clone(),
-            signed_block_header: signed_block.signed_block_header(),
-            kzg_commitments_inclusion_proof: signed_block
-                .message()
-                .body()
-                .kzg_commitments_merkle_proof()
-                .unwrap(),
-        });
+        let new_column_sidecar = match old_column_sidecar.as_ref() {
+            DataColumnSidecar::Fulu(_) => {
+                Arc::new(DataColumnSidecar::Fulu(DataColumnSidecarFulu {
+                    index: *old_column_sidecar.index(),
+                    column: old_column_sidecar.column().clone(),
+                    kzg_commitments: old_column_sidecar.kzg_commitments().unwrap().clone(),
+                    kzg_proofs: old_column_sidecar.kzg_proofs().clone(),
+                    signed_block_header: signed_block.signed_block_header(),
+                    kzg_commitments_inclusion_proof: signed_block
+                        .message()
+                        .body()
+                        .kzg_commitments_merkle_proof()
+                        .unwrap(),
+                }))
+            }
+            // Gloas columns reference the block by `beacon_block_root` instead of holding the
+            // block header inline, so updating the parent root just means re-keying the column to
+            // the new canonical root.
+            DataColumnSidecar::Gloas(g) => {
+                Arc::new(DataColumnSidecar::Gloas(types::DataColumnSidecarGloas {
+                    index: g.index,
+                    column: g.column.clone(),
+                    kzg_proofs: g.kzg_proofs.clone(),
+                    slot: g.slot,
+                    beacon_block_root: signed_block.canonical_root(),
+                }))
+            }
+        };
         *old_custody_column_sidecar = CustodyDataColumn::from_asserted_custody(new_column_sidecar);
     }
 }
 
 #[tokio::test]
 async fn chain_segment_full_segment() {
-    let harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
-    let blocks: Vec<RpcBlock<E>> =
-        chain_segment_blocks(&chain_segment, &chain_segment_blobs, &harness.spec)
+    store_envelopes_for_chain_segment(&chain_segment, &harness);
+    let blocks: Vec<RangeSyncBlock<E>> =
+        chain_segment_blocks(&chain_segment, &chain_segment_blobs, harness.chain.clone())
             .into_iter()
             .collect();
 
@@ -283,6 +385,7 @@ async fn chain_segment_full_segment() {
         .into_block_error()
         .expect("should import chain segment");
 
+    update_fork_choice_with_envelopes(&chain_segment, &harness);
     harness.chain.recompute_head_at_current_slot().await;
 
     assert_eq!(
@@ -294,20 +397,23 @@ async fn chain_segment_full_segment() {
 
 #[tokio::test]
 async fn chain_segment_varying_chunk_size() {
-    for chunk_size in &[1, 2, 3, 5, 31, 32, 33, 42] {
-        let harness = get_harness(VALIDATOR_COUNT);
-        let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
-        let blocks: Vec<RpcBlock<E>> =
-            chain_segment_blocks(&chain_segment, &chain_segment_blobs, &harness.spec)
-                .into_iter()
-                .collect();
+    let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
+    let blocks: Vec<RangeSyncBlock<E>> =
+        chain_segment_blocks(&chain_segment, &chain_segment_blobs, harness.chain.clone())
+            .into_iter()
+            .collect();
+
+    for chunk_size in &[1, 2, 31, 32, 33] {
+        let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
+        store_envelopes_for_chain_segment(&chain_segment, &harness);
 
         harness
             .chain
             .slot_clock
             .set_slot(blocks.last().unwrap().slot().as_u64());
 
-        for chunk in blocks.chunks(*chunk_size) {
+        for chunk in blocks.clone().chunks(*chunk_size) {
             harness
                 .chain
                 .process_chain_segment(chunk.to_vec(), NotifyExecutionLayer::Yes)
@@ -316,6 +422,7 @@ async fn chain_segment_varying_chunk_size() {
                 .unwrap_or_else(|_| panic!("should import chain segment of len {}", chunk_size));
         }
 
+        update_fork_choice_with_envelopes(&chain_segment, &harness);
         harness.chain.recompute_head_at_current_slot().await;
 
         assert_eq!(
@@ -328,7 +435,7 @@ async fn chain_segment_varying_chunk_size() {
 
 #[tokio::test]
 async fn chain_segment_non_linear_parent_roots() {
-    let harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
 
     harness
@@ -339,8 +446,8 @@ async fn chain_segment_non_linear_parent_roots() {
     /*
      * Test with a block removed.
      */
-    let mut blocks: Vec<RpcBlock<E>> =
-        chain_segment_blocks(&chain_segment, &chain_segment_blobs, &harness.spec)
+    let mut blocks: Vec<RangeSyncBlock<E>> =
+        chain_segment_blocks(&chain_segment, &chain_segment_blobs, harness.chain.clone())
             .into_iter()
             .collect();
     blocks.remove(2);
@@ -360,18 +467,21 @@ async fn chain_segment_non_linear_parent_roots() {
     /*
      * Test with a modified parent root.
      */
-    let mut blocks: Vec<RpcBlock<E>> =
-        chain_segment_blocks(&chain_segment, &chain_segment_blobs, &harness.spec)
+    let mut blocks: Vec<RangeSyncBlock<E>> =
+        chain_segment_blocks(&chain_segment, &chain_segment_blobs, harness.chain.clone())
             .into_iter()
             .collect();
 
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.parent_root_mut() = Hash256::zero();
-    blocks[3] = RpcBlock::new_without_blobs(
-        None,
+
+    blocks[3] = RangeSyncBlock::new(
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
-        harness.sampling_column_count,
-    );
+        blocks[3].block_data().clone(),
+        &harness.chain.data_availability_checker,
+        harness.spec.clone(),
+    )
+    .unwrap();
 
     assert!(
         matches!(
@@ -388,7 +498,7 @@ async fn chain_segment_non_linear_parent_roots() {
 
 #[tokio::test]
 async fn chain_segment_non_linear_slots() {
-    let harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     harness
         .chain
@@ -399,17 +509,19 @@ async fn chain_segment_non_linear_slots() {
      * Test where a child is lower than the parent.
      */
 
-    let mut blocks: Vec<RpcBlock<E>> =
-        chain_segment_blocks(&chain_segment, &chain_segment_blobs, &harness.spec)
+    let mut blocks: Vec<RangeSyncBlock<E>> =
+        chain_segment_blocks(&chain_segment, &chain_segment_blobs, harness.chain.clone())
             .into_iter()
             .collect();
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.slot_mut() = Slot::new(0);
-    blocks[3] = RpcBlock::new_without_blobs(
-        None,
+    blocks[3] = RangeSyncBlock::new(
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
-        harness.sampling_column_count,
-    );
+        blocks[3].block_data().clone(),
+        &harness.chain.data_availability_checker,
+        harness.spec.clone(),
+    )
+    .unwrap();
 
     assert!(
         matches!(
@@ -427,17 +539,19 @@ async fn chain_segment_non_linear_slots() {
      * Test where a child is equal to the parent.
      */
 
-    let mut blocks: Vec<RpcBlock<E>> =
-        chain_segment_blocks(&chain_segment, &chain_segment_blobs, &harness.spec)
+    let mut blocks: Vec<RangeSyncBlock<E>> =
+        chain_segment_blocks(&chain_segment, &chain_segment_blobs, harness.chain.clone())
             .into_iter()
             .collect();
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.slot_mut() = blocks[2].slot();
-    blocks[3] = RpcBlock::new_without_blobs(
-        None,
+    blocks[3] = RangeSyncBlock::new(
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
-        harness.sampling_column_count,
-    );
+        blocks[3].block_data().clone(),
+        &harness.chain.data_availability_checker,
+        harness.chain.spec.clone(),
+    )
+    .unwrap();
 
     assert!(
         matches!(
@@ -460,11 +574,12 @@ async fn assert_invalid_signature(
     snapshots: &[BeaconSnapshot<E>],
     item: &str,
 ) {
-    let blocks: Vec<RpcBlock<E>> = snapshots
+    store_envelopes_for_chain_segment(chain_segment, harness);
+    let blocks: Vec<RangeSyncBlock<E>> = snapshots
         .iter()
         .zip(chain_segment_blobs.iter())
         .map(|(snapshot, blobs)| {
-            build_rpc_block(snapshot.beacon_block.clone(), blobs, &harness.spec)
+            build_range_sync_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
         })
         .collect();
 
@@ -486,12 +601,24 @@ async fn assert_invalid_signature(
     harness.chain.recompute_head_at_current_slot().await;
 
     // Ensure the block will be rejected if imported on its own (without gossip checking).
-    let ancestor_blocks = chain_segment
+    // Only include blocks that haven't been imported yet (after the finalized slot) to avoid
+    // `WouldRevertFinalizedSlot` errors when part 1 already imported and finalized some blocks.
+    // Use the fork choice finalized checkpoint directly, as the cached head may not reflect
+    // finalization that occurred during process_chain_segment.
+    let finalized_slot = harness
+        .chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .finalized_checkpoint()
+        .epoch
+        .start_slot(E::slots_per_epoch());
+    let ancestor_blocks: Vec<RangeSyncBlock<E>> = chain_segment
         .iter()
         .take(block_index)
         .zip(chain_segment_blobs.iter())
+        .filter(|(snapshot, _)| snapshot.beacon_block.slot() > finalized_slot)
         .map(|(snapshot, blobs)| {
-            build_rpc_block(snapshot.beacon_block.clone(), blobs, &harness.spec)
+            build_range_sync_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
         })
         .collect();
     // We don't care if this fails, we just call this to ensure that all prior blocks have been
@@ -500,16 +627,17 @@ async fn assert_invalid_signature(
         .chain
         .process_chain_segment(ancestor_blocks, NotifyExecutionLayer::Yes)
         .await;
+    update_fork_choice_with_envelopes(chain_segment, harness);
     harness.chain.recompute_head_at_current_slot().await;
 
     let process_res = harness
         .chain
         .process_block(
             snapshots[block_index].beacon_block.canonical_root(),
-            build_rpc_block(
+            build_range_sync_block(
                 snapshots[block_index].beacon_block.clone(),
                 &chain_segment_blobs[block_index],
-                &harness.spec,
+                harness.chain.clone(),
             ),
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
@@ -539,7 +667,8 @@ async fn assert_invalid_signature(
 async fn get_invalid_sigs_harness(
     chain_segment: &[BeaconSnapshot<E>],
 ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
-    let harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
+    store_envelopes_for_chain_segment(chain_segment, &harness);
     harness
         .chain
         .slot_clock
@@ -568,7 +697,7 @@ async fn invalid_signature_gossip_block() {
             .take(block_index)
             .zip(chain_segment_blobs.iter())
             .map(|(snapshot, blobs)| {
-                build_rpc_block(snapshot.beacon_block.clone(), blobs, &harness.spec)
+                build_range_sync_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
             })
             .collect();
         harness
@@ -578,16 +707,12 @@ async fn invalid_signature_gossip_block() {
             .into_block_error()
             .expect("should import all blocks prior to the one being tested");
         let signed_block = SignedBeaconBlock::from_block(block, junk_signature());
-        let rpc_block = RpcBlock::new_without_blobs(
-            None,
-            Arc::new(signed_block),
-            harness.sampling_column_count,
-        );
+        let lookup_block = LookupBlock::new(Arc::new(signed_block));
         let process_res = harness
             .chain
             .process_block(
-                rpc_block.block_root(),
-                rpc_block,
+                lookup_block.block_root(),
+                lookup_block,
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
@@ -621,11 +746,11 @@ async fn invalid_signature_block_proposal() {
             block.clone(),
             junk_signature(),
         ));
-        let blocks: Vec<RpcBlock<E>> = snapshots
+        let blocks: Vec<RangeSyncBlock<E>> = snapshots
             .iter()
             .zip(chain_segment_blobs.iter())
             .map(|(snapshot, blobs)| {
-                build_rpc_block(snapshot.beacon_block.clone(), blobs, &harness.spec)
+                build_range_sync_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
             })
             .collect::<Vec<_>>();
         // Ensure the block will be rejected if imported in a chain segment.
@@ -725,7 +850,7 @@ async fn invalid_signature_attester_slashing() {
 
         let attester_slashing = if fork_name.electra_enabled() {
             let indexed_attestation = IndexedAttestationElectra {
-                attesting_indices: vec![0].into(),
+                attesting_indices: vec![0].try_into().unwrap(),
                 data: AttestationData {
                     slot: Slot::new(0),
                     index: 0,
@@ -749,7 +874,7 @@ async fn invalid_signature_attester_slashing() {
             AttesterSlashing::Electra(attester_slashing)
         } else {
             let indexed_attestation = IndexedAttestationBase {
-                attesting_indices: vec![0].into(),
+                attesting_indices: vec![0].try_into().unwrap(),
                 data: AttestationData {
                     slot: Slot::new(0),
                     index: 0,
@@ -779,37 +904,42 @@ async fn invalid_signature_attester_slashing() {
             .clone()
             .deconstruct();
         match &mut block.body_mut() {
-            BeaconBlockBodyRefMut::Base(ref mut blk) => {
+            BeaconBlockBodyRefMut::Base(blk) => {
                 blk.attester_slashings
                     .push(attester_slashing.as_base().unwrap().clone())
                     .expect("should update attester slashing");
             }
-            BeaconBlockBodyRefMut::Altair(ref mut blk) => {
+            BeaconBlockBodyRefMut::Altair(blk) => {
                 blk.attester_slashings
                     .push(attester_slashing.as_base().unwrap().clone())
                     .expect("should update attester slashing");
             }
-            BeaconBlockBodyRefMut::Bellatrix(ref mut blk) => {
+            BeaconBlockBodyRefMut::Bellatrix(blk) => {
                 blk.attester_slashings
                     .push(attester_slashing.as_base().unwrap().clone())
                     .expect("should update attester slashing");
             }
-            BeaconBlockBodyRefMut::Capella(ref mut blk) => {
+            BeaconBlockBodyRefMut::Capella(blk) => {
                 blk.attester_slashings
                     .push(attester_slashing.as_base().unwrap().clone())
                     .expect("should update attester slashing");
             }
-            BeaconBlockBodyRefMut::Deneb(ref mut blk) => {
+            BeaconBlockBodyRefMut::Deneb(blk) => {
                 blk.attester_slashings
                     .push(attester_slashing.as_base().unwrap().clone())
                     .expect("should update attester slashing");
             }
-            BeaconBlockBodyRefMut::Electra(ref mut blk) => {
+            BeaconBlockBodyRefMut::Electra(blk) => {
                 blk.attester_slashings
                     .push(attester_slashing.as_electra().unwrap().clone())
                     .expect("should update attester slashing");
             }
-            BeaconBlockBodyRefMut::Fulu(ref mut blk) => {
+            BeaconBlockBodyRefMut::Fulu(blk) => {
+                blk.attester_slashings
+                    .push(attester_slashing.as_electra().unwrap().clone())
+                    .expect("should update attester slashing");
+            }
+            BeaconBlockBodyRefMut::Gloas(blk) => {
                 blk.attester_slashings
                     .push(attester_slashing.as_electra().unwrap().clone())
                     .expect("should update attester slashing");
@@ -845,31 +975,35 @@ async fn invalid_signature_attestation() {
             .clone()
             .deconstruct();
         match &mut block.body_mut() {
-            BeaconBlockBodyRefMut::Base(ref mut blk) => blk
+            BeaconBlockBodyRefMut::Base(blk) => blk
                 .attestations
                 .get_mut(0)
                 .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Altair(ref mut blk) => blk
+            BeaconBlockBodyRefMut::Altair(blk) => blk
                 .attestations
                 .get_mut(0)
                 .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Bellatrix(ref mut blk) => blk
+            BeaconBlockBodyRefMut::Bellatrix(blk) => blk
                 .attestations
                 .get_mut(0)
                 .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Capella(ref mut blk) => blk
+            BeaconBlockBodyRefMut::Capella(blk) => blk
                 .attestations
                 .get_mut(0)
                 .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Deneb(ref mut blk) => blk
+            BeaconBlockBodyRefMut::Deneb(blk) => blk
                 .attestations
                 .get_mut(0)
                 .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Electra(ref mut blk) => blk
+            BeaconBlockBodyRefMut::Electra(blk) => blk
                 .attestations
                 .get_mut(0)
                 .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Fulu(ref mut blk) => blk
+            BeaconBlockBodyRefMut::Fulu(blk) => blk
+                .attestations
+                .get_mut(0)
+                .map(|att| att.signature = junk_aggregate_signature()),
+            BeaconBlockBodyRefMut::Gloas(blk) => blk
                 .attestations
                 .get_mut(0)
                 .map(|att| att.signature = junk_aggregate_signature()),
@@ -907,7 +1041,9 @@ async fn invalid_signature_deposit() {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
         let mut snapshots = chain_segment.clone();
         let deposit = Deposit {
-            proof: vec![Hash256::zero(); DEPOSIT_TREE_DEPTH + 1].into(),
+            proof: vec![Hash256::zero(); DEPOSIT_TREE_DEPTH + 1]
+                .try_into()
+                .unwrap(),
             data: DepositData {
                 pubkey: Keypair::random().pk.into(),
                 withdrawal_credentials: Hash256::zero(),
@@ -929,11 +1065,11 @@ async fn invalid_signature_deposit() {
             Arc::new(SignedBeaconBlock::from_block(block, signature));
         update_parent_roots(&mut snapshots, &mut chain_segment_blobs);
         update_proposal_signatures(&mut snapshots, &harness);
-        let blocks: Vec<RpcBlock<E>> = snapshots
+        let blocks: Vec<RangeSyncBlock<E>> = snapshots
             .iter()
             .zip(chain_segment_blobs.iter())
             .map(|(snapshot, blobs)| {
-                build_rpc_block(snapshot.beacon_block.clone(), blobs, &harness.spec)
+                build_range_sync_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
             })
             .collect();
         assert!(
@@ -998,11 +1134,10 @@ fn unwrap_err<T, U>(result: Result<T, U>) -> U {
 
 #[tokio::test]
 async fn block_gossip_verification() {
-    let harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
 
     let block_index = CHAIN_SEGMENT_LENGTH - 2;
-    let cgc = harness.chain.spec.custody_requirement as usize;
 
     harness
         .chain
@@ -1016,7 +1151,7 @@ async fn block_gossip_verification() {
     {
         let gossip_verified = harness
             .chain
-            .verify_block_for_gossip(snapshot.beacon_block.clone(), get_cgc(&blobs_opt))
+            .verify_block_for_gossip(snapshot.beacon_block.clone())
             .await
             .expect("should obtain gossip verified block");
 
@@ -1033,6 +1168,23 @@ async fn block_gossip_verification() {
             .expect("should import valid gossip verified block");
         if let Some(data_sidecars) = blobs_opt {
             verify_and_process_gossip_data_sidecars(&harness, data_sidecars).await;
+        }
+        // Post-Gloas, store the execution payload envelope so that subsequent blocks can look up
+        // the parent envelope. This must run after gossip column processing because marking the
+        // payload as received in fork choice causes the gossip column path's
+        // `is_block_data_imported` gate to reject otherwise-valid columns as duplicates.
+        if let Some(ref envelope) = snapshot.execution_envelope {
+            harness
+                .chain
+                .store
+                .put_payload_envelope(&snapshot.beacon_block_root, envelope)
+                .expect("should store envelope");
+            harness
+                .chain
+                .canonical_head
+                .fork_choice_write_lock()
+                .on_valid_payload_envelope_received(snapshot.beacon_block_root)
+                .expect("should update fork choice with envelope");
         }
     }
 
@@ -1058,7 +1210,7 @@ async fn block_gossip_verification() {
     *block.slot_mut() = expected_block_slot;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature)), cgc).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
             BlockError::FutureSlot {
                 present_slot,
                 block_slot,
@@ -1092,7 +1244,7 @@ async fn block_gossip_verification() {
     *block.slot_mut() = expected_finalized_slot;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature)), cgc).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
             BlockError::WouldRevertFinalizedSlot {
                 block_slot,
                 finalized_slot,
@@ -1122,10 +1274,10 @@ async fn block_gossip_verification() {
             unwrap_err(
                 harness
                     .chain
-                    .verify_block_for_gossip(
-                        Arc::new(SignedBeaconBlock::from_block(block, junk_signature())),
-                        cgc
-                    )
+                    .verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(
+                        block,
+                        junk_signature()
+                    )),)
                     .await
             ),
             BlockError::InvalidSignature(InvalidSignature::ProposerSignature)
@@ -1150,7 +1302,7 @@ async fn block_gossip_verification() {
     *block.parent_root_mut() = parent_root;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature)), cgc).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
             BlockError::ParentUnknown {parent_root: p}
             if p == parent_root
         ),
@@ -1176,7 +1328,7 @@ async fn block_gossip_verification() {
     *block.parent_root_mut() = parent_root;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature)), cgc).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
             BlockError::NotFinalizedDescendant { block_parent_root }
             if block_parent_root == parent_root
         ),
@@ -1213,7 +1365,7 @@ async fn block_gossip_verification() {
     );
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone()), cgc).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone())).await),
             BlockError::IncorrectBlockProposer {
                 block,
                 local_shuffling,
@@ -1225,7 +1377,12 @@ async fn block_gossip_verification() {
     // Check to ensure that we registered this is a valid block from this proposer.
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone()), cgc).await),
+            unwrap_err(
+                harness
+                    .chain
+                    .verify_block_for_gossip(Arc::new(block.clone()))
+                    .await
+            ),
             BlockError::DuplicateImportStatusUnknown(_),
         ),
         "should register any valid signature against the proposer, even if the block failed later verification"
@@ -1233,11 +1390,7 @@ async fn block_gossip_verification() {
 
     let block = chain_segment[block_index].beacon_block.clone();
     assert!(
-        harness
-            .chain
-            .verify_block_for_gossip(block, cgc)
-            .await
-            .is_ok(),
+        harness.chain.verify_block_for_gossip(block).await.is_ok(),
         "the valid block should be processed"
     );
 
@@ -1255,13 +1408,47 @@ async fn block_gossip_verification() {
         matches!(
             harness
                 .chain
-                .verify_block_for_gossip(block.clone(), cgc)
+                .verify_block_for_gossip(block.clone())
                 .await
                 .expect_err("should error when processing known block"),
             BlockError::DuplicateImportStatusUnknown(_)
         ),
         "the second proposal by this validator should be rejected"
     );
+
+    /*
+     * This test ensures that:
+     *
+     * We do not accept blocks with blob_kzg_commitments length larger than the max_blobs for that epoch.
+     */
+    let (mut block, signature) = chain_segment[block_index]
+        .beacon_block
+        .as_ref()
+        .clone()
+        .deconstruct();
+
+    let kzg_commitments_len = harness
+        .chain
+        .spec
+        .max_blobs_per_block(block.slot().epoch(E::slots_per_epoch()))
+        as usize;
+
+    if let Ok(kzg_commitments) = block.body_mut().blob_kzg_commitments_mut() {
+        *kzg_commitments = vec![KzgCommitment::empty_for_testing(); kzg_commitments_len + 1]
+            .try_into()
+            .unwrap();
+        assert!(
+            matches!(
+                unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
+                BlockError::InvalidBlobCount {
+                    max_blobs_at_epoch,
+                    block,
+                }
+                if max_blobs_at_epoch == kzg_commitments_len && block == kzg_commitments_len + 1
+            ),
+            "should not import a block with higher blob_kzg_commitment length than the max_blobs at epoch"
+        );
+    }
 }
 
 async fn verify_and_process_gossip_data_sidecars(
@@ -1294,7 +1481,7 @@ async fn verify_and_process_gossip_data_sidecars(
                     );
                     harness.chain.verify_data_column_sidecar_for_gossip(
                         column_sidecar.into_inner(),
-                        *subnet_id,
+                        subnet_id,
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()
@@ -1331,17 +1518,8 @@ async fn verify_block_for_gossip_slashing_detection() {
     let state = harness.get_current_state();
     let ((block1, blobs1), _) = harness.make_block(state.clone(), Slot::new(1)).await;
     let ((block2, _blobs2), _) = harness.make_block(state, Slot::new(1)).await;
-    let cgc = if block1.fork_name_unchecked().fulu_enabled() {
-        harness.get_sampling_column_count()
-    } else {
-        0
-    };
 
-    let verified_block = harness
-        .chain
-        .verify_block_for_gossip(block1, cgc)
-        .await
-        .unwrap();
+    let verified_block = harness.chain.verify_block_for_gossip(block1).await.unwrap();
 
     if let Some((kzg_proofs, blobs)) = blobs1 {
         harness
@@ -1364,7 +1542,7 @@ async fn verify_block_for_gossip_slashing_detection() {
         )
         .await
         .unwrap();
-    unwrap_err(harness.chain.verify_block_for_gossip(block2, CGC).await);
+    unwrap_err(harness.chain.verify_block_for_gossip(block2).await);
 
     // Slasher should have been handed the two conflicting blocks and crafted a slashing.
     slasher.process_queued(Epoch::new(0)).unwrap();
@@ -1378,7 +1556,7 @@ async fn verify_block_for_gossip_slashing_detection() {
 
 #[tokio::test]
 async fn verify_block_for_gossip_doppelganger_detection() {
-    let harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
 
     let state = harness.get_current_state();
     let ((block, _), _) = harness.make_block(state.clone(), Slot::new(1)).await;
@@ -1388,11 +1566,7 @@ async fn verify_block_for_gossip_doppelganger_detection() {
         .attestations()
         .map(|att| att.clone_as_attestation())
         .collect::<Vec<_>>();
-    let verified_block = harness
-        .chain
-        .verify_block_for_gossip(block, CGC)
-        .await
-        .unwrap();
+    let verified_block = harness.chain.verify_block_for_gossip(block).await.unwrap();
     harness
         .chain
         .process_block(
@@ -1428,24 +1602,30 @@ async fn verify_block_for_gossip_doppelganger_detection() {
             assert!(harness.chain.validator_seen_at_epoch(index, epoch));
 
             // Check the correct beacon cache is populated
-            assert!(harness
-                .chain
-                .observed_block_attesters
-                .read()
-                .validator_has_been_observed(epoch, index)
-                .expect("should check if block attester was observed"));
-            assert!(!harness
-                .chain
-                .observed_gossip_attesters
-                .read()
-                .validator_has_been_observed(epoch, index)
-                .expect("should check if gossip attester was observed"));
-            assert!(!harness
-                .chain
-                .observed_aggregators
-                .read()
-                .validator_has_been_observed(epoch, index)
-                .expect("should check if gossip aggregator was observed"));
+            assert!(
+                harness
+                    .chain
+                    .observed_block_attesters
+                    .read()
+                    .validator_has_been_observed(epoch, index)
+                    .expect("should check if block attester was observed")
+            );
+            assert!(
+                !harness
+                    .chain
+                    .observed_gossip_attesters
+                    .read()
+                    .validator_has_been_observed(epoch, index)
+                    .expect("should check if gossip attester was observed")
+            );
+            assert!(
+                !harness
+                    .chain
+                    .observed_aggregators
+                    .read()
+                    .validator_has_been_observed(epoch, index)
+                    .expect("should check if gossip aggregator was observed")
+            );
         }
     }
 }
@@ -1539,7 +1719,7 @@ async fn add_base_block_to_altair_chain() {
     assert!(matches!(
         harness
             .chain
-            .verify_block_for_gossip(Arc::new(base_block.clone()), CGC)
+            .verify_block_for_gossip(Arc::new(base_block.clone()))
             .await
             .expect_err("should error when processing base block"),
         BlockError::InconsistentFork(InconsistentFork {
@@ -1549,13 +1729,19 @@ async fn add_base_block_to_altair_chain() {
     ));
 
     // Ensure that it would be impossible to import via `BeaconChain::process_block`.
-    let base_rpc_block = RpcBlock::new_without_blobs(None, Arc::new(base_block.clone()), 0);
+    let base_range_sync_block = RangeSyncBlock::new(
+        Arc::new(base_block.clone()),
+        AvailableBlockData::NoData,
+        &harness.chain.data_availability_checker,
+        harness.spec.clone(),
+    )
+    .unwrap();
     assert!(matches!(
         harness
             .chain
             .process_block(
-                base_rpc_block.block_root(),
-                base_rpc_block,
+                base_range_sync_block.block_root(),
+                base_range_sync_block,
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
@@ -1573,7 +1759,15 @@ async fn add_base_block_to_altair_chain() {
         harness
             .chain
             .process_chain_segment(
-                vec![RpcBlock::new_without_blobs(None, Arc::new(base_block), 0)],
+                vec![
+                    RangeSyncBlock::new(
+                        Arc::new(base_block),
+                        AvailableBlockData::NoData,
+                        &harness.chain.data_availability_checker,
+                        harness.spec.clone()
+                    )
+                    .unwrap()
+                ],
                 NotifyExecutionLayer::Yes,
             )
             .await,
@@ -1676,7 +1870,7 @@ async fn add_altair_block_to_base_chain() {
     assert!(matches!(
         harness
             .chain
-            .verify_block_for_gossip(Arc::new(altair_block.clone()), CGC)
+            .verify_block_for_gossip(Arc::new(altair_block.clone()))
             .await
             .expect_err("should error when processing altair block"),
         BlockError::InconsistentFork(InconsistentFork {
@@ -1686,13 +1880,13 @@ async fn add_altair_block_to_base_chain() {
     ));
 
     // Ensure that it would be impossible to import via `BeaconChain::process_block`.
-    let altair_rpc_block = RpcBlock::new_without_blobs(None, Arc::new(altair_block.clone()), 0);
+    let altair_lookup_block = LookupBlock::new(Arc::new(altair_block.clone()));
     assert!(matches!(
         harness
             .chain
             .process_block(
-                altair_rpc_block.block_root(),
-                altair_rpc_block,
+                altair_lookup_block.block_root(),
+                altair_lookup_block,
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
@@ -1710,7 +1904,15 @@ async fn add_altair_block_to_base_chain() {
         harness
             .chain
             .process_chain_segment(
-                vec![RpcBlock::new_without_blobs(None, Arc::new(altair_block), 0)],
+                vec![
+                    RangeSyncBlock::new(
+                        Arc::new(altair_block),
+                        AvailableBlockData::NoData,
+                        &harness.chain.data_availability_checker,
+                        harness.spec.clone()
+                    )
+                    .unwrap()
+                ],
                 NotifyExecutionLayer::Yes
             )
             .await,
@@ -1724,12 +1926,12 @@ async fn add_altair_block_to_base_chain() {
     ));
 }
 
+// This is a regression test for this bug:
+// https://github.com/sigp/lighthouse/issues/4332#issuecomment-1565092279
 #[tokio::test]
 async fn import_duplicate_block_unrealized_justification() {
-    let spec = MainnetEthSpec::default_spec();
-
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
-        .spec(spec.into())
+        .default_spec()
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
@@ -1771,16 +1973,18 @@ async fn import_duplicate_block_unrealized_justification() {
     // Create two verified variants of the block, representing the same block being processed in
     // parallel.
     let notify_execution_layer = NotifyExecutionLayer::Yes;
-    let rpc_block = RpcBlock::new_without_blobs(
-        Some(block_root),
+    let range_sync_block = RangeSyncBlock::new(
         block.clone(),
-        harness.sampling_column_count,
-    );
-    let verified_block1 = rpc_block
+        AvailableBlockData::NoData,
+        &harness.chain.data_availability_checker,
+        harness.spec.clone(),
+    )
+    .unwrap();
+    let verified_block1 = range_sync_block
         .clone()
         .into_execution_pending_block(block_root, chain, notify_execution_layer)
         .unwrap();
-    let verified_block2 = rpc_block
+    let verified_block2 = range_sync_block
         .into_execution_pending_block(block_root, chain, notify_execution_layer)
         .unwrap();
 
@@ -1789,7 +1993,7 @@ async fn import_duplicate_block_unrealized_justification() {
         .await
         .unwrap();
 
-    // Unrealized justification should NOT have updated.
+    // The store's global unrealized justification should update immediately and match the block.
     let unrealized_justification = {
         let fc = chain.canonical_head.fork_choice_read_lock();
         assert_eq!(fc.justified_checkpoint().epoch, 0);
@@ -1806,9 +2010,12 @@ async fn import_duplicate_block_unrealized_justification() {
     };
 
     // Import the second verified block, simulating a block processed via RPC.
-    import_execution_pending_block(chain.clone(), verified_block2)
-        .await
-        .unwrap();
+    assert_eq!(
+        import_execution_pending_block(chain.clone(), verified_block2)
+            .await
+            .unwrap_err(),
+        format!("DuplicateFullyImported({block_root})")
+    );
 
     // Unrealized justification should still be updated.
     let fc3 = chain.canonical_head.fork_choice_read_lock();
@@ -1847,13 +2054,242 @@ async fn import_execution_pending_block<T: BeaconChainTypes>(
     }
 }
 
-fn get_cgc<E: EthSpec>(blobs_opt: &Option<DataSidecars<E>>) -> usize {
-    if let Some(data_sidecars) = blobs_opt.as_ref() {
-        match data_sidecars {
-            DataSidecars::Blobs(_) => 0,
-            DataSidecars::DataColumns(d) => d.len(),
-        }
-    } else {
-        0
+// Test that RpcBlock::new() rejects blocks when blob count doesn't match expected.
+#[tokio::test]
+async fn range_sync_block_construction_fails_with_wrong_blob_count() {
+    let spec = test_spec::<E>();
+
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).deneb_enabled()
+        || spec.fork_name_at_slot::<E>(Slot::new(0)).fulu_enabled()
+    {
+        return;
     }
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec.into())
+        .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
+        .node_custody_type(NodeCustodyType::Fullnode)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.advance_slot();
+
+    harness
+        .extend_chain(
+            E::slots_per_epoch() as usize * 2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Get a block with blobs
+    for slot in 1..=5 {
+        let root = harness
+            .chain
+            .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
+            .unwrap()
+            .unwrap();
+        let block = harness.chain.get_block(&root).await.unwrap().unwrap();
+
+        if let Ok(commitments) = block.message().body().blob_kzg_commitments()
+            && !commitments.is_empty()
+        {
+            let blobs = harness.chain.get_blobs(&root).unwrap().blobs().unwrap();
+
+            // Create AvailableBlockData with wrong number of blobs (remove one)
+            let mut wrong_blobs_vec: Vec<_> = blobs.iter().cloned().collect();
+            wrong_blobs_vec.pop();
+
+            let max_blobs = harness.spec.max_blobs_per_block(block.epoch()) as usize;
+            let wrong_blobs = ssz_types::RuntimeVariableList::new(wrong_blobs_vec, max_blobs)
+                .expect("should create BlobSidecarList");
+            let block_data = AvailableBlockData::new_with_blobs(wrong_blobs);
+
+            // Try to create RpcBlock with wrong blob count
+            let result = RangeSyncBlock::new(
+                Arc::new(block),
+                block_data,
+                &harness.chain.data_availability_checker,
+                harness.chain.spec.clone(),
+            );
+
+            // Should fail with MissingBlobs
+            assert!(
+                matches!(result, Err(AvailabilityCheckError::MissingBlobs)),
+                "RpcBlock construction should fail with wrong blob count, got: {:?}",
+                result
+            );
+            return;
+        }
+    }
+
+    panic!("No block with blobs found");
+}
+
+// Test that RpcBlock::new() rejects blocks when custody columns are incomplete.
+#[tokio::test]
+async fn range_sync_block_rejects_missing_custody_columns() {
+    let spec = test_spec::<E>();
+
+    // Gloas blocks don't have blob_kzg_commitments (blobs are in the execution payload envelope).
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).fulu_enabled()
+        || spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled()
+    {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec.into())
+        .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
+        .node_custody_type(NodeCustodyType::Fullnode)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.advance_slot();
+
+    // Extend chain to create some blocks with data columns
+    harness
+        .extend_chain(
+            5,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Get a block with data columns
+    for slot in 1..=5 {
+        let root = harness
+            .chain
+            .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
+            .unwrap()
+            .unwrap();
+        let block = harness.chain.get_block(&root).await.unwrap().unwrap();
+
+        if let Ok(commitments) = block.message().body().blob_kzg_commitments()
+            && !commitments.is_empty()
+        {
+            let fork_name = harness.chain.spec.fork_name_at_slot::<E>(block.slot());
+            let columns = harness
+                .chain
+                .get_data_columns(&root, fork_name)
+                .unwrap()
+                .unwrap();
+
+            if columns.len() > 1 {
+                // Create AvailableBlockData with incomplete columns (remove one)
+                let mut incomplete_columns: Vec<_> = columns.to_vec();
+                incomplete_columns.pop();
+
+                let block_data = AvailableBlockData::new_with_data_columns(incomplete_columns);
+
+                // Try to create RpcBlock with incomplete custody columns
+                let result = RangeSyncBlock::new(
+                    Arc::new(block),
+                    block_data,
+                    &harness.chain.data_availability_checker,
+                    harness.chain.spec.clone(),
+                );
+
+                // Should fail with MissingCustodyColumns
+                assert!(
+                    matches!(result, Err(AvailabilityCheckError::MissingCustodyColumns)),
+                    "RpcBlock construction should fail with missing custody columns, got: {:?}",
+                    result
+                );
+                return;
+            }
+        }
+    }
+
+    panic!("No block with data columns found");
+}
+
+// Test that RpcBlock::new() allows construction past the data availability boundary.
+// When a block is past the DA boundary, we should be able to construct an RpcBlock
+// with NoData even if the block has blob commitments, since columns are not expected.
+#[tokio::test]
+async fn rpc_block_allows_construction_past_da_boundary() {
+    let spec = test_spec::<E>();
+
+    // Gloas blocks don't have blob_kzg_commitments (blobs are in the execution payload envelope).
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).fulu_enabled()
+        || spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled()
+    {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec.into())
+        .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
+        .node_custody_type(NodeCustodyType::Fullnode)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.advance_slot();
+
+    // Extend chain to create some blocks with blob commitments
+    harness
+        .extend_chain(
+            5,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Find a block with blob commitments
+    for slot in 1..=5 {
+        let root = harness
+            .chain
+            .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
+            .unwrap()
+            .unwrap();
+        let block = harness.chain.get_block(&root).await.unwrap().unwrap();
+
+        if let Ok(commitments) = block.message().body().blob_kzg_commitments()
+            && !commitments.is_empty()
+        {
+            let block_epoch = block.epoch();
+
+            // Advance the slot clock far into the future, past the DA boundary
+            // For a block to be past the DA boundary:
+            // current_epoch - min_epochs_for_data_column_sidecars_requests > block_epoch
+            let min_epochs_for_data = harness.spec.min_epochs_for_data_column_sidecars_requests;
+            let future_epoch = block_epoch + min_epochs_for_data + 10;
+            let future_slot = future_epoch.start_slot(E::slots_per_epoch());
+            harness.chain.slot_clock.set_slot(future_slot.as_u64());
+
+            // Now verify the block is past the DA boundary
+            let da_boundary = harness
+                .chain
+                .data_availability_boundary()
+                .expect("DA boundary should be set");
+            assert!(
+                block_epoch < da_boundary,
+                "Block should be past the DA boundary. Block epoch: {}, DA boundary: {}",
+                block_epoch,
+                da_boundary
+            );
+
+            // Try to create RpcBlock with NoData for a block past DA boundary
+            // This should succeed since columns are not expected for blocks past DA boundary
+            let result = RangeSyncBlock::new(
+                Arc::new(block),
+                AvailableBlockData::NoData,
+                &harness.chain.data_availability_checker,
+                harness.chain.spec.clone(),
+            );
+
+            assert!(
+                result.is_ok(),
+                "RpcBlock construction should succeed for blocks past DA boundary, got: {:?}",
+                result
+            );
+            return;
+        }
+    }
+
+    panic!("No block with blob commitments found");
 }

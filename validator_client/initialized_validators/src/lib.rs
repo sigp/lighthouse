@@ -11,10 +11,11 @@ pub mod key_cache;
 use account_utils::{
     read_password, read_password_from_user, read_password_string,
     validator_definitions::{
-        self, SigningDefinition, ValidatorDefinition, ValidatorDefinitions, Web3SignerDefinition,
-        CONFIG_FILENAME,
+        self, CONFIG_FILENAME, SigningDefinition, ValidatorDefinition, ValidatorDefinitions,
+        Web3SignerDefinition,
     },
 };
+use bls::{Keypair, PublicKey, PublicKeyBytes};
 use eth2_keystore::Keystore;
 use lockfile::{Lockfile, LockfileError};
 use metrics::set_gauge;
@@ -30,7 +31,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
 use types::graffiti::GraffitiString;
-use types::{Address, Graffiti, Keypair, PublicKey, PublicKeyBytes};
+use types::{Address, Graffiti};
 use url::{ParseError, Url};
 use validator_dir::Builder as ValidatorDirBuilder;
 use zeroize::Zeroizing;
@@ -159,10 +160,10 @@ pub struct InitializedValidator {
 
 impl InitializedValidator {
     /// Return a reference to this validator's lockfile if it has one.
-    pub fn keystore_lockfile(&self) -> Option<MappedMutexGuard<Lockfile>> {
+    pub fn keystore_lockfile(&self) -> Option<MappedMutexGuard<'_, Lockfile>> {
         match self.signing_method.as_ref() {
             SigningMethod::LocalKeystore {
-                ref voting_keystore_lockfile,
+                voting_keystore_lockfile,
                 ..
             } => MutexGuard::try_map(voting_keystore_lockfile.lock(), |option_lockfile| {
                 option_lockfile.as_mut()
@@ -396,6 +397,7 @@ pub fn load_pem_certificate<P: AsRef<Path>>(pem_path: P) -> Result<Certificate, 
     Certificate::from_pem(&buf).map_err(Error::InvalidWeb3SignerRootCertificate)
 }
 
+// Read a PKCS12 identity certificate and parse it into a PEM certificate.
 pub fn load_pkcs12_identity<P: AsRef<Path>>(
     pkcs12_path: P,
     password: &str,
@@ -405,7 +407,29 @@ pub fn load_pkcs12_identity<P: AsRef<Path>>(
         .map_err(Error::InvalidWeb3SignerClientIdentityCertificateFile)?
         .read_to_end(&mut buf)
         .map_err(Error::InvalidWeb3SignerClientIdentityCertificateFile)?;
-    Identity::from_pkcs12_der(&buf, password)
+
+    let keystore = p12_keystore::KeyStore::from_pkcs12(&buf, password).map_err(|e| {
+        Error::InvalidWeb3SignerClientIdentityCertificateFile(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("PKCS12 parse error: {e:?}"),
+        ))
+    })?;
+
+    let (_alias, key_chain) = keystore
+        .private_key_chain()
+        .ok_or(Error::MissingWeb3SignerClientIdentityCertificateFile)?;
+
+    let key_pem = pem::encode(&pem::Pem::new("PRIVATE KEY", key_chain.key()));
+    let certs_pem: String = key_chain
+        .chain()
+        .iter()
+        .map(|cert| pem::encode(&pem::Pem::new("CERTIFICATE", cert.as_der())))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let combined_pem = format!("{key_pem}\n{certs_pem}");
+
+    Identity::from_pem(combined_pem.as_bytes())
         .map_err(Error::InvalidWeb3SignerClientIdentityCertificate)
 }
 
@@ -671,20 +695,19 @@ impl InitializedValidators {
 
         // 3. Delete from `self.validators`, which holds the signing method.
         //    Delete the keystore files.
-        if let Some(initialized_validator) = self.validators.remove(&pubkey.compress()) {
-            if let SigningMethod::LocalKeystore {
+        if let Some(initialized_validator) = self.validators.remove(&pubkey.compress())
+            && let SigningMethod::LocalKeystore {
                 ref voting_keystore_path,
                 ref voting_keystore_lockfile,
                 ref voting_keystore,
                 ..
             } = *initialized_validator.signing_method
-            {
-                // Drop the lock file so that it may be deleted. This is particularly important on
-                // Windows where the lockfile will fail to be deleted if it is still open.
-                drop(voting_keystore_lockfile.lock().take());
+        {
+            // Drop the lock file so that it may be deleted. This is particularly important on
+            // Windows where the lockfile will fail to be deleted if it is still open.
+            drop(voting_keystore_lockfile.lock().take());
 
-                self.delete_keystore_or_validator_dir(voting_keystore_path, voting_keystore)?;
-            }
+            self.delete_keystore_or_validator_dir(voting_keystore_path, voting_keystore)?;
         }
 
         // 4. Delete from validator definitions entirely.
@@ -695,17 +718,16 @@ impl InitializedValidators {
             .map_err(Error::UnableToSaveDefinitions)?;
 
         // 5. Delete the keystore password if it's not being used by any definition.
-        if let Some(password_path) = password_path_opt.and_then(|p| p.canonicalize().ok()) {
-            if self
+        if let Some(password_path) = password_path_opt.and_then(|p| p.canonicalize().ok())
+            && self
                 .definitions
                 .iter_voting_keystore_password_paths()
                 // Require canonicalized paths so we can do a true equality check.
                 .filter_map(|existing| existing.canonicalize().ok())
                 .all(|existing| existing != password_path)
-            {
-                fs::remove_file(&password_path)
-                    .map_err(|e| Error::UnableToDeletePasswordFile(password_path, e))?;
-            }
+        {
+            fs::remove_file(&password_path)
+                .map_err(|e| Error::UnableToDeletePasswordFile(password_path, e))?;
         }
 
         Ok(keystore_and_password)
@@ -723,14 +745,13 @@ impl InitializedValidators {
         // If the parent directory is a `ValidatorDir` within `self.validators_dir`, then
         // delete the entire directory so that it may be recreated if the keystore is
         // re-imported.
-        if let Some(validator_dir) = voting_keystore_path.parent() {
-            if validator_dir
+        if let Some(validator_dir) = voting_keystore_path.parent()
+            && validator_dir
                 == ValidatorDirBuilder::get_dir_path(&self.validators_dir, voting_keystore)
-            {
-                fs::remove_dir_all(validator_dir)
-                    .map_err(|e| Error::UnableToDeleteValidatorDir(validator_dir.into(), e))?;
-                return Ok(());
-            }
+        {
+            fs::remove_dir_all(validator_dir)
+                .map_err(|e| Error::UnableToDeleteValidatorDir(validator_dir.into(), e))?;
+            return Ok(());
         }
         // Otherwise just delete the keystore file.
         fs::remove_file(voting_keystore_path)
@@ -1415,7 +1436,7 @@ impl InitializedValidators {
         for def in self.definitions.as_mut_slice() {
             match &mut def.signing_definition {
                 SigningDefinition::LocalKeystore {
-                    ref mut voting_keystore_password,
+                    voting_keystore_password,
                     ..
                 } => {
                     if let Some(password) = voting_keystore_password.take() {

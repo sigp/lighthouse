@@ -68,15 +68,15 @@ use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
 use environment::Environment;
 use eth2::{
-    types::{BlockId, StateId},
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
+    types::{BlockId, StateId},
 };
 use eth2_network_config::Eth2NetworkConfig;
 use ssz::Encode;
 use state_processing::state_advance::complete_state_advance;
 use state_processing::{
-    block_signature_verifier::BlockSignatureVerifier, per_block_processing, AllCaches,
-    BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
+    AllCaches, BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
+    block_signature_verifier::BlockSignatureVerifier, per_block_processing,
 };
 use std::borrow::Cow;
 use std::fs::File;
@@ -154,7 +154,7 @@ pub fn run<E: EthSpec>(
                         .await
                         .map_err(|e| format!("Failed to download block: {:?}", e))?
                         .ok_or_else(|| format!("Unable to locate block at {:?}", block_id))?
-                        .data;
+                        .into_data();
 
                     if block.slot() == inner_spec.genesis_slot {
                         return Err("Cannot run on the genesis block".to_string());
@@ -165,7 +165,7 @@ pub fn run<E: EthSpec>(
                         .await
                         .map_err(|e| format!("Failed to download parent block: {:?}", e))?
                         .ok_or_else(|| format!("Unable to locate parent block at {:?}", block_id))?
-                        .data;
+                        .into_data();
 
                     let state_root = parent_block.state_root();
                     let state_id = StateId::Root(state_root);
@@ -174,7 +174,7 @@ pub fn run<E: EthSpec>(
                         .await
                         .map_err(|e| format!("Failed to download state: {:?}", e))?
                         .ok_or_else(|| format!("Unable to locate state at {:?}", state_id))?
-                        .data;
+                        .into_data();
 
                     Ok((pre_state, Some(state_root), block))
                 })
@@ -184,7 +184,7 @@ pub fn run<E: EthSpec>(
             return Err(
                 "must supply *both* --pre-state-path and --block-path *or* only --beacon-url"
                     .into(),
-            )
+            );
         }
     };
 
@@ -354,10 +354,9 @@ fn do_transition<E: EthSpec>(
     let mut ctxt = if let Some(ctxt) = saved_ctxt {
         ctxt.clone()
     } else {
-        let ctxt = ConsensusContext::new(pre_state.slot())
+        ConsensusContext::new(pre_state.slot())
             .set_current_block_root(block_root)
-            .set_proposer_index(block.message().proposer_index());
-        ctxt
+            .set_proposer_index(block.message().proposer_index())
     };
 
     if !config.no_signature_verification {

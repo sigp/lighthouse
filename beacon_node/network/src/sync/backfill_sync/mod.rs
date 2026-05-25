@@ -8,27 +8,34 @@
 //! If a batch fails, the backfill sync cannot progress. In this scenario, we mark the backfill
 //! sync as failed, log an error and attempt to retry once a new peer joins the node.
 
+use crate::metrics;
 use crate::network_beacon_processor::ChainSegmentProcessId;
+use crate::sync::batch::{
+    BatchConfig, BatchId, BatchInfo, BatchMetricsState, BatchOperationOutcome,
+    BatchProcessingResult, BatchState,
+};
+use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::manager::BatchProcessResult;
 use crate::sync::network_context::{
     RangeRequestId, RpcRequestSendError, RpcResponseError, SyncNetworkContext,
 };
-use crate::sync::range_sync::{
-    BatchConfig, BatchId, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
-};
-use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::block_verification_types::RangeSyncBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::service::api_types::Id;
 use lighthouse_network::types::{BackFillState, NetworkGlobals};
 use lighthouse_network::{PeerAction, PeerId};
 use logging::crit;
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{
-    btree_map::{BTreeMap, Entry},
     HashSet,
+    btree_map::{BTreeMap, Entry},
 };
+use std::hash::{Hash, Hasher};
+use std::marker::PhantomData;
 use std::sync::Arc;
-use tracing::{debug, error, info, instrument, warn};
-use types::{Epoch, EthSpec};
+use strum::IntoEnumIterator;
+use tracing::{debug, error, info, warn};
+use types::{ColumnIndex, Epoch, EthSpec};
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of
 /// blocks per batch are requested _at most_. A batch may request less blocks to account for
@@ -39,7 +46,7 @@ use types::{Epoch, EthSpec};
 pub const BACKFILL_EPOCHS_PER_BATCH: u64 = 1;
 
 /// The maximum number of batches to queue before requesting more.
-const BACKFILL_BATCH_BUFFER_SIZE: u8 = 20;
+const BACKFILL_BATCH_BUFFER_SIZE: u8 = 5;
 
 /// The number of times to retry a batch before it is considered failed.
 const MAX_BATCH_DOWNLOAD_ATTEMPTS: u8 = 10;
@@ -48,21 +55,27 @@ const MAX_BATCH_DOWNLOAD_ATTEMPTS: u8 = 10;
 /// after `MAX_BATCH_PROCESSING_ATTEMPTS` times, it is considered faulty.
 const MAX_BATCH_PROCESSING_ATTEMPTS: u8 = 10;
 
-/// Custom configuration for the batch object.
-struct BackFillBatchConfig {}
+type RpcBlocks<E> = Vec<RangeSyncBlock<E>>;
 
-impl BatchConfig for BackFillBatchConfig {
+type BackFillBatchInfo<E> = BatchInfo<E, BackFillBatchConfig<E>, RpcBlocks<E>>;
+
+type BackFillSyncBatches<E> = BTreeMap<BatchId, BackFillBatchInfo<E>>;
+
+/// Custom configuration for the batch object.
+struct BackFillBatchConfig<E: EthSpec> {
+    marker: PhantomData<E>,
+}
+
+impl<E: EthSpec> BatchConfig for BackFillBatchConfig<E> {
     fn max_batch_download_attempts() -> u8 {
         MAX_BATCH_DOWNLOAD_ATTEMPTS
     }
     fn max_batch_processing_attempts() -> u8 {
         MAX_BATCH_PROCESSING_ATTEMPTS
     }
-    fn batch_attempt_hash<E: EthSpec>(blocks: &[RpcBlock<E>]) -> u64 {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
+    fn batch_attempt_hash<D: Hash>(data: &D) -> u64 {
         let mut hasher = DefaultHasher::new();
-        blocks.hash(&mut hasher);
+        data.hash(&mut hasher);
         hasher.finish()
     }
 }
@@ -120,7 +133,7 @@ pub struct BackFillSync<T: BeaconChainTypes> {
     last_batch_downloaded: bool,
 
     /// Sorted map of batches undergoing some kind of processing.
-    batches: BTreeMap<BatchId, BatchInfo<T::EthSpec, BackFillBatchConfig>>,
+    batches: BackFillSyncBatches<T::EthSpec>,
 
     /// The current processing batch, if any.
     current_processing_batch: Option<BatchId>,
@@ -147,11 +160,6 @@ pub struct BackFillSync<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> BackFillSync<T> {
-    #[instrument(parent = None,
-        level = "info",
-        name = "backfill_sync",
-        skip_all
-    )]
     pub fn new(
         beacon_chain: Arc<BeaconChain<T>>,
         network_globals: Arc<NetworkGlobals<T::EthSpec>>,
@@ -192,12 +200,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     }
 
     /// Pauses the backfill sync if it's currently syncing.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "backfill_sync"),
-        name = "backfill_sync",
-        skip_all
-    )]
     pub fn pause(&mut self) {
         if let BackFillState::Syncing = self.state() {
             debug!(processed_epochs = %self.validated_batches, to_be_processed = %self.current_start,"Backfill sync paused");
@@ -209,12 +211,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     ///
     /// If resuming is successful, reports back the current syncing metrics.
     #[must_use = "A failure here indicates the backfill sync has failed and the global sync state should be updated"]
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "backfill_sync"),
-        name = "backfill_sync",
-        skip_all
-    )]
     pub fn start(
         &mut self,
         network: &mut SyncNetworkContext<T>,
@@ -226,9 +222,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     .network_globals
                     .peers
                     .read()
-                    .synced_peers()
+                    .synced_peers_for_epoch(self.to_be_downloaded)
                     .next()
                     .is_some()
+                    // backfill can't progress if we do not have peers in the required subnets post peerdas.
+                    && self.good_peers_on_sampling_subnets(self.to_be_downloaded, network)
                 {
                     // If there are peers to resume with, begin the resume.
                     debug!(start_epoch = ?self.current_start, awaiting_batches = self.batches.len(), processing_target = ?self.processing_target, "Resuming backfill sync");
@@ -290,12 +288,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// A fully synced peer has joined us.
     /// If we are in a failed state, update a local variable to indicate we are able to restart
     /// the failed sync on the next attempt.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "backfill_sync"),
-        name = "backfill_sync",
-        skip_all
-    )]
     pub fn fully_synced_peer_joined(&mut self) {
         if matches!(self.state(), BackFillState::Failed) {
             self.restart_failed_sync = true;
@@ -304,12 +296,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
     /// A peer has disconnected.
     /// If the peer has active batches, those are considered failed and re-requested.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "backfill_sync"),
-        name = "backfill_sync",
-        skip_all
-    )]
     #[must_use = "A failure here indicates the backfill sync has failed and the global sync state should be updated"]
     pub fn peer_disconnected(&mut self, peer_id: &PeerId) -> Result<(), BackFillError> {
         if matches!(self.state(), BackFillState::Failed) {
@@ -324,12 +310,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// An RPC error has occurred.
     ///
     /// If the batch exists it is re-requested.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "backfill_sync"),
-        name = "backfill_sync",
-        skip_all
-    )]
     #[must_use = "A failure here indicates the backfill sync has failed and the global sync state should be updated"]
     pub fn inject_error(
         &mut self,
@@ -340,12 +320,48 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         err: RpcResponseError,
     ) -> Result<(), BackFillError> {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
+            if let RpcResponseError::BlockComponentCouplingError(coupling_error) = &err {
+                match coupling_error {
+                    CouplingError::DataColumnPeerFailure {
+                        error,
+                        faulty_peers,
+                        exceeded_retries,
+                    } => {
+                        debug!(?batch_id, error, "Block components coupling error");
+                        // Note: we don't fail the batch here because a `CouplingError` is
+                        // recoverable by requesting from other honest peers.
+                        let mut failed_columns = HashSet::new();
+                        let mut failed_peers = HashSet::new();
+                        for (column, peer) in faulty_peers {
+                            failed_columns.insert(*column);
+                            failed_peers.insert(*peer);
+                        }
+
+                        // Only retry if peer failure **and** retries haven't been exceeded
+                        if !*exceeded_retries {
+                            return self.retry_partial_batch(
+                                network,
+                                batch_id,
+                                request_id,
+                                failed_columns,
+                                failed_peers,
+                            );
+                        }
+                    }
+                    CouplingError::BlobPeerFailure(msg) => {
+                        debug!(?batch_id, msg, "Blob peer failure");
+                    }
+                    CouplingError::InternalError(msg) => {
+                        error!(?batch_id, msg, "Block components coupling internal error");
+                    }
+                }
+            }
             // A batch could be retried without the peer failing the request (disconnecting/
             // sending an error /timeout) if the peer is removed from the chain for other
             // reasons. Check that this block belongs to the expected peer
             // TODO(das): removed peer_id matching as the node may request a different peer for data
             // columns.
-            if !batch.is_expecting_block(&request_id) {
+            if !batch.is_expecting_request_id(&request_id) {
                 return Ok(());
             }
             debug!(batch_epoch = %batch_id, error = ?err, "Batch download failed");
@@ -367,12 +383,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// If this returns an error, the backfill sync has failed and will be restarted once new peers
     /// join the system.
     /// The sync manager should update the global sync state on failure.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "backfill_sync"),
-        name = "backfill_sync",
-        skip_all
-    )]
     #[must_use = "A failure here indicates the backfill sync has failed and the global sync state should be updated"]
     pub fn on_block_response(
         &mut self,
@@ -380,7 +390,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         batch_id: BatchId,
         peer_id: &PeerId,
         request_id: Id,
-        blocks: Vec<RpcBlock<T::EthSpec>>,
+        blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) -> Result<ProcessResult, BackFillError> {
         // check if we have this batch
         let Some(batch) = self.batches.get_mut(&batch_id) else {
@@ -395,12 +405,13 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         // sending an error /timeout) if the peer is removed from the chain for other
         // reasons. Check that this block belongs to the expected peer, and that the
         // request_id matches
-        if !batch.is_expecting_block(&request_id) {
+        if !batch.is_expecting_request_id(&request_id) {
             return Ok(ProcessResult::Successful);
         }
+        let received = blocks.len();
 
         match batch.download_completed(blocks, *peer_id) {
-            Ok(received) => {
+            Ok(_) => {
                 let awaiting_batches =
                     self.processing_target.saturating_sub(batch_id) / BACKFILL_EPOCHS_PER_BATCH;
                 debug!(
@@ -424,12 +435,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// The syncing process has failed.
     ///
     /// This resets past variables, to allow for a fresh start when resuming.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "backfill_sync"),
-        name = "backfill_sync",
-        skip_all
-    )]
     fn fail_sync(&mut self, error: BackFillError) -> Result<(), BackFillError> {
         // Some errors shouldn't fail the chain.
         if matches!(error, BackFillError::Paused) {
@@ -461,12 +466,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
     /// Processes the batch with the given id.
     /// The batch must exist and be ready for processing
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "backfill_sync"),
-        name = "backfill_sync",
-        skip_all
-    )]
     fn process_batch(
         &mut self,
         network: &mut SyncNetworkContext<T>,
@@ -494,7 +493,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             Err(e) => {
                 return self
                     .fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))
-                    .map(|_| ProcessResult::Successful)
+                    .map(|_| ProcessResult::Successful);
             }
             Ok(v) => v,
         };
@@ -525,12 +524,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// The block processor has completed processing a batch. This function handles the result
     /// of the batch processor.
     /// If an error is returned the BackFill sync has failed.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "backfill_sync"),
-        name = "backfill_sync",
-        skip_all
-    )]
     #[must_use = "A failure here indicates the backfill sync has failed and the global sync state should be updated"]
     pub fn on_batch_process_result(
         &mut self,
@@ -683,12 +676,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     }
 
     /// Processes the next ready batch.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "backfill_sync"),
-        name = "backfill_sync",
-        skip_all
-    )]
     fn process_completed_batches(
         &mut self,
         network: &mut SyncNetworkContext<T>,
@@ -709,11 +696,12 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     // Batch is not ready, nothing to process
                 }
                 BatchState::Poisoned => unreachable!("Poisoned batch"),
-                BatchState::Failed | BatchState::AwaitingDownload | BatchState::Processing(_) => {
+                // Batches can be in `AwaitingDownload` state if there weren't good data column subnet
+                // peers to send the request to.
+                BatchState::AwaitingDownload => return Ok(ProcessResult::Successful),
+                BatchState::Failed | BatchState::Processing(_) => {
                     // these are all inconsistent states:
                     // - Failed -> non recoverable batch. Chain should have been removed
-                    // - AwaitingDownload -> A recoverable failed batch should have been
-                    //   re-requested.
                     // - Processing -> `self.current_processing_batch` is None
                     self.fail_sync(BackFillError::InvalidSyncState(String::from(
                         "Invalid expected batch state",
@@ -752,12 +740,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     ///
     /// If a previous batch has been validated and it had been re-processed, penalize the original
     /// peer.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "backfill_sync"),
-        name = "backfill_sync",
-        skip_all
-    )]
     fn advance_chain(&mut self, network: &mut SyncNetworkContext<T>, validating_epoch: Epoch) {
         // make sure this epoch produces an advancement
         if validating_epoch >= self.current_start {
@@ -776,7 +758,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             // only for batches awaiting validation can we be sure the last attempt is
             // right, and thus, that any different attempt is wrong
             match batch.state() {
-                BatchState::AwaitingValidation(ref processed_attempt) => {
+                BatchState::AwaitingValidation(processed_attempt) => {
                     for attempt in batch.attempts() {
                         // The validated batch has been re-processed
                         if attempt.hash != processed_attempt.hash {
@@ -818,16 +800,17 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     }
                 }
                 BatchState::Downloading(..) => {}
-                BatchState::Failed | BatchState::Poisoned | BatchState::AwaitingDownload => {
+                BatchState::AwaitingDownload => return,
+                BatchState::Failed | BatchState::Poisoned => {
                     crit!("batch indicates inconsistent chain state while advancing chain")
                 }
                 BatchState::AwaitingProcessing(..) => {}
                 BatchState::Processing(_) => {
                     debug!(batch = %id, %batch, "Advancing chain while processing a batch");
-                    if let Some(processing_id) = self.current_processing_batch {
-                        if id >= processing_id {
-                            self.current_processing_batch = None;
-                        }
+                    if let Some(processing_id) = self.current_processing_batch
+                        && id >= processing_id
+                    {
+                        self.current_processing_batch = None;
                     }
                 }
             }
@@ -849,12 +832,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// These events occur when a peer has successfully responded with blocks, but the blocks we
     /// have received are incorrect or invalid. This indicates the peer has not performed as
     /// intended and can result in downvoting a peer.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "backfill_sync"),
-        name = "backfill_sync",
-        skip_all
-    )]
     fn handle_invalid_batch(
         &mut self,
         network: &mut SyncNetworkContext<T>,
@@ -878,7 +855,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         for (id, batch) in self
             .batches
             .iter_mut()
-            .filter(|(&id, _batch)| id > batch_id)
+            .filter(|&(&id, ref _batch)| id > batch_id)
         {
             match batch
                 .validation_failed()
@@ -906,23 +883,21 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     }
 
     /// Requests the batch assigned to the given id from a given peer.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "backfill_sync"),
-        name = "backfill_sync",
-        skip_all
-    )]
     fn send_batch(
         &mut self,
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> Result<(), BackFillError> {
+        if matches!(self.state(), BackFillState::Paused) {
+            return Err(BackFillError::Paused);
+        }
         if let Some(batch) = self.batches.get_mut(&batch_id) {
+            debug!(?batch_id, "Sending backfill batch");
             let synced_peers = self
                 .network_globals
                 .peers
                 .read()
-                .synced_peers()
+                .synced_peers_for_epoch(batch_id)
                 .cloned()
                 .collect::<HashSet<_>>();
 
@@ -933,6 +908,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 request,
                 RangeRequestId::BackfillSync { batch_id },
                 &synced_peers,
+                &synced_peers, // All synced peers have imported up to the finalized slot so they must have their custody columns available
                 &failed_peers,
             ) {
                 Ok(request_id) => {
@@ -970,7 +946,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                                 self.fail_sync(BackFillError::BatchDownloadFailed(batch_id))?
                             }
                             Ok(BatchOperationOutcome::Continue) => {
-                                return self.send_batch(network, batch_id)
+                                return self.send_batch(network, batch_id);
                             }
                         }
                     }
@@ -981,14 +957,55 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         Ok(())
     }
 
+    /// Retries partial column requests within the batch by creating new requests for the failed columns.
+    pub fn retry_partial_batch(
+        &mut self,
+        network: &mut SyncNetworkContext<T>,
+        batch_id: BatchId,
+        id: Id,
+        failed_columns: HashSet<ColumnIndex>,
+        mut failed_peers: HashSet<PeerId>,
+    ) -> Result<(), BackFillError> {
+        if let Some(batch) = self.batches.get_mut(&batch_id) {
+            failed_peers.extend(&batch.failed_peers());
+            let req = batch.to_blocks_by_range_request().0;
+
+            let synced_peers = network
+                .network_globals()
+                .peers
+                .read()
+                .synced_peers_for_epoch(batch_id)
+                .cloned()
+                .collect::<HashSet<_>>();
+
+            match network.retry_columns_by_range(
+                id,
+                &synced_peers,
+                &failed_peers,
+                req,
+                &failed_columns,
+            ) {
+                Ok(_) => {
+                    debug!(
+                        ?batch_id,
+                        id, "Retried column requests from different peers"
+                    );
+                    return Ok(());
+                }
+                Err(e) => {
+                    debug!(?batch_id, id, e, "Failed to retry partial batch");
+                }
+            }
+        } else {
+            return Err(BackFillError::InvalidSyncState(
+                "Batch should exist to be retried".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     /// When resuming a chain, this function searches for batches that need to be re-downloaded and
     /// transitions their state to redownload the batch.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "backfill_sync"),
-        name = "backfill_sync",
-        skip_all
-    )]
     fn resume_batches(&mut self, network: &mut SyncNetworkContext<T>) -> Result<(), BackFillError> {
         let batch_ids_to_retry = self
             .batches
@@ -1013,12 +1030,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
     /// Attempts to request the next required batches from the peer pool if the chain is syncing. It will exhaust the peer
     /// pool and left over batches until the batch buffer is reached or all peers are exhausted.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "backfill_sync"),
-        name = "backfill_sync",
-        skip_all
-    )]
     fn request_batches(
         &mut self,
         network: &mut SyncNetworkContext<T>,
@@ -1043,12 +1054,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
     /// Creates the next required batch from the chain. If there are no more batches required,
     /// `false` is returned.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "backfill_sync"),
-        name = "backfill_sync",
-        skip_all
-    )]
     fn include_next_batch(&mut self, network: &mut SyncNetworkContext<T>) -> Option<BatchId> {
         // don't request batches beyond genesis;
         if self.last_batch_downloaded {
@@ -1058,7 +1063,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         // only request batches up to the buffer size limit
         // NOTE: we don't count batches in the AwaitingValidation state, to prevent stalling sync
         // if the current processing window is contained in a long range of skip slots.
-        let in_buffer = |batch: &BatchInfo<T::EthSpec, BackFillBatchConfig>| {
+        let in_buffer = |batch: &BackFillBatchInfo<T::EthSpec>| {
             matches!(
                 batch.state(),
                 BatchState::Downloading(..) | BatchState::AwaitingProcessing(..)
@@ -1069,8 +1074,13 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             .iter()
             .filter(|&(_epoch, batch)| in_buffer(batch))
             .count()
-            > BACKFILL_BATCH_BUFFER_SIZE as usize
+            >= BACKFILL_BATCH_BUFFER_SIZE as usize
         {
+            return None;
+        }
+
+        if !self.good_peers_on_sampling_subnets(self.to_be_downloaded, network) {
+            debug!("Waiting for peers to be available on custody column subnets");
             return None;
         }
 
@@ -1106,16 +1116,38 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         }
     }
 
+    /// Checks all sampling column subnets for peers. Returns `true` if there is at least one peer in
+    /// every sampling column subnet.
+    ///
+    /// Returns `true` if peerdas isn't enabled for the epoch.
+    fn good_peers_on_sampling_subnets(
+        &self,
+        epoch: Epoch,
+        network: &SyncNetworkContext<T>,
+    ) -> bool {
+        if network.chain.spec.is_peer_das_enabled_for_epoch(epoch) {
+            // Require peers on all sampling column subnets before sending batches
+            network
+                .network_globals()
+                .sampling_subnets()
+                .iter()
+                .all(|subnet_id| {
+                    let min_peer_count = 1;
+                    network
+                        .network_globals()
+                        .peers
+                        .read()
+                        .has_good_peers_in_custody_subnet(subnet_id, min_peer_count)
+                })
+        } else {
+            true
+        }
+    }
+
     /// Resets the start epoch based on the beacon chain.
     ///
     /// This errors if the beacon chain indicates that backfill sync has already completed or is
     /// not required.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "backfill_sync"),
-        name = "backfill_sync",
-        skip_all
-    )]
     fn reset_start_epoch(&mut self) -> Result<(), ResetEpochError> {
         let anchor_info = self.beacon_chain.store.get_anchor_info();
         if anchor_info.block_backfill_complete(self.beacon_chain.genesis_backfill_slot) {
@@ -1129,12 +1161,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     }
 
     /// Checks with the beacon chain if backfill sync has completed.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "backfill_sync"),
-        name = "backfill_sync",
-        skip_all
-    )]
     fn check_completed(&mut self) -> bool {
         if self.would_complete(self.current_start) {
             // Check that the beacon chain agrees
@@ -1150,12 +1176,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     }
 
     /// Checks if backfill would complete by syncing to `start_epoch`.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "backfill_sync"),
-        name = "backfill_sync",
-        skip_all
-    )]
     fn would_complete(&self, start_epoch: Epoch) -> bool {
         start_epoch
             <= self
@@ -1164,23 +1184,26 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 .epoch(T::EthSpec::slots_per_epoch())
     }
 
+    pub fn register_metrics(&self) {
+        for state in BatchMetricsState::iter() {
+            let count = self
+                .batches
+                .values()
+                .filter(|b| b.state().metrics_state() == state)
+                .count();
+            metrics::set_gauge_vec(
+                &metrics::SYNCING_CHAIN_BATCHES,
+                &["backfill", state.into()],
+                count as i64,
+            );
+        }
+    }
+
     /// Updates the global network state indicating the current state of a backfill sync.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "backfill_sync"),
-        name = "backfill_sync",
-        skip_all
-    )]
     fn set_state(&self, state: BackFillState) {
         *self.network_globals.backfill_state.write() = state;
     }
 
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "backfill_sync"),
-        name = "backfill_sync",
-        skip_all
-    )]
     fn state(&self) -> BackFillState {
         self.network_globals.backfill_state.read().clone()
     }
@@ -1198,8 +1221,8 @@ mod tests {
     use beacon_chain::test_utils::BeaconChainHarness;
     use bls::Hash256;
     use lighthouse_network::{NetworkConfig, SyncInfo, SyncStatus};
-    use rand::prelude::StdRng;
-    use rand::SeedableRng;
+    use rand_08::SeedableRng;
+    use rand_08::prelude::StdRng;
     use types::MinimalEthSpec;
 
     #[test]
@@ -1243,6 +1266,7 @@ mod tests {
                         head_root: Hash256::random(),
                         finalized_epoch,
                         finalized_root: Hash256::random(),
+                        earliest_available_slot: None,
                     },
                 },
             );

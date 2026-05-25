@@ -353,126 +353,6 @@ See [Validator Inclusion APIs](./api_validator_inclusion.md).
 
 See [Validator Inclusion APIs](./api_validator_inclusion.md).
 
-## `/lighthouse/eth1/syncing`
-
-Returns information regarding execution layer, as it is required for use in
-consensus layer
-
-### Fields
-
-- `head_block_number`, `head_block_timestamp`: the block number and timestamp
-from the very head of the execution chain. Useful for understanding the immediate
-health of the execution node that the beacon node is connected to.
-- `latest_cached_block_number` & `latest_cached_block_timestamp`: the block
-number and timestamp of the latest block we have in our block cache.
-  - For correct execution client voting this timestamp should be later than the
-`voting_target_timestamp`.
-
-- `voting_target_timestamp`: The latest timestamp allowed for an execution layer block in this voting period.
-- `eth1_node_sync_status_percentage` (float): An estimate of how far the head of the
-  execution node is from the head of the execution chain.
-  - `100.0` indicates a fully synced execution node.
-  - `0.0` indicates an execution node that has not verified any blocks past the
-  genesis block.
-- `lighthouse_is_cached_and_ready`: Is set to `true` if the caches in the
- beacon node are ready for block production.
-  - This value might be set to
- `false` whilst `eth1_node_sync_status_percentage == 100.0` if the beacon
- node is still building its internal cache.
-  - This value might be set to `true` whilst
- `eth1_node_sync_status_percentage < 100.0` since the cache only cares
- about blocks a certain distance behind the head.
-
-### Example
-
-```bash
-curl -X GET "http://localhost:5052/lighthouse/eth1/syncing" -H  "accept: application/json" | jq
-```
-
-```json
-{
-  "data": {
-    "head_block_number": 3611806,
-    "head_block_timestamp": 1603249317,
-    "latest_cached_block_number": 3610758,
-    "latest_cached_block_timestamp": 1603233597,
-    "voting_target_timestamp": 1603228632,
-    "eth1_node_sync_status_percentage": 100,
-    "lighthouse_is_cached_and_ready": true
-  }
-}
-```
-
-## `/lighthouse/eth1/block_cache`
-
-Returns a list of all the execution layer blocks in the execution client voting cache.
-
-### Example
-
-```bash
-curl -X GET "http://localhost:5052/lighthouse/eth1/block_cache" -H  "accept: application/json" | jq
-```
-
-```json
-{
-  "data": [
-    {
-      "hash": "0x3a17f4b7ae4ee57ef793c49ebc9c06ff85207a5e15a1d0bd37b68c5ef5710d7f",
-      "timestamp": 1603173338,
-      "number": 3606741,
-      "deposit_root": "0xd24920d936e8fb9b67e93fd126ce1d9e14058b6d82dcf7d35aea46879fae6dee",
-      "deposit_count": 88911
-    },
-    {
-      "hash": "0x78852954ea4904e5f81038f175b2adefbede74fbb2338212964405443431c1e7",
-      "timestamp": 1603173353,
-      "number": 3606742,
-      "deposit_root": "0xd24920d936e8fb9b67e93fd126ce1d9e14058b6d82dcf7d35aea46879fae6dee",
-      "deposit_count": 88911
-    }
-  ]
-}
-```
-
-## `/lighthouse/eth1/deposit_cache`
-
-Returns a list of all cached logs from the deposit contract.
-
-### Example
-
-```bash
-curl -X GET "http://localhost:5052/lighthouse/eth1/deposit_cache" -H  "accept: application/json" | jq
-```
-
-```json
-{
-  "data": [
-    {
-      "deposit_data": {
-        "pubkey": "0xae9e6a550ac71490cdf134533b1688fcbdb16f113d7190eacf4f2e9ca6e013d5bd08c37cb2bde9bbdec8ffb8edbd495b",
-        "withdrawal_credentials": "0x0062a90ebe71c4c01c4e057d7d13b944d9705f524ebfa24290c22477ab0517e4",
-        "amount": "32000000000",
-        "signature": "0xa87a4874d276982c471e981a113f8af74a31ffa7d18898a02df2419de2a7f02084065784aa2f743d9ddf80952986ea0b012190cd866f1f2d9c633a7a33c2725d0b181906d413c82e2c18323154a2f7c7ae6f72686782ed9e423070daa00db05b"
-      },
-      "block_number": 3086571,
-      "index": 0,
-      "signature_is_valid": false
-    },
-    {
-      "deposit_data": {
-        "pubkey": "0xb1d0ec8f907e023ea7b8cb1236be8a74d02ba3f13aba162da4a68e9ffa2e395134658d150ef884bcfaeecdf35c286496",
-        "withdrawal_credentials": "0x00a6aa2a632a6c4847cf87ef96d789058eb65bfaa4cc4e0ebc39237421c22e54",
-        "amount": "32000000000",
-        "signature": "0x8d0f8ec11935010202d6dde9ab437f8d835b9cfd5052c001be5af9304f650ada90c5363022e1f9ef2392dd222cfe55b40dfd52578468d2b2092588d4ad3745775ea4d8199216f3f90e57c9435c501946c030f7bfc8dbd715a55effa6674fd5a4"
-      },
-      "block_number": 3086579,
-      "index": 1,
-      "signature_is_valid": false
-    }
-  ]
-}
-```
-
 ## `/lighthouse/liveness`
 
 POST request that checks if any of the given validators have attested in the given epoch. Returns a list
@@ -565,7 +445,38 @@ For archive nodes, the `anchor` will be:
 
 indicating that all states with slots `>= 0` are available, i.e., full state history. For more information
 on the specific meanings of these fields see the docs on [Checkpoint
-Sync](./advanced_checkpoint_sync.md#reconstructing-states).
+Sync](./advanced_checkpoint_sync.md#how-to-run-an-archived-node).
+
+## `/lighthouse/custody/info`
+
+Information about data columns custody info.
+
+```bash
+curl "http://localhost:5052/lighthouse/custody/info" | jq
+```
+
+```json
+{
+  "earliest_custodied_data_column_slot": "8823040",
+  "custody_group_count": "4",
+  "custody_columns": [
+    "117",
+    "72",
+    "31",
+    "79"
+  ]
+}
+```
+
+## `/lighthouse/custody/backfill`
+
+Starts a custody backfill sync from the next epoch with the node's latest custody requirements. The sync won't begin immediately, it waits until the next epoch is finalized before triggering.
+
+This endpoint should only be used to fix nodes that may have partial custody columns due to a prior backfill bug (present in v8.0.0-rc.2). Use with caution as it re-downloads all historic custody data columns and may consume significant bandwidth.
+
+```bash
+curl -X POST "http://localhost:5052/lighthouse/custody/backfill"
+```
 
 ## `/lighthouse/merge_readiness`
 
@@ -600,180 +511,6 @@ As all testnets and Mainnet have been merged, both values will be the same after
   }
 }
 ```
-
-## `/lighthouse/analysis/attestation_performance/{index}`
-
-Fetch information about the attestation performance of a validator index or all validators for a
-range of consecutive epochs.
-
-Two query parameters are required:
-
-- `start_epoch` (inclusive): the first epoch to compute attestation performance for.
-- `end_epoch` (inclusive): the final epoch to compute attestation performance for.
-
-Example:
-
-```bash
-curl -X GET "http://localhost:5052/lighthouse/analysis/attestation_performance/1?start_epoch=1&end_epoch=1" | jq
-```
-
-```json
-[
-  {
-    "index": 1,
-    "epochs": {
-      "1": {
-        "active": true,
-        "head": true,
-        "target": true,
-        "source": true,
-        "delay": 1
-      }
-    }
-  }
-]
-```
-
-Instead of specifying a validator index, you can specify the entire validator set by using `global`:
-
-```bash
-curl -X GET "http://localhost:5052/lighthouse/analysis/attestation_performance/global?start_epoch=1&end_epoch=1" | jq
-```
-
-```json
-[
-  {
-    "index": 0,
-    "epochs": {
-      "1": {
-        "active": true,
-        "head": true,
-        "target": true,
-        "source": true,
-        "delay": 1
-      }
-    }
-  },
-  {
-    "index": 1,
-    "epochs": {
-      "1": {
-        "active": true,
-        "head": true,
-        "target": true,
-        "source": true,
-        "delay": 1
-      }
-    }
-  },
-  {
-    ..
-  }
-]
-
-```
-
-Caveats:
-
-- For maximum efficiency the start_epoch should satisfy `(start_epoch * slots_per_epoch) % slots_per_restore_point == 1`.
-  This is because the state *prior* to the `start_epoch` needs to be loaded from the database,
-  and loading a state on a boundary is most efficient.
-
-## `/lighthouse/analysis/block_rewards`
-
-Fetch information about the block rewards paid to proposers for a range of consecutive blocks.
-
-Two query parameters are required:
-
-- `start_slot` (inclusive): the slot of the first block to compute rewards for.
-- `end_slot` (inclusive): the slot of the last block to compute rewards for.
-
-Example:
-
-```bash
-curl -X GET "http://localhost:5052/lighthouse/analysis/block_rewards?start_slot=1&end_slot=1" | jq
-```
-
-The first few lines of the response would look like:
-
-```json
-[
-  {
-    "total": 637260,
-    "block_root": "0x4a089c5e390bb98e66b27358f157df825128ea953cee9d191229c0bcf423a4f6",
-    "meta": {
-      "slot": "1",
-      "parent_slot": "0",
-      "proposer_index": 93,
-      "graffiti": "EF #vm-eth2-raw-iron-101"
-    },
-    "attestation_rewards": {
-      "total": 637260,
-      "prev_epoch_total": 0,
-      "curr_epoch_total": 637260,
-      "per_attestation_rewards": [
-        {
-          "50102": 780,
-        }
-      ]
-    }
-  }
-]
-```
-
-Caveats:
-
-- Presently only attestation and sync committee rewards are computed.
-- The output format is verbose and subject to change. Please see [`BlockReward`][block_reward_src]
-  in the source.
-- For maximum efficiency the `start_slot` should satisfy `start_slot % slots_per_restore_point == 1`.
-  This is because the state *prior* to the `start_slot` needs to be loaded from the database, and
-  loading a state on a boundary is most efficient.
-
-[block_reward_src]:
-https://github.com/sigp/lighthouse/tree/unstable/common/eth2/src/lighthouse/block_rewards.rs
-
-## `/lighthouse/analysis/block_packing`
-
-Fetch information about the block packing efficiency of blocks for a range of consecutive
-epochs.
-
-Two query parameters are required:
-
-- `start_epoch` (inclusive): the epoch of the first block to compute packing efficiency for.
-- `end_epoch` (inclusive): the epoch of the last block to compute packing efficiency for.
-
-```bash
-curl -X GET "http://localhost:5052/lighthouse/analysis/block_packing_efficiency?start_epoch=1&end_epoch=1" | jq
-```
-
-An excerpt of the response looks like:
-
-```json
-[
-  {
-    "slot": "33",
-    "block_hash": "0xb20970bb97c6c6de6b1e2b689d6381dd15b3d3518fbaee032229495f963bd5da",
-    "proposer_info": {
-      "validator_index": 855,
-      "graffiti": "poapZoJ7zWNfK7F3nWjEausWVBvKa6gA"
-    },
-    "available_attestations": 3805,
-    "included_attestations": 1143,
-    "prior_skip_slots": 1
-  },
-  {
-    ..
-  }
-]
-```
-
-Caveats:
-
-- `start_epoch` must not be `0`.
-- For maximum efficiency the `start_epoch` should satisfy `(start_epoch * slots_per_epoch) % slots_per_restore_point == 1`.
-  This is because the state *prior* to the `start_epoch` needs to be loaded from the database, and
-  loading a state on a boundary is most efficient.
 
 ## `/lighthouse/logs`
 

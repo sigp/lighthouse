@@ -69,7 +69,6 @@ The steps to do port forwarding depends on the router, but the general steps are
 
     - On Linux: open a terminal and run `ip route | grep default`, the result should look something similar to `default via 192.168.50.1 dev wlp2s0 proto dhcp metric 600`. The `192.168.50.1` is your router management default gateway IP.
     - On macOS: open a terminal and run `netstat -nr|grep default` and it should return the default gateway IP.
-    - On Windows: open a command prompt and run `ipconfig` and look for the `Default Gateway` which will show you the gateway IP.
 
     The default gateway IP usually looks like 192.168.X.X. Once you obtain the IP, enter it to a web browser and it will lead you to the router management page.
 

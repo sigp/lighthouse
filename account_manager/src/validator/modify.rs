@@ -69,7 +69,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
             return Err(format!(
                 "{} does not have a {} command. See --help",
                 CMD, unknown
-            ))
+            ));
         }
         _ => return Err(format!("No command provided for {}. See --help", CMD)),
     };

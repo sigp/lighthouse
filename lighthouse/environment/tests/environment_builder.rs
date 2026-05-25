@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use environment::EnvironmentBuilder;
-use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
+use eth2_network_config::{DEFAULT_HARDCODED_NETWORK, Eth2NetworkConfig};
 use std::path::PathBuf;
 use types::{Config, MainnetEthSpec};
 

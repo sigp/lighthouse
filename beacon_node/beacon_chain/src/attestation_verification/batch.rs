@@ -13,7 +13,7 @@ use super::{
     CheckAttestationSignature, Error, IndexedAggregatedAttestation, IndexedUnaggregatedAttestation,
     VerifiedAggregatedAttestation, VerifiedUnaggregatedAttestation,
 };
-use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
+use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, metrics};
 use bls::verify_signature_sets;
 use state_processing::signature_sets::{
     indexed_attestation_signature_set_from_pubkeys, signed_aggregate_selection_proof_signature_set,
@@ -136,7 +136,7 @@ pub fn batch_verify_unaggregated_attestations<'a, T, I>(
 ) -> Result<Vec<Result<VerifiedUnaggregatedAttestation<'a, T>, Error>>, Error>
 where
     T: BeaconChainTypes,
-    I: Iterator<Item = (&'a Attestation<T::EthSpec>, Option<SubnetId>)> + ExactSizeIterator,
+    I: Iterator<Item = (&'a SingleAttestation, Option<SubnetId>)> + ExactSizeIterator,
 {
     let mut num_partially_verified = 0;
     let mut num_failed = 0;

@@ -1,21 +1,22 @@
+use std::hint::black_box;
 use std::sync::Arc;
 
 use beacon_chain::kzg_utils::{blobs_to_data_column_sidecars, reconstruct_data_columns};
 use beacon_chain::test_utils::get_kzg;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 
 use bls::Signature;
 use kzg::{KzgCommitment, KzgProof};
 use types::{
-    beacon_block_body::KzgCommitments, BeaconBlock, BeaconBlockDeneb, Blob, BlobsList, ChainSpec,
-    EmptyBlock, EthSpec, KzgProofs, MainnetEthSpec, SignedBeaconBlock,
+    BeaconBlock, BeaconBlockFulu, Blob, BlobsList, ChainSpec, EmptyBlock, EthSpec, KzgProofs,
+    MainnetEthSpec, SignedBeaconBlock, kzg_ext::KzgCommitments,
 };
 
 fn create_test_block_and_blobs<E: EthSpec>(
     num_of_blobs: usize,
     spec: &ChainSpec,
 ) -> (SignedBeaconBlock<E>, BlobsList<E>, KzgProofs<E>) {
-    let mut block = BeaconBlock::Deneb(BeaconBlockDeneb::empty(spec));
+    let mut block = BeaconBlock::Fulu(BeaconBlockFulu::empty(spec));
     let mut body = block.body_mut();
     let blob_kzg_commitments = body.blob_kzg_commitments_mut().unwrap();
     *blob_kzg_commitments =
@@ -26,8 +27,11 @@ fn create_test_block_and_blobs<E: EthSpec>(
     let blobs = (0..num_of_blobs)
         .map(|_| Blob::<E>::default())
         .collect::<Vec<_>>()
-        .into();
-    let proofs = vec![KzgProof::empty(); num_of_blobs * spec.number_of_columns as usize].into();
+        .try_into()
+        .unwrap();
+    let proofs = vec![KzgProof::empty(); num_of_blobs * E::number_of_columns()]
+        .try_into()
+        .unwrap();
 
     (signed_block, blobs, proofs)
 }
@@ -49,13 +53,21 @@ fn all_benches(c: &mut Criterion) {
         )
         .unwrap();
 
+        let kzg_commitments = signed_block
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .unwrap()
+            .clone();
+
         let spec = spec.clone();
 
         c.bench_function(&format!("reconstruct_{}", blob_count), |b| {
             b.iter(|| {
                 black_box(reconstruct_data_columns(
                     &kzg,
-                    &column_sidecars.iter().as_slice()[0..column_sidecars.len() / 2],
+                    column_sidecars.iter().as_slice()[0..column_sidecars.len() / 2].to_vec(),
+                    &kzg_commitments,
                     spec.as_ref(),
                 ))
             })

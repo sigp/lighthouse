@@ -1,6 +1,6 @@
 use crate::{
-    generic_public_key::{GenericPublicKey, TPublicKey},
     Error,
+    generic_public_key::{GenericPublicKey, TPublicKey},
 };
 use std::fmt::{self, Debug};
 use std::marker::PhantomData;

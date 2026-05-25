@@ -1,8 +1,8 @@
 #![cfg(any(feature = "mdbx", feature = "lmdb", feature = "redb"))]
 
 use slasher::{
-    test_utils::{chain_spec, indexed_att},
     Config, Slasher,
+    test_utils::{chain_spec, indexed_att},
 };
 use tempfile::tempdir;
 use types::Epoch;

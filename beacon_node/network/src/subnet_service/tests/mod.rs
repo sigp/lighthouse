@@ -1,14 +1,14 @@
 use super::*;
+use beacon_chain::test_utils::generate_data_column_indices_rand_order;
 use beacon_chain::{
-    builder::{BeaconChainBuilder, Witness},
-    eth1_chain::CachingEth1Backend,
-    test_utils::get_kzg,
     BeaconChain,
+    builder::{BeaconChainBuilder, Witness},
+    test_utils::get_kzg,
 };
-use genesis::{generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
+use genesis::{DEFAULT_ETH1_BLOCK_HASH, generate_deterministic_keypairs, interop_genesis_state};
 use lighthouse_network::NetworkConfig;
-use rand::rngs::StdRng;
 use rand::SeedableRng;
+use rand::rngs::StdRng;
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, SystemTime};
@@ -25,13 +25,7 @@ const SLOT_DURATION_MILLIS: u64 = 400;
 
 const TEST_LOG_LEVEL: Option<&str> = None;
 
-type TestBeaconChainType = Witness<
-    SystemTimeSlotClock,
-    CachingEth1Backend<MainnetEthSpec>,
-    MainnetEthSpec,
-    MemoryStore<MainnetEthSpec>,
-    MemoryStore<MainnetEthSpec>,
->;
+type TestBeaconChainType = Witness<SystemTimeSlotClock, MainnetEthSpec, MemoryStore, MemoryStore>;
 
 pub struct TestBeaconChain {
     chain: Arc<BeaconChain<TestBeaconChainType>>,
@@ -70,13 +64,14 @@ impl TestBeaconChain {
                     .expect("should generate interop state"),
                 )
                 .expect("should build state using recent genesis")
-                .dummy_eth1_backend()
-                .expect("should build dummy backend")
                 .slot_clock(SystemTimeSlotClock::new(
                     Slot::new(0),
                     Duration::from_secs(recent_genesis_time()),
                     Duration::from_millis(SLOT_DURATION_MILLIS),
                 ))
+                .ordered_custody_column_indices(generate_data_column_indices_rand_order::<
+                    MainnetEthSpec,
+                >())
                 .shutdown_sender(shutdown_tx)
                 .rng(Box::new(StdRng::seed_from_u64(42)))
                 .build()
@@ -98,10 +93,9 @@ pub fn recent_genesis_time() -> u64 {
 
 fn get_tracing_subscriber(log_level: Option<&str>) {
     if let Some(level) = log_level {
-        tracing_subscriber::fmt()
+        let _ = tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::try_new(level).unwrap())
-            .try_init()
-            .unwrap();
+            .try_init();
     }
 }
 
@@ -134,11 +128,10 @@ async fn get_events_until_timeout<S: Stream<Item = SubnetServiceMessage> + Unpin
         tokio::select! {
             Some(event) = stream.next() => {
                 events.push(event);
-                if let Some(num) = num_events {
-                    if events.len() == num {
+                if let Some(num) = num_events
+                    && events.len() == num {
                         break;
                     }
-                }
             }
             _ = sleep.as_mut() => {
                 break;
@@ -337,28 +330,26 @@ mod test {
         // submit the subscriptions
         subnet_service.validator_subscriptions(vec![sub1, sub2].into_iter());
 
-        // Unsubscription event should happen at slot 2 (since subnet id's are the same, unsubscription event should be at higher slot + 1)
-        let expected = SubnetServiceMessage::Subscribe(Subnet::Attestation(subnet_id1));
+        let subnet = Subnet::Attestation(subnet_id1);
 
-        if subnet_service.is_subscribed(&Subnet::Attestation(subnet_id1)) {
-            // If we are permanently subscribed to this subnet, we won't see a subscribe message
-            let _ = get_events_until_num_slots(&mut subnet_service, None, 1).await;
+        if subnet_service.is_subscribed_permanent(&subnet) {
+            // If permanently subscribed, no Subscribe/Unsubscribe events will be generated
+            let events = get_events_until_num_slots(&mut subnet_service, None, 3).await;
+            assert!(events.is_empty());
         } else {
-            let subscription = get_events_until_num_slots(&mut subnet_service, None, 1).await;
-            assert_eq!(subscription, [expected]);
+            // Wait 1 slot: expect a single Subscribe event (no duplicate for the same subnet).
+            let events = get_events_until_num_slots(&mut subnet_service, None, 1).await;
+            assert_eq!(events, [SubnetServiceMessage::Subscribe(subnet)]);
+
+            // Wait for the Unsubscribe event after subscription_slot2 expires.
+            // Use a longer timeout because the test doesn't start exactly at a slot
+            // boundary, so the previous 1-slot wait may end partway through slot 1,
+            // leaving insufficient time to catch the Unsubscribe within another 1 slot.
+            let events = get_events_until_num_slots(&mut subnet_service, Some(1), 3).await;
+            assert_eq!(events, [SubnetServiceMessage::Unsubscribe(subnet)]);
         }
 
-        // Get event for 1 more slot duration, we should get the unsubscribe event now.
-        let unsubscribe_event = get_events_until_num_slots(&mut subnet_service, None, 1).await;
-
-        // If the long lived and short lived subnets are different, we should get an unsubscription
-        // event.
-        let expected = SubnetServiceMessage::Unsubscribe(Subnet::Attestation(subnet_id1));
-        if !subnet_service.is_subscribed(&Subnet::Attestation(subnet_id1)) {
-            assert_eq!([expected], unsubscribe_event[..]);
-        }
-
-        // Should  no longer be subscribed to any short lived subnets after unsubscription.
+        // Should no longer be subscribed to any short lived subnets after unsubscription.
         assert_eq!(subnet_service.subscriptions().count(), 0);
     }
 
@@ -485,7 +476,7 @@ mod test {
         // and 1 `DiscoverPeer` request corresponding to the bulk subnet discovery.
 
         assert_eq!(discover_peer_count, 1 + 1); // Generates a single discovery for permanent
-                                                // subscriptions and 1 for the subscription
+        // subscriptions and 1 for the subscription
         assert_eq!(enr_add_count, subnets_per_node);
         assert_eq!(unexpected_msg_count, 0);
     }
@@ -588,7 +579,7 @@ mod test {
 
         println!("{events:?}");
         let subscription_slot = current_slot + subscription_slot2 - 1; // one less do to the
-                                                                       // advance subscription time
+        // advance subscription time
         let wait_duration = subnet_service
             .beacon_chain
             .slot_clock

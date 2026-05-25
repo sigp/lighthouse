@@ -1,4 +1,4 @@
-use crate::{signing_root_from_row, SigningRoot};
+use crate::{SigningRoot, signing_root_from_row};
 use types::{AttestationData, Epoch, Hash256, SignedRoot};
 
 /// An attestation that has previously been signed.

@@ -4,9 +4,17 @@ version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 
+[features]
+arbitrary = ["dep:arbitrary"]
+default = ["supranational"]
+fake_crypto = []
+supranational = ["blst"]
+supranational-portable = ["supranational", "blst/portable"]
+supranational-force-adx = ["supranational", "blst/force-adx"]
+
 [dependencies]
 alloy-primitives = { workspace = true }
-arbitrary = { workspace = true }
+arbitrary = { workspace = true, optional = true }
 blst = { version = "0.3.3", optional = true }
 ethereum_hashing = { workspace = true }
 ethereum_serde_utils = { workspace = true }
@@ -18,11 +26,3 @@ safe_arith = { workspace = true }
 serde = { workspace = true }
 tree_hash = { workspace = true }
 zeroize = { workspace = true }
-
-[features]
-arbitrary = []
-default = ["supranational"]
-fake_crypto = []
-supranational = ["blst"]
-supranational-portable = ["supranational", "blst/portable"]
-supranational-force-adx = ["supranational", "blst/force-adx"]

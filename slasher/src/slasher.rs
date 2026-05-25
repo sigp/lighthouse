@@ -5,8 +5,8 @@ use crate::metrics::{
     SLASHER_NUM_BLOCKS_PROCESSED,
 };
 use crate::{
-    array, AttestationBatch, AttestationQueue, AttesterRecord, BlockQueue, Config, Error,
-    IndexedAttestationId, ProposerSlashingStatus, RwTransaction, SimpleBatch, SlasherDB,
+    AttestationBatch, AttestationQueue, AttesterRecord, BlockQueue, Config, Error,
+    IndexedAttestationId, ProposerSlashingStatus, RwTransaction, SimpleBatch, SlasherDB, array,
 };
 use parking_lot::Mutex;
 use std::collections::HashSet;
@@ -72,6 +72,11 @@ impl<E: EthSpec> Slasher<E> {
 
     pub fn config(&self) -> &Config {
         &self.config
+    }
+
+    /// Return the number of attestations in the queue.
+    pub fn attestation_queue_len(&self) -> usize {
+        self.attestation_queue.len()
     }
 
     /// Accept an attestation from the network and queue it for processing.

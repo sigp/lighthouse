@@ -1,10 +1,13 @@
 use crate::AttestationStats;
+use bls::AggregateSignature;
 use itertools::Itertools;
+use ssz::{BitList, BitVector};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use superstruct::superstruct;
+use typenum::Unsigned;
 use types::{
+    Attestation, AttestationData, BeaconState, Checkpoint, Epoch, EthSpec, Hash256, Slot,
     attestation::{AttestationBase, AttestationElectra},
-    superstruct, AggregateSignature, Attestation, AttestationData, BeaconState, BitList, BitVector,
-    Checkpoint, Epoch, EthSpec, Hash256, Slot, Unsigned,
 };
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
@@ -96,7 +99,7 @@ impl<E: EthSpec> SplitAttestation<E> {
         }
     }
 
-    pub fn as_ref(&self) -> CompactAttestationRef<E> {
+    pub fn as_ref(&self) -> CompactAttestationRef<'_, E> {
         CompactAttestationRef {
             checkpoint: &self.checkpoint,
             data: &self.data,
@@ -438,7 +441,7 @@ impl<E: EthSpec> AttestationMap<E> {
     }
 
     /// Iterate all attestations in the map.
-    pub fn iter(&self) -> impl Iterator<Item = CompactAttestationRef<E>> {
+    pub fn iter(&self) -> impl Iterator<Item = CompactAttestationRef<'_, E>> {
         self.checkpoint_map
             .iter()
             .flat_map(|(checkpoint_key, attestation_map)| attestation_map.iter(checkpoint_key))

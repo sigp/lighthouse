@@ -2,7 +2,7 @@ use serde::Serialize;
 use std::sync::Arc;
 use types::{
     AbstractExecPayload, BeaconState, EthSpec, FullPayload, Hash256, SignedBeaconBlock,
-    SignedBlindedBeaconBlock,
+    SignedBlindedBeaconBlock, SignedExecutionPayloadEnvelope,
 };
 
 /// Represents some block and its associated state. Generally, this will be used for tracking the
@@ -10,6 +10,7 @@ use types::{
 #[derive(Clone, Serialize, PartialEq, Debug)]
 pub struct BeaconSnapshot<E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload<E>> {
     pub beacon_block: Arc<SignedBeaconBlock<E, Payload>>,
+    pub execution_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
     pub beacon_block_root: Hash256,
     pub beacon_state: BeaconState<E>,
 }
@@ -31,11 +32,13 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconSnapshot<E, Payload> {
     /// Create a new checkpoint.
     pub fn new(
         beacon_block: Arc<SignedBeaconBlock<E, Payload>>,
+        execution_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
         beacon_block_root: Hash256,
         beacon_state: BeaconState<E>,
     ) -> Self {
         Self {
             beacon_block,
+            execution_envelope,
             beacon_block_root,
             beacon_state,
         }
@@ -54,10 +57,12 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconSnapshot<E, Payload> {
     pub fn update(
         &mut self,
         beacon_block: Arc<SignedBeaconBlock<E, Payload>>,
+        execution_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
         beacon_block_root: Hash256,
         beacon_state: BeaconState<E>,
     ) {
         self.beacon_block = beacon_block;
+        self.execution_envelope = execution_envelope;
         self.beacon_block_root = beacon_block_root;
         self.beacon_state = beacon_state;
     }

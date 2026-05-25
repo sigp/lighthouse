@@ -5,22 +5,21 @@ use regex::bytes::Regex;
 use serde::Serialize;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use ssz_types::{typenum::U256, VariableList};
-use std::collections::BTreeMap;
+use ssz_types::{RuntimeVariableList, VariableList, typenum::U256};
 use std::fmt::Display;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
-use types::blob_sidecar::BlobIdentifier;
-use types::light_client_update::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
+use types::data::BlobIdentifier;
+use types::light_client::consts::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
 use types::{
-    blob_sidecar::BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar,
-    Epoch, EthSpec, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, LightClientUpdate, RuntimeVariableList, SignedBeaconBlock, Slot,
+    BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnsByRootIdentifier, Epoch,
+    EthSpec, ForkContext, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
+    SignedExecutionPayloadEnvelope, Slot,
 };
-use types::{ForkContext, ForkName};
 
 /// Maximum length of error message.
 pub type MaxErrorLen = U256;
@@ -30,15 +29,21 @@ pub const MAX_ERROR_LEN: u64 = 256;
 #[derive(Debug, Clone)]
 pub struct ErrorType(pub VariableList<u8, MaxErrorLen>);
 
-impl From<String> for ErrorType {
-    fn from(s: String) -> Self {
-        Self(VariableList::from(s.as_bytes().to_vec()))
+impl From<&str> for ErrorType {
+    // This will truncate the error if `string.as_bytes()` exceeds `MaxErrorLen`.
+    fn from(s: &str) -> Self {
+        let mut bytes = s.as_bytes().to_vec();
+        bytes.truncate(MAX_ERROR_LEN as usize);
+        Self(
+            VariableList::try_from(bytes)
+                .expect("length should not exceed MaxErrorLen after truncation"),
+        )
     }
 }
 
-impl From<&str> for ErrorType {
-    fn from(s: &str) -> Self {
-        Self(VariableList::from(s.as_bytes().to_vec()))
+impl From<String> for ErrorType {
+    fn from(s: String) -> Self {
+        Self::from(s.as_str())
     }
 }
 
@@ -64,7 +69,11 @@ impl Display for ErrorType {
 /* Requests */
 
 /// The STATUS request/response handshake message.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[superstruct(
+    variants(V1, V2),
+    variant_attributes(derive(Encode, Decode, Clone, Debug, PartialEq),)
+)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct StatusMessage {
     /// The fork version of the chain we are broadcasting.
     pub fork_digest: [u8; 4],
@@ -80,6 +89,43 @@ pub struct StatusMessage {
 
     /// The slot associated with the latest block root.
     pub head_slot: Slot,
+
+    /// The slot after which we guarantee to have all the blocks
+    /// and blobs/data columns that we currently advertise.
+    #[superstruct(only(V2))]
+    pub earliest_available_slot: Slot,
+}
+
+impl StatusMessage {
+    pub fn status_v1(&self) -> StatusMessageV1 {
+        match &self {
+            Self::V1(status) => status.clone(),
+            Self::V2(status) => StatusMessageV1 {
+                fork_digest: status.fork_digest,
+                finalized_root: status.finalized_root,
+                finalized_epoch: status.finalized_epoch,
+                head_root: status.head_root,
+                head_slot: status.head_slot,
+            },
+        }
+    }
+
+    pub fn status_v2(&self) -> StatusMessageV2 {
+        match &self {
+            Self::V1(status) => StatusMessageV2 {
+                fork_digest: status.fork_digest,
+                finalized_root: status.finalized_root,
+                finalized_epoch: status.finalized_epoch,
+                head_root: status.head_root,
+                head_slot: status.head_slot,
+                // Note: we always produce a V2 message as our local
+                // status message, so this match arm should ideally never
+                // be invoked in lighthouse.
+                earliest_available_slot: Slot::new(0),
+            },
+            Self::V2(status) => status.clone(),
+        }
+    }
 }
 
 /// The PING request/response message.
@@ -317,6 +363,16 @@ impl BlocksByRangeRequest {
     }
 }
 
+/// Request a number of execution payload envelopes from a peer.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct PayloadEnvelopesByRangeRequest {
+    /// The starting slot to request execution payload envelopes.
+    pub start_slot: u64,
+
+    /// The number of slots from the start slot.
+    pub count: u64,
+}
+
 /// Request a number of beacon blobs from a peer.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BlobsByRangeRequest {
@@ -328,8 +384,8 @@ pub struct BlobsByRangeRequest {
 }
 
 impl BlobsByRangeRequest {
-    pub fn max_blobs_requested(&self, current_fork: ForkName, spec: &ChainSpec) -> u64 {
-        let max_blobs_per_block = spec.max_blobs_per_block_by_fork(current_fork);
+    pub fn max_blobs_requested(&self, epoch: Epoch, spec: &ChainSpec) -> u64 {
+        let max_blobs_per_block = spec.max_blobs_per_block(epoch);
         self.count.saturating_mul(max_blobs_per_block)
     }
 }
@@ -360,11 +416,11 @@ impl DataColumnsByRangeRequest {
         .len()
     }
 
-    pub fn ssz_max_len(spec: &ChainSpec) -> usize {
+    pub fn ssz_max_len<E: EthSpec>() -> usize {
         DataColumnsByRangeRequest {
             start_slot: 0,
             count: 0,
-            columns: vec![0; spec.number_of_columns as usize],
+            columns: vec![0; E::number_of_columns()],
         }
         .as_ssz_bytes()
         .len()
@@ -432,6 +488,18 @@ impl From<BlocksByRangeRequest> for OldBlocksByRangeRequest {
     }
 }
 
+/// Request a contiguous range of beacon blocks by walking the parent chain of `beacon_root`.
+///
+/// New in Fulu (see consensus-specs PR 5181). The responder walks the parent chain of
+/// `beacon_root` (inclusive) and emits up to `count` blocks in descending slot order.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct BlocksByHeadRequest {
+    /// The block root to start the parent walk from (inclusive).
+    pub beacon_root: Hash256,
+    /// The maximum number of blocks to return.
+    pub count: u64,
+}
+
 /// Request a number of beacon block bodies from a peer.
 #[superstruct(variants(V1, V2), variant_attributes(derive(Clone, Debug, PartialEq)))]
 #[derive(Clone, Debug, PartialEq)]
@@ -441,20 +509,45 @@ pub struct BlocksByRootRequest {
 }
 
 impl BlocksByRootRequest {
-    pub fn new(block_roots: Vec<Hash256>, fork_context: &ForkContext) -> Self {
+    pub fn new(block_roots: Vec<Hash256>, fork_context: &ForkContext) -> Result<Self, String> {
         let max_request_blocks = fork_context
             .spec
-            .max_request_blocks(fork_context.current_fork());
-        let block_roots = RuntimeVariableList::from_vec(block_roots, max_request_blocks);
-        Self::V2(BlocksByRootRequestV2 { block_roots })
+            .max_request_blocks(fork_context.current_fork_name());
+        let block_roots = RuntimeVariableList::new(block_roots, max_request_blocks)
+            .map_err(|e| format!("BlocksByRootRequestV2 too many roots: {e:?}"))?;
+        Ok(Self::V2(BlocksByRootRequestV2 { block_roots }))
     }
 
-    pub fn new_v1(block_roots: Vec<Hash256>, fork_context: &ForkContext) -> Self {
+    pub fn new_v1(block_roots: Vec<Hash256>, fork_context: &ForkContext) -> Result<Self, String> {
         let max_request_blocks = fork_context
             .spec
-            .max_request_blocks(fork_context.current_fork());
-        let block_roots = RuntimeVariableList::from_vec(block_roots, max_request_blocks);
-        Self::V1(BlocksByRootRequestV1 { block_roots })
+            .max_request_blocks(fork_context.current_fork_name());
+        let block_roots = RuntimeVariableList::new(block_roots, max_request_blocks)
+            .map_err(|e| format!("BlocksByRootRequestV1 too many roots: {e:?}"))?;
+        Ok(Self::V1(BlocksByRootRequestV1 { block_roots }))
+    }
+}
+
+/// Request a number of execution payload envelopes from a peer.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PayloadEnvelopesByRootRequest {
+    /// The list of beacon block roots used to request execution payload envelopes.
+    pub beacon_block_roots: RuntimeVariableList<Hash256>,
+}
+
+impl PayloadEnvelopesByRootRequest {
+    pub fn new(
+        beacon_block_roots: Vec<Hash256>,
+        fork_context: &ForkContext,
+    ) -> Result<Self, String> {
+        let max_requests_envelopes = fork_context.spec.max_request_payloads();
+
+        let beacon_block_roots =
+            RuntimeVariableList::new(beacon_block_roots, max_requests_envelopes).map_err(|e| {
+                format!("ExecutionPayloadEnvelopesByRootRequest too many beacon block roots: {e:?}")
+            })?;
+
+        Ok(Self { beacon_block_roots })
     }
 }
 
@@ -466,44 +559,35 @@ pub struct BlobsByRootRequest {
 }
 
 impl BlobsByRootRequest {
-    pub fn new(blob_ids: Vec<BlobIdentifier>, fork_context: &ForkContext) -> Self {
+    pub fn new(blob_ids: Vec<BlobIdentifier>, fork_context: &ForkContext) -> Result<Self, String> {
         let max_request_blob_sidecars = fork_context
             .spec
-            .max_request_blob_sidecars(fork_context.current_fork());
-        let blob_ids = RuntimeVariableList::from_vec(blob_ids, max_request_blob_sidecars);
-        Self { blob_ids }
+            .max_request_blob_sidecars(fork_context.current_fork_name());
+        let blob_ids = RuntimeVariableList::new(blob_ids, max_request_blob_sidecars)
+            .map_err(|e| format!("BlobsByRootRequestV1 too many blob IDs: {e:?}"))?;
+        Ok(Self { blob_ids })
     }
 }
 
 /// Request a number of data columns from a peer.
 #[derive(Clone, Debug, PartialEq)]
-pub struct DataColumnsByRootRequest {
+pub struct DataColumnsByRootRequest<E: EthSpec> {
     /// The list of beacon block roots and column indices being requested.
-    pub data_column_ids: RuntimeVariableList<DataColumnIdentifier>,
+    pub data_column_ids: RuntimeVariableList<DataColumnsByRootIdentifier<E>>,
 }
 
-impl DataColumnsByRootRequest {
-    pub fn new(data_column_ids: Vec<DataColumnIdentifier>, spec: &ChainSpec) -> Self {
-        let data_column_ids = RuntimeVariableList::from_vec(
-            data_column_ids,
-            spec.max_request_data_column_sidecars as usize,
-        );
-        Self { data_column_ids }
+impl<E: EthSpec> DataColumnsByRootRequest<E> {
+    pub fn new(
+        data_column_ids: Vec<DataColumnsByRootIdentifier<E>>,
+        max_request_blocks: usize,
+    ) -> Result<Self, &'static str> {
+        let data_column_ids = RuntimeVariableList::new(data_column_ids, max_request_blocks)
+            .map_err(|_| "DataColumnsByRootRequest too many column IDs")?;
+        Ok(Self { data_column_ids })
     }
 
-    pub fn new_single(block_root: Hash256, index: ColumnIndex, spec: &ChainSpec) -> Self {
-        Self::new(vec![DataColumnIdentifier { block_root, index }], spec)
-    }
-
-    pub fn group_by_ordered_block_root(&self) -> Vec<(Hash256, Vec<ColumnIndex>)> {
-        let mut column_indexes_by_block = BTreeMap::<Hash256, Vec<ColumnIndex>>::new();
-        for request_id in self.data_column_ids.as_slice() {
-            column_indexes_by_block
-                .entry(request_id.block_root)
-                .or_default()
-                .push(request_id.index);
-        }
-        column_indexes_by_block.into_iter().collect()
+    pub fn max_requested(&self) -> usize {
+        self.data_column_ids.iter().map(|id| id.columns.len()).sum()
     }
 }
 
@@ -550,6 +634,16 @@ pub enum RpcSuccessResponse<E: EthSpec> {
     /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Arc<SignedBeaconBlock<E>>),
 
+    /// A response to a get BEACON_BLOCKS_BY_HEAD request.
+    BlocksByHead(Arc<SignedBeaconBlock<E>>),
+
+    /// A response to a get EXECUTION_PAYLOAD_ENVELOPES_BY_RANGE request. A None response signifies
+    /// the end of the batch.
+    PayloadEnvelopesByRange(Arc<SignedExecutionPayloadEnvelope<E>>),
+
+    /// A response to a get EXECUTION_PAYLOAD_ENVELOPES_BY_ROOT request.
+    PayloadEnvelopesByRoot(Arc<SignedExecutionPayloadEnvelope<E>>),
+
     /// A response to a get BLOBS_BY_RANGE request
     BlobsByRange(Arc<BlobSidecar<E>>),
 
@@ -590,6 +684,15 @@ pub enum ResponseTermination {
     /// Blocks by root stream termination.
     BlocksByRoot,
 
+    /// Blocks by head stream termination.
+    BlocksByHead,
+
+    /// Execution payload envelopes by range stream termination.
+    PayloadEnvelopesByRange,
+
+    /// Execution payload envelopes by root stream termination.
+    PayloadEnvelopesByRoot,
+
     /// Blobs by range stream termination.
     BlobsByRange,
 
@@ -611,6 +714,9 @@ impl ResponseTermination {
         match self {
             ResponseTermination::BlocksByRange => Protocol::BlocksByRange,
             ResponseTermination::BlocksByRoot => Protocol::BlocksByRoot,
+            ResponseTermination::BlocksByHead => Protocol::BlocksByHead,
+            ResponseTermination::PayloadEnvelopesByRange => Protocol::PayloadEnvelopesByRange,
+            ResponseTermination::PayloadEnvelopesByRoot => Protocol::PayloadEnvelopesByRoot,
             ResponseTermination::BlobsByRange => Protocol::BlobsByRange,
             ResponseTermination::BlobsByRoot => Protocol::BlobsByRoot,
             ResponseTermination::DataColumnsByRoot => Protocol::DataColumnsByRoot,
@@ -706,6 +812,9 @@ impl<E: EthSpec> RpcSuccessResponse<E> {
             RpcSuccessResponse::Status(_) => Protocol::Status,
             RpcSuccessResponse::BlocksByRange(_) => Protocol::BlocksByRange,
             RpcSuccessResponse::BlocksByRoot(_) => Protocol::BlocksByRoot,
+            RpcSuccessResponse::BlocksByHead(_) => Protocol::BlocksByHead,
+            RpcSuccessResponse::PayloadEnvelopesByRange(_) => Protocol::PayloadEnvelopesByRange,
+            RpcSuccessResponse::PayloadEnvelopesByRoot(_) => Protocol::PayloadEnvelopesByRoot,
             RpcSuccessResponse::BlobsByRange(_) => Protocol::BlobsByRange,
             RpcSuccessResponse::BlobsByRoot(_) => Protocol::BlobsByRoot,
             RpcSuccessResponse::DataColumnsByRoot(_) => Protocol::DataColumnsByRoot,
@@ -718,6 +827,22 @@ impl<E: EthSpec> RpcSuccessResponse<E> {
             }
             RpcSuccessResponse::LightClientFinalityUpdate(_) => Protocol::LightClientFinalityUpdate,
             RpcSuccessResponse::LightClientUpdatesByRange(_) => Protocol::LightClientUpdatesByRange,
+        }
+    }
+
+    pub fn slot(&self) -> Option<Slot> {
+        match self {
+            Self::BlocksByRange(r) | Self::BlocksByRoot(r) | Self::BlocksByHead(r) => {
+                Some(r.slot())
+            }
+            Self::PayloadEnvelopesByRoot(r) | Self::PayloadEnvelopesByRange(r) => Some(r.slot()),
+            Self::BlobsByRange(r) | Self::BlobsByRoot(r) => Some(r.slot()),
+            Self::DataColumnsByRange(r) | Self::DataColumnsByRoot(r) => Some(r.slot()),
+            Self::LightClientBootstrap(r) => Some(r.get_slot()),
+            Self::LightClientFinalityUpdate(r) => Some(r.get_attested_header_slot()),
+            Self::LightClientOptimisticUpdate(r) => Some(r.get_slot()),
+            Self::LightClientUpdatesByRange(r) => Some(r.attested_header_slot()),
+            Self::MetaData(_) | Self::Status(_) | Self::Pong(_) => None,
         }
     }
 }
@@ -738,7 +863,16 @@ impl std::fmt::Display for RpcErrorResponse {
 
 impl std::fmt::Display for StatusMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Status Message: Fork Digest: {:?}, Finalized Root: {}, Finalized Epoch: {}, Head Root: {}, Head Slot: {}", self.fork_digest, self.finalized_root, self.finalized_epoch, self.head_root, self.head_slot)
+        write!(
+            f,
+            "Status Message: Fork Digest: {:?}, Finalized Root: {}, Finalized Epoch: {}, Head Root: {}, Head Slot: {}, Earliest available slot: {:?}",
+            self.fork_digest(),
+            self.finalized_root(),
+            self.finalized_epoch(),
+            self.head_root(),
+            self.head_slot(),
+            self.earliest_available_slot()
+        )
     }
 }
 
@@ -751,6 +885,23 @@ impl<E: EthSpec> std::fmt::Display for RpcSuccessResponse<E> {
             }
             RpcSuccessResponse::BlocksByRoot(block) => {
                 write!(f, "BlocksByRoot: Block slot: {}", block.slot())
+            }
+            RpcSuccessResponse::BlocksByHead(block) => {
+                write!(f, "BlocksByHead: Block slot: {}", block.slot())
+            }
+            RpcSuccessResponse::PayloadEnvelopesByRange(envelope) => {
+                write!(
+                    f,
+                    "ExecutionPayloadEnvelopesByRange: Envelope slot: {}",
+                    envelope.slot()
+                )
+            }
+            RpcSuccessResponse::PayloadEnvelopesByRoot(envelope) => {
+                write!(
+                    f,
+                    "ExecutionPayloadEnvelopesByRoot: Envelope slot: {}",
+                    envelope.slot()
+                )
             }
             RpcSuccessResponse::BlobsByRange(blob) => {
                 write!(f, "BlobsByRange: Blob slot: {}", blob.slot())
@@ -849,6 +1000,16 @@ impl std::fmt::Display for OldBlocksByRangeRequest {
     }
 }
 
+impl std::fmt::Display for BlocksByHeadRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "BlocksByHead: beacon_root: {}, count: {}",
+            self.beacon_root, self.count
+        )
+    }
+}
+
 impl std::fmt::Display for BlobsByRootRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -869,7 +1030,7 @@ impl std::fmt::Display for BlobsByRangeRequest {
     }
 }
 
-impl std::fmt::Display for DataColumnsByRootRequest {
+impl<E: EthSpec> std::fmt::Display for DataColumnsByRootRequest<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,

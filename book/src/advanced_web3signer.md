@@ -56,3 +56,11 @@ SSL client authentication with the "self-signed" certificate in `/home/paul/my-k
 > with a new timeout in milliseconds. This is the timeout before requests to Web3Signer are
 > considered to be failures. Setting a value that is too long may create contention and late duties
 > in the VC.  Setting it too short will result in failed signatures and therefore missed duties.
+
+## Slashing protection database
+
+Web3signer can be configured with its own slashing protection database. This makes the local slashing protection database by Lighthouse redundant. To disable Lighthouse slashing protection database for web3signer keys, use the flag `--disable-slashing-protection-web3signer` on the validator client.
+
+> Note: DO NOT use this flag unless you are certain that slashing protection is enabled on web3signer.
+
+The `--init-slashing-protection` flag is also required to initialize the slashing protection database locally.

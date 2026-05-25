@@ -28,7 +28,10 @@ pub async fn download_binary(dest_dir: PathBuf) {
 
     // Download the release zip.
     let client = Client::builder().build().unwrap();
-    let zip_url = format!("https://artifacts.consensys.net/public/web3signer/raw/names/web3signer.zip/versions/{}/web3signer-{}.zip", version, version);
+    let zip_url = format!(
+        "https://artifacts.consensys.net/public/web3signer/raw/names/web3signer.zip/versions/{}/web3signer-{}.zip",
+        version, version
+    );
     let zip_response = client
         .get(zip_url)
         .send()

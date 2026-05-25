@@ -5,7 +5,7 @@ Creates new validators from BIP-39 mnemonic. A JSON file will be created which
 contains all the validator keystores and other validator data. This file can
 then be imported to a validator client using the "import-validators" command.
 Another, optional JSON file is created which contains a list of validator
-deposits in the same format as the "ethereum/staking-deposit-cli" tool.
+deposits in the same format as the "ethstaker-deposit-cli" tool.
 
 Usage: lighthouse validator_manager create [OPTIONS] --output-path <DIRECTORY>
 
@@ -93,6 +93,13 @@ Options:
           Path to directory containing eth2_testnet specs. Defaults to a
           hard-coded Lighthouse testnet. Only effective if there is no existing
           database.
+      --telemetry-collector-url <URL>
+          URL of the OpenTelemetry collector to export tracing spans (e.g.,
+          http://localhost:4317). If not set, tracing export is disabled.
+      --telemetry-service-name <NAME>
+          Override the OpenTelemetry service name. Defaults to 'lighthouse-bn'
+          for beacon node, 'lighthouse-vc' for validator client, or 'lighthouse'
+          for other subcommands.
 
 Flags:
       --disable-deposits

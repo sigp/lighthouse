@@ -1,7 +1,8 @@
 use crate::local_network::LocalNetwork;
 use node_test_rig::eth2::types::{BlockId, FinalityCheckpointsData, StateId};
 use std::time::Duration;
-use types::{Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Slot, Unsigned};
+use typenum::Unsigned;
+use types::{Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Slot};
 
 /// Checks that all of the validators have on-boarded by the start of the second eth1 voting
 /// period.
@@ -97,7 +98,7 @@ async fn verify_validator_count<E: EthSpec>(
             let vc = remote_node
                 .get_debug_beacon_states::<E>(StateId::Head)
                 .await
-                .map(|body| body.unwrap().data)
+                .map(|body| body.unwrap().into_data())
                 .map_err(|e| format!("Get state root via http failed: {:?}", e))?
                 .validators()
                 .len();
@@ -197,7 +198,7 @@ pub async fn verify_full_sync_aggregates_up_to<E: EthSpec>(
                         slot
                     )
                 })
-                .data
+                .data()
                 .message()
                 .body()
                 .sync_aggregate()
@@ -219,6 +220,8 @@ pub async fn verify_full_sync_aggregates_up_to<E: EthSpec>(
     Ok(())
 }
 
+// TODO(EIP-7732): Add verify_ptc_duties_executed function to verify that PTC duties are being fetched and executed correctly when Gloas fork is enabled
+
 /// Verify that the first merged PoS block got finalized.
 pub async fn verify_transition_block_finalized<E: EthSpec>(
     network: LocalNetwork<E>,
@@ -235,7 +238,7 @@ pub async fn verify_transition_block_finalized<E: EthSpec>(
         let execution_block_hash: ExecutionBlockHash = remote_node
             .get_beacon_blocks::<E>(BlockId::Finalized)
             .await
-            .map(|body| body.unwrap().data)
+            .map(|body| body.unwrap().into_data())
             .map_err(|e| format!("Get state root via http failed: {:?}", e))?
             .message()
             .execution_payload()
@@ -303,16 +306,18 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
         }
 
         // Verify light client optimistic update. `signature_slot_distance` should be 1 in the ideal scenario.
-        let signature_slot = *client
+        let signature_slot = client
             .get_beacon_light_client_optimistic_update::<E>()
             .await
             .map_err(|e| format!("Error while getting light client updates: {:?}", e))?
             .ok_or(format!("Light client optimistic update not found {slot:?}"))?
-            .data
+            .data()
             .signature_slot();
         let signature_slot_distance = slot - signature_slot;
         if signature_slot_distance > light_client_update_slot_tolerance {
-            return Err(format!("Existing optimistic update too old: signature slot {signature_slot}, current slot {slot:?}"));
+            return Err(format!(
+                "Existing optimistic update too old: signature slot {signature_slot}, current slot {slot:?}"
+            ));
         }
 
         // Verify light client finality update. `signature_slot_distance` should be 1 in the ideal scenario.
@@ -332,12 +337,12 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
             }
             continue;
         }
-        let signature_slot = *client
+        let signature_slot = client
             .get_beacon_light_client_finality_update::<E>()
             .await
             .map_err(|e| format!("Error while getting light client updates: {:?}", e))?
             .ok_or(format!("Light client finality update not found {slot:?}"))?
-            .data
+            .data()
             .signature_slot();
         let signature_slot_distance = slot - signature_slot;
         if signature_slot_distance > light_client_update_slot_tolerance {
@@ -385,7 +390,7 @@ pub async fn ensure_node_synced_up_to_slot<E: EthSpec>(
         .ok()
         .flatten()
         .ok_or(format!("No head block exists on node {node_index}"))?
-        .data;
+        .into_data();
 
     // Check the head block is synced with the rest of the network.
     if head.slot() >= upto_slot {
@@ -460,6 +465,9 @@ pub async fn reconnect_to_execution_layer<E: EthSpec>(
 }
 
 /// Ensure all validators have attested correctly.
+///
+/// Checks attestation rewards for head, target, and source.
+/// A positive reward indicates a correct vote.
 pub async fn check_attestation_correctness<E: EthSpec>(
     network: LocalNetwork<E>,
     start_epoch: u64,
@@ -473,54 +481,49 @@ pub async fn check_attestation_correctness<E: EthSpec>(
 
     let remote_node = &network.remote_nodes()?[node_index];
 
-    let results = remote_node
-        .get_lighthouse_analysis_attestation_performance(
-            Epoch::new(start_epoch),
-            Epoch::new(upto_epoch - 2),
-            "global".to_string(),
-        )
-        .await
-        .map_err(|e| format!("Unable to get attestation performance: {e}"))?;
-
-    let mut active_successes: f64 = 0.0;
     let mut head_successes: f64 = 0.0;
     let mut target_successes: f64 = 0.0;
     let mut source_successes: f64 = 0.0;
-
     let mut total: f64 = 0.0;
 
-    for result in results {
-        for epochs in result.epochs.values() {
+    let end_epoch = upto_epoch
+        .checked_sub(2)
+        .ok_or_else(|| "upto_epoch must be >= 2 to have attestation rewards".to_string())?;
+    for epoch in start_epoch..=end_epoch {
+        let response = remote_node
+            .post_beacon_rewards_attestations(Epoch::new(epoch), &[])
+            .await
+            .map_err(|e| format!("Unable to get attestation rewards for epoch {epoch}: {e}"))?;
+
+        for reward in &response.data.total_rewards {
             total += 1.0;
 
-            if epochs.active {
-                active_successes += 1.0;
-            }
-            if epochs.head {
+            // A positive reward means the validator made a correct vote.
+            if reward.head > 0 {
                 head_successes += 1.0;
             }
-            if epochs.target {
+            if reward.target > 0 {
                 target_successes += 1.0;
             }
-            if epochs.source {
+            if reward.source > 0 {
                 source_successes += 1.0;
             }
         }
     }
-    let active_percent = active_successes / total * 100.0;
+
+    if total == 0.0 {
+        return Err("No attestation rewards data found".to_string());
+    }
+
     let head_percent = head_successes / total * 100.0;
     let target_percent = target_successes / total * 100.0;
     let source_percent = source_successes / total * 100.0;
 
     eprintln!("Total Attestations: {}", total);
-    eprintln!("Active: {}: {}%", active_successes, active_percent);
     eprintln!("Head: {}: {}%", head_successes, head_percent);
     eprintln!("Target: {}: {}%", target_successes, target_percent);
     eprintln!("Source: {}: {}%", source_successes, source_percent);
 
-    if active_percent < acceptable_attestation_performance {
-        return Err("Active percent was below required level".to_string());
-    }
     if head_percent < acceptable_attestation_performance {
         return Err("Head percent was below required level".to_string());
     }

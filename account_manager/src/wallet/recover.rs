@@ -1,6 +1,6 @@
 use crate::wallet::create::create_wallet_from_mnemonic;
 use crate::wallet::create::{HD_TYPE, NAME_FLAG, PASSWORD_FLAG, TYPE_FLAG};
-use account_utils::{read_mnemonic_from_cli, STDIN_INPUTS_FLAG};
+use account_utils::{STDIN_INPUTS_FLAG, read_mnemonic_from_cli};
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use std::path::PathBuf;
 
@@ -63,7 +63,9 @@ pub fn cli_run(matches: &ArgMatches, wallet_base_dir: PathBuf) -> Result<(), Str
     let stdin_inputs = cfg!(windows) || matches.get_flag(STDIN_INPUTS_FLAG);
 
     eprintln!();
-    eprintln!("WARNING: KEY RECOVERY CAN LEAD TO DUPLICATING VALIDATORS KEYS, WHICH CAN LEAD TO SLASHING.");
+    eprintln!(
+        "WARNING: KEY RECOVERY CAN LEAD TO DUPLICATING VALIDATORS KEYS, WHICH CAN LEAD TO SLASHING."
+    );
     eprintln!();
 
     let mnemonic = read_mnemonic_from_cli(mnemonic_path, stdin_inputs)?;

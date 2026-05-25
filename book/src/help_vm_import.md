@@ -24,6 +24,9 @@ Options:
       --debug-level <LEVEL>
           Specifies the verbosity level used when emitting logs to the terminal.
           [default: info] [possible values: info, debug, trace, warn, error]
+      --enabled <enabled>
+          When provided, the imported validator will be enabled or disabled.
+          [possible values: true, false]
       --gas-limit <UINT64>
           When provided, the imported validator will use this gas limit. It is
           recommended to leave this as the default value by not specifying this
@@ -39,8 +42,7 @@ Options:
           [default: 300]
       --keystore-file <PATH_TO_KEYSTORE_FILE>
           The path to a keystore JSON file to be imported to the validator
-          client. This file is usually created using staking-deposit-cli or
-          ethstaker-deposit-cli
+          client. This file is usually created using ethstaker-deposit-cli
       --log-format <FORMAT>
           Specifies the log format used when emitting logs to the terminal.
           [possible values: JSON]
@@ -74,6 +76,13 @@ Options:
           Path to directory containing eth2_testnet specs. Defaults to a
           hard-coded Lighthouse testnet. Only effective if there is no existing
           database.
+      --telemetry-collector-url <URL>
+          URL of the OpenTelemetry collector to export tracing spans (e.g.,
+          http://localhost:4317). If not set, tracing export is disabled.
+      --telemetry-service-name <NAME>
+          Override the OpenTelemetry service name. Defaults to 'lighthouse-bn'
+          for beacon node, 'lighthouse-vc' for validator client, or 'lighthouse'
+          for other subcommands.
       --validators-file <PATH_TO_JSON_FILE>
           The path to a JSON file containing a list of validators to be imported
           to the validator client. This file is usually named "validators.json".

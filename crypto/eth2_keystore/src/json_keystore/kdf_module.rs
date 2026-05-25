@@ -5,9 +5,10 @@
 
 use super::hex_bytes::HexBytes;
 use crate::DKLEN;
-use hmac::{Hmac, Mac, NewMac};
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use sha2::digest::KeyInit;
 
 /// KDF module representation.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -67,7 +68,7 @@ pub enum Prf {
 impl Prf {
     pub fn mac(&self, password: &[u8]) -> impl Mac {
         match &self {
-            Prf::HmacSha256 => Hmac::<Sha256>::new_from_slice(password)
+            Prf::HmacSha256 => <Hmac<Sha256> as KeyInit>::new_from_slice(password)
                 .expect("Could not derive HMAC using SHA256."),
         }
     }

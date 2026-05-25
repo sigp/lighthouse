@@ -4,6 +4,7 @@ use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_state, yaml_decode_file};
 use crate::type_name;
 use serde::Deserialize;
+use state_processing::EpochProcessingError;
 use state_processing::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
 use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::per_epoch_processing::capella::process_historical_summaries_update;
@@ -11,7 +12,7 @@ use state_processing::per_epoch_processing::effective_balance_updates::{
     process_effective_balance_updates, process_effective_balance_updates_slow,
 };
 use state_processing::per_epoch_processing::single_pass::{
-    process_epoch_single_pass, SinglePassConfig,
+    SinglePassConfig, process_epoch_single_pass, process_proposer_lookahead, process_ptc_window,
 };
 use state_processing::per_epoch_processing::{
     altair, base,
@@ -20,7 +21,6 @@ use state_processing::per_epoch_processing::{
     process_slashings_slow,
     resets::{process_eth1_data_reset, process_randao_mixes_reset, process_slashings_reset},
 };
-use state_processing::EpochProcessingError;
 use std::marker::PhantomData;
 use types::BeaconState;
 
@@ -58,6 +58,8 @@ pub struct Eth1DataReset;
 #[derive(Debug)]
 pub struct PendingBalanceDeposits;
 #[derive(Debug)]
+pub struct PendingDepositsChurn;
+#[derive(Debug)]
 pub struct PendingConsolidations;
 #[derive(Debug)]
 pub struct EffectiveBalanceUpdates;
@@ -77,6 +79,12 @@ pub struct SyncCommitteeUpdates;
 pub struct InactivityUpdates;
 #[derive(Debug)]
 pub struct ParticipationFlagUpdates;
+#[derive(Debug)]
+pub struct ProposerLookahead;
+#[derive(Debug)]
+pub struct PtcWindow;
+#[derive(Debug)]
+pub struct BuilderPendingPayments;
 
 type_name!(
     JustificationAndFinalization,
@@ -87,6 +95,7 @@ type_name!(RegistryUpdates, "registry_updates");
 type_name!(Slashings, "slashings");
 type_name!(Eth1DataReset, "eth1_data_reset");
 type_name!(PendingBalanceDeposits, "pending_deposits");
+type_name!(PendingDepositsChurn, "pending_deposits_churn");
 type_name!(PendingConsolidations, "pending_consolidations");
 type_name!(EffectiveBalanceUpdates, "effective_balance_updates");
 type_name!(SlashingsReset, "slashings_reset");
@@ -97,6 +106,9 @@ type_name!(ParticipationRecordUpdates, "participation_record_updates");
 type_name!(SyncCommitteeUpdates, "sync_committee_updates");
 type_name!(InactivityUpdates, "inactivity_updates");
 type_name!(ParticipationFlagUpdates, "participation_flag_updates");
+type_name!(ProposerLookahead, "proposer_lookahead");
+type_name!(PtcWindow, "ptc_window");
+type_name!(BuilderPendingPayments, "builder_pending_payments");
 
 impl<E: EthSpec> EpochTransition<E> for JustificationAndFinalization {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
@@ -169,6 +181,20 @@ impl<E: EthSpec> EpochTransition<E> for Eth1DataReset {
 }
 
 impl<E: EthSpec> EpochTransition<E> for PendingBalanceDeposits {
+    fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
+        process_epoch_single_pass(
+            state,
+            spec,
+            SinglePassConfig {
+                pending_deposits: true,
+                ..SinglePassConfig::disable_all()
+            },
+        )
+        .map(|_| ())
+    }
+}
+
+impl<E: EthSpec> EpochTransition<E> for PendingDepositsChurn {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
         process_epoch_single_pass(
             state,
@@ -280,6 +306,40 @@ impl<E: EthSpec> EpochTransition<E> for ParticipationFlagUpdates {
     }
 }
 
+impl<E: EthSpec> EpochTransition<E> for ProposerLookahead {
+    fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
+        if state.fork_name_unchecked().fulu_enabled() {
+            process_proposer_lookahead(state, spec)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl<E: EthSpec> EpochTransition<E> for PtcWindow {
+    fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
+        if state.fork_name_unchecked().gloas_enabled() {
+            process_ptc_window(state, spec).map(|_| ())
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl<E: EthSpec> EpochTransition<E> for BuilderPendingPayments {
+    fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
+        process_epoch_single_pass(
+            state,
+            spec,
+            SinglePassConfig {
+                builder_pending_payments: true,
+                ..SinglePassConfig::disable_all()
+            },
+        )
+        .map(|_| ())
+    }
+}
+
 impl<E: EthSpec, T: EpochTransition<E>> LoadCase for EpochProcessing<E, T> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
         let spec = &testing_spec::<E>(fork_name);
@@ -338,6 +398,19 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
         {
             return false;
         }
+
+        if !fork_name.fulu_enabled() && T::name() == "proposer_lookahead" {
+            return false;
+        }
+
+        if !fork_name.gloas_enabled()
+            && (T::name() == "builder_pending_payments"
+                || T::name() == "ptc_window"
+                || T::name() == "pending_deposits_churn")
+        {
+            return false;
+        }
+
         true
     }
 

@@ -1,9 +1,10 @@
 use crate::metrics::{self, scrape_for_metrics};
 use crate::{ForkChoiceStore, InvalidationOperation};
+use fixed_bytes::FixedBytesExtended;
 use logging::crit;
 use proto_array::{
-    Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, ProposerHeadError,
-    ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
+    Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, JustifiedBalances, LatestMessage,
+    PayloadStatus, ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
 };
 use ssz_derive::{Decode, Encode};
 use state_processing::{
@@ -13,17 +14,19 @@ use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::marker::PhantomData;
 use std::time::Duration;
-use tracing::{debug, warn};
+use superstruct::superstruct;
+use tracing::{debug, instrument, warn};
 use types::{
-    consts::bellatrix::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
-    AttesterSlashingRef, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint,
-    Epoch, EthSpec, ExecPayload, ExecutionBlockHash, FixedBytesExtended, Hash256,
-    IndexedAttestationRef, RelativeEpoch, SignedBeaconBlock, Slot,
+    AbstractExecPayload, AttestationShufflingId, AttesterSlashingRef, BeaconBlockRef, BeaconState,
+    BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload, ExecutionBlockHash,
+    Hash256, IndexedAttestationRef, IndexedPayloadAttestation, RelativeEpoch, SignedBeaconBlock,
+    Slot,
 };
 
 #[derive(Debug)]
 pub enum Error<T> {
     InvalidAttestation(InvalidAttestation),
+    InvalidPayloadAttestation(InvalidPayloadAttestation),
     InvalidAttesterSlashing(AttesterSlashingValidationError),
     InvalidBlock(InvalidBlock),
     ProtoArrayStringError(String),
@@ -74,11 +77,19 @@ pub enum Error<T> {
     },
     UnrealizedVoteProcessing(state_processing::EpochProcessingError),
     ValidatorStatuses(BeaconStateError),
+    ChainSpecError(String),
+    DoesNotDescendFromFinalizedCheckpoint,
 }
 
 impl<T> From<InvalidAttestation> for Error<T> {
     fn from(e: InvalidAttestation) -> Self {
         Error::InvalidAttestation(e)
+    }
+}
+
+impl<T> From<InvalidPayloadAttestation> for Error<T> {
+    fn from(e: InvalidPayloadAttestation) -> Self {
+        Error::InvalidPayloadAttestation(e)
     }
 }
 
@@ -167,6 +178,33 @@ pub enum InvalidAttestation {
     /// The attestation is attesting to a state that is later than itself. (Viz., attesting to the
     /// future).
     AttestsToFutureBlock { block: Slot, attestation: Slot },
+    /// Post-Gloas: attestation index must be 0 or 1.
+    InvalidAttestationIndex { index: u64 },
+    /// A same-slot attestation has a non-zero index, which is invalid post-Gloas.
+    InvalidSameSlotAttestationIndex { slot: Slot },
+    /// Post-Gloas: attestation with index == 1 (payload_present) requires the block's
+    /// payload to have been received (`root in store.payload_states`).
+    PayloadNotReceived { beacon_block_root: Hash256 },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum InvalidPayloadAttestation {
+    /// The payload attestation's attesting indices were empty.
+    EmptyAggregationBitfield,
+    /// The `payload_attestation.data.beacon_block_root` block is unknown.
+    UnknownHeadBlock { beacon_block_root: Hash256 },
+    /// The payload attestation is attesting to a block that is later than itself.
+    AttestsToFutureBlock { block: Slot, attestation: Slot },
+    /// A gossip payload attestation must be for the current slot.
+    PayloadAttestationNotCurrentSlot {
+        attestation_slot: Slot,
+        current_slot: Slot,
+    },
+    /// One or more payload attesters are not part of the PTC.
+    PayloadAttestationAttestersNotInPtc {
+        attesting_indices_len: usize,
+        attesting_indices_in_ptc: usize,
+    },
 }
 
 impl<T> From<String> for Error<T> {
@@ -238,6 +276,17 @@ pub struct QueuedAttestation {
     attesting_indices: Vec<u64>,
     block_root: Hash256,
     target_epoch: Epoch,
+    /// Per Gloas spec: `payload_present = attestation.data.index == 1`.
+    payload_present: bool,
+}
+
+/// Legacy queued attestation without payload_present (pre-Gloas, schema V28).
+#[derive(Clone, PartialEq, Encode, Decode)]
+pub struct QueuedAttestationV28 {
+    slot: Slot,
+    attesting_indices: Vec<u64>,
+    block_root: Hash256,
+    target_epoch: Epoch,
 }
 
 impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
@@ -247,6 +296,7 @@ impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
             attesting_indices: a.attesting_indices_to_vec(),
             block_root: a.data().beacon_block_root,
             target_epoch: a.data().target.epoch,
+            payload_present: a.data().index == 1,
         }
     }
 }
@@ -364,21 +414,32 @@ where
             AttestationShufflingId::new(anchor_block_root, anchor_state, RelativeEpoch::Next)
                 .map_err(Error::BeaconStateError)?;
 
-        let execution_status = anchor_block.message().execution_payload().map_or_else(
-            // If the block doesn't have an execution payload then it can't have
-            // execution enabled.
-            |_| ExecutionStatus::irrelevant(),
-            |execution_payload| {
+        let (execution_status, execution_payload_parent_hash, execution_payload_block_hash) =
+            if let Ok(signed_bid) = anchor_block.message().body().signed_execution_payload_bid() {
+                // Gloas: execution status is irrelevant post-Gloas; payload validation
+                // is decoupled from beacon blocks.
+                (
+                    ExecutionStatus::irrelevant(),
+                    Some(signed_bid.message.parent_block_hash),
+                    Some(signed_bid.message.block_hash),
+                )
+            } else if let Ok(execution_payload) = anchor_block.message().execution_payload() {
+                // Pre-Gloas forks: do not set payload hashes, they are only used post-Gloas.
                 if execution_payload.is_default_with_empty_roots() {
-                    // A default payload does not have execution enabled.
-                    ExecutionStatus::irrelevant()
+                    (ExecutionStatus::irrelevant(), None, None)
                 } else {
-                    // Assume that this payload is valid, since the anchor should be a trusted block and
-                    // state.
-                    ExecutionStatus::Valid(execution_payload.block_hash())
+                    // Assume that this payload is valid, since the anchor should be a
+                    // trusted block and state.
+                    (
+                        ExecutionStatus::Valid(execution_payload.block_hash()),
+                        None,
+                        None,
+                    )
                 }
-            },
-        );
+            } else {
+                // Pre-merge: no execution payload at all.
+                (ExecutionStatus::irrelevant(), None, None)
+            };
 
         // If the current slot is not provided, use the value that was last provided to the store.
         let current_slot = current_slot.unwrap_or_else(|| fc_store.get_current_slot());
@@ -392,6 +453,10 @@ where
             current_epoch_shuffling_id,
             next_epoch_shuffling_id,
             execution_status,
+            execution_payload_parent_hash,
+            execution_payload_block_hash,
+            anchor_block.message().proposer_index(),
+            spec,
         )?;
 
         let mut fork_choice = Self {
@@ -472,11 +537,12 @@ where
     /// Is equivalent to:
     ///
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#get_head
+    #[instrument(skip_all, level = "debug")]
     pub fn get_head(
         &mut self,
         system_time_current_slot: Slot,
         spec: &ChainSpec,
-    ) -> Result<Hash256, Error<T::Error>> {
+    ) -> Result<(Hash256, PayloadStatus), Error<T::Error>> {
         // Provide the slot (as per the system clock) to the `fc_store` and then return its view of
         // the current slot. The `fc_store` will ensure that the `current_slot` is never
         // decreasing, a property which we must maintain.
@@ -484,7 +550,7 @@ where
 
         let store = &mut self.fc_store;
 
-        let head_root = self.proto_array.find_head::<E>(
+        let (head_root, head_payload_status) = self.proto_array.find_head::<E>(
             *store.justified_checkpoint(),
             *store.finalized_checkpoint(),
             store.justified_balances(),
@@ -495,17 +561,34 @@ where
         )?;
 
         // Cache some values for the next forkchoiceUpdate call to the execution layer.
-        let head_hash = self
-            .get_block(&head_root)
-            .and_then(|b| b.execution_status.block_hash());
+        // For Gloas blocks, `execution_status` is Irrelevant (no embedded payload).
+        // If the payload envelope was received (Full), use the bid's block_hash as the
+        // execution chain head. Otherwise fall back to the parent hash (Pending) or None.
+        // For justified/finalized hashes we always use the bid's parent_block_hash, since the
+        // payload from the justified/finalized block is not itself justified/finalized due to
+        // being applied immediately prior to the next block.
+        let head_hash = self.get_block(&head_root).and_then(|b| {
+            b.execution_status
+                .block_hash()
+                .or(match head_payload_status {
+                    PayloadStatus::Full => b.execution_payload_block_hash,
+                    PayloadStatus::Pending | PayloadStatus::Empty => {
+                        b.execution_payload_parent_hash
+                    }
+                })
+        });
         let justified_root = self.justified_checkpoint().root;
         let finalized_root = self.finalized_checkpoint().root;
-        let justified_hash = self
-            .get_block(&justified_root)
-            .and_then(|b| b.execution_status.block_hash());
-        let finalized_hash = self
-            .get_block(&finalized_root)
-            .and_then(|b| b.execution_status.block_hash());
+        let justified_hash = self.get_block(&justified_root).and_then(|b| {
+            b.execution_status
+                .block_hash()
+                .or(b.execution_payload_parent_hash)
+        });
+        let finalized_hash = self.get_block(&finalized_root).and_then(|b| {
+            b.execution_status
+                .block_hash()
+                .or(b.execution_payload_parent_hash)
+        });
         self.forkchoice_update_parameters = ForkchoiceUpdateParameters {
             head_root,
             head_hash,
@@ -513,13 +596,14 @@ where
             finalized_hash,
         };
 
-        Ok(head_root)
+        Ok((head_root, head_payload_status))
     }
 
     /// Get the block to build on as proposer, taking into account proposer re-orgs.
     ///
     /// You *must* call `get_head` for the proposal slot prior to calling this function and pass
     /// in the result of `get_head` as `canonical_head`.
+    #[instrument(level = "debug", skip_all)]
     pub fn get_proposer_head(
         &self,
         current_slot: Slot,
@@ -607,6 +691,20 @@ where
         }
     }
 
+    /// Mark a Gloas payload envelope as valid and received.
+    ///
+    /// This must only be called for valid Gloas payloads.
+    pub fn on_valid_payload_envelope_received(
+        &mut self,
+        block_root: Hash256,
+    ) -> Result<(), Error<T::Error>> {
+        self.proto_array
+            .on_valid_payload_envelope_received(block_root)
+            .map_err(Error::FailedToProcessValidExecutionPayload)
+    }
+
+    /// Pre-Gloas only.
+    ///
     /// See `ProtoArrayForkChoice::process_execution_payload_validation` for documentation.
     pub fn on_valid_execution_payload(
         &mut self,
@@ -617,13 +715,15 @@ where
             .map_err(Error::FailedToProcessValidExecutionPayload)
     }
 
+    /// Pre-Gloas only.
+    ///
     /// See `ProtoArrayForkChoice::process_execution_payload_invalidation` for documentation.
     pub fn on_invalid_execution_payload(
         &mut self,
         op: &InvalidationOperation,
     ) -> Result<(), Error<T::Error>> {
         self.proto_array
-            .process_execution_payload_invalidation::<E>(op)
+            .process_execution_payload_invalidation::<E>(op, self.finalized_checkpoint())
             .map_err(Error::FailedToProcessInvalidExecutionPayload)
     }
 
@@ -646,6 +746,12 @@ where
     /// The supplied block **must** pass the `state_transition` function as it will not be run
     /// here.
     #[allow(clippy::too_many_arguments)]
+    #[instrument(
+        name = "fork_choice_on_block",
+        skip_all,
+        fields(
+            fork_choice_block_delay = ?block_delay
+        ))]
     pub fn on_block<Payload: AbstractExecPayload<E>>(
         &mut self,
         system_time_current_slot: Slot,
@@ -654,6 +760,7 @@ where
         block_delay: Duration,
         state: &BeaconState<E>,
         payload_verification_status: PayloadVerificationStatus,
+        canonical_head_proposer_index: u64,
         spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_ON_BLOCK_TIMES);
@@ -716,12 +823,20 @@ where
             }));
         }
 
-        // Add proposer score boost if the block is timely.
-        let is_before_attesting_interval =
-            block_delay < Duration::from_secs(spec.seconds_per_slot / INTERVALS_PER_SLOT);
+        let attestation_threshold = spec.get_attestation_due::<E>(block.slot());
+
+        // Add proposer score boost if the block is the first timely block for this slot and its
+        // proposer matches the expected proposer on the canonical chain (per spec
+        // `update_proposer_boost_root`, introduced in v1.7.0-alpha.5).
+        let is_before_attesting_interval = block_delay < attestation_threshold;
 
         let is_first_block = self.fc_store.proposer_boost_root().is_zero();
-        if current_slot == block.slot() && is_before_attesting_interval && is_first_block {
+        let is_canonical_proposer = block.proposer_index() == canonical_head_proposer_index;
+        if current_slot == block.slot()
+            && is_before_attesting_interval
+            && is_first_block
+            && is_canonical_proposer
+        {
             self.fc_store.set_proposer_boost_root(block_root);
         }
 
@@ -729,6 +844,11 @@ where
         self.update_checkpoints(
             state.current_justified_checkpoint(),
             state.finalized_checkpoint(),
+            || {
+                state
+                    .get_state_root_at_epoch_start(state.current_justified_checkpoint().epoch)
+                    .map_err(Into::into)
+            },
         )?;
 
         // Update unrealized justified/finalized checkpoints.
@@ -788,8 +908,15 @@ where
         if unrealized_justified_checkpoint.epoch
             > self.fc_store.unrealized_justified_checkpoint().epoch
         {
-            self.fc_store
-                .set_unrealized_justified_checkpoint(unrealized_justified_checkpoint);
+            // Justification has recently updated therefore the justified state root should be in
+            // range of the head state's `state_roots` vector.
+            let unrealized_justified_state_root =
+                state.get_state_root_at_epoch_start(unrealized_justified_checkpoint.epoch)?;
+
+            self.fc_store.set_unrealized_justified_checkpoint(
+                unrealized_justified_checkpoint,
+                unrealized_justified_state_root,
+            );
         }
         if unrealized_finalized_checkpoint.epoch
             > self.fc_store.unrealized_finalized_checkpoint().epoch
@@ -803,6 +930,13 @@ where
             self.pull_up_store_checkpoints(
                 unrealized_justified_checkpoint,
                 unrealized_finalized_checkpoint,
+                || {
+                    // In the case where we actually update justification, it must be that the
+                    // unrealized justification is recent and in range of the `state_roots` vector.
+                    state
+                        .get_state_root_at_epoch_start(unrealized_justified_checkpoint.epoch)
+                        .map_err(Into::into)
+                },
             )?;
         }
 
@@ -842,7 +976,7 @@ where
                             block_slot: block.slot(),
                             block_root,
                             payload_verification_status,
-                        })
+                        });
                     }
                 }
             }
@@ -850,6 +984,16 @@ where
             // There is no payload to verify.
             ExecutionStatus::irrelevant()
         };
+
+        let (execution_payload_parent_hash, execution_payload_block_hash) =
+            if let Ok(signed_bid) = block.body().signed_execution_payload_bid() {
+                (
+                    Some(signed_bid.message.parent_block_hash),
+                    Some(signed_bid.message.block_hash),
+                )
+            } else {
+                (None, None)
+            };
 
         // This does not apply a vote to the block, it just makes fork choice aware of the block so
         // it can still be identified as the head even if it doesn't have any votes.
@@ -877,8 +1021,13 @@ where
                 execution_status,
                 unrealized_justified_checkpoint: Some(unrealized_justified_checkpoint),
                 unrealized_finalized_checkpoint: Some(unrealized_finalized_checkpoint),
+                execution_payload_parent_hash,
+                execution_payload_block_hash,
+                proposer_index: Some(block.proposer_index()),
             },
             current_slot,
+            spec,
+            block_delay,
         )?;
 
         Ok(())
@@ -889,11 +1038,13 @@ where
         &mut self,
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
+        justified_state_root_producer: impl FnOnce() -> Result<Hash256, Error<T::Error>>,
     ) -> Result<(), Error<T::Error>> {
         // Update justified checkpoint.
         if justified_checkpoint.epoch > self.fc_store.justified_checkpoint().epoch {
+            let justified_state_root = justified_state_root_producer()?;
             self.fc_store
-                .set_justified_checkpoint(justified_checkpoint)
+                .set_justified_checkpoint(justified_checkpoint, justified_state_root)
                 .map_err(Error::UnableToSetJustifiedCheckpoint)?;
         }
 
@@ -945,6 +1096,7 @@ where
         &self,
         indexed_attestation: IndexedAttestationRef<E>,
         is_from_block: AttestationFromBlock,
+        spec: &ChainSpec,
     ) -> Result<(), InvalidAttestation> {
         // There is no point in processing an attestation with an empty bitfield. Reject
         // it immediately.
@@ -1017,6 +1169,69 @@ where
             });
         }
 
+        if spec
+            .fork_name_at_slot::<E>(indexed_attestation.data().slot)
+            .gloas_enabled()
+        {
+            let index = indexed_attestation.data().index;
+
+            // Post-Gloas: attestation index must be 0 or 1.
+            if index > 1 {
+                return Err(InvalidAttestation::InvalidAttestationIndex { index });
+            }
+
+            // Same-slot attestations must have index == 0.
+            if indexed_attestation.data().slot == block.slot && index != 0 {
+                return Err(InvalidAttestation::InvalidSameSlotAttestationIndex {
+                    slot: block.slot,
+                });
+            }
+
+            // index == 1 (payload_present) requires the block's payload to have been received.
+            // TODO(gloas): could optimise by adding `payload_received` to `Block`
+            if index == 1
+                && !self
+                    .proto_array
+                    .is_payload_received(&indexed_attestation.data().beacon_block_root)
+            {
+                return Err(InvalidAttestation::PayloadNotReceived {
+                    beacon_block_root: indexed_attestation.data().beacon_block_root,
+                });
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Validates a payload attestation for application to fork choice.
+    fn validate_on_payload_attestation(
+        &self,
+        indexed_payload_attestation: &IndexedPayloadAttestation<E>,
+    ) -> Result<(), InvalidPayloadAttestation> {
+        // This check is from `is_valid_indexed_payload_attestation`, but we do it immediately to
+        // avoid wasting time on junk attestations.
+        if indexed_payload_attestation.attesting_indices.is_empty() {
+            return Err(InvalidPayloadAttestation::EmptyAggregationBitfield);
+        }
+
+        // PTC attestation must be for a known block. If block is unknown, delay consideration until
+        // the block is found (responsibility of caller).
+        let block = self
+            .proto_array
+            .get_block(&indexed_payload_attestation.data.beacon_block_root)
+            .ok_or(InvalidPayloadAttestation::UnknownHeadBlock {
+                beacon_block_root: indexed_payload_attestation.data.beacon_block_root,
+            })?;
+
+        // Not strictly part of the spec, but payload attestations to future slots are MORE INVALID
+        // than payload attestations to blocks at previous slots.
+        if block.slot > indexed_payload_attestation.data.slot {
+            return Err(InvalidPayloadAttestation::AttestsToFutureBlock {
+                block: block.slot,
+                attestation: indexed_payload_attestation.data.slot,
+            });
+        }
+
         Ok(())
     }
 
@@ -1042,6 +1257,7 @@ where
         system_time_current_slot: Slot,
         attestation: IndexedAttestationRef<E>,
         is_from_block: AttestationFromBlock,
+        spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_ON_ATTESTATION_TIMES);
 
@@ -1064,14 +1280,21 @@ where
             return Ok(());
         }
 
-        self.validate_on_attestation(attestation, is_from_block)?;
+        self.validate_on_attestation(attestation, is_from_block, spec)?;
+
+        // Per Gloas spec: `payload_present = attestation.data.index == 1`.
+        let payload_present = spec
+            .fork_name_at_slot::<E>(attestation.data().slot)
+            .gloas_enabled()
+            && attestation.data().index == 1;
 
         if attestation.data().slot < self.fc_store.get_current_slot() {
             for validator_index in attestation.attesting_indices_iter() {
                 self.proto_array.process_attestation(
                     *validator_index as usize,
                     attestation.data().beacon_block_root,
-                    attestation.data().target.epoch,
+                    attestation.data().slot,
+                    payload_present,
                 )?;
             }
         } else {
@@ -1083,6 +1306,94 @@ where
             // ```
             self.queued_attestations
                 .push(QueuedAttestation::from(attestation));
+        }
+
+        Ok(())
+    }
+
+    /// Register a payload attestation with the fork choice DAG.
+    ///
+    /// `ptc` is the PTC committee for the attestation's slot: a list of validator indices
+    /// ordered by committee position. Each attesting validator index is resolved to its
+    /// position within `ptc` (its `ptc_index`) before being applied to the proto-array.
+    pub fn on_payload_attestation(
+        &mut self,
+        system_time_current_slot: Slot,
+        payload_attestation: &IndexedPayloadAttestation<E>,
+        is_from_block: AttestationFromBlock,
+        ptc: &[usize],
+    ) -> Result<(), Error<T::Error>> {
+        self.update_time(system_time_current_slot)?;
+
+        if payload_attestation.data.beacon_block_root.is_zero() {
+            return Ok(());
+        }
+
+        // TODO(gloas): Should ignore wrong-slot payload attestations at the caller, they could
+        // have been processed at the correct slot when received on gossip, but then have the
+        // wrong-slot by the time they make it to here (TOCTOU).
+        // TODO(gloas): Consider inlining validate_on_payload_attestation here to look more like the spec.
+        self.validate_on_payload_attestation(payload_attestation)?;
+
+        // PTC votes can only change the vote for their assigned beacon block, return early otherwise.
+        let block = self
+            .proto_array
+            .get_block(&payload_attestation.data.beacon_block_root)
+            .ok_or(InvalidPayloadAttestation::UnknownHeadBlock {
+                beacon_block_root: payload_attestation.data.beacon_block_root,
+            })?;
+        if block.slot != payload_attestation.data.slot {
+            return Ok(());
+        }
+
+        // Gossip payload attestations must be for the current slot.
+        if matches!(is_from_block, AttestationFromBlock::False)
+            && payload_attestation.data.slot != self.fc_store.get_current_slot()
+        {
+            return Err(
+                InvalidPayloadAttestation::PayloadAttestationNotCurrentSlot {
+                    attestation_slot: payload_attestation.data.slot,
+                    current_slot: self.fc_store.get_current_slot(),
+                }
+                .into(),
+            );
+        }
+
+        // Resolve validator indices to all PTC committee positions. A validator may
+        // appear multiple times in the PTC committee.
+        let mut ptc_indices = vec![];
+        let mut validators_found = 0;
+        for validator_index in payload_attestation.attesting_indices.iter() {
+            let mut found = false;
+            for (ptc_index, &ptc_validator_index) in ptc.iter().enumerate() {
+                if ptc_validator_index == *validator_index as usize {
+                    ptc_indices.push(ptc_index);
+                    found = true;
+                }
+            }
+            if found {
+                validators_found += 1;
+            }
+        }
+
+        // Check that all the attesters are in the PTC
+        if validators_found != payload_attestation.attesting_indices.len() {
+            return Err(
+                InvalidPayloadAttestation::PayloadAttestationAttestersNotInPtc {
+                    attesting_indices_len: payload_attestation.attesting_indices.len(),
+                    attesting_indices_in_ptc: validators_found,
+                }
+                .into(),
+            );
+        }
+
+        for &ptc_index in &ptc_indices {
+            self.proto_array.process_payload_attestation(
+                payload_attestation.data.beacon_block_root,
+                ptc_index,
+                payload_attestation.data.payload_present,
+                payload_attestation.data.blob_data_available,
+            )?;
         }
 
         Ok(())
@@ -1159,10 +1470,12 @@ where
         // Update the justified/finalized checkpoints based upon the
         // best-observed unrealized justification/finality.
         let unrealized_justified_checkpoint = *self.fc_store.unrealized_justified_checkpoint();
+        let unrealized_justified_state_root = self.fc_store.unrealized_justified_state_root();
         let unrealized_finalized_checkpoint = *self.fc_store.unrealized_finalized_checkpoint();
         self.pull_up_store_checkpoints(
             unrealized_justified_checkpoint,
             unrealized_finalized_checkpoint,
+            || Ok(unrealized_justified_state_root),
         )?;
 
         Ok(())
@@ -1172,10 +1485,12 @@ where
         &mut self,
         unrealized_justified_checkpoint: Checkpoint,
         unrealized_finalized_checkpoint: Checkpoint,
+        unrealized_justified_state_root_producer: impl FnOnce() -> Result<Hash256, Error<T::Error>>,
     ) -> Result<(), Error<T::Error>> {
         self.update_checkpoints(
             unrealized_justified_checkpoint,
             unrealized_finalized_checkpoint,
+            unrealized_justified_state_root_producer,
         )
     }
 
@@ -1190,7 +1505,8 @@ where
                 self.proto_array.process_attestation(
                     *validator_index as usize,
                     attestation.block_root,
-                    attestation.target_epoch,
+                    attestation.slot,
+                    attestation.payload_present,
                 )?;
             }
         }
@@ -1213,12 +1529,62 @@ where
         }
     }
 
+    /// Returns whether the execution payload for a block has been received.
+    ///
+    /// Returns `false` for unknown blocks and pre-Gloas nodes.
+    pub fn is_payload_received(&self, block_root: &Hash256) -> bool {
+        self.proto_array.is_payload_received(block_root)
+            && self.is_finalized_checkpoint_or_descendant(*block_root)
+    }
+
+    /// Called by the proposer to decide whether to build on the full or empty parent.
+    pub fn should_build_on_full(
+        &self,
+        block_root: &Hash256,
+        parent_payload_status: PayloadStatus,
+    ) -> Result<bool, Error<T::Error>> {
+        self.proto_array
+            .should_build_on_full::<E>(block_root, parent_payload_status)
+            .map_err(Error::ProtoArrayStringError)
+    }
+
+    /// Returns whether the proposer should extend the execution payload chain of the given block.
+    pub fn should_extend_payload(&self, block_root: &Hash256) -> Result<bool, Error<T::Error>> {
+        let proposer_boost_root = self.fc_store.proposer_boost_root();
+        self.proto_array
+            .should_extend_payload::<E>(block_root, proposer_boost_root)
+            .map_err(Error::ProtoArrayStringError)
+    }
+
     /// Returns an `ExecutionStatus` if the block is known **and** a descendant of the finalized root.
     pub fn get_block_execution_status(&self, block_root: &Hash256) -> Option<ExecutionStatus> {
         if self.is_finalized_checkpoint_or_descendant(*block_root) {
             self.proto_array.get_block_execution_status(block_root)
         } else {
             None
+        }
+    }
+
+    /// Returns the canonical payload status of a block. See
+    /// `ProtoArrayForkChoice::get_canonical_payload_status`.
+    pub fn get_canonical_payload_status(
+        &self,
+        block_root: &Hash256,
+        spec: &ChainSpec,
+    ) -> Result<PayloadStatus, Error<T::Error>> {
+        if self.is_finalized_checkpoint_or_descendant(*block_root) {
+            let current_slot = self.fc_store.get_current_slot();
+            let proposer_boost_root = self.fc_store.proposer_boost_root();
+            self.proto_array
+                .get_canonical_payload_status::<E>(
+                    block_root,
+                    current_slot,
+                    proposer_boost_root,
+                    spec,
+                )
+                .map_err(Error::ProtoArrayError)
+        } else {
+            Err(Error::DoesNotDescendFromFinalizedCheckpoint)
         }
     }
 
@@ -1253,7 +1619,7 @@ where
     /// Return `true` if `block_root` is equal to the finalized checkpoint, or a known descendant of it.
     pub fn is_finalized_checkpoint_or_descendant(&self, block_root: Hash256) -> bool {
         self.proto_array
-            .is_finalized_checkpoint_or_descendant::<E>(block_root)
+            .is_finalized_checkpoint_or_descendant::<E>(block_root, self.finalized_checkpoint())
     }
 
     pub fn is_descendant(&self, ancestor_root: Hash256, descendant_root: Hash256) -> bool {
@@ -1320,13 +1686,15 @@ where
 
     /// Returns the latest message for a given validator, if any.
     ///
-    /// Returns `(block_root, block_slot)`.
+    /// Returns `block_root, block_slot, payload_present`.
     ///
     /// ## Notes
     ///
     /// It may be prudent to call `Self::update_time` before calling this function,
     /// since some attestations might be queued and awaiting processing.
-    pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Epoch)> {
+    ///
+    /// This function is only used in tests.
+    pub fn latest_message(&self, validator_index: usize) -> Option<LatestMessage> {
         self.proto_array.latest_message(validator_index)
     }
 
@@ -1368,12 +1736,15 @@ where
     /// Instantiate `Self` from some `PersistedForkChoice` generated by a earlier call to
     /// `Self::to_persisted`.
     pub fn proto_array_from_persisted(
-        persisted: &PersistedForkChoice,
+        persisted_proto_array: proto_array::core::SszContainer,
+        justified_balances: JustifiedBalances,
         reset_payload_statuses: ResetPayloadStatuses,
-        spec: &ChainSpec,
     ) -> Result<ProtoArrayForkChoice, Error<T::Error>> {
-        let mut proto_array = ProtoArrayForkChoice::from_bytes(&persisted.proto_array_bytes)
-            .map_err(Error::InvalidProtoArrayBytes)?;
+        let mut proto_array = ProtoArrayForkChoice::from_container(
+            persisted_proto_array.clone(),
+            justified_balances.clone(),
+        )
+        .map_err(Error::InvalidProtoArrayBytes)?;
         let contains_invalid_payloads = proto_array.contains_invalid_payloads();
 
         debug!(
@@ -1392,7 +1763,7 @@ where
 
         // Reset all blocks back to being "optimistic". This helps recover from an EL consensus
         // fault where an invalid payload becomes valid.
-        if let Err(e) = proto_array.set_all_blocks_to_optimistic::<E>(spec) {
+        if let Err(e) = proto_array.set_all_blocks_to_optimistic::<E>() {
             // If there is an error resetting the optimistic status then log loudly and revert
             // back to a proto-array which does not have the reset applied. This indicates a
             // significant error in Lighthouse and warrants detailed investigation.
@@ -1401,7 +1772,7 @@ where
                 info = "please report this error",
                 "Failed to reset payload statuses"
             );
-            ProtoArrayForkChoice::from_bytes(&persisted.proto_array_bytes)
+            ProtoArrayForkChoice::from_container(persisted_proto_array, justified_balances)
                 .map_err(Error::InvalidProtoArrayBytes)
         } else {
             debug!("Successfully reset all payload statuses");
@@ -1417,15 +1788,19 @@ where
         fc_store: T,
         spec: &ChainSpec,
     ) -> Result<Self, Error<T::Error>> {
-        let proto_array =
-            Self::proto_array_from_persisted(&persisted, reset_payload_statuses, spec)?;
+        let justified_balances = fc_store.justified_balances().clone();
+        let proto_array = Self::proto_array_from_persisted(
+            persisted.proto_array,
+            justified_balances,
+            reset_payload_statuses,
+        )?;
 
         let current_slot = fc_store.get_current_slot();
 
         let mut fork_choice = Self {
             fc_store,
             proto_array,
-            queued_attestations: persisted.queued_attestations,
+            queued_attestations: vec![],
             // Will be updated in the following call to `Self::get_head`.
             forkchoice_update_parameters: ForkchoiceUpdateParameters {
                 head_hash: None,
@@ -1451,7 +1826,7 @@ where
             // get a different result.
             fork_choice
                 .proto_array
-                .set_all_blocks_to_optimistic::<E>(spec)?;
+                .set_all_blocks_to_optimistic::<E>()?;
             // If the second attempt at finding a head fails, return an error since we do not
             // expect this scenario.
             fork_choice.get_head(current_slot, spec)?;
@@ -1464,8 +1839,7 @@ where
     /// be instantiated again later.
     pub fn to_persisted(&self) -> PersistedForkChoice {
         PersistedForkChoice {
-            proto_array_bytes: self.proto_array().as_bytes(),
-            queued_attestations: self.queued_attestations().to_vec(),
+            proto_array: self.proto_array().as_ssz_container(),
         }
     }
 
@@ -1478,10 +1852,37 @@ where
 /// Helper struct that is used to encode/decode the state of the `ForkChoice` as SSZ bytes.
 ///
 /// This is used when persisting the state of the fork choice to disk.
-#[derive(Encode, Decode, Clone)]
+#[superstruct(
+    variants(V28, V29),
+    variant_attributes(derive(Encode, Decode, Clone)),
+    no_enum
+)]
 pub struct PersistedForkChoice {
-    pub proto_array_bytes: Vec<u8>,
-    queued_attestations: Vec<QueuedAttestation>,
+    #[superstruct(only(V28))]
+    pub proto_array_v28: proto_array::core::SszContainerV28,
+    #[superstruct(only(V29))]
+    pub proto_array: proto_array::core::SszContainerV29,
+    #[superstruct(only(V28))]
+    pub queued_attestations_v28: Vec<QueuedAttestationV28>,
+}
+
+pub type PersistedForkChoice = PersistedForkChoiceV29;
+
+impl From<PersistedForkChoiceV28> for PersistedForkChoiceV29 {
+    fn from(v28: PersistedForkChoiceV28) -> Self {
+        Self {
+            proto_array: v28.proto_array_v28.into(),
+        }
+    }
+}
+
+impl From<PersistedForkChoiceV29> for PersistedForkChoiceV28 {
+    fn from(v29: PersistedForkChoiceV29) -> Self {
+        Self {
+            proto_array_v28: v29.proto_array.into(),
+            queued_attestations_v28: vec![],
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1519,6 +1920,7 @@ mod tests {
                 attesting_indices: vec![],
                 block_root: Hash256::zero(),
                 target_epoch: Epoch::new(0),
+                payload_present: false,
             })
             .collect()
     }

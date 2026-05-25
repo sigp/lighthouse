@@ -1,21 +1,20 @@
 use super::{
+    BehaviourAction, MAX_CONCURRENT_REQUESTS, Protocol, RPCSend, ReqId, RequestType,
     config::OutboundRateLimiterConfig,
     rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr},
-    BehaviourAction, Protocol, RPCSend, ReqId, RequestType, MAX_CONCURRENT_REQUESTS,
 };
 use crate::rpc::rate_limiter::RateLimiterItem;
+use futures::FutureExt;
+use libp2p::{PeerId, swarm::NotifyHandler};
+use logging::crit;
+use smallvec::SmallVec;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
-    collections::{hash_map::Entry, HashMap, VecDeque},
+    collections::{HashMap, VecDeque, hash_map::Entry},
     sync::Arc,
     task::{Context, Poll},
     time::Duration,
 };
-
-use futures::FutureExt;
-use libp2p::{swarm::NotifyHandler, PeerId};
-use logging::crit;
-use smallvec::SmallVec;
 use tokio_util::time::DelayQueue;
 use tracing::debug;
 use types::{EthSpec, ForkContext};
@@ -130,24 +129,23 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
         request_id: Id,
         req: RequestType<E>,
     ) -> Result<RPCSend<Id, E>, (QueuedRequest<Id, E>, Duration)> {
-        if let Some(active_request) = active_requests.get(&peer_id) {
-            if let Some(count) = active_request.get(&req.protocol()) {
-                if *count >= MAX_CONCURRENT_REQUESTS {
-                    debug!(
-                        %peer_id,
-                        protocol = %req.protocol(),
-                        "Self rate limiting due to the number of concurrent requests"
-                    );
-                    return Err((
-                        QueuedRequest {
-                            req,
-                            request_id,
-                            queued_at: timestamp_now(),
-                        },
-                        Duration::from_millis(WAIT_TIME_DUE_TO_CONCURRENT_REQUESTS),
-                    ));
-                }
-            }
+        if let Some(active_request) = active_requests.get(&peer_id)
+            && let Some(count) = active_request.get(&req.protocol())
+            && *count >= MAX_CONCURRENT_REQUESTS
+        {
+            debug!(
+                %peer_id,
+                protocol = %req.protocol(),
+                "Self rate limiting due to the number of concurrent requests"
+            );
+            return Err((
+                QueuedRequest {
+                    req,
+                    request_id,
+                    queued_at: timestamp_now(),
+                },
+                Duration::from_millis(WAIT_TIME_DUE_TO_CONCURRENT_REQUESTS),
+            ));
         }
 
         if let Some(limiter) = rate_limiter.as_mut() {
@@ -235,9 +233,29 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
     pub fn peer_disconnected(&mut self, peer_id: PeerId) -> Vec<(Id, Protocol)> {
         self.active_requests.remove(&peer_id);
 
+        let mut failed_requests = Vec::new();
+
+        self.ready_requests.retain(|(req_peer_id, rpc_send, _)| {
+            if let RPCSend::Request(request_id, req) = rpc_send {
+                if req_peer_id == &peer_id {
+                    failed_requests.push((*request_id, req.protocol()));
+                    // Remove the entry
+                    false
+                } else {
+                    // Keep the entry
+                    true
+                }
+            } else {
+                debug_assert!(
+                    false,
+                    "Coding error: unexpected RPCSend variant {rpc_send:?}."
+                );
+                false
+            }
+        });
+
         // It's not ideal to iterate this map, but the key is (PeerId, Protocol) and this map
         // should never really be large. So we iterate for simplicity
-        let mut failed_requests = Vec::new();
         self.delayed_requests
             .retain(|(map_peer_id, protocol), queue| {
                 if map_peer_id == &peer_id {
@@ -253,18 +271,19 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
                     true
                 }
             });
+
         failed_requests
     }
 
     /// Informs the limiter that a response has been received.
     pub fn request_completed(&mut self, peer_id: &PeerId, protocol: Protocol) {
-        if let Some(active_requests) = self.active_requests.get_mut(peer_id) {
-            if let Entry::Occupied(mut entry) = active_requests.entry(protocol) {
-                if *entry.get() > 1 {
-                    *entry.get_mut() -= 1;
-                } else {
-                    entry.remove();
-                }
+        if let Some(active_requests) = self.active_requests.get_mut(peer_id)
+            && let Entry::Occupied(mut entry) = active_requests.entry(protocol)
+        {
+            if *entry.get() > 1 {
+                *entry.get_mut() -= 1;
+            } else {
+                entry.remove();
             }
         }
     }
@@ -316,6 +335,7 @@ mod tests {
     use crate::service::api_types::{AppRequestId, SingleLookupReqId, SyncRequestId};
     use libp2p::PeerId;
     use logging::create_test_tracing_subscriber;
+    use std::num::NonZeroU64;
     use std::time::Duration;
     use types::{EthSpec, ForkContext, Hash256, MainnetEthSpec, Slot};
 
@@ -324,7 +344,7 @@ mod tests {
     async fn test_next_peer_request_ready() {
         create_test_tracing_subscriber();
         let config = OutboundRateLimiterConfig(RateLimiterConfig {
-            ping_quota: Quota::n_every(1, 2),
+            ping_quota: Quota::n_every(NonZeroU64::new(1).unwrap(), 2),
             ..Default::default()
         });
         let fork_context = std::sync::Arc::new(ForkContext::new::<MainnetEthSpec>(
@@ -510,13 +530,17 @@ mod tests {
         }
 
         assert!(limiter.active_requests.contains_key(&peer1));
-        assert!(limiter
-            .delayed_requests
-            .contains_key(&(peer1, Protocol::Ping)));
+        assert!(
+            limiter
+                .delayed_requests
+                .contains_key(&(peer1, Protocol::Ping))
+        );
         assert!(limiter.active_requests.contains_key(&peer2));
-        assert!(limiter
-            .delayed_requests
-            .contains_key(&(peer2, Protocol::Ping)));
+        assert!(
+            limiter
+                .delayed_requests
+                .contains_key(&(peer2, Protocol::Ping))
+        );
 
         // Check that the limiter returns the IDs of pending requests and that the IDs are ordered correctly.
         let mut failed_requests = limiter.peer_disconnected(peer1);
@@ -532,13 +556,85 @@ mod tests {
 
         // Check that peer1’s active and delayed requests have been removed.
         assert!(!limiter.active_requests.contains_key(&peer1));
-        assert!(!limiter
-            .delayed_requests
-            .contains_key(&(peer1, Protocol::Ping)));
+        assert!(
+            !limiter
+                .delayed_requests
+                .contains_key(&(peer1, Protocol::Ping))
+        );
 
         assert!(limiter.active_requests.contains_key(&peer2));
-        assert!(limiter
-            .delayed_requests
-            .contains_key(&(peer2, Protocol::Ping)));
+        assert!(
+            limiter
+                .delayed_requests
+                .contains_key(&(peer2, Protocol::Ping))
+        );
+    }
+
+    /// Test that `peer_disconnected` returns the IDs of pending requests.
+    #[tokio::test]
+    async fn test_peer_disconnected_returns_failed_requests() {
+        const REPLENISH_DURATION: u64 = 50;
+        let fork_context = std::sync::Arc::new(ForkContext::new::<MainnetEthSpec>(
+            Slot::new(0),
+            Hash256::ZERO,
+            &MainnetEthSpec::default_spec(),
+        ));
+        let config = OutboundRateLimiterConfig(RateLimiterConfig {
+            ping_quota: Quota::n_every_millis(NonZeroU64::new(1).unwrap(), REPLENISH_DURATION),
+            ..Default::default()
+        });
+        let mut limiter: SelfRateLimiter<AppRequestId, MainnetEthSpec> =
+            SelfRateLimiter::new(Some(config), fork_context).unwrap();
+        let peer_id = PeerId::random();
+
+        for i in 1..=5u32 {
+            let result = limiter.allows(
+                peer_id,
+                AppRequestId::Sync(SyncRequestId::SingleBlock {
+                    id: SingleLookupReqId {
+                        req_id: i,
+                        lookup_id: i,
+                    },
+                }),
+                RequestType::Ping(Ping { data: i as u64 }),
+            );
+
+            // Check that the limiter allows the first request while other requests are added to the queue.
+            if i == 1 {
+                assert!(result.is_ok());
+            } else {
+                assert!(result.is_err());
+            }
+        }
+
+        // Wait until the tokens have been regenerated, then run `next_peer_request_ready`.
+        tokio::time::sleep(Duration::from_millis(REPLENISH_DURATION + 10)).await;
+        limiter.next_peer_request_ready(peer_id, Protocol::Ping);
+
+        // Check that one of the pending requests has moved to ready_requests.
+        assert_eq!(
+            limiter
+                .delayed_requests
+                .get(&(peer_id, Protocol::Ping))
+                .unwrap()
+                .len(),
+            3
+        );
+        assert_eq!(limiter.ready_requests.len(), 1);
+
+        let mut failed_requests = limiter.peer_disconnected(peer_id);
+
+        // Check that the limiter returns the IDs of pending requests and that the IDs are ordered correctly.
+        assert_eq!(failed_requests.len(), 4);
+        for i in 2..=5u32 {
+            let (request_id, protocol) = failed_requests.remove(0);
+            assert!(matches!(
+                request_id,
+                AppRequestId::Sync(SyncRequestId::SingleBlock {
+                    id: SingleLookupReqId { req_id, .. },
+                }) if req_id == i
+            ));
+            assert_eq!(protocol, Protocol::Ping);
+        }
     }
 }

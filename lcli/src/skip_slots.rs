@@ -48,11 +48,11 @@ use crate::transition_blocks::load_from_ssz_with;
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
 use environment::Environment;
-use eth2::{types::StateId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
+use eth2::{BeaconNodeHttpClient, SensitiveUrl, Timeouts, types::StateId};
 use eth2_network_config::Eth2NetworkConfig;
 use ssz::Encode;
-use state_processing::state_advance::{complete_state_advance, partial_state_advance};
 use state_processing::AllCaches;
+use state_processing::state_advance::{complete_state_advance, partial_state_advance};
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::PathBuf;
@@ -102,7 +102,7 @@ pub fn run<E: EthSpec>(
                 })
                 .map_err(|e| format!("Failed to complete task: {:?}", e))?
                 .ok_or_else(|| format!("Unable to locate state at {:?}", state_id))?
-                .data;
+                .into_data();
             let state_root = match state_id {
                 StateId::Root(root) => Some(root),
                 _ => None,

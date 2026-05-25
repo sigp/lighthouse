@@ -1,0 +1,7 @@
+# Disallow preliminary slashing checks,
+disallowed-methods = [
+    { path = "slashing_protection::slashing_database::SlashingDatabase::preliminary_check_block_proposal", reason = "not safe for slashing checks", replacement = "slashing_protection::slashing_database::SlashingDatabase::check_and_insert_block_proposal" },
+    { path = "slashing_protection::slashing_database::SlashingDatabase::preliminary_check_block_signing_root", reason = "not safe for slashing checks", replacement = "slashing_protection::slashing_database::SlashingDatabase::check_and_insert_block_signing_root" },
+    { path = "slashing_protection::slashing_database::SlashingDatabase::preliminary_check_attestation", reason = "not safe for slashing checks", replacement = "slashing_protection::slashing_database::SlashingDatabase::check_and_insert_attestation" },
+    { path = "slashing_protection::slashing_database::SlashingDatabase::preliminary_check_attestation_signing_root", reason = "not safe for slashing checks", replacement = "slashing_protection::slashing_database::SlashingDatabase::check_and_insert_attestation_signing_root" },
+]

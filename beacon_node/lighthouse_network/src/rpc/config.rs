@@ -1,10 +1,10 @@
+use super::{Protocol, rate_limiter::Quota};
+use std::num::NonZeroU64;
 use std::{
     fmt::{Debug, Display},
     str::FromStr,
     time::Duration,
 };
-
-use super::{rate_limiter::Quota, Protocol};
 
 use serde::{Deserialize, Serialize};
 
@@ -89,6 +89,9 @@ pub struct RateLimiterConfig {
     pub(super) goodbye_quota: Quota,
     pub(super) blocks_by_range_quota: Quota,
     pub(super) blocks_by_root_quota: Quota,
+    pub(super) blocks_by_head_quota: Quota,
+    pub(super) payload_envelopes_by_range_quota: Quota,
+    pub(super) payload_envelopes_by_root_quota: Quota,
     pub(super) blobs_by_range_quota: Quota,
     pub(super) blobs_by_root_quota: Quota,
     pub(super) data_columns_by_root_quota: Quota,
@@ -100,24 +103,34 @@ pub struct RateLimiterConfig {
 }
 
 impl RateLimiterConfig {
-    pub const DEFAULT_PING_QUOTA: Quota = Quota::n_every(2, 10);
-    pub const DEFAULT_META_DATA_QUOTA: Quota = Quota::n_every(2, 5);
-    pub const DEFAULT_STATUS_QUOTA: Quota = Quota::n_every(5, 15);
+    pub const DEFAULT_PING_QUOTA: Quota = Quota::n_every(NonZeroU64::new(2).unwrap(), 10);
+    pub const DEFAULT_META_DATA_QUOTA: Quota = Quota::n_every(NonZeroU64::new(2).unwrap(), 5);
+    pub const DEFAULT_STATUS_QUOTA: Quota = Quota::n_every(NonZeroU64::new(5).unwrap(), 15);
     pub const DEFAULT_GOODBYE_QUOTA: Quota = Quota::one_every(10);
     // The number is chosen to balance between upload bandwidth required to serve
     // blocks and a decent syncing rate for honest nodes. Malicious nodes would need to
     // spread out their requests over the time window to max out bandwidth on the server.
-    pub const DEFAULT_BLOCKS_BY_RANGE_QUOTA: Quota = Quota::n_every(128, 10);
-    pub const DEFAULT_BLOCKS_BY_ROOT_QUOTA: Quota = Quota::n_every(128, 10);
+    pub const DEFAULT_BLOCKS_BY_RANGE_QUOTA: Quota =
+        Quota::n_every(NonZeroU64::new(128).unwrap(), 10);
+    pub const DEFAULT_BLOCKS_BY_ROOT_QUOTA: Quota =
+        Quota::n_every(NonZeroU64::new(128).unwrap(), 10);
+    pub const DEFAULT_BLOCKS_BY_HEAD_QUOTA: Quota =
+        Quota::n_every(NonZeroU64::new(128).unwrap(), 10);
+    pub const DEFAULT_PAYLOAD_ENVELOPES_BY_RANGE_QUOTA: Quota =
+        Quota::n_every(NonZeroU64::new(128).unwrap(), 10);
+    pub const DEFAULT_PAYLOAD_ENVELOPES_BY_ROOT_QUOTA: Quota =
+        Quota::n_every(NonZeroU64::new(128).unwrap(), 10);
     // `DEFAULT_BLOCKS_BY_RANGE_QUOTA` * (target + 1) to account for high usage
-    pub const DEFAULT_BLOBS_BY_RANGE_QUOTA: Quota = Quota::n_every(896, 10);
-    pub const DEFAULT_BLOBS_BY_ROOT_QUOTA: Quota = Quota::n_every(896, 10);
-    // 320 blocks worth of columns for regular node, or 40 blocks for supernode.
-    // Range sync load balances when requesting blocks, and each batch is 32 blocks.
-    pub const DEFAULT_DATA_COLUMNS_BY_RANGE_QUOTA: Quota = Quota::n_every(5120, 10);
-    // 512 columns per request from spec. This should be plenty as peers are unlikely to send all
-    // sampling requests to a single peer.
-    pub const DEFAULT_DATA_COLUMNS_BY_ROOT_QUOTA: Quota = Quota::n_every(512, 10);
+    pub const DEFAULT_BLOBS_BY_RANGE_QUOTA: Quota =
+        Quota::n_every(NonZeroU64::new(896).unwrap(), 10);
+    pub const DEFAULT_BLOBS_BY_ROOT_QUOTA: Quota =
+        Quota::n_every(NonZeroU64::new(896).unwrap(), 10);
+    // Allow up to `MAX_REQUEST_DATA_COLUMN_SIDECARS` (16384), the maximum number of data
+    // column sidecars in a single request from the spec.
+    pub const DEFAULT_DATA_COLUMNS_BY_RANGE_QUOTA: Quota =
+        Quota::n_every(NonZeroU64::new(16384).unwrap(), 10);
+    pub const DEFAULT_DATA_COLUMNS_BY_ROOT_QUOTA: Quota =
+        Quota::n_every(NonZeroU64::new(16384).unwrap(), 10);
     pub const DEFAULT_LIGHT_CLIENT_BOOTSTRAP_QUOTA: Quota = Quota::one_every(10);
     pub const DEFAULT_LIGHT_CLIENT_OPTIMISTIC_UPDATE_QUOTA: Quota = Quota::one_every(10);
     pub const DEFAULT_LIGHT_CLIENT_FINALITY_UPDATE_QUOTA: Quota = Quota::one_every(10);
@@ -133,6 +146,9 @@ impl Default for RateLimiterConfig {
             goodbye_quota: Self::DEFAULT_GOODBYE_QUOTA,
             blocks_by_range_quota: Self::DEFAULT_BLOCKS_BY_RANGE_QUOTA,
             blocks_by_root_quota: Self::DEFAULT_BLOCKS_BY_ROOT_QUOTA,
+            blocks_by_head_quota: Self::DEFAULT_BLOCKS_BY_HEAD_QUOTA,
+            payload_envelopes_by_range_quota: Self::DEFAULT_PAYLOAD_ENVELOPES_BY_RANGE_QUOTA,
+            payload_envelopes_by_root_quota: Self::DEFAULT_PAYLOAD_ENVELOPES_BY_ROOT_QUOTA,
             blobs_by_range_quota: Self::DEFAULT_BLOBS_BY_RANGE_QUOTA,
             blobs_by_root_quota: Self::DEFAULT_BLOBS_BY_ROOT_QUOTA,
             data_columns_by_root_quota: Self::DEFAULT_DATA_COLUMNS_BY_ROOT_QUOTA,
@@ -165,6 +181,15 @@ impl Debug for RateLimiterConfig {
             .field("goodbye", fmt_q!(&self.goodbye_quota))
             .field("blocks_by_range", fmt_q!(&self.blocks_by_range_quota))
             .field("blocks_by_root", fmt_q!(&self.blocks_by_root_quota))
+            .field("blocks_by_head", fmt_q!(&self.blocks_by_head_quota))
+            .field(
+                "payload_envelopes_by_range",
+                fmt_q!(&self.payload_envelopes_by_range_quota),
+            )
+            .field(
+                "payload_envelopes_by_root",
+                fmt_q!(&self.payload_envelopes_by_root_quota),
+            )
             .field("blobs_by_range", fmt_q!(&self.blobs_by_range_quota))
             .field("blobs_by_root", fmt_q!(&self.blobs_by_root_quota))
             .field(
@@ -193,6 +218,9 @@ impl FromStr for RateLimiterConfig {
         let mut goodbye_quota = None;
         let mut blocks_by_range_quota = None;
         let mut blocks_by_root_quota = None;
+        let mut blocks_by_head_quota = None;
+        let mut payload_envelopes_by_range_quota = None;
+        let mut payload_envelopes_by_root_quota = None;
         let mut blobs_by_range_quota = None;
         let mut blobs_by_root_quota = None;
         let mut data_columns_by_root_quota = None;
@@ -210,6 +238,13 @@ impl FromStr for RateLimiterConfig {
                 Protocol::Goodbye => goodbye_quota = goodbye_quota.or(quota),
                 Protocol::BlocksByRange => blocks_by_range_quota = blocks_by_range_quota.or(quota),
                 Protocol::BlocksByRoot => blocks_by_root_quota = blocks_by_root_quota.or(quota),
+                Protocol::BlocksByHead => blocks_by_head_quota = blocks_by_head_quota.or(quota),
+                Protocol::PayloadEnvelopesByRange => {
+                    payload_envelopes_by_range_quota = payload_envelopes_by_range_quota.or(quota)
+                }
+                Protocol::PayloadEnvelopesByRoot => {
+                    payload_envelopes_by_root_quota = payload_envelopes_by_root_quota.or(quota)
+                }
                 Protocol::BlobsByRange => blobs_by_range_quota = blobs_by_range_quota.or(quota),
                 Protocol::BlobsByRoot => blobs_by_root_quota = blobs_by_root_quota.or(quota),
                 Protocol::DataColumnsByRoot => {
@@ -246,6 +281,12 @@ impl FromStr for RateLimiterConfig {
                 .unwrap_or(Self::DEFAULT_BLOCKS_BY_RANGE_QUOTA),
             blocks_by_root_quota: blocks_by_root_quota
                 .unwrap_or(Self::DEFAULT_BLOCKS_BY_ROOT_QUOTA),
+            blocks_by_head_quota: blocks_by_head_quota
+                .unwrap_or(Self::DEFAULT_BLOCKS_BY_HEAD_QUOTA),
+            payload_envelopes_by_range_quota: payload_envelopes_by_range_quota
+                .unwrap_or(Self::DEFAULT_PAYLOAD_ENVELOPES_BY_RANGE_QUOTA),
+            payload_envelopes_by_root_quota: payload_envelopes_by_root_quota
+                .unwrap_or(Self::DEFAULT_PAYLOAD_ENVELOPES_BY_ROOT_QUOTA),
             blobs_by_range_quota: blobs_by_range_quota
                 .unwrap_or(Self::DEFAULT_BLOBS_BY_RANGE_QUOTA),
             blobs_by_root_quota: blobs_by_root_quota.unwrap_or(Self::DEFAULT_BLOBS_BY_ROOT_QUOTA),
@@ -275,7 +316,7 @@ mod tests {
             protocol: Protocol::Goodbye,
             quota: Quota {
                 replenish_all_every: Duration::from_secs(10),
-                max_tokens: 8,
+                max_tokens: NonZeroU64::new(8).unwrap(),
             },
         };
         assert_eq!(quota.to_string().parse(), Ok(quota))

@@ -1,6 +1,6 @@
-use crate::sync_committee_rewards::get_state_before_applying_block;
 use crate::BlockId;
 use crate::ExecutionOptimistic;
+use crate::sync_committee_rewards::get_state_before_applying_block;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2::types::StandardBlockReward;
 use std::sync::Arc;

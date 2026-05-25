@@ -1,23 +1,23 @@
 use crate::{
+    Error, Hash256, INFINITY_PUBLIC_KEY, INFINITY_SIGNATURE, ZeroizeHash,
     generic_aggregate_public_key::TAggregatePublicKey,
     generic_aggregate_signature::TAggregateSignature,
     generic_public_key::{
-        GenericPublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN, PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN,
+        GenericPublicKey, PUBLIC_KEY_BYTES_LEN, PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN, TPublicKey,
     },
-    generic_secret_key::{TSecretKey, SECRET_KEY_BYTES_LEN},
-    generic_signature::{TSignature, SIGNATURE_BYTES_LEN, SIGNATURE_UNCOMPRESSED_BYTES_LEN},
-    Error, Hash256, ZeroizeHash, INFINITY_PUBLIC_KEY, INFINITY_SIGNATURE,
+    generic_secret_key::{SECRET_KEY_BYTES_LEN, TSecretKey},
+    generic_signature::{SIGNATURE_BYTES_LEN, SIGNATURE_UNCOMPRESSED_BYTES_LEN, TSignature},
 };
 
 /// Provides the externally-facing, core BLS types.
 pub mod types {
-    pub use super::verify_signature_sets;
     pub use super::AggregatePublicKey;
     pub use super::AggregateSignature;
     pub use super::PublicKey;
     pub use super::SecretKey;
     pub use super::Signature;
     pub use super::SignatureSet;
+    pub use super::verify_signature_sets;
 }
 
 pub type SignatureSet<'a> = crate::generic_signature_set::GenericSignatureSet<
@@ -49,7 +49,9 @@ impl TPublicKey for PublicKey {
     }
 
     fn serialize_uncompressed(&self) -> [u8; PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN] {
-        panic!("fake_crypto does not support uncompressed keys")
+        let mut bytes = [0; PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN];
+        bytes[0..PUBLIC_KEY_BYTES_LEN].copy_from_slice(&self.0);
+        bytes
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
@@ -58,8 +60,17 @@ impl TPublicKey for PublicKey {
         Ok(pubkey)
     }
 
-    fn deserialize_uncompressed(_: &[u8]) -> Result<Self, Error> {
-        panic!("fake_crypto does not support uncompressed keys")
+    fn deserialize_uncompressed(bytes: &[u8]) -> Result<Self, Error> {
+        if bytes.len() == PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN {
+            let mut pubkey = Self([0; PUBLIC_KEY_BYTES_LEN]);
+            pubkey.0.copy_from_slice(&bytes[0..PUBLIC_KEY_BYTES_LEN]);
+            Ok(pubkey)
+        } else {
+            Err(Error::InvalidByteLength {
+                got: bytes.len(),
+                expected: PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN,
+            })
+        }
     }
 }
 
@@ -97,7 +108,7 @@ pub struct Signature([u8; SIGNATURE_BYTES_LEN]);
 
 impl Signature {
     fn infinity() -> Self {
-        Self([0; SIGNATURE_BYTES_LEN])
+        Self(INFINITY_SIGNATURE)
     }
 }
 
@@ -213,7 +224,11 @@ impl TSecretKey<Signature, PublicKey> for SecretKey {
     }
 
     fn public_key(&self) -> PublicKey {
-        PublicKey::infinity()
+        let mut bytes = [0; PUBLIC_KEY_BYTES_LEN];
+        bytes[0] = 0x01;
+        let to_copy = std::cmp::min(self.0.len(), bytes.len() - 1);
+        bytes[1..1 + to_copy].copy_from_slice(&self.0[..to_copy]);
+        PublicKey(bytes)
     }
 
     fn sign(&self, _msg: Hash256) -> Signature {

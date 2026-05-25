@@ -1,11 +1,12 @@
 use crate::engines::ForkchoiceState;
 use crate::http::{
     ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3,
-    ENGINE_GET_BLOBS_V1, ENGINE_GET_BLOBS_V2, ENGINE_GET_CLIENT_VERSION_V1,
-    ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1, ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
-    ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2, ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4,
-    ENGINE_GET_PAYLOAD_V5, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3,
-    ENGINE_NEW_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V5,
+    ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_GET_BLOBS_V1, ENGINE_GET_BLOBS_V2,
+    ENGINE_GET_CLIENT_VERSION_V1, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
+    ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
+    ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6,
+    ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4,
+    ENGINE_NEW_PAYLOAD_V5,
 };
 use eth2::types::{
     BlobsBundle, SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2,
@@ -20,14 +21,15 @@ use strum::IntoStaticStr;
 use superstruct::superstruct;
 pub use types::{
     Address, BeaconBlockRef, ConsolidationRequest, EthSpec, ExecutionBlockHash, ExecutionPayload,
-    ExecutionPayloadHeader, ExecutionPayloadRef, FixedVector, ForkName, Hash256, Transactions,
-    Uint256, VariableList, Withdrawal, Withdrawals,
+    ExecutionPayloadHeader, ExecutionPayloadRef, ForkName, Hash256, Transactions, Uint256,
+    Withdrawal, Withdrawals,
 };
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionRequests, KzgProofs,
+    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionRequests,
+    KzgProofs,
 };
-use types::{Graffiti, GRAFFITI_BYTES_LEN};
+use types::{GRAFFITI_BYTES_LEN, Graffiti};
 
 pub mod auth;
 pub mod http;
@@ -37,6 +39,7 @@ mod new_payload_request;
 pub use new_payload_request::{
     NewPayloadRequest, NewPayloadRequestBellatrix, NewPayloadRequestCapella,
     NewPayloadRequestDeneb, NewPayloadRequestElectra, NewPayloadRequestFulu,
+    NewPayloadRequestGloas,
 };
 
 pub const LATEST_TAG: &str = "latest";
@@ -77,7 +80,7 @@ impl From<reqwest::Error> for Error {
             e.status(),
             Some(StatusCode::UNAUTHORIZED) | Some(StatusCode::FORBIDDEN)
         ) {
-            Error::Auth(auth::Error::InvalidToken)
+            Error::Auth(auth::Error::InvalidToken(e.to_string()))
         } else {
             Error::HttpClient(e.into())
         }
@@ -156,7 +159,7 @@ impl ExecutionBlock {
 }
 
 #[superstruct(
-    variants(V1, V2, V3),
+    variants(V1, V2, V3, V4),
     variant_attributes(derive(Clone, Debug, Eq, Hash, PartialEq),),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
@@ -169,10 +172,14 @@ pub struct PayloadAttributes {
     pub prev_randao: Hash256,
     #[superstruct(getter(copy))]
     pub suggested_fee_recipient: Address,
-    #[superstruct(only(V2, V3))]
+    #[superstruct(only(V2, V3, V4))]
     pub withdrawals: Vec<Withdrawal>,
-    #[superstruct(only(V3), partial_getter(copy))]
+    #[superstruct(only(V3, V4), partial_getter(copy))]
     pub parent_beacon_block_root: Hash256,
+    #[superstruct(only(V4), partial_getter(copy))]
+    pub slot_number: u64,
+    #[superstruct(only(V4), partial_getter(copy))]
+    pub target_gas_limit: u64,
 }
 
 impl PayloadAttributes {
@@ -182,24 +189,45 @@ impl PayloadAttributes {
         suggested_fee_recipient: Address,
         withdrawals: Option<Vec<Withdrawal>>,
         parent_beacon_block_root: Option<Hash256>,
+        slot_number: Option<u64>,
+        target_gas_limit: Option<u64>,
     ) -> Self {
-        match withdrawals {
-            Some(withdrawals) => match parent_beacon_block_root {
-                Some(parent_beacon_block_root) => PayloadAttributes::V3(PayloadAttributesV3 {
+        match (
+            withdrawals,
+            parent_beacon_block_root,
+            slot_number,
+            target_gas_limit,
+        ) {
+            (
+                Some(withdrawals),
+                Some(parent_beacon_block_root),
+                Some(slot_number),
+                Some(target_gas_limit),
+            ) => PayloadAttributes::V4(PayloadAttributesV4 {
+                timestamp,
+                prev_randao,
+                suggested_fee_recipient,
+                withdrawals,
+                parent_beacon_block_root,
+                slot_number,
+                target_gas_limit,
+            }),
+            (Some(withdrawals), Some(parent_beacon_block_root), _, _) => {
+                PayloadAttributes::V3(PayloadAttributesV3 {
                     timestamp,
                     prev_randao,
                     suggested_fee_recipient,
                     withdrawals,
                     parent_beacon_block_root,
-                }),
-                None => PayloadAttributes::V2(PayloadAttributesV2 {
-                    timestamp,
-                    prev_randao,
-                    suggested_fee_recipient,
-                    withdrawals,
-                }),
-            },
-            None => PayloadAttributes::V1(PayloadAttributesV1 {
+                })
+            }
+            (Some(withdrawals), None, _, _) => PayloadAttributes::V2(PayloadAttributesV2 {
+                timestamp,
+                prev_randao,
+                suggested_fee_recipient,
+                withdrawals,
+            }),
+            (None, _, _, _) => PayloadAttributes::V1(PayloadAttributesV1 {
                 timestamp,
                 prev_randao,
                 suggested_fee_recipient,
@@ -244,6 +272,22 @@ impl From<PayloadAttributes> for SsePayloadAttributes {
                 withdrawals,
                 parent_beacon_block_root,
             }),
+            // V4 maps to V3 for SSE (slot_number/target_gas_limit are not part of the SSE spec)
+            PayloadAttributes::V4(PayloadAttributesV4 {
+                timestamp,
+                prev_randao,
+                suggested_fee_recipient,
+                withdrawals,
+                parent_beacon_block_root,
+                slot_number: _,
+                target_gas_limit: _,
+            }) => Self::V3(SsePayloadAttributesV3 {
+                timestamp,
+                prev_randao,
+                suggested_fee_recipient,
+                withdrawals,
+                parent_beacon_block_root,
+            }),
         }
     }
 }
@@ -269,7 +313,7 @@ pub struct ProposeBlindedBlockResponse {
 }
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Fulu),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
     variant_attributes(derive(Clone, Debug, PartialEq),),
     map_into(ExecutionPayload),
     map_ref_into(ExecutionPayloadRef),
@@ -291,12 +335,14 @@ pub struct GetPayloadResponse<E: EthSpec> {
     pub execution_payload: ExecutionPayloadElectra<E>,
     #[superstruct(only(Fulu), partial_getter(rename = "execution_payload_fulu"))]
     pub execution_payload: ExecutionPayloadFulu<E>,
+    #[superstruct(only(Gloas), partial_getter(rename = "execution_payload_gloas"))]
+    pub execution_payload: ExecutionPayloadGloas<E>,
     pub block_value: Uint256,
-    #[superstruct(only(Deneb, Electra, Fulu))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
     pub blobs_bundle: BlobsBundle<E>,
-    #[superstruct(only(Deneb, Electra, Fulu), partial_getter(copy))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
     pub should_override_builder: bool,
-    #[superstruct(only(Electra, Fulu))]
+    #[superstruct(only(Electra, Fulu, Gloas))]
     pub requests: ExecutionRequests<E>,
 }
 
@@ -370,6 +416,12 @@ impl<E: EthSpec> From<GetPayloadResponse<E>>
                 Some(inner.blobs_bundle),
                 Some(inner.requests),
             ),
+            GetPayloadResponse::Gloas(inner) => (
+                ExecutionPayload::Gloas(inner.execution_payload),
+                inner.block_value,
+                Some(inner.blobs_bundle),
+                Some(inner.requests),
+            ),
         }
     }
 }
@@ -380,7 +432,7 @@ pub enum GetPayloadResponseType<E: EthSpec> {
 }
 
 impl<E: EthSpec> GetPayloadResponse<E> {
-    pub fn execution_payload_ref(&self) -> ExecutionPayloadRef<E> {
+    pub fn execution_payload_ref(&self) -> ExecutionPayloadRef<'_, E> {
         self.to_ref().into()
     }
 }
@@ -545,6 +597,7 @@ pub struct EngineCapabilities {
     pub forkchoice_updated_v1: bool,
     pub forkchoice_updated_v2: bool,
     pub forkchoice_updated_v3: bool,
+    pub forkchoice_updated_v4: bool,
     pub get_payload_bodies_by_hash_v1: bool,
     pub get_payload_bodies_by_range_v1: bool,
     pub get_payload_v1: bool,
@@ -552,9 +605,11 @@ pub struct EngineCapabilities {
     pub get_payload_v3: bool,
     pub get_payload_v4: bool,
     pub get_payload_v5: bool,
+    pub get_payload_v6: bool,
     pub get_client_version_v1: bool,
     pub get_blobs_v1: bool,
     pub get_blobs_v2: bool,
+    pub get_blobs_v3: bool,
 }
 
 impl EngineCapabilities {
@@ -584,6 +639,9 @@ impl EngineCapabilities {
         if self.forkchoice_updated_v3 {
             response.push(ENGINE_FORKCHOICE_UPDATED_V3);
         }
+        if self.forkchoice_updated_v4 {
+            response.push(ENGINE_FORKCHOICE_UPDATED_V4);
+        }
         if self.get_payload_bodies_by_hash_v1 {
             response.push(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1);
         }
@@ -604,6 +662,9 @@ impl EngineCapabilities {
         }
         if self.get_payload_v5 {
             response.push(ENGINE_GET_PAYLOAD_V5);
+        }
+        if self.get_payload_v6 {
+            response.push(ENGINE_GET_PAYLOAD_V6);
         }
         if self.get_client_version_v1 {
             response.push(ENGINE_GET_CLIENT_VERSION_V1);
@@ -729,14 +790,18 @@ pub struct ClientVersionV1 {
 }
 
 impl ClientVersionV1 {
-    pub fn calculate_graffiti(&self, lighthouse_commit_prefix: CommitPrefix) -> Graffiti {
-        let graffiti_string = format!(
+    pub fn calculate_graffiti(
+        &self,
+        lighthouse_commit_prefix: CommitPrefix,
+        validator_graffiti: Option<Graffiti>,
+    ) -> Graffiti {
+        let append_graffiti_full = format!(
             "{}{}LH{}",
             self.code,
             self.commit
                 .0
                 .get(..4)
-                .map_or_else(|| self.commit.0.as_str(), |s| s)
+                .unwrap_or(self.commit.0.as_str())
                 .to_lowercase(),
             lighthouse_commit_prefix
                 .0
@@ -744,6 +809,53 @@ impl ClientVersionV1 {
                 .unwrap_or("0000")
                 .to_lowercase(),
         );
+
+        // Implement the special case here:
+        // https://hackmd.io/@wmoBhF17RAOH2NZ5bNXJVg/BJX2c9gja#SPECIAL-CASE-the-flexible-standard
+        let append_graffiti_one_byte = format!(
+            "{}{}LH{}",
+            self.code,
+            self.commit
+                .0
+                .get(..2)
+                .unwrap_or(self.commit.0.as_str())
+                .to_lowercase(),
+            lighthouse_commit_prefix
+                .0
+                .get(..2)
+                .unwrap_or("00")
+                .to_lowercase(),
+        );
+
+        let append_graffiti_no_commit = format!("{}LH", self.code);
+        let append_graffiti_only_el = format!("{}", self.code);
+
+        let graffiti_string = if let Some(graffiti) = validator_graffiti {
+            let graffiti_length = graffiti.as_utf8_lossy().len();
+            let graffiti_str = graffiti.as_utf8_lossy();
+
+            // 12 characters for append_graffiti_full, plus one character for spacing
+            // that leaves user specified graffiti to be 32-12-1 = 19 characters max, i.e., <20
+            if graffiti_length < 20 {
+                format!("{} {}", append_graffiti_full, graffiti_str)
+            // user-specified graffiti is between 20-23 characters
+            } else if (20..24).contains(&graffiti_length) {
+                format!("{} {}", append_graffiti_one_byte, graffiti_str)
+            // user-specified graffiti is between 24-27 characters
+            } else if (24..28).contains(&graffiti_length) {
+                format!("{} {}", append_graffiti_no_commit, graffiti_str)
+            // user-specified graffiti is between 28-29 characters
+            } else if (28..30).contains(&graffiti_length) {
+                format!("{} {}", append_graffiti_only_el, graffiti_str)
+            // if user-specified graffiti is between 30-32 characters, append nothing
+            } else {
+                return graffiti;
+            }
+        } else {
+            // if no validator_graffiti (user doesn't specify), use the full client version info graffiti
+            append_graffiti_full
+        };
+
         let mut graffiti_bytes = [0u8; GRAFFITI_BYTES_LEN];
         let bytes_to_copy = std::cmp::min(graffiti_string.len(), GRAFFITI_BYTES_LEN);
         graffiti_bytes[..bytes_to_copy]

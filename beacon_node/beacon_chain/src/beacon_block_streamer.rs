@@ -1,14 +1,14 @@
-use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes, BlockProcessStatus};
+use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, BlockProcessStatus, metrics};
 use execution_layer::{ExecutionLayer, ExecutionPayloadBodyV1};
 use logging::crit;
 use std::collections::HashMap;
 use std::sync::Arc;
 use store::{DatabaseBlock, ExecutionPayloadDeneb};
 use tokio::sync::{
-    mpsc::{self, UnboundedSender},
     RwLock,
+    mpsc::{self, UnboundedSender},
 };
-use tokio_stream::{wrappers::UnboundedReceiverStream, Stream};
+use tokio_stream::{Stream, wrappers::UnboundedReceiverStream};
 use tracing::{debug, error};
 use types::{
     ChainSpec, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256, SignedBeaconBlock,
@@ -16,7 +16,7 @@ use types::{
 };
 use types::{
     ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadElectra,
-    ExecutionPayloadFulu, ExecutionPayloadHeader,
+    ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadHeader,
 };
 
 #[derive(PartialEq)]
@@ -101,12 +101,13 @@ fn reconstruct_default_header_block<E: EthSpec>(
         ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
         ForkName::Electra => ExecutionPayloadElectra::default().into(),
         ForkName::Fulu => ExecutionPayloadFulu::default().into(),
+        ForkName::Gloas => ExecutionPayloadGloas::default().into(),
         ForkName::Base | ForkName::Altair => {
             return Err(Error::PayloadReconstruction(format!(
                 "Block with fork variant {} has execution payload",
                 fork
             ))
-            .into())
+            .into());
         }
     };
 
@@ -403,7 +404,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         if self.check_caches == CheckCaches::Yes {
             match self.beacon_chain.get_block_process_status(&root) {
                 BlockProcessStatus::Unknown => None,
-                BlockProcessStatus::NotValidated(block)
+                BlockProcessStatus::NotValidated(block, _)
                 | BlockProcessStatus::ExecutionValidated(block) => {
                     metrics::inc_counter(&metrics::BEACON_REQRESP_PRE_IMPORT_CACHE_HITS);
                     Some(block)
@@ -683,14 +684,13 @@ impl From<Error> for BeaconChainError {
 #[cfg(test)]
 mod tests {
     use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
-    use crate::test_utils::{test_spec, BeaconChainHarness, EphemeralHarnessType};
-    use execution_layer::test_utils::Block;
+    use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType, test_spec};
+    use bls::Keypair;
+    use fixed_bytes::FixedBytesExtended;
     use std::sync::Arc;
     use std::sync::LazyLock;
     use tokio::sync::mpsc;
-    use types::{
-        ChainSpec, Epoch, EthSpec, FixedBytesExtended, Hash256, Keypair, MinimalEthSpec, Slot,
-    };
+    use types::{ChainSpec, Epoch, EthSpec, Hash256, MinimalEthSpec, Slot};
 
     const VALIDATOR_COUNT: usize = 48;
 
@@ -714,11 +714,12 @@ mod tests {
         harness
     }
 
+    // TODO(EIP-7732) Extend this test for gloas
     #[tokio::test]
     async fn check_all_blocks_from_altair_to_fulu() {
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch() as usize;
         let num_epochs = 12;
-        let bellatrix_fork_epoch = 2usize;
+        let bellatrix_fork_epoch = 0usize;
         let capella_fork_epoch = 4usize;
         let deneb_fork_epoch = 6usize;
         let electra_fork_epoch = 8usize;
@@ -732,34 +733,12 @@ mod tests {
         spec.deneb_fork_epoch = Some(Epoch::new(deneb_fork_epoch as u64));
         spec.electra_fork_epoch = Some(Epoch::new(electra_fork_epoch as u64));
         spec.fulu_fork_epoch = Some(Epoch::new(fulu_fork_epoch as u64));
+        spec.gloas_fork_epoch = None;
         let spec = Arc::new(spec);
 
         let harness = get_harness(VALIDATOR_COUNT, spec.clone());
-        // go to bellatrix fork
-        harness
-            .extend_slots(bellatrix_fork_epoch * slots_per_epoch)
-            .await;
-        // extend half an epoch
-        harness.extend_slots(slots_per_epoch / 2).await;
-        // trigger merge
-        harness
-            .execution_block_generator()
-            .move_to_terminal_block()
-            .expect("should move to terminal block");
-        let timestamp = harness.get_timestamp_at_slot() + harness.spec.seconds_per_slot;
-        harness
-            .execution_block_generator()
-            .modify_last_block(|block| {
-                if let Block::PoW(terminal_block) = block {
-                    terminal_block.timestamp = timestamp;
-                }
-            });
-        // finish out merge epoch
-        harness.extend_slots(slots_per_epoch / 2).await;
         // finish rest of epochs
-        harness
-            .extend_slots((num_epochs - 1 - bellatrix_fork_epoch) * slots_per_epoch)
-            .await;
+        harness.extend_slots(num_epochs * slots_per_epoch).await;
 
         let head = harness.chain.head_snapshot();
         let state = &head.beacon_state;

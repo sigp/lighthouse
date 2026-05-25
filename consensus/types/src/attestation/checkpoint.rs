@@ -1,0 +1,40 @@
+use context_deserialize::context_deserialize;
+use serde::{Deserialize, Serialize};
+use ssz_derive::{Decode, Encode};
+use tree_hash_derive::TreeHash;
+
+use crate::{
+    core::{Epoch, Hash256},
+    fork::ForkName,
+};
+
+/// Casper FFG checkpoint, used in attestations.
+///
+/// Spec v0.12.1
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Default,
+    Hash,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+)]
+#[context_deserialize(ForkName)]
+pub struct Checkpoint {
+    pub epoch: Epoch,
+    pub root: Hash256,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    ssz_and_tree_hash_tests!(Checkpoint);
+}

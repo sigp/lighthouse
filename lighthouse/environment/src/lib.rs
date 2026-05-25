@@ -9,10 +9,10 @@
 
 use eth2_config::Eth2Config;
 use eth2_network_config::Eth2NetworkConfig;
-use futures::channel::mpsc::{channel, Receiver, Sender};
-use futures::{future, StreamExt};
-use logging::tracing_logging_layer::LoggingLayer;
+use futures::channel::mpsc::{Receiver, Sender, channel};
+use futures::{StreamExt, future};
 use logging::SSELoggingComponents;
+use logging::tracing_logging_layer::LoggingLayer;
 use logroller::{Compression, LogRollerBuilder, Rotation, RotationSize};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -26,15 +26,8 @@ use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
 #[cfg(target_family = "unix")]
 use {
     futures::Future,
-    std::{
-        fs::{read_dir, set_permissions, Permissions},
-        os::unix::fs::PermissionsExt,
-        path::Path,
-        pin::Pin,
-        task::Context,
-        task::Poll,
-    },
-    tokio::signal::unix::{signal, Signal, SignalKind},
+    std::{pin::Pin, task::Context, task::Poll},
+    tokio::signal::unix::{Signal, SignalKind, signal},
 };
 
 #[cfg(not(target_family = "unix"))]
@@ -116,19 +109,6 @@ pub struct RuntimeContext<E: EthSpec> {
 }
 
 impl<E: EthSpec> RuntimeContext<E> {
-    /// Returns a sub-context of this context.
-    ///
-    /// The generated service will have the `service_name` in all it's logs.
-    pub fn service_context(&self, service_name: String) -> Self {
-        Self {
-            executor: self.executor.clone_with_name(service_name),
-            eth_spec_instance: self.eth_spec_instance.clone(),
-            eth2_config: self.eth2_config.clone(),
-            eth2_network_config: self.eth2_network_config.clone(),
-            sse_logging_components: self.sse_logging_components.clone(),
-        }
-    }
-
     /// Returns the `eth2_config` for this service.
     pub fn eth2_config(&self) -> &Eth2Config {
         &self.eth2_config
@@ -208,6 +188,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         mut self,
         config: LoggerConfig,
         logfile_prefix: &str,
+        file_mode: u32,
     ) -> (
         Self,
         LoggingLayer,
@@ -219,9 +200,6 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             "validator_client" => "validator",
             _ => logfile_prefix,
         };
-
-        #[cfg(target_family = "unix")]
-        let file_mode = if config.is_restricted { 0o600 } else { 0o644 };
 
         let file_logging_layer = match config.path {
             None => {
@@ -239,7 +217,8 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                     .max_keep_files(config.max_log_number.try_into().unwrap_or_else(|e| {
                         eprintln!("Failed to convert max_log_number to u64: {}", e);
                         10
-                    }));
+                    }))
+                    .file_mode(file_mode);
 
                 if config.compression {
                     appender = appender.compression(Compression::Gzip);
@@ -247,9 +226,6 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
 
                 match appender.build() {
                     Ok(file_appender) => {
-                        #[cfg(target_family = "unix")]
-                        set_logfile_permissions(&path, filename_prefix, file_mode);
-
                         let (writer, guard) = tracing_appender::non_blocking(file_appender);
                         Some(LoggingLayer::new(
                             writer,
@@ -360,23 +336,6 @@ impl<E: EthSpec> Environment<E> {
                 Arc::downgrade(self.runtime()),
                 self.exit.clone(),
                 self.signal_tx.clone(),
-                "core".to_string(),
-            ),
-            eth_spec_instance: self.eth_spec_instance.clone(),
-            eth2_config: self.eth2_config.clone(),
-            eth2_network_config: self.eth2_network_config.clone(),
-            sse_logging_components: self.sse_logging_components.clone(),
-        }
-    }
-
-    /// Returns a `Context` where the `service_name` is added to the logger output.
-    pub fn service_context(&self, service_name: String) -> RuntimeContext<E> {
-        RuntimeContext {
-            executor: TaskExecutor::new(
-                Arc::downgrade(self.runtime()),
-                self.exit.clone(),
-                self.signal_tx.clone(),
-                service_name,
             ),
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
@@ -429,7 +388,7 @@ impl<E: EthSpec> Environment<E> {
                 Err(e) => error!(error = ?e, "Could not register SIGHUP handler"),
             }
 
-            future::select(inner_shutdown, future::select_all(handles.into_iter())).await
+            future::select(inner_shutdown, future::select_all(handles)).await
         };
 
         match self.runtime().block_on(register_handlers) {
@@ -540,40 +499,6 @@ impl Future for SignalFuture {
             Poll::Pending => Poll::Pending,
             Poll::Ready(Some(_)) => Poll::Ready(Some(ShutdownReason::Success(self.message))),
             Poll::Ready(None) => Poll::Ready(None),
-        }
-    }
-}
-
-#[cfg(target_family = "unix")]
-fn set_logfile_permissions(log_dir: &Path, filename_prefix: &str, file_mode: u32) {
-    let newest = read_dir(log_dir)
-        .ok()
-        .into_iter()
-        .flat_map(|entries| entries.filter_map(Result::ok))
-        .filter_map(|entry| {
-            let path = entry.path();
-            let fname = path.file_name()?.to_string_lossy();
-            if path.is_file() && fname.starts_with(filename_prefix) && fname.ends_with(".log") {
-                let modified = entry.metadata().ok()?.modified().ok()?;
-                Some((path, modified))
-            } else {
-                None
-            }
-        })
-        .max_by_key(|(_path, mtime)| *mtime);
-
-    match newest {
-        Some((file, _mtime)) => {
-            if let Err(e) = set_permissions(&file, Permissions::from_mode(file_mode)) {
-                eprintln!("Failed to set permissions on {}: {}", file.display(), e);
-            }
-        }
-        None => {
-            eprintln!(
-                "Couldn't find a newly created logfile in {} matching prefix \"{}\".",
-                log_dir.display(),
-                filename_prefix
-            );
         }
     }
 }

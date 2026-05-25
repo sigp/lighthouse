@@ -1,0 +1,183 @@
+name: docker-reproducible
+
+on:
+  push:
+    branches:
+      - unstable
+    tags:
+      - v*
+  workflow_dispatch: # allows manual triggering for testing purposes and skips publishing an image
+
+env:
+  DOCKER_REPRODUCIBLE_IMAGE_NAME: >-
+    ${{ github.repository_owner }}/lighthouse-reproducible
+  DOCKER_PASSWORD: ${{ secrets.DH_KEY }}
+  DOCKER_USERNAME: ${{ secrets.DH_ORG }}
+
+jobs:
+  extract-version:
+    name: extract version
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Extract version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            # It's a tag (e.g., v1.2.3)
+            VERSION="${GITHUB_REF#refs/tags/}"
+          elif [[ "${{ github.ref }}" == refs/heads/unstable ]]; then
+            # unstable branch -> latest-unstable
+            VERSION="latest-unstable"
+          else
+            # For manual triggers from other branches and will not publish any image
+            VERSION="test-build"
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        id: extract_version
+    outputs:
+      VERSION: ${{ steps.extract_version.outputs.VERSION }}
+
+  verify-and-build:
+    name: verify reproducibility and build
+    needs: extract-version
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            rust_target: x86_64-unknown-linux-gnu
+            rust_image: >-
+              rust:1.88-bullseye@sha256:8e3c421122bf4cd3b2a866af41a4dd52d87ad9e315fd2cb5100e87a7187a9816
+            platform: linux/amd64
+            runner: ubuntu-22.04
+          - arch: arm64
+            rust_target: aarch64-unknown-linux-gnu
+            rust_image: >-
+              rust:1.88-bullseye@sha256:8b22455a7ce2adb1355067638284ee99d21cc516fab63a96c4514beaf370aa94
+            platform: linux/arm64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker
+
+      - name: Verify reproducible builds (${{ matrix.arch }})
+        run: |
+          # Build first image
+          docker build -f Dockerfile.reproducible \
+            --platform ${{ matrix.platform }} \
+            --build-arg RUST_TARGET="${{ matrix.rust_target }}" \
+            --build-arg RUST_IMAGE="${{ matrix.rust_image }}" \
+            -t lighthouse-verify-1-${{ matrix.arch }} .
+
+          # Extract binary from first build
+          docker create --name extract-1-${{ matrix.arch }} lighthouse-verify-1-${{ matrix.arch }}
+          docker cp extract-1-${{ matrix.arch }}:/lighthouse ./lighthouse-1-${{ matrix.arch }}
+          docker rm extract-1-${{ matrix.arch }}
+
+          # Clean state for second build
+          docker buildx prune -f
+          docker system prune -f
+
+          # Build second image
+          docker build -f Dockerfile.reproducible \
+            --platform ${{ matrix.platform }} \
+            --build-arg RUST_TARGET="${{ matrix.rust_target }}" \
+            --build-arg RUST_IMAGE="${{ matrix.rust_image }}" \
+            -t lighthouse-verify-2-${{ matrix.arch }} .
+
+          # Extract binary from second build
+          docker create --name extract-2-${{ matrix.arch }} lighthouse-verify-2-${{ matrix.arch }}
+          docker cp extract-2-${{ matrix.arch }}:/lighthouse ./lighthouse-2-${{ matrix.arch }}
+          docker rm extract-2-${{ matrix.arch }}
+
+          # Compare binaries
+          echo "=== Comparing binaries ==="
+          echo "Build 1 SHA256: $(sha256sum lighthouse-1-${{ matrix.arch }})"
+          echo "Build 2 SHA256: $(sha256sum lighthouse-2-${{ matrix.arch }})"
+
+          if cmp lighthouse-1-${{ matrix.arch }} lighthouse-2-${{ matrix.arch }}; then
+            echo "Reproducible build verified for ${{ matrix.arch }}"
+          else
+            echo "Reproducible build FAILED for ${{ matrix.arch }}"
+            echo "BLOCKING RELEASE: Builds are not reproducible!"
+            echo "First 10 differences:"
+            cmp -l lighthouse-1-${{ matrix.arch }} lighthouse-2-${{ matrix.arch }} | head -10
+            exit 1
+          fi
+
+          # Clean up verification artifacts but keep one image for publishing
+          rm -f lighthouse-*-${{ matrix.arch }}
+          docker rmi lighthouse-verify-1-${{ matrix.arch }} || true
+
+          # Re-tag the second image for publishing (we verified it's identical to first)
+          VERSION=${{ needs.extract-version.outputs.VERSION }}
+          FINAL_TAG="${{ env.DOCKER_REPRODUCIBLE_IMAGE_NAME }}:${VERSION}-${{ matrix.arch }}"
+          docker tag lighthouse-verify-2-${{ matrix.arch }} "$FINAL_TAG"
+
+      - name: Log in to Docker Hub
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKER_USERNAME }}
+          password: ${{ env.DOCKER_PASSWORD }}
+
+      - name: Push verified image (${{ matrix.arch }})
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        run: |
+          VERSION=${{ needs.extract-version.outputs.VERSION }}
+          IMAGE_TAG="${{ env.DOCKER_REPRODUCIBLE_IMAGE_NAME }}:${VERSION}-${{ matrix.arch }}"
+          docker push "$IMAGE_TAG"
+
+      - name: Clean up local images
+        run: |
+          docker rmi lighthouse-verify-2-${{ matrix.arch }} || true
+          VERSION=${{ needs.extract-version.outputs.VERSION }}
+          docker rmi "${{ env.DOCKER_REPRODUCIBLE_IMAGE_NAME }}:${VERSION}-${{ matrix.arch }}" || true
+
+      - name: Upload verification artifacts (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-failure-${{ matrix.arch }}
+          path: |
+            lighthouse-*-${{ matrix.arch }}
+
+  create-manifest:
+    name: create multi-arch manifest
+    runs-on: ubuntu-22.04
+    needs: [extract-version, verify-and-build]
+    if: ${{ github.event_name != 'workflow_dispatch' }}
+    steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKER_USERNAME }}
+          password: ${{ env.DOCKER_PASSWORD }}
+
+      - name: Create and push multi-arch manifest
+        run: |
+          IMAGE_NAME=${{ env.DOCKER_REPRODUCIBLE_IMAGE_NAME }}
+          VERSION=${{ needs.extract-version.outputs.VERSION }}
+
+          # Create manifest for the version tag
+          docker manifest create \
+            ${IMAGE_NAME}:${VERSION} \
+            ${IMAGE_NAME}:${VERSION}-amd64 \
+            ${IMAGE_NAME}:${VERSION}-arm64
+
+          docker manifest push ${IMAGE_NAME}:${VERSION}
+
+          # For version tags, also create/update the latest tag to keep stable up to date
+          # Only create latest tag for proper release versions (e.g. v1.2.3, not v1.2.3-alpha)
+          if [[ "${GITHUB_REF}" == refs/tags/* ]] && [[ "${VERSION}" =~ ^v[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+            docker manifest create \
+              ${IMAGE_NAME}:latest \
+              ${IMAGE_NAME}:${VERSION}-amd64 \
+              ${IMAGE_NAME}:${VERSION}-arm64
+
+            docker manifest push ${IMAGE_NAME}:latest
+          fi

@@ -8,20 +8,17 @@
 //! Provides a simple API for storing/retrieving all types that sometimes needs type-hints. See
 //! tests for implementation examples.
 pub mod blob_sidecar_list_from_root;
-pub mod chunked_iter;
-pub mod chunked_vector;
 pub mod config;
-pub mod consensus_context;
 pub mod errors;
 mod forwards_iter;
 pub mod hdiff;
 pub mod historic_state_cache;
 pub mod hot_cold_store;
 mod impls;
+pub mod invariants;
 mod memory_store;
 pub mod metadata;
 pub mod metrics;
-pub mod partial_beacon_state;
 pub mod reconstruct;
 pub mod state_cache;
 
@@ -30,15 +27,12 @@ pub mod iter;
 
 pub use self::blob_sidecar_list_from_root::BlobSidecarListFromRoot;
 pub use self::config::StoreConfig;
-pub use self::consensus_context::OnDiskConsensusContext;
 pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};
 pub use self::memory_store::MemoryStore;
 pub use crate::metadata::BlobInfo;
 pub use errors::Error;
-pub use impls::beacon_state::StorageContainer as BeaconStateStorageContainer;
 pub use metadata::AnchorInfo;
 pub use metrics::scrape_for_metrics;
-use parking_lot::MutexGuard;
 use std::collections::HashSet;
 use std::sync::Arc;
 use strum::{EnumIter, EnumString, IntoStaticStr};
@@ -52,7 +46,7 @@ pub type ColumnKeyIter<'a, K> = Box<dyn Iterator<Item = Result<K, Error>> + 'a>;
 pub type RawEntryIter<'a> =
     Result<Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>), Error>> + 'a>, Error>;
 
-pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
+pub trait KeyValueStore: Sync + Send + Sized + 'static {
     /// Retrieve some bytes in `column` with `key`.
     fn get_bytes(&self, column: DBColumn, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
 
@@ -76,12 +70,6 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Execute either all of the operations in `batch` or none at all, returning an error.
     fn do_atomically(&self, batch: Vec<KeyValueStoreOp>) -> Result<(), Error>;
 
-    /// Return a mutex guard that can be used to synchronize sensitive transactions.
-    ///
-    /// This doesn't prevent other threads writing to the DB unless they also use
-    /// this method. In future we may implement a safer mandatory locking scheme.
-    fn begin_rw_transaction(&self) -> MutexGuard<()>;
-
     /// Compact a single column in the database, freeing space used by deleted items.
     fn compact_column(&self, column: DBColumn) -> Result<(), Error>;
 
@@ -89,28 +77,24 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     fn compact(&self) -> Result<(), Error> {
         // Compact state and block related columns as they are likely to have the most churn,
         // i.e. entries being created and deleted.
-        for column in [
-            DBColumn::BeaconState,
-            DBColumn::BeaconStateSummary,
-            DBColumn::BeaconBlock,
-        ] {
+        for column in [DBColumn::BeaconStateHotSummary, DBColumn::BeaconBlock] {
             self.compact_column(column)?;
         }
         Ok(())
     }
 
     /// Iterate through all keys and values in a particular column.
-    fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
+    fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<'_, K> {
         self.iter_column_from(column, &vec![0; column.key_size()])
     }
 
     /// Iterate through all keys and values in a column from a given starting point that fulfill the given predicate.
-    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K>;
+    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<'_, K>;
 
-    fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K>;
+    fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<'_, K>;
 
     /// Iterate through all keys in a particular column.
-    fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<K>;
+    fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<'_, K>;
 
     fn delete_batch(&self, column: DBColumn, ops: HashSet<&[u8]>) -> Result<(), Error>;
 
@@ -130,7 +114,10 @@ impl Key for Hash256 {
         if key.len() == 32 {
             Ok(Hash256::from_slice(key))
         } else {
-            Err(Error::InvalidKey)
+            Err(Error::InvalidKey(format!(
+                "Hash256 key unexpected len {}",
+                key.len()
+            )))
         }
     }
 }
@@ -162,7 +149,10 @@ pub fn get_data_column_key(block_root: &Hash256, column_index: &ColumnIndex) -> 
 
 pub fn parse_data_column_key(data: Vec<u8>) -> Result<(Hash256, ColumnIndex), Error> {
     if data.len() != DBColumn::BeaconDataColumn.key_size() {
-        return Err(Error::InvalidKey);
+        return Err(Error::InvalidKey(format!(
+            "Unexpected BeaconDataColumn key len {}",
+            data.len()
+        )));
     }
     // split_at panics if 32 < 40 which will never happen after the length check above
     let (block_root_bytes, column_index_bytes) = data.split_at(32);
@@ -171,7 +161,7 @@ pub fn parse_data_column_key(data: Vec<u8>) -> Result<(Hash256, ColumnIndex), Er
     let column_index = ColumnIndex::from_le_bytes(
         column_index_bytes
             .try_into()
-            .map_err(|_| Error::InvalidKey)?,
+            .map_err(|e| Error::InvalidKey(format!("Invalid ColumnIndex {e:?}")))?,
     );
     Ok((block_root, column_index))
 }
@@ -187,7 +177,7 @@ pub enum KeyValueStoreOp {
     DeleteKey(DBColumn, Vec<u8>),
 }
 
-pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'static {
+pub trait ItemStore: KeyValueStore + Sync + Send + Sized + 'static {
     /// Store an item in `Self`.
     fn put<I: StoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
         let column = I::db_column();
@@ -239,12 +229,14 @@ pub enum StoreOp<'a, E: EthSpec> {
     PutState(Hash256, &'a BeaconState<E>),
     PutBlobs(Hash256, BlobSidecarList<E>),
     PutDataColumns(Hash256, DataColumnSidecarList<E>),
+    PutPayloadEnvelope(Hash256, Arc<SignedExecutionPayloadEnvelope<E>>),
     PutStateSummary(Hash256, HotStateSummary),
     DeleteBlock(Hash256),
     DeleteBlobs(Hash256),
-    DeleteDataColumns(Hash256, Vec<ColumnIndex>),
+    DeleteDataColumns(Hash256, Vec<ColumnIndex>, ForkName),
     DeleteState(Hash256, Option<Slot>),
     DeleteExecutionPayload(Hash256),
+    DeletePayloadEnvelope(Hash256),
     DeleteSyncCommitteeBranch(Hash256),
     KeyValueOp(KeyValueStoreOp),
 }
@@ -266,21 +258,43 @@ pub enum DBColumn {
     BeaconBlob,
     #[strum(serialize = "bdc")]
     BeaconDataColumn,
+    #[strum(serialize = "bdi")]
+    BeaconDataColumnCustodyInfo,
     /// For full `BeaconState`s in the hot database (finalized or fork-boundary states).
+    ///
+    /// DEPRECATED.
     #[strum(serialize = "ste")]
     BeaconState,
+    /// For compact `BeaconStateDiff`'s in the hot DB.
+    ///
+    /// hsd = Hot State Diff.
+    #[strum(serialize = "hsd")]
+    BeaconStateHotDiff,
+    /// For beacon state snapshots in the hot DB.
+    ///
+    /// hsn = Hot Snapshot.
+    #[strum(serialize = "hsn")]
+    BeaconStateHotSnapshot,
     /// For beacon state snapshots in the freezer DB.
     #[strum(serialize = "bsn")]
     BeaconStateSnapshot,
     /// For compact `BeaconStateDiff`s in the freezer DB.
     #[strum(serialize = "bsd")]
     BeaconStateDiff,
-    /// Mapping from state root to `HotStateSummary` in the hot DB.
+    /// DEPRECATED
+    ///
+    /// Mapping from state root to `HotStateSummaryV22` in the hot DB.
     ///
     /// Previously this column also served a role in the freezer DB, mapping state roots to
     /// `ColdStateSummary`. However that role is now filled by `BeaconColdStateSummary`.
     #[strum(serialize = "bss")]
     BeaconStateSummary,
+    /// Mapping from state root to `HotStateSummaryV23` in the hot DB.
+    ///
+    /// This column is populated after DB schema version 23 superseding `BeaconStateSummary`. The
+    /// new column is necessary to have a safe migration without data loss.
+    #[strum(serialize = "bs3")]
+    BeaconStateHotSummary,
     /// Mapping from state root to `ColdStateSummary` in the cold DB.
     #[strum(serialize = "bcs")]
     BeaconColdStateSummary,
@@ -293,11 +307,15 @@ pub enum DBColumn {
     /// Execution payloads for blocks more recent than the finalized checkpoint.
     #[strum(serialize = "exp")]
     ExecPayload,
+    /// Post-gloas execution payload envelopes.
+    #[strum(serialize = "pay")]
+    PayloadEnvelope,
     /// For persisting in-memory state to the database.
     #[strum(serialize = "bch")]
     BeaconChain,
     #[strum(serialize = "opo")]
     OpPool,
+    /// DEPRECATED.
     #[strum(serialize = "etc")]
     Eth1Cache,
     #[strum(serialize = "frk")]
@@ -339,6 +357,8 @@ pub enum DBColumn {
     BeaconRandaoMixes,
     #[strum(serialize = "dht")]
     DhtEnrs,
+    #[strum(serialize = "cus")]
+    CustodyContext,
     /// DEPRECATED. For Optimistically Imported Merge Transition Blocks
     #[strum(serialize = "otb")]
     OptimisticTransitionBlock,
@@ -387,6 +407,9 @@ impl DBColumn {
             | Self::BeaconState
             | Self::BeaconBlob
             | Self::BeaconStateSummary
+            | Self::BeaconStateHotDiff
+            | Self::BeaconStateHotSnapshot
+            | Self::BeaconStateHotSummary
             | Self::BeaconColdStateSummary
             | Self::BeaconStateTemporary
             | Self::ExecPayload
@@ -397,8 +420,11 @@ impl DBColumn {
             | Self::PubkeyCache
             | Self::BeaconRestorePoint
             | Self::DhtEnrs
-            | Self::OptimisticTransitionBlock => 32,
+            | Self::CustodyContext
+            | Self::OptimisticTransitionBlock
+            | Self::PayloadEnvelope => 32,
             Self::BeaconBlockRoots
+            | Self::BeaconDataColumnCustodyInfo
             | Self::BeaconBlockRootsChunked
             | Self::BeaconStateRoots
             | Self::BeaconStateRootsChunked
@@ -467,7 +493,7 @@ mod tests {
         }
     }
 
-    fn test_impl(store: impl ItemStore<MinimalEthSpec>) {
+    fn test_impl(store: impl ItemStore) {
         let key = Hash256::random();
         let item = StorableThing { a: 1, b: 42 };
 
@@ -505,7 +531,7 @@ mod tests {
 
     #[test]
     fn exists() {
-        let store = MemoryStore::<MinimalEthSpec>::open();
+        let store = MemoryStore::open();
         let key = Hash256::random();
         let item = StorableThing { a: 1, b: 42 };
 

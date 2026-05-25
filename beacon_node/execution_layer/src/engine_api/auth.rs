@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use jsonwebtoken::{encode, get_current_timestamp, Algorithm, EncodingKey, Header};
+use jsonwebtoken::{Algorithm, EncodingKey, Header, encode, get_current_timestamp};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
@@ -14,7 +14,7 @@ pub const JWT_SECRET_LENGTH: usize = 32;
 #[derive(Debug)]
 pub enum Error {
     JWT(jsonwebtoken::errors::Error),
-    InvalidToken,
+    InvalidToken(String),
     InvalidKey(String),
 }
 
@@ -46,7 +46,7 @@ impl JwtKey {
 
     /// Generate a random secret.
     pub fn random() -> Self {
-        Self(rand::thread_rng().gen::<[u8; JWT_SECRET_LENGTH]>())
+        Self(rand::rng().random::<[u8; JWT_SECRET_LENGTH]>())
     }
 
     /// Returns a reference to the underlying byte array.

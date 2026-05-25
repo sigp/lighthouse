@@ -1,8 +1,9 @@
 use super::errors::EpochProcessingError;
+use milhouse::List;
 use safe_arith::SafeArith;
-use types::beacon_state::BeaconState;
-use types::eth_spec::EthSpec;
-use types::{List, Unsigned};
+use typenum::Unsigned;
+use types::core::EthSpec;
+use types::state::BeaconState;
 
 pub fn process_eth1_data_reset<E: EthSpec>(
     state: &mut BeaconState<E>,

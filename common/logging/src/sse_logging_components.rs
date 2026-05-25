@@ -1,8 +1,8 @@
 //! This module provides an implementation of `tracing_subscriber::layer::Layer` that optionally writes to a channel if
 //! there are subscribers to a HTTP SSE stream.
 
-use serde_json::json;
 use serde_json::Value;
+use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::broadcast::Sender;
 use tracing::field::{Field, Visit};
@@ -45,13 +45,12 @@ impl<S: Subscriber> Layer<S> for SSELoggingComponents {
             .get("fields")
             .and_then(|fields| fields.get("error_type"))
             .and_then(|val| val.as_str())
+            && error_type.eq_ignore_ascii_case("crit")
         {
-            if error_type.eq_ignore_ascii_case("crit") {
-                log_entry["level"] = json!("CRIT");
+            log_entry["level"] = json!("CRIT");
 
-                if let Some(Value::Object(ref mut map)) = log_entry.get_mut("fields") {
-                    map.remove("error_type");
-                }
+            if let Some(Value::Object(map)) = log_entry.get_mut("fields") {
+                map.remove("error_type");
             }
         }
 
@@ -73,9 +72,11 @@ impl TracingEventVisitor {
         let mut log_entry = serde_json::Map::new();
         log_entry.insert(
             "time".to_string(),
-            json!(chrono::Local::now()
-                .format("%b %d %H:%M:%S%.3f")
-                .to_string()),
+            json!(
+                chrono::Local::now()
+                    .format("%b %d %H:%M:%S%.3f")
+                    .to_string()
+            ),
         );
         log_entry.insert("level".to_string(), json!(metadata.level().to_string()));
         log_entry.insert("target".to_string(), json!(metadata.target()));

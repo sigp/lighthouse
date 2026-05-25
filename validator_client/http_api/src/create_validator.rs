@@ -1,7 +1,7 @@
 use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
 use account_utils::{
     eth2_keystore::Keystore,
-    eth2_wallet::{bip39::Mnemonic, WalletBuilder},
+    eth2_wallet::{WalletBuilder, bip39::Mnemonic},
     random_mnemonic, random_password,
 };
 use eth2::lighthouse_vc::types::{self as api_types};
@@ -9,7 +9,7 @@ use lighthouse_validator_store::LighthouseValidatorStore;
 use slot_clock::SlotClock;
 use std::path::{Path, PathBuf};
 use types::{ChainSpec, EthSpec};
-use validator_dir::{keystore_password_path, Builder as ValidatorDirBuilder};
+use validator_dir::{Builder as ValidatorDirBuilder, keystore_password_path};
 use zeroize::Zeroizing;
 
 /// Create some validator EIP-2335 keystores and store them on disk. Then, enroll the validators in

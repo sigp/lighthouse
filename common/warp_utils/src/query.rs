@@ -4,8 +4,8 @@ use warp::Filter;
 
 // Custom query filter using `serde_array_query`.
 // This allows duplicate keys inside query strings.
-pub fn multi_key_query<'de, T: Deserialize<'de>>(
-) -> impl warp::Filter<Extract = (Result<T, warp::Rejection>,), Error = std::convert::Infallible> + Copy
+pub fn multi_key_query<'de, T: Deserialize<'de>>()
+-> impl warp::Filter<Extract = (Result<T, warp::Rejection>,), Error = std::convert::Infallible> + Copy
 {
     raw_query().then(|query_str: String| async move {
         serde_array_query::from_str(&query_str).map_err(|e| custom_bad_request(e.to_string()))

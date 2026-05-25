@@ -13,11 +13,9 @@ macro_rules! ssz_tests {
     ($type: ty) => {
         #[test]
         pub fn test_ssz_round_trip() {
-            use ssz::{ssz_encode, Decode};
-            use $crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+            use ssz::{Decode, ssz_encode};
 
-            let mut rng = XorShiftRng::from_seed([42; 16]);
-            let original = <$type>::random_for_test(&mut rng);
+            let original: $type = $crate::test_utils::test_arbitrary_instance();
 
             let bytes = ssz_encode(&original);
             let decoded = <$type>::from_ssz_bytes(&bytes).unwrap();
@@ -33,10 +31,8 @@ macro_rules! tree_hash_tests {
         #[test]
         pub fn test_tree_hash_root() {
             use tree_hash::TreeHash;
-            use $crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 
-            let mut rng = XorShiftRng::from_seed([42; 16]);
-            let original = <$type>::random_for_test(&mut rng);
+            let original: $type = $crate::test_utils::test_arbitrary_instance();
 
             // Tree hashing should not panic.
             original.tree_hash_root();

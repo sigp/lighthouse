@@ -3,8 +3,8 @@ use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use serde::Deserialize;
 use state_processing::{
-    per_block_processing, state_advance::complete_state_advance, BlockSignatureStrategy,
-    ConsensusContext, VerifyBlockRoot,
+    BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot, per_block_processing,
+    state_advance::complete_state_advance,
 };
 use std::str::FromStr;
 use types::{BeaconState, Epoch, SignedBeaconBlock};
@@ -67,6 +67,15 @@ impl<E: EthSpec> LoadCase for TransitionTest<E> {
                 spec.deneb_fork_epoch = Some(Epoch::new(0));
                 spec.electra_fork_epoch = Some(Epoch::new(0));
                 spec.fulu_fork_epoch = Some(metadata.fork_epoch);
+            }
+            ForkName::Gloas => {
+                spec.altair_fork_epoch = Some(Epoch::new(0));
+                spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+                spec.capella_fork_epoch = Some(Epoch::new(0));
+                spec.deneb_fork_epoch = Some(Epoch::new(0));
+                spec.electra_fork_epoch = Some(Epoch::new(0));
+                spec.fulu_fork_epoch = Some(Epoch::new(0));
+                spec.gloas_fork_epoch = Some(metadata.fork_epoch);
             }
         }
 

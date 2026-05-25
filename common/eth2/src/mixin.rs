@@ -1,5 +1,5 @@
-use crate::{types::Accept, Error, CONSENSUS_VERSION_HEADER};
-use reqwest::{header::ACCEPT, RequestBuilder, Response, StatusCode};
+use crate::{CONSENSUS_VERSION_HEADER, Error, types::Accept};
+use reqwest::{RequestBuilder, Response, StatusCode, header::ACCEPT};
 use std::str::FromStr;
 use types::ForkName;
 
