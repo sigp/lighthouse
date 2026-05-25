@@ -666,7 +666,7 @@ impl EngineCapabilities {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ClientCode {
     Besu,
     EtherumJS,
@@ -735,7 +735,7 @@ impl TryFrom<String> for ClientCode {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct CommitPrefix(pub String);
 
 impl TryFrom<String> for CommitPrefix {
@@ -767,7 +767,7 @@ impl std::fmt::Display for CommitPrefix {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct ClientVersionV1 {
     pub code: ClientCode,
     pub name: String,
