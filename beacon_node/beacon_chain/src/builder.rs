@@ -802,7 +802,24 @@ where
                 .map_err(|e| format!("Error loading head execution envelope: {:?}", e))?
                 .map(Arc::new)
         } else {
-            None
+            let latest_full_block_root_opt = fork_choice
+                .latest_parent_full_block(head_block_root, &self.spec)
+                .map_err(|e| {
+                    format!(
+                        "Error fetching latest full beacon block root from fork choice: {:?}",
+                        e
+                    )
+                })?;
+
+            if let Some(latest_full_block_root) = latest_full_block_root_opt {
+                store
+                    .get_payload_envelope(&latest_full_block_root)
+                    .map_err(|e| format!("Error loading latest execution envelope: {:?}", e))?
+                    .map(Arc::new)
+            } else {
+                // TODO(gloas) handle the case where the non-finalized portion of the chain has no canonical payload envelopes.
+                None
+            }
         };
 
         let mut head_snapshot = BeaconSnapshot {

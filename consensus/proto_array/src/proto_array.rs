@@ -1276,6 +1276,29 @@ impl ProtoArray {
         }
     }
 
+    /// Returns the latest ancestor of `block_root` whose `PayloadStatus` is `Full`.
+    pub(crate) fn latest_parent_full_block<E: EthSpec>(
+        &self,
+        block_root: Hash256,
+        proposer_boost_root: Hash256,
+        justified_balances: &JustifiedBalances,
+        spec: &ChainSpec,
+    ) -> Result<Option<Hash256>, Error> {
+        for node in self.iter_nodes(&block_root) {
+            if self.get_canonical_payload_status::<E>(
+                node.root(),
+                node.slot(),
+                proposer_boost_root,
+                justified_balances,
+                spec,
+            )? == PayloadStatus::Full
+            {
+                return Ok(Some(node.root()));
+            }
+        }
+        Ok(None)
+    }
+
     /// Returns the canonical payload status of a block, matching the decision
     /// `get_head` would make between `(root, FULL)` and `(root, EMPTY)`.
     pub(crate) fn get_canonical_payload_status<E: EthSpec>(
