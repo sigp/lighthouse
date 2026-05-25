@@ -535,7 +535,11 @@ mod tests {
     use super::*;
     use beacon_chain::{
         PayloadVerificationStatus,
-        test_utils::{BeaconChainHarness, EphemeralHarnessType},
+        block_verification_types::{AvailableBlockData, RangeSyncBlock},
+        test_utils::{
+            BeaconChainHarness, EphemeralHarnessType, fork_name_from_env,
+            generate_data_column_sidecars_from_block,
+        },
     };
     use std::time::Duration;
     use types::MinimalEthSpec;
@@ -553,16 +557,31 @@ mod tests {
 
     #[tokio::test]
     async fn root_uses_early_attester_cache_for_unpersisted_block() {
+        let Some(fork_name) = fork_name_from_env().filter(|fork_name| fork_name.fulu_enabled())
+        else {
+            return;
+        };
         let harness = harness();
         let chain = &harness.chain;
 
+        harness.execution_block_generator().set_min_blob_count(1);
         harness.advance_slot();
 
         let (block_contents, post_state) = harness
             .make_block(harness.get_current_state(), harness.get_current_slot())
             .await;
-        let (block, blob_items) = block_contents;
+        let (block, _) = block_contents;
         let block_root = block.canonical_root();
+        let block_fork_name = chain.spec.fork_name_at_epoch(block.epoch());
+
+        assert_eq!(
+            block_fork_name, fork_name,
+            "precondition: test block must be produced at {fork_name:?}"
+        );
+        assert!(
+            block.num_expected_blobs() > 0,
+            "precondition: {fork_name:?} test block must have blobs that can be converted to data columns"
+        );
 
         assert!(
             !chain.store.block_exists(&block_root).unwrap(),
@@ -573,14 +592,35 @@ mod tests {
             "precondition: test block must not be retrievable from the store"
         );
         assert!(
+            chain
+                .get_data_columns(&block_root, block_fork_name)
+                .unwrap()
+                .is_none(),
+            "precondition: test data columns must not be retrievable from the store"
+        );
+        assert!(
             !chain.block_is_known_to_fork_choice(&block_root),
             "precondition: test block must not be imported into fork choice yet"
         );
 
-        let available_block = harness
-            .build_range_sync_block_from_blobs(block.clone(), blob_items)
-            .unwrap()
-            .into_available_block();
+        let sampling_columns = chain.sampling_columns_for_epoch(block.epoch());
+        let data_columns = generate_data_column_sidecars_from_block(&block, &chain.spec)
+            .into_iter()
+            .filter(|column| sampling_columns.contains(column.index()))
+            .collect::<Vec<_>>();
+        assert!(
+            !data_columns.is_empty(),
+            "precondition: {fork_name:?} test block must produce data columns"
+        );
+
+        let available_block = RangeSyncBlock::new(
+            block.clone(),
+            AvailableBlockData::new_with_data_columns(data_columns),
+            &chain.data_availability_checker,
+            chain.spec.clone(),
+        )
+        .unwrap()
+        .into_available_block();
 
         let current_slot = harness.get_current_slot();
         let cached_head = chain.canonical_head.cached_head();
@@ -623,10 +663,37 @@ mod tests {
             .add_head_block(block_root, &available_block, proto_block, &post_state)
             .unwrap();
 
+        let cached_data_columns = chain
+            .early_attester_cache
+            .get_data_columns(block_root)
+            .expect("precondition: data columns must be cached");
+        assert!(
+            !cached_data_columns.is_empty(),
+            "precondition: cached data columns must be non-empty"
+        );
+
         assert_eq!(
             BlockId(CoreBlockId::Root(block_root)).root(chain).unwrap(),
             (block_root, false, false)
         );
+
+        let (blinded_block, execution_optimistic, finalized) =
+            BlockId(CoreBlockId::Root(block_root))
+                .blinded_block(chain)
+                .unwrap();
+        assert_eq!(blinded_block.canonical_root(), block_root);
+        assert_eq!(blinded_block.slot(), block.slot());
+        assert!(!execution_optimistic);
+        assert!(!finalized);
+
+        let (data_columns, data_columns_fork_name, execution_optimistic, finalized) =
+            BlockId(CoreBlockId::Root(block_root))
+                .get_data_columns(DataColumnIndicesQuery { indices: None }, chain)
+                .unwrap();
+        assert_eq!(data_columns, cached_data_columns);
+        assert_eq!(data_columns_fork_name, fork_name);
+        assert!(!execution_optimistic);
+        assert!(!finalized);
 
         chain.early_attester_cache.clear();
 
