@@ -529,3 +529,115 @@ impl fmt::Display for BlockId {
         write!(f, "{}", self.0)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use beacon_chain::{
+        PayloadVerificationStatus,
+        block_verification_types::{AvailableBlockData, RangeSyncBlock},
+        test_utils::{BeaconChainHarness, EphemeralHarnessType},
+    };
+    use std::time::Duration;
+    use types::MinimalEthSpec;
+
+    type TestHarness = BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>>;
+
+    fn harness() -> TestHarness {
+        BeaconChainHarness::builder(MinimalEthSpec)
+            .default_spec()
+            .deterministic_keypairs(8)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .build()
+    }
+
+    #[tokio::test]
+    async fn root_uses_early_attester_cache_for_unpersisted_block() {
+        let harness = harness();
+        let chain = &harness.chain;
+
+        harness.advance_slot();
+
+        let (block_contents, post_state) = harness
+            .make_block(harness.get_current_state(), harness.get_current_slot())
+            .await;
+        let block = block_contents.0;
+        let block_root = block.canonical_root();
+
+        assert!(
+            !chain.store.block_exists(&block_root).unwrap(),
+            "precondition: test block must not be persisted"
+        );
+        assert!(
+            chain.get_blinded_block(&block_root).unwrap().is_none(),
+            "precondition: test block must not be retrievable from the store"
+        );
+        assert!(
+            !chain.block_is_known_to_fork_choice(&block_root),
+            "precondition: test block must not be imported into fork choice yet"
+        );
+
+        let available_block = RangeSyncBlock::new(
+            block.clone(),
+            AvailableBlockData::NoData,
+            &chain.data_availability_checker,
+            chain.spec.clone(),
+        )
+        .unwrap()
+        .into_available_block();
+
+        let current_slot = harness.get_current_slot();
+        let cached_head = chain.canonical_head.cached_head();
+        let canonical_head_proposer_index = chain
+            .canonical_head_proposer_index(current_slot, &cached_head)
+            .unwrap();
+
+        chain
+            .canonical_head
+            .fork_choice_write_lock()
+            .on_block(
+                current_slot,
+                block.message(),
+                block_root,
+                Duration::ZERO,
+                &post_state,
+                PayloadVerificationStatus::Verified,
+                canonical_head_proposer_index,
+                &chain.spec,
+            )
+            .unwrap();
+
+        assert!(
+            chain.block_is_known_to_fork_choice(&block_root),
+            "precondition: test block must be imported into fork choice"
+        );
+        assert!(
+            !chain.store.block_exists(&block_root).unwrap(),
+            "precondition: fork choice insertion must not persist the block"
+        );
+
+        let proto_block = chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block(&block_root)
+            .unwrap();
+
+        chain
+            .early_attester_cache
+            .add_head_block(block_root, &available_block, proto_block, &post_state)
+            .unwrap();
+
+        assert_eq!(
+            BlockId(CoreBlockId::Root(block_root)).root(chain).unwrap(),
+            (block_root, false, false)
+        );
+
+        chain.early_attester_cache.clear();
+
+        assert!(
+            BlockId(CoreBlockId::Root(block_root)).root(chain).is_err(),
+            "root lookup should fail once the unpersisted block leaves the early attester cache"
+        );
+    }
+}
