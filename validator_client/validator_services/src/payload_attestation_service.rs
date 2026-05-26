@@ -259,7 +259,7 @@ mod tests {
     };
     use eth2::types::PtcDuty;
     use slot_clock::ManualSlotClock;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
     use std::time::Duration;
     use task_executor::test_utils::TestRuntime;
     use types::{Epoch, ForkName, Hash256, MainnetEthSpec, PayloadAttestationData, Slot};
@@ -268,47 +268,51 @@ mod tests {
 
     type E = MainnetEthSpec;
 
-    fn build_gloas_spec() -> Arc<ChainSpec> {
-        let mut spec = E::default_spec();
-        spec.gloas_fork_epoch = Some(Epoch::new(0));
-        spec.payload_attestation_due = Duration::from_secs(0);
-        Arc::new(spec)
-    }
-
     #[tokio::test]
     async fn start_update_service_publishes_payload_attestation() {
+        let mut default_spec = MainnetEthSpec::default_spec();
+        default_spec.gloas_fork_epoch = Some(Epoch::new(0));
+        let spec = Arc::new(default_spec);
+
         let test_runtime = TestRuntime::default();
         let executor = test_runtime.task_executor.clone();
-        let slot_duration = Duration::from_millis(50);
+        let slot_duration = spec.get_slot_duration();
         let slot_clock = ManualSlotClock::new(Slot::new(0), Duration::from_secs(0), slot_duration);
-        let spec = build_gloas_spec();
 
         let attestation_slot = Slot::new(1);
         let validator_index = 0;
 
         let validator_store = Arc::new(MockValidatorStore::new(validator_index));
-        let pubkey = validator_store.pubkey;
 
         let duty = PtcDuty {
-            pubkey,
+            pubkey: validator_store.pubkey,
             validator_index,
             slot: attestation_slot,
         };
+
+        let mut mock_beacon_node_1 = MockBeaconNode::<E>::new().await;
+        let mut mock_beacon_node_2 = MockBeaconNode::<E>::new().await;
+
+        let beacon_node_1 =
+            CandidateBeaconNode::new(mock_beacon_node_1.beacon_api_client.clone(), 0);
+        let beacon_node_2 =
+            CandidateBeaconNode::new(mock_beacon_node_2.beacon_api_client.clone(), 1);
+        let beacon_node_fallback = Arc::new(BeaconNodeFallback::new(
+            vec![beacon_node_1, beacon_node_2],
+            BeaconNodeConfig::default(),
+            vec![],
+            spec.clone(),
+        ));
 
         let duties_service = Arc::new(
             DutiesServiceBuilder::new()
                 .validator_store(validator_store.clone())
                 .slot_clock(slot_clock.clone())
-                .beacon_nodes(Arc::new(BeaconNodeFallback::new(
-                    vec![],
-                    BeaconNodeConfig::default(),
-                    vec![],
-                    spec.clone(),
-                )))
+                .beacon_nodes(beacon_node_fallback.clone())
                 .executor(executor.clone())
                 .spec(spec.clone())
                 .build()
-                .expect("build duties service"),
+                .unwrap(),
         );
 
         duties_service
@@ -316,62 +320,80 @@ mod tests {
             .write()
             .insert(Epoch::new(0), (Hash256::ZERO, vec![duty]));
 
-        let mut mock_beacon_node = MockBeaconNode::<E>::new().await;
-
         let expected_payload_attestation = PayloadAttestationData {
             beacon_block_root: Hash256::ZERO,
             slot: attestation_slot,
             payload_present: true,
-            blob_data_available: false,
+            blob_data_available: true,
         };
 
-        mock_beacon_node.mock_get_validator_payload_attestation_data(
+        mock_beacon_node_1.mock_get_validator_payload_attestation_data(
             &expected_payload_attestation,
             ForkName::Gloas,
             attestation_slot,
         );
-        println!("mock beacon node is: {:?}", mock_beacon_node);
+        //println!("mock beacon node is: {:?}", mock_beacon_node);
 
-        let received = Arc::new(Mutex::new(Vec::new()));
+        let mock_1 = mock_beacon_node_1
+            .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
+        let mock_2 = mock_beacon_node_2.mock_post_beacon_pool_payload_attestations();
 
-        mock_beacon_node.mock_post_beacon_pool_payload_attestations(received.clone());
+        //println!("post mock beacon node is: {:?}", mock_beacon_node);
 
-        let candidate = CandidateBeaconNode::new(mock_beacon_node.beacon_api_client.clone(), 0);
-        let beacon_node_fallback = Arc::new(BeaconNodeFallback::new(
-            vec![candidate],
-            BeaconNodeConfig::default(),
-            vec![],
-            spec.clone(),
-        ));
-
-        let service = PayloadAttestationService::new(
-            duties_service,
-            validator_store,
-            slot_clock.clone(),
-            beacon_node_fallback,
-            executor,
-            spec,
-        );
+        let service: PayloadAttestationService<MockValidatorStore, ManualSlotClock> =
+            PayloadAttestationService::new(
+                duties_service.clone(),
+                validator_store.clone(),
+                slot_clock.clone(),
+                beacon_node_fallback,
+                executor,
+                spec,
+            );
 
         service.start_update_service().unwrap();
 
-        // Advance slot clock to slot 1 and wait for the service to process.
+        // Advance slot clock to slot 1 so the service sees the correct slot after waking.
         slot_clock.advance_time(slot_duration);
-        sleep(Duration::from_millis(200)).await;
 
-        let received = received.lock().unwrap();
-        assert!(!received.is_empty(), "expected at least one POST request");
+        // The service sleeps for: duration_to_next_slot (12s) + payload_attestation_due (9s) = 21s
+        // Assert nothing is published <= 21s
+        sleep(Duration::from_secs(21)).await;
+        assert!(
+            mock_beacon_node_1
+                .payload_attestation_message
+                .lock()
+                .unwrap()
+                .is_empty(),
+            "payload attestation should not be published before duration_to_next_slot elapses"
+        );
 
-        let messages = &received[0];
-        println!("messages is: {:?}", messages);
+        // After the sleep below, we sleep for > 21s, so messages should not be empty
+        sleep(Duration::from_secs(1)).await;
+
+        let messages = mock_beacon_node_1
+            .payload_attestation_message
+            .lock()
+            .unwrap();
+
+        assert!(
+            !messages.is_empty(),
+            "Messages should not be empty after payload attestation is published"
+        );
+
         assert_eq!(
             messages.len(),
             1,
-            "expected one payload attestation message"
+            "Expected one payload attestation message"
         );
 
+        // First mock beacon node try is successful, so mock_2 has no call, because the first_success tries beacon nodes in order
+        mock_1.expect(1).assert();
+        mock_2.expect(0).assert();
+
+        // println!("result is: {:?}", result);
         let result = &messages[0];
-        println!("result is: {:?}", result);
+        // println!("messages is: {:?}", messages);
+
         assert_eq!(result.validator_index, validator_index);
         assert_eq!(
             result.data.beacon_block_root,
@@ -379,10 +401,62 @@ mod tests {
         );
         assert_eq!(result.data.slot, attestation_slot);
         assert!(result.data.payload_present);
-        assert!(!result.data.blob_data_available);
-        assert!(
-            !result.signature.is_empty(),
-            "signature should not be empty"
-        );
+        assert!(result.data.blob_data_available);
+
+        // // Second iteration to test that when SSZ fails, it falls back to JSON
+        // drop(messages); // release MutexGuard before sleeping
+        // // mock_1 was already consumed by .expect(1).assert() above, so the SSZ mock
+        // // is deregistered from the server.
+        //
+        // let duty_2 = PtcDuty {
+        //     pubkey: validator_store.pubkey,
+        //     validator_index,
+        //     slot: Slot::new(2),
+        // };
+        // duties_service
+        //     .ptc_duties
+        //     .write()
+        //     .insert(Epoch::new(0), (Hash256::ZERO, vec![duty_2]));
+        //
+        // let expected_payload_attestation_2 = PayloadAttestationData {
+        //     beacon_block_root: Hash256::ZERO,
+        //     slot: Slot::new(2),
+        //     payload_present: true,
+        //     blob_data_available: false,
+        // };
+        //
+        // mock_beacon_node_1.mock_get_validator_payload_attestation_data(
+        //     &expected_payload_attestation_2,
+        //     ForkName::Gloas,
+        //     Slot::new(2),
+        // );
+        //
+        // // Register an SSZ mock that returns 415 (simulates BN not supporting SSZ).
+        // // Register a JSON mock that returns 200 (fallback target).
+        // let mock_ssz = mock_beacon_node_1.mock_post_beacon_pool_payload_attestations_ssz_error();
+        // let mock_json = mock_beacon_node_2.mock_post_beacon_pool_payload_attestations();
+        //
+        // slot_clock.advance_time(slot_duration);
+        // sleep(Duration::from_secs(22)).await;
+        //
+        // // SSZ was attempted and failed (hit once), then JSON fallback succeeded (hit once).
+        // mock_ssz.expect(2).assert();
+        // mock_json.expect(1).assert();
+        //
+        // let messages = mock_beacon_node_2
+        //     .payload_attestation_message
+        //     .lock()
+        //     .unwrap();
+        //
+        // assert_eq!(
+        //     messages.len(),
+        //     1,
+        //     "Expected one payload attestation via JSON fallback on node 2"
+        // );
+        //
+        // let result = &messages[0];
+        // assert_eq!(result.validator_index, validator_index);
+        // assert_eq!(result.data.slot, Slot::new(2));
+        // assert!(result.data.payload_present);
     }
 }

@@ -9711,6 +9711,7 @@ version = "0.1.0"
 dependencies = [
  "bls",
  "eth2",
+ "ethereum_ssz",
  "futures",
  "mockito",
  "regex",
