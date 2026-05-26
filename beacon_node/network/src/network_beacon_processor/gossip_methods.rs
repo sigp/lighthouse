@@ -1392,16 +1392,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 &[&data_column_index.to_string()],
             );
 
-            let mut column = col.to_partial();
-            let header = column.sidecar.header.take();
-            if let Some(header) = header {
-                self.send_network_message(NetworkMessage::PublishPartialColumns {
-                    columns: vec![Arc::new(column)],
-                    header: Arc::new(header),
-                });
-            } else {
-                crit!("Converting from full to partial yielded headerless partial")
-            };
+            match col.to_partial() {
+                Ok(mut column) => {
+                    let header = column.sidecar.header.take();
+                    if let Some(header) = header {
+                        self.send_network_message(NetworkMessage::PublishPartialColumns {
+                            columns: vec![Arc::new(column)],
+                            header: Arc::new(header),
+                        });
+                    } else {
+                        crit!("Converting from full to partial yielded headerless partial")
+                    };
+                }
+                Err(err) => crit!(?err, "Could not convert from full to partial"),
+            }
         }
 
         let result = self
@@ -4088,7 +4092,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 PayloadBidError::BadSignature
                 | PayloadBidError::InvalidBuilder { .. }
                 | PayloadBidError::InvalidFeeRecipient
-                | PayloadBidError::InvalidGasLimit
                 | PayloadBidError::ExecutionPaymentNonZero { .. }
                 | PayloadBidError::InvalidBlobKzgCommitments { .. },
             ) => {
@@ -4106,6 +4109,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | PayloadBidError::ParentBlockRootUnknown { .. }
                 | PayloadBidError::ParentBlockRootNotCanonical { .. }
                 | PayloadBidError::BuilderCantCoverBid { .. }
+                | PayloadBidError::InvalidGasLimit
                 | PayloadBidError::BeaconStateError(_)
                 | PayloadBidError::InternalError(_)
                 | PayloadBidError::InvalidBidSlot { .. }
@@ -4288,8 +4292,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "payload_attn_invalid_sig",
                 );
             }
-            PayloadAttestationError::BeaconChainError(_)
-            | PayloadAttestationError::BeaconStateError(_) => {
+            PayloadAttestationError::BeaconChainError(_) => {
                 debug!(
                     %peer_id,
                     %message_slot,

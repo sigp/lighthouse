@@ -57,7 +57,7 @@ pub struct ApiServer<T: BeaconChainTypes, SFut: Future<Output = ()>> {
 
 type HarnessBuilder<E> = Builder<EphemeralHarnessType<E>>;
 type Initializer<E> = Box<dyn FnOnce(HarnessBuilder<E>) -> HarnessBuilder<E>>;
-type Mutator<E> = BoxedMutator<E, MemoryStore<E>, MemoryStore<E>>;
+type Mutator<E> = BoxedMutator<E, MemoryStore, MemoryStore>;
 
 impl<E: EthSpec> InteractiveTester<E> {
     pub async fn new(spec: Option<ChainSpec>, validator_count: usize) -> Self {

@@ -1080,6 +1080,12 @@ fn fork_choice_get_parent_payload_status() {
 }
 
 #[test]
+fn fork_choice_on_payload_attestation_message() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("on_payload_attestation_message").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("on_payload_attestation_message").run();
+}
+
+#[test]
 fn optimistic_sync() {
     OptimisticSyncHandler::<MinimalEthSpec>::default().run();
     OptimisticSyncHandler::<MainnetEthSpec>::default().run();

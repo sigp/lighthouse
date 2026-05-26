@@ -101,6 +101,17 @@ impl TestContext {
             root: Hash256::ZERO,
         };
 
+        // Set a non-zero gas_limit on latest_execution_payload_bid so the gas limit
+        // compatibility check doesn't reject all bids at genesis.
+        if let Ok(bid) = state.latest_execution_payload_bid_mut() {
+            bid.gas_limit = 30_000_000;
+        }
+        // Update body_root to reflect the modified bid (genesis block embeds it).
+        let genesis_body_root = genesis_block(&state, &spec)
+            .expect("should build genesis block")
+            .body_root();
+        state.latest_block_header_mut().body_root = genesis_body_root;
+
         let inactive_keypair = &keypairs[NUM_BUILDERS];
         let inactive_creds = builder_withdrawal_credentials(&inactive_keypair.pk, &spec);
         let inactive_builder_index = state
@@ -248,7 +259,7 @@ fn make_signed_preferences(
     proposal_slot: Slot,
     validator_index: u64,
     fee_recipient: Address,
-    gas_limit: u64,
+    target_gas_limit: u64,
 ) -> Arc<SignedProposerPreferences> {
     Arc::new(SignedProposerPreferences {
         message: ProposerPreferences {
@@ -256,7 +267,7 @@ fn make_signed_preferences(
             proposal_slot,
             validator_index,
             fee_recipient,
-            gas_limit,
+            target_gas_limit,
         },
         signature: Signature::empty(),
     })

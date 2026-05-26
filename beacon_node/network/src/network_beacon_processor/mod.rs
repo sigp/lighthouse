@@ -1265,8 +1265,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 }
 
-pub(crate) type TestBeaconChainType<E> =
-    Witness<ManualSlotClock, E, MemoryStore<E>, MemoryStore<E>>;
+pub(crate) type TestBeaconChainType<E> = Witness<ManualSlotClock, E, MemoryStore, MemoryStore>;
 
 impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
     // Instantiates a mostly non-functional version of `Self` and returns the

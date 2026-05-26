@@ -30,6 +30,7 @@ lighthouse_network = { workspace = true }
 logging = { workspace = true }
 milhouse = { workspace = true }
 network = { workspace = true }
+proto_array = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
