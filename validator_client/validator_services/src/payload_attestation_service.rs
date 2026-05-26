@@ -302,6 +302,7 @@ mod tests {
                 CandidateBeaconNode::new(mock_beacon_node_1.beacon_api_client.clone(), 0);
             let beacon_node_2 =
                 CandidateBeaconNode::new(mock_beacon_node_2.beacon_api_client.clone(), 1);
+
             let beacon_node_fallback = Arc::new(BeaconNodeFallback::new(
                 vec![beacon_node_1, beacon_node_2],
                 BeaconNodeConfig::default(),
@@ -347,15 +348,14 @@ mod tests {
         }
 
         fn start_service(self) -> Self {
-            let service: PayloadAttestationService<MockValidatorStore, ManualSlotClock> =
-                PayloadAttestationService::new(
-                    self.duties_service.clone(),
-                    self.validator_store.clone(),
-                    self.slot_clock.clone(),
-                    self.beacon_node_fallback.clone(),
-                    self.executor.clone(),
-                    self.spec.clone(),
-                );
+            let service = PayloadAttestationService::new(
+                self.duties_service.clone(),
+                self.validator_store.clone(),
+                self.slot_clock.clone(),
+                self.beacon_node_fallback.clone(),
+                self.executor.clone(),
+                self.spec.clone(),
+            );
             service.start_update_service().unwrap();
             self
         }

@@ -164,7 +164,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
 
         self.server
             .mock("POST", Matcher::Regex(path_pattern.to_string()))
-            .match_header("content-type", Matcher::Regex("application/json".into()))
+            .match_header("content-type", "application/json")
             .with_status(200)
             .with_body_from_request(move |request| {
                 let body = request.body().expect("Failed to get request body");
