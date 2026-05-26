@@ -253,7 +253,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::duties_service::DutiesServiceBuilder;
+    use crate::duties_service::{DutiesService, DutiesServiceBuilder};
     use beacon_node_fallback::{
         BeaconNodeFallback, CandidateBeaconNode, Config as BeaconNodeConfig,
     };
@@ -268,57 +268,105 @@ mod tests {
 
     type E = MainnetEthSpec;
 
+    struct TestHarness {
+        mock_beacon_node_1: MockBeaconNode<E>,
+        mock_beacon_node_2: MockBeaconNode<E>,
+        duties_service: Arc<DutiesService<MockValidatorStore, ManualSlotClock>>,
+        validator_store: Arc<MockValidatorStore>,
+        slot_clock: ManualSlotClock,
+        slot_duration: Duration,
+        beacon_node_fallback: Arc<BeaconNodeFallback<ManualSlotClock>>,
+        executor: task_executor::TaskExecutor,
+        spec: Arc<ChainSpec>,
+        _test_runtime: TestRuntime,
+    }
+
+    impl TestHarness {
+        async fn new() -> Self {
+            let mut default_spec = MainnetEthSpec::default_spec();
+            default_spec.gloas_fork_epoch = Some(Epoch::new(0));
+            let spec = Arc::new(default_spec);
+
+            let test_runtime = TestRuntime::default();
+            let executor = test_runtime.task_executor.clone();
+            let slot_duration = spec.get_slot_duration();
+            let slot_clock =
+                ManualSlotClock::new(Slot::new(0), Duration::from_secs(0), slot_duration);
+
+            let validator_store = Arc::new(MockValidatorStore::new(0));
+
+            let mock_beacon_node_1 = MockBeaconNode::<E>::new().await;
+            let mock_beacon_node_2 = MockBeaconNode::<E>::new().await;
+
+            let beacon_node_1 =
+                CandidateBeaconNode::new(mock_beacon_node_1.beacon_api_client.clone(), 0);
+            let beacon_node_2 =
+                CandidateBeaconNode::new(mock_beacon_node_2.beacon_api_client.clone(), 1);
+            let beacon_node_fallback = Arc::new(BeaconNodeFallback::new(
+                vec![beacon_node_1, beacon_node_2],
+                BeaconNodeConfig::default(),
+                vec![],
+                spec.clone(),
+            ));
+
+            let duties_service = Arc::new(
+                DutiesServiceBuilder::new()
+                    .validator_store(validator_store.clone())
+                    .slot_clock(slot_clock.clone())
+                    .beacon_nodes(beacon_node_fallback.clone())
+                    .executor(executor.clone())
+                    .spec(spec.clone())
+                    .build()
+                    .unwrap(),
+            );
+
+            Self {
+                mock_beacon_node_1,
+                mock_beacon_node_2,
+                duties_service,
+                validator_store,
+                slot_clock,
+                slot_duration,
+                beacon_node_fallback,
+                executor,
+                spec,
+                _test_runtime: test_runtime,
+            }
+        }
+
+        fn insert_duty(&self, slot: Slot) {
+            let duty = PtcDuty {
+                pubkey: self.validator_store.pubkey,
+                validator_index: 0,
+                slot,
+            };
+            self.duties_service
+                .ptc_duties
+                .write()
+                .insert(Epoch::new(0), (Hash256::ZERO, vec![duty]));
+        }
+
+        fn start_service(self) -> Self {
+            let service: PayloadAttestationService<MockValidatorStore, ManualSlotClock> =
+                PayloadAttestationService::new(
+                    self.duties_service.clone(),
+                    self.validator_store.clone(),
+                    self.slot_clock.clone(),
+                    self.beacon_node_fallback.clone(),
+                    self.executor.clone(),
+                    self.spec.clone(),
+                );
+            service.start_update_service().unwrap();
+            self
+        }
+    }
+
     #[tokio::test]
     async fn publish_payload_attestation_ssz() {
-        let mut default_spec = MainnetEthSpec::default_spec();
-        default_spec.gloas_fork_epoch = Some(Epoch::new(0));
-        let spec = Arc::new(default_spec);
-
-        let test_runtime = TestRuntime::default();
-        let executor = test_runtime.task_executor.clone();
-        let slot_duration = spec.get_slot_duration();
-        let slot_clock = ManualSlotClock::new(Slot::new(0), Duration::from_secs(0), slot_duration);
+        let mut harness = TestHarness::new().await;
 
         let attestation_slot = Slot::new(1);
-        let validator_index = 0;
-
-        let validator_store = Arc::new(MockValidatorStore::new(validator_index));
-
-        let duty = PtcDuty {
-            pubkey: validator_store.pubkey,
-            validator_index,
-            slot: attestation_slot,
-        };
-
-        let mut mock_beacon_node_1 = MockBeaconNode::<E>::new().await;
-        let mut mock_beacon_node_2 = MockBeaconNode::<E>::new().await;
-
-        let beacon_node_1 =
-            CandidateBeaconNode::new(mock_beacon_node_1.beacon_api_client.clone(), 0);
-        let beacon_node_2 =
-            CandidateBeaconNode::new(mock_beacon_node_2.beacon_api_client.clone(), 1);
-        let beacon_node_fallback = Arc::new(BeaconNodeFallback::new(
-            vec![beacon_node_1, beacon_node_2],
-            BeaconNodeConfig::default(),
-            vec![],
-            spec.clone(),
-        ));
-
-        let duties_service = Arc::new(
-            DutiesServiceBuilder::new()
-                .validator_store(validator_store.clone())
-                .slot_clock(slot_clock.clone())
-                .beacon_nodes(beacon_node_fallback.clone())
-                .executor(executor.clone())
-                .spec(spec.clone())
-                .build()
-                .unwrap(),
-        );
-
-        duties_service
-            .ptc_duties
-            .write()
-            .insert(Epoch::new(0), (Hash256::ZERO, vec![duty]));
+        harness.insert_duty(attestation_slot);
 
         let expected_payload_attestation = PayloadAttestationData {
             beacon_block_root: Hash256::ZERO,
@@ -327,58 +375,47 @@ mod tests {
             blob_data_available: true,
         };
 
-        mock_beacon_node_1.mock_get_validator_payload_attestation_data(
-            &expected_payload_attestation,
-            ForkName::Gloas,
-            attestation_slot,
-        );
-        //println!("mock beacon node is: {:?}", mock_beacon_node);
-
-        let mock_1 = mock_beacon_node_1
-            .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
-        let mock_2 = mock_beacon_node_2.mock_post_beacon_pool_payload_attestations();
-
-        //println!("post mock beacon node is: {:?}", mock_beacon_node);
-
-        let service: PayloadAttestationService<MockValidatorStore, ManualSlotClock> =
-            PayloadAttestationService::new(
-                duties_service.clone(),
-                validator_store.clone(),
-                slot_clock.clone(),
-                beacon_node_fallback,
-                executor,
-                spec,
+        harness
+            .mock_beacon_node_1
+            .mock_get_validator_payload_attestation_data(
+                &expected_payload_attestation,
+                ForkName::Gloas,
+                attestation_slot,
             );
 
-        service.start_update_service().unwrap();
+        let mock_ssz = harness
+            .mock_beacon_node_1
+            .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
+        let mock_json = harness
+            .mock_beacon_node_2
+            .mock_post_beacon_pool_payload_attestations();
 
-        // Advance slot clock to slot 1 so the service sees the correct slot after waking.
-        slot_clock.advance_time(slot_duration);
+        let harness = harness.start_service();
+
+        // Advance slot clock to slot 1
+        harness.slot_clock.advance_time(harness.slot_duration);
 
         // The service sleeps for: duration_to_next_slot (12s) + payload_attestation_due (9s) = 21s
         // Assert nothing is published <= 21s
         sleep(Duration::from_secs(21)).await;
         assert!(
-            mock_beacon_node_1
+            harness
+                .mock_beacon_node_1
                 .payload_attestation_message
                 .lock()
                 .unwrap()
                 .is_empty(),
-            "payload attestation should not be published before duration_to_next_slot elapses"
+            "payload attestation should not be published before the sleep duration"
         );
 
         // After the sleep below, we sleep for > 21s, so messages should not be empty
         sleep(Duration::from_secs(1)).await;
 
-        let messages = mock_beacon_node_1
+        let messages = harness
+            .mock_beacon_node_1
             .payload_attestation_message
             .lock()
             .unwrap();
-
-        assert!(
-            !messages.is_empty(),
-            "Messages should not be empty after payload attestation is published"
-        );
 
         assert_eq!(
             messages.len(),
@@ -386,15 +423,12 @@ mod tests {
             "Expected one payload attestation message"
         );
 
-        // First mock beacon node try is successful, so mock_2 has no call, because the first_success tries beacon nodes in order
-        mock_1.expect(1).assert();
-        mock_2.expect(0).assert();
+        // First mock beacon node try is successful, so mock_json has no call
+        mock_ssz.expect(1).assert();
+        mock_json.expect(0).assert();
 
-        // println!("result is: {:?}", result);
         let result = &messages[0];
-        // println!("messages is: {:?}", messages);
-
-        assert_eq!(result.validator_index, validator_index);
+        assert_eq!(result.validator_index, 0);
         assert_eq!(
             result.data.beacon_block_root,
             expected_payload_attestation.beacon_block_root
@@ -406,55 +440,10 @@ mod tests {
 
     #[tokio::test]
     async fn publish_payload_attestation_ssz_fails_fallback_to_json() {
-        let mut default_spec = MainnetEthSpec::default_spec();
-        default_spec.gloas_fork_epoch = Some(Epoch::new(0));
-        let spec = Arc::new(default_spec);
-
-        let test_runtime = TestRuntime::default();
-        let executor = test_runtime.task_executor.clone();
-        let slot_duration = spec.get_slot_duration();
-        let slot_clock = ManualSlotClock::new(Slot::new(0), Duration::from_secs(0), slot_duration);
+        let mut harness = TestHarness::new().await;
 
         let attestation_slot = Slot::new(1);
-        let validator_index = 0;
-
-        let validator_store = Arc::new(MockValidatorStore::new(validator_index));
-
-        let duty = PtcDuty {
-            pubkey: validator_store.pubkey,
-            validator_index,
-            slot: attestation_slot,
-        };
-
-        let mut mock_beacon_node_1 = MockBeaconNode::<E>::new().await;
-        let mut mock_beacon_node_2 = MockBeaconNode::<E>::new().await;
-
-        let beacon_node_1 =
-            CandidateBeaconNode::new(mock_beacon_node_1.beacon_api_client.clone(), 0);
-        let beacon_node_2 =
-            CandidateBeaconNode::new(mock_beacon_node_2.beacon_api_client.clone(), 1);
-        let beacon_node_fallback = Arc::new(BeaconNodeFallback::new(
-            vec![beacon_node_1, beacon_node_2],
-            BeaconNodeConfig::default(),
-            vec![],
-            spec.clone(),
-        ));
-
-        let duties_service = Arc::new(
-            DutiesServiceBuilder::new()
-                .validator_store(validator_store.clone())
-                .slot_clock(slot_clock.clone())
-                .beacon_nodes(beacon_node_fallback.clone())
-                .executor(executor.clone())
-                .spec(spec.clone())
-                .build()
-                .unwrap(),
-        );
-
-        duties_service
-            .ptc_duties
-            .write()
-            .insert(Epoch::new(0), (Hash256::ZERO, vec![duty]));
+        harness.insert_duty(attestation_slot);
 
         let expected_payload_attestation = PayloadAttestationData {
             beacon_block_root: Hash256::ZERO,
@@ -463,41 +452,37 @@ mod tests {
             blob_data_available: true,
         };
 
-        mock_beacon_node_1.mock_get_validator_payload_attestation_data(
-            &expected_payload_attestation,
-            ForkName::Gloas,
-            Slot::new(1),
-        );
-
-        // Register an SSZ mock that returns 500 (simulates BN not supporting SSZ).
-        // Register a JSON mock that returns 200 (fallback target).
-        let mock_ssz = mock_beacon_node_1.mock_post_beacon_pool_payload_attestations_ssz_error();
-        let mock_json = mock_beacon_node_2.mock_post_beacon_pool_payload_attestations();
-
-        let service: PayloadAttestationService<MockValidatorStore, ManualSlotClock> =
-            PayloadAttestationService::new(
-                duties_service.clone(),
-                validator_store.clone(),
-                slot_clock.clone(),
-                beacon_node_fallback,
-                executor,
-                spec,
+        harness
+            .mock_beacon_node_1
+            .mock_get_validator_payload_attestation_data(
+                &expected_payload_attestation,
+                ForkName::Gloas,
+                Slot::new(1),
             );
 
-        service.start_update_service().unwrap();
+        // SSZ mock bn that returns 500 to simulate BN does not support SSZ
+        let mock_ssz = harness
+            .mock_beacon_node_1
+            .mock_post_beacon_pool_payload_attestations_ssz_error();
+        let mock_json = harness
+            .mock_beacon_node_2
+            .mock_post_beacon_pool_payload_attestations();
 
-        slot_clock.advance_time(slot_duration);
+        let harness = harness.start_service();
+
+        harness.slot_clock.advance_time(harness.slot_duration);
         sleep(Duration::from_secs(22)).await;
 
-        // first_success first tries both beacon nodes for SSZ post payload attestation
-        // first try: both mock beacon nodes failed (mock_ssz fails returning 500 as defined, mock_json does not support SSZ)
-        // second try: repeats the first try
-        // therefore, mock_ssz is hit/called twice
-        // When SSZ call fails twice, it falls back to JSON, and is successful on first call for mock_json
+        // first_success tries both beacon nodes for SSZ post payload attestation:
+        // first pass: both fail (mock_ssz returns 500, mock_json does not support SSZ)
+        // second pass: repeats the first pass
+        // Therefore mock_ssz is hit twice.
+        // When SSZ fails, it falls back to JSON and succeeds on first call on mock_json.
         mock_ssz.expect(2).assert();
         mock_json.expect(1).assert();
 
-        let messages = mock_beacon_node_2
+        let messages = harness
+            .mock_beacon_node_2
             .payload_attestation_message
             .lock()
             .unwrap();
@@ -505,74 +490,31 @@ mod tests {
         assert_eq!(
             messages.len(),
             1,
-            "Expected one payload attestation via JSON fallback on node 2"
+            "Expected one payload attestation via JSON fallback"
         );
     }
 
     #[tokio::test]
     async fn no_duties_no_publish() {
-        let mut default_spec = MainnetEthSpec::default_spec();
-        default_spec.gloas_fork_epoch = Some(Epoch::new(0));
-        let spec = Arc::new(default_spec);
+        let mut harness = TestHarness::new().await;
 
-        let test_runtime = TestRuntime::default();
-        let executor = test_runtime.task_executor.clone();
-        let slot_duration = spec.get_slot_duration();
-        let slot_clock = ManualSlotClock::new(Slot::new(0), Duration::from_secs(0), slot_duration);
+        // No duties, we don't call the get payload attestation endpoint
 
-        let validator_store = Arc::new(MockValidatorStore::new(0));
-
-        let mut mock_beacon_node_1 = MockBeaconNode::<E>::new().await;
-        let mut mock_beacon_node_2 = MockBeaconNode::<E>::new().await;
-
-        let beacon_node_1 =
-            CandidateBeaconNode::new(mock_beacon_node_1.beacon_api_client.clone(), 0);
-        let beacon_node_2 =
-            CandidateBeaconNode::new(mock_beacon_node_2.beacon_api_client.clone(), 1);
-        let beacon_node_fallback = Arc::new(BeaconNodeFallback::new(
-            vec![beacon_node_1, beacon_node_2],
-            BeaconNodeConfig::default(),
-            vec![],
-            spec.clone(),
-        ));
-
-        let duties_service = Arc::new(
-            DutiesServiceBuilder::new()
-                .validator_store(validator_store.clone())
-                .slot_clock(slot_clock.clone())
-                .beacon_nodes(beacon_node_fallback.clone())
-                .executor(executor.clone())
-                .spec(spec.clone())
-                .build()
-                .unwrap(),
-        );
-
-        // No duties inserted.
-
-        let mock_ssz = mock_beacon_node_1
+        let mock = harness
+            .mock_beacon_node_1
             .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
-        let mock_json = mock_beacon_node_2.mock_post_beacon_pool_payload_attestations();
 
-        let service: PayloadAttestationService<MockValidatorStore, ManualSlotClock> =
-            PayloadAttestationService::new(
-                duties_service.clone(),
-                validator_store.clone(),
-                slot_clock.clone(),
-                beacon_node_fallback,
-                executor,
-                spec,
-            );
+        let harness = harness.start_service();
 
-        service.start_update_service().unwrap();
-
-        slot_clock.advance_time(slot_duration);
+        harness.slot_clock.advance_time(harness.slot_duration);
         sleep(Duration::from_secs(22)).await;
 
-        mock_ssz.expect(0).assert();
-        mock_json.expect(0).assert();
+        // No duties, beacon node shouldn't be called
+        mock.expect(0).assert();
 
         assert!(
-            mock_beacon_node_1
+            harness
+                .mock_beacon_node_1
                 .payload_attestation_message
                 .lock()
                 .unwrap()

@@ -1,8 +1,11 @@
 use bls::{Keypair, PublicKeyBytes, Signature};
+use eth2::types::PublishBlockRequest;
 use futures::Stream;
 use std::sync::Arc;
 use types::{
-    Epoch, Hash256, MainnetEthSpec, PayloadAttestationData, PayloadAttestationMessage, Slot,
+    Epoch, Hash256, MainnetEthSpec, PayloadAttestationData, PayloadAttestationMessage,
+    SelectionProof, SignedBeaconBlock, SignedProposerPreferences, SignedValidatorRegistrationData,
+    Slot, SyncSelectionProof,
 };
 use validator_store::{
     AggregateToSign, AttestationToSign, ContributionToSign, DoppelgangerStatus, ProposalData,
@@ -72,7 +75,7 @@ impl validator_store::ValidatorStore for MockValidatorStore {
         _validator_pubkey: PublicKeyBytes,
         _signing_epoch: Epoch,
     ) -> Result<Signature, validator_store::Error<Self::Error>> {
-        unimplemented!()
+        Ok(Signature::empty())
     }
 
     fn set_validator_index(&self, _validator_pubkey: &PublicKeyBytes, _index: u64) {}
@@ -80,10 +83,23 @@ impl validator_store::ValidatorStore for MockValidatorStore {
     async fn sign_block(
         &self,
         _validator_pubkey: PublicKeyBytes,
-        _block: UnsignedBlock<Self::E>,
+        block: UnsignedBlock<Self::E>,
         _current_slot: Slot,
     ) -> Result<SignedBlock<Self::E>, validator_store::Error<Self::Error>> {
-        unimplemented!()
+        match block {
+            UnsignedBlock::Full(block_contents) => {
+                let (block, blobs) = block_contents.deconstruct();
+                let signed = SignedBeaconBlock::from_block(block, Signature::empty());
+                Ok(SignedBlock::Full(PublishBlockRequest::new(
+                    Arc::new(signed),
+                    blobs,
+                )))
+            }
+            UnsignedBlock::Blinded(block) => {
+                let signed = SignedBeaconBlock::from_block(block, Signature::empty());
+                Ok(SignedBlock::Blinded(Arc::new(signed)))
+            }
+        }
     }
 
     fn sign_attestations(
@@ -97,9 +113,12 @@ impl validator_store::ValidatorStore for MockValidatorStore {
 
     async fn sign_validator_registration_data(
         &self,
-        _data: types::ValidatorRegistrationData,
+        data: types::ValidatorRegistrationData,
     ) -> Result<types::SignedValidatorRegistrationData, validator_store::Error<Self::Error>> {
-        unimplemented!()
+        Ok(SignedValidatorRegistrationData {
+            message: data,
+            signature: Signature::empty(),
+        })
     }
 
     async fn produce_selection_proof(
@@ -107,7 +126,7 @@ impl validator_store::ValidatorStore for MockValidatorStore {
         _validator_pubkey: PublicKeyBytes,
         _slot: Slot,
     ) -> Result<types::SelectionProof, validator_store::Error<Self::Error>> {
-        unimplemented!()
+        Ok(SelectionProof::from(Signature::empty()))
     }
 
     async fn produce_sync_selection_proof(
@@ -116,7 +135,7 @@ impl validator_store::ValidatorStore for MockValidatorStore {
         _slot: Slot,
         _subnet_id: types::SyncSubnetId,
     ) -> Result<types::SyncSelectionProof, validator_store::Error<Self::Error>> {
-        unimplemented!()
+        Ok(SyncSelectionProof::from(Signature::empty()))
     }
 
     fn sign_aggregate_and_proofs(
@@ -157,12 +176,13 @@ impl validator_store::ValidatorStore for MockValidatorStore {
     async fn sign_execution_payload_envelope(
         &self,
         _validator_pubkey: PublicKeyBytes,
-        _envelope: types::ExecutionPayloadEnvelope<Self::E>,
-    ) -> Result<
-        types::SignedExecutionPayloadEnvelope<Self::E>,
-        validator_store::Error<Self::Error>,
-    > {
-        unimplemented!()
+        envelope: types::ExecutionPayloadEnvelope<Self::E>,
+    ) -> Result<types::SignedExecutionPayloadEnvelope<Self::E>, validator_store::Error<Self::Error>>
+    {
+        Ok(types::SignedExecutionPayloadEnvelope {
+            message: envelope,
+            signature: Signature::empty(),
+        })
     }
 
     async fn sign_payload_attestation(
@@ -180,9 +200,12 @@ impl validator_store::ValidatorStore for MockValidatorStore {
     async fn sign_proposer_preferences(
         &self,
         _validator_pubkey: PublicKeyBytes,
-        _preferences: types::ProposerPreferences,
+        preferences: types::ProposerPreferences,
     ) -> Result<types::SignedProposerPreferences, validator_store::Error<Self::Error>> {
-        unimplemented!()
+        Ok(SignedProposerPreferences {
+            message: preferences,
+            signature: Signature::empty(),
+        })
     }
 
     fn proposal_data(&self, _pubkey: &PublicKeyBytes) -> Option<ProposalData> {
