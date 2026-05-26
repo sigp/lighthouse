@@ -187,18 +187,6 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create()
     }
 
-    /// Mocks `POST /eth/v1/beacon/pool/payload_attestations` (SSZ) returning 415 Unsupported.
-    pub fn mock_post_beacon_pool_payload_attestations_ssz_error(&mut self) -> Mock {
-        let path_pattern = Regex::new(r"^/eth/v1/beacon/pool/payload_attestations$").unwrap();
-
-        self.server
-            .mock("POST", Matcher::Regex(path_pattern.to_string()))
-            .match_header("content-type", "application/octet-stream")
-            .with_status(415)
-            .with_body(r#"{"message":"Unsupported Media Type"}"#)
-            .create()
-    }
-
     /// Mocks `POST /eth/v1/beacon/pool/payload_attestations` (SSZ) with an optional `delay`.
     pub fn mock_post_beacon_pool_payload_attestations_ssz(&mut self, delay: Duration) -> Mock {
         let path_pattern = Regex::new(r"^/eth/v1/beacon/pool/payload_attestations$").unwrap();
@@ -224,6 +212,18 @@ impl<E: EthSpec> MockBeaconNode<E> {
                 std::thread::sleep(delay);
                 vec![]
             })
+            .create()
+    }
+
+    /// Mocks `POST /eth/v1/beacon/pool/payload_attestations` (SSZ) returning error
+    pub fn mock_post_beacon_pool_payload_attestations_ssz_error(&mut self) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v1/beacon/pool/payload_attestations$").unwrap();
+
+        self.server
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
+            .match_header("content-type", "application/octet-stream")
+            .with_status(500)
+            .with_body(r#"{"message":"Internal server error"}"#)
             .create()
     }
 }

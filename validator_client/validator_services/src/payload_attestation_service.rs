@@ -269,7 +269,7 @@ mod tests {
     type E = MainnetEthSpec;
 
     #[tokio::test]
-    async fn start_update_service_publishes_payload_attestation() {
+    async fn publish_payload_attestation_ssz() {
         let mut default_spec = MainnetEthSpec::default_spec();
         default_spec.gloas_fork_epoch = Some(Epoch::new(0));
         let spec = Arc::new(default_spec);
@@ -402,61 +402,99 @@ mod tests {
         assert_eq!(result.data.slot, attestation_slot);
         assert!(result.data.payload_present);
         assert!(result.data.blob_data_available);
+    }
 
-        // // Second iteration to test that when SSZ fails, it falls back to JSON
-        // drop(messages); // release MutexGuard before sleeping
-        // // mock_1 was already consumed by .expect(1).assert() above, so the SSZ mock
-        // // is deregistered from the server.
-        //
-        // let duty_2 = PtcDuty {
-        //     pubkey: validator_store.pubkey,
-        //     validator_index,
-        //     slot: Slot::new(2),
-        // };
-        // duties_service
-        //     .ptc_duties
-        //     .write()
-        //     .insert(Epoch::new(0), (Hash256::ZERO, vec![duty_2]));
-        //
-        // let expected_payload_attestation_2 = PayloadAttestationData {
-        //     beacon_block_root: Hash256::ZERO,
-        //     slot: Slot::new(2),
-        //     payload_present: true,
-        //     blob_data_available: false,
-        // };
-        //
-        // mock_beacon_node_1.mock_get_validator_payload_attestation_data(
-        //     &expected_payload_attestation_2,
-        //     ForkName::Gloas,
-        //     Slot::new(2),
-        // );
-        //
-        // // Register an SSZ mock that returns 415 (simulates BN not supporting SSZ).
-        // // Register a JSON mock that returns 200 (fallback target).
-        // let mock_ssz = mock_beacon_node_1.mock_post_beacon_pool_payload_attestations_ssz_error();
-        // let mock_json = mock_beacon_node_2.mock_post_beacon_pool_payload_attestations();
-        //
-        // slot_clock.advance_time(slot_duration);
-        // sleep(Duration::from_secs(22)).await;
-        //
-        // // SSZ was attempted and failed (hit once), then JSON fallback succeeded (hit once).
-        // mock_ssz.expect(2).assert();
-        // mock_json.expect(1).assert();
-        //
-        // let messages = mock_beacon_node_2
-        //     .payload_attestation_message
-        //     .lock()
-        //     .unwrap();
-        //
-        // assert_eq!(
-        //     messages.len(),
-        //     1,
-        //     "Expected one payload attestation via JSON fallback on node 2"
-        // );
-        //
-        // let result = &messages[0];
-        // assert_eq!(result.validator_index, validator_index);
-        // assert_eq!(result.data.slot, Slot::new(2));
-        // assert!(result.data.payload_present);
+    #[tokio::test]
+    async fn publish_payload_attestation_ssz_fails_fallback_to_json() {
+        let mut default_spec = MainnetEthSpec::default_spec();
+        default_spec.gloas_fork_epoch = Some(Epoch::new(0));
+        let spec = Arc::new(default_spec);
+
+        let test_runtime = TestRuntime::default();
+        let executor = test_runtime.task_executor.clone();
+        let slot_duration = spec.get_slot_duration();
+        let slot_clock = ManualSlotClock::new(Slot::new(0), Duration::from_secs(0), slot_duration);
+
+        let attestation_slot = Slot::new(1);
+        let validator_index = 0;
+
+        let validator_store = Arc::new(MockValidatorStore::new(validator_index));
+
+        let duty = PtcDuty {
+            pubkey: validator_store.pubkey,
+            validator_index,
+            slot: attestation_slot,
+        };
+
+        let mut mock_beacon_node_1 = MockBeaconNode::<E>::new().await;
+        let mut mock_beacon_node_2 = MockBeaconNode::<E>::new().await;
+
+        let beacon_node_1 =
+            CandidateBeaconNode::new(mock_beacon_node_1.beacon_api_client.clone(), 0);
+        let beacon_node_2 =
+            CandidateBeaconNode::new(mock_beacon_node_2.beacon_api_client.clone(), 1);
+        let beacon_node_fallback = Arc::new(BeaconNodeFallback::new(
+            vec![beacon_node_1, beacon_node_2],
+            BeaconNodeConfig::default(),
+            vec![],
+            spec.clone(),
+        ));
+
+        let duties_service = Arc::new(
+            DutiesServiceBuilder::new()
+                .validator_store(validator_store.clone())
+                .slot_clock(slot_clock.clone())
+                .beacon_nodes(beacon_node_fallback.clone())
+                .executor(executor.clone())
+                .spec(spec.clone())
+                .build()
+                .unwrap(),
+        );
+
+        duties_service
+            .ptc_duties
+            .write()
+            .insert(Epoch::new(0), (Hash256::ZERO, vec![duty]));
+
+        let expected_payload_attestation = PayloadAttestationData {
+            beacon_block_root: Hash256::ZERO,
+            slot: attestation_slot,
+            payload_present: true,
+            blob_data_available: true,
+        };
+
+        mock_beacon_node_1.mock_get_validator_payload_attestation_data(
+            &expected_payload_attestation,
+            ForkName::Gloas,
+            Slot::new(1),
+        );
+
+        // Register an SSZ mock that returns 500 (simulates BN not supporting SSZ).
+        // Register a JSON mock that returns 200 (fallback target).
+        let mock_ssz = mock_beacon_node_1.mock_post_beacon_pool_payload_attestations_ssz_error();
+        let mock_json = mock_beacon_node_2.mock_post_beacon_pool_payload_attestations();
+
+        slot_clock.advance_time(slot_duration);
+        sleep(Duration::from_secs(22)).await;
+
+        // SSZ was attempted and failed (hit once), then JSON fallback succeeded (hit once).
+        mock_ssz.expect(0).assert();
+        mock_json.expect(1).assert();
+
+        let messages = mock_beacon_node_2
+            .payload_attestation_message
+            .lock()
+            .unwrap();
+
+        assert_eq!(
+            messages.len(),
+            1,
+            "Expected one payload attestation via JSON fallback on node 2"
+        );
+
+        let result = &messages[0];
+        assert_eq!(result.validator_index, validator_index);
+        assert_eq!(result.data.slot, Slot::new(2));
+        assert!(result.data.payload_present);
     }
 }
