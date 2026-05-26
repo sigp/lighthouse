@@ -5,7 +5,6 @@ use regex::Regex;
 use reqwest::StatusCode;
 use sensitive_url::SensitiveUrl;
 use ssz::Decode;
-use std::fmt;
 use std::marker::PhantomData;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -22,18 +21,6 @@ pub struct MockBeaconNode<E: EthSpec> {
     _phantom: PhantomData<E>,
     pub received_blocks: Arc<Mutex<Vec<SignedBlindedBeaconBlock<E>>>>,
     pub payload_attestation_message: Arc<Mutex<Vec<PayloadAttestationMessage>>>,
-}
-
-impl<E: EthSpec> fmt::Debug for MockBeaconNode<E> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let server_url = self.server.url();
-        let received = self.received_blocks.lock().unwrap();
-        f.debug_struct("MockBeaconNode")
-            .field("server", &server_url)
-            .field("beacon_api_client", &"<client omitted>")
-            .field("received_blocks", &received)
-            .finish()
-    }
 }
 
 impl<E: EthSpec> MockBeaconNode<E> {
