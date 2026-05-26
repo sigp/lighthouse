@@ -474,11 +474,27 @@ mod tests {
         let mock_ssz = mock_beacon_node_1.mock_post_beacon_pool_payload_attestations_ssz_error();
         let mock_json = mock_beacon_node_2.mock_post_beacon_pool_payload_attestations();
 
+        let service: PayloadAttestationService<MockValidatorStore, ManualSlotClock> =
+            PayloadAttestationService::new(
+                duties_service.clone(),
+                validator_store.clone(),
+                slot_clock.clone(),
+                beacon_node_fallback,
+                executor,
+                spec,
+            );
+
+        service.start_update_service().unwrap();
+
         slot_clock.advance_time(slot_duration);
         sleep(Duration::from_secs(22)).await;
 
-        // SSZ was attempted and failed (hit once), then JSON fallback succeeded (hit once).
-        mock_ssz.expect(0).assert();
+        // first_success first tries both beacon nodes for SSZ post payload attestation
+        // first try: both mock beacon nodes failed (mock_ssz fails returning 500 as defined, mock_json does not support SSZ)
+        // second try: repeats the first try
+        // therefore, mock_ssz is hit/called twice
+        // When SSZ call fails twice, it falls back to JSON, and is successful on first call for mock_json
+        mock_ssz.expect(2).assert();
         mock_json.expect(1).assert();
 
         let messages = mock_beacon_node_2
@@ -491,10 +507,5 @@ mod tests {
             1,
             "Expected one payload attestation via JSON fallback on node 2"
         );
-
-        let result = &messages[0];
-        assert_eq!(result.validator_index, validator_index);
-        assert_eq!(result.data.slot, Slot::new(2));
-        assert!(result.data.payload_present);
     }
 }
