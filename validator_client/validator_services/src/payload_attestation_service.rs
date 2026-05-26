@@ -508,4 +508,76 @@ mod tests {
             "Expected one payload attestation via JSON fallback on node 2"
         );
     }
+
+    #[tokio::test]
+    async fn no_duties_no_publish() {
+        let mut default_spec = MainnetEthSpec::default_spec();
+        default_spec.gloas_fork_epoch = Some(Epoch::new(0));
+        let spec = Arc::new(default_spec);
+
+        let test_runtime = TestRuntime::default();
+        let executor = test_runtime.task_executor.clone();
+        let slot_duration = spec.get_slot_duration();
+        let slot_clock = ManualSlotClock::new(Slot::new(0), Duration::from_secs(0), slot_duration);
+
+        let validator_store = Arc::new(MockValidatorStore::new(0));
+
+        let mut mock_beacon_node_1 = MockBeaconNode::<E>::new().await;
+        let mut mock_beacon_node_2 = MockBeaconNode::<E>::new().await;
+
+        let beacon_node_1 =
+            CandidateBeaconNode::new(mock_beacon_node_1.beacon_api_client.clone(), 0);
+        let beacon_node_2 =
+            CandidateBeaconNode::new(mock_beacon_node_2.beacon_api_client.clone(), 1);
+        let beacon_node_fallback = Arc::new(BeaconNodeFallback::new(
+            vec![beacon_node_1, beacon_node_2],
+            BeaconNodeConfig::default(),
+            vec![],
+            spec.clone(),
+        ));
+
+        let duties_service = Arc::new(
+            DutiesServiceBuilder::new()
+                .validator_store(validator_store.clone())
+                .slot_clock(slot_clock.clone())
+                .beacon_nodes(beacon_node_fallback.clone())
+                .executor(executor.clone())
+                .spec(spec.clone())
+                .build()
+                .unwrap(),
+        );
+
+        // No duties inserted.
+
+        let mock_ssz = mock_beacon_node_1
+            .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
+        let mock_json = mock_beacon_node_2.mock_post_beacon_pool_payload_attestations();
+
+        let service: PayloadAttestationService<MockValidatorStore, ManualSlotClock> =
+            PayloadAttestationService::new(
+                duties_service.clone(),
+                validator_store.clone(),
+                slot_clock.clone(),
+                beacon_node_fallback,
+                executor,
+                spec,
+            );
+
+        service.start_update_service().unwrap();
+
+        slot_clock.advance_time(slot_duration);
+        sleep(Duration::from_secs(22)).await;
+
+        mock_ssz.expect(0).assert();
+        mock_json.expect(0).assert();
+
+        assert!(
+            mock_beacon_node_1
+                .payload_attestation_message
+                .lock()
+                .unwrap()
+                .is_empty(),
+            "No payload attestation should be published when there are no duties"
+        );
+    }
 }
