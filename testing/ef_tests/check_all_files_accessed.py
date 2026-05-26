@@ -83,6 +83,7 @@ excluded_paths = [
     "tests/.*/.*/networking/gossip_bls_to_execution_change/.*",
     "tests/.*/.*/networking/gossip_sync_committee_message/.*",
     "tests/.*/.*/networking/gossip_sync_committee_contribution_and_proof/.*",
+    "tests/.*/.*/networking/gossip_blob_sidecar/.*",
     # TODO: fast confirmation rule not merged yet
     "tests/.*/.*/fast_confirmation",
 ]
