@@ -144,6 +144,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create()
     }
 
+    /// Mocks `GET /eth/v1/validator/payload_attestations_data/{slot}`
     pub fn mock_get_validator_payload_attestation_data(
         &mut self,
         data: &PayloadAttestationData,
@@ -169,6 +170,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create()
     }
 
+    /// Mocks `POST /eth/v1/beacon/pool/payload_attestations`
     pub fn mock_post_beacon_pool_payload_attestations(&mut self) -> Mock {
         let path_pattern = Regex::new(r"^/eth/v1/beacon/pool/payload_attestations$").unwrap();
         let payload_attestation_message = Arc::clone(&self.payload_attestation_message);
@@ -179,9 +181,9 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .with_status(200)
             .with_body_from_request(move |request| {
                 let body = request.body().expect("Failed to get request body");
-                let messages: Vec<PayloadAttestationMessage> = serde_json::from_slice(body)
+                let message: Vec<PayloadAttestationMessage> = serde_json::from_slice(body)
                     .expect("Failed to deserialize payload attestations");
-                payload_attestation_message.lock().unwrap().extend(messages);
+                payload_attestation_message.lock().unwrap().extend(message);
                 vec![]
             })
             .create()
@@ -202,12 +204,13 @@ impl<E: EthSpec> MockBeaconNode<E> {
                 info!(
                     "Received payload attestation SSZ on server {} with delay {} ms",
                     url,
-                    delay.as_millis(),
+                    delay.as_secs(),
                 );
                 let body = request.body().expect("Failed to get request body");
 
                 let message = PayloadAttestationMessage::from_ssz_bytes(body)
                     .expect("Failed to deserialize body as PayloadAttestationMessage");
+
                 payload_attestation_message.lock().unwrap().push(message);
                 std::thread::sleep(delay);
                 vec![]
