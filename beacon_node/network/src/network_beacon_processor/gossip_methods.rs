@@ -174,6 +174,17 @@ impl<E: EthSpec> FailedAtt<E> {
     }
 }
 
+/// `MessageAcceptance` doesn't implement clone so we do a manual match here.
+/// TODO: remove this once `Clone` is available on this type:
+/// https://github.com/libp2p/rust-libp2p/pull/6445
+fn clone_message_acceptance(a: &MessageAcceptance) -> MessageAcceptance {
+    match a {
+        MessageAcceptance::Accept => MessageAcceptance::Accept,
+        MessageAcceptance::Reject => MessageAcceptance::Reject,
+        MessageAcceptance::Ignore => MessageAcceptance::Ignore,
+    }
+}
+
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /* Auxiliary functions */
 
@@ -2194,14 +2205,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         proposer_slashing: ProposerSlashing,
-    ) {
+    ) -> MessageAcceptance {
         let validator_index = proposer_slashing.signed_header_1.message.proposer_index;
 
-        let slashing = match self
+        let (validation_result, verified_slashing_opt) = match self
             .chain
             .verify_proposer_slashing_for_gossip(proposer_slashing)
         {
-            Ok(ObservationOutcome::New(slashing)) => slashing,
+            Ok(ObservationOutcome::New(slashing)) => (MessageAcceptance::Accept, Some(slashing)),
             Ok(ObservationOutcome::AlreadyKnown) => {
                 debug!(
                     reason = "Already seen a proposer slashing for that validator",
@@ -2209,44 +2220,54 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     peer = %peer_id,
                     "Dropping proposer slashing"
                 );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                return;
+                (MessageAcceptance::Ignore, None)
             }
             Err(e) => {
-                // This is likely a fault with the beacon chain and not necessarily a
-                // malicious message from the peer.
                 debug!(
                     validator_index,
                     %peer_id,
                     error = ?e,
-                    "Dropping invalid proposer slashing"
+                    "Dropping proposer slashing due to an error"
                 );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
 
-                // Penalize peer slightly for invalids.
-                self.gossip_penalize_peer(
-                    peer_id,
-                    PeerAction::HighToleranceError,
-                    "invalid_gossip_proposer_slashing",
-                );
-                return;
+                if matches!(e, BeaconChainError::ProposerSlashingValidationError(_)) {
+                    // Penalize peer slightly for invalids.
+                    self.gossip_penalize_peer(
+                        peer_id,
+                        PeerAction::HighToleranceError,
+                        "invalid_gossip_proposer_slashing",
+                    );
+                    (MessageAcceptance::Reject, None)
+                } else {
+                    // This is likely a fault with the beacon chain and not necessarily a
+                    // malicious message from the peer.
+                    (MessageAcceptance::Ignore, None)
+                }
             }
         };
 
-        metrics::inc_counter(&metrics::BEACON_PROCESSOR_PROPOSER_SLASHING_VERIFIED_TOTAL);
+        self.propagate_validation_result(
+            message_id,
+            peer_id,
+            clone_message_acceptance(&validation_result),
+        );
 
-        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+        if let Some(slashing) = verified_slashing_opt {
+            metrics::inc_counter(&metrics::BEACON_PROCESSOR_PROPOSER_SLASHING_VERIFIED_TOTAL);
 
-        // Register the slashing with any monitored validators.
-        self.chain
-            .validator_monitor
-            .read()
-            .register_gossip_proposer_slashing(slashing.as_inner());
+            // Register the slashing with any monitored validators.
+            self.chain
+                .validator_monitor
+                .read()
+                .register_gossip_proposer_slashing(slashing.as_inner());
 
-        self.chain.import_proposer_slashing(slashing);
-        debug!("Successfully imported proposer slashing");
+            self.chain.import_proposer_slashing(slashing);
+            debug!("Successfully imported proposer slashing");
 
-        metrics::inc_counter(&metrics::BEACON_PROCESSOR_PROPOSER_SLASHING_IMPORTED_TOTAL);
+            metrics::inc_counter(&metrics::BEACON_PROCESSOR_PROPOSER_SLASHING_IMPORTED_TOTAL);
+        }
+
+        validation_result
     }
 
     pub fn process_gossip_attester_slashing(
@@ -2254,51 +2275,64 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         attester_slashing: AttesterSlashing<T::EthSpec>,
-    ) {
-        let slashing = match self
+    ) -> MessageAcceptance {
+        let (validation_result, verified_slashing_opt) = match self
             .chain
             .verify_attester_slashing_for_gossip(attester_slashing)
         {
-            Ok(ObservationOutcome::New(slashing)) => slashing,
+            Ok(ObservationOutcome::New(slashing)) => (MessageAcceptance::Accept, Some(slashing)),
             Ok(ObservationOutcome::AlreadyKnown) => {
                 debug!(
                     reason = "Slashings already known for all slashed validators",
                     peer = %peer_id,
                     "Dropping attester slashing"
                 );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                return;
+                (MessageAcceptance::Ignore, None)
             }
             Err(e) => {
                 debug!(
                     %peer_id,
                     error = ?e,
-                    "Dropping invalid attester slashing"
+                    "Dropping attester slashing due to an error"
                 );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                // Penalize peer slightly for invalids.
-                self.gossip_penalize_peer(
-                    peer_id,
-                    PeerAction::HighToleranceError,
-                    "invalid_gossip_attester_slashing",
-                );
-                return;
+
+                if matches!(e, BeaconChainError::AttesterSlashingValidationError(_)) {
+                    // Penalize peer slightly for invalids.
+                    self.gossip_penalize_peer(
+                        peer_id,
+                        PeerAction::HighToleranceError,
+                        "invalid_gossip_attester_slashing",
+                    );
+                    (MessageAcceptance::Reject, None)
+                } else {
+                    // This is likely a fault with the beacon chain and not necessarily a
+                    // malicious message from the peer.
+                    (MessageAcceptance::Ignore, None)
+                }
             }
         };
 
-        metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_VERIFIED_TOTAL);
+        self.propagate_validation_result(
+            message_id,
+            peer_id,
+            clone_message_acceptance(&validation_result),
+        );
 
-        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+        if let Some(slashing) = verified_slashing_opt {
+            metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_VERIFIED_TOTAL);
 
-        // Register the slashing with any monitored validators.
-        self.chain
-            .validator_monitor
-            .read()
-            .register_gossip_attester_slashing(slashing.as_inner().to_ref());
+            // Register the slashing with any monitored validators.
+            self.chain
+                .validator_monitor
+                .read()
+                .register_gossip_attester_slashing(slashing.as_inner().to_ref());
 
-        self.chain.import_attester_slashing(slashing);
-        debug!("Successfully imported attester slashing");
-        metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_IMPORTED_TOTAL);
+            self.chain.import_attester_slashing(slashing);
+            debug!("Successfully imported attester slashing");
+            metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_IMPORTED_TOTAL);
+        }
+
+        validation_result
     }
 
     pub fn process_gossip_bls_to_execution_change(
