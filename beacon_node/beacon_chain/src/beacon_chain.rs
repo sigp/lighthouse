@@ -3180,16 +3180,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     Err(BlockError::DuplicateFullyImported(block_root)) => {
                         // For Gloas blocks that are already imported, we still
                         // need to process the envelope.
-                        if let Some(envelope) = maybe_envelope {
-                            if let Err(e) =
+                        if let Some(envelope) = maybe_envelope
+                            && let Err(e) =
                                 self.process_range_sync_envelope(envelope, block_root).await
-                            {
-                                return ChainSegmentResult::Failed {
-                                    imported_blocks,
-                                    error: BlockError::EnvelopeError(Box::new(e)),
-                                };
-                            }
+                        {
+                            return ChainSegmentResult::Failed {
+                                imported_blocks,
+                                error: BlockError::EnvelopeError(Box::new(e)),
+                            };
                         }
+
                         continue;
                     }
                     Err(error) => {
@@ -3201,13 +3201,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
 
                 // Process the envelope after the block has been imported.
-                if let Some(envelope) = maybe_envelope {
-                    if let Err(e) = self.process_range_sync_envelope(envelope, block_root).await {
-                        return ChainSegmentResult::Failed {
-                            imported_blocks,
-                            error: BlockError::EnvelopeError(Box::new(e)),
-                        };
-                    }
+                if let Some(envelope) = maybe_envelope
+                    && let Err(e) = self.process_range_sync_envelope(envelope, block_root).await
+                {
+                    return ChainSegmentResult::Failed {
+                        imported_blocks,
+                        error: BlockError::EnvelopeError(Box::new(e)),
+                    };
                 }
             }
         }
