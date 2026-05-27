@@ -466,9 +466,13 @@ impl<E: EthSpec> Network<E> {
             }
         };
 
-        // Set up the transport - tcp/quic with noise and mplex
-        let transport = build_transport(local_keypair.clone(), !config.disable_quic_support)
-            .map_err(|e| format!("Failed to build transport: {:?}", e))?;
+        // Set up the transport - tcp/quic with noise and yamux (mplex optional)
+        let transport = build_transport(
+            local_keypair.clone(),
+            !config.disable_quic_support,
+            config.enable_mplex,
+        )
+        .map_err(|e| format!("Failed to build transport: {:?}", e))?;
 
         // use the executor for libp2p
         struct Executor(task_executor::TaskExecutor);

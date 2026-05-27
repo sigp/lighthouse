@@ -34,27 +34,39 @@ pub struct Context<'a> {
 type BoxedTransport = Boxed<(PeerId, StreamMuxerBox)>;
 
 /// The implementation supports TCP/IP, QUIC (experimental) over UDP, noise as the encryption layer, and
-/// mplex/yamux as the multiplexing layer (when using TCP).
+/// yamux as the multiplexing layer (when using TCP). Mplex can be optionally enabled.
 pub fn build_transport(
     local_private_key: Keypair,
     quic_support: bool,
+    enable_mplex: bool,
 ) -> std::io::Result<BoxedTransport> {
-    // mplex config
-    let mut mplex_config = libp2p_mplex::Config::new();
-    mplex_config.set_max_buffer_size(256);
-    mplex_config.set_max_buffer_behaviour(libp2p_mplex::MaxBufferBehaviour::Block);
-
     // yamux config
     let yamux_config = yamux::Config::default();
+
     // Creates the TCP transport layer
-    let tcp = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default().nodelay(true))
-        .upgrade(core::upgrade::Version::V1)
-        .authenticate(generate_noise_config(&local_private_key))
-        .multiplex(core::upgrade::SelectUpgrade::new(
-            yamux_config,
-            mplex_config,
-        ))
-        .timeout(Duration::from_secs(10));
+    let tcp: BoxedTransport = if enable_mplex {
+        // Enable both yamux and mplex.
+        let mut mplex_config = libp2p_mplex::Config::new();
+        mplex_config.set_max_num_streams(32);
+        mplex_config.set_max_buffer_behaviour(libp2p_mplex::MaxBufferBehaviour::ResetStream);
+        libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default().nodelay(true))
+            .upgrade(core::upgrade::Version::V1)
+            .authenticate(generate_noise_config(&local_private_key))
+            .multiplex(core::upgrade::SelectUpgrade::new(
+                yamux_config,
+                mplex_config,
+            ))
+            .timeout(Duration::from_secs(10))
+            .boxed()
+    } else {
+        // Yamux only
+        libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default().nodelay(true))
+            .upgrade(core::upgrade::Version::V1)
+            .authenticate(generate_noise_config(&local_private_key))
+            .multiplex(yamux_config)
+            .timeout(Duration::from_secs(10))
+            .boxed()
+    };
     let transport = if quic_support {
         // Enables Quic
         // The default quic configuration suits us for now.
