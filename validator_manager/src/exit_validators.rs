@@ -322,7 +322,7 @@ mod test {
             let mut spec = ChainSpec::mainnet();
             spec.shard_committee_period = 1;
             spec.altair_fork_epoch = Some(Epoch::new(0));
-            spec.bellatrix_fork_epoch = Some(Epoch::new(1));
+            spec.bellatrix_fork_epoch = Some(Epoch::new(0));
             spec.capella_fork_epoch = Some(Epoch::new(2));
             spec.deneb_fork_epoch = Some(Epoch::new(3));
 
@@ -330,15 +330,8 @@ mod test {
 
             let harness = &beacon_node.harness;
             let mock_el = harness.mock_execution_layer.as_ref().unwrap();
-            let execution_ctx = mock_el.server.ctx.clone();
 
-            // Move to terminal block.
             mock_el.server.all_payloads_valid();
-            execution_ctx
-                .execution_block_generator
-                .write()
-                .move_to_terminal_block()
-                .unwrap();
 
             Self {
                 exit_config: None,

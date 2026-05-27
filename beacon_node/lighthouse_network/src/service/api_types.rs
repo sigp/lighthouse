@@ -5,6 +5,7 @@ use std::sync::Arc;
 use types::{
     BlobSidecar, DataColumnSidecar, Epoch, EthSpec, LightClientBootstrap,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
+    SignedExecutionPayloadEnvelope,
 };
 
 pub type Id = u32;
@@ -22,6 +23,8 @@ pub enum SyncRequestId {
     SingleBlock { id: SingleLookupReqId },
     /// Request searching for a set of blobs given a hash.
     SingleBlob { id: SingleLookupReqId },
+    /// Request searching for a payload envelope given a hash.
+    SinglePayloadEnvelope { id: SingleLookupReqId },
     /// Request searching for a set of data columns given a hash and list of column indices.
     DataColumnsByRoot(DataColumnsByRootRequestId),
     /// Blocks by range request
@@ -135,7 +138,7 @@ pub struct CustodyId {
 pub struct CustodyRequester(pub SingleLookupReqId);
 
 /// Application level requests sent to the network.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AppRequestId {
     Sync(SyncRequestId),
     Router,
@@ -160,6 +163,13 @@ pub enum Response<E: EthSpec> {
     DataColumnsByRange(Option<Arc<DataColumnSidecar<E>>>),
     /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Option<Arc<SignedBeaconBlock<E>>>),
+    /// A response to a get BEACON_BLOCKS_BY_HEAD request. A None response signals the end of the
+    /// batch.
+    BlocksByHead(Option<Arc<SignedBeaconBlock<E>>>),
+    /// A response to a get `EXECUTION_PAYLOAD_ENVELOPES_BY_ROOT` request.
+    PayloadEnvelopesByRoot(Option<Arc<SignedExecutionPayloadEnvelope<E>>>),
+    /// A response to a get `EXECUTION_PAYLOAD_ENVELOPES_BY_RANGE` request.
+    PayloadEnvelopesByRange(Option<Arc<SignedExecutionPayloadEnvelope<E>>>),
     /// A response to a get BLOBS_BY_ROOT request.
     BlobsByRoot(Option<Arc<BlobSidecar<E>>>),
     /// A response to a get DATA_COLUMN_SIDECARS_BY_ROOT request.
@@ -181,9 +191,23 @@ impl<E: EthSpec> std::convert::From<Response<E>> for RpcResponse<E> {
                 Some(b) => RpcResponse::Success(RpcSuccessResponse::BlocksByRoot(b)),
                 None => RpcResponse::StreamTermination(ResponseTermination::BlocksByRoot),
             },
+            Response::BlocksByHead(r) => match r {
+                Some(b) => RpcResponse::Success(RpcSuccessResponse::BlocksByHead(b)),
+                None => RpcResponse::StreamTermination(ResponseTermination::BlocksByHead),
+            },
             Response::BlocksByRange(r) => match r {
                 Some(b) => RpcResponse::Success(RpcSuccessResponse::BlocksByRange(b)),
                 None => RpcResponse::StreamTermination(ResponseTermination::BlocksByRange),
+            },
+            Response::PayloadEnvelopesByRoot(r) => match r {
+                Some(p) => RpcResponse::Success(RpcSuccessResponse::PayloadEnvelopesByRoot(p)),
+                None => RpcResponse::StreamTermination(ResponseTermination::PayloadEnvelopesByRoot),
+            },
+            Response::PayloadEnvelopesByRange(r) => match r {
+                Some(p) => RpcResponse::Success(RpcSuccessResponse::PayloadEnvelopesByRange(p)),
+                None => {
+                    RpcResponse::StreamTermination(ResponseTermination::PayloadEnvelopesByRange)
+                }
             },
             Response::BlobsByRoot(r) => match r {
                 Some(b) => RpcResponse::Success(RpcSuccessResponse::BlobsByRoot(b)),

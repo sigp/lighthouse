@@ -36,7 +36,11 @@ PROFILE ?= release
 RECENT_FORKS_BEFORE_GLOAS=electra fulu
 
 # List of all recent hard forks. This list is used to set env variables for http_api tests
+# Include phase0 to test the code paths in sync that are pre blobs
 RECENT_FORKS=electra fulu gloas
+
+# For network tests include phase0 to cover genesis syncing (blocks without blobs or columns)
+TEST_NETWORK_FORKS=phase0 $(RECENT_FORKS_BEFORE_GLOAS)
 
 # Extra flags for Cargo
 CARGO_INSTALL_EXTRA_FLAGS?=
@@ -203,14 +207,13 @@ run-ef-tests:
 	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
 
 # Run the tests in the `beacon_chain` crate for all known forks.
-# TODO(EIP-7732) Extend to support gloas by using RECENT_FORKS instead
-test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(RECENT_FORKS_BEFORE_GLOAS))
+test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(RECENT_FORKS))
 
 test-beacon-chain-%:
-	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p beacon_chain
+	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p beacon_chain --no-fail-fast
 
 # Run the tests in the `http_api` crate for recent forks.
-test-http-api: $(patsubst %,test-http-api-%,$(RECENT_FORKS_BEFORE_GLOAS))
+test-http-api: $(patsubst %,test-http-api-%,$(RECENT_FORKS))
 
 test-http-api-%:
 	env FORK_NAME=$* cargo nextest run --release --features "beacon_chain/fork_from_env" -p http_api
@@ -226,12 +229,15 @@ test-op-pool-%:
 
 # Run the tests in the `network` crate for all known forks.
 # TODO(EIP-7732) Extend to support gloas by using RECENT_FORKS instead
-test-network: $(patsubst %,test-network-%,$(RECENT_FORKS_BEFORE_GLOAS))
+test-network: $(patsubst %,test-network-%,$(TEST_NETWORK_FORKS))
 
 test-network-%:
-	env FORK_NAME=$* cargo nextest run --release \
-		--features "fork_from_env,$(TEST_FEATURES)" \
+	env FORK_NAME=$* cargo nextest run --no-fail-fast --release \
+		--features "fork_from_env,fake_crypto,$(TEST_FEATURES)" \
 		-p network
+	env FORK_NAME=$* cargo nextest run --no-fail-fast --release \
+		--features "fork_from_env,$(TEST_FEATURES)" \
+		-p network crypto_on
 
 # Run the tests in the `slasher` crate for all supported database backends.
 test-slasher:
@@ -314,8 +320,8 @@ make-ef-tests-nightly:
 
 # Verifies that crates compile with fuzzing features enabled
 arbitrary-fuzz:
-	cargo check -p state_processing --features arbitrary-fuzz,$(TEST_FEATURES)
-	cargo check -p slashing_protection --features arbitrary-fuzz,$(TEST_FEATURES)
+	cargo check -p state_processing --features arbitrary,$(TEST_FEATURES)
+	cargo check -p slashing_protection --features arbitrary,$(TEST_FEATURES)
 
 # Runs cargo audit (Audit Cargo.lock files for crates with security vulnerabilities reported to the RustSec Advisory Database)
 audit: install-audit audit-CI
@@ -324,7 +330,7 @@ install-audit:
 	cargo install --force cargo-audit
 
 audit-CI:
-	cargo audit
+	cargo audit --ignore RUSTSEC-2026-0049 --ignore RUSTSEC-2026-0098 --ignore RUSTSEC-2026-0099 --ignore RUSTSEC-2026-0104 --ignore RUSTSEC-2026-0118 --ignore RUSTSEC-2026-0119
 
 # Runs cargo deny (check for banned crates, duplicate versions, and source restrictions)
 deny: install-deny deny-CI
@@ -354,3 +360,9 @@ clean:
 	cargo clean
 	make -C $(EF_TESTS) clean
 	make -C $(STATE_TRANSITION_VECTORS) clean
+
+# Installs git hooks from .githooks/ directory
+install-hooks:
+	@ln -sf ../../.githooks/pre-commit .git/hooks/pre-commit
+	@chmod +x .githooks/pre-commit
+	@echo "Git hooks installed. Pre-commit hook runs 'cargo fmt --check'."

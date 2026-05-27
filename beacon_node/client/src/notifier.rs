@@ -1,16 +1,14 @@
 use crate::metrics;
 use beacon_chain::{
     BeaconChain, BeaconChainTypes, ExecutionStatus,
-    bellatrix_readiness::{
-        BellatrixReadiness, GenesisExecutionPayloadStatus, MergeConfig, SECONDS_IN_A_WEEK,
-    },
+    bellatrix_readiness::GenesisExecutionPayloadStatus,
 };
 use execution_layer::{
     EngineCapabilities,
     http::{
         ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3, ENGINE_GET_PAYLOAD_V2,
-        ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_NEW_PAYLOAD_V2,
-        ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4,
+        ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6,
+        ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V5,
     },
 };
 use lighthouse_network::{NetworkGlobals, types::SyncState};
@@ -36,6 +34,7 @@ const SPEEDO_OBSERVATIONS: usize = 4;
 /// The number of slots between logs that give detail about backfill process.
 const BACKFILL_LOG_INTERVAL: u64 = 5;
 
+const SECONDS_IN_A_WEEK: u64 = 604800;
 pub const FORK_READINESS_PREPARATION_SECONDS: u64 = SECONDS_IN_A_WEEK * 2;
 pub const ENGINE_CAPABILITIES_REFRESH_INTERVAL: u64 = 300;
 
@@ -70,7 +69,6 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         wait_time = estimated_time_pretty(Some(next_slot.as_secs() as f64)),
                         "Waiting for genesis"
                     );
-                    bellatrix_readiness_logging(Slot::new(0), &beacon_chain).await;
                     post_bellatrix_readiness_logging(Slot::new(0), &beacon_chain).await;
                     genesis_execution_payload_logging(&beacon_chain).await;
                     sleep(slot_duration).await;
@@ -362,7 +360,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 let block_info = if current_slot > head_slot {
                     "   …  empty".to_string()
                 } else {
-                    head_root.to_string()
+                    head_root.short().to_string()
                 };
 
                 let block_hash = match beacon_chain.canonical_head.head_execution_status() {
@@ -376,7 +374,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         warn!(
                             info = "chain not fully verified, \
                             block and attestation production disabled until execution engine syncs",
-                        execution_block_hash = ?hash,
+                            execution_block_hash = ?hash,
                             "Head is optimistic"
                         );
                         format!("{} (unverified)", hash)
@@ -395,7 +393,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 info!(
                     peers = peer_count_pretty(connected_peer_count),
                     exec_hash = block_hash,
-                    finalized_root = %finalized_checkpoint.root,
+                    finalized_root = %finalized_checkpoint.root.short(),
                     finalized_epoch = %finalized_checkpoint.epoch,
                     epoch = %current_epoch,
                     block = block_info,
@@ -406,7 +404,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 metrics::set_gauge(&metrics::IS_SYNCED, 0);
                 info!(
                     peers = peer_count_pretty(connected_peer_count),
-                    finalized_root = %finalized_checkpoint.root,
+                    finalized_root = %finalized_checkpoint.root.short(),
                     finalized_epoch = %finalized_checkpoint.epoch,
                     %head_slot,
                     %current_slot,
@@ -414,7 +412,6 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 );
             }
 
-            bellatrix_readiness_logging(current_slot, &beacon_chain).await;
             post_bellatrix_readiness_logging(current_slot, &beacon_chain).await;
         }
     };
@@ -425,78 +422,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     Ok(())
 }
 
-/// Provides some helpful logging to users to indicate if their node is ready for the Bellatrix
-/// fork and subsequent merge transition.
-async fn bellatrix_readiness_logging<T: BeaconChainTypes>(
-    current_slot: Slot,
-    beacon_chain: &BeaconChain<T>,
-) {
-    let merge_completed = beacon_chain
-        .canonical_head
-        .cached_head()
-        .snapshot
-        .beacon_block
-        .message()
-        .body()
-        .execution_payload()
-        .is_ok_and(|payload| payload.parent_hash() != ExecutionBlockHash::zero());
-
-    let has_execution_layer = beacon_chain.execution_layer.is_some();
-
-    if merge_completed && has_execution_layer
-        || !beacon_chain.is_time_to_prepare_for_bellatrix(current_slot)
-    {
-        return;
-    }
-
-    match beacon_chain.check_bellatrix_readiness(current_slot).await {
-        BellatrixReadiness::Ready {
-            config,
-            current_difficulty,
-        } => match config {
-            MergeConfig {
-                terminal_total_difficulty: Some(ttd),
-                terminal_block_hash: None,
-                terminal_block_hash_epoch: None,
-            } => {
-                info!(
-                    terminal_total_difficulty = %ttd,
-                    current_difficulty = current_difficulty
-                        .map(|d| d.to_string())
-                        .unwrap_or_else(|| "??".into()),
-                    "Ready for Bellatrix"
-                )
-            }
-            MergeConfig {
-                terminal_total_difficulty: _,
-                terminal_block_hash: Some(terminal_block_hash),
-                terminal_block_hash_epoch: Some(terminal_block_hash_epoch),
-            } => {
-                info!(
-                    info = "you are using override parameters, please ensure that you \
-                    understand these parameters and their implications.",
-                    ?terminal_block_hash,
-                    ?terminal_block_hash_epoch,
-                    "Ready for Bellatrix"
-                )
-            }
-            other => error!(
-                config = ?other,
-                "Inconsistent merge configuration"
-            ),
-        },
-        readiness @ BellatrixReadiness::NotSynced => warn!(
-            info = %readiness,
-            "Not ready Bellatrix"
-        ),
-        readiness @ BellatrixReadiness::NoExecutionEndpoint => warn!(
-            info = %readiness,
-            "Not ready for Bellatrix"
-        ),
-    }
-}
-
-/// Provides some helpful logging to users to indicate if their node is ready for Capella
+/// Provides some helpful logging to users to indicate if their node is ready for upcoming forks
 async fn post_bellatrix_readiness_logging<T: BeaconChainTypes>(
     current_slot: Slot,
     beacon_chain: &BeaconChain<T>,
@@ -629,11 +555,11 @@ fn methods_required_for_fork(
             }
         }
         ForkName::Gloas => {
-            if !capabilities.get_payload_v5 {
-                missing_methods.push(ENGINE_GET_PAYLOAD_V5);
+            if !capabilities.get_payload_v6 {
+                missing_methods.push(ENGINE_GET_PAYLOAD_V6);
             }
-            if !capabilities.new_payload_v4 {
-                missing_methods.push(ENGINE_NEW_PAYLOAD_V4);
+            if !capabilities.new_payload_v5 {
+                missing_methods.push(ENGINE_NEW_PAYLOAD_V5);
             }
         }
     }

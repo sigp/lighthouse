@@ -4,7 +4,8 @@
 
 use beacon_node::ProductionBeaconNode;
 use environment::RuntimeContext;
-use eth2::{BeaconNodeHttpClient, Timeouts, reqwest::ClientBuilder};
+use eth2::{BeaconNodeHttpClient, Timeouts};
+use reqwest::ClientBuilder;
 use sensitive_url::SensitiveUrl;
 use std::path::PathBuf;
 use std::time::Duration;

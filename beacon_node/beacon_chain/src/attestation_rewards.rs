@@ -320,7 +320,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )
             .into_values()
             .collect::<Vec<IdealAttestationRewards>>();
-        ideal_rewards.sort_by(|a, b| a.effective_balance.cmp(&b.effective_balance));
+        ideal_rewards.sort_by_key(|a| a.effective_balance);
 
         Ok(StandardAttestationRewards {
             ideal_rewards,

@@ -109,6 +109,12 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         }
     }
 
+    /// Reset the status of all internal requests
+    pub fn reset_requests(&mut self) {
+        self.block_request_state = BlockRequestState::new(self.block_root);
+        self.component_requests = ComponentRequests::WaitingForBlock;
+    }
+
     /// Return the slot of this lookup's block if it's currently cached as `AwaitingProcessing`
     pub fn peek_downloaded_block_slot(&self) -> Option<Slot> {
         self.block_request_state
@@ -150,7 +156,9 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 .block_request_state
                 .state
                 .insert_verified_response(block),
-            BlockComponent::Blob(_) | BlockComponent::DataColumn(_) => {
+            BlockComponent::Blob(_)
+            | BlockComponent::DataColumn(_)
+            | BlockComponent::PartialDataColumn(_) => {
                 // For now ignore single blobs and columns, as the blob request state assumes all blobs are
                 // attributed to the same peer = the peer serving the remaining blobs. Ignoring this
                 // block component has a minor effect, causing the node to re-request this blob

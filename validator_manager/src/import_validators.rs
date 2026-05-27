@@ -112,8 +112,7 @@ pub fn cli_app() -> Command {
                 .value_name("ETH1_ADDRESS")
                 .help("When provided, the imported validator will use the suggested fee recipient. Omit this flag to use the default value from the VC.")
                 .action(ArgAction::Set)
-                .display_order(0)
-                .requires(KEYSTORE_FILE_FLAG),
+                .display_order(0),
         )
         .arg(
             Arg::new(GAS_LIMIT)
@@ -122,8 +121,7 @@ pub fn cli_app() -> Command {
                 .help("When provided, the imported validator will use this gas limit. It is recommended \
                 to leave this as the default value by not specifying this flag.",)
                 .action(ArgAction::Set)
-                .display_order(0)
-                .requires(KEYSTORE_FILE_FLAG),
+                .display_order(0),
         )
         .arg(
             Arg::new(BUILDER_PROPOSALS)
@@ -132,8 +130,7 @@ pub fn cli_app() -> Command {
                 blocks via builder rather than the local EL.",)
                 .value_parser(["true","false"])
                 .action(ArgAction::Set)
-                .display_order(0)
-                .requires(KEYSTORE_FILE_FLAG),
+                .display_order(0),
         )
         .arg(
             Arg::new(BUILDER_BOOST_FACTOR)
@@ -144,8 +141,7 @@ pub fn cli_app() -> Command {
                 when choosing between a builder payload header and payload from \
                 the local execution node.",)
                 .action(ArgAction::Set)
-                .display_order(0)
-                .requires(KEYSTORE_FILE_FLAG),
+                .display_order(0),
         )
         .arg(
             Arg::new(PREFER_BUILDER_PROPOSALS)
@@ -154,8 +150,16 @@ pub fn cli_app() -> Command {
                 constructed by builders, regardless of payload value.",)
                 .value_parser(["true","false"])
                 .action(ArgAction::Set)
-                .display_order(0)
-                .requires(KEYSTORE_FILE_FLAG),
+                .display_order(0),
+        )
+        .arg(
+            Arg::new(ENABLED)
+                .long(ENABLED)
+                .help("When provided, the imported validator will be \
+                enabled or disabled.",)
+                .value_parser(["true","false"])
+                .action(ArgAction::Set)
+                .display_order(0),
         )
 }
 
@@ -225,48 +229,113 @@ async fn run(config: ImportConfig) -> Result<(), String> {
         enabled,
     } = config;
 
-    let validators: Vec<ValidatorSpecification> =
-        if let Some(validators_format_path) = &validators_file_path {
-            if !validators_format_path.exists() {
-                return Err(format!(
-                    "Unable to find file at {:?}",
-                    validators_format_path
-                ));
-            }
+    let validators: Vec<ValidatorSpecification> = if let Some(validators_format_path) =
+        &validators_file_path
+    {
+        if !validators_format_path.exists() {
+            return Err(format!(
+                "Unable to find file at {:?}",
+                validators_format_path
+            ));
+        }
 
-            let validators_file = fs::OpenOptions::new()
-                .read(true)
-                .create(false)
-                .open(validators_format_path)
-                .map_err(|e| format!("Unable to open {:?}: {:?}", validators_format_path, e))?;
+        let validators_file = fs::OpenOptions::new()
+            .read(true)
+            .create(false)
+            .open(validators_format_path)
+            .map_err(|e| format!("Unable to open {:?}: {:?}", validators_format_path, e))?;
 
-            serde_json::from_reader(&validators_file).map_err(|e| {
+        // Define validators as mutable so that if a relevant flag is supplied, the fields can be overridden.
+        let mut validators: Vec<ValidatorSpecification> = serde_json::from_reader(&validators_file)
+            .map_err(|e| {
                 format!(
                     "Unable to parse JSON in {:?}: {:?}",
                     validators_format_path, e
                 )
-            })?
-        } else if let Some(keystore_format_path) = &keystore_file_path {
-            vec![ValidatorSpecification {
-                voting_keystore: KeystoreJsonStr(
-                    Keystore::from_json_file(keystore_format_path).map_err(|e| format!("{e:?}"))?,
-                ),
-                voting_keystore_password: password.ok_or_else(|| {
-                    "The --password flag is required to supply the keystore password".to_string()
-                })?,
-                slashing_protection: None,
-                fee_recipient,
-                gas_limit,
-                builder_proposals,
-                builder_boost_factor,
-                prefer_builder_proposals,
-                enabled,
-            }]
-        } else {
-            return Err(format!(
-                "One of the flag --{VALIDATORS_FILE_FLAG} or --{KEYSTORE_FILE_FLAG} is required."
-            ));
-        };
+            })?;
+
+        // Log the overridden note when one or more flags is supplied
+        if let Some(override_fee_recipient) = fee_recipient {
+            eprintln!(
+                "Please note! --suggested-fee-recipient is provided. This will override existing fee recipient defined in validators.json with: {:?}",
+                override_fee_recipient
+            );
+        }
+        if let Some(override_gas_limit) = gas_limit {
+            eprintln!(
+                "Please note! --gas-limit is provided. This will override existing gas limit defined in validators.json with: {}",
+                override_gas_limit
+            );
+        }
+        if let Some(override_builder_proposals) = builder_proposals {
+            eprintln!(
+                "Please note! --builder-proposals is provided. This will override existing builder proposal setting defined in validators.json with: {}",
+                override_builder_proposals
+            );
+        }
+        if let Some(override_builder_boost_factor) = builder_boost_factor {
+            eprintln!(
+                "Please note! --builder-boost-factor is provided. This will override existing builder boost factor defined in validators.json with: {}",
+                override_builder_boost_factor
+            );
+        }
+        if let Some(override_prefer_builder_proposals) = prefer_builder_proposals {
+            eprintln!(
+                "Please note! --prefer-builder-proposals is provided. This will override existing prefer builder proposal setting defined in validators.json with: {}",
+                override_prefer_builder_proposals
+            );
+        }
+        if let Some(override_enabled) = enabled {
+            eprintln!(
+                "Please note! --enabled flag is provided. This will override existing setting defined in validators.json with: {}",
+                override_enabled
+            );
+        }
+
+        // Override the fields in validators.json file if the flag is supplied
+        for validator in &mut validators {
+            if let Some(override_fee_recipient) = fee_recipient {
+                validator.fee_recipient = Some(override_fee_recipient);
+            }
+            if let Some(override_gas_limit) = gas_limit {
+                validator.gas_limit = Some(override_gas_limit);
+            }
+            if let Some(override_builder_proposals) = builder_proposals {
+                validator.builder_proposals = Some(override_builder_proposals);
+            }
+            if let Some(override_builder_boost_factor) = builder_boost_factor {
+                validator.builder_boost_factor = Some(override_builder_boost_factor);
+            }
+            if let Some(override_prefer_builder_proposals) = prefer_builder_proposals {
+                validator.prefer_builder_proposals = Some(override_prefer_builder_proposals);
+            }
+            if let Some(override_enabled) = enabled {
+                validator.enabled = Some(override_enabled);
+            }
+        }
+
+        validators
+    } else if let Some(keystore_format_path) = &keystore_file_path {
+        vec![ValidatorSpecification {
+            voting_keystore: KeystoreJsonStr(
+                Keystore::from_json_file(keystore_format_path).map_err(|e| format!("{e:?}"))?,
+            ),
+            voting_keystore_password: password.ok_or_else(|| {
+                "The --password flag is required to supply the keystore password".to_string()
+            })?,
+            slashing_protection: None,
+            fee_recipient,
+            gas_limit,
+            builder_proposals,
+            builder_boost_factor,
+            prefer_builder_proposals,
+            enabled,
+        }]
+    } else {
+        return Err(format!(
+            "One of the flag --{VALIDATORS_FILE_FLAG} or --{KEYSTORE_FILE_FLAG} is required."
+        ));
+    };
 
     let count = validators.len();
 

@@ -13,13 +13,45 @@ use slot_clock::SlotClock;
 use tracing::debug;
 use types::{Epoch, EthSpec, Hash256, Slot};
 
+/// Selects which dependent root to return in the API response.
+///
+/// - `Legacy`: the block root at the last slot of epoch N-1 (v1 behaviour, for backwards compat).
+/// - `True`: the fork-aware proposer shuffling decision root (v2 behaviour). Pre-Fulu this equals
+///   the legacy root; post-Fulu it uses epoch N-2.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DependentRootSelection {
+    Legacy,
+    True,
+}
+
 /// The struct that is returned to the requesting HTTP client.
 type ApiDuties = api_types::DutiesResponse<Vec<api_types::ProposerData>>;
 
-/// Handles a request from the HTTP API for proposer duties.
+/// Handles a request from the HTTP API for v1 proposer duties.
+///
+/// Returns the legacy dependent root (block root at end of epoch N-1) for backwards compatibility.
 pub fn proposer_duties<T: BeaconChainTypes>(
     request_epoch: Epoch,
     chain: &BeaconChain<T>,
+) -> Result<ApiDuties, warp::reject::Rejection> {
+    proposer_duties_internal(request_epoch, chain, DependentRootSelection::Legacy)
+}
+
+/// Handles a request from the HTTP API for v2 proposer duties.
+///
+/// Returns the true fork-aware dependent root. Pre-Fulu this equals the legacy root; post-Fulu it
+/// uses epoch N-2 due to deterministic proposer lookahead with `min_seed_lookahead`.
+pub fn proposer_duties_v2<T: BeaconChainTypes>(
+    request_epoch: Epoch,
+    chain: &BeaconChain<T>,
+) -> Result<ApiDuties, warp::reject::Rejection> {
+    proposer_duties_internal(request_epoch, chain, DependentRootSelection::True)
+}
+
+fn proposer_duties_internal<T: BeaconChainTypes>(
+    request_epoch: Epoch,
+    chain: &BeaconChain<T>,
+    root_selection: DependentRootSelection,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
     let current_epoch = chain
         .slot_clock
@@ -49,24 +81,29 @@ pub fn proposer_duties<T: BeaconChainTypes>(
     if request_epoch == current_epoch || request_epoch == tolerant_current_epoch {
         // If we could consider ourselves in the `request_epoch` when allowing for clock disparity
         // tolerance then serve this request from the cache.
-        if let Some(duties) = try_proposer_duties_from_cache(request_epoch, chain)? {
+        if let Some(duties) = try_proposer_duties_from_cache(request_epoch, chain, root_selection)?
+        {
             Ok(duties)
         } else {
             debug!(%request_epoch, "Proposer cache miss");
-            compute_and_cache_proposer_duties(request_epoch, chain)
+            compute_and_cache_proposer_duties(request_epoch, chain, root_selection)
         }
     } else if request_epoch
         == current_epoch
             .safe_add(1)
             .map_err(warp_utils::reject::arith_error)?
     {
-        let (proposers, _dependent_root, legacy_dependent_root, execution_status, _fork) =
+        let (proposers, dependent_root, legacy_dependent_root, execution_status, _fork) =
             compute_proposer_duties_from_head(request_epoch, chain)
                 .map_err(warp_utils::reject::unhandled_error)?;
+        let selected_root = match root_selection {
+            DependentRootSelection::Legacy => legacy_dependent_root,
+            DependentRootSelection::True => dependent_root,
+        };
         convert_to_api_response(
             chain,
             request_epoch,
-            legacy_dependent_root,
+            selected_root,
             execution_status.is_optimistic_or_invalid(),
             proposers,
         )
@@ -84,7 +121,7 @@ pub fn proposer_duties<T: BeaconChainTypes>(
         // request_epoch < current_epoch
         //
         // Queries about the past are handled with a slow path.
-        compute_historic_proposer_duties(request_epoch, chain)
+        compute_historic_proposer_duties(request_epoch, chain, root_selection)
     }
 }
 
@@ -98,6 +135,7 @@ pub fn proposer_duties<T: BeaconChainTypes>(
 fn try_proposer_duties_from_cache<T: BeaconChainTypes>(
     request_epoch: Epoch,
     chain: &BeaconChain<T>,
+    root_selection: DependentRootSelection,
 ) -> Result<Option<ApiDuties>, warp::reject::Rejection> {
     let head = chain.canonical_head.cached_head();
     let head_block = &head.snapshot.beacon_block;
@@ -116,11 +154,14 @@ fn try_proposer_duties_from_cache<T: BeaconChainTypes>(
         .beacon_state
         .proposer_shuffling_decision_root_at_epoch(request_epoch, head_block_root, &chain.spec)
         .map_err(warp_utils::reject::beacon_state_error)?;
-    let legacy_dependent_root = head
-        .snapshot
-        .beacon_state
-        .legacy_proposer_shuffling_decision_root_at_epoch(request_epoch, head_block_root)
-        .map_err(warp_utils::reject::beacon_state_error)?;
+    let selected_root = match root_selection {
+        DependentRootSelection::Legacy => head
+            .snapshot
+            .beacon_state
+            .legacy_proposer_shuffling_decision_root_at_epoch(request_epoch, head_block_root)
+            .map_err(warp_utils::reject::beacon_state_error)?,
+        DependentRootSelection::True => head_decision_root,
+    };
     let execution_optimistic = chain
         .is_optimistic_or_invalid_head_block(head_block)
         .map_err(warp_utils::reject::unhandled_error)?;
@@ -134,7 +175,7 @@ fn try_proposer_duties_from_cache<T: BeaconChainTypes>(
             convert_to_api_response(
                 chain,
                 request_epoch,
-                legacy_dependent_root,
+                selected_root,
                 execution_optimistic,
                 indices.to_vec(),
             )
@@ -155,6 +196,7 @@ fn try_proposer_duties_from_cache<T: BeaconChainTypes>(
 fn compute_and_cache_proposer_duties<T: BeaconChainTypes>(
     current_epoch: Epoch,
     chain: &BeaconChain<T>,
+    root_selection: DependentRootSelection,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
     let (indices, dependent_root, legacy_dependent_root, execution_status, fork) =
         compute_proposer_duties_from_head(current_epoch, chain)
@@ -168,10 +210,14 @@ fn compute_and_cache_proposer_duties<T: BeaconChainTypes>(
         .map_err(BeaconChainError::from)
         .map_err(warp_utils::reject::unhandled_error)?;
 
+    let selected_root = match root_selection {
+        DependentRootSelection::Legacy => legacy_dependent_root,
+        DependentRootSelection::True => dependent_root,
+    };
     convert_to_api_response(
         chain,
         current_epoch,
-        legacy_dependent_root,
+        selected_root,
         execution_status.is_optimistic_or_invalid(),
         indices,
     )
@@ -182,6 +228,7 @@ fn compute_and_cache_proposer_duties<T: BeaconChainTypes>(
 fn compute_historic_proposer_duties<T: BeaconChainTypes>(
     epoch: Epoch,
     chain: &BeaconChain<T>,
+    root_selection: DependentRootSelection,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
     // If the head is quite old then it might still be relevant for a historical request.
     //
@@ -219,9 +266,9 @@ fn compute_historic_proposer_duties<T: BeaconChainTypes>(
     };
 
     // Ensure the state lookup was correct.
-    if state.current_epoch() != epoch {
+    if state.current_epoch() != epoch && state.current_epoch() + 1 != epoch {
         return Err(warp_utils::reject::custom_server_error(format!(
-            "state epoch {} not equal to request epoch {}",
+            "state from epoch {} cannot serve request epoch {}",
             state.current_epoch(),
             epoch
         )));
@@ -234,18 +281,18 @@ fn compute_historic_proposer_duties<T: BeaconChainTypes>(
 
     // We can supply the genesis block root as the block root since we know that the only block that
     // decides its own root is the genesis block.
-    let legacy_dependent_root = state
-        .legacy_proposer_shuffling_decision_root_at_epoch(epoch, chain.genesis_block_root)
-        .map_err(BeaconChainError::from)
-        .map_err(warp_utils::reject::unhandled_error)?;
+    let selected_root = match root_selection {
+        DependentRootSelection::Legacy => state
+            .legacy_proposer_shuffling_decision_root_at_epoch(epoch, chain.genesis_block_root)
+            .map_err(BeaconChainError::from)
+            .map_err(warp_utils::reject::unhandled_error)?,
+        DependentRootSelection::True => state
+            .proposer_shuffling_decision_root_at_epoch(epoch, chain.genesis_block_root, &chain.spec)
+            .map_err(BeaconChainError::from)
+            .map_err(warp_utils::reject::unhandled_error)?,
+    };
 
-    convert_to_api_response(
-        chain,
-        epoch,
-        legacy_dependent_root,
-        execution_optimistic,
-        indices,
-    )
+    convert_to_api_response(chain, epoch, selected_root, execution_optimistic, indices)
 }
 
 /// Converts the internal representation of proposer duties into one that is compatible with the

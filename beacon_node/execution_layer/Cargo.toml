@@ -13,7 +13,7 @@ arc-swap = "1.6.0"
 bls = { workspace = true }
 builder_client = { path = "../builder_client" }
 bytes = { workspace = true }
-eth2 = { workspace = true, features = ["events", "lighthouse"] }
+eth2 = { workspace = true, features = ["events", "lighthouse", "network"] }
 ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
 fixed_bytes = { workspace = true }

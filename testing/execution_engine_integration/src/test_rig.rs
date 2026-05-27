@@ -9,8 +9,8 @@ use alloy_signer_local::PrivateKeySigner;
 use bls::PublicKeyBytes;
 use execution_layer::test_utils::DEFAULT_GAS_LIMIT;
 use execution_layer::{
-    BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes,
-    PayloadParameters, PayloadStatus,
+    BlockByNumberQuery, BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer,
+    LATEST_TAG, PayloadAttributes, PayloadParameters, PayloadStatus,
 };
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::ForkchoiceUpdateParameters;
@@ -200,6 +200,9 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
     pub async fn perform_tests(&self) {
         self.wait_until_synced().await;
 
+        // TODO(gloas): this needs to be for post-Gloas cases
+        let head_payload_status = fork_choice::PayloadStatus::Pending;
+
         // Create a local signer in case we need to sign transactions locally
         let private_key_signer: PrivateKeySigner =
             PRIVATE_KEYS[0].parse().expect("Invalid private key");
@@ -210,25 +213,29 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
         let account2 = AlloyAddress::from_slice(&hex::decode(ACCOUNT2).unwrap());
 
         /*
-         * Read the terminal block hash from both pairs, check it's equal.
+         * Read the genesis block hash from both pairs, check it's equal.
+         * Since TTD=0, the genesis block is the terminal PoW block.
          */
 
-        let terminal_pow_block_hash = self
+        let genesis_block = self
             .ee_a
             .execution_layer
-            .get_terminal_pow_block_hash(&self.spec, timestamp_now())
+            .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
             .await
             .unwrap()
-            .unwrap();
+            .expect("should have genesis block");
+
+        let terminal_pow_block_hash = genesis_block.block_hash;
 
         assert_eq!(
             terminal_pow_block_hash,
             self.ee_b
                 .execution_layer
-                .get_terminal_pow_block_hash(&self.spec, timestamp_now())
+                .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
                 .await
                 .unwrap()
-                .unwrap()
+                .expect("should have genesis block")
+                .block_hash
         );
 
         // Submit transactions before getting payload
@@ -304,12 +311,15 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             .insert_proposer(
                 Slot::new(1), // Insert proposer for the next slot
                 head_root,
+                fork_choice::PayloadStatus::Pending,
                 proposer_index,
                 PayloadAttributes::new(
                     timestamp,
                     prev_randao,
                     Address::repeat_byte(42),
                     Some(vec![]),
+                    None,
+                    None,
                     None,
                 ),
             )
@@ -327,6 +337,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 finalized_block_hash,
                 Slot::new(0),
                 Hash256::zero(),
+                head_payload_status,
             )
             .await
             .unwrap();
@@ -355,11 +366,13 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             suggested_fee_recipient,
             Some(vec![]),
             None,
+            None,
+            None,
         );
 
         let payload_parameters = PayloadParameters {
             parent_hash,
-            parent_gas_limit,
+            parent_gas_limit: Some(parent_gas_limit),
             proposer_gas_limit: None,
             payload_attributes: &payload_attributes,
             forkchoice_update_params: &forkchoice_update_params,
@@ -405,6 +418,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 finalized_block_hash,
                 slot,
                 head_block_root,
+                head_payload_status,
             )
             .await
             .unwrap();
@@ -446,6 +460,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 finalized_block_hash,
                 slot,
                 head_block_root,
+                head_payload_status,
             )
             .await
             .unwrap();
@@ -513,11 +528,13 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             suggested_fee_recipient,
             Some(vec![]),
             None,
+            None,
+            None,
         );
 
         let payload_parameters = PayloadParameters {
             parent_hash,
-            parent_gas_limit,
+            parent_gas_limit: Some(parent_gas_limit),
             proposer_gas_limit: None,
             payload_attributes: &payload_attributes,
             forkchoice_update_params: &forkchoice_update_params,
@@ -563,7 +580,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
          *
          * Indicate that the payload is the head of the chain, providing payload attributes.
          */
-        let head_block_hash = valid_payload.block_hash();
+        let head_block_hash = second_payload.block_hash();
         let finalized_block_hash = ExecutionBlockHash::zero();
         // To save sending proposer preparation data, just set the fee recipient
         // to the fee recipient configured for EE A.
@@ -573,13 +590,21 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             Address::repeat_byte(42),
             Some(vec![]),
             None,
+            None,
+            None,
         );
         let slot = Slot::new(42);
         let head_block_root = Hash256::repeat_byte(100);
         let validator_index = 0;
         self.ee_a
             .execution_layer
-            .insert_proposer(slot, head_block_root, validator_index, payload_attributes)
+            .insert_proposer(
+                slot,
+                head_block_root,
+                head_payload_status,
+                validator_index,
+                payload_attributes,
+            )
             .await;
         let status = self
             .ee_a
@@ -590,6 +615,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 finalized_block_hash,
                 slot,
                 head_block_root,
+                head_payload_status,
             )
             .await
             .unwrap();
@@ -627,6 +653,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 finalized_block_hash,
                 slot,
                 head_block_root,
+                head_payload_status,
             )
             .await
             .unwrap();
@@ -680,6 +707,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 finalized_block_hash,
                 slot,
                 head_block_root,
+                head_payload_status,
             )
             .await
             .unwrap();

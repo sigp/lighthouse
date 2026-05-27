@@ -41,7 +41,8 @@
 pub use crate::scheduler::BeaconProcessorQueueLengths;
 use crate::scheduler::work_queue::WorkQueues;
 use crate::work_reprocessing_queue::{
-    QueuedBackfillBatch, QueuedColumnReconstruction, QueuedGossipBlock, ReprocessQueueMessage,
+    QueuedBackfillBatch, QueuedColumnReconstruction, QueuedGossipBlock, QueuedGossipEnvelope,
+    ReprocessQueueMessage,
 };
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
@@ -242,13 +243,28 @@ impl<E: EthSpec> From<ReadyWork> for WorkEvent<E> {
                     process_fn,
                 },
             },
+            ReadyWork::Envelope(QueuedGossipEnvelope {
+                beacon_block_slot,
+                beacon_block_root,
+                process_fn,
+            }) => Self {
+                drop_during_sync: false,
+                work: Work::DelayedImportEnvelope {
+                    beacon_block_slot,
+                    beacon_block_root,
+                    process_fn,
+                },
+            },
             ReadyWork::RpcBlock(QueuedRpcBlock {
-                beacon_block_root: _,
+                beacon_block_root,
                 process_fn,
                 ignore_fn: _,
             }) => Self {
                 drop_during_sync: false,
-                work: Work::RpcBlock { process_fn },
+                work: Work::RpcBlock {
+                    process_fn,
+                    beacon_block_root,
+                },
             },
             ReadyWork::IgnoredRpcBlock(IgnoredRpcBlock { process_fn }) => Self {
                 drop_during_sync: false,
@@ -376,7 +392,13 @@ pub enum Work<E: EthSpec> {
     GossipBlock(AsyncFn),
     GossipBlobSidecar(AsyncFn),
     GossipDataColumnSidecar(AsyncFn),
+    GossipPartialDataColumnSidecar(AsyncFn),
     DelayedImportBlock {
+        beacon_block_slot: Slot,
+        beacon_block_root: Hash256,
+        process_fn: AsyncFn,
+    },
+    DelayedImportEnvelope {
         beacon_block_slot: Slot,
         beacon_block_root: Hash256,
         process_fn: AsyncFn,
@@ -389,21 +411,30 @@ pub enum Work<E: EthSpec> {
     GossipLightClientFinalityUpdate(BlockingFn),
     GossipLightClientOptimisticUpdate(BlockingFn),
     RpcBlock {
+        beacon_block_root: Hash256,
         process_fn: AsyncFn,
     },
     RpcBlobs {
         process_fn: AsyncFn,
     },
     RpcCustodyColumn(AsyncFn),
+    RpcEnvelope(AsyncFn),
     ColumnReconstruction(AsyncFn),
     IgnoredRpcBlock {
         process_fn: BlockingFn,
     },
-    ChainSegment(AsyncFn),
+    ChainSegment {
+        process_fn: AsyncFn,
+        /// (chain_id, batch_epoch) for test observability
+        process_id: (u32, u64),
+    },
     ChainSegmentBackfill(BlockingFn),
     Status(BlockingFn),
     BlocksByRangeRequest(AsyncFn),
     BlocksByRootsRequest(AsyncFn),
+    BlocksByHeadRequest(AsyncFn),
+    PayloadEnvelopesByRangeRequest(AsyncFn),
+    PayloadEnvelopesByRootRequest(AsyncFn),
     BlobsByRangeRequest(BlockingFn),
     BlobsByRootsRequest(BlockingFn),
     DataColumnsByRootsRequest(BlockingFn),
@@ -442,7 +473,9 @@ pub enum WorkType {
     GossipBlock,
     GossipBlobSidecar,
     GossipDataColumnSidecar,
+    GossipPartialDataColumnSidecar,
     DelayedImportBlock,
+    DelayedImportEnvelope,
     GossipVoluntaryExit,
     GossipProposerSlashing,
     GossipAttesterSlashing,
@@ -453,6 +486,7 @@ pub enum WorkType {
     RpcBlock,
     RpcBlobs,
     RpcCustodyColumn,
+    RpcEnvelope,
     ColumnReconstruction,
     IgnoredRpcBlock,
     ChainSegment,
@@ -460,6 +494,9 @@ pub enum WorkType {
     Status,
     BlocksByRangeRequest,
     BlocksByRootsRequest,
+    BlocksByHeadRequest,
+    PayloadEnvelopesByRangeRequest,
+    PayloadEnvelopesByRootRequest,
     BlobsByRangeRequest,
     BlobsByRootsRequest,
     DataColumnsByRootsRequest,
@@ -479,7 +516,7 @@ pub enum WorkType {
 }
 
 impl<E: EthSpec> Work<E> {
-    fn str_id(&self) -> &'static str {
+    pub fn str_id(&self) -> &'static str {
         self.to_type().into()
     }
 
@@ -493,7 +530,9 @@ impl<E: EthSpec> Work<E> {
             Work::GossipBlock(_) => WorkType::GossipBlock,
             Work::GossipBlobSidecar(_) => WorkType::GossipBlobSidecar,
             Work::GossipDataColumnSidecar(_) => WorkType::GossipDataColumnSidecar,
+            Work::GossipPartialDataColumnSidecar(_) => WorkType::GossipPartialDataColumnSidecar,
             Work::DelayedImportBlock { .. } => WorkType::DelayedImportBlock,
+            Work::DelayedImportEnvelope { .. } => WorkType::DelayedImportEnvelope,
             Work::GossipVoluntaryExit(_) => WorkType::GossipVoluntaryExit,
             Work::GossipProposerSlashing(_) => WorkType::GossipProposerSlashing,
             Work::GossipAttesterSlashing(_) => WorkType::GossipAttesterSlashing,
@@ -511,6 +550,7 @@ impl<E: EthSpec> Work<E> {
             Work::RpcBlock { .. } => WorkType::RpcBlock,
             Work::RpcBlobs { .. } => WorkType::RpcBlobs,
             Work::RpcCustodyColumn { .. } => WorkType::RpcCustodyColumn,
+            Work::RpcEnvelope(_) => WorkType::RpcEnvelope,
             Work::ColumnReconstruction(_) => WorkType::ColumnReconstruction,
             Work::IgnoredRpcBlock { .. } => WorkType::IgnoredRpcBlock,
             Work::ChainSegment { .. } => WorkType::ChainSegment,
@@ -518,6 +558,9 @@ impl<E: EthSpec> Work<E> {
             Work::Status(_) => WorkType::Status,
             Work::BlocksByRangeRequest(_) => WorkType::BlocksByRangeRequest,
             Work::BlocksByRootsRequest(_) => WorkType::BlocksByRootsRequest,
+            Work::BlocksByHeadRequest(_) => WorkType::BlocksByHeadRequest,
+            Work::PayloadEnvelopesByRangeRequest(_) => WorkType::PayloadEnvelopesByRangeRequest,
+            Work::PayloadEnvelopesByRootRequest(_) => WorkType::PayloadEnvelopesByRootRequest,
             Work::BlobsByRangeRequest(_) => WorkType::BlobsByRangeRequest,
             Work::BlobsByRootsRequest(_) => WorkType::BlobsByRootsRequest,
             Work::DataColumnsByRootsRequest(_) => WorkType::DataColumnsByRootsRequest,
@@ -785,9 +828,13 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Some(item)
                         } else if let Some(item) = work_queues.rpc_custody_column_queue.pop() {
                             Some(item)
+                        } else if let Some(item) = work_queues.rpc_envelope_queue.pop() {
+                            Some(item)
                         // Check delayed blocks before gossip blocks, the gossip blocks might rely
                         // on the delayed ones.
                         } else if let Some(item) = work_queues.delayed_block_queue.pop() {
+                            Some(item)
+                        } else if let Some(item) = work_queues.delayed_envelope_queue.pop() {
                             Some(item)
                         // Check gossip blocks and payloads before gossip attestations, since a block might be
                         // required to verify some attestations.
@@ -799,6 +846,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         } else if let Some(item) = work_queues.gossip_blob_queue.pop() {
                             Some(item)
                         } else if let Some(item) = work_queues.gossip_data_column_queue.pop() {
+                            Some(item)
+                        } else if let Some(item) =
+                            work_queues.gossip_partial_data_column_queue.pop()
+                        {
                             Some(item)
                         } else if let Some(item) = work_queues.column_reconstruction_queue.pop() {
                             Some(item)
@@ -957,6 +1008,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Some(item)
                         } else if let Some(item) = work_queues.block_broots_queue.pop() {
                             Some(item)
+                        } else if let Some(item) = work_queues.block_bhead_queue.pop() {
+                            Some(item)
                         } else if let Some(item) = work_queues.blob_brange_queue.pop() {
                             Some(item)
                         } else if let Some(item) = work_queues.blob_broots_queue.pop() {
@@ -964,6 +1017,12 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         } else if let Some(item) = work_queues.dcbroots_queue.pop() {
                             Some(item)
                         } else if let Some(item) = work_queues.dcbrange_queue.pop() {
+                            Some(item)
+                        } else if let Some(item) = work_queues.payload_envelopes_brange_queue.pop()
+                        {
+                            Some(item)
+                        } else if let Some(item) = work_queues.payload_envelopes_broots_queue.pop()
+                        {
                             Some(item)
                         // Check slashings after all other consensus messages so we prioritize
                         // following head.
@@ -1104,8 +1163,14 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::GossipDataColumnSidecar { .. } => {
                                 work_queues.gossip_data_column_queue.push(work, work_id)
                             }
+                            Work::GossipPartialDataColumnSidecar { .. } => work_queues
+                                .gossip_partial_data_column_queue
+                                .push(work, work_id),
                             Work::DelayedImportBlock { .. } => {
                                 work_queues.delayed_block_queue.push(work, work_id)
+                            }
+                            Work::DelayedImportEnvelope { .. } => {
+                                work_queues.delayed_envelope_queue.push(work, work_id)
                             }
                             Work::GossipVoluntaryExit { .. } => {
                                 work_queues.gossip_voluntary_exit_queue.push(work, work_id)
@@ -1132,6 +1197,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 work_queues.rpc_block_queue.push(work, work_id)
                             }
                             Work::RpcBlobs { .. } => work_queues.rpc_blob_queue.push(work, work_id),
+                            Work::RpcEnvelope(_) => {
+                                work_queues.rpc_envelope_queue.push(work, work_id)
+                            }
                             Work::RpcCustodyColumn { .. } => {
                                 work_queues.rpc_custody_column_queue.push(work, work_id)
                             }
@@ -1151,6 +1219,15 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::BlocksByRootsRequest { .. } => {
                                 work_queues.block_broots_queue.push(work, work_id)
                             }
+                            Work::BlocksByHeadRequest { .. } => {
+                                work_queues.block_bhead_queue.push(work, work_id)
+                            }
+                            Work::PayloadEnvelopesByRangeRequest { .. } => work_queues
+                                .payload_envelopes_brange_queue
+                                .push(work, work_id),
+                            Work::PayloadEnvelopesByRootRequest { .. } => work_queues
+                                .payload_envelopes_broots_queue
+                                .push(work, work_id),
                             Work::BlobsByRangeRequest { .. } => {
                                 work_queues.blob_brange_queue.push(work, work_id)
                             }
@@ -1233,7 +1310,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::GossipDataColumnSidecar => {
                             work_queues.gossip_data_column_queue.len()
                         }
+                        WorkType::GossipPartialDataColumnSidecar => {
+                            work_queues.gossip_partial_data_column_queue.len()
+                        }
                         WorkType::DelayedImportBlock => work_queues.delayed_block_queue.len(),
+                        WorkType::DelayedImportEnvelope => work_queues.delayed_envelope_queue.len(),
                         WorkType::GossipVoluntaryExit => {
                             work_queues.gossip_voluntary_exit_queue.len()
                         }
@@ -1257,6 +1338,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::RpcBlobs | WorkType::IgnoredRpcBlock => {
                             work_queues.rpc_blob_queue.len()
                         }
+                        WorkType::RpcEnvelope => work_queues.rpc_envelope_queue.len(),
                         WorkType::RpcCustodyColumn => work_queues.rpc_custody_column_queue.len(),
                         WorkType::ColumnReconstruction => {
                             work_queues.column_reconstruction_queue.len()
@@ -1266,6 +1348,13 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::Status => work_queues.status_queue.len(),
                         WorkType::BlocksByRangeRequest => work_queues.block_brange_queue.len(),
                         WorkType::BlocksByRootsRequest => work_queues.block_broots_queue.len(),
+                        WorkType::BlocksByHeadRequest => work_queues.block_bhead_queue.len(),
+                        WorkType::PayloadEnvelopesByRangeRequest => {
+                            work_queues.payload_envelopes_brange_queue.len()
+                        }
+                        WorkType::PayloadEnvelopesByRootRequest => {
+                            work_queues.payload_envelopes_broots_queue.len()
+                        }
                         WorkType::BlobsByRangeRequest => work_queues.blob_brange_queue.len(),
                         WorkType::BlobsByRootsRequest => work_queues.blob_broots_queue.len(),
                         WorkType::DataColumnsByRootsRequest => work_queues.dcbroots_queue.len(),
@@ -1419,7 +1508,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             } => task_spawner.spawn_blocking(move || {
                 process_batch(aggregates);
             }),
-            Work::ChainSegment(process_fn) => task_spawner.spawn_async(async move {
+            Work::ChainSegment { process_fn, .. } => task_spawner.spawn_async(async move {
                 process_fn.await;
             }),
             Work::UnknownBlockAttestation { process_fn }
@@ -1431,15 +1520,25 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 beacon_block_slot: _,
                 beacon_block_root: _,
                 process_fn,
+            }
+            | Work::DelayedImportEnvelope {
+                beacon_block_slot: _,
+                beacon_block_root: _,
+                process_fn,
             } => task_spawner.spawn_async(process_fn),
-            Work::RpcBlock { process_fn }
+            Work::RpcBlock {
+                process_fn,
+                beacon_block_root: _,
+            }
             | Work::RpcBlobs { process_fn }
             | Work::RpcCustodyColumn(process_fn)
+            | Work::RpcEnvelope(process_fn)
             | Work::ColumnReconstruction(process_fn) => task_spawner.spawn_async(process_fn),
             Work::IgnoredRpcBlock { process_fn } => task_spawner.spawn_blocking(process_fn),
             Work::GossipBlock(work)
             | Work::GossipBlobSidecar(work)
             | Work::GossipDataColumnSidecar(work)
+            | Work::GossipPartialDataColumnSidecar(work)
             | Work::GossipExecutionPayload(work) => task_spawner.spawn_async(async move {
                 work.await;
             }),
@@ -1449,9 +1548,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
             | Work::DataColumnsByRangeRequest(process_fn) => {
                 task_spawner.spawn_blocking(process_fn)
             }
-            Work::BlocksByRangeRequest(work) | Work::BlocksByRootsRequest(work) => {
-                task_spawner.spawn_async(work)
-            }
+            Work::BlocksByRangeRequest(work)
+            | Work::BlocksByRootsRequest(work)
+            | Work::BlocksByHeadRequest(work)
+            | Work::PayloadEnvelopesByRangeRequest(work)
+            | Work::PayloadEnvelopesByRootRequest(work) => task_spawner.spawn_async(work),
             Work::ChainSegmentBackfill(process_fn) => {
                 if self.config.enable_backfill_rate_limiting {
                     task_spawner.spawn_blocking_with_rayon(RayonPoolType::LowPriority, process_fn)

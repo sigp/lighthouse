@@ -133,6 +133,9 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
         "domain_sync_committee_selection_proof".to_uppercase() =>
             u32_hex(spec.domain_sync_committee_selection_proof),
         "domain_bls_to_execution_change".to_uppercase() => u32_hex(spec.domain_bls_to_execution_change),
+        "domain_beacon_builder".to_uppercase() => u32_hex(spec.domain_beacon_builder),
+        "domain_ptc_attester".to_uppercase() => u32_hex(spec.domain_ptc_attester),
+        "domain_proposer_preferences".to_uppercase() => u32_hex(spec.domain_proposer_preferences),
         "sync_committee_subnet_count".to_uppercase() =>
             consts::altair::SYNC_COMMITTEE_SUBNET_COUNT.to_string().into(),
         "target_aggregators_per_sync_subcommittee".to_uppercase() =>
@@ -174,7 +177,7 @@ mod test {
         yamlconfig.extra_fields_mut().insert(k3.into(), v3.into());
         yamlconfig.extra_fields_mut().insert(k4.into(), v4);
 
-        serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
+        yaml_serde::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
         let reader = File::options()
             .read(true)
@@ -182,7 +185,7 @@ mod test {
             .open(tmp_file.as_ref())
             .expect("error while opening the file");
         let from: ConfigAndPresetGloas =
-            serde_yaml::from_reader(reader).expect("error while deserializing");
+            yaml_serde::from_reader(reader).expect("error while deserializing");
         assert_eq!(ConfigAndPreset::Gloas(from), yamlconfig);
     }
 

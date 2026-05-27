@@ -8,18 +8,23 @@ autotests = false # using a single test binary compiles faster
 
 [features]
 default = ["participation_metrics"]
-write_ssz_files = []  # Writes debugging .ssz files to /tmp during block processing.
-participation_metrics = []  # Exposes validator participation metrics to Prometheus.
-fork_from_env = [] # Initialise the harness chain spec from the FORK_NAME env variable
+# Writes debugging .ssz files to /tmp during block processing.
+write_ssz_files = []
+# Exposes validator participation metrics to Prometheus.
+participation_metrics = []
+# Initialise the harness chain spec from the FORK_NAME env variable
+fork_from_env = []
 portable = ["bls/supranational-portable"]
 test_backfill = []
+arbitrary = ["dep:arbitrary", "types/arbitrary"]
 
 [dependencies]
 alloy-primitives = { workspace = true }
+arbitrary = { workspace = true, optional = true }
 bitvec = { workspace = true }
 bls = { workspace = true }
 educe = { workspace = true }
-eth2 = { workspace = true, features = ["lighthouse"] }
+eth2 = { workspace = true, features = ["lighthouse", "network"] }
 eth2_network_config = { workspace = true }
 ethereum_hashing = { workspace = true }
 ethereum_serde_utils = { workspace = true }
@@ -71,11 +76,15 @@ types = { workspace = true }
 zstd = { workspace = true }
 
 [dev-dependencies]
+arbitrary = { workspace = true }
+beacon_chain = { path = ".", features = ["arbitrary"] }
 criterion = { workspace = true }
 maplit = { workspace = true }
 mockall = { workspace = true }
 mockall_double = { workspace = true }
+rand_xorshift = { workspace = true }
 serde_json = { workspace = true }
+types = { workspace = true, features = ["arbitrary"] }
 
 [[bench]]
 name = "benches"

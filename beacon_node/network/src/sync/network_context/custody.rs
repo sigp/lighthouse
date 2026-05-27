@@ -2,11 +2,11 @@ use crate::sync::network_context::{
     DataColumnsByRootRequestId, DataColumnsByRootSingleBlockRequest,
 };
 use beacon_chain::BeaconChainTypes;
-use beacon_chain::validator_monitor::timestamp_now;
 use fnv::FnvHashMap;
 use lighthouse_network::PeerId;
 use lighthouse_network::service::api_types::{CustodyId, DataColumnsByRootRequester};
 use parking_lot::RwLock;
+use slot_clock::SlotClock;
 use std::collections::HashSet;
 use std::hash::{BuildHasher, RandomState};
 use std::time::{Duration, Instant};
@@ -198,7 +198,14 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         cx: &mut SyncNetworkContext<T>,
     ) -> CustodyRequestResult<T::EthSpec> {
         let _guard = self.span.clone().entered();
-        if self.column_requests.values().all(|r| r.is_downloaded()) {
+        let total_requests = self.column_requests.len();
+        let completed_requests = self
+            .column_requests
+            .values()
+            .filter(|r| r.is_downloaded())
+            .count();
+
+        if completed_requests >= total_requests {
             // All requests have completed successfully.
             let mut peers = HashMap::<PeerId, Vec<usize>>::new();
             let mut seen_timestamps = vec![];
@@ -216,12 +223,16 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                 .collect::<Result<Vec<_>, _>>()?;
 
             let peer_group = PeerGroup::from_set(peers);
-            let max_seen_timestamp = seen_timestamps.into_iter().max().unwrap_or(timestamp_now());
+            let max_seen_timestamp = seen_timestamps
+                .into_iter()
+                .max()
+                .unwrap_or_else(|| cx.chain.slot_clock.now_duration().unwrap_or_default());
             return Ok(Some((columns, peer_group, max_seen_timestamp)));
         }
 
         let active_request_count_by_peer = cx.active_request_count_by_peer();
         let mut columns_to_request_by_peer = HashMap::<PeerId, Vec<ColumnIndex>>::new();
+        let mut columns_without_peers = vec![];
         let lookup_peers = self.lookup_peers.read();
         // Create deterministic hasher per request to ensure consistent peer ordering within
         // this request (avoiding fragmentation) while varying selection across different requests
@@ -231,7 +242,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
             if let Some(wait_duration) = request.is_awaiting_download() {
                 // Note: an empty response is considered a successful response, so we may end up
                 // retrying many more times than `MAX_CUSTODY_COLUMN_DOWNLOAD_ATTEMPTS`.
-                if request.download_failures > MAX_CUSTODY_COLUMN_DOWNLOAD_ATTEMPTS {
+                if request.download_failures >= MAX_CUSTODY_COLUMN_DOWNLOAD_ATTEMPTS {
                     return Err(Error::TooManyFailures);
                 }
 
@@ -256,6 +267,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     return Err(Error::NoPeer(*column_index));
                 } else {
                     // Do not issue requests if there is no custody peer on this column
+                    columns_without_peers.push(*column_index);
                 }
             }
         }
@@ -270,10 +282,13 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                 lookup_peers = lookup_peers.len(),
                 "Requesting {} columns from {} peers", columns_requested_count, peer_requests,
             );
-        } else {
+        } else if !columns_without_peers.is_empty() {
             debug!(
                 lookup_peers = lookup_peers.len(),
-                "No column peers found for look up",
+                total_requests,
+                completed_requests,
+                ?columns_without_peers,
+                "No column peers found for lookup",
             );
         }
 
@@ -288,9 +303,14 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     },
                     // If peer is in the lookup peer set, it claims to have imported the block and
                     // must have its columns in custody. In that case, set `true = enforce max_requests`
-                    // and downscore if data_columns_by_root does not returned the expected custody
+                    // and downscore if data_columns_by_root does not return the expected custody
                     // columns. For the rest of peers, don't downscore if columns are missing.
-                    lookup_peers.contains(&peer_id),
+                    //
+                    // Post-Gloas, blocks and payload envelopes are decoupled. A peer may
+                    // have the block but not yet imported the envelope and data columns.
+                    // Don't enforce max_responses in this case.
+                    lookup_peers.contains(&peer_id)
+                        && !cx.fork_context.current_fork_name().gloas_enabled(),
                 )
                 .map_err(Error::SendFailed)?;
 

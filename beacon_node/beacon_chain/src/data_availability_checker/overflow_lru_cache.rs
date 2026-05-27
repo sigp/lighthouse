@@ -109,7 +109,7 @@ impl<E: EthSpec> PendingComponents<E> {
             .unwrap_or(false)
     }
 
-    /// Returns the indices of cached custody columns
+    /// Returns the indices of cached sampling columns
     pub fn get_cached_data_columns_indices(&self) -> Vec<ColumnIndex> {
         self.verified_data_columns
             .iter()
@@ -282,8 +282,11 @@ impl<E: EthSpec> PendingComponents<E> {
                 .flatten()
                 .map(|blob| blob.seen_timestamp())
                 .max(),
-            // TODO(das): To be fixed with https://github.com/sigp/lighthouse/pull/6850
-            AvailableBlockData::DataColumns(_) => None,
+            AvailableBlockData::DataColumns(_) => self
+                .verified_data_columns
+                .iter()
+                .map(|data_column| data_column.seen_timestamp())
+                .max(),
         };
 
         let AvailabilityPendingExecutedBlock {
@@ -698,6 +701,8 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn remove_pre_execution_block(&self, block_root: &Hash256) {
         // The read lock is immediately dropped so we can safely remove the block from the cache.
         if let Some(BlockProcessStatus::NotValidated(_, _)) = self.get_cached_block(block_root) {
+            // If the block is execution invalid, this status is permanent and idempotent to this
+            // block_root. We drop its components (e.g. columns) because they will never be useful.
             self.critical.write().pop(block_root);
         }
     }
@@ -789,15 +794,15 @@ mod test {
     use store::{HotColdDB, ItemStore, StoreConfig, database::interface::BeaconNodeBackend};
     use tempfile::{TempDir, tempdir};
     use tracing::info;
+    use types::MinimalEthSpec;
     use types::new_non_zero_usize;
-    use types::{ExecPayload, MinimalEthSpec};
 
     const LOW_VALIDATOR_COUNT: usize = 32;
 
     fn get_store_with_spec<E: EthSpec>(
         db_path: &TempDir,
         spec: Arc<ChainSpec>,
-    ) -> Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>> {
+    ) -> Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>> {
         let hot_path = db_path.path().join("hot_db");
         let cold_path = db_path.path().join("cold_db");
         let blobs_path = db_path.path().join("blobs_db");
@@ -818,9 +823,8 @@ mod test {
     async fn get_deneb_chain<E: EthSpec>(
         db_path: &TempDir,
     ) -> BeaconChainHarness<DiskHarnessType<E>> {
-        let altair_fork_epoch = Epoch::new(1);
-        let bellatrix_fork_epoch = Epoch::new(2);
-        let bellatrix_fork_slot = bellatrix_fork_epoch.start_slot(E::slots_per_epoch());
+        let altair_fork_epoch = Epoch::new(0);
+        let bellatrix_fork_epoch = Epoch::new(0);
         let capella_fork_epoch = Epoch::new(3);
         let deneb_fork_epoch = Epoch::new(4);
         let deneb_fork_slot = deneb_fork_epoch.start_slot(E::slots_per_epoch());
@@ -842,25 +846,6 @@ mod test {
             .mock_execution_layer()
             .build();
 
-        // go to bellatrix slot
-        harness.extend_to_slot(bellatrix_fork_slot).await;
-        let bellatrix_head = &harness.chain.head_snapshot().beacon_block;
-        assert!(bellatrix_head.as_bellatrix().is_ok());
-        assert_eq!(bellatrix_head.slot(), bellatrix_fork_slot);
-        assert!(
-            bellatrix_head
-                .message()
-                .body()
-                .execution_payload()
-                .unwrap()
-                .is_default_with_empty_roots(),
-            "Bellatrix head is default payload"
-        );
-        // Trigger the terminal PoW block.
-        harness
-            .execution_block_generator()
-            .move_to_terminal_block()
-            .unwrap();
         // go right before deneb slot
         harness.extend_to_slot(deneb_fork_slot - 1).await;
 
@@ -875,8 +860,8 @@ mod test {
     )
     where
         E: EthSpec,
-        Hot: ItemStore<E>,
-        Cold: ItemStore<E>,
+        Hot: ItemStore,
+        Cold: ItemStore,
     {
         let chain = &harness.chain;
         let head = chain.head_snapshot();
@@ -940,7 +925,6 @@ mod test {
 
         let payload_verification_outcome = PayloadVerificationOutcome {
             payload_verification_status: PayloadVerificationStatus::Verified,
-            is_valid_merge_transition_block: false,
         };
 
         let availability_pending_block = AvailabilityPendingExecutedBlock {
@@ -962,8 +946,8 @@ mod test {
     where
         E: EthSpec,
         T: BeaconChainTypes<
-                HotStore = BeaconNodeBackend<E>,
-                ColdStore = BeaconNodeBackend<E>,
+                HotStore = BeaconNodeBackend,
+                ColdStore = BeaconNodeBackend,
                 EthSpec = E,
             >,
     {
@@ -1093,13 +1077,11 @@ mod pending_components_tests {
     use crate::PayloadVerificationOutcome;
     use crate::block_verification_types::BlockImportData;
     use crate::test_utils::{NumBlobs, generate_rand_block_and_blobs, test_spec};
+    use arbitrary::Arbitrary;
     use fixed_bytes::FixedBytesExtended;
     use fork_choice::PayloadVerificationStatus;
     use kzg::KzgCommitment;
-    use rand::SeedableRng;
-    use rand::rngs::StdRng;
     use state_processing::ConsensusContext;
-    use types::test_utils::TestRandom;
     use types::{BeaconState, ForkName, MainnetEthSpec, SignedBeaconBlock, Slot};
 
     type E = MainnetEthSpec;
@@ -1112,10 +1094,10 @@ mod pending_components_tests {
     );
 
     pub fn pre_setup() -> Setup<E> {
-        let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
+        let mut u = types::test_utils::test_unstructured();
         let spec = test_spec::<E>();
         let (block, blobs_vec) =
-            generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Random, &mut rng);
+            generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Random, &mut u).unwrap();
         let max_len = spec.max_blobs_per_block(block.epoch()) as usize;
         let mut blobs: RuntimeFixedVector<Option<Arc<BlobSidecar<E>>>> =
             RuntimeFixedVector::default(max_len);
@@ -1131,7 +1113,7 @@ mod pending_components_tests {
         for (index, blob) in blobs.iter().enumerate() {
             if let Some(invalid_blob) = blob {
                 let mut blob_copy = invalid_blob.as_ref().clone();
-                blob_copy.kzg_commitment = KzgCommitment::random_for_test(&mut rng);
+                blob_copy.kzg_commitment = KzgCommitment::arbitrary(&mut u).unwrap();
                 *invalid_blobs.get_mut(index).unwrap() = Some(Arc::new(blob_copy));
             }
         }
@@ -1181,7 +1163,6 @@ mod pending_components_tests {
             },
             payload_verification_outcome: PayloadVerificationOutcome {
                 payload_verification_status: PayloadVerificationStatus::Verified,
-                is_valid_merge_transition_block: false,
             },
         };
         (block, blobs, invalid_blobs)

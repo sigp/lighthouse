@@ -363,7 +363,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
             network_1.add_beacon_node_with_delay(
                 beacon_config.clone(),
                 mock_execution_config.clone(),
-                END_EPOCH - 1,
+                END_EPOCH - 3,
                 slot_duration,
                 slots_per_epoch
             ),

@@ -9,7 +9,7 @@ pub type HybridForwardsBlockRootsIterator<'a, E, Hot, Cold> =
 pub type HybridForwardsStateRootsIterator<'a, E, Hot, Cold> =
     HybridForwardsIterator<'a, E, Hot, Cold>;
 
-impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> {
+impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
     fn simple_forwards_iterator(
         &self,
         column: DBColumn,
@@ -116,7 +116,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 }
 
 /// Forwards root iterator that makes use of a slot -> root mapping in the freezer DB.
-pub struct FrozenForwardsIterator<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
+pub struct FrozenForwardsIterator<'a, E: EthSpec, Hot: ItemStore, Cold: ItemStore> {
     inner: ColumnIter<'a, Vec<u8>>,
     column: DBColumn,
     next_slot: Slot,
@@ -124,9 +124,7 @@ pub struct FrozenForwardsIterator<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemS
     _phantom: PhantomData<(E, Hot, Cold)>,
 }
 
-impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
-    FrozenForwardsIterator<'a, E, Hot, Cold>
-{
+impl<'a, E: EthSpec, Hot: ItemStore, Cold: ItemStore> FrozenForwardsIterator<'a, E, Hot, Cold> {
     /// `end_slot` is EXCLUSIVE here.
     pub fn new(
         store: &'a HotColdDB<E, Hot, Cold>,
@@ -148,7 +146,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
     }
 }
 
-impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
+impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> Iterator
     for FrozenForwardsIterator<'_, E, Hot, Cold>
 {
     type Item = Result<(Hash256, Slot)>;
@@ -199,7 +197,7 @@ impl Iterator for SimpleForwardsIterator {
 }
 
 /// Fusion of the above two approaches to forwards iteration. Fast and efficient.
-pub enum HybridForwardsIterator<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
+pub enum HybridForwardsIterator<'a, E: EthSpec, Hot: ItemStore, Cold: ItemStore> {
     PreFinalization {
         iter: Box<FrozenForwardsIterator<'a, E, Hot, Cold>>,
         store: &'a HotColdDB<E, Hot, Cold>,
@@ -220,9 +218,7 @@ pub enum HybridForwardsIterator<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemSto
     Finished,
 }
 
-impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
-    HybridForwardsIterator<'a, E, Hot, Cold>
-{
+impl<'a, E: EthSpec, Hot: ItemStore, Cold: ItemStore> HybridForwardsIterator<'a, E, Hot, Cold> {
     /// Construct a new hybrid iterator.
     ///
     /// The `get_state` closure should return a beacon state and final block/state root to backtrack
@@ -349,7 +345,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
     }
 }
 
-impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
+impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> Iterator
     for HybridForwardsIterator<'_, E, Hot, Cold>
 {
     type Item = Result<(Hash256, Slot)>;

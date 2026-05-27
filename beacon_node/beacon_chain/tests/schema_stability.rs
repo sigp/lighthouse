@@ -20,7 +20,7 @@ use tempfile::{TempDir, tempdir};
 use types::{ChainSpec, Hash256, MainnetEthSpec, Slot};
 
 type E = MainnetEthSpec;
-type Store<E> = Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>;
+type Store<E> = Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>>;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 
 const VALIDATOR_COUNT: usize = 32;
