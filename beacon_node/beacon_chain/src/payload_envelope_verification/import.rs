@@ -4,6 +4,7 @@ use std::time::Duration;
 use eth2::types::{EventKind, SseExecutionPayload, SseExecutionPayloadAvailable};
 use fork_choice::PayloadVerificationStatus;
 use slot_clock::SlotClock;
+use state_processing::{VerifySignatures, envelope_processing::verify_execution_payload_envelope};
 use store::StoreOp;
 use tracing::{debug, error, info, info_span, instrument, warn};
 use types::{BlockImportSource, Hash256, SignedExecutionPayloadEnvelope};
@@ -14,11 +15,12 @@ use super::{
 };
 use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
-    NotifyExecutionLayer,
+    NotifyExecutionLayer, PayloadVerificationOutcome,
     block_verification_types::AvailableBlockData,
     metrics,
     payload_envelope_verification::{
         AvailabilityPendingExecutedEnvelope, ExecutionPendingEnvelope,
+        load_snapshot_from_state_root,
     },
     validator_monitor::get_slot_delay_ms,
 };
@@ -387,5 +389,80 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 },
             ));
         }
+    }
+
+    /// Process an envelope received during range sync. The associated block must already
+    /// be imported into fork choice. This performs signature verification, state processing,
+    /// EL verification and import.
+    #[instrument(skip_all, level = "debug")]
+    pub async fn process_range_sync_envelope(
+        self: &Arc<Self>,
+        available_envelope: Box<AvailableEnvelope<T::EthSpec>>,
+        block_root: Hash256,
+    ) -> Result<(), EnvelopeError> {
+        let signed_envelope = available_envelope.envelope().clone();
+        let columns = available_envelope.columns.clone();
+
+        // Load the block from the store to use for EL verification
+        let block = self
+            .get_blinded_block(&block_root)
+            .map_err(|e| EnvelopeError::BeaconChainError(Arc::new(e)))?
+            .ok_or(EnvelopeError::BlockRootUnknown { block_root })?;
+
+        let block = self
+            .store
+            .make_full_block(&block_root, block)
+            .map_err(|e| EnvelopeError::BeaconChainError(Arc::new(e.into())))?;
+        let block = Arc::new(block);
+
+        // Load the state snapshot for envelope processing
+        let state_root = block.state_root();
+        let snapshot = load_snapshot_from_state_root::<T>(block_root, state_root, &self.store)?;
+
+        // Verify envelope signature and state processing
+        verify_execution_payload_envelope(
+            &snapshot.pre_state,
+            &signed_envelope,
+            VerifySignatures::True,
+            snapshot.state_root,
+            &self.spec,
+        )?;
+
+        // Send to EL for verification
+        let payload_notifier = super::payload_notifier::PayloadNotifier::new(
+            self.clone(),
+            signed_envelope.clone(),
+            block,
+            NotifyExecutionLayer::Yes,
+        )?;
+
+        let payload_verification_status = payload_notifier
+            .notify_new_payload()
+            .await
+            .map_err(EnvelopeError::ImportError)?;
+
+        if payload_verification_status.is_optimistic() {
+            return Err(EnvelopeError::ImportError(
+                BlockError::OptimisticSyncNotSupported { block_root },
+            ));
+        }
+
+        let payload_verification_outcome = PayloadVerificationOutcome {
+            payload_verification_status,
+        };
+
+        // Import the envelope using existing availability/import path
+        let executed = AvailabilityPendingExecutedEnvelope::new(
+            signed_envelope,
+            block_root,
+            payload_verification_outcome,
+        );
+
+        self.check_envelope_availability_and_import(executed)
+            .await
+            .map_err(EnvelopeError::ImportError)?;
+
+        drop(columns);
+        Ok(())
     }
 }

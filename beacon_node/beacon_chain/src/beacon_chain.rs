@@ -3146,11 +3146,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
 
             // Import the blocks into the chain.
-            for signature_verified_block in signature_verified_blocks {
+            for (signature_verified_block, maybe_envelope) in signature_verified_blocks {
                 let block_slot = signature_verified_block.slot();
+                let block_root = signature_verified_block.block_root();
                 match self
                     .process_block(
-                        signature_verified_block.block_root(),
+                        block_root,
                         signature_verified_block,
                         notify_execution_layer,
                         BlockImportSource::RangeSync,
@@ -3158,38 +3159,53 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     )
                     .await
                 {
-                    Ok(status) => {
-                        match status {
-                            AvailabilityProcessingStatus::Imported(block_root) => {
-                                // The block was imported successfully.
-                                imported_blocks.push((block_root, block_slot));
-                            }
-                            AvailabilityProcessingStatus::MissingComponents(slot, block_root) => {
-                                warn!(
-                                    ?block_root,
-                                    %slot,
-                                    "Blobs missing in response to range request"
-                                );
+                    Ok(status) => match status {
+                        AvailabilityProcessingStatus::Imported(block_root) => {
+                            imported_blocks.push((block_root, block_slot));
+                        }
+                        AvailabilityProcessingStatus::MissingComponents(slot, block_root) => {
+                            warn!(
+                                ?block_root,
+                                %slot,
+                                "Blobs missing in response to range request"
+                            );
+                            return ChainSegmentResult::Failed {
+                                imported_blocks,
+                                error: BlockError::AvailabilityCheck(
+                                    AvailabilityCheckError::MissingBlobs,
+                                ),
+                            };
+                        }
+                    },
+                    Err(BlockError::DuplicateFullyImported(block_root)) => {
+                        // For Gloas blocks that are already imported, we still
+                        // need to process the envelope.
+                        if let Some(envelope) = maybe_envelope {
+                            if let Err(e) =
+                                self.process_range_sync_envelope(envelope, block_root).await
+                            {
                                 return ChainSegmentResult::Failed {
                                     imported_blocks,
-                                    error: BlockError::AvailabilityCheck(
-                                        AvailabilityCheckError::MissingBlobs,
-                                    ),
+                                    error: BlockError::EnvelopeError(Box::new(e)),
                                 };
                             }
                         }
-                    }
-                    Err(BlockError::DuplicateFullyImported(block_root)) => {
-                        debug!(
-                            ?block_root,
-                            "Ignoring already known blocks while processing chain segment"
-                        );
                         continue;
                     }
                     Err(error) => {
                         return ChainSegmentResult::Failed {
                             imported_blocks,
                             error,
+                        };
+                    }
+                }
+
+                // Process the envelope after the block has been imported.
+                if let Some(envelope) = maybe_envelope {
+                    if let Err(e) = self.process_range_sync_envelope(envelope, block_root).await {
+                        return ChainSegmentResult::Failed {
+                            imported_blocks,
+                            error: BlockError::EnvelopeError(Box::new(e)),
                         };
                     }
                 }
@@ -7603,7 +7619,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_data: AvailableBlockData<T::EthSpec>,
     ) -> Option<StoreOp<'_, T::EthSpec>> {
         match block_data {
-            AvailableBlockData::NoData => None,
+            AvailableBlockData::NoData | AvailableBlockData::DataInEnvelope => None,
             AvailableBlockData::Blobs(blobs) => {
                 debug!(
                     %block_root,

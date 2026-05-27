@@ -40,7 +40,7 @@ mod payload_notifier;
 
 pub use execution_pending_envelope::ExecutionPendingEnvelope;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AvailableEnvelope<E: EthSpec> {
     envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
     pub columns: DataColumnSidecarList<E>,
@@ -52,6 +52,10 @@ impl<E: EthSpec> AvailableEnvelope<E> {
         columns: DataColumnSidecarList<E>,
     ) -> Self {
         Self { envelope, columns }
+    }
+
+    pub fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelope<E>> {
+        &self.envelope
     }
 
     pub fn message(&self) -> &ExecutionPayloadEnvelope<E> {

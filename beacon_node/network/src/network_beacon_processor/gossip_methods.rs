@@ -1878,7 +1878,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(e @ BlockError::InternalError(_))
             | Err(e @ BlockError::BlobNotRequired(_))
             | Err(e @ BlockError::EnvelopeBlockRootUnknown(_))
-            | Err(e @ BlockError::OptimisticSyncNotSupported { .. }) => {
+            | Err(e @ BlockError::OptimisticSyncNotSupported { .. })
+            | Err(e @ BlockError::EnvelopeError(_)) => {
                 error!(error = %e, "Internal block gossip validation error");
                 return None;
             }

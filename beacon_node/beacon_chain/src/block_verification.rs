@@ -60,6 +60,7 @@ use crate::execution_payload::{
 };
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_block_producers::SeenBlock;
+use crate::payload_envelope_verification::{AvailableEnvelope, EnvelopeError};
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
@@ -324,6 +325,12 @@ pub enum BlockError {
         bid_parent_root: Hash256,
         block_parent_root: Hash256,
     },
+    /// The payload envelope failed verification during range sync.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The envelope is invalid and the peer is faulty.
+    EnvelopeError(Box<EnvelopeError>),
 }
 
 /// Which specific signature(s) are invalid in a SignedBeaconBlock
@@ -590,7 +597,13 @@ pub(crate) fn process_block_slash_info<T: BeaconChainTypes, TErr: BlockBlobError
 pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     mut chain_segment: Vec<(Hash256, RangeSyncBlock<T::EthSpec>)>,
     chain: &BeaconChain<T>,
-) -> Result<Vec<SignatureVerifiedBlock<T>>, BlockError> {
+) -> Result<
+    Vec<(
+        SignatureVerifiedBlock<T>,
+        Option<Box<AvailableEnvelope<T::EthSpec>>>,
+    )>,
+    BlockError,
+> {
     if chain_segment.is_empty() {
         return Ok(vec![]);
     }
@@ -614,12 +627,20 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
 
     let mut available_blocks = Vec::with_capacity(chain_segment.len());
     let mut signature_verified_blocks = Vec::with_capacity(chain_segment.len());
+    let mut envelopes: Vec<Option<Box<AvailableEnvelope<T::EthSpec>>>> =
+        Vec::with_capacity(chain_segment.len());
 
     for (block_root, block) in chain_segment {
         let consensus_context =
             ConsensusContext::new(block.slot()).set_current_block_root(block_root);
 
-        let available_block = block.into_available_block();
+        let envelope = match &block {
+            RangeSyncBlock::Gloas { envelope, .. } => envelope.clone(),
+            RangeSyncBlock::Base(_) => None,
+        };
+
+        let available_block =
+            block.into_available_block(&chain.data_availability_checker, chain.spec.clone())?;
         available_blocks.push(available_block.clone());
         signature_verified_blocks.push(SignatureVerifiedBlock {
             block: MaybeAvailableBlock::Available(available_block),
@@ -627,6 +648,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
             parent: None,
             consensus_context,
         });
+        envelopes.push(envelope);
     }
     // TODO(gloas) When implementing range and backfill sync for gloas
     // we need a batch verify kzg function in the new da checker as well.
@@ -652,7 +674,10 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         signature_verified_block.parent = Some(parent);
     }
 
-    Ok(signature_verified_blocks)
+    Ok(signature_verified_blocks
+        .into_iter()
+        .zip(envelopes)
+        .collect())
 }
 
 /// A wrapper around a `SignedBeaconBlock` that indicates it has been approved for re-gossiping on
@@ -1309,10 +1334,18 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RangeSyncBlock<T::Eth
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<ExecutionPendingBlock<T>, BlockSlashInfo<BlockError>> {
         // Perform an early check to prevent wasting time on irrelevant blocks.
+        let header = self.signed_block_header();
         let block_root = check_block_relevancy(self.as_block(), block_root, chain)
-            .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
+            .map_err(|e| BlockSlashInfo::SignatureNotChecked(header.clone(), e))?;
 
-        let available_block = self.into_available_block();
+        let available_block = self
+            .into_available_block(&chain.data_availability_checker, chain.spec.clone())
+            .map_err(|e| {
+                BlockSlashInfo::SignatureNotChecked(
+                    header.clone(),
+                    BlockError::AvailabilityCheck(e),
+                )
+            })?;
         chain
             .data_availability_checker
             .verify_kzg_for_available_block(&available_block)

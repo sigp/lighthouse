@@ -487,7 +487,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         available_block: &AvailableBlock<T::EthSpec>,
     ) -> Result<(), AvailabilityCheckError> {
         match available_block.data() {
-            AvailableBlockData::NoData => Ok(()),
+            AvailableBlockData::NoData | AvailableBlockData::DataInEnvelope => Ok(()),
             AvailableBlockData::Blobs(blobs) => verify_kzg_for_blob_list(blobs.iter(), &self.kzg)
                 .map_err(AvailabilityCheckError::InvalidBlobs),
             AvailableBlockData::DataColumns(columns) => {
@@ -507,7 +507,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         for available_block in available_blocks {
             match available_block.data() {
-                AvailableBlockData::NoData => {}
+                AvailableBlockData::NoData | AvailableBlockData::DataInEnvelope => {}
                 AvailableBlockData::Blobs(blobs) => all_blobs.extend(blobs.iter().cloned()),
                 AvailableBlockData::DataColumns(columns) => {
                     // Each block has its own commitments. For Gloas they live in the bid; for
@@ -537,6 +537,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// - If the epoch is from prior to the data availability boundary, no data columns are required.
     pub fn data_columns_required_for_epoch(&self, epoch: Epoch) -> bool {
         self.da_check_required_for_epoch(epoch) && self.spec.is_peer_das_enabled_for_epoch(epoch)
+    }
+
+    pub fn envelopes_required_for_epoch(&self, epoch: Epoch) -> bool {
+        self.spec
+            .gloas_fork_epoch
+            .is_some_and(|gloas_epoch| epoch >= gloas_epoch)
     }
 
     /// See `Self::blobs_required_for_epoch`
@@ -818,6 +824,9 @@ pub enum AvailableBlockData<E: EthSpec> {
     Blobs(BlobSidecarList<E>),
     /// Block is post-PeerDAS and has more than zero blobs
     DataColumns(DataColumnSidecarList<E>),
+    /// Gloas: block data (payload + columns) arrives via the execution payload envelope,
+    /// not the block itself.
+    DataInEnvelope,
 }
 
 impl<E: EthSpec> AvailableBlockData<E> {
@@ -839,7 +848,7 @@ impl<E: EthSpec> AvailableBlockData<E> {
 
     pub fn blobs(&self) -> Option<BlobSidecarList<E>> {
         match self {
-            AvailableBlockData::NoData => None,
+            AvailableBlockData::NoData | AvailableBlockData::DataInEnvelope => None,
             AvailableBlockData::Blobs(blobs) => Some(blobs.clone()),
             AvailableBlockData::DataColumns(_) => None,
         }
@@ -855,7 +864,7 @@ impl<E: EthSpec> AvailableBlockData<E> {
 
     pub fn data_columns(&self) -> Option<DataColumnSidecarList<E>> {
         match self {
-            AvailableBlockData::NoData => None,
+            AvailableBlockData::NoData | AvailableBlockData::DataInEnvelope => None,
             AvailableBlockData::Blobs(_) => None,
             AvailableBlockData::DataColumns(data_columns) => Some(data_columns.clone()),
         }
@@ -969,6 +978,7 @@ impl<E: EthSpec> AvailableBlock<E> {
                     return Err(AvailabilityCheckError::MissingCustodyColumns);
                 }
             }
+            AvailableBlockData::DataInEnvelope => {}
         }
 
         Ok(Self {
@@ -1001,7 +1011,7 @@ impl<E: EthSpec> AvailableBlock<E> {
 
     pub fn has_blobs(&self) -> bool {
         match self.blob_data {
-            AvailableBlockData::NoData => false,
+            AvailableBlockData::NoData | AvailableBlockData::DataInEnvelope => false,
             AvailableBlockData::Blobs(..) => true,
             AvailableBlockData::DataColumns(_) => false,
         }
@@ -1029,6 +1039,7 @@ impl<E: EthSpec> AvailableBlock<E> {
                 AvailableBlockData::DataColumns(data_columns) => {
                     AvailableBlockData::DataColumns(data_columns.clone())
                 }
+                AvailableBlockData::DataInEnvelope => AvailableBlockData::DataInEnvelope,
             },
             blobs_available_timestamp: self.blobs_available_timestamp,
             spec: self.spec.clone(),
@@ -1322,7 +1333,11 @@ mod test {
 
         let available_blocks = blocks_with_columns
             .into_iter()
-            .map(|block| block.into_available_block())
+            .map(|block| {
+                block
+                    .into_available_block(&da_checker, spec.clone())
+                    .unwrap()
+            })
             .collect::<Vec<_>>();
 
         // WHEN verifying all blocks together (totalling 256 data columns)

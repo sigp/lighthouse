@@ -783,10 +783,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         downloaded_blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let total_blocks = downloaded_blocks.len();
-        let available_blocks = downloaded_blocks
+        let available_blocks: Vec<_> = downloaded_blocks
             .into_iter()
-            .map(|block| block.into_available_block())
-            .collect::<Vec<_>>();
+            .filter_map(|block| {
+                block
+                    .into_available_block(
+                        &self.chain.data_availability_checker,
+                        self.chain.spec.clone(),
+                    )
+                    .ok()
+            })
+            .collect();
 
         // TODO(gloas) when implementing backfill sync for gloas
         // we need a batch verify kzg function in the new da checker
