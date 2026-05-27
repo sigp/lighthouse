@@ -49,8 +49,8 @@ pub enum FetchEngineBlobError {
     TokioJoin(tokio::task::JoinError),
 }
 
-/// Fetches blobs from the EL mempool and processes them. It also broadcasts unseen blobs or
-/// data columns (PeerDAS onwards) to the network, using the supplied `publish_fn`.
+/// Fetches blobs from the EL mempool and processes them as data columns. It also broadcasts
+/// unseen data columns to the network, using the supplied `publish_fn`.
 #[instrument(skip_all)]
 pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,

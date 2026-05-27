@@ -3695,8 +3695,8 @@ where
         Ok(())
     }
 
-    /// Simulate some of the blobs / data columns being seen on gossip.
-    /// Converts the blobs to data columns if the slot is Fulu or later.
+    /// Simulate the block's custody data columns (or those in `custody_columns_opt`) being
+    /// seen on gossip. Panics unless PeerDAS is enabled for the block's epoch.
     pub async fn process_gossip_columns(
         &self,
         block: &SignedBeaconBlock<E>,
