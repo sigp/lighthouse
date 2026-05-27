@@ -20,10 +20,13 @@ use lighthouse_network::rpc::methods::{
 };
 use lighthouse_network::service::api_types::CustodyBackfillBatchId;
 use lighthouse_network::{
-    Client, GossipTopic, MessageId, NetworkGlobals, PeerId, PubsubMessage,
+    Client, GossipTopic, MessageId, NetworkGlobals, PeerId, PubsubMessage, PubsubPartialMessage,
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
 };
+use logging::crit;
 use rand::prelude::SliceRandom;
+use ssz_types::VariableList;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -959,76 +962,80 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block_root: Hash256,
         publish_blobs: bool,
     ) {
-        if self.chain.config.disable_get_blobs {
+        // Blocks without blobs have nothing to fetch and nothing to advertise.
+        if header.kzg_commitments.is_empty() {
             return;
         }
         let epoch = header.slot().epoch(T::EthSpec::slots_per_epoch());
         let custody_columns = self.chain.sampling_columns_for_epoch(epoch);
-        let self_cloned = self.clone();
-        let publish_fn = move |blobs_or_data_column| {
-            if publish_blobs {
-                match blobs_or_data_column {
-                    EngineGetBlobsOutput::Blobs(blobs) => {
-                        self_cloned.publish_blobs_gradually(
-                            blobs.into_iter().map(|b| b.to_blob()).collect(),
-                            block_root,
-                        );
-                    }
-                    EngineGetBlobsOutput::CustodyColumns(columns) => {
-                        self_cloned.publish_data_columns_gradually(
-                            columns.into_iter().map(|c| c.clone_arc()).collect(),
-                            block_root,
-                        );
-                    }
-                };
-            }
-        };
 
-        match fetch_and_process_engine_blobs(
-            self.chain.clone(),
-            block_root,
-            header.clone(),
-            custody_columns,
-            publish_fn,
-        )
-        .await
-        {
-            Ok(Some(availability)) => match availability {
-                AvailabilityProcessingStatus::Imported(_) => {
-                    debug!(
-                        result = "imported block and custody columns",
-                        %block_root,
-                        "Block components retrieved from EL"
-                    );
-                    self.chain.recompute_head_at_current_slot().await;
+        if !self.chain.config.disable_get_blobs {
+            let self_cloned = self.clone();
+            let publish_fn = move |blobs_or_data_column| {
+                if publish_blobs {
+                    match blobs_or_data_column {
+                        EngineGetBlobsOutput::Blobs(blobs) => {
+                            self_cloned.publish_blobs_gradually(
+                                blobs.into_iter().map(|b| b.to_blob()).collect(),
+                                block_root,
+                            );
+                        }
+                        EngineGetBlobsOutput::CustodyColumns(columns) => {
+                            self_cloned.publish_data_columns_gradually(
+                                columns.into_iter().map(|c| c.clone_arc()).collect(),
+                                block_root,
+                            );
+                        }
+                    };
                 }
-                AvailabilityProcessingStatus::MissingComponents(_, _) => {
+            };
+
+            match fetch_and_process_engine_blobs(
+                self.chain.clone(),
+                block_root,
+                header.clone(),
+                custody_columns,
+                publish_fn,
+            )
+            .await
+            {
+                Ok(Some(availability)) => match availability {
+                    AvailabilityProcessingStatus::Imported(_) => {
+                        debug!(
+                            result = "imported block and custody columns",
+                            %block_root,
+                            "Block components retrieved from EL"
+                        );
+                        self.chain.recompute_head_at_current_slot().await;
+                    }
+                    AvailabilityProcessingStatus::MissingComponents(_, _) => {
+                        debug!(
+                            %block_root,
+                            "Still missing blobs after engine blobs processed successfully"
+                        );
+                    }
+                },
+                Ok(None) => {
                     debug!(
                         %block_root,
-                        "Still missing blobs after engine blobs processed successfully"
+                        "Fetch blobs completed without import"
                     );
                 }
-            },
-            Ok(None) => {
-                debug!(
-                    %block_root,
-                    "Fetch blobs completed without import"
-                );
-            }
-            Err(FetchEngineBlobError::BlobProcessingError(BlockError::DuplicateFullyImported(
-                ..,
-            ))) => {
-                debug!(
-                    %block_root,
-                    "Fetch blobs duplicate import"
-                );
-            }
-            Err(e) => {
-                error!(
-                    error = ?e,
-                    %block_root,
-                    "Error fetching or processing blobs from EL"
-                );
+                Err(FetchEngineBlobError::BlobProcessingError(
+                    BlockError::DuplicateFullyImported(..),
+                )) => {
+                    debug!(
+                        %block_root,
+                        "Fetch blobs duplicate import"
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        error = ?e,
+                        %block_root,
+                        "Error fetching or processing blobs from EL"
+                    );
+                }
             }
         }
 
@@ -1036,15 +1043,65 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // TODO(gloas): implement publish partial columns without eager send
         if let Some(assembler) = self.chain.data_availability_checker.partial_assembler() {
             let columns = assembler.get_partials_and_mark_as_local_fetched(block_root, &header);
-            if !columns.is_empty() {
-                debug!(block = %block_root, "Publishing all partials after getBlobs");
-                self.send_network_message(NetworkMessage::PublishPartialColumns {
-                    columns: columns
-                        .into_iter()
-                        .map(|partial| partial.into_inner())
-                        .collect(),
-                    header,
+            let present_indices: HashSet<ColumnIndex> = columns.iter().map(|c| c.index()).collect();
+
+            let mut messages: Vec<PubsubPartialMessage<T::EthSpec>> = columns
+                .into_iter()
+                .map(|partial| {
+                    let column = partial.into_inner();
+                    let mut request_cells = column.sidecar.cells_present_bitmap.clone_zeroed();
+                    request_cells.not_inplace();
+                    PubsubPartialMessage::DataColumnFulu {
+                        column,
+                        request_cells,
+                        header: header.clone(),
+                    }
+                })
+                .collect();
+
+            // For each custody column without any local partial, send an empty placeholder
+            // that requests all cells.
+            let num_cells = header.kzg_commitments.len();
+            for col_idx in custody_columns {
+                if present_indices.contains(col_idx) {
+                    continue;
+                }
+                // `kzg_commitments.len()` is bounded by `MaxBlobCommitmentsPerBlock`, so the
+                // bitmap constructor is infallible.
+                let Ok(cells_present_bitmap) = CellBitmap::<T::EthSpec>::with_capacity(num_cells)
+                else {
+                    crit!(
+                        %block_root,
+                        num_cells,
+                        column_index = %col_idx,
+                        "CellBitmap construction failed despite being bounded by MaxBlobCommitmentsPerBlock"
+                    );
+                    continue;
+                };
+                let request_cells = cells_present_bitmap.not();
+                messages.push(PubsubPartialMessage::DataColumnFulu {
+                    column: Arc::new(PartialDataColumn {
+                        block_root,
+                        index: *col_idx,
+                        sidecar: PartialDataColumnSidecar {
+                            cells_present_bitmap,
+                            column: VariableList::empty(),
+                            kzg_proofs: VariableList::empty(),
+                            header: None.into(),
+                        },
+                    }),
+                    request_cells,
+                    header: header.clone(),
                 });
+            }
+
+            if !messages.is_empty() {
+                debug!(
+                    block = %block_root,
+                    count = messages.len(),
+                    "Publishing all partials after getBlobs"
+                );
+                self.send_network_message(NetworkMessage::PublishPartialColumns { messages });
             } else {
                 debug!(block = %block_root, "No partials to publish after getBlobs");
             }

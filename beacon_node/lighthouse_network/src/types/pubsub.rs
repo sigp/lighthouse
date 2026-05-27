@@ -7,12 +7,12 @@ use ssz::{Decode, Encode};
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
-    AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, BlobSidecar,
+    AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, BlobSidecar, CellBitmap,
     DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkName, Hash256,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, PartialDataColumn,
-    PartialDataColumnSidecar, PayloadAttestationMessage, ProposerSlashing, SignedAggregateAndProof,
-    SignedAggregateAndProofBase, SignedAggregateAndProofElectra, SignedBeaconBlock,
-    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
+    PartialDataColumnHeader, PartialDataColumnSidecar, PayloadAttestationMessage, ProposerSlashing,
+    SignedAggregateAndProof, SignedAggregateAndProofBase, SignedAggregateAndProofElectra,
+    SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
     SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
     SignedBeaconBlockFulu, SignedBeaconBlockGloas, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
@@ -56,6 +56,17 @@ pub enum PubsubMessage<E: EthSpec> {
     LightClientFinalityUpdate(Box<LightClientFinalityUpdate<E>>),
     /// Gossipsub message providing notification of a light client optimistic update.
     LightClientOptimisticUpdate(Box<LightClientOptimisticUpdate<E>>),
+}
+
+/// A message published via the partial gossipsub protocol.
+#[derive(Debug, Clone)]
+pub enum PubsubPartialMessage<E: EthSpec> {
+    /// A partial data column sidecar from the Fulu fork.
+    DataColumnFulu {
+        column: Arc<PartialDataColumn<E>>,
+        request_cells: CellBitmap<E>,
+        header: Arc<PartialDataColumnHeader<E>>,
+    },
 }
 
 // Implements the `DataTransform` trait of gossipsub to employ snappy compression

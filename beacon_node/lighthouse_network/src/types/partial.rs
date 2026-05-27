@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tracing::{debug, error};
 use types::core::{EthSpec, Hash256};
 use types::data::{
-    PartialDataColumn, PartialDataColumnHeader, PartialDataColumnPartsMetadata,
+    CellBitmap, PartialDataColumn, PartialDataColumnHeader, PartialDataColumnPartsMetadata,
     PartialDataColumnSidecar, PartialDataColumnSidecarRef,
 };
 
@@ -30,10 +30,13 @@ impl<E: EthSpec> OutgoingPartialColumn<E> {
         partial_column: Arc<PartialDataColumn<E>>,
         header: &PartialDataColumnHeader<E>,
         header_sent_set: HeaderSentSet,
+        requests: CellBitmap<E>,
     ) -> Self {
-        // For now, always request all cells
-        let mut requests = partial_column.sidecar.cells_present_bitmap.clone_zeroed();
-        requests.not_inplace();
+        // For consistency, we always set the request bit for available cells. The spec allows both,
+        // but it is nicer to ensure that a bit once set does not disappear in future messages.
+        // This union also ensures that the bitmap lengths match.
+        let requests = requests.union(&partial_column.sidecar.cells_present_bitmap);
+
         let metadata = PartialDataColumnPartsMetadata::<E> {
             available: partial_column.sidecar.cells_present_bitmap.clone(),
             requests,
@@ -322,6 +325,14 @@ mod tests {
         })
     }
 
+    fn make_all_one_bitmap(len: usize) -> CellBitmap<E> {
+        let mut request_cells = CellBitmap::<E>::with_capacity(len).unwrap();
+        for idx in 0..request_cells.len() {
+            request_cells.set(idx, true).unwrap();
+        }
+        request_cells
+    }
+
     fn random_peer_id() -> PeerId {
         let keypair = Keypair::generate_ed25519();
         PeerId::from(keypair.public())
@@ -422,7 +433,8 @@ mod tests {
         let header = make_header(4);
         let partial = make_partial_column(root, 4, &[0, 1]);
         let header_sent_set: HeaderSentSet = Arc::new(Mutex::new(HashSet::new()));
-        let outgoing = OutgoingPartialColumn::new(partial, &header, header_sent_set);
+        let requests = make_all_one_bitmap(4);
+        let outgoing = OutgoingPartialColumn::new(partial, &header, header_sent_set, requests);
 
         let peer = random_peer_id();
 
@@ -442,7 +454,8 @@ mod tests {
         // We have cells [0, 2, 3]
         let partial = make_partial_column(root, 4, &[0, 2, 3]);
         let header_sent_set: HeaderSentSet = Arc::new(Mutex::new(HashSet::new()));
-        let outgoing = OutgoingPartialColumn::new(partial, &header, header_sent_set);
+        let requests = make_all_one_bitmap(4);
+        let outgoing = OutgoingPartialColumn::new(partial, &header, header_sent_set, requests);
 
         let peer = random_peer_id();
 
@@ -474,7 +487,8 @@ mod tests {
         // We have cells [0]
         let partial = make_partial_column(root, 4, &[0]);
         let header_sent_set: HeaderSentSet = Arc::new(Mutex::new(HashSet::new()));
-        let outgoing = OutgoingPartialColumn::new(partial, &header, header_sent_set);
+        let requests = make_all_one_bitmap(4);
+        let outgoing = OutgoingPartialColumn::new(partial, &header, header_sent_set, requests);
 
         let peer = random_peer_id();
 
