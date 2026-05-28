@@ -1,4 +1,4 @@
-#![cfg(feature = "testing")]
+#[cfg(feature = "testing")]
 pub mod test_utils;
 
 mod api_secret;
