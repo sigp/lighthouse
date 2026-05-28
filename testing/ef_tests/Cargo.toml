@@ -26,8 +26,10 @@ fork_choice = { workspace = true }
 fs2 = { workspace = true }
 hex = { workspace = true }
 kzg = { workspace = true }
+lighthouse_network = { workspace = true }
 logging = { workspace = true }
 milhouse = { workspace = true }
+network = { workspace = true }
 proto_array = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
