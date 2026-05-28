@@ -60,7 +60,7 @@ use crate::execution_payload::{
 };
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_block_producers::SeenBlock;
-use crate::payload_envelope_verification::{AvailableEnvelope, EnvelopeError};
+use crate::payload_envelope_verification::EnvelopeError;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
@@ -594,17 +594,10 @@ pub(crate) fn process_block_slash_info<T: BeaconChainTypes, TErr: BlockBlobError
 /// The given `chain_segment` must contain only blocks from the same epoch, otherwise an error
 /// will be returned.
 #[instrument(skip_all)]
-#[allow(clippy::type_complexity)]
 pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     mut chain_segment: Vec<(Hash256, RangeSyncBlock<T::EthSpec>)>,
     chain: &BeaconChain<T>,
-) -> Result<
-    Vec<(
-        SignatureVerifiedBlock<T>,
-        Option<Box<AvailableEnvelope<T::EthSpec>>>,
-    )>,
-    BlockError,
-> {
+) -> Result<Vec<SignatureVerifiedBlock<T>>, BlockError> {
     if chain_segment.is_empty() {
         return Ok(vec![]);
     }
@@ -628,17 +621,10 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
 
     let mut available_blocks = Vec::with_capacity(chain_segment.len());
     let mut signature_verified_blocks = Vec::with_capacity(chain_segment.len());
-    let mut envelopes: Vec<Option<Box<AvailableEnvelope<T::EthSpec>>>> =
-        Vec::with_capacity(chain_segment.len());
 
     for (block_root, block) in chain_segment {
         let consensus_context =
             ConsensusContext::new(block.slot()).set_current_block_root(block_root);
-
-        let envelope = match &block {
-            RangeSyncBlock::Gloas { envelope, .. } => envelope.clone(),
-            RangeSyncBlock::Base(_) => None,
-        };
 
         let available_block =
             block.into_available_block(&chain.data_availability_checker, chain.spec.clone())?;
@@ -649,7 +635,6 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
             parent: None,
             consensus_context,
         });
-        envelopes.push(envelope);
     }
     // TODO(gloas) When implementing range and backfill sync for gloas
     // we need a batch verify kzg function in the new da checker as well.
@@ -675,10 +660,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         signature_verified_block.parent = Some(parent);
     }
 
-    Ok(signature_verified_blocks
-        .into_iter()
-        .zip(envelopes)
-        .collect())
+    Ok(signature_verified_blocks)
 }
 
 /// A wrapper around a `SignedBeaconBlock` that indicates it has been approved for re-gossiping on
