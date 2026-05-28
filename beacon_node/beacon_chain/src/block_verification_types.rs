@@ -90,7 +90,7 @@ impl<E: EthSpec> RangeSyncBlock<E> {
     pub fn block_data(&self) -> &AvailableBlockData<E> {
         match self {
             Self::Base(block) => block.data(),
-            Self::Gloas { .. } => &AvailableBlockData::NoData,
+            Self::Gloas { .. } => &AvailableBlockData::DataInEnvelope,
         }
     }
 }
@@ -122,9 +122,11 @@ impl<E: EthSpec> RangeSyncBlock<E> {
     pub fn deconstruct(self) -> (Hash256, Arc<SignedBeaconBlock<E>>, AvailableBlockData<E>) {
         match self {
             Self::Base(block) => block.deconstruct(),
-            Self::Gloas { block, .. } => {
-                (block.canonical_root(), block, AvailableBlockData::NoData)
-            }
+            Self::Gloas { block, .. } => (
+                block.canonical_root(),
+                block,
+                AvailableBlockData::DataInEnvelope,
+            ),
         }
     }
 

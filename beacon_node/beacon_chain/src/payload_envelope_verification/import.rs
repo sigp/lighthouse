@@ -7,7 +7,7 @@ use slot_clock::SlotClock;
 use state_processing::{VerifySignatures, envelope_processing::verify_execution_payload_envelope};
 use store::StoreOp;
 use tracing::{debug, error, info, info_span, instrument, warn};
-use types::{BlockImportSource, Hash256, SignedExecutionPayloadEnvelope};
+use types::{BlockImportSource, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope};
 
 use super::{
     AvailableEnvelope, AvailableExecutedEnvelope, EnvelopeError,
@@ -15,12 +15,12 @@ use super::{
 };
 use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
-    NotifyExecutionLayer, PayloadVerificationOutcome,
+    NotifyExecutionLayer,
     block_verification_types::AvailableBlockData,
     metrics,
     payload_envelope_verification::{
         AvailabilityPendingExecutedEnvelope, ExecutionPendingEnvelope,
-        load_snapshot_from_state_root,
+        load_snapshot_from_state_root, payload_notifier::PayloadNotifier,
     },
     validator_monitor::get_slot_delay_ms,
 };
@@ -399,21 +399,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         available_envelope: Box<AvailableEnvelope<T::EthSpec>>,
         block_root: Hash256,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<(), EnvelopeError> {
         let signed_envelope = available_envelope.envelope().clone();
-        let columns = available_envelope.columns.clone();
-
-        // Load the block from the store to use for EL verification
-        let block = self
-            .get_blinded_block(&block_root)
-            .map_err(|e| EnvelopeError::BeaconChainError(Arc::new(e)))?
-            .ok_or(EnvelopeError::BlockRootUnknown { block_root })?;
-
-        let block = self
-            .store
-            .make_full_block(&block_root, block)
-            .map_err(|e| EnvelopeError::BeaconChainError(Arc::new(e.into())))?;
-        let block = Arc::new(block);
 
         // Load the state snapshot for envelope processing
         let state_root = block.state_root();
@@ -429,7 +417,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )?;
 
         // Send to EL for verification
-        let payload_notifier = super::payload_notifier::PayloadNotifier::new(
+        let payload_notifier = PayloadNotifier::new(
             self.clone(),
             signed_envelope.clone(),
             block,
@@ -441,28 +429,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await
             .map_err(EnvelopeError::ImportError)?;
 
-        if payload_verification_status.is_optimistic() {
-            return Err(EnvelopeError::ImportError(
-                BlockError::OptimisticSyncNotSupported { block_root },
-            ));
-        }
+        // Import directly — we already have all components (envelope + columns).
+        let chain = self.clone();
+        self.spawn_blocking_handle(
+            move || {
+                chain.import_execution_payload_envelope(
+                    *available_envelope,
+                    block_root,
+                    payload_verification_status,
+                )
+            },
+            "range_sync_envelope_import",
+        )
+        .await
+        .map_err(|e| EnvelopeError::BeaconChainError(Arc::new(e)))?
+        .map_err(EnvelopeError::ImportError)?;
 
-        let payload_verification_outcome = PayloadVerificationOutcome {
-            payload_verification_status,
-        };
-
-        // Import the envelope using existing availability/import path
-        let executed = AvailabilityPendingExecutedEnvelope::new(
-            signed_envelope,
-            block_root,
-            payload_verification_outcome,
-        );
-
-        self.check_envelope_availability_and_import(executed)
-            .await
-            .map_err(EnvelopeError::ImportError)?;
-
-        drop(columns);
         Ok(())
     }
 }

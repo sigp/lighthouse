@@ -3149,6 +3149,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             for (signature_verified_block, maybe_envelope) in signature_verified_blocks {
                 let block_slot = signature_verified_block.slot();
                 let block_root = signature_verified_block.block_root();
+                let block = signature_verified_block.block_cloned();
                 match self
                     .process_block(
                         block_root,
@@ -3178,11 +3179,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         }
                     },
                     Err(BlockError::DuplicateFullyImported(block_root)) => {
-                        // For Gloas blocks that are already imported, we still
-                        // need to process the envelope.
                         if let Some(envelope) = maybe_envelope
-                            && let Err(e) =
-                                self.process_range_sync_envelope(envelope, block_root).await
+                            && let Err(e) = self
+                                .process_range_sync_envelope(envelope, block_root, block)
+                                .await
                         {
                             return ChainSegmentResult::Failed {
                                 imported_blocks,
@@ -3202,7 +3202,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 // Process the envelope after the block has been imported.
                 if let Some(envelope) = maybe_envelope
-                    && let Err(e) = self.process_range_sync_envelope(envelope, block_root).await
+                    && let Err(e) = self
+                        .process_range_sync_envelope(envelope, block_root, block)
+                        .await
                 {
                     return ChainSegmentResult::Failed {
                         imported_blocks,

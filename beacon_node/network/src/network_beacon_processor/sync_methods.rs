@@ -783,17 +783,24 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         downloaded_blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let total_blocks = downloaded_blocks.len();
-        let available_blocks: Vec<_> = downloaded_blocks
-            .into_iter()
-            .filter_map(|block| {
-                block
-                    .into_available_block(
-                        &self.chain.data_availability_checker,
-                        self.chain.spec.clone(),
-                    )
-                    .ok()
-            })
-            .collect();
+        let mut available_blocks = Vec::with_capacity(total_blocks);
+        for block in downloaded_blocks {
+            match block.into_available_block(
+                &self.chain.data_availability_checker,
+                self.chain.spec.clone(),
+            ) {
+                Ok(available) => available_blocks.push(available),
+                Err(e) => {
+                    return (
+                        0,
+                        Err(ChainSegmentFailed {
+                            peer_action: Some(PeerAction::LowToleranceError),
+                            message: format!("Block failed availability construction: {:?}", e),
+                        }),
+                    );
+                }
+            }
+        }
 
         // TODO(gloas) when implementing backfill sync for gloas
         // we need a batch verify kzg function in the new da checker

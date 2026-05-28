@@ -554,6 +554,13 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             range_sync_blocks.push(RangeSyncBlock::new_gloas(block, available_envelope));
         }
 
+        if !envelopes_by_slot.is_empty() {
+            return Err(CouplingError::InternalError(format!(
+                "Peer returned {} extra envelopes not matching any block",
+                envelopes_by_slot.len()
+            )));
+        }
+
         Ok(range_sync_blocks)
     }
 }
