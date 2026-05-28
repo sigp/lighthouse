@@ -6,6 +6,7 @@ use beacon_chain::data_column_verification::{
     GossipDataColumnError, KzgVerifiedCustodyDataColumn, observe_gossip_data_column,
 };
 use beacon_chain::fetch_blobs::{FetchEngineBlobError, fetch_and_process_engine_blobs};
+use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError};
 use beacon_processor::{
     BeaconProcessorSend, DuplicateCache, GossipAggregatePackage, GossipAttestationPackage, Work,
@@ -19,7 +20,7 @@ use lighthouse_network::rpc::methods::{
 };
 use lighthouse_network::service::api_types::CustodyBackfillBatchId;
 use lighthouse_network::{
-    Client, GossipTopic, MessageId, NetworkGlobals, PeerId, PubsubMessage,
+    Client, GossipTopic, MessageId, NetworkConfig, NetworkGlobals, PeerId, PubsubMessage,
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
 };
 use rand::prelude::SliceRandom;
@@ -30,6 +31,10 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tracing::{debug, error, instrument, trace, warn};
 use types::*;
+use {
+    beacon_chain::builder::Witness, beacon_processor::BeaconProcessorChannels,
+    slot_clock::ManualSlotClock, store::MemoryStore, tokio::sync::mpsc::UnboundedSender,
+};
 
 pub use sync_methods::ChainSegmentProcessId;
 use types::data::FixedBlobSidecarList;
@@ -319,7 +324,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = move || {
-            processor.process_gossip_proposer_slashing(message_id, peer_id, *proposer_slashing)
+            processor.process_gossip_proposer_slashing(message_id, peer_id, *proposer_slashing);
         };
 
         self.try_send(BeaconWorkEvent {
@@ -386,7 +391,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = move || {
-            processor.process_gossip_attester_slashing(message_id, peer_id, *attester_slashing)
+            processor.process_gossip_attester_slashing(message_id, peer_id, *attester_slashing);
         };
 
         self.try_send(BeaconWorkEvent {
@@ -1138,16 +1143,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 }
 
-#[cfg(test)]
-use {
-    beacon_chain::builder::Witness, beacon_processor::BeaconProcessorChannels,
-    slot_clock::ManualSlotClock, store::MemoryStore, tokio::sync::mpsc::UnboundedSender,
-};
-
-#[cfg(test)]
 pub(crate) type TestBeaconChainType<E> = Witness<ManualSlotClock, E, MemoryStore, MemoryStore>;
 
-#[cfg(test)]
 impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
     // Instantiates a mostly non-functional version of `Self` and returns the
     // event receiver that would normally go to the beacon processor. This is
@@ -1178,5 +1175,23 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
         };
 
         (network_beacon_processor, beacon_processor_rx)
+    }
+
+    /// Constructs a mostly non-functional `NetworkBeaconProcessor` from a test harness,
+    /// suitable for directly calling gossip processing methods in tests.
+    pub fn null_from_harness(harness: &BeaconChainHarness<EphemeralHarnessType<E>>) -> Self {
+        let network_globals = NetworkGlobals::new_test_globals(
+            vec![],
+            Arc::new(NetworkConfig::default()),
+            harness.spec.clone(),
+        );
+
+        Self::null_for_testing(
+            Arc::new(network_globals),
+            mpsc::unbounded_channel().0,
+            harness.chain.clone(),
+            harness.runtime.task_executor.clone(),
+        )
+        .0
     }
 }
