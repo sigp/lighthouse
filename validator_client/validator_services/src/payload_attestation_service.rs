@@ -258,7 +258,7 @@ mod tests {
     use beacon_node_fallback::{
         BeaconNodeFallback, CandidateBeaconNode, Config as BeaconNodeConfig,
     };
-    use bls::Keypair;
+    use bls::{Keypair, PublicKeyBytes};
     use eth2::types::PtcDuty;
     use eth2_keystore::KeystoreBuilder;
     use initialized_validators::InitializedValidators;
@@ -270,7 +270,6 @@ mod tests {
     use task_executor::test_utils::TestRuntime;
     use tempfile::{TempDir, tempdir};
     use types::{Epoch, ForkName, Hash256, MainnetEthSpec, PayloadAttestationData, Slot};
-    use validator_store::DoppelgangerStatus;
     use validator_test_rig::mock_beacon_node::MockBeaconNode;
 
     type E = MainnetEthSpec;
@@ -280,7 +279,7 @@ mod tests {
         slot_clock: ManualSlotClock,
         spec: Arc<ChainSpec>,
         executor: task_executor::TaskExecutor,
-    ) -> (Arc<S>, TempDir) {
+    ) -> (Arc<S>, PublicKeyBytes, TempDir) {
         let validator_dir = tempdir().unwrap();
         let password = b"test";
         let keypair = Keypair::random();
@@ -318,6 +317,7 @@ mod tests {
         let slashing_db_path = validator_dir.path().join(SLASHING_PROTECTION_FILENAME);
         let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
 
+        let pubkey = keypair.pk.into();
         let validator_store = Arc::new(LighthouseValidatorStore::<_, E>::new(
             initialized_validators,
             slashing_protection,
@@ -328,9 +328,9 @@ mod tests {
             &Default::default(),
             executor,
         ));
-        validator_store.set_validator_index(&keypair.pk.into(), 0);
+        validator_store.set_validator_index(&pubkey, 0);
 
-        (validator_store, validator_dir)
+        (validator_store, pubkey, validator_dir)
     }
 
     struct TestHarness {
@@ -338,6 +338,7 @@ mod tests {
         mock_beacon_node_2: MockBeaconNode<E>,
         duties_service: Arc<DutiesService<S, ManualSlotClock>>,
         validator_store: Arc<S>,
+        pubkey: PublicKeyBytes,
         slot_clock: ManualSlotClock,
         slot_duration: Duration,
         beacon_node_fallback: Arc<BeaconNodeFallback<ManualSlotClock>>,
@@ -359,7 +360,7 @@ mod tests {
             let slot_clock =
                 ManualSlotClock::new(Slot::new(0), Duration::from_secs(0), slot_duration);
 
-            let (validator_store, validator_dir) =
+            let (validator_store, pubkey, validator_dir) =
                 create_validator_store(slot_clock.clone(), spec.clone(), executor.clone()).await;
 
             let mock_beacon_node_1 = MockBeaconNode::<E>::new().await;
@@ -393,6 +394,7 @@ mod tests {
                 mock_beacon_node_2,
                 duties_service,
                 validator_store,
+                pubkey,
                 slot_clock,
                 slot_duration,
                 beacon_node_fallback,
@@ -403,16 +405,9 @@ mod tests {
             }
         }
 
-        fn pubkey(&self) -> bls::PublicKeyBytes {
-            let pubkeys: Vec<bls::PublicKeyBytes> = self
-                .validator_store
-                .voting_pubkeys(DoppelgangerStatus::only_safe);
-            pubkeys.into_iter().next().unwrap()
-        }
-
         fn insert_duty(&self, slot: Slot) {
             let duty = PtcDuty {
-                pubkey: self.pubkey(),
+                pubkey: self.pubkey,
                 validator_index: 0,
                 slot,
             };
