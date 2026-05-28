@@ -2017,7 +2017,7 @@ async fn gloas_get_head_can_return_justified_empty_payload_branch() {
     );
 
     let all_validators = harness.get_all_validators();
-    let mut validators_with_empty_vote = vec![false; VALIDATOR_COUNT];
+    let mut validators_with_empty_vote = [false; VALIDATOR_COUNT];
     let attestation_start_slot = (current_epoch - 1).start_slot(E::slots_per_epoch());
     let attestation_slot = current_slot - 1;
     assert_eq!(

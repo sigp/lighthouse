@@ -6,7 +6,7 @@ use beacon_chain::{
     BeaconChainError, BlockError, ChainConfig, ExecutionPayloadError,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, NotifyExecutionLayer, StateSkipConfig,
     WhenSlotSkipped,
-    canonical_head::{CachedHead, CanonicalHead},
+    canonical_head::CachedHead,
     test_utils::{BeaconChainHarness, EphemeralHarnessType, fork_name_from_env, test_spec},
 };
 use execution_layer::{
