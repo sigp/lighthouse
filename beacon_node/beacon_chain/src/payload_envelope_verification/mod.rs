@@ -176,6 +176,27 @@ impl std::fmt::Display for EnvelopeError {
     }
 }
 
+impl EnvelopeError {
+    pub fn penalize_peer(&self) -> bool {
+        match self {
+            EnvelopeError::BadSignature
+            | EnvelopeError::BuilderIndexMismatch { .. }
+            | EnvelopeError::SlotMismatch { .. }
+            | EnvelopeError::BlockHashMismatch { .. }
+            | EnvelopeError::UnknownValidator { .. }
+            | EnvelopeError::IncorrectBlockProposer { .. }
+            | EnvelopeError::EnvelopeProcessingError(_) => true,
+            EnvelopeError::ExecutionPayloadError(e) => e.penalize_peer(),
+            EnvelopeError::ImportError(BlockError::ExecutionPayloadError(e)) => e.penalize_peer(),
+            EnvelopeError::BlockRootUnknown { .. }
+            | EnvelopeError::PriorToFinalization { .. }
+            | EnvelopeError::BeaconChainError(_)
+            | EnvelopeError::BeaconStateError(_)
+            | EnvelopeError::ImportError(_) => false,
+        }
+    }
+}
+
 impl From<BeaconChainError> for EnvelopeError {
     fn from(e: BeaconChainError) -> Self {
         EnvelopeError::BeaconChainError(Arc::new(e))

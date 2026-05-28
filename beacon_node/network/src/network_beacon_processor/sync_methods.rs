@@ -1008,6 +1008,31 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     peer_action: None,
                 })
             }
+            ref err @ BlockError::EnvelopeError(ref envelope_error) => {
+                if envelope_error.penalize_peer() {
+                    debug!(error = ?err, "Invalid execution payload envelope");
+                    Err(ChainSegmentFailed {
+                        message: format!(
+                            "Peer sent an invalid execution payload envelope. Reason: {:?}",
+                            err
+                        ),
+                        peer_action: Some(PeerAction::LowToleranceError),
+                    })
+                } else {
+                    debug!(
+                        outcome = "not penalizing peer",
+                        ?err,
+                        "Execution payload envelope processing failed"
+                    );
+                    Err(ChainSegmentFailed {
+                        message: format!(
+                            "Execution payload envelope processing failed. Reason: {:?}",
+                            err
+                        ),
+                        peer_action: None,
+                    })
+                }
+            }
             ref err @ BlockError::ExecutionPayloadError(ref epe) => {
                 if !epe.penalize_peer() {
                     // These errors indicate an issue with the EL and not the `ChainSegment`.
