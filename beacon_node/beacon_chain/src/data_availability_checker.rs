@@ -695,7 +695,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
 /// Verify a batch of data columns belonging to a single block, picking the right commitment
 /// source for the block's fork (Fulu: inline on column; Gloas: from the embedded payload bid).
-fn verify_columns_against_block<E: EthSpec>(
+pub fn verify_columns_against_block<E: EthSpec>(
     kzg: &Kzg,
     block: &SignedBeaconBlock<E>,
     columns: &[Arc<DataColumnSidecar<E>>],
