@@ -454,8 +454,8 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
                 || T::name() == "historical_summaries_update"
                 || T::name() == "slashings");
 
-        if !skip_full_epoch_transition {
-            if let Some(pre_epoch_state) = &self.pre_epoch {
+        if !skip_full_epoch_transition 
+            && let Some(pre_epoch_state) = &self.pre_epoch {
                 let mut pre_epoch_state = pre_epoch_state.clone();
                 let mut expected_post_epoch_state = self.post_epoch.clone();
 
@@ -465,7 +465,6 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
                     &mut expected_post_epoch_state,
                 )?;
             }
-        }
 
         Ok(())
     }
