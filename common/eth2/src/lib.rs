@@ -2865,7 +2865,6 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
-    /// `POST v1/beacon/execution_payload_bid` with raw bytes (for testing invalid SSZ)
     /// `POST v1/beacon/execution_payload_bid` in SSZ format
     pub async fn post_beacon_execution_payload_bid_ssz<E: EthSpec>(
         &self,
