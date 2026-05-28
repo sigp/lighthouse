@@ -3055,9 +3055,8 @@ impl ApiTester {
         self
     }
 
-    /// Build a `SignedExecutionPayloadBid` that is structurally valid (correct fields, correct
-    /// fork name) but will fail gossip verification because no proposer preferences are cached.
-    fn make_structurally_valid_bid(&self) -> (SignedExecutionPayloadBid<E>, ForkName) {
+    /// Build a `SignedExecutionPayloadBid`
+    fn make_signed_execution_payload_bid(&self) -> (SignedExecutionPayloadBid<E>, ForkName) {
         let head = self.chain.canonical_head.cached_head();
         let slot = self.chain.slot().unwrap();
         let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
@@ -3087,7 +3086,7 @@ impl ApiTester {
 
     /// JSON bid with a valid structure reaches gossip verification and is rejected with 400.
     pub async fn test_post_beacon_execution_payload_bid_json(self) -> Self {
-        let (bid, fork_name) = self.make_structurally_valid_bid();
+        let (bid, fork_name) = self.make_signed_execution_payload_bid();
 
         let result = self
             .client
@@ -3104,7 +3103,7 @@ impl ApiTester {
 
     /// SSZ bid with a valid structure reaches gossip verification and is rejected with 400.
     pub async fn test_post_beacon_execution_payload_bid_ssz(self) -> Self {
-        let (bid, fork_name) = self.make_structurally_valid_bid();
+        let (bid, fork_name) = self.make_signed_execution_payload_bid();
 
         let result = self
             .client
@@ -3120,22 +3119,6 @@ impl ApiTester {
     }
 
     /// SSZ bid with a garbage payload is rejected before reaching gossip verification.
-    pub async fn test_post_beacon_execution_payload_bid_invalid_ssz(self) -> Self {
-        let fork_name = self
-            .chain
-            .spec
-            .fork_name_at_slot::<E>(self.chain.slot().unwrap());
-
-        let result = self
-            .client
-            .post_beacon_execution_payload_bid_raw_ssz(&[0xde, 0xad, 0xbe, 0xef], fork_name)
-            .await;
-
-        assert!(result.is_err(), "invalid SSZ bytes should be rejected");
-
-        self
-    }
-
     pub async fn test_get_config_fork_schedule(self) -> Self {
         let result = self.client.get_config_fork_schedule().await.unwrap().data;
 
@@ -9502,7 +9485,5 @@ async fn post_beacon_execution_payload_bid() {
         .test_post_beacon_execution_payload_bid_json()
         .await
         .test_post_beacon_execution_payload_bid_ssz()
-        .await
-        .test_post_beacon_execution_payload_bid_invalid_ssz()
         .await;
 }

@@ -10,7 +10,7 @@ use network::NetworkMessage;
 use ssz::Decode;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
-use tracing::{info, warn};
+use tracing::{debug, warn};
 use types::SignedExecutionPayloadBid;
 use warp::{Filter, Rejection, Reply, hyper::Body, hyper::Response};
 
@@ -88,7 +88,7 @@ pub fn publish_execution_payload_bid<T: BeaconChainTypes>(
         ));
     }
 
-    info!(
+    debug!(
         %slot,
         builder_index,
         "Publishing signed execution payload bid to network"

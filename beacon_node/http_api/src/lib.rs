@@ -36,7 +36,7 @@ mod validator_inclusion;
 mod validators;
 mod version;
 
-use crate::beacon::bid::{
+use crate::beacon::execution_payload_bid::{
     post_beacon_execution_payload_bid, post_beacon_execution_payload_bid_ssz,
 };
 use crate::beacon::execution_payload_envelope::{
