@@ -254,31 +254,97 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
 mod tests {
     use super::*;
     use crate::duties_service::{DutiesService, DutiesServiceBuilder};
+    use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
     use beacon_node_fallback::{
         BeaconNodeFallback, CandidateBeaconNode, Config as BeaconNodeConfig,
     };
+    use bls::Keypair;
     use eth2::types::PtcDuty;
+    use eth2_keystore::KeystoreBuilder;
+    use initialized_validators::InitializedValidators;
+    use lighthouse_validator_store::LighthouseValidatorStore;
+    use slashing_protection::{SLASHING_PROTECTION_FILENAME, SlashingDatabase};
     use slot_clock::ManualSlotClock;
     use std::sync::Arc;
     use std::time::Duration;
     use task_executor::test_utils::TestRuntime;
+    use tempfile::{TempDir, tempdir};
     use types::{Epoch, ForkName, Hash256, MainnetEthSpec, PayloadAttestationData, Slot};
+    use validator_store::DoppelgangerStatus;
     use validator_test_rig::mock_beacon_node::MockBeaconNode;
-    use validator_test_rig::mock_validator_store::MockValidatorStore;
 
     type E = MainnetEthSpec;
+    type S = LighthouseValidatorStore<ManualSlotClock, E>;
+
+    async fn create_validator_store(
+        slot_clock: ManualSlotClock,
+        spec: Arc<ChainSpec>,
+        executor: task_executor::TaskExecutor,
+    ) -> (Arc<S>, TempDir) {
+        let validator_dir = tempdir().unwrap();
+        let password = b"test";
+        let keypair = Keypair::random();
+        let keystore = KeystoreBuilder::new(&keypair, password, String::new())
+            .unwrap()
+            .build()
+            .unwrap();
+        let keystore_path = validator_dir.path().join("voting-keystore.json");
+        keystore
+            .to_json_writer(std::fs::File::create(&keystore_path).unwrap())
+            .unwrap();
+
+        let validator_def = ValidatorDefinition::new_keystore_with_password(
+            keystore_path,
+            PasswordStorage::ValidatorDefinitions(
+                String::from_utf8(password.to_vec()).unwrap().into(),
+            ),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let initialized_validators = InitializedValidators::from_definitions(
+            vec![validator_def].into(),
+            validator_dir.path().into(),
+            Default::default(),
+        )
+        .await
+        .unwrap();
+
+        let slashing_db_path = validator_dir.path().join(SLASHING_PROTECTION_FILENAME);
+        let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
+
+        let validator_store = Arc::new(LighthouseValidatorStore::<_, E>::new(
+            initialized_validators,
+            slashing_protection,
+            Hash256::ZERO,
+            spec,
+            None,
+            slot_clock,
+            &Default::default(),
+            executor,
+        ));
+        validator_store.set_validator_index(&keypair.pk.into(), 0);
+
+        (validator_store, validator_dir)
+    }
 
     struct TestHarness {
         mock_beacon_node_1: MockBeaconNode<E>,
         mock_beacon_node_2: MockBeaconNode<E>,
-        duties_service: Arc<DutiesService<MockValidatorStore, ManualSlotClock>>,
-        validator_store: Arc<MockValidatorStore>,
+        duties_service: Arc<DutiesService<S, ManualSlotClock>>,
+        validator_store: Arc<S>,
         slot_clock: ManualSlotClock,
         slot_duration: Duration,
         beacon_node_fallback: Arc<BeaconNodeFallback<ManualSlotClock>>,
         executor: task_executor::TaskExecutor,
         spec: Arc<ChainSpec>,
         _test_runtime: TestRuntime,
+        _validator_dir: TempDir,
     }
 
     impl TestHarness {
@@ -293,7 +359,8 @@ mod tests {
             let slot_clock =
                 ManualSlotClock::new(Slot::new(0), Duration::from_secs(0), slot_duration);
 
-            let validator_store = Arc::new(MockValidatorStore::new(0));
+            let (validator_store, validator_dir) =
+                create_validator_store(slot_clock.clone(), spec.clone(), executor.clone()).await;
 
             let mock_beacon_node_1 = MockBeaconNode::<E>::new().await;
             let mock_beacon_node_2 = MockBeaconNode::<E>::new().await;
@@ -332,12 +399,20 @@ mod tests {
                 executor,
                 spec,
                 _test_runtime: test_runtime,
+                _validator_dir: validator_dir,
             }
+        }
+
+        fn pubkey(&self) -> bls::PublicKeyBytes {
+            let pubkeys: Vec<bls::PublicKeyBytes> = self
+                .validator_store
+                .voting_pubkeys(DoppelgangerStatus::only_safe);
+            pubkeys.into_iter().next().unwrap()
         }
 
         fn insert_duty(&self, slot: Slot) {
             let duty = PtcDuty {
-                pubkey: self.validator_store.pubkey,
+                pubkey: self.pubkey(),
                 validator_index: 0,
                 slot,
             };

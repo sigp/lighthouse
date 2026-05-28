@@ -1,6 +1,5 @@
 #![cfg(test)]
-#![cfg(not(debug_assertions))]
-
+#[cfg(not(debug_assertions))]
 mod keystores;
 
 use doppelganger_service::DoppelgangerService;
