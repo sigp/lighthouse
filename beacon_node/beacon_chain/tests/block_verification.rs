@@ -2025,8 +2025,9 @@ async fn gloas_get_head_can_return_justified_empty_payload_branch() {
         attestation_slot
     );
 
-    // With 32 Mainnet validators, each slot only covers that slot's committee. Use the previous
-    // epoch so every validator gets a latest vote while every attestation remains gossip-current.
+    // Create two epochs worth of attestations with `payload_present=false`, all pointing at the
+    // justified block. This ensures it's very much the canonical head, instead of the justifying
+    // chain built off its `Full` branch.
     for slot in (attestation_start_slot.as_u64()..current_slot.as_u64()).map(Slot::new) {
         while attestation_state.slot() < slot {
             per_slot_processing(&mut attestation_state, None, &spec).unwrap();
