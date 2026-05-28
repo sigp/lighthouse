@@ -448,6 +448,8 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
 
         compare_beacon_state_results_without_caches(&mut result, &mut expected)?;
 
+        // The tests below yield INFINITY_PUBLIC_KEY in the next_sync_committee field when running with fake_crypto features
+        // The tests pass when not running with fake_crypto.
         let skip_full_epoch_transition = cfg!(feature = "fake_crypto")
             && (T::name() == "inactivity_updates"
                 || T::name() == "historical_roots_update"
