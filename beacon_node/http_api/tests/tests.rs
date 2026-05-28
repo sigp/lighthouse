@@ -3118,7 +3118,6 @@ impl ApiTester {
         self
     }
 
-    /// SSZ bid with a garbage payload is rejected before reaching gossip verification.
     pub async fn test_get_config_fork_schedule(self) -> Self {
         let result = self.client.get_config_fork_schedule().await.unwrap().data;
 
