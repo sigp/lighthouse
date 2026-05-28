@@ -30,9 +30,10 @@ const ALTAIR_FORK_EPOCH: u64 = 0;
 const BELLATRIX_FORK_EPOCH: u64 = 0;
 const CAPELLA_FORK_EPOCH: u64 = 0;
 const DENEB_FORK_EPOCH: u64 = 0;
-const ELECTRA_FORK_EPOCH: u64 = 2;
-// const FULU_FORK_EPOCH: u64 = 3;
-// const GLOAS_FORK_EPOCH: u64 = 4;
+const ELECTRA_FORK_EPOCH: u64 = 0;
+const FULU_FORK_EPOCH: u64 = 0;
+// TODO(gloas): enable Gloas in simulator, current blocker is lack of data column gossip verification
+// const GLOAS_FORK_EPOCH: u64 = 2;
 
 const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
@@ -171,8 +172,8 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     let genesis_delay = GENESIS_DELAY;
 
     // Convenience variables. Update these values when adding a newer fork.
-    let latest_fork_version = spec.electra_fork_version;
-    let latest_fork_start_epoch = ELECTRA_FORK_EPOCH;
+    let latest_fork_version = spec.fulu_fork_version;
+    let latest_fork_start_epoch = FULU_FORK_EPOCH;
 
     let mut slot_duration_ms = spec.get_slot_duration().as_millis() as u64;
     slot_duration_ms /= speed_up_factor;
@@ -187,6 +188,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     spec.capella_fork_epoch = Some(Epoch::new(CAPELLA_FORK_EPOCH));
     spec.deneb_fork_epoch = Some(Epoch::new(DENEB_FORK_EPOCH));
     spec.electra_fork_epoch = Some(Epoch::new(ELECTRA_FORK_EPOCH));
+    spec.fulu_fork_epoch = Some(Epoch::new(FULU_FORK_EPOCH));
     let spec = Arc::new(spec);
     env.eth2_config.spec = spec.clone();
 
