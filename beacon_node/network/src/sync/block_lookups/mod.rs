@@ -89,7 +89,9 @@ pub type SingleLookupId = u32;
 
 #[derive(Debug, Copy, Clone)]
 pub enum NewLookupTrigger {
-    ParentUnknown(Hash256),
+    // `ParentUnknown` carries the parent block root for logging/metrics; not consumed
+    // elsewhere yet. Keep the field so the trigger reason stays in debug logs.
+    ParentUnknown(#[allow(dead_code)] Hash256),
     NetworkMessage,
 }
 
@@ -369,6 +371,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// constructed.
     /// Returns true if the lookup is created or already exists
     #[must_use = "only reference the new lookup if returns true"]
+    #[allow(clippy::too_many_arguments)]
     fn new_current_lookup(
         &mut self,
         block_root: Hash256,

@@ -446,6 +446,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         skip_all,
         fields(?block_root),
     )]
+    #[allow(clippy::result_large_err)]
     pub async fn process_lookup_envelope(
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,

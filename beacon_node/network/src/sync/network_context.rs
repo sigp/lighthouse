@@ -101,6 +101,7 @@ pub type CustodyByRootResult<T> =
     Result<(DataColumnSidecarList<T>, PeerGroup, Duration), RpcResponseError>;
 
 #[derive(Debug)]
+#[allow(private_interfaces)]
 pub enum RpcResponseError {
     RpcError(#[allow(dead_code)] RPCError),
     VerifyError(LookupVerifyError),
