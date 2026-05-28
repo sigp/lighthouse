@@ -53,6 +53,11 @@ impl AwaitingParent {
             .fork_choice_read_lock()
             .get_block(&self.parent_root)
         {
+            if parent_block.slot == cx.spec().genesis_slot {
+                // The genesis block is always imported by definition
+                return true;
+            }
+
             if let Some(gloas_bid_parent_hash) = self.gloas_bid_parent_hash {
                 // Post-gloas block, check if it's FULL or EMPTY
                 let parent_hash = match parent_block.execution_status {
@@ -60,8 +65,12 @@ impl AwaitingParent {
                     ExecutionStatus::Invalid(hash) => hash,
                     ExecutionStatus::Optimistic(hash) => hash,
                     ExecutionStatus::Irrelevant(_) => {
-                        // This should never happen!
-                        return false;
+                        if let Some(hash) = parent_block.execution_payload_block_hash {
+                            hash
+                        } else {
+                            // This should never happen!
+                            return false;
+                        }
                     }
                 };
                 let is_full = gloas_bid_parent_hash == parent_hash;
@@ -716,24 +725,22 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                     state.make_request(|| cx.block_lookup_request(id, peers, block_root))?;
 
                     if state.is_completed() {
-                        // Block is fully execution-validated and cached in the availability
-                        // checker (NoRequestNeeded). Pull it from the processing-status cache
-                        // so the data/payload streams can continue, and mark the block stream
-                        // complete without re-processing.
-                        match cx.chain.get_block_process_status(&block_root) {
+                        // Block is fully execution-validated and cached in the da_checker or fully
+                        // imported.
+                        // The block MUST be somewhere... and the code below needs to block to know
+                        // if it should fetch data
+                        let block = match cx.chain.get_block_process_status(&block_root) {
                             BlockProcessStatus::NotValidated(block, _)
-                            | BlockProcessStatus::ExecutionValidated(block) => {
-                                // No peer to attribute against on a cache hit.
-                                self.block_request = BlockRequest::Complete { block, peer: None };
-                                continue;
-                            }
+                            | BlockProcessStatus::ExecutionValidated(block) => block,
                             BlockProcessStatus::Unknown => {
                                 // Race: the block was imported into fork-choice between
                                 // `block_lookup_request` and this check. All components must
                                 // have landed with it, so the lookup has nothing left to do.
-                                return Ok(LookupResult::Completed);
+                                panic!("We have to find the block somewhere");
                             }
-                        }
+                        };
+                        // No peer to attribute against on a cache hit.
+                        self.block_request = BlockRequest::Complete { block, peer: None };
                     } else if let Some(result) = state.take_download_result() {
                         // Block download requests are sent to a single peer, so the returned
                         // PeerGroup contains exactly one entry. Take the first and only.

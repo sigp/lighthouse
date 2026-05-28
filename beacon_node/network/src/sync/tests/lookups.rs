@@ -1004,6 +1004,7 @@ impl TestRig {
 
         // Add genesis block for completeness
         let genesis_block = external_harness.get_head_block();
+        let genesis_block_root = genesis_block.canonical_root();
         self.network_blocks_by_root
             .insert(genesis_block.canonical_root(), genesis_block.clone());
         self.network_blocks_by_slot
@@ -1038,6 +1039,7 @@ impl TestRig {
         }
 
         // Re-log to have a nice list of block roots at the end
+        self.log(&format!("Build chain (Slot(0), {genesis_block_root})"));
         for block in &blocks {
             self.log(&format!("Build chain {block:?}"));
         }
