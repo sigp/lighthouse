@@ -1337,6 +1337,7 @@ mod test {
                 block
                     .into_available_block(&da_checker, spec.clone())
                     .unwrap()
+                    .0
             })
             .collect::<Vec<_>>();
 

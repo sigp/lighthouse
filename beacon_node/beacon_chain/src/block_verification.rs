@@ -626,7 +626,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         let consensus_context =
             ConsensusContext::new(block.slot()).set_current_block_root(block_root);
 
-        let available_block =
+        let (available_block, _envelope) =
             block.into_available_block(&chain.data_availability_checker, chain.spec.clone())?;
         available_blocks.push(available_block.clone());
         signature_verified_blocks.push(SignatureVerifiedBlock {
@@ -1321,7 +1321,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RangeSyncBlock<T::Eth
         let block_root = check_block_relevancy(self.as_block(), block_root, chain)
             .map_err(|e| BlockSlashInfo::SignatureNotChecked(header.clone(), e))?;
 
-        let available_block = self
+        let (available_block, _envelope) = self
             .into_available_block(&chain.data_availability_checker, chain.spec.clone())
             .map_err(|e| {
                 BlockSlashInfo::SignatureNotChecked(

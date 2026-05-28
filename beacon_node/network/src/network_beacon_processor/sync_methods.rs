@@ -789,7 +789,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 &self.chain.data_availability_checker,
                 self.chain.spec.clone(),
             ) {
-                Ok(available) => available_blocks.push(available),
+                Ok((available, _envelope)) => available_blocks.push(available),
                 Err(e) => {
                     return (
                         0,

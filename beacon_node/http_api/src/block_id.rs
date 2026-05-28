@@ -621,7 +621,8 @@ mod tests {
         )
         .unwrap()
         .into_available_block(&chain.data_availability_checker, chain.spec.clone())
-        .unwrap();
+        .unwrap()
+        .0;
 
         let current_slot = harness.get_current_slot();
         let cached_head = chain.canonical_head.cached_head();

@@ -154,18 +154,26 @@ impl<E: EthSpec> RangeSyncBlock<E> {
         }
     }
 
+    /// Converts into an `AvailableBlock` for import, returning any associated envelope
+    /// separately. Callers processing Gloas blocks must handle the envelope themselves.
     pub fn into_available_block<T>(
         self,
         da_checker: &DataAvailabilityChecker<T>,
         spec: Arc<ChainSpec>,
-    ) -> Result<AvailableBlock<E>, AvailabilityCheckError>
+    ) -> Result<(AvailableBlock<E>, Option<Box<AvailableEnvelope<E>>>), AvailabilityCheckError>
     where
         T: BeaconChainTypes<EthSpec = E>,
     {
         match self {
-            Self::Base(block) => Ok(block),
-            Self::Gloas { block, .. } => {
-                AvailableBlock::new(block, AvailableBlockData::DataInEnvelope, da_checker, spec)
+            Self::Base(block) => Ok((block, None)),
+            Self::Gloas { block, envelope } => {
+                let available = AvailableBlock::new(
+                    block,
+                    AvailableBlockData::DataInEnvelope,
+                    da_checker,
+                    spec,
+                )?;
+                Ok((available, envelope))
             }
         }
     }
