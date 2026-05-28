@@ -3201,6 +3201,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             };
                         }
 
+                        imported_blocks.push((block_root, block_slot));
                         continue;
                     }
                     Err(error) => {

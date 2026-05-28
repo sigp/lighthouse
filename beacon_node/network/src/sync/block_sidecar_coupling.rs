@@ -254,8 +254,6 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 blocks.to_vec(),
                 envelopes.clone(),
                 data_columns,
-                da_checker,
-                spec,
             ));
         }
 
@@ -512,20 +510,15 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         Ok(range_sync_blocks)
     }
 
-    fn responses_gloas<T>(
+    fn responses_gloas(
         blocks: Vec<Arc<SignedBeaconBlock<E>>>,
         envelopes: Vec<Arc<SignedExecutionPayloadEnvelope<E>>>,
         data_columns: DataColumnSidecarList<E>,
-        _da_checker: Arc<DataAvailabilityChecker<T>>,
-        _spec: Arc<ChainSpec>,
-    ) -> Result<Vec<RangeSyncBlock<E>>, CouplingError>
-    where
-        T: BeaconChainTypes<EthSpec = E>,
-    {
-        // Index envelopes by slot
-        let mut envelopes_by_slot: HashMap<_, _> = envelopes
+    ) -> Result<Vec<RangeSyncBlock<E>>, CouplingError> {
+        // Index envelopes by beacon_block_root for correct coupling
+        let mut envelopes_by_block_root: HashMap<_, _> = envelopes
             .into_iter()
-            .map(|e| (e.message.slot(), e))
+            .map(|e| (e.beacon_block_root(), e))
             .collect();
 
         // Group data columns by block_root
@@ -540,10 +533,9 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 
         let mut range_sync_blocks = Vec::with_capacity(blocks.len());
         for block in blocks {
-            let slot = block.slot();
             let block_root = get_block_root(&block);
 
-            let envelope = envelopes_by_slot.remove(&slot);
+            let envelope = envelopes_by_block_root.remove(&block_root);
             let columns = data_columns_by_block
                 .remove(&block_root)
                 .unwrap_or_default();
@@ -554,11 +546,9 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             range_sync_blocks.push(RangeSyncBlock::new_gloas(block, available_envelope));
         }
 
-        if !envelopes_by_slot.is_empty() {
-            return Err(CouplingError::InternalError(format!(
-                "Peer returned {} extra envelopes not matching any block",
-                envelopes_by_slot.len()
-            )));
+        // Recoverable error, log and continue
+        if !envelopes_by_block_root.is_empty() {
+            tracing::warn!("Peer returned extra envelopes not matching any block");
         }
 
         Ok(range_sync_blocks)
