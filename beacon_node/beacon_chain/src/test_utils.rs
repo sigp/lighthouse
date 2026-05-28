@@ -1,4 +1,3 @@
-use crate::blob_verification::GossipVerifiedBlob;
 use crate::block_verification_types::{AsBlock, AvailableBlockData, LookupBlock, RangeSyncBlock};
 use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
@@ -3696,55 +3695,39 @@ where
         Ok(())
     }
 
-    /// Simulate some of the blobs / data columns being seen on gossip.
-    /// Converts the blobs to data columns if the slot is Fulu or later.
-    pub async fn process_gossip_blobs_or_columns<'a>(
+    /// Simulate the block's custody data columns (or those in `custody_columns_opt`) being
+    /// seen on gossip. Panics unless PeerDAS is enabled for the block's epoch.
+    pub async fn process_gossip_columns(
         &self,
         block: &SignedBeaconBlock<E>,
-        blobs: impl Iterator<Item = &'a Blob<E>>,
-        proofs: impl Iterator<Item = &'a KzgProof>,
         custody_columns_opt: Option<HashSet<ColumnIndex>>,
     ) {
-        let is_peerdas_enabled = self.chain.spec.is_peer_das_enabled_for_epoch(block.epoch());
-        if is_peerdas_enabled {
-            let custody_columns = custody_columns_opt.unwrap_or_else(|| {
-                let epoch = block.slot().epoch(E::slots_per_epoch());
-                self.chain
-                    .sampling_columns_for_epoch(epoch)
-                    .iter()
-                    .copied()
-                    .collect()
-            });
+        assert!(self.chain.spec.is_peer_das_enabled_for_epoch(block.epoch()));
+        let custody_columns = custody_columns_opt.unwrap_or_else(|| {
+            let epoch = block.slot().epoch(E::slots_per_epoch());
+            self.chain
+                .sampling_columns_for_epoch(epoch)
+                .iter()
+                .copied()
+                .collect()
+        });
 
-            let verified_columns = generate_data_column_sidecars_from_block(block, &self.spec)
-                .into_iter()
-                .filter(|c| custody_columns.contains(c.index()))
-                .map(|sidecar| {
-                    let subnet_id =
-                        DataColumnSubnetId::from_column_index(*sidecar.index(), &self.spec);
-                    self.chain
-                        .verify_data_column_sidecar_for_gossip(sidecar, subnet_id)
-                })
-                .collect::<Result<Vec<_>, _>>()
+        let verified_columns = generate_data_column_sidecars_from_block(block, &self.spec)
+            .into_iter()
+            .filter(|c| custody_columns.contains(c.index()))
+            .map(|sidecar| {
+                let subnet_id = DataColumnSubnetId::from_column_index(*sidecar.index(), &self.spec);
+                self.chain
+                    .verify_data_column_sidecar_for_gossip(sidecar, subnet_id)
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        if !verified_columns.is_empty() {
+            self.chain
+                .process_gossip_data_columns(verified_columns, || Ok(()))
+                .await
                 .unwrap();
-
-            if !verified_columns.is_empty() {
-                self.chain
-                    .process_gossip_data_columns(verified_columns, || Ok(()))
-                    .await
-                    .unwrap();
-            }
-        } else {
-            for (i, (kzg_proof, blob)) in proofs.into_iter().zip(blobs).enumerate() {
-                let sidecar =
-                    Arc::new(BlobSidecar::new(i, blob.clone(), block, *kzg_proof).unwrap());
-                let gossip_blob = GossipVerifiedBlob::new(sidecar, i as u64, &self.chain)
-                    .expect("should obtain gossip verified blob");
-                self.chain
-                    .process_gossip_blob(gossip_blob)
-                    .await
-                    .expect("should import valid gossip verified blob");
-            }
         }
     }
 }
