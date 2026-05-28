@@ -4,10 +4,7 @@ use ::fork_choice::{AttestationFromBlock, PayloadVerificationStatus, ProposerHea
 use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
 use beacon_chain::blob_verification::GossipBlobError;
 use beacon_chain::block_verification_types::LookupBlock;
-use beacon_chain::chain_config::{
-    DEFAULT_RE_ORG_HEAD_THRESHOLD, DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
-    DEFAULT_RE_ORG_PARENT_THRESHOLD, DisallowedReOrgOffsets,
-};
+use beacon_chain::chain_config::DisallowedReOrgOffsets;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::{
@@ -23,6 +20,7 @@ use bls::AggregateSignature;
 use execution_layer::{
     PayloadStatusV1, PayloadStatusV1Status, json_structures::JsonPayloadStatusV1Status,
 };
+use proto_array::ReOrgThreshold;
 use serde::Deserialize;
 use ssz_derive::Decode;
 use ssz_types::VariableList;
@@ -36,9 +34,9 @@ use std::time::Duration;
 use types::{
     Attestation, AttestationRef, AttesterSlashing, AttesterSlashingRef, BeaconBlock, BeaconState,
     BlobSidecar, BlobsList, BlockImportSource, Checkpoint, DataColumnSidecar,
-    DataColumnSidecarList, DataColumnSubnetId, ExecutionBlockHash, Hash256, IndexedAttestation,
-    IndexedPayloadAttestation, KzgProof, PayloadAttestationMessage, ProposerPreparationData,
-    SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot, Uint256,
+    DataColumnSidecarList, DataColumnSubnetId, Epoch, ExecutionBlockHash, Hash256,
+    IndexedAttestation, IndexedPayloadAttestation, KzgProof, PayloadAttestationMessage,
+    ProposerPreparationData, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot, Uint256,
 };
 
 // When set to true, cache any states fetched from the db.
@@ -1027,10 +1025,10 @@ impl<E: EthSpec> Tester<E> {
         let proposer_head_result = fc.get_proposer_head(
             slot,
             canonical_head,
-            DEFAULT_RE_ORG_HEAD_THRESHOLD,
-            DEFAULT_RE_ORG_PARENT_THRESHOLD,
+            ReOrgThreshold(self.spec.reorg_head_weight_threshold),
+            ReOrgThreshold(self.spec.reorg_parent_weight_threshold),
             &DisallowedReOrgOffsets::default(),
-            DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
+            Epoch::new(self.spec.reorg_max_epochs_since_finalization),
         );
         let proposer_head = match proposer_head_result {
             Ok(head) => head.parent_node.root(),

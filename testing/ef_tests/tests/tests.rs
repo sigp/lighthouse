@@ -1189,3 +1189,15 @@ fn compute_columns_for_custody_group() {
     ComputeColumnsForCustodyGroupHandler::<MainnetEthSpec>::default().run();
     ComputeColumnsForCustodyGroupHandler::<MinimalEthSpec>::default().run();
 }
+
+#[test]
+fn gossip_proposer_slashing() {
+    GossipValidationHandler::<MinimalEthSpec>::new("gossip_proposer_slashing").run();
+    GossipValidationHandler::<MainnetEthSpec>::new("gossip_proposer_slashing").run();
+}
+
+#[test]
+fn gossip_attester_slashing() {
+    GossipValidationHandler::<MinimalEthSpec>::new("gossip_attester_slashing").run();
+    GossipValidationHandler::<MainnetEthSpec>::new("gossip_attester_slashing").run();
+}
