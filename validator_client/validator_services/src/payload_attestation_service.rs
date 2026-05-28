@@ -431,8 +431,19 @@ mod tests {
         }
     }
 
+    async fn advance_time(slot_clock: &ManualSlotClock, duration: Duration) {
+        slot_clock.advance_time(duration);
+        tokio::time::advance(duration).await;
+        // NOTE: The `tokio::time::advance` fn actually calls `yield_now()` after advancing the
+        // clock. Why do we need an extra `yield_now`?
+        // Yield a few times: allow timer wakeups and give spawned tasks scheduling chances.
+        tokio::task::yield_now().await;
+    }
+
     #[tokio::test]
     async fn publish_payload_attestation_ssz() {
+        tokio::time::pause();
+
         let mut harness = TestHarness::new().await;
 
         let attestation_slot = Slot::new(1);
@@ -463,11 +474,28 @@ mod tests {
         let harness = harness.start_service();
 
         // Advance slot clock to slot 1
-        harness.slot_clock.advance_time(harness.slot_duration);
+        // harness.slot_clock.advance_time(harness.slot_duration);
 
         // The service sleeps for: duration_to_next_slot (12s) + payload_attestation_due (9s) = 21s
         // Assert nothing is published <= 21s
-        sleep(Duration::from_secs(21)).await;
+        eprintln!(
+            "slot_clock before advance_time = {:?}",
+            harness.slot_clock.now_duration()
+        );
+        eprintln!(
+            "tokio::time before advance_time = {:?}",
+            tokio::time::Instant::now()
+        );
+        advance_time(&harness.slot_clock, Duration::from_secs(21)).await;
+
+        eprintln!(
+            "slot_clock after advance 21s = {:?}",
+            harness.slot_clock.now_duration()
+        );
+        eprintln!(
+            "tokio::time after advance 21s = {:?}",
+            tokio::time::Instant::now()
+        );
         assert!(
             harness
                 .mock_beacon_node_1
@@ -479,7 +507,15 @@ mod tests {
         );
 
         // After the sleep below, we sleep for > 21s, so messages should not be empty
-        sleep(Duration::from_secs(1)).await;
+        advance_time(&harness.slot_clock, Duration::from_secs(1)).await;
+        eprintln!(
+            "slot_clock after advance 22s = {:?}",
+            harness.slot_clock.now_duration()
+        );
+        eprintln!(
+            "tokio::time after advance 22s = {:?}",
+            tokio::time::Instant::now()
+        );
 
         let messages = harness
             .mock_beacon_node_1
