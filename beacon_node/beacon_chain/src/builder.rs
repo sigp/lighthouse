@@ -1227,13 +1227,23 @@ where
             ));
         }
 
+        if let Some(checkpoint) = finalized_checkpoint {
+            if checkpoint.root != anchor_block_root {
+                return Err(format!(
+                    "testing_anchor_state can only finalize the anchor block, checkpoint root: {:?}, anchor root: {:?}",
+                    checkpoint.root, anchor_block_root,
+                ));
+            }
+        }
+
         let fork_choice_epoch = finalized_checkpoint
             .map(|checkpoint| checkpoint.epoch)
             .unwrap_or_else(|| anchor_block.slot().epoch(E::slots_per_epoch()));
         let fork_choice_slot = fork_choice_epoch.start_slot(E::slots_per_epoch());
 
-        // Store `anchor_state` as the real post-state for child block validation, but initialize
-        // fork choice from an epoch-aligned view because `ForkChoice::from_anchor` requires it.
+        // Keep two state views: `anchor_state` is the exact post-state from the vector and must
+        // remain loadable by `anchor_block.state_root()` for child block validation. Fork choice
+        // needs an epoch-aligned state, so derive that view separately for `from_anchor`.
         let mut fork_choice_state = anchor_state.clone();
         if fork_choice_state.slot() < fork_choice_slot {
             while fork_choice_state.slot() < fork_choice_slot {
@@ -1258,9 +1268,6 @@ where
             .update_tree_hash_cache()
             .map_err(|e| format!("Error computing fork choice state root: {e:?}"))?;
         let fork_choice_slot = fork_choice_state.slot();
-        let finalized_block_root = finalized_checkpoint
-            .map(|checkpoint| checkpoint.root)
-            .unwrap_or(anchor_block_root);
         let (split_slot, split_state_root) = if anchor_state.slot() <= fork_choice_slot {
             (anchor_state.slot(), anchor_state_root)
         } else {
@@ -1329,11 +1336,6 @@ where
         store
             .put_block(&anchor_block_root, anchor_block.clone())
             .map_err(|e| format!("Failed to store anchor block: {e:?}"))?;
-        if finalized_block_root != anchor_block_root {
-            store
-                .put_block(&finalized_block_root, anchor_block.clone())
-                .map_err(|e| format!("Failed to store finalized checkpoint block: {e:?}"))?;
-        }
         store
             .put_state(&anchor_state_root, &anchor_state)
             .map_err(|e| format!("Failed to store anchor state: {e:?}"))?;
@@ -1355,16 +1357,6 @@ where
 
         {
             let mut state_cache = store.state_cache.lock();
-            if finalized_block_root != anchor_block_root {
-                state_cache.delete_state(&fork_choice_state_root);
-                state_cache
-                    .put_state(
-                        fork_choice_state_root,
-                        finalized_block_root,
-                        &fork_choice_state,
-                    )
-                    .map_err(|e| format!("Failed to cache fork choice state: {e:?}"))?;
-            }
             state_cache.delete_state(&anchor_state_root);
             state_cache
                 .put_state(anchor_state_root, anchor_block_root, &anchor_state)
