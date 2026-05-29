@@ -24,8 +24,6 @@ use crate::{
 use bls::Signature;
 use execution_layer::ExecutionLayer;
 use fixed_bytes::FixedBytesExtended;
-#[cfg(any(test, feature = "ef_tests"))]
-use fork_choice::ForkChoiceStore;
 use fork_choice::{ForkChoice, PayloadStatus, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
 use kzg::Kzg;
@@ -47,8 +45,6 @@ use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
-#[cfg(any(test, feature = "ef_tests"))]
-use types::Checkpoint;
 use types::data::CustodyIndex;
 use types::{
     BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList, EthSpec, Hash256,
@@ -420,6 +416,11 @@ where
         weak_subj_blobs: Option<BlobSidecarList<E>>,
         genesis_state: BeaconState<E>,
     ) -> Result<Self, String> {
+        let store = self
+            .store
+            .clone()
+            .ok_or("weak_subjectivity_state requires a store")?;
+
         // Ensure the state is advanced to an epoch boundary.
         let slots_per_epoch = E::slots_per_epoch();
         if weak_subj_state.slot() % slots_per_epoch != 0 {
@@ -501,57 +502,16 @@ where
             }
         }
 
-        self = self.set_anchor_store_metadata(
-            weak_subj_state_root,
-            &weak_subj_block,
-            weak_subj_slot,
-            weak_subj_state.slot(),
-            genesis_state,
-        )?;
-        self.store_anchor_snapshot(
-            weak_subj_state_root,
-            weak_subj_block_root,
-            &weak_subj_state,
-            &weak_subj_block,
-            weak_subj_blobs,
-        )?;
-
-        let fork_choice = self.build_fork_choice_from_anchor(
-            weak_subj_block_root,
-            weak_subj_block,
-            weak_subj_state,
-            Some(weak_subj_slot),
-        )?;
-
-        self.fork_choice = Some(fork_choice);
-
-        Ok(self.empty_op_pool())
-    }
-
-    fn set_anchor_store_metadata(
-        mut self,
-        anchor_state_root: Hash256,
-        anchor_block: &SignedBeaconBlock<E>,
-        split_slot: Slot,
-        block_roots_until_slot: Slot,
-        genesis_state: BeaconState<E>,
-    ) -> Result<Self, String> {
-        let store = self
-            .store
-            .clone()
-            .ok_or("set_anchor_store_metadata requires a store")?;
-        let anchor_block_root = anchor_block.canonical_root();
-
         debug!(
-            slot = %split_slot,
-            state_root = ?anchor_state_root,
-            block_root = ?anchor_block_root,
-            "Storing split from anchor state"
+            slot = %weak_subj_slot,
+            state_root = ?weak_subj_state_root,
+            block_root = ?weak_subj_block_root,
+            "Storing split from weak subjectivity state"
         );
 
         // Set the store's split point *before* storing genesis so that if the genesis state
         // is prior to the split slot, it will immediately be stored in the freezer DB.
-        store.set_split(split_slot, anchor_state_root, anchor_block_root);
+        store.set_split(weak_subj_slot, weak_subj_state_root, weak_subj_block_root);
 
         // It is also possible for the checkpoint state to be equal to the genesis state, in which
         // case it will be stored in the hot DB. In this case, we need to ensure the store's anchor
@@ -561,9 +521,9 @@ where
         self.pending_io_batch.push(
             store
                 .init_anchor_info(
-                    anchor_block.parent_root(),
-                    anchor_block.slot(),
-                    split_slot,
+                    weak_subj_block.parent_root(),
+                    weak_subj_block.slot(),
+                    weak_subj_slot,
                     retain_historic_states,
                 )
                 .map_err(|e| format!("Failed to initialize anchor info: {:?}", e))?,
@@ -577,9 +537,9 @@ where
         // while states greater or equal to the checkpoint state will be handled by `migrate_db`.
         let block_root_batch = store
             .store_frozen_block_root_at_skip_slots(
-                anchor_block.slot(),
-                block_roots_until_slot,
-                anchor_block_root,
+                weak_subj_block.slot(),
+                weak_subj_state.slot(),
+                weak_subj_block_root,
             )
             .map_err(|e| format!("Error writing frozen block roots: {e:?}"))?;
         store
@@ -587,11 +547,48 @@ where
             .do_atomically(block_root_batch)
             .map_err(|e| format!("Error writing frozen block roots: {e:?}"))?;
         debug!(
-            from = %anchor_block.slot(),
-            to_excl = %block_roots_until_slot,
-            block_root = ?anchor_block_root,
+            from = %weak_subj_block.slot(),
+            to_excl = %weak_subj_state.slot(),
+            block_root = ?weak_subj_block_root,
             "Stored frozen block roots at skipped slots"
         );
+
+        // Write the state, block and blobs non-atomically, it doesn't matter if they're forgotten
+        // about on a crash restart.
+        store
+            .update_finalized_state(
+                weak_subj_state_root,
+                weak_subj_block_root,
+                weak_subj_state.clone(),
+            )
+            .map_err(|e| format!("Failed to set checkpoint state as finalized state: {:?}", e))?;
+        // Note: post hot hdiff must update the anchor info before attempting to put_state otherwise
+        // the write will fail if the weak_subj_slot is not aligned with the snapshot moduli.
+        store
+            .put_state(&weak_subj_state_root, &weak_subj_state)
+            .map_err(|e| format!("Failed to store weak subjectivity state: {e:?}"))?;
+        store
+            .put_block(&weak_subj_block_root, weak_subj_block.clone())
+            .map_err(|e| format!("Failed to store weak subjectivity block: {e:?}"))?;
+        if let Some(blobs) = weak_subj_blobs {
+            if self
+                .spec
+                .is_peer_das_enabled_for_epoch(weak_subj_block.epoch())
+            {
+                // After PeerDAS recompute columns from blobs to not force the checkpointz server
+                // into exposing another route.
+                let data_columns =
+                    build_data_columns_from_blobs(&weak_subj_block, &blobs, &self.kzg, &self.spec)?;
+                // TODO(das): only persist the columns under custody
+                store
+                    .put_data_columns(&weak_subj_block_root, data_columns)
+                    .map_err(|e| format!("Failed to store weak subjectivity data_column: {e:?}"))?;
+            } else {
+                store
+                    .put_blobs(&weak_subj_block_root, blobs)
+                    .map_err(|e| format!("Failed to store weak subjectivity blobs: {e:?}"))?;
+            }
+        }
 
         // Stage the database's metadata fields for atomic storage when `build` is called.
         // This prevents the database from restarting in an inconsistent state if the anchor
@@ -599,97 +596,38 @@ where
         self.pending_io_batch.push(store.store_split_in_batch());
         self.pending_io_batch.push(
             store
-                .init_blob_info(anchor_block.slot())
+                .init_blob_info(weak_subj_block.slot())
                 .map_err(|e| format!("Failed to initialize blob info: {:?}", e))?,
         );
         self.pending_io_batch.push(
             store
-                .init_data_column_info(anchor_block.slot())
+                .init_data_column_info(weak_subj_block.slot())
                 .map_err(|e| format!("Failed to initialize data column info: {:?}", e))?,
         );
 
-        Ok(self)
-    }
-
-    fn store_anchor_snapshot(
-        &self,
-        anchor_state_root: Hash256,
-        anchor_block_root: Hash256,
-        anchor_state: &BeaconState<E>,
-        anchor_block: &SignedBeaconBlock<E>,
-        anchor_blobs: Option<BlobSidecarList<E>>,
-    ) -> Result<(), String> {
-        let store = self
-            .store
-            .clone()
-            .ok_or("store_anchor_snapshot requires a store")?;
-
-        // Write the state, block and blobs non-atomically, it doesn't matter if they're forgotten
-        // about on a crash restart.
-        store
-            .update_finalized_state(anchor_state_root, anchor_block_root, anchor_state.clone())
-            .map_err(|e| format!("Failed to set anchor state as finalized state: {:?}", e))?;
-        // Note: post hot hdiff must update the anchor info before attempting to put_state otherwise
-        // the write will fail if the anchor slot is not aligned with the snapshot moduli.
-        store
-            .put_state(&anchor_state_root, anchor_state)
-            .map_err(|e| format!("Failed to store anchor state: {e:?}"))?;
-        store
-            .put_block(&anchor_block_root, anchor_block.clone())
-            .map_err(|e| format!("Failed to store anchor block: {e:?}"))?;
-        if let Some(blobs) = anchor_blobs {
-            if self
-                .spec
-                .is_peer_das_enabled_for_epoch(anchor_block.epoch())
-            {
-                // After PeerDAS recompute columns from blobs to not force the checkpointz server
-                // into exposing another route.
-                let data_columns =
-                    build_data_columns_from_blobs(anchor_block, &blobs, &self.kzg, &self.spec)?;
-                // TODO(das): only persist the columns under custody
-                store
-                    .put_data_columns(&anchor_block_root, data_columns)
-                    .map_err(|e| format!("Failed to store anchor data_column: {e:?}"))?;
-            } else {
-                store
-                    .put_blobs(&anchor_block_root, blobs)
-                    .map_err(|e| format!("Failed to store anchor blobs: {e:?}"))?;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn build_fork_choice_from_anchor(
-        &self,
-        anchor_block_root: Hash256,
-        anchor_block: SignedBeaconBlock<E>,
-        anchor_state: BeaconState<E>,
-        current_slot: Option<Slot>,
-    ) -> Result<ForkChoice<BeaconForkChoiceStore<E, THotStore, TColdStore>, E>, String> {
-        let store = self
-            .store
-            .clone()
-            .ok_or("build_fork_choice_from_anchor requires a store")?;
         let snapshot = BeaconSnapshot {
-            beacon_block_root: anchor_block_root,
+            beacon_block_root: weak_subj_block_root,
             execution_envelope: None,
-            beacon_block: Arc::new(anchor_block),
-            beacon_state: anchor_state,
+            beacon_block: Arc::new(weak_subj_block),
+            beacon_state: weak_subj_state,
         };
 
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, snapshot.clone())
             .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
 
-        ForkChoice::from_anchor(
+        let fork_choice = ForkChoice::from_anchor(
             fc_store,
             snapshot.beacon_block_root,
             &snapshot.beacon_block,
             &snapshot.beacon_state,
-            current_slot,
+            Some(weak_subj_slot),
             &self.spec,
         )
-        .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))
+        .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
+
+        self.fork_choice = Some(fork_choice);
+
+        Ok(self.empty_op_pool())
     }
 
     /// Sets the `BeaconChain` execution layer.
@@ -1231,16 +1169,15 @@ where
 }
 
 #[cfg(any(test, feature = "ef_tests"))]
-impl<TSlotClock, E, THotStore, TColdStore>
-    BeaconChainBuilder<Witness<TSlotClock, E, THotStore, TColdStore>>
+impl<E> BeaconChainBuilder<crate::test_utils::EphemeralHarnessType<E>>
 where
-    THotStore: ItemStore + 'static,
-    TColdStore: ItemStore + 'static,
-    TSlotClock: SlotClock + 'static,
     E: EthSpec + 'static,
 {
-    /// Start the chain from a test anchor whose exact post-state must be available for later
-    /// parent-state lookup.
+    /// Start an ephemeral test chain from an existing block and its post-state.
+    ///
+    /// EF networking tests provide `state.ssz_snappy` and setup blocks, not a full replayable chain
+    /// from genesis. Store the supplied anchor block/state so later validation can load the
+    /// anchor's post-state as the parent state for child blocks.
     ///
     /// The supplied `anchor_state` may be non-epoch-boundary. Fork choice still starts from an
     /// epoch-aligned checkpoint view derived from it, so the production fork-choice alignment check
@@ -1249,7 +1186,7 @@ where
         mut self,
         mut anchor_state: BeaconState<E>,
         anchor_block: SignedBeaconBlock<E>,
-        finalized_checkpoint: Option<Checkpoint>,
+        finalized_checkpoint: Option<types::Checkpoint>,
         genesis_state: BeaconState<E>,
     ) -> Result<Self, String> {
         let store = self
@@ -1295,6 +1232,8 @@ where
             .unwrap_or_else(|| anchor_block.slot().epoch(E::slots_per_epoch()));
         let fork_choice_slot = fork_choice_epoch.start_slot(E::slots_per_epoch());
 
+        // Store `anchor_state` as the real post-state for child block validation, but initialize
+        // fork choice from an epoch-aligned view because `ForkChoice::from_anchor` requires it.
         let mut fork_choice_state = anchor_state.clone();
         if fork_choice_state.slot() < fork_choice_slot {
             while fork_choice_state.slot() < fork_choice_slot {
@@ -1322,25 +1261,63 @@ where
         let finalized_block_root = finalized_checkpoint
             .map(|checkpoint| checkpoint.root)
             .unwrap_or(anchor_block_root);
-        let (split_slot, split_state_root, block_roots_until_slot) =
-            if anchor_state.slot() <= fork_choice_slot {
-                (anchor_state.slot(), anchor_state_root, anchor_state.slot())
-            } else {
-                (
-                    fork_choice_slot,
-                    fork_choice_state_root,
-                    anchor_state.slot(),
+        let (split_slot, split_state_root) = if anchor_state.slot() <= fork_choice_slot {
+            (anchor_state.slot(), anchor_state_root)
+        } else {
+            (fork_choice_slot, fork_choice_state_root)
+        };
+
+        debug!(
+            slot = %split_slot,
+            state_root = ?split_state_root,
+            block_root = ?anchor_block_root,
+            "Storing split from test anchor state"
+        );
+
+        // Set the store's split point *before* storing genesis so that if the genesis state
+        // is prior to the split slot, it will immediately be stored in the freezer DB.
+        store.set_split(split_slot, split_state_root, anchor_block_root);
+
+        // It is also possible for the checkpoint state to be equal to the genesis state, in which
+        // case it will be stored in the hot DB. In this case, we need to ensure the store's anchor
+        // is initialised prior to storing the state, as the anchor is required for working out
+        // hdiff storage strategies.
+        let retain_historic_states = self.chain_config.archive;
+        self.pending_io_batch.push(
+            store
+                .init_anchor_info(
+                    anchor_block.parent_root(),
+                    anchor_block.slot(),
+                    split_slot,
+                    retain_historic_states,
                 )
-            };
+                .map_err(|e| format!("Failed to initialize anchor info: {:?}", e))?,
+        );
 
-        self = self.set_anchor_store_metadata(
-            split_state_root,
-            &anchor_block,
-            split_slot,
-            block_roots_until_slot,
-            genesis_state,
-        )?;
+        let (_, updated_builder) = self.set_genesis_state(genesis_state)?;
+        self = updated_builder;
 
+        // Fill in the linear block roots between the checkpoint block's slot and the aligned
+        // state's slot. All slots less than the block's slot will be handled by block backfill,
+        // while states greater or equal to the checkpoint state will be handled by `migrate_db`.
+        let block_root_batch = store
+            .store_frozen_block_root_at_skip_slots(
+                anchor_block.slot(),
+                anchor_state.slot(),
+                anchor_block_root,
+            )
+            .map_err(|e| format!("Error writing frozen block roots: {e:?}"))?;
+        store::KeyValueStore::do_atomically(&store.cold_db, block_root_batch)
+            .map_err(|e| format!("Error writing frozen block roots: {e:?}"))?;
+        debug!(
+            from = %anchor_block.slot(),
+            to_excl = %anchor_state.slot(),
+            block_root = ?anchor_block_root,
+            "Stored frozen block roots at skipped slots"
+        );
+
+        // Write the state and block non-atomically, it doesn't matter if they're forgotten about on
+        // a crash restart.
         if anchor_state.slot() % E::slots_per_epoch() == 0 {
             store
                 .update_finalized_state(anchor_state_root, anchor_block_root, anchor_state.clone())
@@ -1360,6 +1337,21 @@ where
         store
             .put_state(&anchor_state_root, &anchor_state)
             .map_err(|e| format!("Failed to store anchor state: {e:?}"))?;
+
+        // Stage the database's metadata fields for atomic storage when `build` is called.
+        // This prevents the database from restarting in an inconsistent state if the anchor
+        // info or split point is written before the `PersistedBeaconChain`.
+        self.pending_io_batch.push(store.store_split_in_batch());
+        self.pending_io_batch.push(
+            store
+                .init_blob_info(anchor_block.slot())
+                .map_err(|e| format!("Failed to initialize blob info: {:?}", e))?,
+        );
+        self.pending_io_batch.push(
+            store
+                .init_data_column_info(anchor_block.slot())
+                .map_err(|e| format!("Failed to initialize data column info: {:?}", e))?,
+        );
 
         {
             let mut state_cache = store.state_cache.lock();
@@ -1389,12 +1381,22 @@ where
         let mut fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, snapshot.clone())
             .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
         if let Some(checkpoint) = finalized_checkpoint {
-            fc_store
-                .set_justified_checkpoint(checkpoint, fork_choice_state_root)
-                .map_err(|e| format!("Unable to set justified checkpoint: {e:?}"))?;
-            fc_store.set_finalized_checkpoint(checkpoint);
-            fc_store.set_unrealized_justified_checkpoint(checkpoint, fork_choice_state_root);
-            fc_store.set_unrealized_finalized_checkpoint(checkpoint);
+            fork_choice::ForkChoiceStore::set_justified_checkpoint(
+                &mut fc_store,
+                checkpoint,
+                fork_choice_state_root,
+            )
+            .map_err(|e| format!("Unable to set justified checkpoint: {e:?}"))?;
+            fork_choice::ForkChoiceStore::set_finalized_checkpoint(&mut fc_store, checkpoint);
+            fork_choice::ForkChoiceStore::set_unrealized_justified_checkpoint(
+                &mut fc_store,
+                checkpoint,
+                fork_choice_state_root,
+            );
+            fork_choice::ForkChoiceStore::set_unrealized_finalized_checkpoint(
+                &mut fc_store,
+                checkpoint,
+            );
         }
 
         let fork_choice = ForkChoice::from_anchor(

@@ -1003,8 +1003,7 @@ impl<E: EthSpec + TypeName> Handler for GossipValidationHandler<E> {
     type Case = cases::GossipValidation<E>;
 
     fn use_rayon() -> bool {
-        // Beacon-block gossip validation builds a BeaconChainHarness and mock execution layer per
-        // case. Keep networking gossip cases on the test thread instead of Rayon worker stacks.
+        // Some gossip validation tests use `block_on` which can cause panics with rayon.
         false
     }
 
