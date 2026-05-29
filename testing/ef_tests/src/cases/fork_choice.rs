@@ -1,13 +1,11 @@
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
-use ::fork_choice::{ForkChoiceStore, PayloadVerificationStatus, ProposerHeadError};
-use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
-use beacon_chain::blob_verification::GossipBlobError;
-use beacon_chain::block_verification_types::LookupBlock;
-use beacon_chain::chain_config::{
-    DEFAULT_RE_ORG_HEAD_THRESHOLD, DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
-    DEFAULT_RE_ORG_PARENT_THRESHOLD, DisallowedReOrgOffsets,
+use ::fork_choice::{
+    AttestationFromBlock, ForkChoiceStore, PayloadVerificationStatus, ProposerHeadError,
 };
+use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
+use beacon_chain::block_verification_types::LookupBlock;
+use beacon_chain::chain_config::DisallowedReOrgOffsets;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::{
@@ -15,17 +13,21 @@ use beacon_chain::{
     attestation_verification::{
         VerifiedAttestation, obtain_indexed_attestation_and_committees_per_slot,
     },
-    blob_verification::GossipVerifiedBlob,
+    blob_verification::KzgVerifiedBlob,
     custody_context::NodeCustodyType,
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
 };
+use bls::AggregateSignature;
 use execution_layer::{
     PayloadStatusV1, PayloadStatusV1Status, json_structures::JsonPayloadStatusV1Status,
 };
+use proto_array::ReOrgThreshold;
 use serde::Deserialize;
 use ssz_derive::Decode;
+use ssz_types::VariableList;
 use state_processing::VerifySignatures;
 use state_processing::envelope_processing::verify_execution_payload_envelope;
+use state_processing::per_block_processing::is_valid_indexed_payload_attestation;
 use state_processing::state_advance::complete_state_advance;
 use std::future::Future;
 use std::sync::Arc;
@@ -33,9 +35,9 @@ use std::time::Duration;
 use types::{
     Attestation, AttestationRef, AttesterSlashing, AttesterSlashingRef, BeaconBlock, BeaconState,
     BlobSidecar, BlobsList, BlockImportSource, Checkpoint, DataColumnSidecar,
-    DataColumnSidecarList, DataColumnSubnetId, ExecutionBlockHash, Hash256, IndexedAttestation,
-    KzgProof, ProposerPreparationData, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
-    Uint256,
+    DataColumnSidecarList, DataColumnSubnetId, Epoch, ExecutionBlockHash, Hash256,
+    IndexedAttestation, IndexedPayloadAttestation, KzgProof, PayloadAttestationMessage,
+    ProposerPreparationData, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot, Uint256,
 };
 
 // When set to true, cache any states fetched from the db.
@@ -65,6 +67,13 @@ pub struct ShouldOverrideFcu {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct PayloadVoteCheck {
+    block_root: Hash256,
+    votes: Vec<Option<bool>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Checks {
     head: Option<Head>,
     time: Option<u64>,
@@ -85,6 +94,8 @@ pub struct Checks {
     previous_slot_head: Option<Hash256>,
     current_slot_head: Option<Hash256>,
     head_payload_status: Option<u8>,
+    payload_timeliness_vote: Option<PayloadVoteCheck>,
+    payload_data_availability_vote: Option<PayloadVoteCheck>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -115,6 +126,7 @@ pub enum Step<
     TAttesterSlashing,
     TPowBlock,
     TExecutionPayload = String,
+    TPayloadAttestationMessage = String,
 > {
     Tick {
         tick: u64,
@@ -153,6 +165,15 @@ pub enum Step<
         execution_payload: TExecutionPayload,
         valid: bool,
     },
+    PayloadAttestationMessage {
+        payload_attestation_message: TPayloadAttestationMessage,
+        #[serde(default = "default_true")]
+        valid: bool,
+    },
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -177,6 +198,7 @@ pub struct ForkChoiceTest<E: EthSpec> {
             AttesterSlashing<E>,
             PowBlock,
             SignedExecutionPayloadEnvelope<E>,
+            PayloadAttestationMessage,
         >,
     >,
 }
@@ -191,8 +213,12 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
             .expect("path must be valid OsStr")
             .to_string();
         let spec = &testing_spec::<E>(fork_name);
-        let steps: Vec<Step<String, String, Vec<String>, String, String, String>> =
-            yaml_decode_file(&path.join("steps.yaml"))?;
+
+        #[allow(clippy::type_complexity)]
+        let steps: Vec<
+            Step<String, String, Vec<String>, String, String, String, String, String>,
+        > = yaml_decode_file(&path.join("steps.yaml"))?;
+
         // Resolve the object names in `steps.yaml` into actual decoded block/attestation objects.
         let steps = steps
             .into_iter()
@@ -308,6 +334,18 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                         valid,
                     })
                 }
+                Step::PayloadAttestationMessage {
+                    payload_attestation_message,
+                    valid,
+                } => {
+                    let msg: PayloadAttestationMessage = ssz_decode_file(
+                        &path.join(format!("{payload_attestation_message}.ssz_snappy")),
+                    )?;
+                    Ok(Step::PayloadAttestationMessage {
+                        payload_attestation_message: msg,
+                        valid,
+                    })
+                }
             })
             .collect::<Result<_, _>>()?;
         let anchor_state = ssz_decode_state(&path.join("anchor_state.ssz_snappy"), spec)?;
@@ -394,6 +432,8 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         previous_slot_head,
                         current_slot_head,
                         head_payload_status,
+                        payload_timeliness_vote,
+                        payload_data_availability_vote,
                     } = checks.as_ref();
 
                     if let Some(expected_head) = head {
@@ -463,6 +503,14 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     if let Some(expected_status) = head_payload_status {
                         tester.check_head_payload_status(*expected_status)?;
                     }
+
+                    if let Some(expected) = payload_timeliness_vote {
+                        tester.check_payload_timeliness_vote(expected)?;
+                    }
+
+                    if let Some(expected) = payload_data_availability_vote {
+                        tester.check_payload_data_availability_vote(expected)?;
+                    }
                 }
 
                 Step::MaybeValidBlockAndColumns {
@@ -477,6 +525,13 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     valid,
                 } => {
                     tester.process_execution_payload(execution_payload, *valid)?;
+                }
+                Step::PayloadAttestationMessage {
+                    payload_attestation_message,
+                    valid,
+                } => {
+                    tester
+                        .process_payload_attestation_message(payload_attestation_message, *valid)?;
                 }
             }
         }
@@ -683,7 +738,6 @@ impl<E: EthSpec> Tester<E> {
 
         let mut blob_success = true;
 
-        // Convert blobs and kzg_proofs into sidecars, then plumb them into the availability tracker
         if let Some(blobs) = blobs.clone() {
             let proofs = kzg_proofs.unwrap();
             let commitments = block
@@ -696,37 +750,51 @@ impl<E: EthSpec> Tester<E> {
             // Zipping will stop when any of the zipped lists runs out, which is what we want. Some
             // of the tests don't provide enough proofs/blobs, and should fail the availability
             // check.
-            for (i, ((blob, kzg_proof), kzg_commitment)) in
-                blobs.into_iter().zip(proofs).zip(commitments).enumerate()
-            {
-                let blob_sidecar = Arc::new(BlobSidecar {
-                    index: i as u64,
-                    blob,
-                    kzg_commitment,
-                    kzg_proof,
-                    signed_block_header: block.signed_block_header(),
-                    kzg_commitment_inclusion_proof: block
-                        .message()
-                        .body()
-                        .kzg_commitment_merkle_proof(i)
-                        .unwrap(),
-                });
+            let verified_blobs: Vec<KzgVerifiedBlob<E>> = blobs
+                .into_iter()
+                .zip(proofs)
+                .zip(commitments)
+                .enumerate()
+                .filter_map(|(i, ((blob, kzg_proof), kzg_commitment))| {
+                    let blob_sidecar = Arc::new(BlobSidecar {
+                        index: i as u64,
+                        blob,
+                        kzg_commitment,
+                        kzg_proof,
+                        signed_block_header: block.signed_block_header(),
+                        kzg_commitment_inclusion_proof: block
+                            .message()
+                            .body()
+                            .kzg_commitment_merkle_proof(i)
+                            .unwrap(),
+                    });
 
-                let chain = self.harness.chain.clone();
-                let blob =
-                    match GossipVerifiedBlob::new(blob_sidecar.clone(), blob_sidecar.index, &chain)
-                    {
-                        Ok(gossip_verified_blob) => gossip_verified_blob,
-                        Err(GossipBlobError::KzgError(_)) => {
+                    match KzgVerifiedBlob::new(
+                        blob_sidecar.clone(),
+                        &self.harness.chain.kzg,
+                        Duration::default(),
+                    ) {
+                        Ok(verified) => Some(verified),
+                        Err(_) => {
                             blob_success = false;
-                            GossipVerifiedBlob::__assumed_valid(blob_sidecar)
+                            None
                         }
-                        Err(_) => GossipVerifiedBlob::__assumed_valid(blob_sidecar),
-                    };
-                let result =
-                    self.block_on_dangerous(self.harness.chain.process_gossip_blob(blob))?;
+                    }
+                })
+                .collect();
+
+            if !verified_blobs.is_empty() {
+                let result = self
+                    .harness
+                    .chain
+                    .data_availability_checker
+                    .put_kzg_verified_blobs(block_root, verified_blobs);
                 if valid {
-                    assert!(result.is_ok());
+                    assert!(
+                        result.is_ok(),
+                        "put_kzg_verified_blobs failed: {:?}",
+                        result
+                    );
                 }
             }
         };
@@ -1012,10 +1080,10 @@ impl<E: EthSpec> Tester<E> {
         let proposer_head_result = fc.get_proposer_head(
             slot,
             canonical_head,
-            DEFAULT_RE_ORG_HEAD_THRESHOLD,
-            DEFAULT_RE_ORG_PARENT_THRESHOLD,
+            ReOrgThreshold(self.spec.reorg_head_weight_threshold),
+            ReOrgThreshold(self.spec.reorg_parent_weight_threshold),
             &DisallowedReOrgOffsets::default(),
-            DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
+            Epoch::new(self.spec.reorg_max_epochs_since_finalization),
         );
         let proposer_head = match proposer_head_result {
             Ok(head) => head.parent_node.root(),
@@ -1305,6 +1373,172 @@ impl<E: EthSpec> Tester<E> {
     pub fn check_current_slot_head(&self, expected: Hash256) -> Result<(), Error> {
         let actual = self.get_fcr_field("current_slot_head", |fcr| fcr.current_slot_head)?;
         check_equal("current_slot_head", actual, expected)
+    }
+    pub fn process_payload_attestation_message(
+        &self,
+        msg: &PayloadAttestationMessage,
+        valid: bool,
+    ) -> Result<(), Error> {
+        let slot = msg.data.slot;
+        let block_root = msg.data.beacon_block_root;
+
+        // Get the state at the block to compute the PTC and verify signature.
+        let store = &self.harness.chain.store;
+        let block = store
+            .get_blinded_block(&block_root)
+            .map_err(|e| Error::InternalError(format!("Failed to load block: {e:?}")))?;
+
+        let state_opt = block.and_then(|block| {
+            store
+                .get_hot_state(&block.state_root(), CACHE_STATE_IN_TESTS)
+                .ok()?
+        });
+
+        // Build IndexedPayloadAttestation from the message.
+        let indexed = IndexedPayloadAttestation::<E> {
+            attesting_indices: VariableList::new(vec![msg.validator_index]).unwrap(),
+            data: msg.data.clone(),
+            signature: AggregateSignature::from(&msg.signature),
+        };
+
+        let result = if let Some(ref state) = state_opt {
+            is_valid_indexed_payload_attestation(
+                state,
+                &indexed,
+                VerifySignatures::True,
+                &self.spec,
+            )
+            .map_err(|e| {
+                Error::InternalError(format!(
+                    "payload attestation signature verification failed for validator {}: {:?}",
+                    msg.validator_index, e
+                ))
+            })
+            .and_then(|_| {
+                let ptc = state.get_ptc(slot, &self.spec).map_err(|e| {
+                    Error::InternalError(format!(
+                        "Could not compute PTC for block root {block_root:?} at slot {slot:?}: {e:?}"
+                    ))
+                })?;
+
+                self.harness
+                    .chain
+                    .canonical_head
+                    .fork_choice_write_lock()
+                    .on_payload_attestation(
+                        self.harness.chain.slot().unwrap(),
+                        &indexed,
+                        AttestationFromBlock::False,
+                        &ptc.0,
+                    )
+                    .map_err(|e| {
+                        Error::InternalError(format!(
+                            "on_payload_attestation for validator {} failed: {:?}",
+                            msg.validator_index, e
+                        ))
+                    })
+            })
+        } else {
+            Err(Error::InternalError(format!(
+                "Could not get state for block root {block_root:?} at slot {slot:?}"
+            )))
+        };
+
+        if valid {
+            result?;
+        } else if result.is_ok() {
+            return Err(Error::DidntFail(format!(
+                "payload_attestation_message for validator {} should have failed",
+                msg.validator_index
+            )));
+        }
+
+        Ok(())
+    }
+
+    pub fn check_payload_timeliness_vote(&self, expected: &PayloadVoteCheck) -> Result<(), Error> {
+        let fc = self.harness.chain.canonical_head.fork_choice_read_lock();
+        let proto_array = fc.proto_array().core_proto_array();
+
+        let node_index = proto_array
+            .indices
+            .get(&expected.block_root)
+            .ok_or_else(|| {
+                Error::InternalError(format!(
+                    "Block root {:?} not found in proto array",
+                    expected.block_root
+                ))
+            })?;
+        let node = proto_array
+            .nodes
+            .get(*node_index)
+            .ok_or_else(|| Error::InternalError(format!("Node index {} not found", node_index)))?;
+        let v29 = node
+            .as_v29()
+            .map_err(|_| Error::InternalError("Node is not V29".to_string()))?;
+
+        let timeliness_votes = &v29.payload_timeliness_votes;
+        let participation = &v29.ptc_participation;
+
+        for (i, expected_vote) in expected.votes.iter().enumerate() {
+            let actual = if !participation.get(i).unwrap() {
+                None // not yet voted
+            } else {
+                Some(timeliness_votes.get(i).unwrap())
+            };
+            if actual != *expected_vote {
+                return Err(Error::NotEqual(format!(
+                    "payload_timeliness_vote[{}]: Got {:?} | Expected {:?}",
+                    i, actual, expected_vote
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn check_payload_data_availability_vote(
+        &self,
+        expected: &PayloadVoteCheck,
+    ) -> Result<(), Error> {
+        let fc = self.harness.chain.canonical_head.fork_choice_read_lock();
+        let proto_array = fc.proto_array().core_proto_array();
+
+        let node_index = proto_array
+            .indices
+            .get(&expected.block_root)
+            .ok_or_else(|| {
+                Error::InternalError(format!(
+                    "Block root {:?} not found in proto array",
+                    expected.block_root
+                ))
+            })?;
+        let node = proto_array
+            .nodes
+            .get(*node_index)
+            .ok_or_else(|| Error::InternalError(format!("Node index {} not found", node_index)))?;
+        let v29 = node
+            .as_v29()
+            .map_err(|_| Error::InternalError("Node is not V29".to_string()))?;
+
+        let availability_votes = &v29.payload_data_availability_votes;
+        let participation = &v29.ptc_participation;
+
+        for (i, expected_vote) in expected.votes.iter().enumerate() {
+            let actual = if !participation.get(i).unwrap() {
+                None // not yet voted
+            } else {
+                Some(availability_votes.get(i).unwrap())
+            };
+            if actual != *expected_vote {
+                return Err(Error::NotEqual(format!(
+                    "payload_data_availability_vote[{}]: Got {:?} | Expected {:?}",
+                    i, actual, expected_vote
+                )));
+            }
+        }
+
+        Ok(())
     }
 }
 

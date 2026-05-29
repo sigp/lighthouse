@@ -49,7 +49,6 @@
 #![allow(clippy::result_large_err)]
 
 use crate::beacon_snapshot::PreProcessingSnapshot;
-use crate::blob_verification::GossipBlobError;
 use crate::block_verification_types::{AsBlock, BlockImportData, LookupBlock, RangeSyncBlock};
 use crate::data_availability_checker::{
     AvailabilityCheckError, AvailableBlock, AvailableBlockData, MaybeAvailableBlock,
@@ -286,14 +285,10 @@ pub enum BlockError {
     /// TODO: We may need to penalize the peer that gave us a potentially invalid rpc blob.
     /// https://github.com/sigp/lighthouse/issues/4546
     AvailabilityCheck(AvailabilityCheckError),
-    /// A Blob with a slot after PeerDAS is received and is not required to be imported.
-    /// This can happen because we stay subscribed to the blob subnet after 2 epochs, as we could
-    /// still receive valid blobs from a Deneb epoch after PeerDAS is activated.
-    ///
-    /// ## Peer scoring
-    ///
-    /// This indicates the peer is sending an unexpected gossip blob and should be penalised.
-    BlobNotRequired(Slot),
+    /// The payload envelope's block root is unknown.
+    EnvelopeBlockRootUnknown(Hash256),
+    /// Optimistic sync is not supported for Gloas payload envelopes.
+    OptimisticSyncNotSupported { block_root: Hash256 },
     /// An internal error has occurred when processing the block or sidecars.
     ///
     /// ## Peer scoring
@@ -516,17 +511,6 @@ impl BlockSlashInfo<BlockError> {
     }
 }
 
-impl BlockSlashInfo<GossipBlobError> {
-    pub fn from_early_error_blob(header: SignedBeaconBlockHeader, e: GossipBlobError) -> Self {
-        match e {
-            GossipBlobError::ProposalSignatureInvalid => BlockSlashInfo::SignatureInvalid(e),
-            // `InvalidSignature` could indicate any signature in the block, so we want
-            // to recheck the proposer signature alone.
-            _ => BlockSlashInfo::SignatureNotChecked(header, e),
-        }
-    }
-}
-
 impl BlockSlashInfo<GossipDataColumnError> {
     pub fn from_early_error_data_column(
         header: SignedBeaconBlockHeader,
@@ -624,7 +608,8 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
             consensus_context,
         });
     }
-
+    // TODO(gloas) When implementing range and backfill sync for gloas
+    // we need a batch verify kzg function in the new da checker as well.
     chain
         .data_availability_checker
         .batch_verify_kzg_for_available_blocks(&available_blocks)?;
@@ -2030,23 +2015,6 @@ impl BlockBlobError for BlockError {
 
     fn proposer_signature_invalid() -> Self {
         BlockError::InvalidSignature(InvalidSignature::ProposerSignature)
-    }
-}
-
-impl BlockBlobError for GossipBlobError {
-    fn not_later_than_parent_error(blob_slot: Slot, parent_slot: Slot) -> Self {
-        GossipBlobError::BlobIsNotLaterThanParent {
-            blob_slot,
-            parent_slot,
-        }
-    }
-
-    fn unknown_validator_error(validator_index: u64) -> Self {
-        GossipBlobError::UnknownValidator(validator_index)
-    }
-
-    fn proposer_signature_invalid() -> Self {
-        GossipBlobError::ProposalSignatureInvalid
     }
 }
 

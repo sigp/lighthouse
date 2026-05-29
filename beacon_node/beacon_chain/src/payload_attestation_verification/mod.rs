@@ -9,7 +9,7 @@
 
 use crate::BeaconChainError;
 use strum::AsRefStr;
-use types::{BeaconStateError, Hash256, Slot};
+use types::{Hash256, Slot};
 
 pub mod gossip_verified_payload_attestation;
 
@@ -86,23 +86,11 @@ pub enum Error {
     /// We were unable to process this message due to an internal error. It's unclear if the
     /// message is valid.
     BeaconChainError(Box<BeaconChainError>),
-    /// An error reading beacon state.
-    ///
-    /// ## Peer scoring
-    ///
-    /// We were unable to process this message due to an internal error.
-    BeaconStateError(BeaconStateError),
 }
 
 impl From<BeaconChainError> for Error {
     fn from(e: BeaconChainError) -> Self {
         Error::BeaconChainError(Box::new(e))
-    }
-}
-
-impl From<BeaconStateError> for Error {
-    fn from(e: BeaconStateError) -> Self {
-        Error::BeaconStateError(e)
     }
 }
 

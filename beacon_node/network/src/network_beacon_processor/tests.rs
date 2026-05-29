@@ -10,7 +10,7 @@ use crate::{
 };
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::custody_context::NodeCustodyType;
-use beacon_chain::data_column_verification::validate_data_column_sidecar_for_gossip_fulu;
+use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::kzg_utils::blobs_to_data_column_sidecars;
 use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::test_utils::{
@@ -407,22 +407,6 @@ impl TestRig {
                 Duration::from_secs(0),
             )
             .unwrap();
-    }
-
-    pub fn enqueue_gossip_blob(&self, blob_index: usize) {
-        if let Some(blobs) = self.next_blobs.as_ref() {
-            let blob = blobs.get(blob_index).unwrap();
-            self.network_beacon_processor
-                .send_gossip_blob_sidecar(
-                    junk_message_id(),
-                    junk_peer_id(),
-                    Client::default(),
-                    blob.index,
-                    blob.clone(),
-                    Duration::from_secs(0),
-                )
-                .unwrap();
-        }
     }
 
     pub fn enqueue_gossip_data_columns(&self, col_index: usize) {
@@ -1101,13 +1085,6 @@ async fn import_gossip_block_acceptably_early() {
     rig.assert_event_journal_completes(&[WorkType::GossipBlock])
         .await;
 
-    let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
-    for i in 0..num_blobs {
-        rig.enqueue_gossip_blob(i);
-        rig.assert_event_journal_completes(&[WorkType::GossipBlobSidecar])
-            .await;
-    }
-
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     for i in 0..num_data_columns {
         rig.enqueue_gossip_data_columns(i);
@@ -1195,12 +1172,8 @@ async fn accept_processed_gossip_data_columns_without_import() {
         .map(|data_column| {
             let subnet_id =
                 DataColumnSubnetId::from_column_index(*data_column.index(), &rig.chain.spec);
-            validate_data_column_sidecar_for_gossip_fulu::<_, DoNotObserve>(
-                data_column,
-                subnet_id,
-                &rig.chain,
-            )
-            .expect("should be valid data column")
+            GossipVerifiedDataColumn::<_, DoNotObserve>::new(data_column, subnet_id, &rig.chain)
+                .expect("should be valid data column")
         })
         .collect();
 
@@ -1245,13 +1218,6 @@ async fn import_gossip_block_at_current_slot() {
 
     rig.assert_event_journal_completes(&[WorkType::GossipBlock])
         .await;
-
-    let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
-    for i in 0..num_blobs {
-        rig.enqueue_gossip_blob(i);
-        rig.assert_event_journal_completes(&[WorkType::GossipBlobSidecar])
-            .await;
-    }
 
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     for i in 0..num_data_columns {
@@ -1319,10 +1285,6 @@ async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod
         BlockImportMethod::Gossip => {
             rig.enqueue_gossip_block();
             events.push(WorkType::GossipBlock);
-            for i in 0..num_blobs {
-                rig.enqueue_gossip_blob(i);
-                events.push(WorkType::GossipBlobSidecar);
-            }
             for i in 0..num_data_columns {
                 rig.enqueue_gossip_data_columns(i);
                 events.push(WorkType::GossipDataColumnSidecar);
@@ -1405,10 +1367,6 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
         BlockImportMethod::Gossip => {
             rig.enqueue_gossip_block();
             events.push(WorkType::GossipBlock);
-            for i in 0..num_blobs {
-                rig.enqueue_gossip_blob(i);
-                events.push(WorkType::GossipBlobSidecar);
-            }
             for i in 0..num_data_columns {
                 rig.enqueue_gossip_data_columns(i);
                 events.push(WorkType::GossipDataColumnSidecar)

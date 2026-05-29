@@ -1,6 +1,4 @@
-use crate::blob_verification::{
-    GossipVerifiedBlob, KzgVerifiedBlob, KzgVerifiedBlobList, verify_kzg_for_blob_list,
-};
+use crate::blob_verification::{KzgVerifiedBlob, KzgVerifiedBlobList, verify_kzg_for_blob_list};
 use crate::block_verification_types::{AvailabilityPendingExecutedBlock, AvailableExecutedBlock};
 use crate::data_availability_checker::overflow_lru_cache::{
     DataAvailabilityCheckerInner, ReconstructColumnsDecision,
@@ -33,6 +31,7 @@ use crate::data_column_verification::{
     GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn,
     verify_kzg_for_data_column_list,
 };
+use crate::kzg_utils::validate_data_columns_with_commitments;
 use crate::metrics::{
     KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS, KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES,
 };
@@ -363,24 +362,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_kzg_verified_data_columns(block_root, verified_custody_columns)
     }
 
-    /// Check if we've cached other blobs for this block. If it completes a set and we also
-    /// have a block cached, return the `Availability` variant triggering block import.
-    /// Otherwise cache the blob sidecar.
-    ///
-    /// This should only accept gossip verified blobs, so we should not have to worry about dupes.
-    #[instrument(skip_all, level = "trace")]
-    pub fn put_gossip_verified_blobs<
-        I: IntoIterator<Item = GossipVerifiedBlob<T, O>>,
-        O: ObservationStrategy,
-    >(
-        &self,
-        block_root: Hash256,
-        blobs: I,
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        self.availability_cache
-            .put_kzg_verified_blobs(block_root, blobs.into_iter().map(|b| b.into_inner()))
-    }
-
     #[instrument(skip_all, level = "trace")]
     pub fn put_kzg_verified_blobs<I: IntoIterator<Item = KzgVerifiedBlob<T::EthSpec>>>(
         &self,
@@ -490,8 +471,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             AvailableBlockData::Blobs(blobs) => verify_kzg_for_blob_list(blobs.iter(), &self.kzg)
                 .map_err(AvailabilityCheckError::InvalidBlobs),
             AvailableBlockData::DataColumns(columns) => {
-                verify_kzg_for_data_column_list(columns.iter(), &self.kzg)
-                    .map_err(AvailabilityCheckError::InvalidColumn)
+                verify_columns_against_block(&self.kzg, available_block.block(), columns)
             }
         }
     }
@@ -504,24 +484,23 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         available_blocks: &[AvailableBlock<T::EthSpec>],
     ) -> Result<(), AvailabilityCheckError> {
         let mut all_blobs = Vec::new();
-        let mut all_data_columns = Vec::new();
 
         for available_block in available_blocks {
-            match available_block.data().to_owned() {
+            match available_block.data() {
                 AvailableBlockData::NoData => {}
-                AvailableBlockData::Blobs(blobs) => all_blobs.extend(blobs),
-                AvailableBlockData::DataColumns(columns) => all_data_columns.extend(columns),
+                AvailableBlockData::Blobs(blobs) => all_blobs.extend(blobs.iter().cloned()),
+                AvailableBlockData::DataColumns(columns) => {
+                    // Each block has its own commitments. For Gloas they live in the bid; for
+                    // Fulu they live inline on the column. Verify per block and let the helper
+                    // pick the right path.
+                    verify_columns_against_block(&self.kzg, available_block.block(), columns)?;
+                }
             }
         }
 
         if !all_blobs.is_empty() {
             verify_kzg_for_blob_list(all_blobs.iter(), &self.kzg)
                 .map_err(AvailabilityCheckError::InvalidBlobs)?;
-        }
-
-        if !all_data_columns.is_empty() {
-            verify_kzg_for_data_column_list(all_data_columns.iter(), &self.kzg)
-                .map_err(AvailabilityCheckError::InvalidColumn)?;
         }
 
         Ok(())
@@ -605,9 +584,21 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         metrics::inc_counter(&KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS);
         let timer = metrics::start_timer(&metrics::DATA_AVAILABILITY_RECONSTRUCTION_TIME);
 
+        let columns: Vec<_> = verified_data_columns
+            .into_iter()
+            .map(|c| c.into_inner())
+            .collect();
+        // Fulu columns carry their commitments; reconstruction needs the count to drive the
+        // per-blob recovery loop.
+        let kzg_commitments = columns
+            .first()
+            .and_then(|c| c.kzg_commitments().ok().cloned())
+            .ok_or(AvailabilityCheckError::InvalidVariant)?;
+
         let all_data_columns = KzgVerifiedCustodyDataColumn::reconstruct_columns(
             &self.kzg,
-            &verified_data_columns,
+            columns,
+            &kzg_commitments,
             &self.spec,
         )
         .map_err(|e| {
@@ -673,6 +664,35 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         .collect::<Vec<_>>(),
                 ))
             })
+    }
+}
+
+/// Verify a batch of data columns belonging to a single block, picking the right commitment
+/// source for the block's fork (Fulu: inline on column; Gloas: from the embedded payload bid).
+fn verify_columns_against_block<E: EthSpec>(
+    kzg: &Kzg,
+    block: &SignedBeaconBlock<E>,
+    columns: &[Arc<DataColumnSidecar<E>>],
+) -> Result<(), AvailabilityCheckError> {
+    if columns.is_empty() {
+        return Ok(());
+    }
+    if block.fork_name_unchecked().gloas_enabled() {
+        let commitments = block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .map(|bid| bid.message.blob_kzg_commitments.clone())
+            .map_err(|_| {
+                AvailabilityCheckError::Unexpected(
+                    "Gloas block missing signed_execution_payload_bid".to_string(),
+                )
+            })?;
+        validate_data_columns_with_commitments(kzg, columns.iter(), commitments.as_ref())
+            .map_err(AvailabilityCheckError::InvalidColumn)
+    } else {
+        verify_kzg_for_data_column_list(columns.iter(), kzg)
+            .map_err(AvailabilityCheckError::InvalidColumn)
     }
 }
 
@@ -874,10 +894,13 @@ impl<E: EthSpec> AvailableBlock<E> {
 
         match &block_data {
             AvailableBlockData::NoData => {
-                if columns_required {
-                    return Err(AvailabilityCheckError::MissingCustodyColumns);
-                } else if blobs_required {
-                    return Err(AvailabilityCheckError::MissingBlobs);
+                // For Gloas, DA is checked for the PayloadEnvelope, not for the block.
+                if !block.fork_name_unchecked().gloas_enabled() {
+                    if columns_required {
+                        return Err(AvailabilityCheckError::MissingCustodyColumns);
+                    } else if blobs_required {
+                        return Err(AvailabilityCheckError::MissingBlobs);
+                    }
                 }
             }
             AvailableBlockData::Blobs(blobs) => {
