@@ -1,6 +1,4 @@
-use crate::blob_verification::{
-    GossipVerifiedBlob, KzgVerifiedBlob, KzgVerifiedBlobList, verify_kzg_for_blob_list,
-};
+use crate::blob_verification::{KzgVerifiedBlob, KzgVerifiedBlobList, verify_kzg_for_blob_list};
 use crate::block_verification_types::{AvailabilityPendingExecutedBlock, AvailableExecutedBlock};
 use crate::data_availability_checker::overflow_lru_cache::{
     DataAvailabilityCheckerInner, ReconstructColumnsDecision,
@@ -362,24 +360,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         self.availability_cache
             .put_kzg_verified_data_columns(block_root, verified_custody_columns)
-    }
-
-    /// Check if we've cached other blobs for this block. If it completes a set and we also
-    /// have a block cached, return the `Availability` variant triggering block import.
-    /// Otherwise cache the blob sidecar.
-    ///
-    /// This should only accept gossip verified blobs, so we should not have to worry about dupes.
-    #[instrument(skip_all, level = "trace")]
-    pub fn put_gossip_verified_blobs<
-        I: IntoIterator<Item = GossipVerifiedBlob<T, O>>,
-        O: ObservationStrategy,
-    >(
-        &self,
-        block_root: Hash256,
-        blobs: I,
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        self.availability_cache
-            .put_kzg_verified_blobs(block_root, blobs.into_iter().map(|b| b.into_inner()))
     }
 
     #[instrument(skip_all, level = "trace")]
