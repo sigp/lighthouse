@@ -409,22 +409,6 @@ impl TestRig {
             .unwrap();
     }
 
-    pub fn enqueue_gossip_blob(&self, blob_index: usize) {
-        if let Some(blobs) = self.next_blobs.as_ref() {
-            let blob = blobs.get(blob_index).unwrap();
-            self.network_beacon_processor
-                .send_gossip_blob_sidecar(
-                    junk_message_id(),
-                    junk_peer_id(),
-                    Client::default(),
-                    blob.index,
-                    blob.clone(),
-                    Duration::from_secs(0),
-                )
-                .unwrap();
-        }
-    }
-
     pub fn enqueue_gossip_data_columns(&self, col_index: usize) {
         if let Some(data_columns) = self.next_data_columns.as_ref() {
             let data_column = data_columns.get(col_index).unwrap();
@@ -1101,13 +1085,6 @@ async fn import_gossip_block_acceptably_early() {
     rig.assert_event_journal_completes(&[WorkType::GossipBlock])
         .await;
 
-    let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
-    for i in 0..num_blobs {
-        rig.enqueue_gossip_blob(i);
-        rig.assert_event_journal_completes(&[WorkType::GossipBlobSidecar])
-            .await;
-    }
-
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     for i in 0..num_data_columns {
         rig.enqueue_gossip_data_columns(i);
@@ -1242,13 +1219,6 @@ async fn import_gossip_block_at_current_slot() {
     rig.assert_event_journal_completes(&[WorkType::GossipBlock])
         .await;
 
-    let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
-    for i in 0..num_blobs {
-        rig.enqueue_gossip_blob(i);
-        rig.assert_event_journal_completes(&[WorkType::GossipBlobSidecar])
-            .await;
-    }
-
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     for i in 0..num_data_columns {
         rig.enqueue_gossip_data_columns(i);
@@ -1315,10 +1285,6 @@ async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod
         BlockImportMethod::Gossip => {
             rig.enqueue_gossip_block();
             events.push(WorkType::GossipBlock);
-            for i in 0..num_blobs {
-                rig.enqueue_gossip_blob(i);
-                events.push(WorkType::GossipBlobSidecar);
-            }
             for i in 0..num_data_columns {
                 rig.enqueue_gossip_data_columns(i);
                 events.push(WorkType::GossipDataColumnSidecar);
@@ -1401,10 +1367,6 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
         BlockImportMethod::Gossip => {
             rig.enqueue_gossip_block();
             events.push(WorkType::GossipBlock);
-            for i in 0..num_blobs {
-                rig.enqueue_gossip_blob(i);
-                events.push(WorkType::GossipBlobSidecar);
-            }
             for i in 0..num_data_columns {
                 rig.enqueue_gossip_data_columns(i);
                 events.push(WorkType::GossipDataColumnSidecar)
