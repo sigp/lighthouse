@@ -33,11 +33,11 @@ PROFILE ?= release
 # List of all hard forks up to gloas. This list is used to set env variables for several tests so that
 # they run for different forks.
 # TODO(EIP-7732) Remove this once we extend network tests to support gloas and use RECENT_FORKS instead
-RECENT_FORKS_BEFORE_GLOAS=electra fulu
+RECENT_FORKS_BEFORE_GLOAS=fulu
 
 # List of all recent hard forks. This list is used to set env variables for http_api tests
 # Include phase0 to test the code paths in sync that are pre blobs
-RECENT_FORKS=electra fulu gloas
+RECENT_FORKS=fulu gloas
 
 # For network tests include phase0 to cover genesis syncing (blocks without blobs or columns)
 TEST_NETWORK_FORKS=phase0 $(RECENT_FORKS_BEFORE_GLOAS)

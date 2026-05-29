@@ -1205,17 +1205,6 @@ impl TestRig {
         self.trigger_unknown_parent_block(peer_id, last_block);
     }
 
-    fn trigger_with_last_unknown_blob_parent(&mut self) {
-        let peer_id = self.new_connected_supernode_peer();
-        let blobs = self
-            .get_last_block()
-            .block_data()
-            .blobs()
-            .expect("no blobs");
-        let blob = blobs.first().expect("empty blobs");
-        self.trigger_unknown_parent_blob(peer_id, blob.clone());
-    }
-
     fn trigger_with_last_unknown_data_column_parent(&mut self) {
         let peer_id = self.new_connected_supernode_peer();
         let columns = self
@@ -1224,7 +1213,7 @@ impl TestRig {
             .data_columns()
             .expect("No data columns");
         let column = columns.first().expect("empty columns");
-        self.trigger_unknown_parent_column(peer_id, column.clone());
+        self.trigger_unknown_parent_data_column(peer_id, column.clone());
     }
 
     // Post-test assertions
@@ -1428,6 +1417,10 @@ impl TestRig {
         genesis_fork().deneb_enabled().then(Self::default)
     }
 
+    fn new_after_fulu() -> Option<Self> {
+        genesis_fork().fulu_enabled().then(Self::default)
+    }
+
     fn new_after_deneb_before_fulu() -> Option<Self> {
         let fork = genesis_fork();
         if fork.deneb_enabled() && !fork.fulu_enabled() {
@@ -1463,16 +1456,12 @@ impl TestRig {
         self.send_sync_message(SyncMessage::UnknownParentBlock(peer_id, block, block_root))
     }
 
-    fn trigger_unknown_parent_blob(&mut self, peer_id: PeerId, blob: Arc<BlobSidecar<E>>) {
-        self.send_sync_message(SyncMessage::UnknownParentBlob(peer_id, blob));
-    }
-
-    fn trigger_unknown_parent_column(
+    fn trigger_unknown_parent_data_column(
         &mut self,
         peer_id: PeerId,
-        column: Arc<DataColumnSidecar<E>>,
+        data_column: Arc<DataColumnSidecar<E>>,
     ) {
-        self.send_sync_message(SyncMessage::UnknownParentDataColumn(peer_id, column));
+        self.send_sync_message(SyncMessage::UnknownParentDataColumn(peer_id, data_column));
     }
 
     fn trigger_unknown_block_from_attestation(&mut self, block_root: Hash256, peer_id: PeerId) {
@@ -1757,9 +1746,9 @@ impl TestRig {
             )
             .unwrap()
         {
-            Availability::Available(_) => panic!("blob removed from da_checker, available"),
+            Availability::Available(_) => panic!("column removed from da_checker, available"),
             Availability::MissingComponents(block_root) => {
-                self.log(&format!("inserted blob to da_checker {block_root:?}"))
+                self.log(&format!("inserted column to da_checker {block_root:?}"))
             }
         };
     }
@@ -1944,35 +1933,29 @@ async fn happy_path_unknown_block_parent(depth: usize) {
     }
 }
 
-/// Assert that sync completes from a GossipUnknownParentBlob / UnknownDataColumnParent
+/// Assert that sync completes from an UnknownDataColumnParent
 async fn happy_path_unknown_data_parent(depth: usize) {
-    let Some(mut r) = TestRig::new_after_deneb() else {
+    let Some(mut r) = TestRig::new_after_fulu() else {
         return;
     };
     r.build_chain(depth).await;
-    if r.is_after_fulu() {
-        r.trigger_with_last_unknown_data_column_parent();
-    } else if r.is_after_deneb() {
-        r.trigger_with_last_unknown_blob_parent();
-    }
+    r.trigger_with_last_unknown_data_column_parent();
     r.simulate(SimulateConfig::happy_path()).await;
     r.assert_successful_lookup_sync_parent_trigger();
 }
 
 /// Assert that multiple trigger types don't create extra lookups
 async fn happy_path_multiple_triggers(depth: usize) {
-    let mut r = TestRig::default();
+    let Some(mut r) = TestRig::new_after_fulu() else {
+        return;
+    };
     // + 1, because the unknown parent trigger needs two new blocks
     r.build_chain(depth + 1).await;
     r.trigger_with_last_block();
     r.trigger_with_last_block();
     r.trigger_with_last_unknown_block_parent();
     r.trigger_with_last_unknown_block_parent();
-    if r.is_after_fulu() {
-        r.trigger_with_last_unknown_data_column_parent();
-    } else if r.is_after_deneb() {
-        r.trigger_with_last_unknown_blob_parent();
-    }
+    r.trigger_with_last_unknown_data_column_parent();
     r.simulate(SimulateConfig::happy_path()).await;
     assert_eq!(r.created_lookups(), depth + 1, "Don't create extra lookups");
     r.assert_successful_lookup_sync();
@@ -2105,18 +2088,14 @@ async fn too_many_processing_failures(depth: usize) {
 #[tokio::test]
 /// Assert that multiple trigger types don't create extra lookups
 async fn unknown_parent_does_not_add_peers_to_itself() {
-    let Some(mut r) = TestRig::new_after_deneb() else {
+    let Some(mut r) = TestRig::new_after_fulu() else {
         return;
     };
     // 2, because the unknown parent trigger needs two new blocks
     r.build_chain(2).await;
     r.trigger_with_last_unknown_block_parent();
     r.trigger_with_last_unknown_block_parent();
-    if r.is_after_fulu() {
-        r.trigger_with_last_unknown_data_column_parent();
-    } else if r.is_after_deneb() {
-        r.trigger_with_last_unknown_blob_parent();
-    }
+    r.trigger_with_last_unknown_data_column_parent();
     r.simulate(SimulateConfig::happy_path()).await;
     r.assert_peers_at_lookup_of_slot(2, 0);
     r.assert_peers_at_lookup_of_slot(1, 3);

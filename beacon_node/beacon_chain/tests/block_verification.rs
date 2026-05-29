@@ -1456,20 +1456,8 @@ async fn verify_and_process_gossip_data_sidecars(
     data_sidecars: DataSidecars<E>,
 ) {
     match data_sidecars {
-        DataSidecars::Blobs(blob_sidecars) => {
-            for blob_sidecar in blob_sidecars {
-                let blob_index = blob_sidecar.index;
-                let gossip_verified = harness
-                    .chain
-                    .verify_blob_sidecar_for_gossip(blob_sidecar.clone(), blob_index)
-                    .expect("should obtain gossip verified blob");
-
-                harness
-                    .chain
-                    .process_gossip_blob(gossip_verified)
-                    .await
-                    .expect("should import valid gossip verified blob");
-            }
+        DataSidecars::Blobs(_blob_sidecars) => {
+            // Blob gossip is deprecated, blobs are available via RPC.
         }
         DataSidecars::DataColumns(column_sidecars) => {
             let gossip_verified = column_sidecars
@@ -1521,14 +1509,9 @@ async fn verify_block_for_gossip_slashing_detection() {
 
     let verified_block = harness.chain.verify_block_for_gossip(block1).await.unwrap();
 
-    if let Some((kzg_proofs, blobs)) = blobs1 {
+    if blobs1.is_some() {
         harness
-            .process_gossip_blobs_or_columns(
-                verified_block.block(),
-                blobs.iter(),
-                kzg_proofs.iter(),
-                None,
-            )
+            .process_gossip_columns(verified_block.block(), None)
             .await;
     }
     harness
