@@ -444,7 +444,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn waits_until_payload_attestation_due() {
+    async fn test_wait_for_attestation_slot() {
         tokio::time::pause();
 
         let harness = TestHarness::new().await;
@@ -520,6 +520,8 @@ mod tests {
             "Expected one payload attestation message"
         );
 
+        // First try on beacon_node_1 (mock_ssz) is successful
+        // therefore mock_json is not hit at all
         mock_ssz.expect(1).assert();
         mock_json.expect(0).assert();
 
