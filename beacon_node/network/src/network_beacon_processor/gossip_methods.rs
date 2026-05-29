@@ -1409,28 +1409,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         invalid_block_storage: InvalidBlockStorage,
         seen_duration: Duration,
     ) -> MessageAcceptance {
-        let (validation_result, maybe_gossip_verified_block) = self
-            .process_gossip_unverified_block(
-                message_id,
-                peer_id,
-                peer_client,
-                block.clone(),
-                seen_duration,
-            )
-            .await;
-
-        if let Some(gossip_verified_block) = maybe_gossip_verified_block {
-            self.process_gossip_verified_or_early_block(
-                peer_id,
-                gossip_verified_block,
-                duplicate_cache,
-                invalid_block_storage,
-                seen_duration,
-            )
-            .await;
-        }
-
-        validation_result
+        self.process_gossip_unverified_block(
+            message_id,
+            peer_id,
+            peer_client,
+            block.clone(),
+            seen_duration,
+            Some((duplicate_cache, invalid_block_storage)),
+        )
+        .await
     }
 
     /// Process the beacon block received from the gossip network up to the gossip validation
@@ -1444,16 +1431,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         seen_duration: Duration,
     ) -> MessageAcceptance {
-        self.process_gossip_unverified_block(message_id, peer_id, peer_client, block, seen_duration)
-            .await
-            .0
+        self.process_gossip_unverified_block(
+            message_id,
+            peer_id,
+            peer_client,
+            block,
+            seen_duration,
+            None,
+        )
+        .await
     }
 
     /// Process the beacon block received from the gossip network and
     /// if it passes gossip propagation criteria, tell the network thread to forward it.
     ///
-    /// Returns the gossipsub validation result, and the `GossipVerifiedBlock` if validation
-    /// passes. This method does not import or queue the block for later import.
+    /// Returns the gossipsub validation result and optionally imports or queues the block after
+    /// validation.
     async fn process_gossip_unverified_block(
         self: &Arc<Self>,
         message_id: MessageId,
@@ -1461,7 +1454,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_client: Client,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         seen_duration: Duration,
-    ) -> (MessageAcceptance, Option<GossipVerifiedBlock<T>>) {
+        import_valid_block: Option<(DuplicateCache, InvalidBlockStorage)>,
+    ) -> MessageAcceptance {
         let block_delay =
             get_block_delay_ms(seen_duration, block.message(), &self.chain.slot_clock);
         // Log metrics to track delay from other nodes on the network.
@@ -1532,7 +1526,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 /* punish peer for submitting an equivocation, but not too harshly as honest peers may conceivably forward equivocating blocks to us from time to time */
                 self.gossip_penalize_peer(
-                    peer_id.clone(),
+                    peer_id,
                     PeerAction::MidToleranceError,
                     "gossip_block_mid",
                 );
@@ -1540,11 +1534,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(BlockError::ParentUnknown { .. }) => {
                 debug!(?block_root, "Unknown parent for gossip block");
-                self.send_sync_message(SyncMessage::UnknownParentBlock(
-                    peer_id.clone(),
-                    block,
-                    block_root,
-                ));
+                self.send_sync_message(SyncMessage::UnknownParentBlock(peer_id, block, block_root));
                 (MessageAcceptance::Ignore, None, false)
             }
             Err(e @ BlockError::BeaconChainError(_)) => {
@@ -1571,7 +1561,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 // Prevent recurring behaviour by penalizing the peer slightly.
                 self.gossip_penalize_peer(
-                    peer_id.clone(),
+                    peer_id,
                     PeerAction::HighToleranceError,
                     "gossip_block_high",
                 );
@@ -1588,7 +1578,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // finalization. Old versions of Erigon/Caplin are known to gossip pre-finalization
                 // blocks and we want to isolate them to encourage an update.
                 self.gossip_penalize_peer(
-                    peer_id.clone(),
+                    peer_id,
                     PeerAction::LowToleranceError,
                     "gossip_block_low",
                 );
@@ -1617,7 +1607,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             | Err(e @ BlockError::BidParentRootMismatch { .. }) => {
                 warn!(error = %e, "Could not verify block for gossip. Rejecting the block");
                 self.gossip_penalize_peer(
-                    peer_id.clone(),
+                    peer_id,
                     PeerAction::LowToleranceError,
                     "gossip_block_low",
                 );
@@ -1645,7 +1635,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
 
         let Some(verified_block) = maybe_verified_block else {
-            return (validation_result, None);
+            return validation_result;
         };
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_VERIFIED_TOTAL);
@@ -1661,7 +1651,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             &self.chain.slot_clock,
         );
 
-        (validation_result, Some(verified_block))
+        if let Some((duplicate_cache, invalid_block_storage)) = import_valid_block {
+            Box::pin(self.process_gossip_verified_or_early_block(
+                peer_id,
+                verified_block,
+                duplicate_cache,
+                invalid_block_storage,
+                seen_duration,
+            ))
+            .await;
+        }
+
+        validation_result
     }
 
     async fn process_gossip_verified_or_early_block(
