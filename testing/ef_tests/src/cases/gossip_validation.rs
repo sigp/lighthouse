@@ -368,12 +368,17 @@ impl<E: EthSpec> GossipTester<E> {
             .ok_or_else(|| Error::FailedToParseTest("message time overflow".into()))?;
         let seen_duration = self.set_time_ms(time_ms)?;
 
-        self.block_on_dangerous(self.network_beacon_processor.clone().validate_gossip_block(
+        let process_fn = Box::pin(self.network_beacon_processor.clone().process_gossip_block(
+            MessageId::new(&[]),
             PeerId::random(),
             Client::default(),
             block,
+            self.network_beacon_processor.duplicate_cache.clone(),
+            self.network_beacon_processor.invalid_block_storage.clone(),
             seen_duration,
-        ))
+        ));
+
+        self.block_on_dangerous(process_fn)
     }
 
     fn import_setup_block(
