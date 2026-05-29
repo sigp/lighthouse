@@ -202,58 +202,66 @@ impl<E: EthSpec> GossipTester<E> {
             // anchor helper use its production default for this placeholder case.
             (checkpoint.epoch.as_u64() != 0 || !checkpoint.root.is_zero()).then_some(checkpoint)
         };
-        let case_head_root = if case.meta.blocks.is_empty() {
+        let case_head_root = case.case_head_root()?;
+        let spec = Arc::new(spec);
+        let anchor_index = if case.meta.blocks.is_empty() {
             None
         } else {
-            Some(case.case_head_root()?)
+            Some(case.anchor_setup_block_index(&blocks, case_head_root)?)
         };
-        let spec = Arc::new(spec);
-        let (harness, anchor_index) = if case.meta.blocks.is_empty() {
-            (
-                BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
-                    .spec(spec.clone())
-                    .keypairs(vec![])
-                    .genesis_state_ephemeral_store(case.state.clone())
-                    .mock_execution_layer()
-                    .recalculate_fork_times_with_genesis(genesis_time)
-                    .mock_execution_layer_all_payloads_valid()
-                    .build(),
-                None,
-            )
-        } else {
-            let anchor_index = 0;
-            // The consensus-spec networking format uses the first setup block as the anchor
-            // for `state.ssz_snappy`. Subsequent setup blocks are imported normally when
-            // they are not marked as failed.
+        let harness_builder = || {
+            BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
+                .spec(spec.clone())
+                .keypairs(vec![])
+                .mock_execution_layer()
+                .recalculate_fork_times_with_genesis(genesis_time)
+                .mock_execution_layer_all_payloads_valid()
+        };
+        let harness = if let Some(anchor_index) = anchor_index {
+            let anchor_setup_block = &case.meta.blocks[anchor_index];
+            if anchor_setup_block.failed {
+                return Err(Error::FailedToParseTest(format!(
+                    "anchor block {} is marked as failed",
+                    anchor_setup_block.block
+                )));
+            }
+            if !matches!(
+                anchor_setup_block.payload_status,
+                None | Some(PayloadStatus::Valid)
+            ) {
+                return Err(Error::FailedToParseTest(format!(
+                    "anchor block {} has unsupported payload status {:?}",
+                    anchor_setup_block.block, anchor_setup_block.payload_status
+                )));
+            }
+            // The consensus-spec networking format models `blocks` as store contents. Use the
+            // block that matches `state.ssz_snappy` as the anchor, then import the other setup
+            // blocks according to their metadata.
             let anchor_block = blocks
-                .get(&case.meta.blocks[anchor_index].block)
+                .get(&anchor_setup_block.block)
                 .ok_or_else(|| Error::FailedToParseTest("missing anchor block".into()))?
                 .clone();
             let anchor_state = case.state.clone();
             let genesis_state = case.state.clone();
             let store =
                 Arc::new(HotColdDB::open_ephemeral(StoreConfig::default(), spec.clone()).unwrap());
-            (
-                BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
-                    .spec(spec.clone())
-                    .keypairs(vec![])
-                    .mock_execution_layer()
-                    .recalculate_fork_times_with_genesis(genesis_time)
-                    .mock_execution_layer_all_payloads_valid()
-                    .resumed_ephemeral_store(store)
-                    .override_store_mutator(Box::new(move |builder| {
-                        builder
-                            .testing_anchor_state(
-                                anchor_state,
-                                anchor_block,
-                                finalized_checkpoint,
-                                genesis_state,
-                            )
-                            .expect("should build test anchor state")
-                    }))
-                    .build(),
-                Some(anchor_index),
-            )
+            harness_builder()
+                .resumed_ephemeral_store(store)
+                .override_store_mutator(Box::new(move |builder| {
+                    builder
+                        .testing_anchor_state(
+                            anchor_state,
+                            anchor_block,
+                            finalized_checkpoint,
+                            genesis_state,
+                        )
+                        .expect("should build test anchor state")
+                }))
+                .build()
+        } else {
+            harness_builder()
+                .genesis_state_ephemeral_store(case.state.clone())
+                .build()
         };
 
         let network_beacon_processor =
@@ -264,7 +272,7 @@ impl<E: EthSpec> GossipTester<E> {
             spec: spec.as_ref().clone(),
             genesis_time,
             current_time_ms: case.meta.current_time_ms,
-            case_head_root,
+            case_head_root: Some(case_head_root),
             failed_blocks: case
                 .meta
                 .blocks
@@ -287,7 +295,7 @@ impl<E: EthSpec> GossipTester<E> {
             if setup_block.failed {
                 continue;
             }
-            if anchor_index.is_some_and(|anchor_index| index <= anchor_index) {
+            if anchor_index == Some(index) {
                 continue;
             }
             let block = blocks.get(&setup_block.block).ok_or_else(|| {
@@ -592,6 +600,26 @@ impl<E: EthSpec> GossipValidation<E> {
             Error::FailedToParseTest(format!("unable to compute case state root: {e:?}"))
         })?;
         Ok(state.get_latest_block_root(state_root))
+    }
+
+    fn anchor_setup_block_index(
+        &self,
+        blocks: &HashMap<String, SignedBeaconBlock<E>>,
+        case_head_root: Hash256,
+    ) -> Result<usize, Error> {
+        self.meta
+            .blocks
+            .iter()
+            .position(|setup_block| {
+                blocks
+                    .get(&setup_block.block)
+                    .is_some_and(|block| block.canonical_root() == case_head_root)
+            })
+            .ok_or_else(|| {
+                Error::FailedToParseTest(format!(
+                    "no setup block matches case head root {case_head_root:?}"
+                ))
+            })
     }
 
     fn load_beacon_blocks(

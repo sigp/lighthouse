@@ -1274,6 +1274,22 @@ where
             .map_err(|e| format!("Error computing anchor state root: {e:?}"))?;
 
         let anchor_block_root = anchor_block.canonical_root();
+        if anchor_block.state_root() != anchor_state_root {
+            return Err(format!(
+                "Anchor block state root does not match anchor state, expected: {:?}, got: {:?}",
+                anchor_block.state_root(),
+                anchor_state_root,
+            ));
+        }
+
+        let state_latest_block_root = anchor_state.get_latest_block_root(anchor_state_root);
+        if anchor_block_root != state_latest_block_root {
+            return Err(format!(
+                "Anchor state's most recent block root does not match anchor block, expected: {:?}, got: {:?}",
+                anchor_block_root, state_latest_block_root
+            ));
+        }
+
         let fork_choice_epoch = finalized_checkpoint
             .map(|checkpoint| checkpoint.epoch)
             .unwrap_or_else(|| anchor_block.slot().epoch(E::slots_per_epoch()));
