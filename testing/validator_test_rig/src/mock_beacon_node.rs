@@ -195,10 +195,16 @@ impl<E: EthSpec> MockBeaconNode<E> {
                 );
                 let body = request.body().expect("Failed to get request body");
 
-                let message = PayloadAttestationMessage::from_ssz_bytes(body)
-                    .expect("Failed to deserialize body as PayloadAttestationMessage");
+                let message = <PayloadAttestationMessage>::ssz_fixed_len();
+                let messages: Vec<PayloadAttestationMessage> = body
+                    .chunks(message)
+                    .map(|chunk| {
+                        PayloadAttestationMessage::from_ssz_bytes(chunk)
+                            .expect("Failed to deserialize PayloadAttestationMessage from SSZ")
+                    })
+                    .collect();
 
-                payload_attestation_message.lock().unwrap().push(message);
+                payload_attestation_message.lock().unwrap().extend(messages);
                 std::thread::sleep(delay);
                 vec![]
             })
