@@ -7,7 +7,7 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use tracing::{debug, error, info};
-use types::{ChainSpec, EthSpec};
+use types::{ChainSpec, EthSpec, Slot};
 use validator_store::ValidatorStore;
 
 pub struct Inner<S, T> {
@@ -39,7 +39,11 @@ impl<S, T> Deref for PayloadAttestationService<S, T> {
     }
 }
 
-impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationService<S, T> {
+impl<S, T> PayloadAttestationService<S, T>
+where
+    S: ValidatorStore + 'static,
+    T: SlotClock + 'static,
+{
     pub fn new(
         duties_service: Arc<DutiesService<S, T>>,
         validator_store: Arc<S>,
@@ -61,11 +65,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
     }
 
     pub fn start_update_service(self) -> Result<(), String> {
-        let slot_duration = self.chain_spec.get_slot_duration();
-        let payload_attestation_due = self.chain_spec.get_payload_attestation_due();
-
         info!(
-            payload_attestation_due_ms = payload_attestation_due.as_millis(),
+            payload_attestation_due_ms = self.chain_spec.get_payload_attestation_due().as_millis(),
             "Payload attestation service started"
         );
 
@@ -73,51 +74,60 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
 
         let interval_fut = async move {
             loop {
-                let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() else {
-                    error!("Failed to read slot clock");
-                    sleep(slot_duration).await;
-                    continue;
-                };
-
-                let Some(current_slot) = self.slot_clock.now() else {
-                    error!("Failed to read slot clock after trigger");
-                    continue;
-                };
-
-                if !self
-                    .chain_spec
-                    .fork_name_at_slot::<S::E>(current_slot)
-                    .gloas_enabled()
-                {
-                    let duration_to_next_epoch = self
-                        .slot_clock
-                        .duration_to_next_epoch(S::E::slots_per_epoch())
-                        .unwrap_or_else(|| {
-                            self.chain_spec.get_slot_duration() * S::E::slots_per_epoch() as u32
-                        });
-                    sleep(duration_to_next_epoch).await;
-                    continue;
-                }
-
-                sleep(duration_to_next_slot + payload_attestation_due).await;
-
-                let Some(attestation_slot) = self.slot_clock.now() else {
-                    error!("Failed to read slot clock after sleep");
-                    continue;
-                };
-
-                let service = self.clone();
-                self.executor.spawn(
-                    async move {
-                        service.produce_and_publish(attestation_slot).await;
-                    },
-                    "payload_attestation_producer",
-                );
+                self.run_update().await;
             }
         };
 
         executor.spawn(interval_fut, "payload_attestation_service");
         Ok(())
+    }
+
+    async fn run_update(&self) {
+        let Some(attestation_slot) = self.wait_for_attestation_slot().await else {
+            return;
+        };
+
+        self.produce_and_publish(attestation_slot).await;
+    }
+
+    async fn wait_for_attestation_slot(&self) -> Option<Slot> {
+        let slot_duration = self.chain_spec.get_slot_duration();
+        let payload_attestation_due = self.chain_spec.get_payload_attestation_due();
+
+        let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() else {
+            error!("Failed to read slot clock");
+            sleep(slot_duration).await;
+            return None;
+        };
+
+        let Some(current_slot) = self.slot_clock.now() else {
+            error!("Failed to read slot clock after trigger");
+            return None;
+        };
+
+        if !self
+            .chain_spec
+            .fork_name_at_slot::<S::E>(current_slot)
+            .gloas_enabled()
+        {
+            let duration_to_next_epoch = self
+                .slot_clock
+                .duration_to_next_epoch(S::E::slots_per_epoch())
+                .unwrap_or_else(|| {
+                    self.chain_spec.get_slot_duration() * S::E::slots_per_epoch() as u32
+                });
+            sleep(duration_to_next_epoch).await;
+            return None;
+        }
+
+        sleep(duration_to_next_slot + payload_attestation_due).await;
+
+        let Some(attestation_slot) = self.slot_clock.now() else {
+            error!("Failed to read slot clock after sleep");
+            return None;
+        };
+
+        Some(attestation_slot)
     }
 
     async fn produce_and_publish(&self, slot: types::Slot) {
@@ -261,6 +271,7 @@ mod tests {
     use bls::{Keypair, PublicKeyBytes};
     use eth2::types::PtcDuty;
     use eth2_keystore::KeystoreBuilder;
+    use futures::FutureExt;
     use initialized_validators::InitializedValidators;
     use lighthouse_validator_store::LighthouseValidatorStore;
     use slashing_protection::{SLASHING_PROTECTION_FILENAME, SlashingDatabase};
@@ -340,7 +351,6 @@ mod tests {
         validator_store: Arc<S>,
         pubkey: PublicKeyBytes,
         slot_clock: ManualSlotClock,
-        slot_duration: Duration,
         beacon_node_fallback: Arc<BeaconNodeFallback<ManualSlotClock>>,
         executor: task_executor::TaskExecutor,
         spec: Arc<ChainSpec>,
@@ -396,7 +406,6 @@ mod tests {
                 validator_store,
                 pubkey,
                 slot_clock,
-                slot_duration,
                 beacon_node_fallback,
                 executor,
                 spec,
@@ -417,33 +426,58 @@ mod tests {
                 .insert(Epoch::new(0), (Hash256::ZERO, vec![duty]));
         }
 
-        fn start_service(self) -> Self {
-            let service = PayloadAttestationService::new(
+        fn service(&self) -> PayloadAttestationService<S, ManualSlotClock> {
+            PayloadAttestationService::new(
                 self.duties_service.clone(),
                 self.validator_store.clone(),
                 self.slot_clock.clone(),
                 self.beacon_node_fallback.clone(),
                 self.executor.clone(),
                 self.spec.clone(),
-            );
-            service.start_update_service().unwrap();
-            self
+            )
         }
     }
 
     async fn advance_time(slot_clock: &ManualSlotClock, duration: Duration) {
         slot_clock.advance_time(duration);
         tokio::time::advance(duration).await;
-        // NOTE: The `tokio::time::advance` fn actually calls `yield_now()` after advancing the
-        // clock. Why do we need an extra `yield_now`?
-        // Yield a few times: allow timer wakeups and give spawned tasks scheduling chances.
-        tokio::task::yield_now().await;
+    }
+
+    #[tokio::test]
+    async fn waits_until_payload_attestation_due() {
+        tokio::time::pause();
+
+        let harness = TestHarness::new().await;
+        let service = harness.service();
+        let wait = service.wait_for_attestation_slot();
+        tokio::pin!(wait);
+
+        // This first call of .now_or_never() starts the timer and registers the sleep timer with tokio
+        // It calls sleep(duration_to_next_slot + payload_attestation_due).await which registers a timer with a deadline of 21s
+        assert!(wait.as_mut().now_or_never().is_none());
+
+        let duration_to_next_slot = harness.slot_clock.duration_to_next_slot().unwrap();
+        let payload_attestation_due = harness.spec.get_payload_attestation_due();
+        let duration_to_wait = duration_to_next_slot + payload_attestation_due;
+        // Advance both slot_clock and tokio::time to 21s (the sleep deadline)
+        // The timer hasn't fired yet because tokio requires time to be strictly past the deadline.
+        // so the following assert! should return None
+        // This verifies that the function wait_for_attestation_slot waits the correct duration before returning a slot.
+        advance_time(&harness.slot_clock, duration_to_wait).await;
+        assert!(
+            wait.as_mut().now_or_never().is_none(),
+            "Function should return None before the sleep duration has elapsed"
+        );
+
+        // Advance time for 1 more second, the sleep should have completed and the function should return Some(attestation_slot)
+        // slot_clock is now at 22s, which is slot 1
+        // Removing this advance_time should cause the following assert_eq! to fail
+        advance_time(&harness.slot_clock, Duration::from_secs(1)).await;
+        assert_eq!(wait.as_mut().now_or_never().unwrap(), Some(Slot::new(1)));
     }
 
     #[tokio::test]
     async fn publish_payload_attestation_ssz() {
-        tokio::time::pause();
-
         let mut harness = TestHarness::new().await;
 
         let attestation_slot = Slot::new(1);
@@ -471,51 +505,8 @@ mod tests {
             .mock_beacon_node_2
             .mock_post_beacon_pool_payload_attestations();
 
-        let harness = harness.start_service();
-
-        // Advance slot clock to slot 1
-        // harness.slot_clock.advance_time(harness.slot_duration);
-
-        // The service sleeps for: duration_to_next_slot (12s) + payload_attestation_due (9s) = 21s
-        // Assert nothing is published <= 21s
-        eprintln!(
-            "slot_clock before advance_time = {:?}",
-            harness.slot_clock.now_duration()
-        );
-        eprintln!(
-            "tokio::time before advance_time = {:?}",
-            tokio::time::Instant::now()
-        );
-        advance_time(&harness.slot_clock, Duration::from_secs(21)).await;
-
-        eprintln!(
-            "slot_clock after advance 21s = {:?}",
-            harness.slot_clock.now_duration()
-        );
-        eprintln!(
-            "tokio::time after advance 21s = {:?}",
-            tokio::time::Instant::now()
-        );
-        assert!(
-            harness
-                .mock_beacon_node_1
-                .payload_attestation_message
-                .lock()
-                .unwrap()
-                .is_empty(),
-            "payload attestation should not be published before the sleep duration"
-        );
-
-        // After the sleep below, we sleep for > 21s, so messages should not be empty
-        advance_time(&harness.slot_clock, Duration::from_secs(1)).await;
-        eprintln!(
-            "slot_clock after advance 22s = {:?}",
-            harness.slot_clock.now_duration()
-        );
-        eprintln!(
-            "tokio::time after advance 22s = {:?}",
-            tokio::time::Instant::now()
-        );
+        let service = harness.service();
+        service.produce_and_publish(attestation_slot).await;
 
         let messages = harness
             .mock_beacon_node_1
@@ -529,7 +520,6 @@ mod tests {
             "Expected one payload attestation message"
         );
 
-        // First mock beacon node try is successful, so mock_json has no call
         mock_ssz.expect(1).assert();
         mock_json.expect(0).assert();
 
@@ -566,7 +556,6 @@ mod tests {
                 Slot::new(1),
             );
 
-        // SSZ mock bn that returns 500 to simulate BN does not support SSZ
         let mock_ssz = harness
             .mock_beacon_node_1
             .mock_post_beacon_pool_payload_attestations_ssz_error();
@@ -574,10 +563,8 @@ mod tests {
             .mock_beacon_node_2
             .mock_post_beacon_pool_payload_attestations();
 
-        let harness = harness.start_service();
-
-        harness.slot_clock.advance_time(harness.slot_duration);
-        sleep(Duration::from_secs(22)).await;
+        let service = harness.service();
+        service.produce_and_publish(attestation_slot).await;
 
         // first_success tries both beacon nodes for SSZ post payload attestation:
         // first pass: both fail (mock_ssz returns 500, mock_json does not support SSZ)
@@ -604,18 +591,14 @@ mod tests {
     async fn no_duties_no_publish() {
         let mut harness = TestHarness::new().await;
 
-        // No duties, we don't call the get payload attestation endpoint
-
+        // we do not insert any duties in this test
         let mock = harness
             .mock_beacon_node_1
             .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
 
-        let harness = harness.start_service();
+        let service = harness.service();
+        service.produce_and_publish(Slot::new(1)).await;
 
-        harness.slot_clock.advance_time(harness.slot_duration);
-        sleep(Duration::from_secs(22)).await;
-
-        // No duties, beacon node shouldn't be called
         mock.expect(0).assert();
 
         assert!(
