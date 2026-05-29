@@ -1191,6 +1191,19 @@ fn compute_columns_for_custody_group() {
 }
 
 #[test]
+fn gossip_beacon_block() {
+    let forks = vec![
+        ForkName::Base,
+        ForkName::Altair,
+        ForkName::Bellatrix,
+        ForkName::Capella,
+    ];
+    GossipValidationHandler::<MinimalEthSpec>::for_forks("gossip_beacon_block", forks.clone())
+        .run();
+    GossipValidationHandler::<MainnetEthSpec>::for_forks("gossip_beacon_block", forks).run();
+}
+
+#[test]
 fn gossip_proposer_slashing() {
     GossipValidationHandler::<MinimalEthSpec>::new("gossip_proposer_slashing").run();
     GossipValidationHandler::<MainnetEthSpec>::new("gossip_proposer_slashing").run();

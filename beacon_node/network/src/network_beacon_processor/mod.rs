@@ -185,7 +185,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     invalid_block_storage,
                     seen_timestamp,
                 )
-                .await
+                .await;
         };
 
         self.try_send(BeaconWorkEvent {

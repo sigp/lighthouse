@@ -1408,8 +1408,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         duplicate_cache: DuplicateCache,
         invalid_block_storage: InvalidBlockStorage,
         seen_duration: Duration,
-    ) {
-        if let Some(gossip_verified_block) = self
+    ) -> MessageAcceptance {
+        let (validation_result, maybe_gossip_verified_block) = self
             .process_gossip_unverified_block(
                 message_id,
                 peer_id,
@@ -1417,34 +1417,43 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 block.clone(),
                 seen_duration,
             )
-            .await
-        {
-            let block_root = gossip_verified_block.block_root;
-            Span::current().record("block_root", block_root.to_string());
+            .await;
 
-            if let Some(handle) = duplicate_cache.check_and_insert(block_root) {
-                self.process_gossip_verified_block(
-                    peer_id,
-                    gossip_verified_block,
-                    invalid_block_storage,
-                    seen_duration,
-                )
-                .await;
-                // Drop the handle to remove the entry from the cache
-                drop(handle);
-            } else {
-                debug!(
-                    %block_root,
-                    "RPC block is being imported"
-                );
-            }
+        if let Some(gossip_verified_block) = maybe_gossip_verified_block {
+            self.process_gossip_verified_or_early_block(
+                peer_id,
+                gossip_verified_block,
+                duplicate_cache,
+                invalid_block_storage,
+                seen_duration,
+            )
+            .await;
         }
+
+        validation_result
+    }
+
+    /// Process the beacon block received from the gossip network up to the gossip validation
+    /// boundary, without importing it.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn validate_gossip_block(
+        self: Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        peer_client: Client,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        seen_duration: Duration,
+    ) -> MessageAcceptance {
+        self.process_gossip_unverified_block(message_id, peer_id, peer_client, block, seen_duration)
+            .await
+            .0
     }
 
     /// Process the beacon block received from the gossip network and
     /// if it passes gossip propagation criteria, tell the network thread to forward it.
     ///
-    /// Returns the `GossipVerifiedBlock` if verification passes and raises a log if there are errors.
+    /// Returns the gossipsub validation result, and the `GossipVerifiedBlock` if validation
+    /// passes. This method does not import or queue the block for later import.
     async fn process_gossip_unverified_block(
         self: &Arc<Self>,
         message_id: MessageId,
@@ -1452,7 +1461,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_client: Client,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         seen_duration: Duration,
-    ) -> Option<GossipVerifiedBlock<T>> {
+    ) -> (MessageAcceptance, Option<GossipVerifiedBlock<T>>) {
         let block_delay =
             get_block_delay_ms(seen_duration, block.message(), &self.chain.slot_clock);
         // Log metrics to track delay from other nodes on the network.
@@ -1482,7 +1491,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             block.canonical_root()
         };
 
-        let verified_block = match verification_result {
+        let (validation_result, maybe_verified_block, should_propagate) = match verification_result
+        {
             Ok(verified_block) => {
                 if block_delay >= self.chain.spec.get_unaggregated_attestation_due() {
                     metrics::inc_counter(&metrics::BEACON_BLOCK_DELAY_GOSSIP_ARRIVED_LATE_TOTAL);
@@ -1500,7 +1510,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     root = ?verified_block.block_root,
                     "New block received"
                 );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
                 // Log metrics to keep track of propagation delay times.
                 if let Some(duration) = SystemTime::now()
@@ -1514,7 +1523,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     );
                 }
 
-                verified_block
+                (MessageAcceptance::Accept, Some(verified_block), true)
             }
             Err(e @ BlockError::Slashable) => {
                 warn!(
@@ -1523,24 +1532,27 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 /* punish peer for submitting an equivocation, but not too harshly as honest peers may conceivably forward equivocating blocks to us from time to time */
                 self.gossip_penalize_peer(
-                    peer_id,
+                    peer_id.clone(),
                     PeerAction::MidToleranceError,
                     "gossip_block_mid",
                 );
-                return None;
+                (MessageAcceptance::Reject, None, false)
             }
             Err(BlockError::ParentUnknown { .. }) => {
                 debug!(?block_root, "Unknown parent for gossip block");
-                self.send_sync_message(SyncMessage::UnknownParentBlock(peer_id, block, block_root));
-                return None;
+                self.send_sync_message(SyncMessage::UnknownParentBlock(
+                    peer_id.clone(),
+                    block,
+                    block_root,
+                ));
+                (MessageAcceptance::Ignore, None, false)
             }
             Err(e @ BlockError::BeaconChainError(_)) => {
                 debug!(
                     error = ?e,
                     "Gossip block beacon chain error"
                 );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                return None;
+                (MessageAcceptance::Ignore, None, true)
             }
             Err(
                 BlockError::DuplicateFullyImported(_)
@@ -1550,8 +1562,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     %block_root,
                     "Gossip block is already known"
                 );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                return None;
+                (MessageAcceptance::Ignore, None, true)
             }
             Err(e @ BlockError::FutureSlot { .. }) => {
                 debug!(
@@ -1560,12 +1571,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 // Prevent recurring behaviour by penalizing the peer slightly.
                 self.gossip_penalize_peer(
-                    peer_id,
+                    peer_id.clone(),
                     PeerAction::HighToleranceError,
                     "gossip_block_high",
                 );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                return None;
+                (MessageAcceptance::Ignore, None, true)
             }
             Err(e @ BlockError::WouldRevertFinalizedSlot { .. })
             | Err(e @ BlockError::NotFinalizedDescendant { .. }) => {
@@ -1578,17 +1588,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // finalization. Old versions of Erigon/Caplin are known to gossip pre-finalization
                 // blocks and we want to isolate them to encourage an update.
                 self.gossip_penalize_peer(
-                    peer_id,
+                    peer_id.clone(),
                     PeerAction::LowToleranceError,
                     "gossip_block_low",
                 );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                return None;
+                (MessageAcceptance::Ignore, None, true)
             }
             Err(ref e @ BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
                 debug!(error = %e, "Could not verify block for gossip. Ignoring the block");
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                return None;
+                (MessageAcceptance::Ignore, None, true)
             }
             Err(e @ BlockError::StateRootMismatch { .. })
             | Err(e @ BlockError::IncorrectBlockProposer { .. })
@@ -1608,26 +1616,36 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             | Err(e @ BlockError::InvalidBlobCount { .. })
             | Err(e @ BlockError::BidParentRootMismatch { .. }) => {
                 warn!(error = %e, "Could not verify block for gossip. Rejecting the block");
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(
-                    peer_id,
+                    peer_id.clone(),
                     PeerAction::LowToleranceError,
                     "gossip_block_low",
                 );
-                return None;
+                (MessageAcceptance::Reject, None, true)
             }
             // Note: This error variant cannot be reached when doing gossip validation
             // as we do not do availability checks here.
             Err(e @ BlockError::AvailabilityCheck(_)) => {
                 crit!(error = %e, "Internal block gossip validation error. Availability check during gossip validation");
-                return None;
+                (MessageAcceptance::Ignore, None, false)
             }
             Err(e @ BlockError::InternalError(_))
             | Err(e @ BlockError::EnvelopeBlockRootUnknown(_))
             | Err(e @ BlockError::OptimisticSyncNotSupported { .. }) => {
                 error!(error = %e, "Internal block gossip validation error");
-                return None;
+                (MessageAcceptance::Ignore, None, false)
             }
+        };
+        if should_propagate {
+            self.propagate_validation_result(
+                message_id,
+                peer_id,
+                clone_message_acceptance(&validation_result),
+            );
+        }
+
+        let Some(verified_block) = maybe_verified_block else {
+            return (validation_result, None);
         };
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_VERIFIED_TOTAL);
@@ -1643,8 +1661,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             &self.chain.slot_clock,
         );
 
+        (validation_result, Some(verified_block))
+    }
+
+    async fn process_gossip_verified_or_early_block(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        verified_block: GossipVerifiedBlock<T>,
+        duplicate_cache: DuplicateCache,
+        invalid_block_storage: InvalidBlockStorage,
+        seen_duration: Duration,
+    ) {
         let block_slot = verified_block.block.slot();
         let block_root = verified_block.block_root;
+        Span::current().record("block_root", block_root.to_string());
 
         // Try read the current slot to determine if this block should be imported now or after some
         // delay.
@@ -1708,9 +1738,26 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "Failed to defer block import"
                     )
                 }
-                None
             }
-            Ok(_) => Some(verified_block),
+            Ok(_) => {
+                if let Some(handle) = duplicate_cache.check_and_insert(block_root) {
+                    self.clone()
+                        .process_gossip_verified_block(
+                            peer_id,
+                            verified_block,
+                            invalid_block_storage,
+                            seen_duration,
+                        )
+                        .await;
+                    // Drop the handle to remove the entry from the cache
+                    drop(handle);
+                } else {
+                    debug!(
+                        %block_root,
+                        "RPC block is being imported"
+                    );
+                }
+            }
             Err(e) => {
                 error!(
                     error = ?e,
@@ -1719,7 +1766,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     location = "block gossip",
                     "Failed to defer block import"
                 );
-                None
             }
         }
     }

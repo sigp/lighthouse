@@ -981,13 +981,19 @@ impl<E: EthSpec + TypeName> Handler for ComputeColumnsForCustodyGroupHandler<E> 
 
 pub struct GossipValidationHandler<E> {
     handler_name: &'static str,
+    supported_forks: Vec<ForkName>,
     _phantom: PhantomData<E>,
 }
 
 impl<E> GossipValidationHandler<E> {
-    pub const fn new(handler_name: &'static str) -> Self {
+    pub fn new(handler_name: &'static str) -> Self {
+        Self::for_forks(handler_name, ForkName::list_all())
+    }
+
+    pub fn for_forks(handler_name: &'static str, supported_forks: Vec<ForkName>) -> Self {
         Self {
             handler_name,
+            supported_forks,
             _phantom: PhantomData,
         }
     }
@@ -995,6 +1001,12 @@ impl<E> GossipValidationHandler<E> {
 
 impl<E: EthSpec + TypeName> Handler for GossipValidationHandler<E> {
     type Case = cases::GossipValidation<E>;
+
+    fn use_rayon() -> bool {
+        // Beacon-block gossip validation builds a BeaconChainHarness and mock execution layer per
+        // case. Keep networking gossip cases on the test thread instead of Rayon worker stacks.
+        false
+    }
 
     fn config_name() -> &'static str {
         E::name()
@@ -1006,6 +1018,10 @@ impl<E: EthSpec + TypeName> Handler for GossipValidationHandler<E> {
 
     fn handler_name(&self) -> String {
         self.handler_name.into()
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        self.supported_forks.contains(&fork_name)
     }
 }
 

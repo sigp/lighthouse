@@ -16,6 +16,7 @@ participation_metrics = []
 fork_from_env = []
 portable = ["bls/supranational-portable"]
 test_backfill = []
+ef_tests = []
 arbitrary = ["dep:arbitrary", "types/arbitrary"]
 
 [dependencies]
