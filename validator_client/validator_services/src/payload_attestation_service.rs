@@ -373,11 +373,11 @@ mod tests {
     }
 
     impl TestHarness {
-        async fn new() -> Self {
-            Self::create_validators(1).await
+        async fn create_one_validator() -> Self {
+            Self::create_multiple_validators(1).await
         }
 
-        async fn create_validators(num_validators: usize) -> Self {
+        async fn create_multiple_validators(num_validators: usize) -> Self {
             let mut default_spec = MainnetEthSpec::default_spec();
             default_spec.gloas_fork_epoch = Some(Epoch::new(0));
             let spec = Arc::new(default_spec);
@@ -476,7 +476,7 @@ mod tests {
     async fn test_wait_for_attestation_slot() {
         tokio::time::pause();
 
-        let harness = TestHarness::new().await;
+        let harness = TestHarness::create_one_validator().await;
         let service = harness.payload_attestation_service();
         let service_wait = service.wait_for_attestation_slot();
         tokio::pin!(service_wait);
@@ -510,7 +510,7 @@ mod tests {
 
     #[tokio::test]
     async fn publish_payload_attestation_ssz() {
-        let mut harness = TestHarness::new().await;
+        let mut harness = TestHarness::create_one_validator().await;
 
         let attestation_slot = Slot::new(1);
         harness.insert_ptc_duties(attestation_slot);
@@ -571,7 +571,7 @@ mod tests {
 
     #[tokio::test]
     async fn publish_payload_attestation_ssz_fails_fallback_to_json() {
-        let mut harness = TestHarness::new().await;
+        let mut harness = TestHarness::create_one_validator().await;
 
         let attestation_slot = Slot::new(1);
         harness.insert_ptc_duties(attestation_slot);
@@ -625,7 +625,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_duties_no_publish() {
-        let mut harness = TestHarness::new().await;
+        let mut harness = TestHarness::create_one_validator().await;
 
         // we do not insert any duties in this test
         let mock = harness
@@ -651,9 +651,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_get_payload_attestation_data_error() {
+        let mut harness = TestHarness::create_one_validator().await;
+
+        let attestation_slot = Slot::new(1);
+        // We have PTC duties
+        harness.insert_ptc_duties(attestation_slot);
+
+        // However, we simulate that that both BNs have error in get_validator_payload_attestation_data
+        harness
+            .mock_beacon_node_1
+            .mock_get_validator_payload_attestation_data_error(attestation_slot);
+        harness
+            .mock_beacon_node_2
+            .mock_get_validator_payload_attestation_data_error(attestation_slot);
+
+        let mock_ssz = harness
+            .mock_beacon_node_1
+            .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
+        let mock_json = harness
+            .mock_beacon_node_2
+            .mock_post_beacon_pool_payload_attestations();
+
+        let service = harness.payload_attestation_service();
+        // The produce_and_publish() should return early before reaching the POST endpoint
+        service.produce_and_publish(attestation_slot).await;
+
+        // Both beacon nodes should not be called at all
+        mock_ssz.expect(0).assert();
+        mock_json.expect(0).assert();
+
+        // No payload attestation message published
+        assert!(
+            harness
+                .mock_beacon_node_1
+                .payload_attestation_message
+                .lock()
+                .unwrap()
+                .is_empty(),
+            "No payload attestation should be published when get data fails"
+        );
+    }
+
+    #[tokio::test]
     async fn publish_multiple_payload_attestation_messages() {
         // Create 3 validators with 1 PTC duty for each validator
-        let mut harness = TestHarness::create_validators(3).await;
+        let mut harness = TestHarness::create_multiple_validators(3).await;
 
         let attestation_slot = Slot::new(1);
         harness.insert_ptc_duties(attestation_slot);

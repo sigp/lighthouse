@@ -157,6 +157,22 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create()
     }
 
+    /// Mocks `GET /eth/v1/validator/payload_attestation_data/{slot}` returning error
+    pub fn mock_get_validator_payload_attestation_data_error(&mut self, slot: Slot) -> Mock {
+        let path_pattern = Regex::new(&format!(
+            r"^/eth/v1/validator/payload_attestation_data/{}$",
+            slot.as_u64()
+        ))
+        .unwrap();
+
+        self.server
+            .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .with_status(500)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"message":"Internal server error"}"#)
+            .create()
+    }
+
     /// Mocks `POST /eth/v1/beacon/pool/payload_attestations`
     pub fn mock_post_beacon_pool_payload_attestations(&mut self) -> Mock {
         let path_pattern = Regex::new(r"^/eth/v1/beacon/pool/payload_attestations$").unwrap();
