@@ -27,8 +27,8 @@ pub static PROCESS_SHR_MEM: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
         "Shared memory used by the current process",
     )
 });
-pub static PROCESS_SECONDS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
-    try_create_int_gauge(
+pub static PROCESS_SECONDS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
         "process_cpu_seconds_total",
         "Total cpu time taken by the current process",
     )
@@ -135,7 +135,7 @@ pub fn scrape_process_health_metrics() {
         set_gauge(&PROCESS_RES_MEM, health.pid_mem_resident_set_size as i64);
         set_gauge(&PROCESS_VIRT_MEM, health.pid_mem_virtual_memory_size as i64);
         set_gauge(&PROCESS_SHR_MEM, health.pid_mem_shared_memory_size as i64);
-        set_gauge(&PROCESS_SECONDS, health.pid_process_seconds_total as i64);
+        set_counter_from_absolute(&PROCESS_SECONDS, health.pid_process_seconds_total);
     }
 }
 
@@ -186,5 +186,24 @@ pub fn scrape_system_health_metrics() {
             &NETWORK_BYTES_SENT,
             health.network_node_bytes_total_transmit as i64,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn process_cpu_seconds_total_is_a_counter() {
+        PROCESS_SECONDS
+            .as_ref()
+            .expect("process CPU seconds metric should initialize");
+
+        let metric = gather()
+            .into_iter()
+            .find(|metric| metric.get_name() == "process_cpu_seconds_total")
+            .expect("process CPU seconds metric should be registered");
+
+        assert_eq!(metric.get_field_type(), MetricType::COUNTER);
     }
 }
