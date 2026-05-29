@@ -373,11 +373,7 @@ mod tests {
     }
 
     impl TestHarness {
-        async fn create_one_validator() -> Self {
-            Self::create_multiple_validators(1).await
-        }
-
-        async fn create_multiple_validators(num_validators: usize) -> Self {
+        async fn create_validators(num_validators: usize) -> Self {
             let mut default_spec = MainnetEthSpec::default_spec();
             default_spec.gloas_fork_epoch = Some(Epoch::new(0));
             let spec = Arc::new(default_spec);
@@ -476,7 +472,7 @@ mod tests {
     async fn test_wait_for_attestation_slot() {
         tokio::time::pause();
 
-        let harness = TestHarness::create_one_validator().await;
+        let harness = TestHarness::create_validators(1).await;
         let service = harness.payload_attestation_service();
         let service_wait = service.wait_for_attestation_slot();
         tokio::pin!(service_wait);
@@ -510,7 +506,7 @@ mod tests {
 
     #[tokio::test]
     async fn publish_payload_attestation_ssz() {
-        let mut harness = TestHarness::create_one_validator().await;
+        let mut harness = TestHarness::create_validators(1).await;
 
         let attestation_slot = Slot::new(1);
         harness.insert_ptc_duties(attestation_slot);
@@ -571,7 +567,7 @@ mod tests {
 
     #[tokio::test]
     async fn publish_payload_attestation_ssz_fails_fallback_to_json() {
-        let mut harness = TestHarness::create_one_validator().await;
+        let mut harness = TestHarness::create_validators(1).await;
 
         let attestation_slot = Slot::new(1);
         harness.insert_ptc_duties(attestation_slot);
@@ -625,7 +621,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_duties_no_publish() {
-        let mut harness = TestHarness::create_one_validator().await;
+        let mut harness = TestHarness::create_validators(1).await;
 
         // we do not insert any duties in this test
         let mock = harness
@@ -652,7 +648,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_payload_attestation_data_error() {
-        let mut harness = TestHarness::create_one_validator().await;
+        let mut harness = TestHarness::create_validators(1).await;
 
         let attestation_slot = Slot::new(1);
         // We have PTC duties
@@ -696,7 +692,7 @@ mod tests {
     #[tokio::test]
     async fn publish_multiple_payload_attestation_messages() {
         // Create 3 validators with 1 PTC duty for each validator
-        let mut harness = TestHarness::create_multiple_validators(3).await;
+        let mut harness = TestHarness::create_validators(3).await;
 
         let attestation_slot = Slot::new(1);
         harness.insert_ptc_duties(attestation_slot);
