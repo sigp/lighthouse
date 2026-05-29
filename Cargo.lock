@@ -9715,10 +9715,8 @@ dependencies = [
 name = "validator_test_rig"
 version = "0.1.0"
 dependencies = [
- "bls",
  "eth2",
  "ethereum_ssz",
- "futures",
  "mockito",
  "regex",
  "reqwest",
@@ -9726,7 +9724,6 @@ dependencies = [
  "serde_json",
  "tracing",
  "types",
- "validator_store",
 ]
 
 [[package]]
