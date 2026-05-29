@@ -612,6 +612,39 @@ pub static FORK_CHOICE_WRITE_LOCK_AQUIRE_TIMES: LazyLock<Result<Histogram>> = La
         exponential_buckets(1e-3, 4.0, 7),
     )
 });
+pub static FORK_CHOICE_READ_LOCK_HOLD_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_fork_choice_read_lock_hold_seconds",
+        "Time the fork-choice read lock was held",
+        exponential_buckets(1e-3, 4.0, 7),
+    )
+});
+pub static FORK_CHOICE_WRITE_LOCK_HOLD_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_fork_choice_write_lock_hold_seconds",
+        "Time the fork-choice write lock was held",
+        exponential_buckets(1e-3, 4.0, 7),
+    )
+});
+pub static FORK_CHOICE_UPGRADABLE_READ_LOCK_HOLD_TIMES: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram_with_buckets(
+            "beacon_fork_choice_upgradable_read_lock_hold_seconds",
+            "Time the fork-choice upgradable read lock was held",
+            exponential_buckets(1e-3, 4.0, 7),
+        )
+    });
+/// Instrumentation bundle wiring the fork-choice `InstrumentedRwLock` to the
+/// acquire/hold histograms defined above.
+pub static FORK_CHOICE_LOCK_METRICS: crate::instrumented_lock::LockMetrics =
+    crate::instrumented_lock::LockMetrics {
+        read_acquire: &FORK_CHOICE_READ_LOCK_AQUIRE_TIMES,
+        write_acquire: &FORK_CHOICE_WRITE_LOCK_AQUIRE_TIMES,
+        upgradable_acquire: &FORK_CHOICE_UPGRADABLE_READ_LOCK_AQUIRE_TIMES,
+        read_hold: &FORK_CHOICE_READ_LOCK_HOLD_TIMES,
+        write_hold: &FORK_CHOICE_WRITE_LOCK_HOLD_TIMES,
+        upgradable_hold: &FORK_CHOICE_UPGRADABLE_READ_LOCK_HOLD_TIMES,
+    };
 pub static FORK_CHOICE_ENCODE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
         "beacon_fork_choice_encode_seconds",

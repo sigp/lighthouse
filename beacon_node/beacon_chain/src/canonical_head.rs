@@ -58,8 +58,12 @@ use fork_choice::{
 };
 use itertools::process_results;
 
+use crate::instrumented_lock::{
+    InstrumentedRwLock, InstrumentedRwLockReadGuard, InstrumentedRwLockUpgradableReadGuard,
+    InstrumentedRwLockWriteGuard,
+};
 use logging::crit;
-use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard};
+use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use slot_clock::SlotClock;
 use state_processing::AllCaches;
 use state_processing::state_advance::complete_state_advance;
@@ -89,10 +93,6 @@ impl<T> CanonicalHeadRwLock<T> {
 
     fn read(&self) -> RwLockReadGuard<'_, T> {
         self.0.read()
-    }
-
-    fn upgradable_read(&self) -> RwLockUpgradableReadGuard<'_, T> {
-        self.0.upgradable_read()
     }
 
     fn write(&self) -> RwLockWriteGuard<'_, T> {
@@ -265,6 +265,11 @@ impl<E: EthSpec> CachedHead<E> {
     }
 }
 
+/// Emit a backtrace (and record the hold-time metric) when the fork-choice lock is held for
+/// longer than this. Tuned to catch the multi-hundred-millisecond stalls described in issue
+/// #8147 without being noisy during normal operation.
+const FORK_CHOICE_LOCK_HOLD_WARN_THRESHOLD: Duration = Duration::from_millis(100);
+
 /// Represents the "canonical head" of the beacon chain.
 ///
 /// The `cached_head` is elected by the `fork_choice` algorithm contained in this struct.
@@ -276,7 +281,7 @@ impl<E: EthSpec> CachedHead<E> {
 pub struct CanonicalHead<T: BeaconChainTypes> {
     /// Provides an in-memory representation of the non-finalized block tree and is used to run the
     /// fork choice algorithm and determine the canonical head.
-    fork_choice: CanonicalHeadRwLock<BeaconForkChoice<T>>,
+    fork_choice: InstrumentedRwLock<BeaconForkChoice<T>>,
     /// Provides values cached from a previous execution of `self.fork_choice.get_head`.
     ///
     /// Although `self.fork_choice` might be slightly more advanced that this value, it is safe to
@@ -332,7 +337,12 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         };
 
         Ok(Self {
-            fork_choice: CanonicalHeadRwLock::new(fork_choice),
+            fork_choice: InstrumentedRwLock::new(
+                fork_choice,
+                &metrics::FORK_CHOICE_LOCK_METRICS,
+                "fork_choice",
+                FORK_CHOICE_LOCK_HOLD_WARN_THRESHOLD,
+            ),
             cached_head: CanonicalHeadRwLock::new(cached_head),
             recompute_head_lock: Mutex::new(()),
             fast_confirmation: fcr,
@@ -349,7 +359,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         // We don't actually need this value, however it's always present when we call this function
         // and it needs to be dropped to prevent a dead-lock. Requiring it to be passed here is
         // defensive programming.
-        mut fork_choice_write_lock: RwLockWriteGuard<BeaconForkChoice<T>>,
+        mut fork_choice_write_lock: InstrumentedRwLockWriteGuard<BeaconForkChoice<T>>,
         reset_payload_statuses: ResetPayloadStatuses,
         store: &BeaconStore<T>,
         spec: &ChainSpec,
@@ -494,23 +504,20 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     }
 
     /// Access a read-lock for fork choice.
-    pub fn fork_choice_read_lock(&self) -> RwLockReadGuard<'_, BeaconForkChoice<T>> {
-        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_READ_LOCK_AQUIRE_TIMES);
+    pub fn fork_choice_read_lock(&self) -> InstrumentedRwLockReadGuard<'_, BeaconForkChoice<T>> {
         self.fork_choice.read()
     }
 
     /// Access an upgradable read-lock for fork choice.
     pub fn fork_choice_upgradable_read_lock(
         &self,
-    ) -> RwLockUpgradableReadGuard<'_, BeaconForkChoice<T>> {
-        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_UPGRADABLE_READ_LOCK_AQUIRE_TIMES);
+    ) -> InstrumentedRwLockUpgradableReadGuard<'_, BeaconForkChoice<T>> {
         self.fork_choice.upgradable_read()
     }
 
     /// Access a write-lock for fork choice.
     #[instrument(skip_all)]
-    pub fn fork_choice_write_lock(&self) -> RwLockWriteGuard<'_, BeaconForkChoice<T>> {
-        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_WRITE_LOCK_AQUIRE_TIMES);
+    pub fn fork_choice_write_lock(&self) -> InstrumentedRwLockWriteGuard<'_, BeaconForkChoice<T>> {
         self.fork_choice.write()
     }
 }
@@ -699,7 +706,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Downgrade the fork choice write-lock to a read lock, without allowing access to any
         // other writers.
-        let fork_choice_read_lock = RwLockWriteGuard::downgrade(fork_choice_write_lock);
+        let fork_choice_read_lock = InstrumentedRwLockWriteGuard::downgrade(fork_choice_write_lock);
 
         // Read the current head value from the fork choice algorithm.
         let new_view = fork_choice_read_lock.cached_fork_choice_view();

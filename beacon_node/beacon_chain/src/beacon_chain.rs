@@ -37,6 +37,9 @@ use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_execution_payload};
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
+use crate::instrumented_lock::{
+    InstrumentedRwLockUpgradableReadGuard, InstrumentedRwLockWriteGuard,
+};
 use crate::light_client_finality_update_verification::{
     Error as LightClientFinalityUpdateError, VerifiedLightClientFinalityUpdate,
 };
@@ -111,7 +114,7 @@ use logging::crit;
 use operation_pool::{
     CompactAttestationRef, OperationPool, PersistedOperationPool, ReceivedPreCapella,
 };
-use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
+use parking_lot::{Mutex, RwLock};
 use proto_array::{DoNotReOrg, ProposerHeadError, ReOrgThreshold};
 use rand::RngCore;
 use safe_arith::SafeArith;
@@ -4318,7 +4321,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Take an exclusive write-lock on fork choice. It's very important to prevent deadlocks by
         // avoiding taking other locks whilst holding this lock.
-        let mut fork_choice = parking_lot::RwLockUpgradableReadGuard::upgrade(fork_choice_reader);
+        let mut fork_choice = InstrumentedRwLockUpgradableReadGuard::upgrade(fork_choice_reader);
 
         // Do not import a block that doesn't descend from the finalized root.
         let signed_block =
@@ -4550,7 +4553,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // We don't actually need this value, however it's always present when we call this function
         // and it needs to be dropped to prevent a dead-lock. Requiring it to be passed here is
         // defensive programming.
-        fork_choice_write_lock: RwLockWriteGuard<BeaconForkChoice<T>>,
+        fork_choice_write_lock: InstrumentedRwLockWriteGuard<BeaconForkChoice<T>>,
     ) -> Result<(), BlockError> {
         // Clear the early attester cache to prevent attestations which we would later be unable
         // to verify due to the failure.

@@ -29,6 +29,7 @@ pub mod fork_choice_signal;
 pub mod graffiti_calculator;
 pub mod historical_blocks;
 pub mod historical_data_columns;
+pub mod instrumented_lock;
 pub mod invariants;
 pub mod kzg_utils;
 pub mod light_client_finality_update_verification;
@@ -97,6 +98,10 @@ pub use events::ServerSentEventHandler;
 pub use execution_layer::EngineState;
 pub use execution_payload::NotifyExecutionLayer;
 pub use fork_choice::{ExecutionStatus, ForkchoiceUpdateParameters};
+pub use instrumented_lock::{
+    InstrumentedRwLock, InstrumentedRwLockReadGuard, InstrumentedRwLockUpgradableReadGuard,
+    InstrumentedRwLockWriteGuard,
+};
 pub use kzg::{Kzg, TrustedSetup};
 pub use metrics::scrape_for_metrics;
 pub use migrate::MigratorConfig;

@@ -58,6 +58,7 @@ use crate::data_column_verification::GossipDataColumnError;
 use crate::execution_payload::{
     NotifyExecutionLayer, PayloadNotifier, validate_execution_payload_for_gossip,
 };
+use crate::instrumented_lock::InstrumentedRwLockReadGuard;
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_block_producers::SeenBlock;
 use crate::payload_envelope_verification::EnvelopeError;
@@ -1911,7 +1912,7 @@ pub fn get_block_header_root(block_header: &SignedBeaconBlockHeader) -> Hash256 
 /// fork choice; both missing cases return `ParentUnknown`.
 #[allow(clippy::type_complexity)]
 fn verify_parent_block_and_envelope_are_known<T: BeaconChainTypes>(
-    fork_choice_read_lock: &RwLockReadGuard<BeaconForkChoice<T>>,
+    fork_choice_read_lock: &InstrumentedRwLockReadGuard<BeaconForkChoice<T>>,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
 ) -> Result<(ProtoBlock, Arc<SignedBeaconBlock<T::EthSpec>>), BlockError> {
     match fork_choice_read_lock.get_parent_import_status(&block) {
