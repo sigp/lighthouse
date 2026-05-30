@@ -542,7 +542,7 @@ mod tests {
             .lock()
             .unwrap();
 
-        // By default, one validator is created with one PTC duty, so the PayloadAttestationMessage length should be 1
+        // We create one validator with one PTC duty, so the PayloadAttestationMessage length should be 1
         assert_eq!(
             messages.len(),
             1,
@@ -587,7 +587,7 @@ mod tests {
                 Slot::new(1),
             );
 
-        // // SSZ mock bn that returns 500 to simulate BN does not support SSZ
+        // mock_ssz returns 500 to simulate BN does not support SSZ, so that it fallbacks to mock_json
         let mock_ssz = harness
             .mock_beacon_node_1
             .mock_post_beacon_pool_payload_attestations_ssz_error();
@@ -602,7 +602,7 @@ mod tests {
         // first pass: both fail (mock_ssz returns 500, mock_json does not support SSZ)
         // second pass: repeats the first pass
         // Therefore mock_ssz is hit twice.
-        // When SSZ fails, it falls back to JSON and should succeed on first call on mock_json.
+        // When SSZ fails, it fallbacks to JSON and should succeed on first call on mock_json.
         mock_ssz.expect(2).assert();
         mock_json.expect(1).assert();
 
@@ -631,7 +631,7 @@ mod tests {
         let service = harness.payload_attestation_service();
 
         // when there is no duty, produce_and_publish should return early
-        // therefore, the beacon node is not called, hence expect to hit 0
+        // therefore, the beacon node is not called, expected to hit 0
         service.produce_and_publish(Slot::new(1)).await;
         mock.expect(0).assert();
 
@@ -654,7 +654,7 @@ mod tests {
         // We have PTC duties
         harness.insert_ptc_duties(attestation_slot);
 
-        // However, we simulate that that both BNs have error in get_validator_payload_attestation_data
+        // However, we simulate that both BNs have error in get_validator_payload_attestation_data
         harness
             .mock_beacon_node_1
             .mock_get_validator_payload_attestation_data_error(attestation_slot);
