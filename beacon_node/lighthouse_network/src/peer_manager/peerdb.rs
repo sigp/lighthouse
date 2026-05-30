@@ -870,6 +870,48 @@ impl<E: EthSpec> PeerDB<E> {
             .ok_or_else(|| "Cannot set custody subnets, peer not found".to_string())
     }
 
+    /// TESTING ONLY. Add a connected, synced peer with an explicit set of custody subnets.
+    ///
+    /// Unlike `__add_connected_peer_testing_only`, which derives custody subnets pseudo-randomly
+    /// from the peer's node id, this lets a test pin exactly which columns a peer custodies. This
+    /// is needed to test peer selection logic that depends on the relationship between a node's
+    /// custody and sampling column sets.
+    pub fn __add_connected_peer_with_custody_subnets_testing_only(
+        &mut self,
+        enr_key: CombinedKey,
+        custody_subnets: HashSet<DataColumnSubnetId>,
+    ) -> PeerId {
+        let enr = Enr::builder().build(&enr_key).unwrap();
+        let peer_id = enr.peer_id();
+
+        self.update_connection_state(
+            &peer_id,
+            NewConnectionState::Connected {
+                enr: Some(enr),
+                seen_address: Multiaddr::empty(),
+                direction: ConnectionDirection::Outgoing,
+            },
+        );
+
+        self.update_sync_status(
+            &peer_id,
+            SyncStatus::Synced {
+                info: SyncInfo {
+                    head_slot: Slot::new(0),
+                    head_root: Hash256::ZERO,
+                    finalized_epoch: Epoch::new(0),
+                    finalized_root: Hash256::ZERO,
+                    earliest_available_slot: Some(Slot::new(0)),
+                },
+            },
+        );
+
+        let peer_info = self.peers.get_mut(&peer_id).expect("peer exists");
+        peer_info.set_custody_subnets(custody_subnets);
+
+        peer_id
+    }
+
     /// The connection state of the peer has been changed. Modify the peer in the db to ensure all
     /// variables are in sync with libp2p.
     /// Updating the state can lead to a `BanOperation` which needs to be processed via the peer

@@ -1612,7 +1612,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             let column_indexes = self
                 .chain
                 .custody_context
-                .sampling_columns_for_epoch(batch_id.epoch)
+                .custody_columns_for_epoch(Some(batch_id.epoch))
                 .iter()
                 .cloned()
                 .collect();
@@ -1724,5 +1724,138 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         ] {
             metrics::set_gauge_vec(&metrics::SYNC_ACTIVE_NETWORK_REQUESTS, &[id], count as i64);
         }
+    }
+}
+#[cfg(test)]
+mod custody_backfill_request_tests {
+    use super::*;
+    use beacon_chain::custody_context::NodeCustodyType;
+    use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType, test_spec};
+    use lighthouse_network::discovery::CombinedKey;
+    use rand_08::SeedableRng;
+    use rand_08::prelude::StdRng;
+    use types::{DataColumnSubnetId, Epoch, MinimalEthSpec as TestSpec};
+
+    /// Regression test for the custody-backfill peer-selection fix (issue #8308).
+    ///
+    /// During custody backfill a full node only ever requests, and only needs peers for, the
+    /// columns it actually custodies. Peer selection must therefore be gated on the node's
+    /// *custody* columns, not the wider *sampling* set.
+    ///
+    /// Before the fix, `custody_backfill_data_columns_batch_request` computed its required peers
+    /// from `sampling_columns_for_epoch`. When the synced peer set did not custody one of the
+    /// sampling-only columns, `select_columns_by_range_peers_to_request` returned
+    /// `NoPeer(CustodyPeer)` and backfill stalled — even though every column the node requests
+    /// was covered. This test pins peers to exactly the custody columns and asserts the request
+    /// is built successfully.
+    #[tokio::test]
+    async fn custody_backfill_selects_peers_by_custody_not_sampling() {
+        let spec = Arc::new(test_spec::<TestSpec>());
+        // Custody/sampling only diverge once PeerDAS (Fulu) is active. Mirrors the gating used by
+        // the other PeerDAS sync tests, which only execute under the `fulu` fork CI job.
+        if spec.fulu_fork_epoch.is_none() {
+            return;
+        }
+
+        let harness = BeaconChainHarness::<EphemeralHarnessType<TestSpec>>::builder(TestSpec)
+            .spec(spec.clone())
+            .deterministic_keypairs(1)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .node_custody_type(NodeCustodyType::Fullnode)
+            .build();
+        let chain = harness.chain.clone();
+
+        let epoch = Epoch::new(0);
+        let custody_columns: HashSet<ColumnIndex> = chain
+            .custody_columns_for_epoch(Some(epoch))
+            .iter()
+            .copied()
+            .collect();
+        let sampling_columns: HashSet<ColumnIndex> = chain
+            .sampling_columns_for_epoch(epoch)
+            .iter()
+            .copied()
+            .collect();
+
+        // The test is only meaningful when custody is a strict subset of sampling, i.e. there is
+        // at least one sampling-only column that peers will not custody.
+        assert!(
+            custody_columns.is_subset(&sampling_columns)
+                && custody_columns.len() < sampling_columns.len(),
+            "expected custody to be a strict subset of sampling (custody={custody_columns:?}, \
+             sampling={sampling_columns:?})"
+        );
+
+        let globals = Arc::new(NetworkGlobals::<TestSpec>::new_test_globals(
+            Vec::new(),
+            Arc::new(<_>::default()),
+            chain.spec.clone(),
+        ));
+
+        // Register peers that custody exactly the node's custody columns (and none of the
+        // sampling-only columns).
+        let custody_subnets: HashSet<DataColumnSubnetId> = custody_columns
+            .iter()
+            .map(|column| DataColumnSubnetId::from_column_index(*column, &chain.spec))
+            .collect();
+        let mut rng = StdRng::seed_from_u64(0x0BAD_5EED_DEAD_BEEFu64);
+        let mut peers = HashSet::new();
+        for _ in 0..3 {
+            let key: CombinedKey = k256::ecdsa::SigningKey::random(&mut rng).into();
+            let peer = globals
+                .peers
+                .write()
+                .__add_connected_peer_with_custody_subnets_testing_only(
+                    key,
+                    custody_subnets.clone(),
+                );
+            peers.insert(peer);
+        }
+
+        // Sanity: peers cover every custody column but no sampling-only column.
+        for column in &custody_columns {
+            assert!(
+                peers
+                    .iter()
+                    .any(|peer| globals.is_custody_peer_of(*column, peer)),
+                "custody column {column} should have a custody peer"
+            );
+        }
+        for column in sampling_columns.difference(&custody_columns) {
+            assert!(
+                peers
+                    .iter()
+                    .all(|peer| !globals.is_custody_peer_of(*column, peer)),
+                "sampling-only column {column} must not have a custody peer"
+            );
+        }
+
+        let mut network = SyncNetworkContext::new_for_testing(
+            chain.clone(),
+            globals.clone(),
+            harness.runtime.task_executor.clone(),
+        );
+
+        let request = DataColumnsByRangeRequest {
+            start_slot: epoch.start_slot(TestSpec::slots_per_epoch()).as_u64(),
+            count: TestSpec::slots_per_epoch(),
+            columns: custody_columns.iter().copied().collect(),
+        };
+        let batch_id = CustodyBackfillBatchId { epoch, run_id: 0 };
+
+        let result = network.custody_backfill_data_columns_batch_request(
+            request,
+            batch_id,
+            &peers,
+            &HashSet::new(),
+        );
+
+        assert!(
+            result.is_ok(),
+            "custody backfill request should succeed when peers cover the node's custody columns; \
+             got {result:?}. Before the fix this returned NoPeer(CustodyPeer) for a sampling-only \
+             column."
+        );
     }
 }
