@@ -263,7 +263,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::duties_service::{DutiesService, DutiesServiceBuilder};
+    use crate::duties_service::DutiesServiceBuilder;
     use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
     use beacon_node_fallback::{
         BeaconNodeFallback, CandidateBeaconNode, Config as BeaconNodeConfig,
@@ -361,13 +361,8 @@ mod tests {
     struct TestHarness {
         mock_beacon_node_1: MockBeaconNode<E>,
         mock_beacon_node_2: MockBeaconNode<E>,
-        duties_service: Arc<DutiesService<S, ManualSlotClock>>,
-        validator_store: Arc<S>,
+        service: PayloadAttestationService<S, ManualSlotClock>,
         pubkeys: Vec<PublicKeyBytes>,
-        slot_clock: ManualSlotClock,
-        beacon_node_fallback: Arc<BeaconNodeFallback<ManualSlotClock>>,
-        executor: TaskExecutor,
-        spec: Arc<ChainSpec>,
         _test_runtime: TestRuntime,
         _validator_dir: TempDir,
     }
@@ -418,16 +413,20 @@ mod tests {
                     .unwrap(),
             );
 
-            Self {
-                mock_beacon_node_1,
-                mock_beacon_node_2,
+            let service = PayloadAttestationService::new(
                 duties_service,
                 validator_store,
-                pubkeys,
                 slot_clock,
                 beacon_node_fallback,
                 executor,
                 spec,
+            );
+
+            Self {
+                mock_beacon_node_1,
+                mock_beacon_node_2,
+                service,
+                pubkeys,
                 _test_runtime: test_runtime,
                 _validator_dir: validator_dir,
             }
@@ -444,21 +443,11 @@ mod tests {
                     slot,
                 })
                 .collect();
-            self.duties_service
+            self.service
+                .duties_service
                 .ptc_duties
                 .write()
                 .insert(Epoch::new(0), (Hash256::ZERO, duties));
-        }
-
-        fn payload_attestation_service(&self) -> PayloadAttestationService<S, ManualSlotClock> {
-            PayloadAttestationService::new(
-                self.duties_service.clone(),
-                self.validator_store.clone(),
-                self.slot_clock.clone(),
-                self.beacon_node_fallback.clone(),
-                self.executor.clone(),
-                self.spec.clone(),
-            )
         }
     }
 
@@ -473,7 +462,7 @@ mod tests {
         tokio::time::pause();
 
         let harness = TestHarness::create_validators(1).await;
-        let service = harness.payload_attestation_service();
+        let service = &harness.service;
         let service_wait = service.wait_for_attestation_slot();
         tokio::pin!(service_wait);
 
@@ -481,14 +470,14 @@ mod tests {
         // It calls sleep(duration_to_next_slot + payload_attestation_due).await which registers a timer with a deadline of 21s
         assert!(service_wait.as_mut().now_or_never().is_none());
 
-        let duration_to_next_slot = harness.slot_clock.duration_to_next_slot().unwrap();
-        let payload_attestation_due = harness.spec.get_payload_attestation_due();
+        let duration_to_next_slot = harness.service.slot_clock.duration_to_next_slot().unwrap();
+        let payload_attestation_due = harness.service.chain_spec.get_payload_attestation_due();
         let duration_to_wait = duration_to_next_slot + payload_attestation_due;
         // Advance both slot_clock and tokio::time to 21s (the sleep deadline)
         // The timer hasn't fired yet because tokio requires time to be strictly past the deadline.
         // so the following assert! should return None
         // This verifies that the function wait_for_attestation_slot waits for the correct duration before returning a slot.
-        advance_time(&harness.slot_clock, duration_to_wait).await;
+        advance_time(&harness.service.slot_clock, duration_to_wait).await;
         assert!(
             service_wait.as_mut().now_or_never().is_none(),
             "Function should return None before the sleep duration has elapsed"
@@ -497,7 +486,7 @@ mod tests {
         // Advance time for 1 more second, the sleep should have completed and the function should return Some(attestation_slot)
         // slot_clock is now at 22s, which is slot 1
         // Removing this advance_time should cause the following assert_eq! to fail
-        advance_time(&harness.slot_clock, Duration::from_secs(1)).await;
+        advance_time(&harness.service.slot_clock, Duration::from_secs(1)).await;
         assert_eq!(
             service_wait.as_mut().now_or_never().unwrap(),
             Some(Slot::new(1))
@@ -533,7 +522,7 @@ mod tests {
             .mock_beacon_node_2
             .mock_post_beacon_pool_payload_attestations();
 
-        let service = harness.payload_attestation_service();
+        let service = harness.service;
         service.produce_and_publish(attestation_slot).await;
 
         let messages = harness
@@ -595,7 +584,7 @@ mod tests {
             .mock_beacon_node_2
             .mock_post_beacon_pool_payload_attestations();
 
-        let service = harness.payload_attestation_service();
+        let service = harness.service;
         service.produce_and_publish(attestation_slot).await;
 
         // first_success function tries both beacon nodes for SSZ post payload attestation:
@@ -628,7 +617,7 @@ mod tests {
             .mock_beacon_node_1
             .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
 
-        let service = harness.payload_attestation_service();
+        let service = harness.service;
 
         // when there is no duty, produce_and_publish should return early
         // therefore, the beacon node is not called, expected to hit 0
@@ -669,7 +658,7 @@ mod tests {
             .mock_beacon_node_2
             .mock_post_beacon_pool_payload_attestations();
 
-        let service = harness.payload_attestation_service();
+        let service = harness.service;
         // The produce_and_publish() should return early before reaching the POST endpoint
         service.produce_and_publish(attestation_slot).await;
 
@@ -716,7 +705,7 @@ mod tests {
             .mock_beacon_node_1
             .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
 
-        let service = harness.payload_attestation_service();
+        let service = harness.service;
         service.produce_and_publish(attestation_slot).await;
 
         let messages = harness
