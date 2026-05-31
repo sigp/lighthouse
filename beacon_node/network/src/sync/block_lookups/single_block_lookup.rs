@@ -288,6 +288,7 @@ enum DataDownload<E: EthSpec> {
     },
     Columns {
         block_root: Hash256,
+        slot: Slot,
         state: SingleLookupRequestState<DataColumnSidecarList<E>>,
     },
 }
@@ -309,9 +310,13 @@ impl<E: EthSpec> DataDownload<E> {
                 let eb = *expected_blobs;
                 state.make_request(|| cx.blob_lookup_request(id, peers, br, eb))
             }
-            DataDownload::Columns { block_root, state } => {
+            DataDownload::Columns {
+                block_root,
+                slot,
+                state,
+            } => {
                 let br = *block_root;
-                state.make_request(|| cx.custody_lookup_request(id, br, peers))
+                state.make_request(|| cx.custody_lookup_request(id, br, *slot, peers))
             }
         }
     }
@@ -447,6 +452,7 @@ impl<E: EthSpec> DataRequestState<E> {
                 if expected_blobs > 0 {
                     Self::Downloading(DataDownload::Columns {
                         block_root,
+                        slot,
                         state: SingleLookupRequestState::new_with_processing_failures(
                             failed_processing,
                         ),
@@ -459,6 +465,7 @@ impl<E: EthSpec> DataRequestState<E> {
                 if expected_blobs > 0 {
                     Self::Downloading(DataDownload::Columns {
                         block_root,
+                        slot,
                         state: SingleLookupRequestState::new_with_processing_failures(
                             failed_processing,
                         ),
