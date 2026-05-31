@@ -9,7 +9,6 @@ use crate::sync::network_context::{
 };
 use beacon_chain::BeaconChainTypes;
 use beacon_chain::BlockProcessStatus;
-use beacon_chain::ParentImportedStatus;
 use beacon_chain::block_verification_types::AsBlock;
 use educe::Educe;
 use lighthouse_network::service::api_types::Id;
@@ -41,10 +40,6 @@ pub struct AwaitingParent {
 }
 
 impl AwaitingParent {
-    pub fn parent_is_genesis(&self) -> bool {
-        self.parent_root == Hash256::ZERO
-    }
-
     pub fn parent_root(&self) -> Hash256 {
         self.parent_root
     }
@@ -627,16 +622,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.awaiting_parent
     }
 
-    /// The parent relationship implied by this lookup's downloaded block: the parent root plus
-    /// (post-gloas) the parent's committed payload hash taken from this block's bid. `None` until
-    /// the block has been downloaded. Used to donate this lookup's peers to a FULL parent's
-    /// payload fetch.
-    pub fn downloaded_parent(&self) -> Option<AwaitingParent> {
-        self.block_request
-            .peek_block()
-            .map(|block| AwaitingParent::from_block(block))
-    }
-
     /// Mark this lookup as no longer awaiting a parent lookup. Components can be sent for
     /// processing.
     pub fn resolve_awaiting_parent(&mut self) {
@@ -737,27 +722,21 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
 
                     // Check if the parent block is known to fork-choice. If the block is FULL
                     // expect the payload to be imported too.
-                    match cx
+                    if !cx
                         .chain
                         .canonical_head
                         .fork_choice_read_lock()
                         .is_parent_imported(block)
                     {
-                        // Parent block is imported (and, if this block is FULL, its payload too):
-                        // safe to send this block for processing.
-                        ParentImportedStatus::Imported(_) => {}
                         // Parent block is unknown, or it's FULL and the parent's payload has not
                         // been imported yet. Park this lookup until the parent resolves.
-                        ParentImportedStatus::UnknownBlock
-                        | ParentImportedStatus::UnimportedPayload => {
-                            let awaiting_parent = AwaitingParent::from_block(block);
-                            self.awaiting_parent = Some(awaiting_parent);
-                            return Ok(LookupResult::ParentUnknown {
-                                awaiting_parent,
-                                block_root: self.block_root,
-                                peers: self.all_peers(),
-                            });
-                        }
+                        let awaiting_parent = AwaitingParent::from_block(block);
+                        self.awaiting_parent = Some(awaiting_parent);
+                        return Ok(LookupResult::ParentUnknown {
+                            awaiting_parent,
+                            block_root: self.block_root,
+                            peers: self.all_peers(),
+                        });
                     }
 
                     let block = block.clone();

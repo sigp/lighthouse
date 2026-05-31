@@ -1556,7 +1556,15 @@ where
     }
 
     /// Returns the import status of the parent
-    pub fn is_parent_imported(&self, block: &SignedBeaconBlock<E>) -> ParentImportedStatus {
+    pub fn is_parent_imported(&self, block: &SignedBeaconBlock<E>) -> bool {
+        matches!(
+            self.is_parent_imported_status(block),
+            ParentImportedStatus::Imported(_)
+        )
+    }
+
+    /// Returns the import status of the parent
+    pub fn is_parent_imported_status(&self, block: &SignedBeaconBlock<E>) -> ParentImportedStatus {
         if let Some(proto_block) = self.get_block(&block.parent_root()) {
             if let Ok(bid) = block.message().body().signed_execution_payload_bid()
                 && proto_block.is_child_full(bid)

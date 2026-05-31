@@ -1374,32 +1374,35 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             .observe_proposal(block_root, block.message())
             .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
 
-        if let Some(parent) = chain
+        match chain
             .canonical_head
             .fork_choice_read_lock()
-            .get_block(&block.parent_root())
+            .is_parent_imported_status(block.as_block())
         {
-            // Reject any block where the parent has an invalid payload. It's impossible for a valid
-            // block to descend from an invalid parent.
-            if parent.execution_status.is_invalid() {
-                return Err(BlockError::ParentExecutionPayloadInvalid {
+            ParentImportedStatus::Imported(parent) => {
+                // Reject any block where the parent has an invalid payload. It's impossible for a valid
+                // block to descend from an invalid parent.
+                if parent.execution_status.is_invalid() {
+                    return Err(BlockError::ParentExecutionPayloadInvalid {
+                        parent_root: block.parent_root(),
+                    });
+                }
+            }
+            ParentImportedStatus::UnknownBlock | ParentImportedStatus::UnimportedPayload => {
+                // Reject any block if its parent is not known to fork choice.
+                //
+                // A block that is not in fork choice is either:
+                //
+                //  - Not yet imported: we should reject this block because we should only import a child
+                //  after its parent has been fully imported.
+                //  - Pre-finalized: if the parent block is _prior_ to finalization, we should ignore it
+                //  because it will revert finalization. Note that the finalized block is stored in fork
+                //  choice, so we will not reject any child of the finalized block (this is relevant during
+                //  genesis).
+                return Err(BlockError::ParentUnknown {
                     parent_root: block.parent_root(),
                 });
             }
-        } else {
-            // Reject any block if its parent is not known to fork choice.
-            //
-            // A block that is not in fork choice is either:
-            //
-            //  - Not yet imported: we should reject this block because we should only import a child
-            //  after its parent has been fully imported.
-            //  - Pre-finalized: if the parent block is _prior_ to finalization, we should ignore it
-            //  because it will revert finalization. Note that the finalized block is stored in fork
-            //  choice, so we will not reject any child of the finalized block (this is relevant during
-            //  genesis).
-            return Err(BlockError::ParentUnknown {
-                parent_root: block.parent_root(),
-            });
         }
 
         /*
@@ -1867,7 +1870,7 @@ fn verify_parent_block_is_known<T: BeaconChainTypes>(
     // once the parent payload is retrieved). If execution_payload verification of block's execution
     // payload parent by an execution node is complete, verify the block's execution payload
     // parent (defined by bid.parent_block_hash) passes all validation.
-    match fork_choice_read_lock.is_parent_imported(&block) {
+    match fork_choice_read_lock.is_parent_imported_status(&block) {
         ParentImportedStatus::Imported(parent) => Ok((parent, block)),
         ParentImportedStatus::UnknownBlock | ParentImportedStatus::UnimportedPayload => {
             Err(BlockError::ParentUnknown {
@@ -1900,7 +1903,7 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
     if !chain
         .canonical_head
         .fork_choice_read_lock()
-        .contains_block(&block.parent_root())
+        .is_parent_imported(block.as_block())
     {
         return Err(BlockError::ParentUnknown {
             parent_root: block.parent_root(),
