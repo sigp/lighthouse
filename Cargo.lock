@@ -2855,8 +2855,11 @@ dependencies = [
  "fs2",
  "hex",
  "kzg",
+ "lighthouse_network",
  "logging",
  "milhouse",
+ "network",
+ "proto_array",
  "rayon",
  "serde",
  "serde_json",
@@ -8199,6 +8202,7 @@ dependencies = [
 name = "simulator"
 version = "0.2.0"
 dependencies = [
+ "beacon_chain",
  "clap",
  "environment",
  "execution_layer",

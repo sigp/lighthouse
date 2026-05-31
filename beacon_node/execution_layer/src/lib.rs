@@ -4,7 +4,7 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
-use crate::json_structures::{BlobAndProofV1, BlobAndProofV2, BlobAndProofV3};
+use crate::json_structures::{BlobAndProofV2, BlobAndProofV3};
 use crate::payload_cache::PayloadCache;
 use arc_swap::ArcSwapOption;
 use auth::{Auth, JwtKey, strip_prefix};
@@ -72,6 +72,8 @@ pub const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
 
 /// Name for the default file used for the jwt secret.
 pub const DEFAULT_JWT_FILE: &str = "jwt.hex";
+
+pub const DEFAULT_GAS_LIMIT: u64 = 60_000_000;
 
 /// A fee recipient address for use during block production. Only used as a very last resort if
 /// there is no address provided by the user.
@@ -358,7 +360,10 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BlockProposalContents<E, Paylo
 #[derive(Clone, Copy, Debug)]
 pub struct PayloadParameters<'a> {
     pub parent_hash: ExecutionBlockHash,
-    pub parent_gas_limit: u64,
+    // NOTE: The `parent_gas_limit` is a bit scuffed. We made it optional for Gloas because it
+    // isn't currently required, but it should possibly be made non-optional again if needed.
+    // Or we should superstruct this type.
+    pub parent_gas_limit: Option<u64>,
     pub proposer_gas_limit: Option<u64>,
     pub payload_attributes: &'a PayloadAttributes,
     pub forkchoice_update_params: &'a ForkchoiceUpdateParameters,
@@ -1717,23 +1722,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
         }
     }
 
-    pub async fn get_blobs_v1(
-        &self,
-        query: Vec<Hash256>,
-    ) -> Result<Vec<Option<BlobAndProofV1<E>>>, Error> {
-        let capabilities = self.get_engine_capabilities(None).await?;
-
-        if capabilities.get_blobs_v1 {
-            self.engine()
-                .request(|engine| async move { engine.api.get_blobs_v1(query).await })
-                .await
-                .map_err(Box::new)
-                .map_err(Error::EngineError)
-        } else {
-            Err(Error::GetBlobsNotSupported)
-        }
-    }
-
     pub async fn get_blobs_v2(
         &self,
         query: Vec<Hash256>,
@@ -2082,7 +2070,7 @@ fn verify_builder_bid<E: EthSpec>(
 
     let payload_withdrawals_root = header.withdrawals_root().ok();
     let expected_gas_limit = proposer_gas_limit
-        .and_then(|target_gas_limit| expected_gas_limit(parent_gas_limit, target_gas_limit, spec));
+        .and_then(|target_gas_limit| expected_gas_limit(parent_gas_limit?, target_gas_limit, spec));
 
     if header.parent_hash() != parent_hash {
         Err(Box::new(InvalidBuilderPayload::ParentHash {

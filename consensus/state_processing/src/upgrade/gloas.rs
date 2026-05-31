@@ -1,18 +1,16 @@
-use crate::per_block_processing::{
-    is_valid_deposit_signature, process_operations::apply_deposit_for_builder,
-};
+use crate::per_block_processing::process_operations::apply_deposit_for_builder;
+use crate::per_block_processing::process_operations::is_pending_validator;
 use milhouse::{List, Vector};
 use safe_arith::SafeArith;
 use ssz_types::BitVector;
 use ssz_types::FixedVector;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::mem;
 use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
     BeaconState, BeaconStateError as Error, BeaconStateGloas, BuilderPendingPayment, ChainSpec,
-    DepositData, EthSpec, ExecutionPayloadBid, ExecutionRequests, Fork,
-    is_builder_withdrawal_credential,
+    EthSpec, ExecutionPayloadBid, ExecutionRequests, Fork, is_builder_withdrawal_credential,
 };
 
 /// Transform a `Fulu` state into a `Gloas` state.
@@ -80,6 +78,7 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         // Execution Bid
         latest_execution_payload_bid: ExecutionPayloadBid {
             block_hash: pre.latest_execution_payload_header.block_hash,
+            gas_limit: pre.latest_execution_payload_header.gas_limit,
             execution_requests_root: ExecutionRequests::<E>::default().tree_hash_root(),
             ..Default::default()
         },
@@ -167,66 +166,57 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    // Rather than tracking all `validator_pubkeys` in one place as the spec does, we keep a
-    // hashset for *just* the new validator pubkeys, and use the state's efficient
-    // `get_validator_index` function instead of an O(n) iteration over the full validator list.
-    let mut new_validator_pubkeys = HashSet::new();
-
     // Clone pending deposits to avoid borrow conflicts when mutating state.
     let current_pending_deposits = state.pending_deposits()?.clone();
 
     let mut pending_deposits = List::empty();
 
+    // TODO(gloas): introduce a global builder pubkey cache, see:
+    // https://github.com/sigp/lighthouse/issues/8783
+    let mut builder_pubkey_to_index = state
+        .builders()?
+        .iter()
+        .enumerate()
+        .map(|(i, b)| (b.pubkey, i as u64))
+        .collect::<HashMap<_, _>>();
+
     for deposit in &current_pending_deposits {
         // Deposits for existing validators stay in the pending queue.
-        if new_validator_pubkeys.contains(&deposit.pubkey)
-            || state.get_validator_index(&deposit.pubkey)?.is_some()
-        {
+        if state.get_validator_index(&deposit.pubkey)?.is_some() {
             pending_deposits.push(deposit.clone())?;
             continue;
         }
 
-        // Re-scan builder list each iteration because `apply_deposit_for_builder` may add
-        // new builders to the registry.
-        // TODO(gloas): this linear scan could be optimized, see:
-        // https://github.com/sigp/lighthouse/issues/8783
-        let builder_index = state
-            .builders()?
-            .iter()
-            .position(|b| b.pubkey == deposit.pubkey);
+        if !builder_pubkey_to_index.contains_key(&deposit.pubkey) {
+            // Deposits without builder withdrawal credentials are for new validators.
+            if !is_builder_withdrawal_credential(deposit.withdrawal_credentials, spec) {
+                pending_deposits.push(deposit.clone())?;
+                continue;
+            }
 
-        let has_builder_credentials =
-            is_builder_withdrawal_credential(deposit.withdrawal_credentials, spec);
-
-        if builder_index.is_some() || has_builder_credentials {
-            let builder_index_opt = builder_index.map(|i| i as u64);
-            apply_deposit_for_builder(
-                state,
-                builder_index_opt,
-                deposit.pubkey,
-                deposit.withdrawal_credentials,
-                deposit.amount,
-                deposit.signature.clone(),
-                deposit.slot,
-                spec,
-            )?;
-            continue;
+            // If there is a valid pending deposit for a new validator with this pubkey,
+            // keep this deposit in the pending queue to be applied to that validator later.
+            if is_pending_validator(&pending_deposits, &deposit.pubkey, spec) {
+                pending_deposits.push(deposit.clone())?;
+                continue;
+            }
         }
 
-        // If there is a pending deposit for a new validator that has a valid signature,
-        // track the pubkey so that subsequent builder deposits for the same pubkey stay
-        // in pending (applied to the validator later) rather than creating a builder.
-        // Deposits with invalid signatures are dropped since they would fail in
-        // apply_pending_deposit anyway.
-        let deposit_data = DepositData {
-            pubkey: deposit.pubkey,
-            withdrawal_credentials: deposit.withdrawal_credentials,
-            amount: deposit.amount,
-            signature: deposit.signature.clone(),
-        };
-        if is_valid_deposit_signature(&deposit_data, spec).is_ok() {
-            new_validator_pubkeys.insert(deposit.pubkey);
-            pending_deposits.push(deposit.clone())?;
+        let builder_index = builder_pubkey_to_index.get(&deposit.pubkey).copied();
+
+        if let Some(new_builder_index) = apply_deposit_for_builder(
+            state,
+            builder_index,
+            deposit.pubkey,
+            deposit.withdrawal_credentials,
+            deposit.amount,
+            deposit.signature.clone(),
+            deposit.slot,
+            spec,
+        )? {
+            builder_pubkey_to_index
+                .entry(deposit.pubkey)
+                .or_insert(new_builder_index);
         }
     }
 

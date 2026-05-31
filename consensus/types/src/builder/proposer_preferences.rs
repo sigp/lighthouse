@@ -16,7 +16,7 @@ pub struct ProposerPreferences {
     pub proposal_slot: Slot,
     pub validator_index: u64,
     pub fee_recipient: Address,
-    pub gas_limit: u64,
+    pub target_gas_limit: u64,
 }
 
 impl SignedRoot for ProposerPreferences {}

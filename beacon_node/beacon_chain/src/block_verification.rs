@@ -49,7 +49,6 @@
 #![allow(clippy::result_large_err)]
 
 use crate::beacon_snapshot::PreProcessingSnapshot;
-use crate::blob_verification::GossipBlobError;
 use crate::block_verification_types::{AsBlock, BlockImportData, LookupBlock, RangeSyncBlock};
 use crate::data_availability_checker::{
     AvailabilityCheckError, AvailableBlock, AvailableBlockData, MaybeAvailableBlock,
@@ -290,14 +289,6 @@ pub enum BlockError {
     EnvelopeBlockRootUnknown(Hash256),
     /// Optimistic sync is not supported for Gloas payload envelopes.
     OptimisticSyncNotSupported { block_root: Hash256 },
-    /// A Blob with a slot after PeerDAS is received and is not required to be imported.
-    /// This can happen because we stay subscribed to the blob subnet after 2 epochs, as we could
-    /// still receive valid blobs from a Deneb epoch after PeerDAS is activated.
-    ///
-    /// ## Peer scoring
-    ///
-    /// This indicates the peer is sending an unexpected gossip blob and should be penalised.
-    BlobNotRequired(Slot),
     /// An internal error has occurred when processing the block or sidecars.
     ///
     /// ## Peer scoring
@@ -513,17 +504,6 @@ impl BlockSlashInfo<BlockError> {
             BlockError::InvalidSignature(InvalidSignature::ProposerSignature) => {
                 BlockSlashInfo::SignatureInvalid(e)
             }
-            // `InvalidSignature` could indicate any signature in the block, so we want
-            // to recheck the proposer signature alone.
-            _ => BlockSlashInfo::SignatureNotChecked(header, e),
-        }
-    }
-}
-
-impl BlockSlashInfo<GossipBlobError> {
-    pub fn from_early_error_blob(header: SignedBeaconBlockHeader, e: GossipBlobError) -> Self {
-        match e {
-            GossipBlobError::ProposalSignatureInvalid => BlockSlashInfo::SignatureInvalid(e),
             // `InvalidSignature` could indicate any signature in the block, so we want
             // to recheck the proposer signature alone.
             _ => BlockSlashInfo::SignatureNotChecked(header, e),
@@ -2035,23 +2015,6 @@ impl BlockBlobError for BlockError {
 
     fn proposer_signature_invalid() -> Self {
         BlockError::InvalidSignature(InvalidSignature::ProposerSignature)
-    }
-}
-
-impl BlockBlobError for GossipBlobError {
-    fn not_later_than_parent_error(blob_slot: Slot, parent_slot: Slot) -> Self {
-        GossipBlobError::BlobIsNotLaterThanParent {
-            blob_slot,
-            parent_slot,
-        }
-    }
-
-    fn unknown_validator_error(validator_index: u64) -> Self {
-        GossipBlobError::UnknownValidator(validator_index)
-    }
-
-    fn proposer_signature_invalid() -> Self {
-        GossipBlobError::ProposalSignatureInvalid
     }
 }
 
