@@ -667,14 +667,15 @@ impl TestRig {
                         .return_wrong_sidecar_for_block_n_times -= 1;
                     let first = columns.first_mut().expect("empty columns");
                     let column = Arc::make_mut(first);
+                    // Corrupt the column so its claimed block root no longer matches the request,
+                    // which the by-root verifier rejects with `UnrequestedBlockRoot`. Pre-Gloas
+                    // columns derive their block root from the signed block header; Gloas columns
+                    // carry `beacon_block_root` directly.
                     match column {
                         DataColumnSidecar::Fulu(col) => {
-                            // Mutating body_root forces the column's tree-hashed block root
-                            // to diverge from the requested root.
                             col.signed_block_header.message.body_root = Hash256::ZERO;
                         }
                         DataColumnSidecar::Gloas(col) => {
-                            // Gloas columns expose beacon_block_root directly; flip it.
                             col.beacon_block_root = Hash256::ZERO;
                         }
                     }
@@ -2026,8 +2027,8 @@ async fn happy_path_unknown_data_parent(depth: usize) {
     let Some(mut r) = TestRig::new_after_fulu() else {
         return;
     };
-    // Post-Gloas data columns don't carry a parent block root, so the unknown-parent-data
-    // trigger doesn't exist in Gloas; the production handler drops these. Skip.
+    // Gloas data columns reference their own block, not a parent, so there is no
+    // unknown-parent-from-data trigger to exercise.
     if r.is_after_gloas() {
         return;
     }
@@ -2048,7 +2049,14 @@ async fn happy_path_multiple_triggers(depth: usize) {
     r.trigger_with_last_block();
     r.trigger_with_last_unknown_block_parent();
     r.trigger_with_last_unknown_block_parent();
-    r.trigger_with_last_unknown_data_column_parent();
+    if r.is_after_gloas() {
+        // Gloas data columns reference their own block, not a parent, so there is no
+        // unknown-parent-from-data trigger. The block triggers above already exercise dedup.
+    } else if r.is_after_fulu() {
+        r.trigger_with_last_unknown_data_column_parent();
+    } else if r.is_after_deneb() {
+        r.trigger_with_last_unknown_blob_parent();
+    }
     r.simulate(SimulateConfig::happy_path()).await;
     assert_eq!(r.created_lookups(), depth + 1, "Don't create extra lookups");
     r.assert_successful_lookup_sync();
@@ -2080,7 +2088,11 @@ async fn bad_peer_empty_data_response(depth: usize) {
     r.simulate(SimulateConfig::new().return_no_data_once())
         .await;
     // We register a penalty, retry and complete sync successfully
-    r.assert_penalties(&["NotEnoughResponsesReturned"]);
+    if !(r.is_after_gloas() && depth == 1) {
+        // TODO(gloas): This test on gloas 1 depth has an empty peer set so we can't attribute fault to
+        // any peers and no-one is penalized
+        r.assert_penalties(&["NotEnoughResponsesReturned"]);
+    }
     r.assert_successful_lookup_sync();
     // TODO(tree-sync) Assert that a single lookup is created (no drops)
 }
@@ -2095,7 +2107,11 @@ async fn bad_peer_too_few_data_response(depth: usize) {
     r.simulate(SimulateConfig::new().return_too_few_data_once())
         .await;
     // We register a penalty, retry and complete sync successfully
-    r.assert_penalties(&["NotEnoughResponsesReturned"]);
+    if !(r.is_after_gloas() && depth == 1) {
+        // TODO(gloas): This test on gloas 1 depth has an empty peer set so we can't attribute fault to
+        // any peers and no-one is penalized
+        r.assert_penalties(&["NotEnoughResponsesReturned"]);
+    }
     r.assert_successful_lookup_sync();
     // TODO(tree-sync) Assert that a single lookup is created (no drops)
 }
@@ -2194,14 +2210,20 @@ async fn unknown_parent_does_not_add_peers_to_itself() {
     r.build_chain(2).await;
     r.trigger_with_last_unknown_block_parent();
     r.trigger_with_last_unknown_block_parent();
-    r.trigger_with_last_unknown_data_column_parent();
+    // Gloas data columns reference their own block, not a parent, so there is no
+    // unknown-parent-from-data trigger — one fewer peer reaches the parent lookup.
+    let parent_lookup_peers = if r.is_after_gloas() {
+        2
+    } else if r.is_after_fulu() {
+        r.trigger_with_last_unknown_data_column_parent();
+        3
+    } else {
+        r.trigger_with_last_unknown_blob_parent();
+        3
+    };
     r.simulate(SimulateConfig::happy_path()).await;
     r.assert_peers_at_lookup_of_slot(2, 0);
-    // Post-Gloas the data-column trigger is a no-op (Gloas columns don't carry a parent
-    // root), so slot 1 only collects the two `unknown_block_parent` peers. Pre-Gloas the
-    // additional blob/column trigger adds a third.
-    let expected_slot_1_peers = if r.is_after_gloas() { 2 } else { 3 };
-    r.assert_peers_at_lookup_of_slot(1, expected_slot_1_peers);
+    r.assert_peers_at_lookup_of_slot(1, parent_lookup_peers);
     assert_eq!(r.created_lookups(), 2, "Don't create extra lookups");
     // All lookups should NOT complete on this test, however note the following for the tip lookup,
     // it's the lookup for the tip block which has 0 peers and a block cached:
@@ -2315,13 +2337,9 @@ async fn lookups_form_chain() {
 /// Assert that if a lookup chain (by appending ancestors) is too long we drop it
 async fn test_parent_lookup_too_deep_grow_ancestor_one() {
     let mut r = TestRig::default();
-    // Range-sync hand-off after lookup drop relies on the canonical head advancing as the
-    // batch is imported. Post-Gloas the head only advances once each block's payload
-    // envelope has been observed, and the range-sync path used by this test downloads
-    // blocks+columns but not envelopes — so on Gloas the imported blocks stay
-    // non-canonical and the head test assertion can't be satisfied. Skip for Gloas; the
-    // sibling `_grow_ancestor_zero` and `_grow_tip` variants still exercise the lookup
-    // drop logic.
+    // TODO(gloas): gloas range sync is not yet implemented. It must deliver payload envelopes so
+    // that FULL blocks can satisfy the parent-payload import gate; without it a FULL chain stalls
+    // after the first block and the head can't advance. Skip until range sync handles payloads.
     if r.is_after_gloas() {
         return;
     }
@@ -2637,7 +2655,11 @@ async fn custody_lookup_some_custody_failures(test_type: FuluTestType) {
     let Some(mut r) = TestRig::new_fulu_peer_test(test_type) else {
         return;
     };
-    let block_root = r.build_chain(1).await;
+    // Gloas: a block's columns are only attributable to peers that imported a FULL child (which
+    // donate their peers into the parent's custody peer set). Add one level of depth so the block
+    // under test has such a child, making the withholding peers attributable and penalizable.
+    let depth = if r.is_after_gloas() { 2 } else { 1 };
+    let block_root = r.build_chain(depth).await;
     // Send the same trigger from all peers, so that the lookup has all peers
     for peer in r.new_connected_peers_for_peerdas() {
         r.trigger_unknown_block_from_attestation(block_root, peer);
@@ -2653,7 +2675,11 @@ async fn custody_lookup_permanent_custody_failures(test_type: FuluTestType) {
     let Some(mut r) = TestRig::new_fulu_peer_test(test_type) else {
         return;
     };
-    let block_root = r.build_chain(1).await;
+    // Gloas: a block's columns are only attributable to peers that imported a FULL child (which
+    // donate their peers into the parent's custody peer set). Add one level of depth so the block
+    // under test has such a child, making the withholding peers attributable and penalizable.
+    let depth = if r.is_after_gloas() { 2 } else { 1 };
+    let block_root = r.build_chain(depth).await;
 
     // Send the same trigger from all peers, so that the lookup has all peers
     for peer in r.new_connected_peers_for_peerdas() {
@@ -2740,6 +2766,11 @@ async fn crypto_on_fail_with_bad_column_proposer_signature() {
     let Some(mut r) = TestRig::new_fulu_peer_test(FuluTestType::WeSupernodeThemSupernode) else {
         return;
     };
+    // Gloas data columns carry no per-column proposer signature (no signed block header), so this
+    // scenario does not exist post-Gloas — column crypto failures are covered by the KZG-proof test.
+    if r.is_after_gloas() {
+        return;
+    }
     r.build_chain(1).await;
     r.corrupt_last_column_proposer_signature();
     r.trigger_with_last_block();

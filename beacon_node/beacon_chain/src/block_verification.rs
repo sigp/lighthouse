@@ -1388,6 +1388,9 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                     });
                 }
             }
+            // A genesis block has no parent payload to reject. Genesis is loaded as the anchor and
+            // not normally processed here, but handle it defensively as importable.
+            ParentImportedStatus::Genesis => {}
             ParentImportedStatus::UnknownBlock | ParentImportedStatus::UnimportedPayload => {
                 // Reject any block if its parent is not known to fork choice.
                 //
@@ -1872,11 +1875,14 @@ fn verify_parent_block_is_known<T: BeaconChainTypes>(
     // parent (defined by bid.parent_block_hash) passes all validation.
     match fork_choice_read_lock.is_parent_imported_status(&block) {
         ParentImportedStatus::Imported(parent) => Ok((parent, block)),
-        ParentImportedStatus::UnknownBlock | ParentImportedStatus::UnimportedPayload => {
-            Err(BlockError::ParentUnknown {
-                parent_root: block.parent_root(),
-            })
-        }
+        // Genesis is loaded as the anchor, not verified via this (gossip) path. It has no parent
+        // proto-block to return, so treat it defensively as parent-unknown — it should never reach
+        // here in practice.
+        ParentImportedStatus::Genesis
+        | ParentImportedStatus::UnknownBlock
+        | ParentImportedStatus::UnimportedPayload => Err(BlockError::ParentUnknown {
+            parent_root: block.parent_root(),
+        }),
     }
 }
 

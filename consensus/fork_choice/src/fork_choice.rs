@@ -210,6 +210,8 @@ pub enum InvalidPayloadAttestation {
 #[allow(clippy::large_enum_variant)]
 pub enum ParentImportedStatus {
     Imported(ProtoBlock),
+    /// The block is a genesis block (parent root is the zero hash); it has no parent to import.
+    Genesis,
     UnknownBlock,
     UnimportedPayload,
 }
@@ -1559,12 +1561,16 @@ where
     pub fn is_parent_imported(&self, block: &SignedBeaconBlock<E>) -> bool {
         matches!(
             self.is_parent_imported_status(block),
-            ParentImportedStatus::Imported(_)
+            ParentImportedStatus::Imported(_) | ParentImportedStatus::Genesis
         )
     }
 
     /// Returns the import status of the parent
     pub fn is_parent_imported_status(&self, block: &SignedBeaconBlock<E>) -> ParentImportedStatus {
+        // A genesis block has no parent to import.
+        if block.parent_root() == Hash256::zero() {
+            return ParentImportedStatus::Genesis;
+        }
         if let Some(proto_block) = self.get_block(&block.parent_root()) {
             if let Ok(bid) = block.message().body().signed_execution_payload_bid()
                 && proto_block.is_child_full(bid)
