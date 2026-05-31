@@ -1023,7 +1023,8 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
         let (committee_opt, committees_per_slot) = chain.with_committee_cache(
             attestation.data.target.root,
             attestation.data.slot.epoch(T::EthSpec::slots_per_epoch()),
-            |committee_cache, _| {
+            |cached_shuffling, _| {
+                let committee_cache = cached_shuffling.committee_cache.as_ref();
                 let committee_opt = committee_cache
                     .get_beacon_committee(attestation.data.slot, attestation.committee_index)
                     .map(|beacon_committee| beacon_committee.committee.to_vec());
@@ -1574,7 +1575,8 @@ where
         return Err(Error::UnknownTargetRoot(target.root));
     }
 
-    chain.with_committee_cache(target.root, attestation_epoch, |committee_cache, _| {
+    chain.with_committee_cache(target.root, attestation_epoch, |cached_shuffling, _| {
+        let committee_cache = cached_shuffling.committee_cache.as_ref();
         let committees_per_slot = committee_cache.committees_per_slot();
 
         Ok(committee_cache
