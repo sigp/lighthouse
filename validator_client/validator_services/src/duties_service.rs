@@ -305,6 +305,7 @@ pub struct DutiesServiceBuilder<S, T> {
     /// Create sync selection proof config
     sync_selection_proof_config: SelectionProofConfig,
     disable_attesting: bool,
+    disable_proposer_duties_v2: bool,
 }
 
 impl<S, T> Default for DutiesServiceBuilder<S, T> {
@@ -325,6 +326,7 @@ impl<S, T> DutiesServiceBuilder<S, T> {
             attestation_selection_proof_config: SelectionProofConfig::default(),
             sync_selection_proof_config: SelectionProofConfig::default(),
             disable_attesting: false,
+            disable_proposer_duties_v2: false,
         }
     }
 
@@ -382,6 +384,11 @@ impl<S, T> DutiesServiceBuilder<S, T> {
         self
     }
 
+    pub fn disable_proposer_duties_v2(mut self, disable_proposer_duties_v2: bool) -> Self {
+        self.disable_proposer_duties_v2 = disable_proposer_duties_v2;
+        self
+    }
+
     pub fn build(self) -> Result<DutiesService<S, T>, String> {
         Ok(DutiesService {
             attesters: Default::default(),
@@ -405,6 +412,7 @@ impl<S, T> DutiesServiceBuilder<S, T> {
             enable_high_validator_count_metrics: self.enable_high_validator_count_metrics,
             selection_proof_config: self.attestation_selection_proof_config,
             disable_attesting: self.disable_attesting,
+            disable_proposer_duties_v2: self.disable_proposer_duties_v2,
         })
     }
 }
@@ -437,6 +445,11 @@ pub struct DutiesService<S, T> {
     /// Pass the config for distributed or non-distributed mode.
     pub selection_proof_config: SelectionProofConfig,
     pub disable_attesting: bool,
+    /// Use the v1 proposer duties endpoint instead of v2. The v1 endpoint reports an incorrect
+    /// dependent root, causing spurious "Proposer duties re-org" warnings. This flag exists for
+    /// compatibility with beacon nodes that do not yet serve the v2 endpoint and can be removed
+    /// after Gloas.
+    pub disable_proposer_duties_v2: bool,
 }
 
 impl<S: ValidatorStore, T: SlotClock + 'static> DutiesService<S, T> {
@@ -1709,6 +1722,7 @@ async fn fetch_and_store_proposer_duties<S: ValidatorStore, T: SlotClock + 'stat
     epoch: Epoch,
     local_pubkeys: &HashSet<PublicKeyBytes>,
 ) {
+    let use_v2 = !duties_service.disable_proposer_duties_v2;
     let download_result = duties_service
         .beacon_nodes
         .first_success(|beacon_node| async move {
@@ -1716,7 +1730,14 @@ async fn fetch_and_store_proposer_duties<S: ValidatorStore, T: SlotClock + 'stat
                 &validator_metrics::DUTIES_SERVICE_TIMES,
                 &[validator_metrics::PROPOSER_DUTIES_HTTP_GET],
             );
-            beacon_node.get_validator_duties_proposer(epoch).await
+            // Prefer the v2 endpoint, which reports the correct dependent root. The v1 endpoint
+            // returns an incorrect dependent root, leading to spurious "Proposer duties re-org"
+            // warnings.
+            if use_v2 {
+                beacon_node.get_validator_duties_proposer_v2(epoch).await
+            } else {
+                beacon_node.get_validator_duties_proposer(epoch).await
+            }
         })
         .await;
 
