@@ -60,7 +60,6 @@ impl GossipVerifiedProposerPreferences {
         let proposal_slot = signed_preferences.message.proposal_slot;
         let dependent_root = signed_preferences.message.dependent_root;
         let validator_index = signed_preferences.message.validator_index;
-        let cached_head = ctx.canonical_head.cached_head();
         let current_slot = ctx
             .slot_clock
             .now()
@@ -82,15 +81,13 @@ impl GossipVerifiedProposerPreferences {
             ctx.spec,
         )?;
 
-        // Get the block at dependent_root from fork choice to verify canonicity and get state_root
+        // Get the block at dependent_root from fork choice to fetch its state_root. The block
+        // need not be canonical: preferences for a non-canonical branch are still verifiable, and
+        // the dependent state lives in the hot DB.
         let fork_choice = ctx.canonical_head.fork_choice_read_lock();
         let dependent_block = fork_choice
             .get_block(&dependent_root)
             .ok_or(ProposerPreferencesError::DependentRootUnknown { dependent_root })?;
-        let head_root = cached_head.head_block_root();
-        if !fork_choice.is_descendant(dependent_root, head_root) {
-            return Err(ProposerPreferencesError::DependentRootNotCanonical { dependent_root });
-        }
         let dependent_state_root = dependent_block.state_root;
         drop(fork_choice);
 

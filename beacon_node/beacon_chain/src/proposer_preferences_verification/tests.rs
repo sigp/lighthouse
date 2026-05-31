@@ -256,7 +256,11 @@ fn correct_proposer_bad_signature() {
         !ctx.preferences_cache
             .get_seen_validator(&slot, ctx.head_block_root, actual_proposer)
     );
-    assert!(ctx.preferences_cache.get_preferences(&slot).is_none());
+    assert!(
+        ctx.preferences_cache
+            .get_preferences(&slot, ctx.head_block_root)
+            .is_none()
+    );
 }
 
 #[test]

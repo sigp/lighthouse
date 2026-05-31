@@ -40,8 +40,6 @@ pub enum ProposerPreferencesError {
     UnableToReadSlot,
     /// The block with root `dependent_root` has not been seen.
     DependentRootUnknown { dependent_root: Hash256 },
-    /// The block with root `dependent_root` is not canonical.
-    DependentRootNotCanonical { dependent_root: Hash256 },
     /// A valid message from this validator for this slot has already been seen.
     AlreadySeen {
         validator_index: u64,
