@@ -48,10 +48,10 @@ use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::ApplicationDomain;
 use types::{
-    Address, Domain, EthSpec, ExecutionBlockHash, Hash256, MainnetEthSpec, ProposerPreferences,
-    RelativeEpoch, SelectionProof, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
-    SignedRoot, SingleAttestation, Slot, attestation::AttestationBase,
-    consts::gloas::BUILDER_INDEX_SELF_BUILD,
+    Address, Domain, EthSpec, ExecutionBlockHash, ExecutionPayloadBid, Hash256, MainnetEthSpec,
+    ProposerPreferences, RelativeEpoch, SelectionProof, SignedExecutionPayloadBid,
+    SignedExecutionPayloadEnvelope, SignedProposerPreferences, SignedRoot, SingleAttestation, Slot,
+    attestation::AttestationBase, consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
 type E = MainnetEthSpec;
@@ -3051,6 +3051,69 @@ impl ApiTester {
             .post_validator_proposer_preferences(&[signed], fork_name)
             .await
             .unwrap();
+
+        self
+    }
+
+    /// Build a `SignedExecutionPayloadBid`
+    fn make_signed_execution_payload_bid(&self) -> (SignedExecutionPayloadBid<E>, ForkName) {
+        let head = self.chain.canonical_head.cached_head();
+        let slot = self.chain.slot().unwrap();
+        let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
+
+        let bid = ExecutionPayloadBid {
+            parent_block_hash: ExecutionBlockHash::zero(),
+            parent_block_root: head.head_block_root(),
+            block_hash: ExecutionBlockHash::zero(),
+            prev_randao: Hash256::zero(),
+            fee_recipient: Address::zero(),
+            gas_limit: 30_000_000,
+            builder_index: 0,
+            slot,
+            value: 100,
+            execution_payment: 0,
+            blob_kzg_commitments: Default::default(),
+            execution_requests_root: Hash256::zero(),
+        };
+
+        let signed = SignedExecutionPayloadBid {
+            message: bid,
+            signature: bls::Signature::empty(),
+        };
+
+        (signed, fork_name)
+    }
+
+    /// JSON bid with a valid structure reaches gossip verification and is rejected with 400.
+    pub async fn test_post_beacon_execution_payload_bid_json(self) -> Self {
+        let (bid, fork_name) = self.make_signed_execution_payload_bid();
+
+        let result = self
+            .client
+            .post_beacon_execution_payload_bid(&bid, fork_name)
+            .await;
+
+        assert!(
+            result.is_err(),
+            "bid should be rejected by gossip verification"
+        );
+
+        self
+    }
+
+    /// SSZ bid with a valid structure reaches gossip verification and is rejected with 400.
+    pub async fn test_post_beacon_execution_payload_bid_ssz(self) -> Self {
+        let (bid, fork_name) = self.make_signed_execution_payload_bid();
+
+        let result = self
+            .client
+            .post_beacon_execution_payload_bid_ssz(&bid, fork_name)
+            .await;
+
+        assert!(
+            result.is_err(),
+            "bid (SSZ) should be rejected by gossip verification"
+        );
 
         self
     }
@@ -9414,5 +9477,18 @@ async fn post_validator_proposer_preferences() {
         .test_post_validator_proposer_preferences_invalid_sig_ssz()
         .await
         .test_post_validator_proposer_preferences_duplicate()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_beacon_execution_payload_bid() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_post_beacon_execution_payload_bid_json()
+        .await
+        .test_post_beacon_execution_payload_bid_ssz()
         .await;
 }
