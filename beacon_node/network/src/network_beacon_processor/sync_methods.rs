@@ -4,11 +4,13 @@ use crate::sync::BatchProcessResult;
 use crate::sync::manager::CustodyBatchProcessResult;
 use crate::sync::{
     ChainId,
-    manager::{BlockProcessType, SyncMessage},
+    manager::{BlockProcessType, BlockProcessingResult, SyncMessage, WhichPeerToPenalize},
 };
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::block_verification_types::{AsBlock, RangeSyncBlock};
-use beacon_chain::data_availability_checker::AvailabilityCheckError;
+use beacon_chain::data_availability_checker::{
+    AvailabilityCheckError, AvailabilityCheckErrorCategory,
+};
 use beacon_chain::historical_data_columns::HistoricalDataColumnError;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, BlockError, ChainSegmentResult,
@@ -87,10 +89,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
         // A closure which will ignore the block.
         let ignore_fn = move || {
+            warn!(
+                ?process_type,
+                "Block processing task dropped, cpu might be overloaded"
+            );
             // Sync handles these results
             self.send_sync_message(SyncMessage::BlockComponentProcessed {
                 process_type,
-                result: crate::sync::manager::BlockProcessingResult::Ignored,
+                result: BlockProcessingResult::Error {
+                    penalty: None,
+                    reason: "processor_overloaded",
+                },
             });
         };
         (process_fn, Box::new(ignore_fn))
@@ -229,9 +238,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
 
         // Sync handles these results
+        let result = classify_processing_result(result, &process_type);
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type,
-            result: result.into(),
+            result,
         });
 
         // Drop the handle to remove the entry from the cache
@@ -309,9 +319,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(_) => {}
         }
 
+        let result = classify_processing_result(result, &process_type);
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type,
-            result: result.into(),
+            result,
         });
     }
 
@@ -361,14 +372,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
 
         // TODO(gloas): structured penalty classification arrives with the envelope lookup state
-        // machine; for now, fold the EnvelopeError into BlockError::InternalError so it flows
-        // through the existing `BlockProcessingResult::Err` path.
-        let result: Result<AvailabilityProcessingStatus, BlockError> =
-            result.map_err(|e| BlockError::InternalError(format!("envelope: {e}")));
+        // machine. For now map the outcome into the producer-side `BlockProcessingResult` shape
+        // without attributing a penalty.
+        let result = match result {
+            Ok(_) => BlockProcessingResult::Imported("envelope"),
+            Err(e) => {
+                debug!(?block_root, error = %e, "Lookup envelope processing failed");
+                BlockProcessingResult::Error {
+                    penalty: None,
+                    reason: "envelope",
+                }
+            }
+        };
 
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type,
-            result: result.into(),
+            result,
         });
     }
 
@@ -947,5 +966,80 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 })
             }
         }
+    }
+}
+
+/// Translate the beacon-chain processing outcome into a `BlockProcessingResult` the lookup state
+/// machine can act on directly. The policy decisions about *whether* and *which peer-class* to
+/// penalize live here, on the producer side, so consumers only need to resolve the symbolic
+/// `WhichPeerToPenalize` to an actual peer id at penalty time.
+fn classify_processing_result(
+    result: Result<AvailabilityProcessingStatus, BlockError>,
+    process_type: &BlockProcessType,
+) -> BlockProcessingResult {
+    let e = match result {
+        Ok(AvailabilityProcessingStatus::Imported(_)) => {
+            return BlockProcessingResult::Imported("imported");
+        }
+        Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
+            return BlockProcessingResult::Imported("missing_components");
+        }
+        Err(BlockError::DuplicateFullyImported(_)) => {
+            return BlockProcessingResult::Imported("duplicate");
+        }
+        Err(BlockError::GenesisBlock) => {
+            return BlockProcessingResult::Imported("genesis");
+        }
+        Err(BlockError::ParentUnknown { parent_root, .. }) => {
+            return BlockProcessingResult::ParentUnknown { parent_root };
+        }
+        Err(e) => e,
+    };
+
+    // Non-attributable failures.
+    let no_penalty = |reason| BlockProcessingResult::Error {
+        penalty: None,
+        reason,
+    };
+    match &e {
+        BlockError::BeaconChainError(_) => return no_penalty("beacon_chain_error"),
+        BlockError::DuplicateImportStatusUnknown(_) => {
+            return no_penalty("duplicate_unknown_status");
+        }
+        BlockError::AvailabilityCheck(inner)
+            if inner.category() == AvailabilityCheckErrorCategory::Internal =>
+        {
+            return no_penalty("availability_internal");
+        }
+        BlockError::ExecutionPayloadError(epe) if !epe.penalize_peer() => {
+            return no_penalty("execution_payload");
+        }
+        // Bad-column attribution: penalize the custody peer that served the invalid column.
+        BlockError::AvailabilityCheck(AvailabilityCheckError::InvalidColumn((Some(idx), _))) => {
+            return BlockProcessingResult::Error {
+                penalty: Some((
+                    PeerAction::MidToleranceError,
+                    WhichPeerToPenalize::CustodyPeerForColumn(*idx),
+                )),
+                reason: "lookup_custody_column_processing_failure",
+            };
+        }
+        _ => {}
+    }
+
+    // Attributable to the block peer (which is also the data peer pre-Gloas).
+    let reason = match process_type {
+        BlockProcessType::SingleBlock { .. } => "lookup_block_processing_failure",
+        BlockProcessType::SingleCustodyColumn(_) => "lookup_custody_column_processing_failure",
+        // Payload envelopes flow through `process_lookup_envelope`; this branch shouldn't fire,
+        // but produce a sensible reason in case it ever does.
+        BlockProcessType::SinglePayloadEnvelope(_) => "lookup_envelope_processing_failure",
+    };
+    BlockProcessingResult::Error {
+        penalty: Some((
+            PeerAction::MidToleranceError,
+            WhichPeerToPenalize::BlockPeer,
+        )),
+        reason,
     }
 }
