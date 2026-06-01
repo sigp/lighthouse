@@ -9,7 +9,6 @@ use tracing::{Span, debug};
 use types::{Hash256, Slot};
 
 pub use blobs_by_range::BlobsByRangeRequestItems;
-pub use blobs_by_root::{BlobsByRootRequestItems, BlobsByRootSingleBlockRequest};
 pub use blocks_by_range::BlocksByRangeRequestItems;
 pub use blocks_by_root::{BlocksByRootRequestItems, BlocksByRootSingleRequest};
 pub use data_columns_by_range::DataColumnsByRangeRequestItems;
@@ -25,7 +24,6 @@ use crate::metrics;
 use super::{RpcEvent, RpcResponseError, RpcResponseResult};
 
 mod blobs_by_range;
-mod blobs_by_root;
 mod blocks_by_range;
 mod blocks_by_root;
 mod data_columns_by_range;

@@ -5,7 +5,6 @@ use crate::attestation_verification::{
 };
 use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
 use crate::beacon_proposer_cache::{BeaconProposerCache, EpochBlockProposers};
-use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::{
     BlockError, ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock,
@@ -26,16 +25,15 @@ use crate::data_availability_checker::{
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::data_column_verification::{
     GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
-    GossipVerifiedPartialDataColumnHeader, KzgVerifiedCustodyPartialDataColumn,
-    KzgVerifiedPartialDataColumn, PartialColumnVerificationResult,
-    validate_partial_data_column_sidecar_for_gossip,
+    GossipVerifiedPartialDataColumnHeader, KzgVerifiedCustodyDataColumn,
+    KzgVerifiedCustodyPartialDataColumn, KzgVerifiedPartialDataColumn,
+    PartialColumnVerificationResult, validate_partial_data_column_sidecar_for_gossip,
 };
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::envelope_times_cache::EnvelopeTimesCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_execution_payload};
-use crate::fetch_blobs::EngineGetBlobsOutput;
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
 use crate::light_client_finality_update_verification::{
@@ -431,8 +429,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) observed_payload_attesters: RwLock<ObservedPayloadAttesters<T::EthSpec>>,
     /// Maintains a record of which validators have proposed blocks for each slot.
     pub observed_block_producers: RwLock<ObservedBlockProducers<T::EthSpec>>,
-    /// Maintains a record of blob sidecars seen over the gossip network.
-    pub observed_blob_sidecars: RwLock<ObservedDataSidecars<BlobSidecar<T::EthSpec>, T::EthSpec>>,
     /// Maintains a record of column sidecars seen over the gossip network.
     pub observed_column_sidecars:
         RwLock<ObservedDataSidecars<DataColumnSidecar<T::EthSpec>, T::EthSpec>>,
@@ -2453,19 +2449,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ret
     }
 
-    #[instrument(skip_all, level = "trace")]
-    pub fn verify_blob_sidecar_for_gossip(
-        self: &Arc<Self>,
-        blob_sidecar: Arc<BlobSidecar<T::EthSpec>>,
-        subnet_id: u64,
-    ) -> Result<GossipVerifiedBlob<T>, GossipBlobError> {
-        metrics::inc_counter(&metrics::BLOBS_SIDECAR_PROCESSING_REQUESTS);
-        let _timer = metrics::start_timer(&metrics::BLOBS_SIDECAR_GOSSIP_VERIFICATION_TIMES);
-        GossipVerifiedBlob::new(blob_sidecar, subnet_id, self).inspect(|_| {
-            metrics::inc_counter(&metrics::BLOBS_SIDECAR_PROCESSING_SUCCESSES);
-        })
-    }
-
     /// Accepts some 'LightClientOptimisticUpdate' from the network and attempts to verify it
     pub fn verify_optimistic_update_for_gossip(
         self: &Arc<Self>,
@@ -3253,35 +3236,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(BeaconChainError::TokioJoin)?
     }
 
-    /// Cache the blob in the processing cache, process it, then evict it from the cache if it was
-    /// imported or errors.
-    #[instrument(skip_all, level = "debug")]
-    pub async fn process_gossip_blob(
-        self: &Arc<Self>,
-        blob: GossipVerifiedBlob<T>,
-    ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        let block_root = blob.block_root();
-
-        // If this block has already been imported to forkchoice it must have been available, so
-        // we don't need to process its blobs again.
-        if self
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(&block_root)
-        {
-            return Err(BlockError::DuplicateFullyImported(blob.block_root()));
-        }
-
-        // No need to process and import blobs beyond the PeerDAS epoch.
-        if self.spec.is_peer_das_enabled_for_epoch(blob.epoch()) {
-            return Err(BlockError::BlobNotRequired(blob.slot()));
-        }
-
-        self.emit_sse_blob_sidecar_events(&block_root, std::iter::once(blob.as_blob()));
-
-        self.check_gossip_blob_availability_and_import(blob).await
-    }
-
     /// Cache the data columns in the processing cache, process it, then evict it from the cache if it was
     /// imported or errors.
     /// Only accepts full columns. Partials are handled via PartialDataColumnAssembler.
@@ -3428,19 +3382,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
-        // Reject RPC blobs referencing unknown parents. Otherwise we allow potentially invalid data
-        // into the da_checker, where invalid = descendant of invalid blocks.
-        // Note: blobs should have at least one item and all items have the same parent root.
-        if let Some(parent_root) = blobs
-            .iter()
-            .filter_map(|b| b.as_ref().map(|b| b.block_parent_root()))
-            .next()
-            && !self
-                .canonical_head
-                .fork_choice_read_lock()
-                .contains_block(&parent_root)
-        {
-            return Err(BlockError::ParentUnknown { parent_root });
+        for blob in &blobs {
+            if let Some(blob) = blob.as_ref() {
+                // Reject RPC blobs referencing unknown parents. Otherwise we allow potentially invalid data
+                // into the da_checker, where invalid = descendant of invalid blocks.
+                // Note: blobs should have at least one item and all items have the same parent root.
+                if !self
+                    .canonical_head
+                    .fork_choice_read_lock()
+                    .contains_block(&blob.block_parent_root())
+                {
+                    return Err(BlockError::ParentUnknown {
+                        parent_root: blob.block_parent_root(),
+                    });
+                }
+            }
         }
 
         self.emit_sse_blob_sidecar_events(&block_root, blobs.iter().flatten().map(Arc::as_ref));
@@ -3454,7 +3410,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         slot: Slot,
         block_root: Hash256,
-        engine_get_blobs_output: EngineGetBlobsOutput<T>,
+        engine_get_blobs_output: Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         // If this block has already been imported to forkchoice it must have been available, so
         // we don't need to process its blobs again.
@@ -3466,17 +3422,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
-        match &engine_get_blobs_output {
-            EngineGetBlobsOutput::Blobs(blobs) => {
-                self.emit_sse_blob_sidecar_events(&block_root, blobs.iter().map(|b| b.as_blob()));
-            }
-            EngineGetBlobsOutput::CustodyColumns(columns) => {
-                self.emit_sse_data_column_sidecar_events(
-                    &block_root,
-                    columns.iter().map(|column| column.as_data_column()),
-                );
-            }
-        }
+        self.emit_sse_data_column_sidecar_events(
+            &block_root,
+            engine_get_blobs_output
+                .iter()
+                .map(|column| column.as_data_column()),
+        );
 
         self.check_engine_blobs_availability_and_import(slot, block_root, engine_get_blobs_output)
             .await
@@ -3915,24 +3866,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await
     }
 
-    /// Checks if the provided blob can make any cached blocks available, and imports immediately
-    /// if so, otherwise caches the blob in the data availability checker.
-    async fn check_gossip_blob_availability_and_import(
-        self: &Arc<Self>,
-        blob: GossipVerifiedBlob<T>,
-    ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        let slot = blob.slot();
-        if let Some(slasher) = self.slasher.as_ref() {
-            slasher.accept_block_header(blob.signed_block_header());
-        }
-        let availability = self
-            .data_availability_checker
-            .put_gossip_verified_blobs(blob.block_root(), std::iter::once(blob))?;
-
-        self.process_availability(slot, availability, || Ok(()))
-            .await
-    }
-
     /// Checks if the provided data column can make any cached blocks available, and imports immediately
     /// if so, otherwise caches the data column in the data availability checker.
     /// Check gossip data columns for availability and import. Only accepts full columns.
@@ -4015,7 +3948,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         self.check_blob_header_signature_and_slashability(
             block_root,
-            blobs.iter().flatten().map(Arc::as_ref),
+            blobs.iter().flatten().map(|b| b.as_ref()),
         )?;
         let availability = self
             .data_availability_checker
@@ -4030,56 +3963,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         slot: Slot,
         block_root: Hash256,
-        engine_get_blobs_output: EngineGetBlobsOutput<T>,
+        engine_get_blobs_output: Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        match engine_get_blobs_output {
-            EngineGetBlobsOutput::Blobs(blobs) => {
-                self.check_blob_header_signature_and_slashability(
-                    block_root,
-                    blobs.iter().map(|b| b.as_blob()),
-                )?;
-                let availability = self
-                    .data_availability_checker
-                    .put_kzg_verified_blobs(block_root, blobs)
-                    .map_err(BlockError::from)?;
-
-                Ok(self
-                    .process_availability(slot, availability, || Ok(()))
-                    .await?)
-            }
-            EngineGetBlobsOutput::CustodyColumns(data_columns) => {
-                // TODO(gloas) verify that this check is no longer relevant for gloas
-                self.check_data_column_sidecar_header_signature_and_slashability(
-                    block_root,
-                    data_columns
-                        .iter()
-                        .filter_map(|c| match c.as_data_column() {
-                            DataColumnSidecar::Fulu(column) => Some(column),
-                            _ => None,
-                        }),
-                )?;
-                if self
-                    .spec
-                    .fork_name_at_slot::<T::EthSpec>(slot)
-                    .gloas_enabled()
-                {
-                    let availability = self
-                        .pending_payload_cache
-                        .put_kzg_verified_custody_data_columns(block_root, &data_columns)
-                        .map_err(BlockError::from)?;
-                    Ok(self
-                        .process_payload_envelope_availability(slot, availability, || Ok(()))
-                        .await?)
-                } else {
-                    let availability = self
-                        .data_availability_checker
-                        .put_kzg_verified_custody_data_columns(block_root, data_columns)
-                        .map_err(BlockError::from)?;
-                    Ok(self
-                        .process_availability(slot, availability, || Ok(()))
-                        .await?)
-                }
-            }
+        // TODO(gloas) verify that this check is no longer relevant for gloas
+        self.check_data_column_sidecar_header_signature_and_slashability(
+            block_root,
+            engine_get_blobs_output
+                .iter()
+                .filter_map(|c| match c.as_data_column() {
+                    DataColumnSidecar::Fulu(column) => Some(column),
+                    _ => None,
+                }),
+        )?;
+        if self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(slot)
+            .gloas_enabled()
+        {
+            let availability = self
+                .pending_payload_cache
+                .put_kzg_verified_custody_data_columns(block_root, &engine_get_blobs_output)
+                .map_err(BlockError::from)?;
+            self.process_payload_envelope_availability(slot, availability, || Ok(()))
+                .await
+        } else {
+            let availability = self
+                .data_availability_checker
+                .put_kzg_verified_custody_data_columns(block_root, engine_get_blobs_output)
+                .map_err(BlockError::from)?;
+            self.process_availability(slot, availability, || Ok(()))
+                .await
         }
     }
 
