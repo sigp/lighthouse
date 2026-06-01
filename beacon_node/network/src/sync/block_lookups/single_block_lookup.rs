@@ -1138,8 +1138,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     }
 }
 
-// === Generic download state machine ===
-
 #[derive(IntoStaticStr)]
 enum DownloadState<T: Clone> {
     AwaitingDownload(/* reason */ &'static str),
