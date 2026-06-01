@@ -23,7 +23,7 @@ pub enum ResponseType {
 /// This trait unifies common single block lookup functionality across blocks and data columns.
 /// This includes making requests, verifying responses, and handling processing results. A
 /// `SingleBlockLookup` includes both a `BlockRequestState` and a `CustodyRequestState`, this trait
-/// is implemented for each. Blobs are not lookup-synced; they are sourced from the EL.
+/// is implemented for each.
 ///
 /// The use of the `ResponseType` associated type gives us a degree of type
 /// safety when handling a block/column response ensuring we only mutate the correct corresponding

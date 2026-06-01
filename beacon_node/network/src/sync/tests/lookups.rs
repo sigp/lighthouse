@@ -1789,8 +1789,7 @@ async fn happy_path_unknown_block_parent(depth: usize) {
     // Note the following for the tip lookup, it's the lookup for the tip block which has 0 peers
     // and a block cached:
     // - before deneb the block is cached, so it's sent for processing, and success
-    // - deneb/electra the block is cached, and its blobs are supplied by the EL (no longer
-    //   lookup-synced), so the block import completes and the lookup succeeds
+    // - deneb/electra the block is cached, so it's sent for processing, and success
     // - after fulu the block is cached, we start a custody request and since we use the global pool
     //   of peers we DO have 1 connected synced supernode peer, which gives us the columns and the
     //   lookup succeeds
@@ -1843,8 +1842,6 @@ async fn bad_peer_empty_block_response(depth: usize) {
 }
 
 /// Assert that if peer responds with no columns, we downscore, and retry the same lookup.
-/// Note: blobs are no longer lookup-synced (sourced from the EL), so "data" here means columns,
-/// which are only lookup-synced post-fulu.
 async fn bad_peer_empty_data_response(depth: usize) {
     let Some(mut r) = TestRig::new_after_fulu() else {
         return;
@@ -1859,8 +1856,7 @@ async fn bad_peer_empty_data_response(depth: usize) {
 }
 
 /// Assert that if peer responds with not enough columns, we downscore, and retry the same
-/// lookup. Note: blobs are no longer lookup-synced (sourced from the EL), so "data" here means
-/// columns, which are only lookup-synced post-fulu.
+/// lookup.
 async fn bad_peer_too_few_data_response(depth: usize) {
     let Some(mut r) = TestRig::new_after_fulu() else {
         return;
@@ -1887,8 +1883,6 @@ async fn bad_peer_wrong_block_response(depth: usize) {
 }
 
 /// Assert that if peer responds with bad columns, we downscore, and retry the same lookup.
-/// Note: blobs are no longer lookup-synced (sourced from the EL), so "data" here means columns,
-/// which are only lookup-synced post-fulu.
 async fn bad_peer_wrong_data_response(depth: usize) {
     let Some(mut r) = TestRig::new_after_fulu() else {
         return;

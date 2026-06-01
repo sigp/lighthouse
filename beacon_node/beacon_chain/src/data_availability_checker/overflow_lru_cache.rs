@@ -235,9 +235,6 @@ impl<E: EthSpec> PendingComponents<E> {
                 }
             }
         } else {
-            // Pre-PeerDAS (Deneb/Electra): blobs are no longer part of the consensus-layer
-            // availability check. They are sourced from the execution layer, so the block is
-            // considered available without waiting for blob sidecars.
             Some(AvailableBlockData::NoData)
         };
 

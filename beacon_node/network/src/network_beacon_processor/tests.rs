@@ -356,8 +356,6 @@ impl TestRig {
 
                 Some(custody_columns)
             } else {
-                // Blobs are no longer required for availability (sourced from the EL), so the test
-                // rig does not build blob sidecars for pre-PeerDAS blocks.
                 None
             }
         } else {
@@ -1258,10 +1256,6 @@ async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod
         "Attestation should not have been included."
     );
 
-    // Make the block's blobs available up front, simulating the execution layer supplying them.
-    // Blobs are no longer fetched via lookup sync, so deneb/electra blocks become available this
-    // way; data columns are still lookup-synced post-fulu.
-
     // Send the block and ensure that the attestation is received back and imported.
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     let mut events = vec![];
@@ -1338,10 +1332,6 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
         initial_attns,
         "Attestation should not have been included."
     );
-
-    // Make the block's blobs available up front, simulating the execution layer supplying them.
-    // Blobs are no longer fetched via lookup sync, so deneb/electra blocks become available this
-    // way; data columns are still lookup-synced post-fulu.
 
     // Send the block and ensure that the attestation is received back and imported.
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
@@ -1544,10 +1534,6 @@ async fn import_misc_gossip_ops() {
 async fn test_rpc_block_reprocessing() {
     let mut rig = TestRig::new(SMALL_CHAIN).await;
     let next_block_root = rig.next_block.canonical_root();
-
-    // Make the block's blobs available up front, simulating the execution layer supplying them.
-    // Blobs are no longer fetched via lookup sync, so deneb/electra blocks become available this
-    // way; data columns are still lookup-synced post-fulu.
 
     // Insert the next block into the duplicate cache manually
     let handle = rig.duplicate_cache.check_and_insert(next_block_root);

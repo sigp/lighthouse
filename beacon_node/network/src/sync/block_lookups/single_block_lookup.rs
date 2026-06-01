@@ -231,9 +231,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                         CustodyRequestState::new(self.block_root),
                     );
                 } else {
-                    // Pre-PeerDAS (Deneb/Electra) blobs are no longer fetched via lookup sync;
-                    // they are sourced from the execution layer. Outside the DA window there is
-                    // likewise nothing to fetch.
                     self.component_requests =
                         ComponentRequests::NotNeeded("blobs not lookup-synced");
                 }
