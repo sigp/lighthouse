@@ -13,7 +13,7 @@
 //! iterates all validators and walks ancestors — O(B × V × depth) total. This is too
 //! expensive at mainnet scale (500k+ validators).
 //!
-//! We diverge in three ways, all behaviorally equivalent:
+//! We diverge in several ways, all behaviorally equivalent:
 //!
 //! 1. **Batch score precomputation** (`precompute_chain_attestation_scores`): iterates
 //!    validators once, walks each vote to the deepest canonical chain block, then builds
@@ -23,11 +23,21 @@
 //! 2. **`is_one_confirmed_with_score`**: variant of `is_one_confirmed` that takes a
 //!    precomputed attestation score instead of calling `get_attestation_score`. The rest
 //!    of the logic (proposer score, support discount, adversarial weight) is identical.
+//!    Likewise the FFG support (`compute_honest_ffg_support`) is computed once per run and
+//!    threaded into `will_no_conflicting_checkpoint_be_justified` /
+//!    `will_current_target_be_justified` rather than recomputed per call.
 //!
-//! 3. **Vote-root and checkpoint caches**: inside `precompute_chain_attestation_scores`
-//!    and `get_current_target_score`, we cache the result of the most recent vote root /
-//!    checkpoint walk. Since most validators vote for the same root, this avoids
-//!    redundant HashMap lookups and ancestor walks.
+//! 3. **Multi-entry vote-root / checkpoint memos**: inside
+//!    `precompute_chain_attestation_scores` and `get_current_target_score`, each distinct
+//!    vote root (or root+epoch) is resolved (HashMap lookup + ancestor walk) at most once
+//!    across the whole validator set and memoized. Real mainnet votes are scattered by
+//!    validator index, so a single-element cache thrashes; the memos turn ~1M ancestor
+//!    walks into ~tens. Keyed on the root prefix via [`IdentityU64Hasher`] to avoid
+//!    SipHashing 32-byte roots per validator (full key stored for collision safety).
+//!
+//! 4. **Single-pass balance rebuild** (`BalanceSourceData::build_for_epochs`): the
+//!    head/current/previous balance sources are rebuilt from one validator-set iteration
+//!    over the (usually two) distinct epochs rather than one iteration each.
 //!
 //! The original spec functions (`is_one_confirmed`, `get_attestation_score`) are not
 //! present — only the optimized equivalents are used.
@@ -280,7 +290,8 @@ impl FastConfirmationRule {
         // the common case), then resolve all balances in one pass.
         let mut epochs: Vec<Epoch> = Vec::with_capacity(3);
         let head_i = head_stale.then(|| dedup_epoch_index(&mut epochs, head_epoch));
-        let current_i = current_stale.then(|| dedup_epoch_index(&mut epochs, state.current_epoch()));
+        let current_i =
+            current_stale.then(|| dedup_epoch_index(&mut epochs, state.current_epoch()));
         let previous_i =
             previous_stale.then(|| dedup_epoch_index(&mut epochs, state.previous_epoch()));
 
@@ -1019,7 +1030,9 @@ impl FastConfirmationRule {
                 Some(t) => t,
                 None => {
                     let t = match self.get_checkpoint_for_block::<E>(
-                        vote_root, vote_epoch, proto_array,
+                        vote_root,
+                        vote_epoch,
+                        proto_array,
                     ) {
                         Ok(cp) => Some(cp),
                         // Vote references a block pruned from proto_array — skip it.
