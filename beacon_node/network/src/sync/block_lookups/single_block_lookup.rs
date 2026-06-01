@@ -1,6 +1,6 @@
 use super::{BlockComponent, PeerId, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS};
 use crate::sync::block_lookups::{
-    BlobDownloadResponse, BlockDownloadResponse, CustodyDownloadResponse, PayloadDownloadResponse,
+    BlockDownloadResponse, CustodyDownloadResponse, PayloadDownloadResponse,
 };
 use crate::sync::manager::{BlockProcessType, BlockProcessingResult};
 use crate::sync::network_context::{
@@ -19,7 +19,6 @@ use std::time::{Duration, Instant};
 use store::Hash256;
 use strum::IntoStaticStr;
 use tracing::{Span, debug, debug_span};
-use types::data::FixedBlobSidecarList;
 use types::{
     ChainSpec, DataColumnSidecarList, EthSpec, ExecutionBlockHash, ForkName, SignedBeaconBlock,
     SignedExecutionPayloadEnvelope, Slot,
@@ -273,11 +272,6 @@ impl<E: EthSpec> DataRequestState<E> {
 /// Fork-dependent data download state
 #[derive(Debug)]
 enum DataDownload<E: EthSpec> {
-    Blobs {
-        block_root: Hash256,
-        expected_blobs: usize,
-        state: SingleLookupRequestState<FixedBlobSidecarList<E>>,
-    },
     Columns {
         block_root: Hash256,
         slot: Slot,
@@ -293,15 +287,6 @@ impl<E: EthSpec> DataDownload<E> {
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<(), LookupRequestError> {
         match self {
-            DataDownload::Blobs {
-                block_root,
-                expected_blobs,
-                state,
-            } => {
-                let br = *block_root;
-                let eb = *expected_blobs;
-                state.make_request(|| cx.blob_lookup_request(id, peers, br, eb))
-            }
             DataDownload::Columns {
                 block_root,
                 slot,
@@ -315,16 +300,12 @@ impl<E: EthSpec> DataDownload<E> {
 
     fn is_completed(&self) -> bool {
         match self {
-            DataDownload::Blobs { state, .. } => state.is_completed(),
             DataDownload::Columns { state, .. } => state.is_completed(),
         }
     }
 
     fn take_download_result(&mut self) -> Option<(DownloadedData<E>, PeerGroup)> {
         match self {
-            DataDownload::Blobs { state, .. } => state
-                .take_download_result()
-                .map(|r| (DownloadedData::Blobs(r.value), r.peer_group)),
             DataDownload::Columns { state, .. } => state
                 .take_download_result()
                 .map(|r| (DownloadedData::Columns(r.value), r.peer_group)),
@@ -333,7 +314,6 @@ impl<E: EthSpec> DataDownload<E> {
 
     fn is_awaiting_event(&self) -> bool {
         match self {
-            DataDownload::Blobs { state, .. } => state.is_awaiting_event(),
             DataDownload::Columns { state, .. } => state.is_awaiting_event(),
         }
     }
@@ -342,7 +322,6 @@ impl<E: EthSpec> DataDownload<E> {
 /// Downloaded data, waiting to be sent for processing
 #[derive(Debug)]
 enum DownloadedData<E: EthSpec> {
-    Blobs(FixedBlobSidecarList<E>),
     Columns(DataColumnSidecarList<E>),
 }
 
@@ -354,9 +333,6 @@ impl<E: EthSpec> DownloadedData<E> {
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<(), SendErrorProcessor> {
         match self {
-            DownloadedData::Blobs(blobs) => {
-                cx.send_blobs_for_processing(id, block_root, blobs.clone(), Duration::ZERO)
-            }
             DownloadedData::Columns(columns) => cx.send_custody_columns_for_processing(
                 id,
                 block_root,
@@ -422,22 +398,12 @@ impl<E: EthSpec> DataRequestState<E> {
         let block_fork = spec.fork_name_at_slot::<E>(slot);
 
         match block_fork {
-            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
-                Self::Complete
-            }
-            ForkName::Deneb | ForkName::Electra => {
-                if expected_blobs > 0 {
-                    Self::Downloading(DataDownload::Blobs {
-                        block_root,
-                        expected_blobs,
-                        state: SingleLookupRequestState::new_with_processing_failures(
-                            failed_processing,
-                        ),
-                    })
-                } else {
-                    Self::Complete
-                }
-            }
+            ForkName::Base
+            | ForkName::Altair
+            | ForkName::Bellatrix
+            | ForkName::Capella
+            | ForkName::Deneb
+            | ForkName::Electra => Self::Complete,
             ForkName::Fulu => {
                 if expected_blobs > 0 {
                     Self::Downloading(DataDownload::Columns {
@@ -1021,26 +987,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         let BlockRequest::Downloading { state, .. } = &mut self.block_request else {
             return Err(LookupRequestError::BadState(
                 "block response but not downloading".to_owned(),
-            ));
-        };
-        state.on_download_response(req_id, self.block_root, result)?;
-        self.continue_requests(cx)
-    }
-
-    /// Handle a blob download response. Updates download state and advances the lookup.
-    pub fn on_blob_download_response(
-        &mut self,
-        req_id: ReqId,
-        result: BlobDownloadResponse<T::EthSpec>,
-        cx: &mut SyncNetworkContext<T>,
-    ) -> Result<LookupResult, LookupRequestError> {
-        let Some(DataRequest {
-            state: DataRequestState::Downloading(DataDownload::Blobs { state, .. }),
-            ..
-        }) = &mut self.data_request
-        else {
-            return Err(LookupRequestError::BadState(
-                "blob response but not downloading blobs".to_owned(),
             ));
         };
         state.on_download_response(req_id, self.block_root, result)?;

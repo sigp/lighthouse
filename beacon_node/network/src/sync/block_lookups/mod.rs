@@ -39,7 +39,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::Hash256;
 use tracing::{debug, error, warn};
-use types::data::FixedBlobSidecarList;
 use types::{EthSpec, SignedBeaconBlock, SignedExecutionPayloadEnvelope};
 
 pub mod parent_chain;
@@ -73,8 +72,6 @@ const MAX_LOOKUPS: usize = 200;
 
 type BlockDownloadResponse<E> =
     Result<(Arc<SignedBeaconBlock<E>>, PeerGroup, Duration), RpcResponseError>;
-type BlobDownloadResponse<E> =
-    Result<(FixedBlobSidecarList<E>, PeerGroup, Duration), RpcResponseError>;
 type CustodyDownloadResponse<E> =
     Result<(types::DataColumnSidecarList<E>, PeerGroup, Duration), RpcResponseError>;
 type PayloadDownloadResponse<E> =
@@ -487,20 +484,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         self.on_lookup_result(id.lookup_id, result, "block_download_response", cx);
     }
 
-    pub fn on_blob_download_response(
-        &mut self,
-        id: SingleLookupReqId,
-        response: BlobDownloadResponse<T::EthSpec>,
-        cx: &mut SyncNetworkContext<T>,
-    ) {
-        let Some(lookup) = self.single_block_lookups.get_mut(&id.lookup_id) else {
-            debug!(?id, "Blob returned for single block lookup not present");
-            return;
-        };
-        let result = lookup.on_blob_download_response(id.req_id, response, cx);
-        self.on_lookup_result(id.lookup_id, result, "blob_download_response", cx);
-    }
-
     pub fn on_custody_download_response(
         &mut self,
         id: SingleLookupReqId,
@@ -556,7 +539,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             BlockProcessType::SingleBlock { .. } => {
                 self.on_block_processing_result(lookup_id, result, cx)
             }
-            BlockProcessType::SingleBlob { .. } | BlockProcessType::SingleCustodyColumn(_) => {
+            BlockProcessType::SingleCustodyColumn(_) => {
                 self.on_data_processing_result(lookup_id, result, cx)
             }
             BlockProcessType::SinglePayloadEnvelope(_) => {
