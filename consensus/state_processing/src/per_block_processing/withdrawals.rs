@@ -494,7 +494,8 @@ pub mod gloas {
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
-        if !state.is_parent_block_full() {
+        // Return early if the parent block is empty.
+        if *state.latest_block_hash()? != state.latest_execution_payload_bid()?.block_hash {
             return Ok(());
         }
 

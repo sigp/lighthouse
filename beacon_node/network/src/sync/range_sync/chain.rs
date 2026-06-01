@@ -10,7 +10,7 @@ use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::network_context::{RangeRequestId, RpcRequestSendError, RpcResponseError};
 use crate::sync::{BatchProcessResult, network_context::SyncNetworkContext};
 use beacon_chain::BeaconChainTypes;
-use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::block_verification_types::RangeSyncBlock;
 use lighthouse_network::service::api_types::Id;
 use lighthouse_network::{PeerAction, PeerId};
 use logging::crit;
@@ -40,7 +40,7 @@ const BATCH_BUFFER_SIZE: u8 = 5;
 /// and continued is now in an inconsistent state.
 pub type ProcessingResult = Result<KeepChain, RemoveChain>;
 
-type RpcBlocks<E> = Vec<RpcBlock<E>>;
+type RpcBlocks<E> = Vec<RangeSyncBlock<E>>;
 type RangeSyncBatchInfo<E> = BatchInfo<E, RangeSyncBatchConfig<E>, RpcBlocks<E>>;
 type RangeSyncBatches<E> = BTreeMap<BatchId, RangeSyncBatchInfo<E>>;
 
@@ -273,7 +273,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         batch_id: BatchId,
         peer_id: &PeerId,
         request_id: Id,
-        blocks: Vec<RpcBlock<T::EthSpec>>,
+        blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) -> ProcessingResult {
         let _guard = self.span.clone().entered();
         // check if we have this batch

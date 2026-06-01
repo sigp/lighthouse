@@ -22,6 +22,34 @@ pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_MISS_TOTAL: &s
     "validator_monitor_attestation_simulator_source_attester_miss_total";
 
 /*
+* Execution Payload Envelope Processing
+*/
+
+pub static ENVELOPE_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "payload_envelope_processing_requests_total",
+        "Count of payload envelopes submitted for processing",
+    )
+});
+pub static ENVELOPE_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "payload_envelope_processing_successes_total",
+        "Count of payload envelopes processed without error",
+    )
+});
+pub static ENVELOPE_PROCESSING_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "payload_envelope_processing_seconds",
+        "Full runtime of payload envelope processing",
+    )
+});
+pub static ENVELOPE_PROCESSING_DB_WRITE: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "payload_envelope_processing_db_write_seconds",
+        "Time spent writing a newly processed payload envelope and state to DB",
+    )
+});
+/*
  * Block Processing
  */
 pub static BLOCK_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
@@ -480,6 +508,17 @@ pub static ATTESTATION_PRODUCTION_HEAD_SCRAPE_SECONDS: LazyLock<Result<Histogram
         try_create_histogram(
             "attestation_production_head_scrape_seconds",
             "Time taken to read the head state",
+        )
+    });
+
+/*
+ * Payload Attestation Production
+ */
+pub static PAYLOAD_ATTESTATION_PRODUCTION_SECONDS: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "beacon_payload_attestation_production_seconds",
+            "Full runtime of payload attestation production",
         )
     });
 
@@ -1429,6 +1468,27 @@ pub static SYNC_MESSAGE_GOSSIP_VERIFICATION_TIMES: LazyLock<Result<Histogram>> =
             "Full runtime of sync contribution gossip verification",
         )
     });
+pub static PAYLOAD_ATTESTATION_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_payload_attestation_processing_requests_total",
+            "Count of all payload attestation messages submitted for processing",
+        )
+    });
+pub static PAYLOAD_ATTESTATION_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_payload_attestation_processing_successes_total",
+            "Number of payload attestation messages verified for gossip",
+        )
+    });
+pub static PAYLOAD_ATTESTATION_GOSSIP_VERIFICATION_TIMES: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "beacon_payload_attestation_gossip_verification_seconds",
+            "Full runtime of payload attestation gossip verification",
+        )
+    });
 pub static SYNC_MESSAGE_EQUIVOCATIONS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
         "sync_message_equivocations_total",
@@ -1647,6 +1707,56 @@ pub static DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES: LazyLock<Result<Histog
             "Full runtime of data column sidecars gossip verification",
         )
     });
+pub static PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_partial_data_column_sidecar_header_processing_requests_total",
+            "Count of all partial data column sidecars submitted for processing",
+        )
+    });
+pub static PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_DUPES: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_partial_data_column_sidecar_header_processing_dupes_total",
+            "Number of partial data column sidecars verified for gossip (excluding dupes)",
+        )
+    });
+pub static PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_partial_data_column_sidecar_header_processing_successes_total",
+            "Number of partial data column sidecar headers verified for gossip (excluding dupes)",
+        )
+    });
+pub static PARTIAL_DATA_COLUMN_SIDECAR_HEADER_GOSSIP_VERIFICATION_TIMES: LazyLock<
+    Result<Histogram>,
+> = LazyLock::new(|| {
+    try_create_histogram(
+        "beacon_partial_data_column_sidecar_header_gossip_verification_seconds",
+        "Full runtime of partial data column sidecar headers gossip verification",
+    )
+});
+pub static PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_partial_data_column_sidecar_processing_requests_total",
+            "Count of all partial data column sidecars submitted for processing",
+        )
+    });
+pub static PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_partial_data_column_sidecar_processing_successes_total",
+            "Number of partial data column sidecars verified for gossip",
+        )
+    });
+pub static PARTIAL_DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "beacon_partial_data_column_sidecar_gossip_verification_seconds",
+            "Full runtime of partial data column sidecars gossip verification",
+        )
+    });
 
 pub static BLOBS_FROM_EL_HIT_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
@@ -1713,6 +1823,70 @@ pub static BEACON_ENGINE_GET_BLOBS_V2_REQUEST_DURATION_SECONDS: LazyLock<Result<
         try_create_histogram(
             "beacon_engine_getBlobsV2_request_duration_seconds",
             "Duration of engine_getBlobsV2 requests to the execution layer in seconds",
+        )
+    });
+
+pub static BEACON_ENGINE_GET_BLOBS_V3_REQUESTS_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_engine_getBlobsV3_requests_total",
+            "Total number of engine_getBlobsV3 requests made to the execution layer",
+        )
+    });
+
+pub static BEACON_ENGINE_GET_BLOBS_V3_COMPLETE_RESPONSES_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_engine_getBlobsV3_complete_responses_total",
+            "Total number of successful engine_getBlobsV3 responses from the execution layer \
+            with all blobs",
+        )
+    });
+
+pub static BEACON_ENGINE_GET_BLOBS_V3_PARTIAL_RESPONSES_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_engine_getBlobsV3_partial_responses_total",
+            "Total number of successful engine_getBlobsV3 responses from the execution layer \
+            with at least one blob missing",
+        )
+    });
+
+pub static BEACON_ENGINE_GET_BLOBS_V3_REQUEST_DURATION_SECONDS: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "beacon_engine_getBlobsV3_request_duration_seconds",
+            "Duration of engine_getBlobsV3 requests to the execution layer in seconds",
+        )
+    });
+
+/*
+ * Standardized metrics for partial column efficiency
+ */
+pub static BEACON_PARTIAL_MESSAGE_USEFUL_CELLS_TOTAL: LazyLock<Result<IntCounterVec>> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "beacon_partial_message_useful_cells_total",
+            "Number of useful cells received via a partial message",
+            &["column_index"],
+        )
+    });
+
+pub static BEACON_PARTIAL_MESSAGE_CELLS_RECEIVED_TOTAL: LazyLock<Result<IntCounterVec>> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "beacon_partial_message_cells_received_total",
+            "Number of total cells received via a partial message",
+            &["column_index"],
+        )
+    });
+
+pub static BEACON_PARTIAL_MESSAGE_COLUMN_COMPLETIONS_TOTAL: LazyLock<Result<IntCounterVec>> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "beacon_partial_message_column_completions_total",
+            "How often the partial message first completed the column",
+            &["column_index"],
         )
     });
 
@@ -1869,6 +2043,12 @@ pub static DATA_AVAILABILITY_OVERFLOW_MEMORY_BLOCK_CACHE_SIZE: LazyLock<Result<I
             "Number of entries in the data availability overflow block memory cache.",
         )
     });
+pub static PENDING_PAYLOAD_CACHE_SIZE: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "pending_payload_cache_size",
+        "Number of entries in the pending payload availability cache.",
+    )
+});
 pub static DATA_AVAILABILITY_RECONSTRUCTION_TIME: LazyLock<Result<Histogram>> =
     LazyLock::new(|| {
         try_create_histogram(
@@ -1975,6 +2155,10 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     set_gauge_by_usize(
         &DATA_AVAILABILITY_OVERFLOW_MEMORY_BLOCK_CACHE_SIZE,
         da_checker_metrics.block_cache_size,
+    );
+    set_gauge_by_usize(
+        &PENDING_PAYLOAD_CACHE_SIZE,
+        beacon_chain.pending_payload_cache.cache_size(),
     );
 
     if let Some((size, num_lookups)) = beacon_chain.pre_finalization_block_cache.metrics() {

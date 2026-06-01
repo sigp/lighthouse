@@ -1,4 +1,4 @@
-use c_kzg::BYTES_PER_PROOF;
+use crate::BYTES_PER_PROOF;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use ssz_derive::{Decode, Encode};
@@ -10,12 +10,6 @@ use tree_hash::{PackedEncoding, TreeHash};
 #[derive(PartialEq, Hash, Clone, Copy, Encode, Decode)]
 #[ssz(struct_behaviour = "transparent")]
 pub struct KzgProof(pub [u8; BYTES_PER_PROOF]);
-
-impl From<KzgProof> for c_kzg::Bytes48 {
-    fn from(value: KzgProof) -> Self {
-        value.0.into()
-    }
-}
 
 impl KzgProof {
     /// Creates a valid proof using `G1_POINT_AT_INFINITY`.

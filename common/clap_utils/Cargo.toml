@@ -14,5 +14,5 @@ ethereum_ssz = { workspace = true }
 hex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde_yaml = { workspace = true }
 types = { workspace = true }
+yaml_serde = { workspace = true }

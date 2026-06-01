@@ -2,7 +2,7 @@
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::{
     ChainConfig,
-    chain_config::{DisallowedReOrgOffsets, ReOrgThreshold},
+    chain_config::DisallowedReOrgOffsets,
     test_utils::{
         AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy, test_spec,
     },
@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::{
     Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec,
-    MinimalEthSpec, ProposerPreparationData, Slot, Uint256,
+    MinimalEthSpec, ProposerPreparationData, Slot,
 };
 
 type E = MainnetEthSpec;
@@ -61,10 +61,7 @@ async fn state_by_root_pruned_from_fork_choice() {
     type E = MinimalEthSpec;
 
     let validator_count = 24;
-    // TODO(EIP-7732): extend test for Gloas by reverting back to using `ForkName::latest()`
-    // Issue is that this test does block production via `extend_chain_with_sync` which expects to be able to use `state.latest_execution_payload_header` during block production, but Gloas uses `latest_execution_bid` instead
-    // This will be resolved in a subsequent block processing PR
-    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    let spec = ForkName::latest().make_genesis_spec(E::default_spec());
 
     let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
         Some(spec.clone()),
@@ -184,8 +181,6 @@ pub struct ReOrgTest {
     parent_distance: u64,
     /// Number of slots between head block and block proposal slot.
     head_distance: u64,
-    re_org_threshold: u64,
-    max_epochs_since_finalization: u64,
     percent_parent_votes: usize,
     percent_empty_votes: usize,
     percent_head_votes: usize,
@@ -204,8 +199,6 @@ impl Default for ReOrgTest {
             head_slot: Slot::new(E::slots_per_epoch() - 2),
             parent_distance: 1,
             head_distance: 1,
-            re_org_threshold: 20,
-            max_epochs_since_finalization: 2,
             percent_parent_votes: 100,
             percent_empty_votes: 100,
             percent_head_votes: 0,
@@ -385,13 +378,12 @@ pub async fn proposer_boost_re_org_weight_misprediction() {
 /// - `num_empty_votes`: percentage of comm of attestations for the parent block
 /// - `num_head_votes`: number of attestations for the head block
 /// - `should_re_org`: whether the proposer should build on the parent rather than the head
+#[allow(clippy::large_stack_frames)]
 pub async fn proposer_boost_re_org_test(
     ReOrgTest {
         head_slot,
         parent_distance,
         head_distance,
-        re_org_threshold,
-        max_epochs_since_finalization,
         percent_parent_votes,
         percent_empty_votes,
         percent_head_votes,
@@ -403,12 +395,9 @@ pub async fn proposer_boost_re_org_test(
 ) {
     assert!(head_slot > 0);
 
-    // Test using the latest fork so that we simulate conditions as similar to mainnet as possible.
-    // TODO(EIP-7732): extend test for Gloas by reverting back to using `ForkName::latest()`
-    // Issue is that `get_validator_blocks_v3` below expects to be able to use `state.latest_execution_payload_header` during `produce_block_on_state` -> `produce_partial_beacon_block` -> `get_execution_payload`, but gloas will no longer support this state field
-    // This will be resolved in a subsequent block processing PR
-    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
-    spec.terminal_total_difficulty = Uint256::from(1);
+    // TODO(EIP-7732): extend test for Gloas — `get_validator_blocks_v3` is missing the
+    // `Eth-Execution-Payload-Blinded` header for Gloas block production responses.
+    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
 
     // Ensure there are enough validators to have `attesters_per_slot`.
     let attesters_per_slot = 10;
@@ -431,14 +420,9 @@ pub async fn proposer_boost_re_org_test(
         validator_count,
         None,
         Some(Box::new(move |builder| {
-            builder
-                .proposer_re_org_head_threshold(Some(ReOrgThreshold(re_org_threshold)))
-                .proposer_re_org_max_epochs_since_finalization(Epoch::new(
-                    max_epochs_since_finalization,
-                ))
-                .proposer_re_org_disallowed_offsets(
-                    DisallowedReOrgOffsets::new::<E>(disallowed_offsets).unwrap(),
-                )
+            builder.proposer_re_org_disallowed_offsets(
+                DisallowedReOrgOffsets::new::<E>(disallowed_offsets).unwrap(),
+            )
         })),
         Default::default(),
         false,
@@ -951,7 +935,7 @@ async fn queue_attestations_from_http() {
 // gossip clock disparity (500ms) of the new epoch.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn proposer_duties_with_gossip_tolerance() {
-    let validator_count = 24;
+    let validator_count = 64;
 
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
     let harness = &tester.harness;
@@ -975,9 +959,10 @@ async fn proposer_duties_with_gossip_tolerance() {
     assert_eq!(harness.chain.slot().unwrap(), num_initial);
 
     // Set the clock to just before the next epoch.
-    harness.chain.slot_clock.advance_time(
-        Duration::from_secs(spec.seconds_per_slot) - spec.maximum_gossip_clock_disparity(),
-    );
+    harness
+        .chain
+        .slot_clock
+        .advance_time(spec.get_slot_duration() - spec.maximum_gossip_clock_disparity());
     assert_eq!(
         harness
             .chain
@@ -1053,6 +1038,241 @@ async fn proposer_duties_with_gossip_tolerance() {
     );
 }
 
+// Test that a request for next epoch v2 proposer duties succeeds when the current slot clock is
+// within gossip clock disparity (500ms) of the new epoch.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn proposer_duties_v2_with_gossip_tolerance() {
+    let validator_count = 64;
+
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
+    let harness = &tester.harness;
+    let spec = &harness.spec;
+    let client = &tester.client;
+
+    let num_initial = 4 * E::slots_per_epoch() - 1;
+    let next_epoch_start_slot = Slot::new(num_initial + 1);
+
+    harness.advance_slot();
+    harness
+        .extend_chain_with_sync(
+            num_initial as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+            SyncCommitteeStrategy::NoValidators,
+            LightClientStrategy::Disabled,
+        )
+        .await;
+
+    assert_eq!(harness.chain.slot().unwrap(), num_initial);
+
+    // Set the clock to just before the next epoch.
+    harness
+        .chain
+        .slot_clock
+        .advance_time(spec.get_slot_duration() - spec.maximum_gossip_clock_disparity());
+    assert_eq!(
+        harness
+            .chain
+            .slot_clock
+            .now_with_future_tolerance(spec.maximum_gossip_clock_disparity())
+            .unwrap(),
+        next_epoch_start_slot
+    );
+
+    let head_state = harness.get_current_state();
+    let head_block_root = harness.head_block_root();
+    let tolerant_current_epoch = next_epoch_start_slot.epoch(E::slots_per_epoch());
+
+    // Prime the proposer shuffling cache with an incorrect entry (regression test).
+    let wrong_decision_root = head_state
+        .proposer_shuffling_decision_root(head_block_root, spec)
+        .unwrap();
+    let wrong_proposer_indices = vec![0; E::slots_per_epoch() as usize];
+    harness
+        .chain
+        .beacon_proposer_cache
+        .lock()
+        .insert(
+            tolerant_current_epoch,
+            wrong_decision_root,
+            wrong_proposer_indices.clone(),
+            head_state.fork(),
+        )
+        .unwrap();
+
+    // Request the v2 proposer duties.
+    let proposer_duties_tolerant_current_epoch = client
+        .get_validator_duties_proposer_v2(tolerant_current_epoch)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        proposer_duties_tolerant_current_epoch.dependent_root,
+        head_state
+            .proposer_shuffling_decision_root_at_epoch(
+                tolerant_current_epoch,
+                head_block_root,
+                spec,
+            )
+            .unwrap()
+    );
+    assert_ne!(
+        proposer_duties_tolerant_current_epoch
+            .data
+            .iter()
+            .map(|data| data.validator_index as usize)
+            .collect::<Vec<_>>(),
+        wrong_proposer_indices,
+    );
+
+    // We should get the exact same result after properly advancing into the epoch.
+    harness
+        .chain
+        .slot_clock
+        .advance_time(spec.maximum_gossip_clock_disparity());
+    assert_eq!(harness.chain.slot().unwrap(), next_epoch_start_slot);
+    let proposer_duties_current_epoch = client
+        .get_validator_duties_proposer_v2(tolerant_current_epoch)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        proposer_duties_tolerant_current_epoch,
+        proposer_duties_current_epoch
+    );
+}
+
+// Test that post-Fulu, v1 and v2 proposer duties return different dependent roots.
+// Post-Fulu, the true dependent root shifts to the block root at the end of epoch N-2 (due to
+// `min_seed_lookahead`), while the legacy v1 root remains at the end of epoch N-1.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn proposer_duties_v2_post_fulu_dependent_root() {
+    type E = MinimalEthSpec;
+    let spec = test_spec::<E>();
+
+    if !spec.is_fulu_scheduled() {
+        return;
+    }
+
+    let validator_count = 24;
+    let slots_per_epoch = E::slots_per_epoch();
+
+    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
+    let harness = &tester.harness;
+    let client = &tester.client;
+    let mock_el = harness.mock_execution_layer.as_ref().unwrap();
+    mock_el.server.all_payloads_valid();
+
+    // Build 3 full epochs of chain so we're in epoch 3.
+    let num_slots = 3 * slots_per_epoch;
+    harness.advance_slot();
+    harness
+        .extend_chain_with_sync(
+            num_slots as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+            SyncCommitteeStrategy::AllValidators,
+            LightClientStrategy::Disabled,
+        )
+        .await;
+
+    let current_epoch = harness.chain.epoch().unwrap();
+    assert_eq!(current_epoch, Epoch::new(3));
+
+    // For epoch 3 with min_seed_lookahead=1:
+    //   Post-Fulu decision slot: end of epoch N-2 = end of epoch 1 = slot 15
+    //   Legacy decision slot:    end of epoch N-1 = end of epoch 2 = slot 23
+    let true_decision_slot = Epoch::new(1).end_slot(slots_per_epoch);
+    let legacy_decision_slot = Epoch::new(2).end_slot(slots_per_epoch);
+    assert_eq!(true_decision_slot, Slot::new(15));
+    assert_eq!(legacy_decision_slot, Slot::new(23));
+
+    // Fetch the block roots at these slots to compute expected dependent roots.
+    let expected_v2_root = harness
+        .chain
+        .block_root_at_slot(true_decision_slot, beacon_chain::WhenSlotSkipped::Prev)
+        .unwrap()
+        .unwrap();
+    let expected_v1_root = harness
+        .chain
+        .block_root_at_slot(legacy_decision_slot, beacon_chain::WhenSlotSkipped::Prev)
+        .unwrap()
+        .unwrap();
+
+    // Sanity check: the two roots should be different since they refer to different blocks.
+    assert_ne!(
+        expected_v1_root, expected_v2_root,
+        "legacy and true decision roots should differ post-Fulu"
+    );
+
+    // Query v1 and v2 proposer duties for the current epoch.
+    let v1_result = client
+        .get_validator_duties_proposer(current_epoch)
+        .await
+        .unwrap();
+    let v2_result = client
+        .get_validator_duties_proposer_v2(current_epoch)
+        .await
+        .unwrap();
+
+    // The proposer assignments (data) must be identical.
+    assert_eq!(v1_result.data, v2_result.data);
+
+    // The dependent roots must differ.
+    assert_ne!(
+        v1_result.dependent_root, v2_result.dependent_root,
+        "v1 and v2 dependent roots should differ post-Fulu"
+    );
+
+    // Verify each root matches the expected value.
+    assert_eq!(
+        v1_result.dependent_root, expected_v1_root,
+        "v1 dependent root should be block root at end of epoch N-1"
+    );
+    assert_eq!(
+        v2_result.dependent_root, expected_v2_root,
+        "v2 dependent root should be block root at end of epoch N-2"
+    );
+
+    // Also verify the next-epoch path (epoch 4).
+    let next_epoch = current_epoch + 1;
+    let v1_next = client
+        .get_validator_duties_proposer(next_epoch)
+        .await
+        .unwrap();
+    let v2_next = client
+        .get_validator_duties_proposer_v2(next_epoch)
+        .await
+        .unwrap();
+
+    assert_eq!(v1_next.data, v2_next.data);
+    assert_ne!(
+        v1_next.dependent_root, v2_next.dependent_root,
+        "v1 and v2 next-epoch dependent roots should differ post-Fulu"
+    );
+
+    // For epoch 4: true decision is end of epoch 2 (slot 23), legacy is end of epoch 3 (slot 31).
+    let expected_v2_next_root = harness
+        .chain
+        .block_root_at_slot(
+            Epoch::new(2).end_slot(slots_per_epoch),
+            beacon_chain::WhenSlotSkipped::Prev,
+        )
+        .unwrap()
+        .unwrap();
+    let expected_v1_next_root = harness
+        .chain
+        .block_root_at_slot(
+            Epoch::new(3).end_slot(slots_per_epoch),
+            beacon_chain::WhenSlotSkipped::Prev,
+        )
+        .unwrap()
+        .unwrap_or(harness.head_block_root());
+    assert_eq!(v1_next.dependent_root, expected_v1_next_root);
+    assert_eq!(v2_next.dependent_root, expected_v2_next_root);
+    assert_ne!(expected_v2_next_root, harness.head_block_root());
+}
+
 // Test that a request to `lighthouse/custody/backfill` succeeds by verifying that `CustodyContext` and `DataColumnCustodyInfo`
 // have been updated with the correct values.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1064,7 +1284,7 @@ async fn lighthouse_restart_custody_backfill() {
         return;
     }
 
-    let validator_count = 24;
+    let validator_count = 64;
 
     let tester = InteractiveTester::<E>::new_supernode(Some(spec), validator_count).await;
     let harness = &tester.harness;
@@ -1131,7 +1351,7 @@ async fn lighthouse_custody_info() {
     spec.min_epochs_for_blob_sidecars_requests = 2;
     spec.min_epochs_for_data_column_sidecars_requests = 2;
 
-    let validator_count = 24;
+    let validator_count = 64;
 
     let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
     let harness = &tester.harness;

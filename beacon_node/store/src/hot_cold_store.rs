@@ -48,7 +48,7 @@ use zstd::{Decoder, Encoder};
 /// Stores vector fields like the `block_roots` and `state_roots` separately, and only stores
 /// intermittent "restore point" states pre-finalization.
 #[derive(Debug)]
-pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
+pub struct HotColdDB<E: EthSpec, Hot: ItemStore, Cold: ItemStore> {
     /// The slot and state root at the point where the database is split between hot and cold.
     ///
     /// States with slots less than `split.slot` are in the cold DB, while states with slots
@@ -186,6 +186,7 @@ pub enum HotColdDBError {
     MissingHotHDiff(Hash256),
     MissingHDiff(Slot),
     MissingExecutionPayload(Hash256),
+    MissingExecutionPayloadEnvelope(Hash256),
     MissingFullBlockExecutionPayloadPruned(Hash256, Slot),
     MissingAnchorInfo,
     MissingFrozenBlockSlot(Hash256),
@@ -216,11 +217,11 @@ pub enum HotColdDBError {
     Rollback,
 }
 
-impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
+impl<E: EthSpec> HotColdDB<E, MemoryStore, MemoryStore> {
     pub fn open_ephemeral(
         config: StoreConfig,
         spec: Arc<ChainSpec>,
-    ) -> Result<HotColdDB<E, MemoryStore<E>, MemoryStore<E>>, Error> {
+    ) -> Result<HotColdDB<E, MemoryStore, MemoryStore>, Error> {
         config.verify::<E>()?;
 
         let hierarchy = config.hierarchy_config.to_moduli()?;
@@ -259,7 +260,7 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
     }
 }
 
-impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
+impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend> {
     /// Open a new or existing database, with the given paths to the hot and cold DBs.
     ///
     /// The `migrate_schema` function is passed in so that the parent `BeaconChain` can provide
@@ -454,7 +455,7 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
     }
 }
 
-impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> {
+impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
     fn cold_storage_strategy(&self, slot: Slot) -> Result<StorageStrategy, Error> {
         // The start slot for the freezer HDiff is always 0
         Ok(self.hierarchy.storage_strategy(slot, Slot::new(0))?)
@@ -1067,7 +1068,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn put_payload_envelope(
         &self,
         block_root: &Hash256,
-        payload_envelope: SignedExecutionPayloadEnvelope<E>,
+        payload_envelope: &SignedExecutionPayloadEnvelope<E>,
     ) -> Result<(), Error> {
         self.hot_db.put_bytes(
             SignedExecutionPayloadEnvelope::<E>::db_column(),
@@ -1383,6 +1384,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     // NOTE: `hot_storage_strategy` can error if there are states in the database
                     // prior to the `anchor_slot`. This can happen if checkpoint sync has been
                     // botched and left some states in the database prior to completing.
+                    // Use `Pending` status here because snapshots and diffs are only stored for
+                    // `Pending` states.
                     if let Some(slot) = slot
                         && let Ok(strategy) = self.hot_storage_strategy(slot)
                     {
@@ -1952,6 +1955,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             ..
         }) = self.load_hot_state_summary(state_root)?
         {
+            debug!(
+                %slot,
+                ?state_root,
+                "Loading hot state"
+            );
             let mut state = match self.hot_storage_strategy(slot)? {
                 strat @ StorageStrategy::Snapshot | strat @ StorageStrategy::DiffFrom(_) => {
                     let buffer_timer = metrics::start_timer_vec(
@@ -2055,6 +2063,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
             Ok(())
         };
+
+        debug!(
+            %slot,
+            blocks = ?blocks.iter().map(|block| block.slot()).collect::<Vec<_>>(),
+            "Replaying blocks"
+        );
 
         self.replay_blocks(
             base_state,
@@ -2362,7 +2376,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok(base_state);
         }
 
-        let blocks = self.load_cold_blocks(base_state.slot() + 1, slot)?;
+        let base_slot = base_state.slot();
+        let blocks = self.load_cold_blocks(base_slot + 1, slot)?;
 
         // Include state root for base state as it is required by block processing to not
         // have to hash the state.
@@ -2486,7 +2501,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         })?
     }
 
-    /// Load the blocks between `start_slot` and `end_slot` by backtracking from `end_block_hash`.
+    /// Load the blocks between `start_slot` and `end_slot` by backtracking from
+    /// `end_block_root`.
     ///
     /// Blocks are returned in slot-ascending order, suitable for replaying on a state with slot
     /// equal to `start_slot`, to reach a state with slot equal to `end_slot`.
@@ -2494,10 +2510,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         &self,
         start_slot: Slot,
         end_slot: Slot,
-        end_block_hash: Hash256,
-    ) -> Result<Vec<SignedBeaconBlock<E, BlindedPayload<E>>>, Error> {
+        end_block_root: Hash256,
+    ) -> Result<Vec<SignedBlindedBeaconBlock<E>>, Error> {
         let _t = metrics::start_timer(&metrics::STORE_BEACON_LOAD_HOT_BLOCKS_TIME);
-        let mut blocks = ParentRootBlockIterator::new(self, end_block_hash)
+        let mut blocks = ParentRootBlockIterator::new(self, end_block_root)
             .map(|result| result.map(|(_, block)| block))
             // Include the block at the end slot (if any), it needs to be
             // replayed in order to construct the canonical state at `end_slot`.
@@ -2534,7 +2550,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn replay_blocks(
         &self,
         state: BeaconState<E>,
-        blocks: Vec<SignedBeaconBlock<E, BlindedPayload<E>>>,
+        blocks: Vec<SignedBlindedBeaconBlock<E>>,
         target_slot: Slot,
         state_root_iter: Option<impl Iterator<Item = Result<(Hash256, Slot), Error>>>,
         pre_slot_hook: Option<PreSlotHook<E, Error>>,
@@ -3041,12 +3057,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             Some(mut split) => {
                 debug!(?split, "Loaded split partial");
                 // Load the hot state summary to get the block root.
-                let latest_block_root = self
-                    .load_block_root_from_summary_any_version(&split.state_root)
-                    .ok_or(HotColdDBError::MissingSplitState(
-                        split.state_root,
-                        split.slot,
-                    ))?;
+                let latest_block_root =
+                    self.load_block_root_from_summary(&split.state_root).ok_or(
+                        HotColdDBError::MissingSplitState(split.state_root, split.slot),
+                    )?;
                 split.block_root = latest_block_root;
                 Ok(Some(split))
             }
@@ -3077,27 +3091,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .map_err(|e| Error::LoadHotStateSummary(*state_root, e.into()))
     }
 
-    /// Load a hot state's summary in V22 format, given its root.
-    pub fn load_hot_state_summary_v22(
-        &self,
-        state_root: &Hash256,
-    ) -> Result<Option<HotStateSummaryV22>, Error> {
-        self.hot_db
-            .get(state_root)
-            .map_err(|e| Error::LoadHotStateSummary(*state_root, e.into()))
-    }
-
-    /// Load the latest block root for a hot state summary either in modern form, or V22 form.
-    ///
-    /// This function is required to open a V22 database for migration to V24, or vice versa.
-    pub fn load_block_root_from_summary_any_version(
-        &self,
-        state_root: &Hash256,
-    ) -> Option<Hash256> {
+    /// Load the latest block root for a hot state summary.
+    pub fn load_block_root_from_summary(&self, state_root: &Hash256) -> Option<Hash256> {
         if let Ok(Some(summary)) = self.load_hot_state_summary(state_root) {
-            return Some(summary.latest_block_root);
-        }
-        if let Ok(Some(summary)) = self.load_hot_state_summary_v22(state_root) {
             return Some(summary.latest_block_root);
         }
         None
@@ -3583,7 +3579,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 /// This function previously did a combination of freezer migration alongside pruning. Now it is
 /// *just* responsible for copying relevant data to the freezer, while pruning is implemented
 /// in `prune_hot_db`.
-pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
+pub fn migrate_database<E: EthSpec, Hot: ItemStore, Cold: ItemStore>(
     store: Arc<HotColdDB<E, Hot, Cold>>,
     finalized_state_root: Hash256,
     finalized_block_root: Hash256,
@@ -3591,6 +3587,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
 ) -> Result<SplitChange, Error> {
     debug!(
         slot = %finalized_state.slot(),
+        state_root = ?finalized_state_root,
         "Freezer migration started"
     );
 
@@ -3793,7 +3790,7 @@ pub enum StateSummaryIteratorError {
 
 /// Return the ancestor state root of a state beyond SlotsPerHistoricalRoot using the roots iterator
 /// and the store
-pub fn get_ancestor_state_root<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
+pub fn get_ancestor_state_root<'a, E: EthSpec, Hot: ItemStore, Cold: ItemStore>(
     store: &'a HotColdDB<E, Hot, Cold>,
     from_state: &'a BeaconState<E>,
     target_slot: Slot,
@@ -4000,7 +3997,7 @@ impl StoreItem for HotStateSummary {
 
 impl HotStateSummary {
     /// Construct a new summary of the given state.
-    pub fn new<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
+    pub fn new<E: EthSpec, Hot: ItemStore, Cold: ItemStore>(
         store: &HotColdDB<E, Hot, Cold>,
         state_root: Hash256,
         state: &BeaconState<E>,
@@ -4014,7 +4011,7 @@ impl HotStateSummary {
             if slot == state.slot() {
                 Ok::<_, Error>(state_root)
             } else {
-                Ok(get_ancestor_state_root(store, state, slot).map_err(|e| {
+                Ok::<_, Error>(get_ancestor_state_root(store, state, slot).map_err(|e| {
                     Error::StateSummaryIteratorError {
                         error: e,
                         from_state_root: state_root,
@@ -4045,30 +4042,6 @@ impl HotStateSummary {
             diff_base_state,
             previous_state_root,
         })
-    }
-}
-
-/// Legacy hot state summary used in schema V22 and before.
-///
-/// This can be deleted when we remove V22 support.
-#[derive(Debug, Clone, Copy, Encode, Decode)]
-pub struct HotStateSummaryV22 {
-    pub slot: Slot,
-    pub latest_block_root: Hash256,
-    pub epoch_boundary_state_root: Hash256,
-}
-
-impl StoreItem for HotStateSummaryV22 {
-    fn db_column() -> DBColumn {
-        DBColumn::BeaconStateSummary
-    }
-
-    fn as_store_bytes(&self) -> Vec<u8> {
-        self.as_ssz_bytes()
-    }
-
-    fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        Ok(Self::from_ssz_bytes(bytes)?)
     }
 }
 

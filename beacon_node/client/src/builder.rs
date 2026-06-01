@@ -36,6 +36,7 @@ use rand::SeedableRng;
 use rand::rngs::{OsRng, StdRng};
 use slasher::Slasher;
 use slasher_service::SlasherService;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -97,8 +98,8 @@ impl<TSlotClock, E, THotStore, TColdStore>
 where
     TSlotClock: SlotClock + Clone + 'static,
     E: EthSpec + 'static,
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
+    THotStore: ItemStore + 'static,
+    TColdStore: ItemStore + 'static,
 {
     /// Instantiates a new, empty builder.
     ///
@@ -639,6 +640,10 @@ where
                 network_globals: self.network_globals.clone(),
                 beacon_processor_send: Some(beacon_processor_channels.beacon_processor_tx.clone()),
                 sse_logging_components: runtime_context.sse_logging_components.clone(),
+                historical_committee_cache: Arc::new(http_api::HistoricalCommitteeCache::new(
+                    NonZeroUsize::new(self.http_api_config.historical_committee_cache_size)
+                        .unwrap_or(NonZeroUsize::MIN),
+                )),
             });
 
             let exit = runtime_context.executor.exit();
@@ -721,10 +726,9 @@ where
             if let Some(execution_layer) = beacon_chain.execution_layer.as_ref() {
                 // Only send a head update *after* genesis.
                 if let Ok(current_slot) = beacon_chain.slot() {
-                    let params = beacon_chain
-                        .canonical_head
-                        .cached_head()
-                        .forkchoice_update_parameters();
+                    let cached_head = beacon_chain.canonical_head.cached_head();
+                    let head_payload_status = cached_head.head_payload_status();
+                    let params = cached_head.forkchoice_update_parameters();
                     if params
                         .head_hash
                         .is_some_and(|hash| hash != ExecutionBlockHash::zero())
@@ -737,6 +741,7 @@ where
                                     .update_execution_engine_forkchoice(
                                         current_slot,
                                         params,
+                                        head_payload_status,
                                         Default::default(),
                                     )
                                     .await;
@@ -810,8 +815,8 @@ impl<TSlotClock, E, THotStore, TColdStore>
 where
     TSlotClock: SlotClock + Clone + 'static,
     E: EthSpec + 'static,
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
+    THotStore: ItemStore + 'static,
+    TColdStore: ItemStore + 'static,
 {
     /// Consumes the internal `BeaconChainBuilder`, attaching the resulting `BeaconChain` to self.
     #[instrument(skip_all)]
@@ -842,8 +847,7 @@ where
     }
 }
 
-impl<TSlotClock, E>
-    ClientBuilder<Witness<TSlotClock, E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>
+impl<TSlotClock, E> ClientBuilder<Witness<TSlotClock, E, BeaconNodeBackend, BeaconNodeBackend>>
 where
     TSlotClock: SlotClock + 'static,
     E: EthSpec + 'static,
@@ -884,8 +888,8 @@ where
 impl<E, THotStore, TColdStore> ClientBuilder<Witness<SystemTimeSlotClock, E, THotStore, TColdStore>>
 where
     E: EthSpec + 'static,
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
+    THotStore: ItemStore + 'static,
+    TColdStore: ItemStore + 'static,
 {
     /// Specifies that the slot clock should read the time from the computers system clock.
     pub fn system_time_slot_clock(mut self) -> Result<Self, String> {

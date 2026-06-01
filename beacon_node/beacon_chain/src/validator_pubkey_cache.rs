@@ -302,7 +302,8 @@ mod test {
 
     #[test]
     fn basic_operation() {
-        let (state, keypairs) = get_state(8);
+        // >= 32 validators required for Gloas genesis with MainnetEthSpec (32 slots/epoch).
+        let (state, keypairs) = get_state(32);
 
         let store = get_store();
 
@@ -311,21 +312,14 @@ mod test {
         check_cache_get(&cache, &keypairs[..]);
 
         // Try adding a state with the same number of keypairs.
-        let (state, keypairs) = get_state(8);
-        cache
-            .import_new_pubkeys(&state)
-            .expect("should import pubkeys");
-        check_cache_get(&cache, &keypairs[..]);
-
-        // Try adding a state with less keypairs.
-        let (state, _) = get_state(1);
+        let (state, keypairs) = get_state(32);
         cache
             .import_new_pubkeys(&state)
             .expect("should import pubkeys");
         check_cache_get(&cache, &keypairs[..]);
 
         // Try adding a state with more keypairs.
-        let (state, keypairs) = get_state(12);
+        let (state, keypairs) = get_state(48);
         cache
             .import_new_pubkeys(&state)
             .expect("should import pubkeys");
@@ -334,7 +328,7 @@ mod test {
 
     #[test]
     fn persistence() {
-        let (state, keypairs) = get_state(8);
+        let (state, keypairs) = get_state(32);
 
         let store = get_store();
 
@@ -349,7 +343,7 @@ mod test {
         check_cache_get(&cache, &keypairs[..]);
 
         // Add some more keypairs.
-        let (state, keypairs) = get_state(12);
+        let (state, keypairs) = get_state(48);
         let ops = cache
             .import_new_pubkeys(&state)
             .expect("should import pubkeys");

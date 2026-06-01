@@ -248,9 +248,9 @@ impl TestValidator {
         store_withdrawal_key: bool,
     ) -> Result<Vec<String>, String> {
         let mut cmd = validator_cmd();
-        cmd.arg(format!("--{}", VALIDATOR_DIR_FLAG))
+        cmd.arg(CREATE_CMD)
+            .arg(format!("--{}", VALIDATOR_DIR_FLAG))
             .arg(self.validator_dir.clone().into_os_string())
-            .arg(CREATE_CMD)
             .arg(format!("--{}", WALLETS_DIR_FLAG))
             .arg(self.wallet.base_dir().into_os_string())
             .arg(format!("--{}", WALLET_NAME_FLAG))
@@ -427,9 +427,9 @@ fn validator_import_launchpad() {
     File::create(src_dir.path().join(NOT_KEYSTORE_NAME)).unwrap();
 
     let mut child = validator_cmd()
+        .arg(IMPORT_CMD)
         .arg(format!("--{}", VALIDATOR_DIR_FLAG))
         .arg(dst_dir.path().as_os_str())
-        .arg(IMPORT_CMD)
         .arg(format!("--{}", STDIN_INPUTS_FLAG)) // Using tty does not work well with tests.
         .arg(format!("--{}", import::DIR_FLAG))
         .arg(src_dir.path().as_os_str())
@@ -479,10 +479,10 @@ fn validator_import_launchpad() {
     // Disable all the validators in validator_definition.
     output_result(
         validator_cmd()
-            .arg(format!("--{}", VALIDATOR_DIR_FLAG))
-            .arg(dst_dir.path().as_os_str())
             .arg(MODIFY_CMD)
             .arg(DISABLE)
+            .arg(format!("--{}", VALIDATOR_DIR_FLAG))
+            .arg(dst_dir.path().as_os_str())
             .arg(format!("--{}", ALL)),
     )
     .unwrap();
@@ -514,10 +514,10 @@ fn validator_import_launchpad() {
     // Enable keystore validator again
     output_result(
         validator_cmd()
-            .arg(format!("--{}", VALIDATOR_DIR_FLAG))
-            .arg(dst_dir.path().as_os_str())
             .arg(MODIFY_CMD)
             .arg(ENABLE)
+            .arg(format!("--{}", VALIDATOR_DIR_FLAG))
+            .arg(dst_dir.path().as_os_str())
             .arg(format!("--{}", PUBKEY_FLAG))
             .arg(format!("{}", keystore.public_key().unwrap())),
     )
@@ -560,9 +560,9 @@ fn validator_import_launchpad_no_password_then_add_password() {
 
     let validator_import_key_cmd = || {
         validator_cmd()
+            .arg(IMPORT_CMD)
             .arg(format!("--{}", VALIDATOR_DIR_FLAG))
             .arg(dst_dir.path().as_os_str())
-            .arg(IMPORT_CMD)
             .arg(format!("--{}", STDIN_INPUTS_FLAG)) // Using tty does not work well with tests.
             .arg(format!("--{}", import::DIR_FLAG))
             .arg(src_dir.path().as_os_str())
@@ -700,9 +700,9 @@ fn validator_import_launchpad_password_file() {
         .unwrap();
 
     let mut child = validator_cmd()
+        .arg(IMPORT_CMD)
         .arg(format!("--{}", VALIDATOR_DIR_FLAG))
         .arg(dst_dir.path().as_os_str())
-        .arg(IMPORT_CMD)
         .arg(format!("--{}", import::DIR_FLAG))
         .arg(src_dir.path().as_os_str())
         .arg(format!("--{}", import::REUSE_PASSWORD_FLAG))

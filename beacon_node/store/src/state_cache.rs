@@ -111,6 +111,19 @@ impl<E: EthSpec> StateCache<E> {
         self.hdiff_buffers.mem_usage()
     }
 
+    /// Return all state roots currently held in the cache, including the finalized state.
+    pub fn state_roots(&self) -> Vec<Hash256> {
+        let mut roots: Vec<Hash256> = self
+            .states
+            .iter()
+            .map(|(&state_root, _)| state_root)
+            .collect();
+        if let Some(ref finalized) = self.finalized_state {
+            roots.push(finalized.state_root);
+        }
+        roots
+    }
+
     pub fn update_finalized_state(
         &mut self,
         state_root: Hash256,

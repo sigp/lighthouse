@@ -2,7 +2,6 @@
 use crate::per_epoch_processing::process_epoch;
 use beacon_chain::test_utils::BeaconChainHarness;
 use beacon_chain::types::{EthSpec, MinimalEthSpec};
-use bls::{FixedBytesExtended, Hash256};
 use types::Slot;
 
 #[tokio::test]
@@ -22,7 +21,6 @@ async fn runs_without_error() {
     harness
         .add_attested_blocks_at_slots(
             state,
-            Hash256::zero(),
             (1..target_slot.as_u64())
                 .map(Slot::new)
                 .collect::<Vec<_>>()

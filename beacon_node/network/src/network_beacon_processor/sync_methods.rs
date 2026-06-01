@@ -6,7 +6,8 @@ use crate::sync::{
     ChainId,
     manager::{BlockProcessType, SyncMessage},
 };
-use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
+use beacon_chain::block_verification_types::LookupBlock;
+use beacon_chain::block_verification_types::{AsBlock, RangeSyncBlock};
 use beacon_chain::data_availability_checker::AvailabilityCheckError;
 use beacon_chain::historical_data_columns::HistoricalDataColumnError;
 use beacon_chain::{
@@ -23,10 +24,7 @@ use lighthouse_network::service::api_types::CustodyBackfillBatchId;
 use logging::crit;
 use std::sync::Arc;
 use std::time::Duration;
-use store::KzgCommitment;
 use tracing::{debug, debug_span, error, info, instrument, warn};
-use types::data::FixedBlobSidecarList;
-use types::kzg_ext::format_kzg_commitments;
 use types::{BlockImportSource, DataColumnSidecarList, Epoch, Hash256};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
@@ -51,16 +49,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ///
     /// This separate function was required to prevent a cycle during compiler
     /// type checking.
-    pub fn generate_rpc_beacon_block_process_fn(
+    pub fn generate_lookup_beacon_block_process_fn(
         self: Arc<Self>,
         block_root: Hash256,
-        block: RpcBlock<T::EthSpec>,
+        block: LookupBlock<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> AsyncFn {
         let process_fn = async move {
             let duplicate_cache = self.duplicate_cache.clone();
-            self.process_rpc_block(
+            self.process_lookup_block(
                 block_root,
                 block,
                 seen_timestamp,
@@ -73,15 +71,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Returns the `process_fn` and `ignore_fn` required when requeuing an RPC block.
-    pub fn generate_rpc_beacon_block_fns(
+    pub fn generate_lookup_beacon_block_fns(
         self: Arc<Self>,
         block_root: Hash256,
-        block: RpcBlock<T::EthSpec>,
+        block: LookupBlock<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> (AsyncFn, BlockingFn) {
         // An async closure which will import the block.
-        let process_fn = self.clone().generate_rpc_beacon_block_process_fn(
+        let process_fn = self.clone().generate_lookup_beacon_block_process_fn(
             block_root,
             block,
             seen_timestamp,
@@ -107,10 +105,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         skip_all,
         fields(?block_root),
     )]
-    pub async fn process_rpc_block(
+    pub async fn process_lookup_block(
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
-        block: RpcBlock<T::EthSpec>,
+        block: LookupBlock<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
         duplicate_cache: DuplicateCache,
@@ -118,14 +116,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // Check if the block is already being imported through another source
         let Some(handle) = duplicate_cache.check_and_insert(block_root) else {
             debug!(
-                action = "sending rpc block to reprocessing queue",
+                action = "sending lookup block to reprocessing queue",
                 %block_root,
                 ?process_type,
                 "Gossip block is being processed"
             );
 
             // Send message to work reprocess queue to retry the block
-            let (process_fn, ignore_fn) = self.clone().generate_rpc_beacon_block_fns(
+            let (process_fn, ignore_fn) = self.clone().generate_lookup_beacon_block_fns(
                 block_root,
                 block,
                 seen_timestamp,
@@ -160,7 +158,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             slot = %block.slot(),
             commitments_formatted,
             ?process_type,
-            "Processing RPC block"
+            "Processing Lookup block"
         );
 
         let signed_beacon_block = block.block_cloned();
@@ -217,9 +215,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // Block is valid, we can now attempt fetching blobs from EL using version hashes
                 // derived from kzg commitments from the block, without having to wait for all blobs
                 // to be sent from the peers if we already have them.
-                let publish_blobs = false;
-                self.fetch_engine_blobs_and_publish(signed_beacon_block, block_root, publish_blobs)
+                if let Ok(header) = signed_beacon_block.as_ref().try_into() {
+                    let publish_blobs = false;
+                    self.fetch_engine_blobs_and_publish(
+                        Arc::new(header),
+                        block_root,
+                        publish_blobs,
+                    )
                     .await;
+                }
             }
             _ => {}
         }
@@ -232,114 +236,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         // Drop the handle to remove the entry from the cache
         drop(handle);
-    }
-
-    /// Returns an async closure which processes a list of blobs received via RPC.
-    ///
-    /// This separate function was required to prevent a cycle during compiler
-    /// type checking.
-    pub fn generate_rpc_blobs_process_fn(
-        self: Arc<Self>,
-        block_root: Hash256,
-        blobs: FixedBlobSidecarList<T::EthSpec>,
-        seen_timestamp: Duration,
-        process_type: BlockProcessType,
-    ) -> AsyncFn {
-        let process_fn = async move {
-            self.clone()
-                .process_rpc_blobs(block_root, blobs, seen_timestamp, process_type)
-                .await;
-        };
-        Box::pin(process_fn)
-    }
-
-    /// Attempt to process a list of blobs received from a direct RPC request.
-    #[instrument(
-        name = "lh_process_rpc_blobs",
-        parent = None,
-        level = "debug",
-        skip_all,
-        fields(?block_root),
-    )]
-    pub async fn process_rpc_blobs(
-        self: Arc<NetworkBeaconProcessor<T>>,
-        block_root: Hash256,
-        blobs: FixedBlobSidecarList<T::EthSpec>,
-        seen_timestamp: Duration,
-        process_type: BlockProcessType,
-    ) {
-        let Some(slot) = blobs
-            .iter()
-            .find_map(|blob| blob.as_ref().map(|blob| blob.slot()))
-        else {
-            return;
-        };
-
-        let (indices, commitments): (Vec<u64>, Vec<KzgCommitment>) = blobs
-            .iter()
-            .filter_map(|blob_opt| {
-                blob_opt
-                    .as_ref()
-                    .map(|blob| (blob.index, blob.kzg_commitment))
-            })
-            .unzip();
-        let commitments = format_kzg_commitments(&commitments);
-
-        debug!(
-            ?indices,
-            %block_root,
-            %slot,
-            commitments,
-            "RPC blobs received"
-        );
-
-        if let Ok(current_slot) = self.chain.slot()
-            && current_slot == slot
-        {
-            // Note: this metric is useful to gauge how long it takes to receive blobs requested
-            // over rpc. Since we always send the request for block components at `get_unaggregated_attestation_due() / 2`
-            // we can use that as a baseline to measure against.
-            let delay = get_slot_delay_ms(seen_timestamp, slot, &self.chain.slot_clock);
-
-            metrics::observe_duration(&metrics::BEACON_BLOB_RPC_SLOT_START_DELAY_TIME, delay);
-        }
-
-        let result = self.chain.process_rpc_blobs(slot, block_root, blobs).await;
-        register_process_result_metrics(&result, metrics::BlockSource::Rpc, "blobs");
-
-        match &result {
-            Ok(AvailabilityProcessingStatus::Imported(hash)) => {
-                debug!(
-                    result = "imported block and blobs",
-                    %slot,
-                    block_hash = %hash,
-                    "Block components retrieved"
-                );
-                self.chain.recompute_head_at_current_slot().await;
-            }
-            Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
-                debug!(
-                    block_hash = %block_root,
-                    %slot,
-                    "Missing components over rpc"
-                );
-            }
-            Err(BlockError::DuplicateFullyImported(_)) => {
-                debug!(
-                    block_hash = %block_root,
-                    %slot,
-                    "Blobs have already been imported"
-                );
-            }
-            // Errors are handled and logged in `block_lookups`
-            Err(_) => {}
-        }
-
-        // Sync handles these results
-        self.send_sync_message(SyncMessage::BlockComponentProcessed {
-            process_type,
-            result: result.into(),
-        });
     }
 
     #[instrument(
@@ -412,6 +308,63 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             // Errors are handled and logged in `block_lookups`
             Err(_) => {}
         }
+
+        self.send_sync_message(SyncMessage::BlockComponentProcessed {
+            process_type,
+            result: result.into(),
+        });
+    }
+
+    /// Attempt to verify and import an execution payload envelope received via RPC.
+    #[instrument(
+        name = "lh_process_lookup_envelope",
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(?block_root),
+    )]
+    pub async fn process_lookup_envelope(
+        self: Arc<NetworkBeaconProcessor<T>>,
+        block_root: Hash256,
+        envelope: Arc<types::SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        _seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) {
+        debug!(
+            ?block_root,
+            slot = %envelope.slot(),
+            ?process_type,
+            "Processing RPC payload envelope"
+        );
+
+        // Gossip verification runs the same signature / slot / builder-index / block-hash checks
+        // independently of gossip propagation, so we can reuse it for RPC-fetched envelopes.
+        #[allow(clippy::result_large_err)]
+        let result = match self
+            .chain
+            .clone()
+            .verify_envelope_for_gossip(envelope.clone())
+            .await
+        {
+            Ok(verified) => {
+                self.chain
+                    .process_execution_payload_envelope(
+                        block_root,
+                        verified,
+                        NotifyExecutionLayer::Yes,
+                        BlockImportSource::Lookup,
+                        || Ok(()),
+                    )
+                    .await
+            }
+            Err(e) => Err(e),
+        };
+
+        // TODO(gloas): structured penalty classification arrives with the envelope lookup state
+        // machine; for now, fold the EnvelopeError into BlockError::InternalError so it flows
+        // through the existing `BlockProcessingResult::Err` path.
+        let result: Result<AvailabilityProcessingStatus, BlockError> =
+            result.map_err(|e| BlockError::InternalError(format!("envelope: {e}")));
 
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type,
@@ -530,7 +483,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn process_chain_segment(
         &self,
         process_id: ChainSegmentProcessId,
-        downloaded_blocks: Vec<RpcBlock<T::EthSpec>>,
+        downloaded_blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) {
         let ChainSegmentProcessId::RangeBatchId(chain_id, epoch) = process_id else {
             // This is a request from range sync, this should _never_ happen
@@ -611,7 +564,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn process_chain_segment_backfill(
         &self,
         process_id: ChainSegmentProcessId,
-        downloaded_blocks: Vec<RpcBlock<T::EthSpec>>,
+        downloaded_blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) {
         let ChainSegmentProcessId::BackSyncBatchId(epoch) = process_id else {
             // this a request from RangeSync, this should _never_ happen
@@ -682,7 +635,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     #[instrument(skip_all)]
     async fn process_blocks<'a>(
         &self,
-        downloaded_blocks: impl Iterator<Item = &'a RpcBlock<T::EthSpec>>,
+        downloaded_blocks: impl Iterator<Item = &'a RangeSyncBlock<T::EthSpec>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let blocks: Vec<_> = downloaded_blocks.cloned().collect();
@@ -716,24 +669,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     #[instrument(skip_all)]
     fn process_backfill_blocks(
         &self,
-        downloaded_blocks: Vec<RpcBlock<T::EthSpec>>,
+        downloaded_blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let total_blocks = downloaded_blocks.len();
-        let mut available_blocks = vec![];
+        let available_blocks = downloaded_blocks
+            .into_iter()
+            .map(|block| block.into_available_block())
+            .collect::<Vec<_>>();
 
-        for downloaded_block in downloaded_blocks {
-            match downloaded_block {
-                RpcBlock::FullyAvailable(available_block) => available_blocks.push(available_block),
-                RpcBlock::BlockOnly { .. } => return (
-                    0,
-                    Err(ChainSegmentFailed {
-                        peer_action: None,
-                        message: "Invalid downloaded_blocks segment. All downloaded blocks must be fully available".to_string()
-                    })
-                ),
-            }
-        }
-
+        // TODO(gloas) when implementing backfill sync for gloas
+        // we need a batch verify kzg function in the new da checker
         match self
             .chain
             .data_availability_checker

@@ -12,7 +12,6 @@ fake_crypto = []
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }
-c-kzg = { workspace = true }
 educe = { workspace = true }
 ethereum_hashing = { workspace = true }
 ethereum_serde_utils = { workspace = true }
@@ -28,7 +27,6 @@ tree_hash = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
-serde_json = { workspace = true }
 
 [[bench]]
 name = "benchmark"

@@ -654,6 +654,12 @@ impl HierarchyModuli {
     ///   layer 2 diff will point to the start snapshot instead of the layer 1 diff at
     ///   2998272.
     pub fn storage_strategy(&self, slot: Slot, start_slot: Slot) -> Result<StorageStrategy, Error> {
+        // Initially had the idea of using different storage strategies for full and pending states,
+        // but it was very complex. However without this concept we end up storing two diffs/two
+        // snapshots at full slots. The complexity of managing skipped slots was the main impetus
+        // for reverting the payload-status sensitive design: a Full skipped slot has no same-slot
+        // Pending state to replay from, so has to be handled differently from Full non-skipped
+        // slots.
         match slot.cmp(&start_slot) {
             Ordering::Less => return Err(Error::LessThanStart(slot, start_slot)),
             Ordering::Equal => return Ok(StorageStrategy::Snapshot),

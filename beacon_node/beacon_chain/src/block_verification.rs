@@ -49,8 +49,7 @@
 #![allow(clippy::result_large_err)]
 
 use crate::beacon_snapshot::PreProcessingSnapshot;
-use crate::blob_verification::GossipBlobError;
-use crate::block_verification_types::{AsBlock, BlockImportData, RpcBlock};
+use crate::block_verification_types::{AsBlock, BlockImportData, LookupBlock, RangeSyncBlock};
 use crate::data_availability_checker::{
     AvailabilityCheckError, AvailableBlock, AvailableBlockData, MaybeAvailableBlock,
 };
@@ -286,14 +285,10 @@ pub enum BlockError {
     /// TODO: We may need to penalize the peer that gave us a potentially invalid rpc blob.
     /// https://github.com/sigp/lighthouse/issues/4546
     AvailabilityCheck(AvailabilityCheckError),
-    /// A Blob with a slot after PeerDAS is received and is not required to be imported.
-    /// This can happen because we stay subscribed to the blob subnet after 2 epochs, as we could
-    /// still receive valid blobs from a Deneb epoch after PeerDAS is activated.
-    ///
-    /// ## Peer scoring
-    ///
-    /// This indicates the peer is sending an unexpected gossip blob and should be penalised.
-    BlobNotRequired(Slot),
+    /// The payload envelope's block root is unknown.
+    EnvelopeBlockRootUnknown(Hash256),
+    /// Optimistic sync is not supported for Gloas payload envelopes.
+    OptimisticSyncNotSupported { block_root: Hash256 },
     /// An internal error has occurred when processing the block or sidecars.
     ///
     /// ## Peer scoring
@@ -516,17 +511,6 @@ impl BlockSlashInfo<BlockError> {
     }
 }
 
-impl BlockSlashInfo<GossipBlobError> {
-    pub fn from_early_error_blob(header: SignedBeaconBlockHeader, e: GossipBlobError) -> Self {
-        match e {
-            GossipBlobError::ProposalSignatureInvalid => BlockSlashInfo::SignatureInvalid(e),
-            // `InvalidSignature` could indicate any signature in the block, so we want
-            // to recheck the proposer signature alone.
-            _ => BlockSlashInfo::SignatureNotChecked(header, e),
-        }
-    }
-}
-
 impl BlockSlashInfo<GossipDataColumnError> {
     pub fn from_early_error_data_column(
         header: SignedBeaconBlockHeader,
@@ -584,7 +568,7 @@ pub(crate) fn process_block_slash_info<T: BeaconChainTypes, TErr: BlockBlobError
 /// will be returned.
 #[instrument(skip_all)]
 pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
-    mut chain_segment: Vec<(Hash256, RpcBlock<T::EthSpec>)>,
+    mut chain_segment: Vec<(Hash256, RangeSyncBlock<T::EthSpec>)>,
     chain: &BeaconChain<T>,
 ) -> Result<Vec<SignatureVerifiedBlock<T>>, BlockError> {
     if chain_segment.is_empty() {
@@ -615,26 +599,17 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         let consensus_context =
             ConsensusContext::new(block.slot()).set_current_block_root(block_root);
 
-        match block {
-            RpcBlock::FullyAvailable(available_block) => {
-                available_blocks.push(available_block.clone());
-                signature_verified_blocks.push(SignatureVerifiedBlock {
-                    block: MaybeAvailableBlock::Available(available_block),
-                    block_root,
-                    parent: None,
-                    consensus_context,
-                });
-            }
-            RpcBlock::BlockOnly { .. } => {
-                // RangeSync and BackfillSync already ensure that the chain segment is fully available
-                // so this shouldn't be possible in practice.
-                return Err(BlockError::InternalError(
-                    "Chain segment is not fully available".to_string(),
-                ));
-            }
-        }
+        let available_block = block.into_available_block();
+        available_blocks.push(available_block.clone());
+        signature_verified_blocks.push(SignatureVerifiedBlock {
+            block: MaybeAvailableBlock::Available(available_block),
+            block_root,
+            parent: None,
+            consensus_context,
+        });
     }
-
+    // TODO(gloas) When implementing range and backfill sync for gloas
+    // we need a batch verify kzg function in the new da checker as well.
     chain
         .data_availability_checker
         .batch_verify_kzg_for_available_blocks(&available_blocks)?;
@@ -681,7 +656,8 @@ pub struct SignatureVerifiedBlock<T: BeaconChainTypes> {
 }
 
 /// Used to await the result of executing payload with an EE.
-type PayloadVerificationHandle = JoinHandle<Option<Result<PayloadVerificationOutcome, BlockError>>>;
+pub type PayloadVerificationHandle =
+    JoinHandle<Option<Result<PayloadVerificationOutcome, BlockError>>>;
 
 /// A wrapper around a `SignedBeaconBlock` that indicates that this block is fully verified and
 /// ready to import into the `BeaconChain`. The validation includes:
@@ -1298,11 +1274,11 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignatureVerifiedBloc
     }
 }
 
-impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RpcBlock<T::EthSpec> {
+impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RangeSyncBlock<T::EthSpec> {
     /// Verifies the `SignedBeaconBlock` by first transforming it into a `SignatureVerifiedBlock`
     /// and then using that implementation of `IntoExecutionPendingBlock` to complete verification.
     #[instrument(
-        name = "rpc_block_into_execution_pending_block_slashable",
+        name = "range_sync_block_into_execution_pending_block_slashable",
         level = "debug"
         skip_all,
     )]
@@ -1316,24 +1292,51 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RpcBlock<T::EthSpec> 
         let block_root = check_block_relevancy(self.as_block(), block_root, chain)
             .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
 
-        let maybe_available_block = match &self {
-            RpcBlock::FullyAvailable(available_block) => {
-                chain
-                    .data_availability_checker
-                    .verify_kzg_for_available_block(available_block)
-                    .map_err(|e| {
-                        BlockSlashInfo::SignatureNotChecked(
-                            self.signed_block_header(),
-                            BlockError::AvailabilityCheck(e),
-                        )
-                    })?;
-                MaybeAvailableBlock::Available(available_block.clone())
-            }
-            // No need to perform KZG verification unless we have a fully available block
-            RpcBlock::BlockOnly { block, block_root } => MaybeAvailableBlock::AvailabilityPending {
-                block_root: *block_root,
-                block: block.clone(),
-            },
+        let available_block = self.into_available_block();
+        chain
+            .data_availability_checker
+            .verify_kzg_for_available_block(&available_block)
+            .map_err(|e| {
+                BlockSlashInfo::SignatureNotChecked(
+                    available_block.as_block().signed_block_header(),
+                    BlockError::AvailabilityCheck(e),
+                )
+            })?;
+        let maybe_available_block = MaybeAvailableBlock::Available(available_block);
+        SignatureVerifiedBlock::check_slashable(maybe_available_block, block_root, chain)?
+            .into_execution_pending_block_slashable(block_root, chain, notify_execution_layer)
+    }
+
+    fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
+        self.as_block()
+    }
+
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+        self.block_cloned()
+    }
+}
+
+impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for LookupBlock<T::EthSpec> {
+    /// Verifies the `SignedBeaconBlock` by first transforming it into a `SignatureVerifiedBlock`
+    /// and then using that implementation of `IntoExecutionPendingBlock` to complete verification.
+    #[instrument(
+        name = "lookup_block_into_execution_pending_block_slashable",
+        level = "debug"
+        skip_all,
+    )]
+    fn into_execution_pending_block_slashable(
+        self,
+        block_root: Hash256,
+        chain: &Arc<BeaconChain<T>>,
+        notify_execution_layer: NotifyExecutionLayer,
+    ) -> Result<ExecutionPendingBlock<T>, BlockSlashInfo<BlockError>> {
+        // Perform an early check to prevent wasting time on irrelevant blocks.
+        let block_root = check_block_relevancy(self.as_block(), block_root, chain)
+            .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
+
+        let maybe_available_block = MaybeAvailableBlock::AvailabilityPending {
+            block_root,
+            block: self.block_cloned(),
         };
 
         SignatureVerifiedBlock::check_slashable(maybe_available_block, block_root, chain)?
@@ -1357,7 +1360,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
     /// verification must be done upstream (e.g., via a `SignatureVerifiedBlock`
     ///
     /// Returns an error if the block is invalid, or if the block was unable to be verified.
-    #[instrument(skip_all, level = "debug")]
+    #[instrument(skip_all, level = "debug", fields(?block_root))]
     pub fn from_signature_verified_components(
         block: MaybeAvailableBlock<T::EthSpec>,
         block_root: Hash256,
@@ -1572,24 +1575,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         metrics::stop_timer(committee_timer);
 
         /*
-         * If we have block reward listeners, compute the block reward and push it to the
-         * event handler.
-         */
-        if let Some(ref event_handler) = chain.event_handler
-            && event_handler.has_block_reward_subscribers()
-        {
-            let mut reward_cache = Default::default();
-            let block_reward = chain.compute_block_reward(
-                block.message(),
-                block_root,
-                &state,
-                &mut reward_cache,
-                true,
-            )?;
-            event_handler.register(EventKind::BlockReward(block_reward));
-        }
-
-        /*
          * Perform `per_block_processing` on the block and state, returning early if the block is
          * invalid.
          */
@@ -1665,6 +1650,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 current_slot,
                 indexed_attestation,
                 AttestationFromBlock::True,
+                &chain.spec,
             ) {
                 Ok(()) => Ok(()),
                 // Ignore invalid attestations whilst importing attestations from a block. The
@@ -1672,6 +1658,31 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 Err(ForkChoiceError::InvalidAttestation(_)) => Ok(()),
                 Err(e) => Err(BlockError::BeaconChainError(Box::new(e.into()))),
             }?;
+        }
+
+        // Register each payload attestation in the block with fork choice.
+        if let Ok(payload_attestations) = block.message().body().payload_attestations() {
+            for (i, payload_attestation) in payload_attestations.iter().enumerate() {
+                let indexed_payload_attestation = consensus_context
+                    .get_indexed_payload_attestation(&state, payload_attestation, &chain.spec)
+                    .map_err(|e| BlockError::PerBlockProcessingError(e.into_with_index(i)))?;
+
+                let ptc = state
+                    .get_ptc(indexed_payload_attestation.data.slot, &chain.spec)
+                    .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
+
+                // Ignore invalid payload attestations from blocks (same as
+                // regular attestations — the block may be old).
+                if let Err(e) = fork_choice.on_payload_attestation(
+                    current_slot,
+                    indexed_payload_attestation,
+                    AttestationFromBlock::True,
+                    &ptc.0,
+                ) && !matches!(e, ForkChoiceError::InvalidPayloadAttestation(_))
+                {
+                    return Err(BlockError::BeaconChainError(Box::new(e.into())));
+                }
+            }
         }
         drop(fork_choice);
 
@@ -1925,6 +1936,7 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
         // Retrieve any state that is advanced through to at most `block.slot()`: this is
         // particularly important if `block` descends from the finalized/split block, but at a slot
         // prior to the finalized slot (which is invalid and inaccessible in our DB schema).
+        //
         let (parent_state_root, state) = chain
             .store
             .get_advanced_hot_state(root, block.slot(), parent_block.state_root())?
@@ -2003,23 +2015,6 @@ impl BlockBlobError for BlockError {
 
     fn proposer_signature_invalid() -> Self {
         BlockError::InvalidSignature(InvalidSignature::ProposerSignature)
-    }
-}
-
-impl BlockBlobError for GossipBlobError {
-    fn not_later_than_parent_error(blob_slot: Slot, parent_slot: Slot) -> Self {
-        GossipBlobError::BlobIsNotLaterThanParent {
-            blob_slot,
-            parent_slot,
-        }
-    }
-
-    fn unknown_validator_error(validator_index: u64) -> Self {
-        GossipBlobError::UnknownValidator(validator_index)
-    }
-
-    fn proposer_signature_invalid() -> Self {
-        GossipBlobError::ProposalSignatureInvalid
     }
 }
 

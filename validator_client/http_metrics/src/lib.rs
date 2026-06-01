@@ -197,6 +197,16 @@ pub fn gather_prometheus_metrics<E: EthSpec>(
                 &[NEXT_EPOCH],
                 duties_service.attester_count(next_epoch) as i64,
             );
+            set_int_gauge(
+                &PTC_COUNT,
+                &[CURRENT_EPOCH],
+                duties_service.ptc_count(current_epoch) as i64,
+            );
+            set_int_gauge(
+                &PTC_COUNT,
+                &[NEXT_EPOCH],
+                duties_service.ptc_count(next_epoch) as i64,
+            );
         }
     }
 

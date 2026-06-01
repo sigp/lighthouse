@@ -1,6 +1,6 @@
 use beacon_chain::{
     BeaconChainTypes,
-    block_verification_types::{AvailableBlockData, RpcBlock},
+    block_verification_types::{AvailableBlockData, RangeSyncBlock},
     data_availability_checker::DataAvailabilityChecker,
     data_column_verification::CustodyDataColumn,
     get_block_root,
@@ -200,7 +200,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         &mut self,
         da_checker: Arc<DataAvailabilityChecker<T>>,
         spec: Arc<ChainSpec>,
-    ) -> Option<Result<Vec<RpcBlock<E>>, CouplingError>>
+    ) -> Option<Result<Vec<RangeSyncBlock<E>>, CouplingError>>
     where
         T: BeaconChainTypes<EthSpec = E>,
     {
@@ -288,7 +288,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         blobs: Vec<Arc<BlobSidecar<E>>>,
         da_checker: Arc<DataAvailabilityChecker<T>>,
         spec: Arc<ChainSpec>,
-    ) -> Result<Vec<RpcBlock<E>>, CouplingError>
+    ) -> Result<Vec<RangeSyncBlock<E>>, CouplingError>
     where
         T: BeaconChainTypes<EthSpec = E>,
     {
@@ -335,7 +335,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             })?;
             let block_data = AvailableBlockData::new_with_blobs(blobs);
             responses.push(
-                RpcBlock::new(block, Some(block_data), &da_checker, spec.clone())
+                RangeSyncBlock::new(block, block_data, &da_checker, spec.clone())
                     .map_err(|e| CouplingError::BlobPeerFailure(format!("{e:?}")))?,
             )
         }
@@ -360,7 +360,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         attempt: usize,
         da_checker: Arc<DataAvailabilityChecker<T>>,
         spec: Arc<ChainSpec>,
-    ) -> Result<Vec<RpcBlock<E>>, CouplingError>
+    ) -> Result<Vec<RangeSyncBlock<E>>, CouplingError>
     where
         T: BeaconChainTypes<EthSpec = E>,
     {
@@ -388,12 +388,12 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 
         // Now iterate all blocks ensuring that the block roots of each block and data column match,
         // plus we have columns for our custody requirements
-        let mut rpc_blocks = Vec::with_capacity(blocks.len());
+        let mut range_sync_blocks = Vec::with_capacity(blocks.len());
 
         let exceeded_retries = attempt >= MAX_COLUMN_RETRIES;
         for block in blocks {
             let block_root = get_block_root(&block);
-            rpc_blocks.push(if block.num_expected_blobs() > 0 {
+            range_sync_blocks.push(if block.num_expected_blobs() > 0 {
                 let Some(mut data_columns_by_index) = data_columns_by_block.remove(&block_root)
                 else {
                     let responsible_peers = column_to_peer.iter().map(|c| (*c.0, *c.1)).collect();
@@ -441,11 +441,11 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 
                 let block_data = AvailableBlockData::new_with_data_columns(custody_columns.iter().map(|c| c.as_data_column().clone()).collect::<Vec<_>>());
 
-                RpcBlock::new(block, Some(block_data), &da_checker, spec.clone())
+                RangeSyncBlock::new(block, block_data, &da_checker, spec.clone())
                     .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
             } else {
                 // Block has no data, expects zero columns
-                RpcBlock::new(block, Some(AvailableBlockData::NoData), &da_checker, spec.clone())
+                RangeSyncBlock::new(block, AvailableBlockData::NoData, &da_checker, spec.clone())
                     .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
             });
         }
@@ -458,7 +458,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             debug!(?remaining_roots, "Not all columns consumed for block");
         }
 
-        Ok(rpc_blocks)
+        Ok(range_sync_blocks)
     }
 }
 
@@ -501,10 +501,9 @@ mod tests {
             DataColumnsByRangeRequestId, DataColumnsByRangeRequester, Id, RangeRequestId,
         },
     };
-    use rand::SeedableRng;
     use std::{collections::HashMap, sync::Arc};
     use tracing::Span;
-    use types::{Epoch, ForkName, MinimalEthSpec as E, SignedBeaconBlock, test_utils::XorShiftRng};
+    use types::{Epoch, ForkName, MinimalEthSpec as E, SignedBeaconBlock};
 
     fn components_id() -> ComponentsByRangeRequestId {
         ComponentsByRangeRequestId {
@@ -549,12 +548,19 @@ mod tests {
 
     #[test]
     fn no_blobs_into_responses() {
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let spec = Arc::new(test_spec::<E>());
+
+        let mut u = types::test_utils::test_unstructured();
         let blocks = (0..4)
             .map(|_| {
-                generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng)
-                    .0
-                    .into()
+                generate_rand_block_and_blobs::<E>(
+                    spec.fork_name_at_epoch(Epoch::new(0)),
+                    NumBlobs::None,
+                    &mut u,
+                )
+                .unwrap()
+                .0
+                .into()
             })
             .collect::<Vec<Arc<SignedBeaconBlock<E>>>>();
 
@@ -565,7 +571,6 @@ mod tests {
         // Send blocks and complete terminate response
         info.add_blocks(blocks_req_id, blocks).unwrap();
 
-        let spec = Arc::new(test_spec::<E>());
         let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
 
         // Assert response is finished and RpcBlocks can be constructed
@@ -574,11 +579,12 @@ mod tests {
 
     #[test]
     fn empty_blobs_into_responses() {
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
         let blocks = (0..4)
             .map(|_| {
                 // Always generate some blobs.
-                generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Number(3), &mut rng)
+                generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Number(3), &mut u)
+                    .unwrap()
                     .0
                     .into()
             })
@@ -601,11 +607,14 @@ mod tests {
 
         let mut spec = test_spec::<E>();
         spec.deneb_fork_epoch = Some(Epoch::new(0));
+        // Pin to pre-PeerDAS so this exercises the blob (not custody-column) path under any
+        // FORK_NAME.
+        spec.fulu_fork_epoch = None;
         let spec = Arc::new(spec);
         let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        // Assert response is finished and RpcBlocks cannot be constructed, because blobs weren't returned.
+        // Blobs are no longer required for availability, so the response succeeds without them.
         let result = info.responses(da_checker, spec).unwrap();
-        assert!(result.is_err())
+        assert!(result.is_ok())
     }
 
     #[test]
@@ -619,15 +628,16 @@ mod tests {
             .custody_context()
             .sampling_columns_for_epoch(Epoch::new(0), &spec)
             .to_vec();
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
         let blocks = (0..4)
             .map(|_| {
                 generate_rand_block_and_data_columns::<E>(
                     ForkName::Fulu,
                     NumBlobs::Number(1),
-                    &mut rng,
+                    &mut u,
                     &spec,
                 )
+                .unwrap()
             })
             .collect::<Vec<_>>();
 
@@ -729,15 +739,16 @@ mod tests {
             Span::none(),
         );
 
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
         let blocks = (0..4)
             .map(|_| {
                 generate_rand_block_and_data_columns::<E>(
                     ForkName::Fulu,
                     NumBlobs::Number(1),
-                    &mut rng,
+                    &mut u,
                     &spec,
                 )
+                .unwrap()
             })
             .collect::<Vec<_>>();
 
@@ -787,15 +798,16 @@ mod tests {
             .custody_context()
             .sampling_columns_for_epoch(Epoch::new(0), &spec)
             .to_vec();
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
         let blocks = (0..2)
             .map(|_| {
                 generate_rand_block_and_data_columns::<E>(
                     ForkName::Fulu,
                     NumBlobs::Number(1),
-                    &mut rng,
+                    &mut u,
                     &spec,
                 )
+                .unwrap()
             })
             .collect::<Vec<_>>();
 
@@ -884,15 +896,16 @@ mod tests {
             .custody_context()
             .sampling_columns_for_epoch(Epoch::new(0), &spec)
             .to_vec();
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
         let blocks = (0..2)
             .map(|_| {
                 generate_rand_block_and_data_columns::<E>(
                     ForkName::Fulu,
                     NumBlobs::Number(1),
-                    &mut rng,
+                    &mut u,
                     &spec,
                 )
+                .unwrap()
             })
             .collect::<Vec<_>>();
 
@@ -947,7 +960,7 @@ mod tests {
         }
 
         let result: Result<
-            Vec<beacon_chain::block_verification_types::RpcBlock<E>>,
+            Vec<beacon_chain::block_verification_types::RangeSyncBlock<E>>,
             crate::sync::block_sidecar_coupling::CouplingError,
         > = info.responses(da_checker.clone(), spec.clone()).unwrap();
         assert!(result.is_err());
@@ -981,10 +994,10 @@ mod tests {
         // WHEN: Attempting to get responses again
         let result = info.responses(da_checker, spec).unwrap();
 
-        // THEN: Should succeed with complete RPC blocks
+        // THEN: Should succeed with complete RangeSync blocks
         assert!(result.is_ok());
-        let rpc_blocks = result.unwrap();
-        assert_eq!(rpc_blocks.len(), 2);
+        let range_sync_blocks = result.unwrap();
+        assert_eq!(range_sync_blocks.len(), 2);
     }
 
     #[test]
@@ -999,15 +1012,16 @@ mod tests {
             .custody_context()
             .sampling_columns_for_epoch(Epoch::new(0), &spec)
             .to_vec();
-        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
         let blocks = (0..1)
             .map(|_| {
                 generate_rand_block_and_data_columns::<E>(
                     ForkName::Fulu,
                     NumBlobs::Number(1),
-                    &mut rng,
+                    &mut u,
                     &spec,
                 )
+                .unwrap()
             })
             .collect::<Vec<_>>();
 
