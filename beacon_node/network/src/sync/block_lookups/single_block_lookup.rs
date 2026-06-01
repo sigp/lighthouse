@@ -25,8 +25,6 @@ use types::{
     SignedExecutionPayloadEnvelope, Slot,
 };
 
-// === AwaitingParent — tracks what a child lookup waits for ===
-
 /// What a child lookup is waiting for its parent to resolve.
 ///
 /// `parent_hash` is `Some` only post-Gloas: the child's bid references the
@@ -76,8 +74,6 @@ impl AwaitingParent {
         }
     }
 }
-
-// === Public types re-exported by mod.rs ===
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -129,8 +125,6 @@ pub enum LookupResult {
         peers: Vec<PeerId>,
     },
 }
-
-// === Block request: Downloading → Downloaded → Processing → Complete ===
 
 #[derive(Educe)]
 #[educe(Debug)]
@@ -238,8 +232,6 @@ impl<E: EthSpec> BlockRequest<E> {
         }
     }
 }
-
-// === Data request: WaitingForBlock → Downloading → Downloaded → Processing → Complete ===
 
 #[derive(Debug)]
 struct DataRequest<E: EthSpec> {
@@ -376,8 +368,6 @@ impl<E: EthSpec> DownloadedData<E> {
     }
 }
 
-// === Payload request: WaitingForBlock → Downloading → Downloaded → Processing → Complete ===
-
 #[derive(Debug)]
 struct PayloadRequest<E: EthSpec> {
     peers: PeerSet,
@@ -506,8 +496,6 @@ impl<E: EthSpec> PayloadRequestState<E> {
 
 type PeerSet = Arc<RwLock<HashSet<PeerId>>>;
 type GloasChildPeers = Arc<RwLock<HashMap<ExecutionBlockHash, PeerSet>>>;
-
-// === SingleBlockLookup — three independent requests ===
 
 #[derive(Educe)]
 #[educe(Debug(bound(T: BeaconChainTypes)))]
@@ -665,8 +653,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 None => true,
             }
     }
-
-    // -- Main state machine driver --
 
     /// Makes progress on all requests of this lookup. Any error is not recoverable and must result
     /// in dropping the lookup. May mark the lookup as completed.
@@ -894,23 +880,15 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
 
     fn get_data_peers<E: EthSpec>(&self, block: &SignedBeaconBlock<E>) -> PeerSet {
         if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
-            // For Gloas, the child-attested peer set for this bid is the canonical custody
-            // peer set. If no children have attested yet (e.g. lookup was created from a
-            // block-root attestation, before any payload attestation arrived), fall back to
-            // the lookup's block peers: those peers claim to have imported this block, and
-            // for the lookup to make progress on data we treat them as candidate custody
-            // sources. They get downgraded if they fail to serve their custody columns.
-            let entry = self
-                .gloas_child_peers
+            // For Gloas, the child-attested peer set for this bid is the canonical peer set.
+            self.gloas_child_peers
                 .write()
                 .entry(bid.message.block_hash)
                 .or_default()
-                .clone();
-            if entry.read().is_empty() {
-                self.peers.clone()
-            } else {
-                entry
-            }
+                .clone()
+            // DO NOT DEFAULT TO `self.peers` HERE! Post gloas `self.peers` have not claimed to
+            // import the block's data nor the payload. This PeerSet may remain empty until we
+            // receive a FULL child of this lookup.
         } else {
             self.peers.clone()
         }
