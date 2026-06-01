@@ -1620,6 +1620,20 @@ impl TestRig {
             .expect("Error processing block")
     }
 
+    async fn insert_block_to_da_chain_and_assert_missing_componens(
+        &mut self,
+        block: Arc<SignedBeaconBlock<E>>,
+    ) {
+        match self.import_block_to_da_checker(block).await {
+            AvailabilityProcessingStatus::Imported(_) => {
+                panic!("block removed from da_checker, available")
+            }
+            AvailabilityProcessingStatus::MissingComponents(_, block_root) => {
+                self.log(&format!("inserted block to da_checker {block_root:?}"))
+            }
+        }
+    }
+
     fn insert_block_to_da_checker_as_pre_execution(&mut self, block: Arc<SignedBeaconBlock<E>>) {
         self.log(&format!(
             "Inserting block to availability_cache as pre_execution_block {:?}",
@@ -2200,6 +2214,32 @@ async fn test_same_chain_race_condition() {
     // continued processing blocks 2 and 3.
     r.assert_head_slot(3);
     r.assert_successful_lookup_sync();
+}
+
+#[tokio::test]
+/// Assert that if the lookup's block is in the da_checker we don't download it again
+async fn block_in_da_checker_skips_download() {
+    // Only post-Fulu, as the block needs custody columns to remain in the da_checker
+    let Some(mut r) = TestRig::new_after_fulu() else {
+        return;
+    };
+    // Add block to da_checker
+    // Complete test with happy path
+    // Assert that there were no requests for blocks
+    r.build_chain(1).await;
+    r.insert_block_to_da_chain_and_assert_missing_componens(r.block_at_slot(1))
+        .await;
+    r.trigger_with_block_at_slot(1);
+    r.simulate(SimulateConfig::happy_path()).await;
+    r.assert_successful_lookup_sync();
+    assert_eq!(
+        r.requests
+            .iter()
+            .filter(|(request, _)| matches!(request, RequestType::BlocksByRoot(_)))
+            .collect::<Vec<_>>(),
+        Vec::<&(RequestType<E>, AppRequestId)>::new(),
+        "There should be no block requests"
+    );
 }
 
 #[tokio::test]

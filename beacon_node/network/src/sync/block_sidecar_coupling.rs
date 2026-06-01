@@ -497,8 +497,8 @@ mod tests {
     use lighthouse_network::{
         PeerId,
         service::api_types::{
-            BlocksByRangeRequestId, ComponentsByRangeRequestId, DataColumnsByRangeRequestId,
-            DataColumnsByRangeRequester, Id, RangeRequestId,
+            BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
+            DataColumnsByRangeRequestId, DataColumnsByRangeRequester, Id, RangeRequestId,
         },
     };
     use std::{collections::HashMap, sync::Arc};
@@ -517,6 +517,13 @@ mod tests {
 
     fn blocks_id(parent_request_id: ComponentsByRangeRequestId) -> BlocksByRangeRequestId {
         BlocksByRangeRequestId {
+            id: 1,
+            parent_request_id,
+        }
+    }
+
+    fn blobs_id(parent_request_id: ComponentsByRangeRequestId) -> BlobsByRangeRequestId {
+        BlobsByRangeRequestId {
             id: 1,
             parent_request_id,
         }
@@ -568,6 +575,47 @@ mod tests {
 
         // Assert response is finished and RpcBlocks can be constructed
         info.responses(da_checker, spec).unwrap().unwrap();
+    }
+
+    #[test]
+    fn empty_blobs_into_responses() {
+        let mut u = types::test_utils::test_unstructured();
+        let blocks = (0..4)
+            .map(|_| {
+                // Always generate some blobs.
+                generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Number(3), &mut u)
+                    .unwrap()
+                    .0
+                    .into()
+            })
+            .collect::<Vec<Arc<SignedBeaconBlock<E>>>>();
+
+        let components_id = components_id();
+        let blocks_req_id = blocks_id(components_id);
+        let blobs_req_id = blobs_id(components_id);
+        let mut info = RangeBlockComponentsRequest::<E>::new(
+            blocks_req_id,
+            Some(blobs_req_id),
+            None,
+            Span::none(),
+        );
+
+        // Send blocks and complete terminate response
+        info.add_blocks(blocks_req_id, blocks).unwrap();
+        // Expect no blobs returned
+        info.add_blobs(blobs_req_id, vec![]).unwrap();
+
+        let mut spec = test_spec::<E>();
+        spec.deneb_fork_epoch = Some(Epoch::new(0));
+        // Pin to pre-PeerDAS so this exercises the blob (not custody-column) path under any
+        // FORK_NAME.
+        spec.fulu_fork_epoch = None;
+        let spec = Arc::new(spec);
+        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
+        // Blobs are no longer required for availability (they are sourced from the execution
+        // layer), so the blocks are constructed without them rather than erroring.
+        let result = info.responses(da_checker, spec).unwrap();
+        assert!(result.is_ok())
     }
 
     #[test]
