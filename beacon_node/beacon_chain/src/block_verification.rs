@@ -70,7 +70,7 @@ use bls::{PublicKey, PublicKeyBytes};
 use educe::Educe;
 use eth2::types::{BlockGossip, EventKind};
 use execution_layer::PayloadStatus;
-pub use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
+pub use fork_choice::{AttestationFromBlock, ParentImportedStatus, PayloadVerificationStatus};
 use metrics::TryExt;
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
@@ -881,13 +881,6 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 block_parent_root: block.message().parent_root(),
             });
         }
-
-        // TODO(gloas) The following validation can only be completed once fork choice has been implemented:
-        // The block's parent execution payload (defined by bid.parent_block_hash) has been seen
-        // (via gossip or non-gossip sources) (a client MAY queue blocks for processing
-        // once the parent payload is retrieved). If execution_payload verification of block's execution
-        // payload parent by an execution node is complete, verify the block's execution payload
-        // parent (defined by bid.parent_block_hash) passes all validation.
 
         drop(fork_choice_read_lock);
 
@@ -1869,12 +1862,18 @@ fn verify_parent_block_is_known<T: BeaconChainTypes>(
     fork_choice_read_lock: &RwLockReadGuard<BeaconForkChoice<T>>,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
 ) -> Result<(ProtoBlock, Arc<SignedBeaconBlock<T::EthSpec>>), BlockError> {
-    if let Some(proto_block) = fork_choice_read_lock.get_block(&block.parent_root()) {
-        Ok((proto_block, block))
-    } else {
-        Err(BlockError::ParentUnknown {
-            parent_root: block.parent_root(),
-        })
+    // The block's parent execution payload (defined by bid.parent_block_hash) has been seen
+    // (via gossip or non-gossip sources) (a client MAY queue blocks for processing
+    // once the parent payload is retrieved). If execution_payload verification of block's execution
+    // payload parent by an execution node is complete, verify the block's execution payload
+    // parent (defined by bid.parent_block_hash) passes all validation.
+    match fork_choice_read_lock.is_parent_imported(&block) {
+        ParentImportedStatus::Imported(parent) => Ok((parent, block)),
+        ParentImportedStatus::UnknownBlock | ParentImportedStatus::UnimportedPayload => {
+            Err(BlockError::ParentUnknown {
+                parent_root: block.parent_root(),
+            })
+        }
     }
 }
 

@@ -85,7 +85,7 @@ pub use beacon_fork_choice_store::{
 };
 pub use block_verification::{
     BlockError, ExecutionPayloadError, ExecutionPendingBlock, GossipVerifiedBlock,
-    IntoExecutionPendingBlock, IntoGossipVerifiedBlock, InvalidSignature,
+    IntoExecutionPendingBlock, IntoGossipVerifiedBlock, InvalidSignature, ParentImportedStatus,
     PayloadVerificationOutcome, PayloadVerificationStatus, build_blob_data_column_sidecars,
     get_block_root, signature_verify_chain_segment,
 };
