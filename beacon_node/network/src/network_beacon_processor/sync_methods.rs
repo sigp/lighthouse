@@ -1110,15 +1110,14 @@ fn classify_processing_result(
             return no_penalty("execution_payload");
         }
         BlockError::ParentUnknown { .. } => return no_penalty("parent_unknown"),
-        // Bad-column attribution: only meaningful for the data path, but classify uniformly —
-        // block-side processing won't produce this variant.
+        // Bad-column attribution: penalize the custody peer that served the invalid column.
         BlockError::AvailabilityCheck(AvailabilityCheckError::InvalidColumn((Some(idx), _))) => {
             return BlockProcessingResult::Error {
                 penalty: Some((
                     PeerAction::MidToleranceError,
                     WhichPeerToPenalize::CustodyPeerForColumn(*idx),
                 )),
-                reason: "lookup_data_processing_failure",
+                reason: "lookup_custody_column_processing_failure",
             };
         }
         _ => {}
@@ -1127,9 +1126,8 @@ fn classify_processing_result(
     // Attributable to the block peer (which is also the data peer pre-Gloas).
     let reason = match process_type {
         BlockProcessType::SingleBlock { .. } => "lookup_block_processing_failure",
-        BlockProcessType::SingleBlob { .. } | BlockProcessType::SingleCustodyColumn(_) => {
-            "lookup_data_processing_failure"
-        }
+        BlockProcessType::SingleBlob { .. } => "lookup_blobs_processing_failure",
+        BlockProcessType::SingleCustodyColumn(_) => "lookup_custody_column_processing_failure",
         // Payload envelopes flow through classify_envelope_result; this branch shouldn't fire,
         // but produce a sensible reason in case it ever does.
         BlockProcessType::SinglePayloadEnvelope(_) => "lookup_envelope_processing_failure",

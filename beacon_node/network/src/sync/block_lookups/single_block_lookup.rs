@@ -475,7 +475,13 @@ impl<E: EthSpec> PayloadRequestState<E> {
 }
 
 impl<E: EthSpec> DataRequestState<E> {
-    fn new(slot: Slot, block_root: Hash256, expected_blobs: usize, spec: &ChainSpec) -> Self {
+    fn new(
+        slot: Slot,
+        block_root: Hash256,
+        expected_blobs: usize,
+        failed_processing: u8,
+        spec: &ChainSpec,
+    ) -> Self {
         let block_fork = spec.fork_name_at_slot::<E>(slot);
 
         match block_fork {
@@ -487,7 +493,9 @@ impl<E: EthSpec> DataRequestState<E> {
                     Self::Downloading(DataDownload::Blobs {
                         block_root,
                         expected_blobs,
-                        state: SingleLookupRequestState::new(),
+                        state: SingleLookupRequestState::new_with_processing_failures(
+                            failed_processing,
+                        ),
                     })
                 } else {
                     Self::Complete
@@ -497,7 +505,9 @@ impl<E: EthSpec> DataRequestState<E> {
                 if expected_blobs > 0 {
                     Self::Downloading(DataDownload::Columns {
                         block_root,
-                        state: SingleLookupRequestState::new(),
+                        state: SingleLookupRequestState::new_with_processing_failures(
+                            failed_processing,
+                        ),
                     })
                 } else {
                     Self::Complete
@@ -507,7 +517,9 @@ impl<E: EthSpec> DataRequestState<E> {
                 if expected_blobs > 0 {
                     Self::Downloading(DataDownload::Columns {
                         block_root,
-                        state: SingleLookupRequestState::new(),
+                        state: SingleLookupRequestState::new_with_processing_failures(
+                            failed_processing,
+                        ),
                     })
                     // Gloas: data peers start at 0, populated when children arrive
                 } else {
@@ -811,6 +823,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                             block.slot(),
                             self.block_root,
                             block.num_expected_blobs(),
+                            self.failed_processing,
                             cx.spec(),
                         ),
                     });
