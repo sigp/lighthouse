@@ -15,7 +15,6 @@ use std::time::{Duration, Instant};
 use store::Hash256;
 use strum::IntoStaticStr;
 use tracing::{Span, debug_span};
-use types::data::FixedBlobSidecarList;
 use types::{DataColumnSidecarList, EthSpec, SignedBeaconBlock, Slot};
 
 // Dedicated enum for LookupResult to force its usage
@@ -77,7 +76,6 @@ pub struct SingleBlockLookup<T: BeaconChainTypes> {
 #[derive(Debug)]
 pub(crate) enum ComponentRequests<E: EthSpec> {
     WaitingForBlock,
-    ActiveBlobRequest(BlobRequestState<E>, usize),
     ActiveCustodyRequest(CustodyRequestState<E>),
     // When printing in debug this state display the reason why it's not needed
     #[allow(dead_code)]
@@ -156,9 +154,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 .block_request_state
                 .state
                 .insert_verified_response(block),
-            BlockComponent::Blob(_)
-            | BlockComponent::DataColumn(_)
-            | BlockComponent::PartialDataColumn(_) => {
+            BlockComponent::DataColumn(_) | BlockComponent::PartialDataColumn(_) => {
                 // For now ignore single blobs and columns, as the blob request state assumes all blobs are
                 // attributed to the same peer = the peer serving the remaining blobs. Ignoring this
                 // block component has a minor effect, causing the node to re-request this blob
@@ -178,7 +174,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.block_request_state.state.is_processed()
             && match &self.component_requests {
                 ComponentRequests::WaitingForBlock => false,
-                ComponentRequests::ActiveBlobRequest(request, _) => request.state.is_processed(),
                 ComponentRequests::ActiveCustodyRequest(request) => request.state.is_processed(),
                 ComponentRequests::NotNeeded { .. } => true,
             }
@@ -193,9 +188,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 // check if the`block_request_state.state.is_awaiting_event(). However we already
                 // checked that above, so `WaitingForBlock => false` is equivalent.
                 ComponentRequests::WaitingForBlock => false,
-                ComponentRequests::ActiveBlobRequest(request, _) => {
-                    request.state.is_awaiting_event()
-                }
                 ComponentRequests::ActiveCustodyRequest(request) => {
                     request.state.is_awaiting_event()
                 }
@@ -234,14 +226,9 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
                 if expected_blobs == 0 {
                     self.component_requests = ComponentRequests::NotNeeded("no data");
-                } else if cx.chain.should_fetch_blobs(block_epoch) {
-                    self.component_requests = ComponentRequests::ActiveBlobRequest(
-                        BlobRequestState::new(self.block_root),
-                        expected_blobs,
-                    );
                 } else if cx.chain.should_fetch_custody_columns(block_epoch) {
                     self.component_requests = ComponentRequests::ActiveCustodyRequest(
-                        CustodyRequestState::new(self.block_root),
+                        CustodyRequestState::new(self.block_root, block.slot()),
                     );
                 } else {
                     self.component_requests = ComponentRequests::NotNeeded("outside da window");
@@ -262,9 +249,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
 
         match &self.component_requests {
             ComponentRequests::WaitingForBlock => {} // do nothing
-            ComponentRequests::ActiveBlobRequest(_, expected_blobs) => {
-                self.continue_request::<BlobRequestState<T::EthSpec>>(cx, *expected_blobs)?
-            }
             ComponentRequests::ActiveCustodyRequest(_) => {
                 self.continue_request::<CustodyRequestState<T::EthSpec>>(cx, 0)?
             }
@@ -375,37 +359,21 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     }
 }
 
-/// The state of the blob request component of a `SingleBlockLookup`.
-#[derive(Educe)]
-#[educe(Debug)]
-pub struct BlobRequestState<E: EthSpec> {
-    #[educe(Debug(ignore))]
-    pub block_root: Hash256,
-    pub state: SingleLookupRequestState<FixedBlobSidecarList<E>>,
-}
-
-impl<E: EthSpec> BlobRequestState<E> {
-    pub fn new(block_root: Hash256) -> Self {
-        Self {
-            block_root,
-            state: SingleLookupRequestState::new(),
-        }
-    }
-}
-
 /// The state of the custody request component of a `SingleBlockLookup`.
 #[derive(Educe)]
 #[educe(Debug)]
 pub struct CustodyRequestState<E: EthSpec> {
     #[educe(Debug(ignore))]
     pub block_root: Hash256,
+    pub slot: Slot,
     pub state: SingleLookupRequestState<DataColumnSidecarList<E>>,
 }
 
 impl<E: EthSpec> CustodyRequestState<E> {
-    pub fn new(block_root: Hash256) -> Self {
+    pub fn new(block_root: Hash256, slot: Slot) -> Self {
         Self {
             block_root,
+            slot,
             state: SingleLookupRequestState::new(),
         }
     }
