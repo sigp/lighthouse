@@ -2,7 +2,7 @@
 
 use crate::Error;
 use tracing::{debug, debug_span};
-use types::{BeaconState, Checkpoint, EthSpec, RelativeEpoch};
+use types::{BeaconState, Checkpoint, Epoch, EthSpec, RelativeEpoch};
 
 /// Snapshot of a checkpoint state's balances and committee assignments.
 ///
@@ -29,13 +29,6 @@ impl BalanceSourceData {
         checkpoint: Checkpoint,
         relative_epoch: RelativeEpoch,
     ) -> Result<Self, Error> {
-        let _span = debug_span!("fcr_build_balance_source", epoch = %checkpoint.epoch).entered();
-
-        let validator_count = state.validators().len();
-        let mut effective_balances = Vec::with_capacity(validator_count);
-        let mut slashed = Vec::with_capacity(validator_count);
-        let mut total_active_balance = 0u64;
-
         let epoch = match relative_epoch {
             RelativeEpoch::Current => state.current_epoch(),
             RelativeEpoch::Previous => state.previous_epoch(),
@@ -43,34 +36,74 @@ impl BalanceSourceData {
                 .next_epoch()
                 .map_err(|e| Error::CommitteeCache(format!("{e:?}")))?,
         };
+        let (slashed, mut per_epoch) = Self::build_for_epochs(state, &[epoch]);
+        let (effective_balances, total_active_balance) = per_epoch.pop().unwrap_or_default();
+        Ok(Self::from_parts(
+            checkpoint,
+            effective_balances,
+            total_active_balance,
+            slashed,
+        ))
+    }
 
-        // Build effective balances for all active validators regardless of slashed status.
-        // The spec's get_total_active_balance uses is_active_at without checking slashed.
-        // Slashed filtering is applied separately where needed (e.g. get_block_support_between_slots).
-        for validator in state.validators().iter() {
-            slashed.push(validator.slashed);
-            if validator.is_active_at(epoch) {
-                effective_balances.push(validator.effective_balance);
-                total_active_balance =
-                    total_active_balance.saturating_add(validator.effective_balance);
-            } else {
-                effective_balances.push(0);
-            }
-        }
-
+    /// Assemble a `BalanceSourceData` from already-computed parts (see `build_for_epochs`).
+    pub fn from_parts(
+        checkpoint: Checkpoint,
+        effective_balances: Vec<u64>,
+        total_active_balance: u64,
+        slashed: Vec<bool>,
+    ) -> Self {
         debug!(
-            validators = validator_count,
+            validators = effective_balances.len(),
             active_balance = total_active_balance,
             epoch = %checkpoint.epoch,
             "FCR balance source built"
         );
-
-        Ok(Self {
+        Self {
             checkpoint,
             total_active_balance,
             effective_balances,
             slashed,
-        })
+        }
+    }
+
+    /// Build the shared (epoch-independent) `slashed` bitvec and, for each requested epoch, the
+    /// active-validator `effective_balances` vector and `total_active_balance`, in a **single**
+    /// pass over the validator set.
+    ///
+    /// At an epoch boundary FCR rebuilds three balance sources (head, current, previous); they
+    /// share the same state and differ only by epoch, so batching them here turns three full
+    /// validator-set iterations into one. The per-validator computation is identical to building
+    /// each source separately: effective balance is counted for active validators regardless of
+    /// slashed status (matching the spec's `get_total_active_balance`), and `slashed` is recorded
+    /// for the separate slashed-filtering used by `get_block_support_between_slots`.
+    pub fn build_for_epochs<E: EthSpec>(
+        state: &BeaconState<E>,
+        epochs: &[Epoch],
+    ) -> (Vec<bool>, Vec<(Vec<u64>, u64)>) {
+        let _span = debug_span!("fcr_build_balance_source", epochs = epochs.len()).entered();
+
+        let validator_count = state.validators().len();
+        let mut slashed = Vec::with_capacity(validator_count);
+        let mut per_epoch: Vec<(Vec<u64>, u64)> = epochs
+            .iter()
+            .map(|_| (Vec::with_capacity(validator_count), 0u64))
+            .collect();
+
+        for validator in state.validators().iter() {
+            slashed.push(validator.slashed);
+            let effective_balance = validator.effective_balance;
+            for (i, &epoch) in epochs.iter().enumerate() {
+                if validator.is_active_at(epoch) {
+                    per_epoch[i].0.push(effective_balance);
+                    per_epoch[i].1 = per_epoch[i].1.saturating_add(effective_balance);
+                } else {
+                    per_epoch[i].0.push(0);
+                }
+            }
+        }
+
+        (slashed, per_epoch)
     }
 
     pub(crate) fn balance(&self, val_idx: usize) -> u64 {

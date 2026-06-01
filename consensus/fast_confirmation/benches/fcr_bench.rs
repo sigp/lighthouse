@@ -93,7 +93,7 @@ fn build_chain(num_validators: usize) -> BenchData {
             unrealized_finalized_checkpoint: Some(finalized_checkpoint),
             execution_payload_parent_hash: None,
             execution_payload_block_hash: None,
-            proposer_index: None,
+            proposer_index: Some(0),
         };
 
         fc.process_block::<E>(block, slot, &spec, Duration::from_secs(0))
@@ -105,9 +105,14 @@ fn build_chain(num_validators: usize) -> BenchData {
     let head_root = *block_roots.last().unwrap();
     let current_slot = Slot::new(NUM_BLOCKS as u64);
 
-    // All validators attest to the head.
+    // Model mainnet: each validator last attested in a different recent slot, so
+    // validators vote for different recent block roots, scattered by validator index.
+    // This defeats a single-entry vote-root cache (the realistic case), unlike an
+    // all-vote-for-head scenario which is the trivial best case.
+    let voteable = &block_roots[1..]; // non-genesis blocks
     for val_idx in 0..num_validators {
-        fc.process_attestation(val_idx, head_root, Slot::new(0), false)
+        let voted = voteable[val_idx % voteable.len()];
+        fc.process_attestation(val_idx, voted, Slot::new(0), false)
             .expect("process attestation");
     }
 

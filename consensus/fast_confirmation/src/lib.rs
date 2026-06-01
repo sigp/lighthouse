@@ -43,7 +43,7 @@ pub use slot_assignments::UNSET_SLOT;
 use proto_array::core::{ProtoArray, VoteTracker};
 use std::collections::{BTreeSet, HashMap};
 use tracing::{debug, debug_span};
-use types::{BeaconState, Checkpoint, Epoch, EthSpec, Hash256, RelativeEpoch, Slot};
+use types::{BeaconState, Checkpoint, Epoch, EthSpec, Hash256, Slot};
 
 #[derive(Debug, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
@@ -73,6 +73,46 @@ pub enum Error {
 
 /// Per-mille adjustment factor for committee weight estimates that don't cover a full epoch.
 const COMMITTEE_WEIGHT_ESTIMATION_ADJUSTMENT_FACTOR: u64 = 5;
+
+/// Identity hasher for `u64` keys that are already well-distributed (block-root byte
+/// prefixes). The per-vote memoization loops resolve each vote's root/checkpoint at most
+/// once across the whole validator set; keying those memos on a root prefix with this
+/// no-op hasher avoids SipHashing a 32-byte `Hash256` per validator (~1M times). Hash
+/// quality is irrelevant to correctness — the memos store and compare the full key.
+#[derive(Default)]
+struct IdentityU64Hasher(u64);
+impl std::hash::Hasher for IdentityU64Hasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, _: &[u8]) {}
+    fn write_u64(&mut self, n: u64) {
+        self.0 = n;
+    }
+}
+type FastMap<V> = HashMap<u64, V, std::hash::BuildHasherDefault<IdentityU64Hasher>>;
+
+/// First 8 bytes of a block root as a `u64` (roots are uniformly distributed, so this is a
+/// good hash). Used as the memo key; the stored full root disambiguates the rare collision.
+fn root_prefix(root: &Hash256) -> u64 {
+    u64::from_le_bytes(
+        root.as_slice()[..8]
+            .try_into()
+            .expect("Hash256 is 32 bytes"),
+    )
+}
+
+/// Index of `e` in `epochs`, appending it if absent. Used to dedup the (few) epochs needed by
+/// a fused balance-source rebuild so coinciding sources share one validator pass.
+fn dedup_epoch_index(epochs: &mut Vec<Epoch>, e: Epoch) -> usize {
+    match epochs.iter().position(|x| *x == e) {
+        Some(i) => i,
+        None => {
+            epochs.push(e);
+            epochs.len() - 1
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Data types
@@ -186,17 +226,26 @@ impl FastConfirmationRule {
         self.head_assignments.test_set_from(assignments);
     }
 
-    fn rebuild_head_balance_source<E: EthSpec>(
+    /// Rebuild the head / current / previous balance sources from `state`.
+    ///
+    /// Each source keeps its own cache key and is rebuilt only when stale (the previous
+    /// `rebuild_head_balance_source` + `update_balance_sources`). When more than one is stale —
+    /// e.g. at an epoch boundary — they are built from a **single** validator-set pass
+    /// (`build_for_epochs`) instead of one O(V) iteration per source. The head and current
+    /// sources usually resolve to the same epoch, so their per-validator data is computed once
+    /// and shared. Per-source semantics are unchanged.
+    fn rebuild_balance_sources<E: EthSpec>(
         &mut self,
         state: &BeaconState<E>,
         current_slot: Slot,
     ) -> Result<(), Error> {
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
-        // `checkpoint.root` holds the dependent root: the block at the last
-        // slot of the previous epoch (slot 0 / genesis for epoch 0). Two
-        // chains share the same validator-set view at `current_epoch` iff
-        // they share this root, so it's the right chain-identity cache key.
-        let checkpoint = Checkpoint {
+
+        // Head source: keyed on the dependent root (block at the last slot of the previous
+        // epoch). Two chains share the same validator-set view at `current_epoch` iff they
+        // share this root, so it is the right chain-identity cache key. A re-org that pivots
+        // before the previous-epoch boundary changes it, forcing a rebuild.
+        let head_checkpoint = Checkpoint {
             epoch: current_epoch,
             root: *state
                 .get_block_root(
@@ -206,47 +255,51 @@ impl FastConfirmationRule {
                 )
                 .map_err(|e| Error::CommitteeCache(format!("dep_root lookup: {e:?}")))?,
         };
+        let head_epoch = if state.current_epoch() < current_epoch {
+            state
+                .next_epoch()
+                .map_err(|e| Error::CommitteeCache(format!("{e:?}")))?
+        } else {
+            state.current_epoch()
+        };
+        let head_stale = self.head_balance_source.checkpoint != head_checkpoint
+            || self.head_balance_source.effective_balances.is_empty();
 
-        // Cache hit only when same epoch AND same dependent chain. A re-org
-        // that pivots before the previous-epoch boundary changes `dep_root`,
-        // forcing a rebuild against the new fork's validator set.
-        if self.head_balance_source.checkpoint == checkpoint
-            && !self.head_balance_source.effective_balances.is_empty()
-        {
+        // Current/previous sources: keyed on the observed-justified checkpoints; rebuilt when
+        // those rotate (epoch boundary).
+        let current_cp = self.current_epoch_observed_justified_checkpoint;
+        let previous_cp = self.previous_epoch_observed_justified_checkpoint;
+        let current_stale = self.current_balance_source.checkpoint != current_cp;
+        let previous_stale = self.previous_balance_source.checkpoint != previous_cp;
+
+        if !head_stale && !current_stale && !previous_stale {
             return Ok(());
         }
 
-        let relative_epoch = if state.current_epoch() < current_epoch {
-            RelativeEpoch::Next
-        } else {
-            RelativeEpoch::Current
-        };
+        // Collect the distinct epochs needed by the stale sources (head & current coincide in
+        // the common case), then resolve all balances in one pass.
+        let mut epochs: Vec<Epoch> = Vec::with_capacity(3);
+        let head_i = head_stale.then(|| dedup_epoch_index(&mut epochs, head_epoch));
+        let current_i = current_stale.then(|| dedup_epoch_index(&mut epochs, state.current_epoch()));
+        let previous_i =
+            previous_stale.then(|| dedup_epoch_index(&mut epochs, state.previous_epoch()));
 
-        self.head_balance_source =
-            BalanceSourceData::from_state(state, checkpoint, relative_epoch)?;
-        Ok(())
-    }
+        let (slashed, per_epoch) = BalanceSourceData::build_for_epochs(state, &epochs);
 
-    /// Update balance sources from a beacon state.
-    ///
-    /// Called at epoch boundaries when the observed justified checkpoints rotate.
-    /// The state should have committee caches built for both current and previous epochs.
-    pub fn update_balance_sources<E: EthSpec>(
-        &mut self,
-        state: &BeaconState<E>,
-    ) -> Result<(), Error> {
-        let current_cp = self.current_epoch_observed_justified_checkpoint;
-        let previous_cp = self.previous_epoch_observed_justified_checkpoint;
-
-        // Only rebuild if the checkpoint changed.
-        if self.current_balance_source.checkpoint != current_cp {
-            self.current_balance_source =
-                BalanceSourceData::from_state(state, current_cp, RelativeEpoch::Current)?;
+        if let Some(i) = head_i {
+            let (eb, total) = &per_epoch[i];
+            self.head_balance_source =
+                BalanceSourceData::from_parts(head_checkpoint, eb.clone(), *total, slashed.clone());
         }
-
-        if self.previous_balance_source.checkpoint != previous_cp {
+        if let Some(i) = current_i {
+            let (eb, total) = &per_epoch[i];
+            self.current_balance_source =
+                BalanceSourceData::from_parts(current_cp, eb.clone(), *total, slashed.clone());
+        }
+        if let Some(i) = previous_i {
+            let (eb, total) = &per_epoch[i];
             self.previous_balance_source =
-                BalanceSourceData::from_state(state, previous_cp, RelativeEpoch::Previous)?;
+                BalanceSourceData::from_parts(previous_cp, eb.clone(), *total, slashed);
         }
 
         Ok(())
@@ -288,15 +341,11 @@ impl FastConfirmationRule {
             self.head_assignments.rebuild::<E>(state, current_slot)?;
         }
 
+        // Rebuild the head/current/previous balance sources (whichever are stale) in one
+        // shared validator-set pass.
         {
-            let _span = debug_span!("fcr_rebuild_head_balance").entered();
-            self.rebuild_head_balance_source::<E>(state, current_slot)?;
-        }
-
-        // Rebuild balance sources if the observed justified checkpoints changed.
-        {
-            let _span = debug_span!("fcr_update_balance_sources").entered();
-            self.update_balance_sources(state)?;
+            let _span = debug_span!("fcr_rebuild_balances").entered();
+            self.rebuild_balance_sources::<E>(state, current_slot)?;
         }
 
         if !self.spec_test_mode {
@@ -479,14 +528,32 @@ impl FastConfirmationRule {
         // Precompute attestation scores for the full chain from confirmed → head in one
         // O(V × depth) pass. Both loops below use these scores instead of calling
         // get_attestation_score per block (which would be O(B × V × depth) total).
-        let precomputed_scores = self.precompute_chain_attestation_scores(
-            head_root,
-            latest_confirmed_root,
-            &self.current_balance_source,
-            proto_array,
-            votes,
-            equivocating_indices,
-        )?;
+        let precomputed_scores = {
+            let _s = debug_span!("fcr_precompute").entered();
+            self.precompute_chain_attestation_scores(
+                head_root,
+                latest_confirmed_root,
+                &self.current_balance_source,
+                proto_array,
+                votes,
+                equivocating_indices,
+            )?
+        };
+        // FFG support is identical for every FFG check in this run (constant head, slot and
+        // vote set), so compute it once and thread it into the `will_*` checks below — the
+        // same precompute-and-pass-in pattern as the attestation scores above. This avoids
+        // recomputing the O(V) FFG vote pass up to three times per run.
+        let honest_ffg = {
+            let _s = debug_span!("fcr_honest_ffg").entered();
+            self.compute_honest_ffg_support::<E>(
+                head_root,
+                current_slot,
+                proto_array,
+                votes,
+                equivocating_indices,
+            )?
+        };
+
         // --- Loop 1: Previous epoch blocks ---
         let prev_head_voting_source_epoch =
             self.get_voting_source_epoch::<E>(self.previous_slot_head, current_slot, proto_array);
@@ -501,8 +568,7 @@ impl FastConfirmationRule {
             unrealized_justified_checkpoint,
             current_slot,
             proto_array,
-            votes,
-            equivocating_indices,
+            honest_ffg,
         )?;
         let uj_prev_head =
             self.unrealized_justification_epoch_of(self.previous_slot_head, proto_array);
@@ -514,6 +580,7 @@ impl FastConfirmationRule {
                     && (uj_prev_head.is_some_and(|e| e.saturating_add(1u64) >= current_epoch)
                         || uj_head.is_some_and(|e| e.saturating_add(1u64) >= current_epoch))));
         if loop1_guard {
+            let _s = debug_span!("fcr_loop1").entered();
             let canonical_roots =
                 self.get_ancestor_roots(head_root, confirmed_root, proto_array)?;
 
@@ -548,6 +615,7 @@ impl FastConfirmationRule {
         let loop2_guard =
             is_epoch_start || uj_epoch.is_some_and(|e| e.saturating_add(1u64) >= current_epoch);
         if loop2_guard {
+            let _s = debug_span!("fcr_loop2").entered();
             let canonical_roots =
                 self.get_ancestor_roots(head_root, confirmed_root, proto_array)?;
 
@@ -559,14 +627,7 @@ impl FastConfirmationRule {
 
                 // When crossing into current epoch, check FFG.
                 if block_epoch > tentative_epoch {
-                    let ffg_ok = self.will_current_target_be_justified::<E>(
-                        head_root,
-                        unrealized_justified_checkpoint,
-                        current_slot,
-                        proto_array,
-                        votes,
-                        equivocating_indices,
-                    )?;
+                    let ffg_ok = self.will_current_target_be_justified(honest_ffg)?;
                     if !ffg_ok {
                         break;
                     }
@@ -598,17 +659,11 @@ impl FastConfirmationRule {
             );
 
             let promote_check1 = tentative_epoch == Some(current_epoch);
+            // Reuse `no_conflict` from above: `will_no_conflicting_checkpoint_be_justified` here
+            // takes identical arguments and is deterministic, so its result is unchanged.
             let promote_check2 = tentative_voting_source_epoch
                 .is_some_and(|e| e.saturating_add(2u64) >= current_epoch)
-                && (is_epoch_start
-                    || self.will_no_conflicting_checkpoint_be_justified::<E>(
-                        head_root,
-                        unrealized_justified_checkpoint,
-                        current_slot,
-                        proto_array,
-                        votes,
-                        equivocating_indices,
-                    )?);
+                && (is_epoch_start || no_conflict);
 
             if promote_check1 || promote_check2 {
                 confirmed_root = tentative_confirmed_root;
@@ -880,27 +935,24 @@ impl FastConfirmationRule {
 
     /// Spec: `will_no_conflicting_checkpoint_be_justified`.
     #[allow(clippy::too_many_arguments)]
+    ///
+    /// `honest_ffg` is the precomputed `compute_honest_ffg_support` result (identical for
+    /// every FFG check in a single `find_latest_confirmed_descendant` run, so it is computed
+    /// once and threaded in — same pattern as `is_one_confirmed_with_score`'s precomputed
+    /// attestation score). This avoids recomputing the O(V) FFG vote pass per call.
     fn will_no_conflicting_checkpoint_be_justified<E: EthSpec>(
         &self,
         head_root: Hash256,
         unrealized_justified_checkpoint: &Checkpoint,
         current_slot: Slot,
         proto_array: &ProtoArray,
-        votes: &[VoteTracker],
-        equivocating_indices: &BTreeSet<u64>,
+        honest_ffg: u64,
     ) -> Result<bool, Error> {
         let current_target = self.get_current_target::<E>(head_root, current_slot, proto_array)?;
         if current_target == *unrealized_justified_checkpoint {
             return Ok(true);
         }
 
-        let honest_ffg = self.compute_honest_ffg_support::<E>(
-            head_root,
-            current_slot,
-            proto_array,
-            votes,
-            equivocating_indices,
-        )?;
         let total_active = self.head_balance_source.total_active_balance;
 
         // 3 * honest_ffg > 1 * total_active (i.e. honest strictly > 1/3)
@@ -908,27 +960,13 @@ impl FastConfirmationRule {
     }
 
     /// Spec: `will_current_target_be_justified`.
-    #[allow(clippy::too_many_arguments)]
-    fn will_current_target_be_justified<E: EthSpec>(
-        &self,
-        head_root: Hash256,
-        unrealized_justified_checkpoint: &Checkpoint,
-        current_slot: Slot,
-        proto_array: &ProtoArray,
-        votes: &[VoteTracker],
-        equivocating_indices: &BTreeSet<u64>,
-    ) -> Result<bool, Error> {
-        let honest_ffg = self.compute_honest_ffg_support::<E>(
-            head_root,
-            current_slot,
-            proto_array,
-            votes,
-            equivocating_indices,
-        )?;
+    ///
+    /// `honest_ffg` is the precomputed `compute_honest_ffg_support` result (see
+    /// `will_no_conflicting_checkpoint_be_justified`).
+    fn will_current_target_be_justified(&self, honest_ffg: u64) -> Result<bool, Error> {
         let total_active = self.head_balance_source.total_active_balance;
 
         // 3 * honest_ffg >= 2 * total_active (i.e. honest > 2/3)
-        let _ = unrealized_justified_checkpoint; // used only in will_no_conflicting
         Ok(3u128 * honest_ffg as u128 >= 2u128 * total_active as u128)
     }
 
@@ -949,16 +987,16 @@ impl FastConfirmationRule {
         let bs = &self.head_balance_source;
         let mut score = 0u64;
 
-        // Cache: most validators vote for the same root+epoch, so cache the last
-        // checkpoint lookup result. Avoids redundant O(depth) walks AND HashMap hashing.
-        let mut cached_root = Hash256::ZERO;
-        let mut cached_epoch = types::Epoch::new(0);
-        let mut cached_target = Checkpoint::default();
-        let mut cached_valid = false;
+        // Memoize get_checkpoint_for_block by (vote root, vote epoch). Most validators share
+        // a small set of (root, epoch) pairs, so each is resolved (an O(depth) ancestor walk)
+        // at most once across the whole validator set instead of once per validator. Keyed on
+        // the root prefix for cheap hashing; the stored (root, epoch) disambiguates collisions.
+        let mut memo: FastMap<(Hash256, Epoch, Option<Checkpoint>)> = FastMap::default();
 
         for (val_idx, vote) in votes.iter().enumerate() {
             // Skip validators without a vote (spec: `i in store.latest_messages`).
-            if vote.current_root().is_zero() {
+            let vote_root = vote.current_root();
+            if vote_root.is_zero() {
                 continue;
             }
             if equivocating_indices.contains(&(val_idx as u64)) {
@@ -971,28 +1009,27 @@ impl FastConfirmationRule {
             // Spec: get_checkpoint_for_block(store, latest_messages[i].root,
             //        get_latest_message_epoch(latest_messages[i]))
             // Use the VOTE's epoch, not the current epoch.
-            let vote_root = vote.current_root();
             let vote_epoch = vote.latest_message_slot().epoch(E::slots_per_epoch());
-            let vote_target =
-                if cached_valid && vote_root == cached_root && vote_epoch == cached_epoch {
-                    Some(cached_target)
-                } else {
-                    match self.get_checkpoint_for_block::<E>(vote_root, vote_epoch, proto_array) {
-                        Ok(cp) => {
-                            cached_root = vote_root;
-                            cached_epoch = vote_epoch;
-                            cached_target = cp;
-                            cached_valid = true;
-                            Some(cp)
-                        }
+            let key =
+                root_prefix(&vote_root) ^ vote_epoch.as_u64().wrapping_mul(0x9E37_79B9_7F4A_7C15);
+            let cached = memo
+                .get(&key)
+                .and_then(|(r, e, t)| (*r == vote_root && *e == vote_epoch).then_some(*t));
+            let vote_target = match cached {
+                Some(t) => t,
+                None => {
+                    let t = match self.get_checkpoint_for_block::<E>(
+                        vote_root, vote_epoch, proto_array,
+                    ) {
+                        Ok(cp) => Some(cp),
                         // Vote references a block pruned from proto_array — skip it.
-                        Err(Error::CheckpointBlockNotFound { .. }) => {
-                            cached_valid = false;
-                            None
-                        }
+                        Err(Error::CheckpointBlockNotFound { .. }) => None,
                         Err(e) => return Err(e),
-                    }
-                };
+                    };
+                    memo.insert(key, (vote_root, vote_epoch, t));
+                    t
+                }
+            };
             if vote_target.is_some_and(|t| t == current_target) {
                 score = score.saturating_add(balance);
             }
@@ -1277,10 +1314,11 @@ impl FastConfirmationRule {
         let chain_len = chain.len();
         let mut score_at_position = vec![0u64; chain_len];
 
-        // Cache: most validators vote for the same root, so cache the last walk result
-        // to avoid redundant HashMap<Hash256, usize> lookups (hashing 32 bytes is expensive).
-        let mut cached_vote_root = Hash256::ZERO;
-        let mut cached_position: Option<usize> = None;
+        // Memoize vote-root -> deepest canonical position. Most validators vote for a small
+        // set of recent roots, so each root is resolved (proto-array lookup + ancestor walk)
+        // at most once across the validator set instead of once per validator. Keyed on the
+        // root prefix for cheap hashing; the stored full root disambiguates collisions.
+        let mut memo: FastMap<(Hash256, Option<usize>)> = FastMap::default();
 
         for (val_idx, vote) in votes.iter().enumerate() {
             let vote_root = vote.current_root();
@@ -1295,44 +1333,41 @@ impl FastConfirmationRule {
                 continue;
             }
 
-            // Fast path: reuse cached walk result for repeated vote roots.
-            if vote_root == cached_vote_root {
-                if let Some(pos) = cached_position {
-                    score_at_position[pos] = score_at_position[pos].saturating_add(balance);
+            let key = root_prefix(&vote_root);
+            let cached = memo
+                .get(&key)
+                .and_then(|(r, p)| (*r == vote_root).then_some(*p));
+            let pos = match cached {
+                Some(p) => p,
+                None => {
+                    // Resolve the vote root and walk ancestors to the deepest canonical block.
+                    let p = proto_array.indices.get(&vote_root).and_then(|&start_idx| {
+                        let mut deepest_pos = None;
+                        let mut current_idx = start_idx;
+                        loop {
+                            if let Some(&pos) = index_to_position.get(&current_idx) {
+                                deepest_pos = Some(pos);
+                                break;
+                            }
+                            let Some(node) = proto_array.nodes.get(current_idx) else {
+                                break;
+                            };
+                            if node.slot() <= terminal_slot {
+                                break;
+                            }
+                            match node.parent() {
+                                Some(parent_idx) => current_idx = parent_idx,
+                                None => break,
+                            }
+                        }
+                        deepest_pos
+                    });
+                    memo.insert(key, (vote_root, p));
+                    p
                 }
-                continue;
-            }
-
-            // Slow path: resolve vote root and walk ancestors.
-            let Some(&start_idx) = proto_array.indices.get(&vote_root) else {
-                cached_vote_root = vote_root;
-                cached_position = None;
-                continue;
             };
 
-            let mut deepest_pos = None;
-            let mut current_idx = start_idx;
-            loop {
-                if let Some(&pos) = index_to_position.get(&current_idx) {
-                    deepest_pos = Some(pos);
-                    break;
-                }
-                let Some(node) = proto_array.nodes.get(current_idx) else {
-                    break;
-                };
-                if node.slot() <= terminal_slot {
-                    break;
-                }
-                match node.parent() {
-                    Some(parent_idx) => current_idx = parent_idx,
-                    None => break,
-                }
-            }
-
-            cached_vote_root = vote_root;
-            cached_position = deepest_pos;
-
-            if let Some(pos) = deepest_pos {
+            if let Some(pos) = pos {
                 score_at_position[pos] = score_at_position[pos].saturating_add(balance);
             }
         }
