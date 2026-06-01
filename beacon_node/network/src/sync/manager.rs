@@ -44,7 +44,7 @@ use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProces
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::{
-    BlobRequestState, BlockComponent, BlockRequestState, CustodyRequestState, DownloadResult,
+    BlockComponent, BlockRequestState, CustodyRequestState, DownloadResult,
 };
 use crate::sync::custody_backfill_sync::CustodyBackFillSync;
 use crate::sync::network_context::{PeerGroup, RpcResponseResult};
@@ -197,7 +197,6 @@ pub enum SyncMessage<E: EthSpec> {
 #[derive(Debug, Clone)]
 pub enum BlockProcessType {
     SingleBlock { id: Id },
-    SingleBlob { id: Id },
     SingleCustodyColumn(Id),
     SinglePayloadEnvelope(Id),
 }
@@ -206,7 +205,6 @@ impl BlockProcessType {
     pub fn id(&self) -> Id {
         match self {
             BlockProcessType::SingleBlock { id }
-            | BlockProcessType::SingleBlob { id }
             | BlockProcessType::SingleCustodyColumn(id)
             | BlockProcessType::SinglePayloadEnvelope(id) => *id,
         }
@@ -506,9 +504,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         match sync_request_id {
             SyncRequestId::SingleBlock { id } => {
                 self.on_single_block_response(id, peer_id, RpcEvent::RPCError(error))
-            }
-            SyncRequestId::SingleBlob { id } => {
-                self.on_single_blob_response(id, peer_id, RpcEvent::RPCError(error))
             }
             SyncRequestId::SinglePayloadEnvelope { id } => {
                 self.on_single_payload_envelope_response(id, peer_id, RpcEvent::RPCError(error))
@@ -1197,11 +1192,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         seen_timestamp: Duration,
     ) {
         match sync_request_id {
-            SyncRequestId::SingleBlob { id } => self.on_single_blob_response(
-                id,
-                peer_id,
-                RpcEvent::from_chunk(blob, seen_timestamp),
-            ),
             SyncRequestId::BlobsByRange(id) => self.on_blobs_by_range_response(
                 id,
                 peer_id,
@@ -1275,24 +1265,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             // TODO(gloas): dispatch into
             // `block_lookups.on_download_response::<PayloadEnvelopeRequestState<_>>(...)` once
             // the envelope lookup state machine lands.
-        }
-    }
-
-    fn on_single_blob_response(
-        &mut self,
-        id: SingleLookupReqId,
-        peer_id: PeerId,
-        blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
-    ) {
-        if let Some(resp) = self.network.on_single_blob_response(id, peer_id, blob) {
-            self.block_lookups
-                .on_download_response::<BlobRequestState<T::EthSpec>>(
-                    id,
-                    resp.map(|(value, seen_timestamp)| {
-                        (value, PeerGroup::from_single(peer_id), seen_timestamp)
-                    }),
-                    &mut self.network,
-                )
         }
     }
 
