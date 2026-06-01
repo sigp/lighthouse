@@ -448,20 +448,6 @@ impl TestRig {
             .unwrap();
     }
 
-    pub fn enqueue_single_lookup_rpc_blobs(&self) {
-        if let Some(blobs) = self.next_blobs.clone() {
-            let blobs = FixedBlobSidecarList::new(blobs.into_iter().map(Some).collect::<Vec<_>>());
-            self.network_beacon_processor
-                .send_rpc_blobs(
-                    self.next_block.canonical_root(),
-                    blobs,
-                    std::time::Duration::default(),
-                    BlockProcessType::SingleBlob { id: 1 },
-                )
-                .unwrap();
-        }
-    }
-
     pub fn enqueue_single_lookup_rpc_data_columns(&self) {
         if let Some(data_columns) = self.next_data_columns.clone() {
             self.network_beacon_processor
@@ -471,6 +457,23 @@ impl TestRig {
                     Duration::default(),
                     BlockProcessType::SingleCustodyColumn(1),
                 )
+                .unwrap();
+        }
+    }
+
+    /// Make the next block's blobs available in the data availability checker, simulating the
+    /// execution layer supplying them. Blobs are no longer fetched via lookup sync, so for
+    /// deneb/electra blocks (which are not peerDAS) this is how their data becomes available.
+    pub async fn make_next_block_blobs_available(&self) {
+        if let Some(blobs) = self.next_blobs.clone() {
+            let blobs = FixedBlobSidecarList::new(blobs.into_iter().map(Some).collect::<Vec<_>>());
+            self.chain
+                .process_rpc_blobs(
+                    self.next_block.slot(),
+                    self.next_block.canonical_root(),
+                    blobs,
+                )
+                .await
                 .unwrap();
         }
     }
@@ -1080,6 +1083,10 @@ async fn import_gossip_block_acceptably_early() {
         "chain should be at the correct slot"
     );
 
+    // Blobs are sourced from the EL rather than lookup/gossip, so make them available to allow the
+    // deneb/electra block to import. No-op for peerDAS blocks, which use data columns.
+    rig.make_next_block_blobs_available().await;
+
     rig.enqueue_gossip_block();
 
     rig.assert_event_journal_completes(&[WorkType::GossipBlock])
@@ -1214,6 +1221,10 @@ async fn import_gossip_block_at_current_slot() {
         "chain should be at the correct slot"
     );
 
+    // Blobs are sourced from the EL rather than lookup/gossip, so make them available to allow the
+    // deneb/electra block to import. No-op for peerDAS blocks, which use data columns.
+    rig.make_next_block_blobs_available().await;
+
     rig.enqueue_gossip_block();
 
     rig.assert_event_journal_completes(&[WorkType::GossipBlock])
@@ -1277,8 +1288,12 @@ async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod
         "Attestation should not have been included."
     );
 
+    // Make the block's blobs available up front, simulating the execution layer supplying them.
+    // Blobs are no longer fetched via lookup sync, so deneb/electra blocks become available this
+    // way; data columns are still lookup-synced post-fulu.
+    rig.make_next_block_blobs_available().await;
+
     // Send the block and ensure that the attestation is received back and imported.
-    let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     let mut events = vec![];
     match import_method {
@@ -1293,10 +1308,6 @@ async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod
         BlockImportMethod::Rpc => {
             rig.enqueue_lookup_block();
             events.push(WorkType::RpcBlock);
-            if num_blobs > 0 {
-                rig.enqueue_single_lookup_rpc_blobs();
-                events.push(WorkType::RpcBlobs);
-            }
             if num_data_columns > 0 {
                 rig.enqueue_single_lookup_rpc_data_columns();
                 events.push(WorkType::RpcCustodyColumn);
@@ -1359,8 +1370,12 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
         "Attestation should not have been included."
     );
 
+    // Make the block's blobs available up front, simulating the execution layer supplying them.
+    // Blobs are no longer fetched via lookup sync, so deneb/electra blocks become available this
+    // way; data columns are still lookup-synced post-fulu.
+    rig.make_next_block_blobs_available().await;
+
     // Send the block and ensure that the attestation is received back and imported.
-    let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     let mut events = vec![];
     match import_method {
@@ -1375,10 +1390,6 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
         BlockImportMethod::Rpc => {
             rig.enqueue_lookup_block();
             events.push(WorkType::RpcBlock);
-            if num_blobs > 0 {
-                rig.enqueue_single_lookup_rpc_blobs();
-                events.push(WorkType::RpcBlobs);
-            }
             if num_data_columns > 0 {
                 rig.enqueue_single_lookup_rpc_data_columns();
                 events.push(WorkType::RpcCustodyColumn);
@@ -1565,18 +1576,17 @@ async fn import_misc_gossip_ops() {
 async fn test_rpc_block_reprocessing() {
     let mut rig = TestRig::new(SMALL_CHAIN).await;
     let next_block_root = rig.next_block.canonical_root();
+
+    // Make the block's blobs available up front, simulating the execution layer supplying them.
+    // Blobs are no longer fetched via lookup sync, so deneb/electra blocks become available this
+    // way; data columns are still lookup-synced post-fulu.
+    rig.make_next_block_blobs_available().await;
+
     // Insert the next block into the duplicate cache manually
     let handle = rig.duplicate_cache.check_and_insert(next_block_root);
     rig.enqueue_single_lookup_block();
     rig.assert_event_journal_completes(&[WorkType::RpcBlock])
         .await;
-
-    let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
-    if num_blobs > 0 {
-        rig.enqueue_single_lookup_rpc_blobs();
-        rig.assert_event_journal_completes(&[WorkType::RpcBlobs])
-            .await;
-    }
 
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     if num_data_columns > 0 {

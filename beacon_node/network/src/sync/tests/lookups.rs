@@ -8,13 +8,11 @@ use crate::sync::{
     SyncMessage,
     manager::{BatchProcessResult, BlockProcessType, BlockProcessingResult, SyncManager},
 };
-use beacon_chain::blob_verification::KzgVerifiedBlob;
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::{
     AvailabilityProcessingStatus, BlockError, EngineState, NotifyExecutionLayer,
     block_verification_types::{AsBlock, AvailableBlockData},
-    data_availability_checker::Availability,
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, NumBlobs,
         generate_rand_block_and_blobs, test_spec,
@@ -36,8 +34,8 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::info;
 use types::{
-    BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, EthSpec, ForkContext, ForkName,
-    Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
+    BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, ForkContext, ForkName, Hash256,
+    MinimalEthSpec as E, SignedBeaconBlock, Slot,
 };
 
 const D: Duration = Duration::new(0, 0);
@@ -424,6 +422,12 @@ impl TestRig {
                                 result,
                             });
                         } else {
+                            // Blobs are no longer fetched via lookup sync; they are sourced from
+                            // the EL. Simulate that here by making the block's blobs available in
+                            // the data availability checker before processing the block, so that
+                            // deneb/electra block lookups can complete on block import. No-op for
+                            // peerDAS blocks (which lookup-sync columns instead).
+                            self.make_block_blobs_available(beacon_block_root).await;
                             process_fn.await
                         }
                     }
@@ -547,52 +551,6 @@ impl TestRig {
                         .collect::<Vec<_>>();
 
                 self.send_rpc_blocks_response(req_id, peer_id, &blocks);
-            }
-
-            (RequestType::BlobsByRoot(req), AppRequestId::Sync(req_id)) => {
-                if self.complete_strategy.return_no_data_n_times > 0 {
-                    self.complete_strategy.return_no_data_n_times -= 1;
-                    return self.send_rpc_blobs_response(req_id, peer_id, &[]);
-                }
-
-                let mut blobs = req
-                    .blob_ids
-                    .iter()
-                    .map(|id| {
-                        self.network_blocks_by_root
-                            .get(&id.block_root)
-                            .unwrap_or_else(|| {
-                                panic!("Test consumer requested unknown block: {id:?}")
-                            })
-                            .block_data()
-                            .blobs()
-                            .unwrap_or_else(|| panic!("Block {id:?} has no blobs"))
-                            .iter()
-                            .find(|blob| blob.index == id.index)
-                            .unwrap_or_else(|| panic!("Blob id {id:?} not avail"))
-                            .clone()
-                    })
-                    .collect::<Vec<_>>();
-
-                if self.complete_strategy.return_too_few_data_n_times > 0 {
-                    self.complete_strategy.return_too_few_data_n_times -= 1;
-                    blobs.pop();
-                }
-
-                if self
-                    .complete_strategy
-                    .return_wrong_sidecar_for_block_n_times
-                    > 0
-                {
-                    self.complete_strategy
-                        .return_wrong_sidecar_for_block_n_times -= 1;
-                    let first = blobs.first_mut().expect("empty blobs");
-                    let mut blob = Arc::make_mut(first).clone();
-                    blob.signed_block_header.message.body_root = Hash256::ZERO;
-                    *first = Arc::new(blob);
-                }
-
-                self.send_rpc_blobs_response(req_id, peer_id, &blobs);
             }
 
             (RequestType::DataColumnsByRoot(req), AppRequestId::Sync(req_id)) => {
@@ -1006,48 +964,6 @@ impl TestRig {
         keypair.sk.sign(msg)
     }
 
-    fn corrupt_last_blob_proposer_signature(&mut self) {
-        let range_sync_block = self.get_last_block().clone();
-        let block = range_sync_block.block_cloned();
-        let mut blobs = range_sync_block
-            .block_data()
-            .blobs()
-            .expect("no blobs")
-            .into_iter()
-            .collect::<Vec<_>>();
-        let columns = range_sync_block.block_data().data_columns();
-        let first = blobs.first_mut().expect("empty blobs");
-        Arc::make_mut(first).signed_block_header.signature = self.valid_signature();
-        let max_blobs =
-            self.harness
-                .spec
-                .max_blobs_per_block(block.slot().epoch(E::slots_per_epoch())) as usize;
-        let blobs =
-            types::BlobSidecarList::new(blobs, max_blobs).expect("invalid blob sidecar list");
-        self.re_insert_block(block, Some(blobs), columns);
-    }
-
-    fn corrupt_last_blob_kzg_proof(&mut self) {
-        let range_sync_block = self.get_last_block().clone();
-        let block = range_sync_block.block_cloned();
-        let mut blobs = range_sync_block
-            .block_data()
-            .blobs()
-            .expect("no blobs")
-            .into_iter()
-            .collect::<Vec<_>>();
-        let columns = range_sync_block.block_data().data_columns();
-        let first = blobs.first_mut().expect("empty blobs");
-        Arc::make_mut(first).kzg_proof = kzg::KzgProof::empty();
-        let max_blobs =
-            self.harness
-                .spec
-                .max_blobs_per_block(block.slot().epoch(E::slots_per_epoch())) as usize;
-        let blobs =
-            types::BlobSidecarList::new(blobs, max_blobs).expect("invalid blob sidecar list");
-        self.re_insert_block(block, Some(blobs), columns);
-    }
-
     fn corrupt_last_column_proposer_signature(&mut self) {
         let range_sync_block = self.get_last_block().clone();
         let block = range_sync_block.block_cloned();
@@ -1197,6 +1113,32 @@ impl TestRig {
             .unwrap();
 
         self.harness.chain.recompute_head_at_current_slot().await;
+    }
+
+    /// Make a block's blobs available in the data availability checker, simulating the execution
+    /// layer supplying them. Blobs are no longer fetched via lookup sync, so for deneb/electra
+    /// blocks (which are not peerDAS) this is how their data becomes available and lets the block
+    /// import complete. No-op for blocks without blobs (e.g. peerDAS blocks, which use columns).
+    async fn make_block_blobs_available(&self, block_root: Hash256) {
+        let Some(lookup_block) = self.network_blocks_by_root.get(&block_root) else {
+            return;
+        };
+        let Some(blobs) = lookup_block.block_data().blobs() else {
+            return;
+        };
+        if blobs.is_empty() {
+            return;
+        }
+        let slot = lookup_block.slot();
+        let blobs =
+            types::data::FixedBlobSidecarList::new(blobs.into_iter().map(Some).collect::<Vec<_>>());
+        // Ignore the result: a `DuplicateFullyImported` error simply means the block's data was
+        // already available, which is fine for the purpose of unblocking the lookup.
+        let _ = self
+            .harness
+            .chain
+            .process_rpc_blobs(slot, block_root, blobs)
+            .await;
     }
 
     fn trigger_with_last_unknown_block_parent(&mut self) {
@@ -1413,10 +1355,6 @@ impl TestRig {
 
     // Test setup
 
-    fn new_after_deneb() -> Option<Self> {
-        genesis_fork().deneb_enabled().then(Self::default)
-    }
-
     fn new_after_fulu() -> Option<Self> {
         genesis_fork().fulu_enabled().then(Self::default)
     }
@@ -1441,10 +1379,6 @@ impl TestRig {
 
     pub fn log(&self, msg: &str) {
         info!(msg, "TEST_RIG");
-    }
-
-    pub fn is_after_deneb(&self) -> bool {
-        self.fork_name.deneb_enabled()
     }
 
     pub fn is_after_fulu(&self) -> bool {
@@ -1732,27 +1666,6 @@ impl TestRig {
         }
     }
 
-    fn insert_blob_to_da_checker(&mut self, blob: Arc<BlobSidecar<E>>) {
-        match self
-            .harness
-            .chain
-            .data_availability_checker
-            .put_kzg_verified_blobs(
-                blob.block_root(),
-                std::iter::once(
-                    KzgVerifiedBlob::new(blob, &self.harness.chain.kzg, Duration::new(0, 0))
-                        .expect("Invalid blob"),
-                ),
-            )
-            .unwrap()
-        {
-            Availability::Available(_) => panic!("column removed from da_checker, available"),
-            Availability::MissingComponents(block_root) => {
-                self.log(&format!("inserted column to da_checker {block_root:?}"))
-            }
-        };
-    }
-
     fn insert_block_to_da_checker_as_pre_execution(&mut self, block: Arc<SignedBeaconBlock<E>>) {
         self.log(&format!(
             "Inserting block to availability_cache as pre_execution_block {:?}",
@@ -1785,6 +1698,10 @@ impl TestRig {
         block: Arc<SignedBeaconBlock<E>>,
     ) {
         let block_root = block.canonical_root();
+
+        // Blobs are sourced from the EL rather than lookup sync, so make them available here so
+        // that the block import completes for deneb/electra. No-op for blocks without blobs.
+        self.make_block_blobs_available(block_root).await;
 
         match self.import_block_to_da_checker(block).await {
             AvailabilityProcessingStatus::Imported(block_root) => {
@@ -1919,18 +1836,15 @@ async fn happy_path_unknown_block_parent(depth: usize) {
     r.build_chain(depth).await;
     r.trigger_with_last_unknown_block_parent();
     r.simulate(SimulateConfig::happy_path()).await;
-    // All lookups should NOT complete on this test, however note the following for the tip lookup,
-    // it's the lookup for the tip block which has 0 peers and a block cached:
+    // Note the following for the tip lookup, it's the lookup for the tip block which has 0 peers
+    // and a block cached:
     // - before deneb the block is cached, so it's sent for processing, and success
-    // - before fulu the block is cached, but we can't fetch blobs so it's stuck
+    // - deneb/electra the block is cached, and its blobs are supplied by the EL (no longer
+    //   lookup-synced), so the block import completes and the lookup succeeds
     // - after fulu the block is cached, we start a custody request and since we use the global pool
     //   of peers we DO have 1 connected synced supernode peer, which gives us the columns and the
     //   lookup succeeds
-    if r.is_after_deneb() && !r.is_after_fulu() {
-        r.assert_successful_lookup_sync_parent_trigger()
-    } else {
-        r.assert_successful_lookup_sync();
-    }
+    r.assert_successful_lookup_sync();
 }
 
 /// Assert that sync completes from an UnknownDataColumnParent
@@ -1978,9 +1892,11 @@ async fn bad_peer_empty_block_response(depth: usize) {
     // TODO(tree-sync) Assert that a single lookup is created (no drops)
 }
 
-/// Assert that if peer responds with no blobs / columns, we downscore, and retry the same lookup
+/// Assert that if peer responds with no columns, we downscore, and retry the same lookup.
+/// Note: blobs are no longer lookup-synced (sourced from the EL), so "data" here means columns,
+/// which are only lookup-synced post-fulu.
 async fn bad_peer_empty_data_response(depth: usize) {
-    let Some(mut r) = TestRig::new_after_deneb() else {
+    let Some(mut r) = TestRig::new_after_fulu() else {
         return;
     };
     r.build_chain_and_trigger_last_block(depth).await;
@@ -1992,10 +1908,11 @@ async fn bad_peer_empty_data_response(depth: usize) {
     // TODO(tree-sync) Assert that a single lookup is created (no drops)
 }
 
-/// Assert that if peer responds with not enough blobs / columns, we downscore, and retry the same
-/// lookup
+/// Assert that if peer responds with not enough columns, we downscore, and retry the same
+/// lookup. Note: blobs are no longer lookup-synced (sourced from the EL), so "data" here means
+/// columns, which are only lookup-synced post-fulu.
 async fn bad_peer_too_few_data_response(depth: usize) {
-    let Some(mut r) = TestRig::new_after_deneb() else {
+    let Some(mut r) = TestRig::new_after_fulu() else {
         return;
     };
     r.build_chain_and_trigger_last_block(depth).await;
@@ -2019,9 +1936,11 @@ async fn bad_peer_wrong_block_response(depth: usize) {
     // TODO(tree-sync) Assert that a single lookup is created (no drops)
 }
 
-/// Assert that if peer responds with bad blobs / columns, we downscore, and retry the same lookup
+/// Assert that if peer responds with bad columns, we downscore, and retry the same lookup.
+/// Note: blobs are no longer lookup-synced (sourced from the EL), so "data" here means columns,
+/// which are only lookup-synced post-fulu.
 async fn bad_peer_wrong_data_response(depth: usize) {
-    let Some(mut r) = TestRig::new_after_deneb() else {
+    let Some(mut r) = TestRig::new_after_fulu() else {
         return;
     };
     r.build_chain_and_trigger_last_block(depth).await;
@@ -2407,32 +2326,6 @@ async fn block_in_processing_cache_becomes_valid_imported() {
     r.assert_no_active_lookups();
 }
 
-// IGNORE: wait for change that delays blob fetching to knowing the block
-#[tokio::test]
-async fn blobs_in_da_checker_skip_download() {
-    let Some(mut r) = TestRig::new_after_deneb_before_fulu() else {
-        return;
-    };
-    r.build_chain(1).await;
-    let block = r.get_last_block().clone();
-    let blobs = block.block_data().blobs().expect("block with no blobs");
-    for blob in &blobs {
-        r.insert_blob_to_da_checker(blob.clone());
-    }
-    r.trigger_with_last_block();
-    r.simulate(SimulateConfig::happy_path()).await;
-
-    r.assert_successful_lookup_sync();
-    assert_eq!(
-        r.requests
-            .iter()
-            .filter(|(request, _)| matches!(request, RequestType::BlobsByRoot(_)))
-            .collect::<Vec<_>>(),
-        Vec::<&(RequestType<E>, AppRequestId)>::new(),
-        "There should be no blob requests"
-    );
-}
-
 macro_rules! fulu_peer_matrix_tests {
     (
         [$($name:ident => $variant:expr),+ $(,)?]
@@ -2542,42 +2435,6 @@ async fn crypto_on_fail_with_invalid_block_signature() {
     } else {
         r.assert_failed_lookup_sync();
         r.assert_penalties_of_type("lookup_block_processing_failure");
-    }
-}
-
-#[tokio::test]
-async fn crypto_on_fail_with_bad_blob_proposer_signature() {
-    let Some(mut r) = TestRig::new_after_deneb_before_fulu() else {
-        return;
-    };
-    r.build_chain(1).await;
-    r.corrupt_last_blob_proposer_signature();
-    r.trigger_with_last_block();
-    r.simulate(SimulateConfig::happy_path()).await;
-    if cfg!(feature = "fake_crypto") {
-        r.assert_successful_lookup_sync();
-        r.assert_no_penalties();
-    } else {
-        r.assert_failed_lookup_sync();
-        r.assert_penalties_of_type("lookup_blobs_processing_failure");
-    }
-}
-
-#[tokio::test]
-async fn crypto_on_fail_with_bad_blob_kzg_proof() {
-    let Some(mut r) = TestRig::new_after_deneb_before_fulu() else {
-        return;
-    };
-    r.build_chain(1).await;
-    r.corrupt_last_blob_kzg_proof();
-    r.trigger_with_last_block();
-    r.simulate(SimulateConfig::happy_path()).await;
-    if cfg!(feature = "fake_crypto") {
-        r.assert_successful_lookup_sync();
-        r.assert_no_penalties();
-    } else {
-        r.assert_failed_lookup_sync();
-        r.assert_penalties_of_type("lookup_blobs_processing_failure");
     }
 }
 

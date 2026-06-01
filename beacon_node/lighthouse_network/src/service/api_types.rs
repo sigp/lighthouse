@@ -21,8 +21,6 @@ pub struct SingleLookupReqId {
 pub enum SyncRequestId {
     /// Request searching for a block given a hash.
     SingleBlock { id: SingleLookupReqId },
-    /// Request searching for a set of blobs given a hash.
-    SingleBlob { id: SingleLookupReqId },
     /// Request searching for a payload envelope given a hash.
     SinglePayloadEnvelope { id: SingleLookupReqId },
     /// Request searching for a set of data columns given a hash and list of column indices.
