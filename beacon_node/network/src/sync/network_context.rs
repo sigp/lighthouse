@@ -1174,34 +1174,18 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         lookup_id: SingleLookupId,
         block_root: Hash256,
+        block_slot: Slot,
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
-        let slot = self
-            .chain
-            .canonical_head
-            .fork_choice_read_lock()
-            .get_block(&block_root)
-            .map(|block| block.slot)
-            .or_else(|| self.chain.slot().ok())
-            .ok_or_else(|| {
-                RpcRequestSendError::InternalError(format!(
-                    "Unable to determine slot for block {block_root:?}"
-                ))
-            })?;
-
         let custody_indexes_imported = self
             .chain
-            .cached_data_column_indexes(&block_root, slot)
+            .cached_data_column_indexes(&block_root, block_slot)
             .unwrap_or_default();
-
-        let current_epoch = self.chain.epoch().map_err(|e| {
-            RpcRequestSendError::InternalError(format!("Unable to read slot clock {:?}", e))
-        })?;
 
         // Include only the blob indexes not yet imported (received through gossip)
         let mut custody_indexes_to_fetch = self
             .chain
-            .sampling_columns_for_epoch(current_epoch)
+            .sampling_columns_for_epoch(block_slot.epoch(T::EthSpec::slots_per_epoch()))
             .iter()
             .copied()
             .filter(|index| !custody_indexes_imported.contains(index))

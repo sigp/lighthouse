@@ -412,19 +412,6 @@ impl<T: BeaconChainTypes> Router<T> {
                     seen_timestamp,
                 ),
             ),
-            PubsubMessage::BlobSidecar(data) => {
-                let (blob_index, blob_sidecar) = *data;
-                self.handle_beacon_processor_send_result(
-                    self.network_beacon_processor.send_gossip_blob_sidecar(
-                        message_id,
-                        peer_id,
-                        self.network_globals.client(&peer_id),
-                        blob_index,
-                        blob_sidecar,
-                        seen_timestamp,
-                    ),
-                )
-            }
             PubsubMessage::DataColumnSidecar(data) => {
                 let (subnet_id, column_sidecar) = *data;
                 self.handle_beacon_processor_send_result(

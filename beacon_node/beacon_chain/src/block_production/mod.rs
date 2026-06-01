@@ -179,14 +179,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let re_org_max_epochs_since_finalization =
             Epoch::new(self.spec.reorg_max_epochs_since_finalization);
 
-        if self.spec.proposer_score_boost.is_none() {
-            warn!(
-                reason = "this network does not have proposer boost enabled",
-                "Ignoring proposer re-org configuration"
-            );
-            return None;
-        }
-
         let slot_delay = self
             .slot_clock
             .seconds_from_current_slot_start()
