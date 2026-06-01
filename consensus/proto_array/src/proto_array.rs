@@ -1861,10 +1861,7 @@ fn get_proposer_score<E: EthSpec>(
     justified_balances: &JustifiedBalances,
     spec: &ChainSpec,
 ) -> Result<u64, Error> {
-    let Some(proposer_score_boost) = spec.proposer_score_boost else {
-        return Ok(0);
-    };
-    calculate_committee_fraction::<E>(justified_balances, proposer_score_boost)
+    calculate_committee_fraction::<E>(justified_balances, spec.proposer_score_boost)
         .ok_or(Error::ProposerBoostOverflow(0))
 }
 
