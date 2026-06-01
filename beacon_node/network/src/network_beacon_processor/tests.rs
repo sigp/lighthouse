@@ -41,15 +41,12 @@ use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use types::data::BlobIdentifier;
 use types::{
-    AttesterSlashing, BlobSidecar, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Epoch,
-    EthSpec, ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, Hash256,
-    MainnetEthSpec, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedExecutionPayloadEnvelope, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
-};
-use types::{
-    BlobSidecarList,
-    data::{BlobIdentifier, FixedBlobSidecarList},
+    AttesterSlashing, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Epoch, EthSpec,
+    ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, Hash256, MainnetEthSpec,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+    SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
 };
 
 type E = MainnetEthSpec;
@@ -69,7 +66,6 @@ const STANDARD_TIMEOUT: Duration = Duration::from_secs(10);
 struct TestRig {
     chain: Arc<BeaconChain<T>>,
     next_block: Arc<SignedBeaconBlock<E>>,
-    next_blobs: Option<BlobSidecarList<E>>,
     next_data_columns: Option<DataColumnSidecarList<E>>,
     attestations: Vec<(SingleAttestation, SubnetId)>,
     next_block_attestations: Vec<(SingleAttestation, SubnetId)>,
@@ -341,7 +337,7 @@ impl TestRig {
 
         assert!(beacon_processor.is_ok());
         let block = next_block_tuple.0;
-        let (blob_sidecars, data_columns) = if let Some((kzg_proofs, blobs)) = next_block_tuple.1 {
+        let data_columns = if let Some((kzg_proofs, blobs)) = next_block_tuple.1 {
             if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
                 let kzg = get_kzg(&chain.spec);
                 let epoch = block.slot().epoch(E::slots_per_epoch());
@@ -358,20 +354,17 @@ impl TestRig {
                 .filter(|c| sampling_indices.contains(c.index()))
                 .collect::<Vec<_>>();
 
-                (None, Some(custody_columns))
+                Some(custody_columns)
             } else {
-                let blob_sidecars =
-                    BlobSidecar::build_sidecars(blobs, &block, kzg_proofs, &chain.spec).unwrap();
-                (Some(blob_sidecars), None)
+                None
             }
         } else {
-            (None, None)
+            None
         };
 
         Self {
             chain,
             next_block: block,
-            next_blobs: blob_sidecars,
             next_data_columns: data_columns,
             attestations,
             next_block_attestations,
@@ -446,20 +439,6 @@ impl TestRig {
                 BlockProcessType::SingleBlock { id: 1 },
             )
             .unwrap();
-    }
-
-    pub fn enqueue_single_lookup_rpc_blobs(&self) {
-        if let Some(blobs) = self.next_blobs.clone() {
-            let blobs = FixedBlobSidecarList::new(blobs.into_iter().map(Some).collect::<Vec<_>>());
-            self.network_beacon_processor
-                .send_rpc_blobs(
-                    self.next_block.canonical_root(),
-                    blobs,
-                    std::time::Duration::default(),
-                    BlockProcessType::SingleBlob { id: 1 },
-                )
-                .unwrap();
-        }
     }
 
     pub fn enqueue_single_lookup_rpc_data_columns(&self) {
@@ -1278,7 +1257,6 @@ async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod
     );
 
     // Send the block and ensure that the attestation is received back and imported.
-    let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     let mut events = vec![];
     match import_method {
@@ -1293,10 +1271,6 @@ async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod
         BlockImportMethod::Rpc => {
             rig.enqueue_lookup_block();
             events.push(WorkType::RpcBlock);
-            if num_blobs > 0 {
-                rig.enqueue_single_lookup_rpc_blobs();
-                events.push(WorkType::RpcBlobs);
-            }
             if num_data_columns > 0 {
                 rig.enqueue_single_lookup_rpc_data_columns();
                 events.push(WorkType::RpcCustodyColumn);
@@ -1360,7 +1334,6 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
     );
 
     // Send the block and ensure that the attestation is received back and imported.
-    let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     let mut events = vec![];
     match import_method {
@@ -1375,10 +1348,6 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
         BlockImportMethod::Rpc => {
             rig.enqueue_lookup_block();
             events.push(WorkType::RpcBlock);
-            if num_blobs > 0 {
-                rig.enqueue_single_lookup_rpc_blobs();
-                events.push(WorkType::RpcBlobs);
-            }
             if num_data_columns > 0 {
                 rig.enqueue_single_lookup_rpc_data_columns();
                 events.push(WorkType::RpcCustodyColumn);
@@ -1565,18 +1534,12 @@ async fn import_misc_gossip_ops() {
 async fn test_rpc_block_reprocessing() {
     let mut rig = TestRig::new(SMALL_CHAIN).await;
     let next_block_root = rig.next_block.canonical_root();
+
     // Insert the next block into the duplicate cache manually
     let handle = rig.duplicate_cache.check_and_insert(next_block_root);
     rig.enqueue_single_lookup_block();
     rig.assert_event_journal_completes(&[WorkType::RpcBlock])
         .await;
-
-    let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
-    if num_blobs > 0 {
-        rig.enqueue_single_lookup_rpc_blobs();
-        rig.assert_event_journal_completes(&[WorkType::RpcBlobs])
-            .await;
-    }
 
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     if num_data_columns > 0 {

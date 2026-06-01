@@ -340,8 +340,8 @@ impl<T: BeaconChainTypes> Router<T> {
             Response::BlobsByRange(blob) => {
                 self.on_blobs_by_range_response(peer_id, app_request_id, blob);
             }
-            Response::BlobsByRoot(blob) => {
-                self.on_blobs_by_root_response(peer_id, app_request_id, blob);
+            Response::BlobsByRoot(_) => {
+                crit!(%peer_id, "Unexpected BlobsByRoot response; lookup blob requests removed");
             }
             Response::DataColumnsByRoot(data_column) => {
                 self.on_data_columns_by_root_response(peer_id, app_request_id, data_column);
@@ -717,40 +717,6 @@ impl<T: BeaconChainTypes> Router<T> {
             peer_id,
             sync_request_id,
             beacon_block,
-            seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
-        });
-    }
-
-    /// Handle a `BlobsByRoot` response from the peer.
-    pub fn on_blobs_by_root_response(
-        &mut self,
-        peer_id: PeerId,
-        app_request_id: AppRequestId,
-        blob_sidecar: Option<Arc<BlobSidecar<T::EthSpec>>>,
-    ) {
-        let sync_request_id = match app_request_id {
-            AppRequestId::Sync(sync_id) => match sync_id {
-                id @ SyncRequestId::SingleBlob { .. } => id,
-                other => {
-                    crit!(request = ?other, "BlobsByRoot response on incorrect request");
-                    return;
-                }
-            },
-            AppRequestId::Router => {
-                crit!(%peer_id, "All BlobsByRoot requests belong to sync");
-                return;
-            }
-            AppRequestId::Internal => unreachable!("Handled internally"),
-        };
-
-        trace!(
-            %peer_id,
-            "Received BlobsByRoot Response"
-        );
-        self.send_to_sync(SyncMessage::RpcBlob {
-            sync_request_id,
-            peer_id,
-            blob_sidecar,
             seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
         });
     }
