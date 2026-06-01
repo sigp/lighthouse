@@ -612,8 +612,7 @@ mod tests {
         spec.fulu_fork_epoch = None;
         let spec = Arc::new(spec);
         let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        // Blobs are no longer required for availability (they are sourced from the execution
-        // layer), so the blocks are constructed without them rather than erroring.
+        // Blobs are no longer required for availability, so the response succeeds without them.
         let result = info.responses(da_checker, spec).unwrap();
         assert!(result.is_ok())
     }

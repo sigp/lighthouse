@@ -767,14 +767,14 @@ impl<E: EthSpec> Tester<E> {
             ))?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
         let success = blob_success && result.as_ref().is_ok_and(|inner| inner.is_ok());
-
-        // Only assert the positive direction: a block the spec marks valid must import. Blobs are
-        // no longer required for availability (they are sourced from the execution layer, except
-        // for historical sync and archive), so `valid=false` vectors that expect rejection purely
-        // due to unavailable/mismatched blobs now import, and we don't treat that as a failure.
+        // Only assert valid blocks import; blob-DA failure cases are expected to import now.
         if valid && !success {
             return Err(Error::DidntFail(format!(
-                "block with root {block_root} expected valid but failed to import. result: {result:?}"
+                "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
+                block_root,
+                result.is_ok(),
+                valid,
+                result
             )));
         }
 
