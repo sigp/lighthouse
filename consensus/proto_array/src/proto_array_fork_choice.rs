@@ -294,8 +294,7 @@ impl Block {
     }
 
     /// Returns `true` if the given (post-Gloas) `child_bid` commits to *this* block's execution
-    /// payload, i.e. the child is "FULL" relative to this parent. A FULL child requires this
-    /// parent's payload to have been imported before the child can be imported.
+    /// payload, i.e. the child is "FULL" relative to this parent.
     pub fn is_child_full<E: EthSpec>(&self, child_bid: &SignedExecutionPayloadBid<E>) -> bool {
         if let Some(execution_payload_block_hash) = self.execution_payload_block_hash {
             execution_payload_block_hash == child_bid.message.parent_block_hash
