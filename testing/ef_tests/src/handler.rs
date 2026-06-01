@@ -979,6 +979,36 @@ impl<E: EthSpec + TypeName> Handler for ComputeColumnsForCustodyGroupHandler<E> 
     }
 }
 
+pub struct GossipValidationHandler<E> {
+    handler_name: &'static str,
+    _phantom: PhantomData<E>,
+}
+
+impl<E> GossipValidationHandler<E> {
+    pub const fn new(handler_name: &'static str) -> Self {
+        Self {
+            handler_name,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<E: EthSpec + TypeName> Handler for GossipValidationHandler<E> {
+    type Case = cases::GossipValidation<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "networking"
+    }
+
+    fn handler_name(&self) -> String {
+        self.handler_name.into()
+    }
+}
+
 #[derive(Educe)]
 #[educe(Default)]
 pub struct KZGComputeCellsHandler<E>(PhantomData<E>);
