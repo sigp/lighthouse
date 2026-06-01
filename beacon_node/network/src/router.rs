@@ -412,19 +412,6 @@ impl<T: BeaconChainTypes> Router<T> {
                     seen_timestamp,
                 ),
             ),
-            PubsubMessage::BlobSidecar(data) => {
-                let (blob_index, blob_sidecar) = *data;
-                self.handle_beacon_processor_send_result(
-                    self.network_beacon_processor.send_gossip_blob_sidecar(
-                        message_id,
-                        peer_id,
-                        self.network_globals.client(&peer_id),
-                        blob_index,
-                        blob_sidecar,
-                        seen_timestamp,
-                    ),
-                )
-            }
             PubsubMessage::DataColumnSidecar(data) => {
                 let (subnet_id, column_sidecar) = *data;
                 self.handle_beacon_processor_send_result(
@@ -833,24 +820,13 @@ impl<T: BeaconChainTypes> Router<T> {
         envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
     ) {
         let sync_request_id = match app_request_id {
-            AppRequestId::Sync(sync_id) => match sync_id {
-                id @ SyncRequestId::SinglePayloadEnvelope { .. } => id,
-                other => {
-                    crit!(request = ?other, "PayloadEnvelopesByRoot response on incorrect request");
-                    return;
-                }
-            },
-            AppRequestId::Router => {
-                crit!(%peer_id, "All PayloadEnvelopesByRoot requests belong to sync");
+            AppRequestId::Sync(id @ SyncRequestId::SinglePayloadEnvelope { .. }) => id,
+            other => {
+                crit!(request = ?other, %peer_id, "PayloadEnvelopesByRoot response on incorrect request");
                 return;
             }
-            AppRequestId::Internal => unreachable!("Handled internally"),
         };
 
-        trace!(
-            %peer_id,
-            "Received PayloadEnvelopesByRoot Response"
-        );
         self.send_to_sync(SyncMessage::RpcPayloadEnvelope {
             sync_request_id,
             peer_id,

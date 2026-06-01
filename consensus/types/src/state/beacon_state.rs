@@ -1333,6 +1333,7 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn is_valid_proposal_slot(
         &self,
         preferences: &ProposerPreferences,
+        spec: &ChainSpec,
     ) -> Result<bool, BeaconStateError> {
         let current_epoch = self.current_epoch();
         let proposal_epoch = preferences.proposal_slot.epoch(E::slots_per_epoch());
@@ -1341,8 +1342,7 @@ impl<E: EthSpec> BeaconState<E> {
             return Ok(false);
         }
 
-        let next_epoch = current_epoch.saturating_add(1u64);
-        if proposal_epoch > next_epoch {
+        if proposal_epoch > current_epoch.saturating_add(spec.min_seed_lookahead) {
             return Ok(false);
         }
 

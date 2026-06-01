@@ -3,17 +3,15 @@ use crate::{DBColumn, Error, KeyValueStoreOp};
 use parking_lot::RwLock;
 use redb::TableDefinition;
 use std::collections::HashSet;
-use std::{borrow::BorrowMut, marker::PhantomData, path::Path};
+use std::{borrow::BorrowMut, path::Path};
 use strum::IntoEnumIterator;
-use types::EthSpec;
 
 use super::interface::WriteOptions;
 
 pub const DB_FILE_NAME: &str = "database.redb";
 
-pub struct Redb<E: EthSpec> {
+pub struct Redb {
     db: RwLock<redb::Database>,
-    _phantom: PhantomData<E>,
 }
 
 impl From<WriteOptions> for redb::Durability {
@@ -26,19 +24,16 @@ impl From<WriteOptions> for redb::Durability {
     }
 }
 
-impl<E: EthSpec> Redb<E> {
+impl Redb {
     pub fn open(path: &Path) -> Result<Self, Error> {
         let db_file = path.join(DB_FILE_NAME);
         let db = redb::Database::create(db_file)?;
 
         for column in DBColumn::iter() {
-            Redb::<E>::create_table(&db, column.into())?;
+            Self::create_table(&db, column.into())?;
         }
 
-        Ok(Self {
-            db: db.into(),
-            _phantom: PhantomData,
-        })
+        Ok(Self { db: db.into() })
     }
 
     fn create_table(db: &redb::Database, table_name: &str) -> Result<(), Error> {
