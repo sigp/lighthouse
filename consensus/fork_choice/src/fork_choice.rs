@@ -207,6 +207,18 @@ pub enum InvalidPayloadAttestation {
     },
 }
 
+/// The import status of a block's parent, as seen by fork choice.
+#[allow(clippy::large_enum_variant)]
+pub enum ParentImportedStatus {
+    /// The parent block is imported. For a post-Gloas FULL child, its parent's payload has been
+    /// imported too.
+    Imported(ProtoBlock),
+    /// The parent block is not known to fork choice.
+    UnknownBlock,
+    /// The parent block is known, but this (FULL) child's parent payload has not been imported yet.
+    UnimportedPayload,
+}
+
 impl<T> From<String> for Error<T> {
     fn from(e: String) -> Self {
         Error::ProtoArrayStringError(e)
@@ -1535,6 +1547,34 @@ where
     pub fn is_payload_received(&self, block_root: &Hash256) -> bool {
         self.proto_array.is_payload_received(block_root)
             && self.is_finalized_checkpoint_or_descendant(*block_root)
+    }
+
+    /// Returns `true` if the block's parent is imported (and, for a post-Gloas FULL child, its
+    /// parent's payload is imported too). See [`Self::is_parent_imported_status`].
+    pub fn is_parent_imported(&self, block: &SignedBeaconBlock<E>) -> bool {
+        matches!(
+            self.is_parent_imported_status(block),
+            ParentImportedStatus::Imported(_)
+        )
+    }
+
+    /// Returns the import status of the parent of `block`.
+    ///
+    /// A child block can only be imported after its parent has been fully imported. For a post-Gloas
+    /// FULL child (one whose bid commits to the parent's execution payload), "fully imported" also
+    /// requires the parent's payload to have been received by fork choice.
+    pub fn is_parent_imported_status(&self, block: &SignedBeaconBlock<E>) -> ParentImportedStatus {
+        if let Some(proto_block) = self.get_block(&block.parent_root()) {
+            if let Ok(bid) = block.message().body().signed_execution_payload_bid()
+                && proto_block.is_child_full(bid)
+                && !self.is_payload_received(&block.parent_root())
+            {
+                return ParentImportedStatus::UnimportedPayload;
+            }
+            ParentImportedStatus::Imported(proto_block)
+        } else {
+            ParentImportedStatus::UnknownBlock
+        }
     }
 
     /// Called by the proposer to decide whether to build on the full or empty parent.

@@ -17,7 +17,7 @@ use std::{
 };
 use types::{
     AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
-    Slot,
+    SignedExecutionPayloadBid, Slot,
 };
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
@@ -290,6 +290,22 @@ impl Block {
                 // block (its parent) will be the decision block.
                 self.root
             }
+        }
+    }
+
+    /// Returns `true` if the given (post-Gloas) `child_bid` commits to *this* block's execution
+    /// payload, i.e. the child is "FULL" relative to this parent. A FULL child requires this
+    /// parent's payload to have been imported before the child can be imported.
+    pub fn is_child_full<E: EthSpec>(&self, child_bid: &SignedExecutionPayloadBid<E>) -> bool {
+        if let Some(execution_payload_block_hash) = self.execution_payload_block_hash {
+            execution_payload_block_hash == child_bid.message.parent_block_hash
+        } else if let Some(execution_block_hash) = self.execution_status.block_hash() {
+            // Parent is before Gloas, and child is gloas
+            execution_block_hash == child_bid.message.parent_block_hash
+        } else {
+            // TODO(gloas): What to return here? The child is Gloas but parent doesn't have an
+            // execution hash
+            false
         }
     }
 }
