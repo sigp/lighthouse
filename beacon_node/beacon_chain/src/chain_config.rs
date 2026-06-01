@@ -112,11 +112,31 @@ pub struct ChainConfig {
     pub enable_partial_columns: bool,
     /// The node's custody type, determining how many data columns to custody and sample.
     pub node_custody_type: NodeCustodyType,
-    /// Enable the Fast Confirmation Rule (FCR) which feeds `confirmed_root` into the
-    /// EL's `safe_block_hash` for faster block confirmation.
-    pub enable_fast_confirmation: bool,
+    /// Whether the Fast Confirmation Rule (FCR), which feeds `confirmed_root` into the
+    /// EL's `safe_block_hash` for faster block confirmation, is enabled.
+    pub fast_confirmation: FastConfirmationMode,
     /// Disable proposer re-org
     pub disable_proposer_reorg: bool,
+}
+
+/// Whether the Fast Confirmation Rule (FCR) is enabled.
+///
+/// Modeled as an enum rather than a `bool` so the default is explicit and call sites read
+/// clearly, matching how other optional fork-choice features are configured.
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default, Deserialize, Serialize)]
+pub enum FastConfirmationMode {
+    /// FCR runs and overrides the EL `safe_block_hash` with the confirmed root.
+    Enabled,
+    /// FCR is disabled; `safe_block_hash` falls back to the justified block.
+    #[default]
+    Disabled,
+}
+
+impl FastConfirmationMode {
+    /// Returns `true` when FCR should run.
+    pub fn is_enabled(self) -> bool {
+        matches!(self, FastConfirmationMode::Enabled)
+    }
 }
 
 impl Default for ChainConfig {
@@ -156,7 +176,7 @@ impl Default for ChainConfig {
             disable_get_blobs: false,
             enable_partial_columns: false,
             node_custody_type: NodeCustodyType::Fullnode,
-            enable_fast_confirmation: false,
+            fast_confirmation: FastConfirmationMode::Disabled,
             disable_proposer_reorg: false,
         }
     }

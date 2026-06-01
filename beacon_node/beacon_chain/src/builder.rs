@@ -916,7 +916,7 @@ where
         let canonical_head = CanonicalHead::new(
             fork_choice,
             Arc::new(head_snapshot),
-            self.chain_config.enable_fast_confirmation,
+            self.chain_config.fast_confirmation,
             head_payload_status,
             &self.spec,
         );

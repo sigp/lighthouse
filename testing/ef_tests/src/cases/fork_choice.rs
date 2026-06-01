@@ -5,7 +5,7 @@ use ::fork_choice::{
 };
 use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
 use beacon_chain::block_verification_types::LookupBlock;
-use beacon_chain::chain_config::DisallowedReOrgOffsets;
+use beacon_chain::chain_config::{DisallowedReOrgOffsets, FastConfirmationMode};
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::{
@@ -568,7 +568,7 @@ impl<E: EthSpec> Tester<E> {
             .keypairs(vec![])
             .chain_config(ChainConfig {
                 archive: true,
-                enable_fast_confirmation: true,
+                fast_confirmation: FastConfirmationMode::Enabled,
                 ..ChainConfig::default()
             })
             .genesis_state_ephemeral_store(case.anchor_state.clone())

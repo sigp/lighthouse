@@ -1,6 +1,7 @@
 use account_utils::{STDIN_INPUTS_FLAG, read_input_from_user};
 use beacon_chain::chain_config::{
-    DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, DisallowedReOrgOffsets, INVALID_HOLESKY_BLOCK_ROOT,
+    DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, DisallowedReOrgOffsets, FastConfirmationMode,
+    INVALID_HOLESKY_BLOCK_ROOT,
 };
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::graffiti_calculator::GraffitiOrigin;
@@ -215,7 +216,7 @@ pub fn get_config<E: EthSpec>(
     }
 
     if cli_args.get_flag("enable-fast-confirmation") {
-        client_config.chain.enable_fast_confirmation = true;
+        client_config.chain.fast_confirmation = FastConfirmationMode::Enabled;
     }
 
     if let Some(sync_tolerance_epochs) =

@@ -147,7 +147,7 @@ impl TestContext {
         let canonical_head = CanonicalHead::new(
             fork_choice,
             Arc::new(snapshot),
-            false,
+            crate::chain_config::FastConfirmationMode::Disabled,
             PayloadStatus::Pending,
             &spec,
         );

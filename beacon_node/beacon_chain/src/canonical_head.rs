@@ -34,6 +34,7 @@
 //! the head block root. This is unacceptable for fast-responding functions like the networking
 //! stack.
 
+use crate::chain_config::FastConfirmationMode;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::BlockShufflingIds;
 use crate::{
@@ -283,7 +284,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     pub fn new(
         fork_choice: BeaconForkChoice<T>,
         snapshot: Arc<BeaconSnapshot<T::EthSpec>>,
-        enable_fast_confirmation: bool,
+        fast_confirmation: FastConfirmationMode,
         head_payload_status: proto_array::PayloadStatus,
         spec: &ChainSpec,
     ) -> Self {
@@ -299,7 +300,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             finalized_hash: forkchoice_update_params.finalized_hash,
         };
 
-        let fcr = if enable_fast_confirmation {
+        let fcr = if fast_confirmation.is_enabled() {
             Some(Mutex::new(FastConfirmationRule::new(
                 fork_choice_view.finalized_checkpoint,
                 spec.confirmation_byzantine_threshold,
@@ -815,7 +816,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let fcr = fcr_mutex.lock();
             let confirmed_hash = fork_choice_read_lock
                 .get_block(&fcr.confirmed_root)
-                .and_then(|b| b.execution_status.block_hash());
+                .and_then(|b| b.justified_finalized_payload_hash());
             if let Some(hash) = confirmed_hash {
                 new_forkchoice_update_parameters.justified_hash = Some(hash);
             } else {
