@@ -3148,6 +3148,16 @@ async fn weak_subjectivity_sync_test(
             .store
             .put_payload_envelope(&wss_block_root, &envelope)
             .unwrap();
+
+        // Mark the checkpoint block's payload as received in fork choice. The anchor block is a
+        // trusted, finalized block whose payload we already have, but it is loaded via
+        // `from_anchor` and so is never marked payload-received. Without this, the first forward
+        // block (a FULL child of the anchor) would be rejected with `ParentUnknown`.
+        beacon_chain
+            .canonical_head
+            .fork_choice_write_lock()
+            .on_valid_payload_envelope_received(wss_block_root)
+            .unwrap();
     }
 
     // Apply blocks forward to reach head.

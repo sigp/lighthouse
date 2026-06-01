@@ -238,6 +238,56 @@ fn update_fork_choice_with_envelopes(
     }
 }
 
+/// Import a chain segment, registering each block's payload envelope with fork choice immediately
+/// after the block is imported.
+///
+/// Post-Gloas, a FULL child block can only be imported once its parent's payload envelope has been
+/// imported into fork choice. `process_chain_segment` imports blocks only (in production, payload
+/// envelopes are fetched and imported separately), so a multi-block segment of consecutive FULL
+/// Gloas blocks cannot be imported in a single batch. This helper mirrors production sync ordering:
+/// it imports each block and then registers its payload envelope before importing the next block.
+///
+/// Pre-Gloas, where blocks carry no payload envelope, the whole segment is imported in a single
+/// batch so the batch import path is still exercised.
+///
+/// `chain_segment` and `blocks` must be aligned by index.
+async fn import_chain_segment_with_envelopes(
+    chain_segment: &[BeaconSnapshot<E>],
+    blocks: &[RangeSyncBlock<E>],
+    harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+) -> Result<(), BlockError> {
+    let has_envelopes = chain_segment
+        .iter()
+        .any(|snapshot| snapshot.execution_envelope.is_some());
+
+    if !has_envelopes {
+        return harness
+            .chain
+            .process_chain_segment(blocks.to_vec(), NotifyExecutionLayer::Yes)
+            .await
+            .into_block_error();
+    }
+
+    for (snapshot, block) in chain_segment.iter().zip(blocks.iter()) {
+        harness
+            .chain
+            .process_chain_segment(vec![block.clone()], NotifyExecutionLayer::Yes)
+            .await
+            .into_block_error()?;
+
+        if snapshot.execution_envelope.is_some() {
+            harness
+                .chain
+                .canonical_head
+                .fork_choice_write_lock()
+                .on_valid_payload_envelope_received(snapshot.beacon_block_root)
+                .map_err(|e| BlockError::InternalError(format!("{e:?}")))?;
+        }
+    }
+
+    Ok(())
+}
+
 fn junk_signature() -> Signature {
     let kp = generate_deterministic_keypair(VALIDATOR_COUNT);
     let message = Hash256::from_slice(&[42; 32]);
@@ -380,14 +430,10 @@ async fn chain_segment_full_segment() {
         .into_block_error()
         .expect("should import empty chain segment");
 
-    harness
-        .chain
-        .process_chain_segment(blocks.clone(), NotifyExecutionLayer::Yes)
+    import_chain_segment_with_envelopes(&chain_segment, &blocks, &harness)
         .await
-        .into_block_error()
         .expect("should import chain segment");
 
-    update_fork_choice_with_envelopes(&chain_segment, &harness);
     harness.chain.recompute_head_at_current_slot().await;
 
     assert_eq!(
@@ -415,16 +461,15 @@ async fn chain_segment_varying_chunk_size() {
             .slot_clock
             .set_slot(blocks.last().unwrap().slot().as_u64());
 
-        for chunk in blocks.clone().chunks(*chunk_size) {
-            harness
-                .chain
-                .process_chain_segment(chunk.to_vec(), NotifyExecutionLayer::Yes)
+        for (segment_chunk, block_chunk) in chain_segment
+            .chunks(*chunk_size)
+            .zip(blocks.chunks(*chunk_size))
+        {
+            import_chain_segment_with_envelopes(segment_chunk, block_chunk, &harness)
                 .await
-                .into_block_error()
                 .unwrap_or_else(|_| panic!("should import chain segment of len {}", chunk_size));
         }
 
-        update_fork_choice_with_envelopes(&chain_segment, &harness);
         harness.chain.recompute_head_at_current_slot().await;
 
         assert_eq!(
@@ -585,18 +630,45 @@ async fn assert_invalid_signature(
         })
         .collect();
 
-    // Ensure the block will be rejected if imported in a chain segment.
+    // Import the valid ancestor blocks first, registering each block's payload envelope, so the
+    // invalid block's parent payload is available in fork choice. Post-Gloas this is required for
+    // the segment import below to reach the invalid signature instead of failing earlier with
+    // `ParentUnknown`. These already-imported ancestors are filtered out of the segment below.
+    let valid_ancestor_blocks: Vec<RangeSyncBlock<E>> = chain_segment
+        .iter()
+        .take(block_index)
+        .zip(chain_segment_blobs.iter())
+        .map(|(snapshot, blobs)| {
+            build_range_sync_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
+        })
+        .collect();
+    // `Box::pin` to keep this future off the stack: `assert_invalid_signature` otherwise exceeds
+    // Clippy's `large_stack_frames` threshold.
+    Box::pin(import_chain_segment_with_envelopes(
+        &chain_segment[..block_index],
+        &valid_ancestor_blocks,
+        harness,
+    ))
+    .await
+    .expect("should import valid ancestor blocks");
+
+    // Ensure the block will be rejected if imported in a chain segment. The already-imported
+    // ancestors are dropped from the segment: re-submitting them would re-process blocks that
+    // finalization may have pruned from fork choice, yielding a spurious `ParentUnknown`. The
+    // suffix begins at the invalid block, whose parent (the last ancestor) is imported above.
+    let segment_res = harness
+        .chain
+        .process_chain_segment(blocks[block_index..].to_vec(), NotifyExecutionLayer::Yes)
+        .await
+        .into_block_error();
     assert!(
         matches!(
-            harness
-                .chain
-                .process_chain_segment(blocks, NotifyExecutionLayer::Yes)
-                .await
-                .into_block_error(),
+            segment_res,
             Err(BlockError::InvalidSignature(InvalidSignature::Unknown))
         ),
-        "should not import chain segment with an invalid {} signature",
-        item
+        "should not import chain segment with an invalid {} signature, got: {:?}",
+        item,
+        segment_res
     );
 
     // Call fork choice to update cached head (including finalization).
@@ -693,8 +765,9 @@ async fn invalid_signature_gossip_block() {
             block.clone(),
             junk_signature(),
         ));
-        // Import all the ancestors before the `block_index` block.
-        let ancestor_blocks = chain_segment
+        // Import all the ancestors before the `block_index` block, registering each block's
+        // payload envelope so post-Gloas FULL children can be imported.
+        let ancestor_blocks: Vec<RangeSyncBlock<E>> = chain_segment
             .iter()
             .take(block_index)
             .zip(chain_segment_blobs.iter())
@@ -702,12 +775,13 @@ async fn invalid_signature_gossip_block() {
                 build_range_sync_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
             })
             .collect();
-        harness
-            .chain
-            .process_chain_segment(ancestor_blocks, NotifyExecutionLayer::Yes)
-            .await
-            .into_block_error()
-            .expect("should import all blocks prior to the one being tested");
+        import_chain_segment_with_envelopes(
+            &chain_segment[..block_index],
+            &ancestor_blocks,
+            &harness,
+        )
+        .await
+        .expect("should import all blocks prior to the one being tested");
         let signed_block = SignedBeaconBlock::from_block(block, junk_signature());
         let lookup_block = LookupBlock::new(Arc::new(signed_block));
         let process_res = harness
@@ -755,10 +829,30 @@ async fn invalid_signature_block_proposal() {
                 build_range_sync_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
             })
             .collect::<Vec<_>>();
-        // Ensure the block will be rejected if imported in a chain segment.
+        // Import the valid ancestor blocks first (registering payload envelopes) so the segment
+        // import below reaches the invalid signature instead of failing earlier with
+        // `ParentUnknown`. The already-imported ancestors are filtered out of the segment.
+        let valid_ancestor_blocks: Vec<RangeSyncBlock<E>> = chain_segment
+            .iter()
+            .take(block_index)
+            .zip(chain_segment_blobs.iter())
+            .map(|(snapshot, blobs)| {
+                build_range_sync_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
+            })
+            .collect();
+        import_chain_segment_with_envelopes(
+            &chain_segment[..block_index],
+            &valid_ancestor_blocks,
+            &harness,
+        )
+        .await
+        .expect("should import valid ancestor blocks");
+        // Ensure the block will be rejected if imported in a chain segment. The already-imported
+        // ancestors are dropped from the segment (see `assert_invalid_signature`); the suffix
+        // begins at the invalid block, whose parent is imported above.
         let process_res = harness
             .chain
-            .process_chain_segment(blocks, NotifyExecutionLayer::Yes)
+            .process_chain_segment(blocks[block_index..].to_vec(), NotifyExecutionLayer::Yes)
             .await
             .into_block_error();
         assert!(

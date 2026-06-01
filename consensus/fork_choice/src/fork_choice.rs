@@ -1563,9 +1563,18 @@ where
     /// A child block can only be imported after its parent has been fully imported. For a post-Gloas
     /// FULL child (one whose bid commits to the parent's execution payload), "fully imported" also
     /// requires the parent's payload to have been received by fork choice.
+    ///
+    /// This requirement only applies when the parent is itself a post-Gloas block, whose payload is
+    /// imported separately from the block. A pre-Gloas parent's execution payload is embedded in the
+    /// block and is therefore always present, so a Gloas child at the fork-transition boundary must
+    /// not be gated on it.
     pub fn is_parent_imported_status(&self, block: &SignedBeaconBlock<E>) -> ParentImportedStatus {
         if let Some(proto_block) = self.get_block(&block.parent_root()) {
-            if let Ok(bid) = block.message().body().signed_execution_payload_bid()
+            // `execution_payload_block_hash` is only set for post-Gloas proto nodes; a pre-Gloas
+            // parent (`None`) has no separately-imported payload to wait for.
+            let parent_is_post_gloas = proto_block.execution_payload_block_hash.is_some();
+            if parent_is_post_gloas
+                && let Ok(bid) = block.message().body().signed_execution_payload_bid()
                 && proto_block.is_child_full(bid)
                 && !self.is_payload_received(&block.parent_root())
             {
