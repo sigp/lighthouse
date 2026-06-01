@@ -50,9 +50,11 @@ impl<E: EthSpec> ActiveRequestItems for BlobsByRootRequestItems<E> {
         if self.request.block_root != block_root {
             return Err(LookupVerifyError::UnrequestedBlockRoot(block_root));
         }
+
         if !blob.verify_blob_sidecar_inclusion_proof() {
             return Err(LookupVerifyError::InvalidInclusionProof);
         }
+
         if !self.request.indices.contains(&blob.index) {
             return Err(LookupVerifyError::UnrequestedIndex(blob.index));
         }

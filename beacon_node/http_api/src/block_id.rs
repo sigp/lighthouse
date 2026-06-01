@@ -455,20 +455,18 @@ impl BlockId {
                 warp_utils::reject::custom_not_found(format!("no blobs stored for block {root}"))
             })?;
 
-        let blob_sidecar_list_filtered = match indices {
-            Some(vec) => {
-                let list: Vec<_> = vec
-                    .into_iter()
-                    .flat_map(|index| blob_sidecar_list.get(index as usize).cloned())
-                    .collect();
+        let blob_sidecar_list: Vec<_> = blob_sidecar_list.into_iter().collect();
 
-                BlobSidecarList::new(list, max_blobs_per_block)
-                    .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))?
-            }
+        let blob_sidecar_list = match indices {
+            Some(indices) => indices
+                .into_iter()
+                .filter_map(|i| blob_sidecar_list.get(i as usize).cloned())
+                .collect(),
             None => blob_sidecar_list,
         };
 
-        Ok(blob_sidecar_list_filtered)
+        BlobSidecarList::new(blob_sidecar_list, max_blobs_per_block)
+            .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))
     }
 
     fn get_blobs_from_data_columns<T: BeaconChainTypes>(

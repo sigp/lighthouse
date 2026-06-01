@@ -144,9 +144,6 @@ pub enum SyncMessage<E: EthSpec> {
     /// A block with an unknown parent has been received.
     UnknownParentBlock(PeerId, Arc<SignedBeaconBlock<E>>, Hash256),
 
-    /// A blob with an unknown parent has been received.
-    UnknownParentBlob(PeerId, Arc<BlobSidecar<E>>),
-
     /// A data column with an unknown parent has been received.
     UnknownParentDataColumn(PeerId, Arc<DataColumnSidecar<E>>),
 
@@ -884,24 +881,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block_slot,
                     BlockComponent::Block(DownloadResult {
                         value: block.block_cloned(),
-                        block_root,
-                        seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
-                        peer_group: PeerGroup::from_single(peer_id),
-                    }),
-                );
-            }
-            SyncMessage::UnknownParentBlob(peer_id, blob) => {
-                let blob_slot = blob.slot();
-                let block_root = blob.block_root();
-                let parent_root = blob.block_parent_root();
-                debug!(%block_root, %parent_root, "Received unknown parent blob message");
-                self.handle_unknown_parent(
-                    peer_id,
-                    block_root,
-                    parent_root,
-                    blob_slot,
-                    BlockComponent::Blob(DownloadResult {
-                        value: parent_root,
                         block_root,
                         seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
                         peer_group: PeerGroup::from_single(peer_id),
