@@ -210,12 +210,12 @@ pub enum InvalidPayloadAttestation {
 /// The import status of a block's parent, as seen by fork choice.
 #[allow(clippy::large_enum_variant)]
 pub enum ParentImportedStatus {
-    /// The parent block is imported. For a post-Gloas FULL child, its parent's payload has been
-    /// imported too.
+    /// The parent block is imported and the child's bid commits to a parent payload known to fork
+    /// choice.
     Imported(ProtoBlock),
     /// The parent block is not known to fork choice.
     UnknownBlock,
-    /// The parent block is known, but this (FULL) child's parent payload has not been imported yet.
+    /// The parent block is known, but the child's bid commits to a payload not known to fork choice.
     UnimportedPayload,
 }
 
@@ -1560,9 +1560,9 @@ where
 
     /// Returns the import status of the parent of `block`.
     ///
-    /// A child block can only be imported after its parent has been fully imported. For a post-Gloas
-    /// FULL child (one whose bid commits to the parent's execution payload), "fully imported" also
-    /// requires the parent's payload to have been received by fork choice.
+    /// A child block can only be imported after its parent has been fully imported. Post-Gloas
+    /// additionally requires that the parent payload committed to by the child's bid has been
+    /// received by fork choice.
     ///
     /// This requirement only applies when the parent is itself a post-Gloas block, whose payload is
     /// imported separately from the block. A pre-Gloas parent's execution payload is embedded in the
@@ -1575,7 +1575,7 @@ where
             let parent_is_post_gloas = proto_block.execution_payload_block_hash.is_some();
             if parent_is_post_gloas
                 && let Ok(bid) = block.message().body().signed_execution_payload_bid()
-                && proto_block.is_child_full(bid)
+                && proto_block.is_parent_full(bid)
                 && !self.is_payload_received(&block.parent_root())
             {
                 return ParentImportedStatus::UnimportedPayload;
