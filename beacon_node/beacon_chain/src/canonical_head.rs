@@ -44,7 +44,9 @@ use crate::{
     metrics,
     validator_monitor::get_slot_delay_ms,
 };
-use eth2::types::{EventKind, SseChainReorg, SseFinalizedCheckpoint, SseLateHead};
+use eth2::types::{
+    EventKind, SseChainReorg, SseFastConfirmation, SseFinalizedCheckpoint, SseLateHead,
+};
 use fast_confirmation::{FastConfirmationRule, metrics as fcr_metrics};
 use fork_choice::{
     ExecutionStatus, ForkChoiceStore, ForkChoiceView, ForkchoiceUpdateParameters, PayloadStatus,
@@ -741,7 +743,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let label: &'static str = (&e).into();
                 metrics::inc_counter_vec(&fcr_metrics::FCR_ERRORS, &[label]);
             } else {
-                if fcr.confirmed_root != old_confirmed {
+                let confirmed_root_changed = fcr.confirmed_root != old_confirmed;
+                if confirmed_root_changed {
                     metrics::inc_counter(&fcr_metrics::FCR_CONFIRMED_ROOT_CHANGES);
                 }
                 if let Some(confirmed_slot) = proto_array
@@ -758,6 +761,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .as_u64()
                         .saturating_sub(confirmed_slot.as_u64());
                     metrics::set_gauge(&fcr_metrics::FCR_CONFIRMATION_DELAY_SLOTS, delay as i64);
+
+                    // Emit a single `fast_confirmation` event for the most recent confirmed
+                    // block. A single FCR pass can confirm several blocks at once, but per
+                    // beacon-APIs#611 only the root and slot of the latest confirmed block
+                    // are sent, to avoid spamming the event stream.
+                    if confirmed_root_changed
+                        && let Some(event_handler) = self.event_handler.as_ref()
+                        && event_handler.has_fast_confirmation_subscribers()
+                    {
+                        event_handler.register(EventKind::FastConfirmation(SseFastConfirmation {
+                            block: fcr.confirmed_root,
+                            slot: confirmed_slot,
+                        }));
+                    }
                 }
                 let balance_epoch = fcr.current_balance_source.checkpoint.epoch;
                 let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
