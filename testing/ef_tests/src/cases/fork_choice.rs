@@ -769,9 +769,9 @@ impl<E: EthSpec> Tester<E> {
         let block_imported = result.as_ref().is_ok_and(|inner| inner.is_ok());
         let success = blob_success && block_imported;
 
-        // Lighthouse no longer enforces blob data-availability at the consensus layer for
-        // pre-PeerDAS (Deneb/Electra) blocks; blobs are sourced from the execution layer. Some
-        // spec `on_block` vectors expect a block to be *invalid* purely because its blob sidecars
+        // Lighthouse no longer enforces blob data-availability as blobs are deprecated except for
+        // historical sync and archive.
+        // Some spec `on_block` vectors expect a block to be invalid purely because its blob sidecars
         // are unavailable or have a mismatched length (e.g. `invalid_data_unavailable`,
         // `invalid_wrong_blobs_length`, `invalid_wrong_proofs_length`). Those vectors still supply
         // individually-valid blobs (KZG verification of the provided blobs passes), so Lighthouse
