@@ -231,8 +231,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                         CustodyRequestState::new(self.block_root),
                     );
                 } else {
-                    self.component_requests =
-                        ComponentRequests::NotNeeded("blobs not lookup-synced");
+                    self.component_requests = ComponentRequests::NotNeeded("outside da window");
                 }
             } else {
                 // Wait to download the block before downloading blobs. Then we can be sure that the
