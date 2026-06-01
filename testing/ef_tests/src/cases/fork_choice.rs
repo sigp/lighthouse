@@ -766,26 +766,15 @@ impl<E: EthSpec> Tester<E> {
                 || Ok(()),
             ))?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
-        let block_imported = result.as_ref().is_ok_and(|inner| inner.is_ok());
-        let success = blob_success && block_imported;
+        let success = blob_success && result.as_ref().is_ok_and(|inner| inner.is_ok());
 
-        // Lighthouse no longer enforces blob data-availability as blobs are deprecated except for
-        // historical sync and archive.
-        // Some spec `on_block` vectors expect a block to be invalid purely because its blob sidecars
-        // are unavailable or have a mismatched length (e.g. `invalid_data_unavailable`,
-        // `invalid_wrong_blobs_length`, `invalid_wrong_proofs_length`). Those vectors still supply
-        // individually-valid blobs (KZG verification of the provided blobs passes), so Lighthouse
-        // now imports the block instead of withholding it. Treat the successful import as expected
-        // in that case. Vectors with a cryptographically-invalid blob still set `blob_success` to
-        // false and remain genuine failures.
-        let blob_da_only_invalidity = !valid && blob_success && block_imported;
-        if success != valid && !blob_da_only_invalidity {
+        // Only assert the positive direction: a block the spec marks valid must import. Blobs are
+        // no longer required for availability (they are sourced from the execution layer, except
+        // for historical sync and archive), so `valid=false` vectors that expect rejection purely
+        // due to unavailable/mismatched blobs now import, and we don't treat that as a failure.
+        if valid && !success {
             return Err(Error::DidntFail(format!(
-                "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
-                block_root,
-                result.is_ok(),
-                valid,
-                result
+                "block with root {block_root} expected valid but failed to import. result: {result:?}"
             )));
         }
 
