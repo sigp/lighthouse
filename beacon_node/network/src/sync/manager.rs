@@ -897,12 +897,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block_root,
                     parent_root,
                     slot,
-                    BlockComponent::Sidecar(DownloadResult {
-                        value: parent_root,
-                        block_root,
-                        seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
-                        peer_group: PeerGroup::from_single(peer_id),
-                    }),
+                    BlockComponent::Sidecar { parent_root },
                 );
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_root) => {

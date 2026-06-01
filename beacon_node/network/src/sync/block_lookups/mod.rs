@@ -80,20 +80,20 @@ const MAX_LOOKUPS: usize = 200;
 /// The value for `Sidecar` is the parent root of the sidecar.
 pub enum BlockComponent<E: EthSpec> {
     Block(DownloadResult<Arc<SignedBeaconBlock<E>>>),
-    Sidecar(DownloadResult<Hash256>),
+    Sidecar { parent_root: Hash256 },
 }
 
 impl<E: EthSpec> BlockComponent<E> {
     fn parent_root(&self) -> Hash256 {
         match self {
             BlockComponent::Block(block) => block.value.parent_root(),
-            BlockComponent::Sidecar(parent_root) => parent_root.value,
+            BlockComponent::Sidecar { parent_root } => *parent_root,
         }
     }
     fn get_type(&self) -> &'static str {
         match self {
             BlockComponent::Block(_) => "block",
-            BlockComponent::Sidecar(_) => "sidecar",
+            BlockComponent::Sidecar { .. } => "sidecar",
         }
     }
 }
