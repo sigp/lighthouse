@@ -1467,7 +1467,7 @@ impl TestRig {
             DataColumnSidecar::Fulu(column) => column.block_parent_root(),
             DataColumnSidecar::Gloas(_) => panic!("Gloas data column not supported in this test"),
         };
-        self.send_sync_message(SyncMessage::UnknownParentHeader {
+        self.send_sync_message(SyncMessage::UnknownParentSidecarHeader {
             peer_id,
             block_root,
             parent_root,

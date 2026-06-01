@@ -146,7 +146,7 @@ pub enum SyncMessage<E: EthSpec> {
 
     /// A sidecar (data column) with an unknown parent has been received. Carries only the header
     /// info needed to trigger a parent lookup, decoupled from the concrete sidecar type.
-    UnknownParentHeader {
+    UnknownParentSidecarHeader {
         peer_id: PeerId,
         block_root: Hash256,
         parent_root: Hash256,
@@ -885,7 +885,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }),
                 );
             }
-            SyncMessage::UnknownParentHeader {
+            SyncMessage::UnknownParentSidecarHeader {
                 peer_id,
                 block_root,
                 parent_root,
@@ -897,7 +897,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block_root,
                     parent_root,
                     slot,
-                    BlockComponent::DataColumn(DownloadResult {
+                    BlockComponent::Sidecar(DownloadResult {
                         value: parent_root,
                         block_root,
                         seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),

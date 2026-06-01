@@ -726,7 +726,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             %parent_root,
                             "Unknown parent hash for column"
                         );
-                        self.send_sync_message(SyncMessage::UnknownParentHeader {
+                        self.send_sync_message(SyncMessage::UnknownParentSidecarHeader {
                             peer_id,
                             block_root,
                             parent_root,
@@ -1049,7 +1049,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         %parent_root,
                         "Unknown parent hash for partial column"
                     );
-                    self.send_sync_message(SyncMessage::UnknownParentHeader {
+                    self.send_sync_message(SyncMessage::UnknownParentSidecarHeader {
                         peer_id,
                         block_root,
                         parent_root,
