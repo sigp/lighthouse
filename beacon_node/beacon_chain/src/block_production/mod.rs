@@ -177,14 +177,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let re_org_head_threshold = self.config.re_org_head_threshold?;
         let re_org_parent_threshold = self.config.re_org_parent_threshold?;
 
-        if self.spec.proposer_score_boost.is_none() {
-            warn!(
-                reason = "this network does not have proposer boost enabled",
-                "Ignoring proposer re-org configuration"
-            );
-            return None;
-        }
-
         let slot_delay = self
             .slot_clock
             .seconds_from_current_slot_start()
