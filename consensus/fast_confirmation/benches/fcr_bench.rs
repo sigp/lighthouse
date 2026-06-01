@@ -160,7 +160,7 @@ fn build_chain(num_validators: usize) -> BenchData {
         assignments[val_idx * 3 + 1] = slot;
         assignments[val_idx * 3 + 2] = slot;
     }
-    fcr.set_head_slot_assignments(assignments);
+    fcr.test_set_head_slot_assignments(assignments);
 
     BenchData {
         proto_array,

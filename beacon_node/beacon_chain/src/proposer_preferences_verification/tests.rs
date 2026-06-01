@@ -80,9 +80,9 @@ impl TestContext {
         let canonical_head = CanonicalHead::new(
             fork_choice,
             Arc::new(snapshot),
-            &spec,
             false,
             PayloadStatus::Pending,
+            &spec,
         );
 
         let slot_clock = TestingSlotClock::new(

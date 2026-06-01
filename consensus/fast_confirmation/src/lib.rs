@@ -177,13 +177,13 @@ impl FastConfirmationRule {
         self.spec_test_mode = enabled;
     }
 
-    /// Directly set committee slot assignments (for benchmarks that lack a real BeaconState).
+    /// Directly set committee slot assignments. Intended for synthetic-data benchmarks
+    /// that lack a real `BeaconState`; not used in production.
     ///
     /// `assignments` must be in the canonical 3-column layout
     /// (`validator_count * 3`). Use `UNSET_SLOT` for columns with no assignment.
-    #[cfg(feature = "bench-helpers")]
-    pub fn set_head_slot_assignments(&mut self, assignments: Vec<Slot>) {
-        self.head_assignments.set_from(assignments);
+    pub fn test_set_head_slot_assignments(&mut self, assignments: Vec<Slot>) {
+        self.head_assignments.test_set_from(assignments);
     }
 
     fn rebuild_head_balance_source<E: EthSpec>(

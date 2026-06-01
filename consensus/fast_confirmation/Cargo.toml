@@ -3,10 +3,6 @@ name = "fast_confirmation"
 version = "0.1.0"
 edition = { workspace = true }
 
-[features]
-# Exposes synthetic-data setters used by the FCR benchmark; not for production use.
-bench-helpers = []
-
 [dependencies]
 metrics = { workspace = true }
 proto_array = { workspace = true }
@@ -22,4 +18,3 @@ state_processing = { workspace = true }
 [[bench]]
 name = "fcr_bench"
 harness = false
-required-features = ["bench-helpers"]
