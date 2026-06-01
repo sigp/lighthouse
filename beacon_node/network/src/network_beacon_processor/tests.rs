@@ -41,15 +41,12 @@ use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use types::data::BlobIdentifier;
 use types::{
-    AttesterSlashing, BlobSidecar, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Epoch,
-    EthSpec, ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, Hash256,
-    MainnetEthSpec, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedExecutionPayloadEnvelope, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
-};
-use types::{
-    BlobSidecarList,
-    data::{BlobIdentifier, FixedBlobSidecarList},
+    AttesterSlashing, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Epoch, EthSpec,
+    ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, Hash256, MainnetEthSpec,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+    SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
 };
 
 type E = MainnetEthSpec;
@@ -69,7 +66,6 @@ const STANDARD_TIMEOUT: Duration = Duration::from_secs(10);
 struct TestRig {
     chain: Arc<BeaconChain<T>>,
     next_block: Arc<SignedBeaconBlock<E>>,
-    next_blobs: Option<BlobSidecarList<E>>,
     next_data_columns: Option<DataColumnSidecarList<E>>,
     attestations: Vec<(SingleAttestation, SubnetId)>,
     next_block_attestations: Vec<(SingleAttestation, SubnetId)>,
@@ -341,7 +337,7 @@ impl TestRig {
 
         assert!(beacon_processor.is_ok());
         let block = next_block_tuple.0;
-        let (blob_sidecars, data_columns) = if let Some((kzg_proofs, blobs)) = next_block_tuple.1 {
+        let data_columns = if let Some((kzg_proofs, blobs)) = next_block_tuple.1 {
             if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
                 let kzg = get_kzg(&chain.spec);
                 let epoch = block.slot().epoch(E::slots_per_epoch());
@@ -358,20 +354,19 @@ impl TestRig {
                 .filter(|c| sampling_indices.contains(c.index()))
                 .collect::<Vec<_>>();
 
-                (None, Some(custody_columns))
+                Some(custody_columns)
             } else {
-                let blob_sidecars =
-                    BlobSidecar::build_sidecars(blobs, &block, kzg_proofs, &chain.spec).unwrap();
-                (Some(blob_sidecars), None)
+                // Blobs are no longer required for availability (sourced from the EL), so the test
+                // rig does not build blob sidecars for pre-PeerDAS blocks.
+                None
             }
         } else {
-            (None, None)
+            None
         };
 
         Self {
             chain,
             next_block: block,
-            next_blobs: blob_sidecars,
             next_data_columns: data_columns,
             attestations,
             next_block_attestations,
@@ -457,23 +452,6 @@ impl TestRig {
                     Duration::default(),
                     BlockProcessType::SingleCustodyColumn(1),
                 )
-                .unwrap();
-        }
-    }
-
-    /// Make the next block's blobs available in the data availability checker, simulating the
-    /// execution layer supplying them. Blobs are no longer fetched via lookup sync, so for
-    /// deneb/electra blocks (which are not peerDAS) this is how their data becomes available.
-    pub async fn make_next_block_blobs_available(&self) {
-        if let Some(blobs) = self.next_blobs.clone() {
-            let blobs = FixedBlobSidecarList::new(blobs.into_iter().map(Some).collect::<Vec<_>>());
-            self.chain
-                .process_rpc_blobs(
-                    self.next_block.slot(),
-                    self.next_block.canonical_root(),
-                    blobs,
-                )
-                .await
                 .unwrap();
         }
     }
@@ -1083,10 +1061,6 @@ async fn import_gossip_block_acceptably_early() {
         "chain should be at the correct slot"
     );
 
-    // Blobs are sourced from the EL rather than lookup/gossip, so make them available to allow the
-    // deneb/electra block to import. No-op for peerDAS blocks, which use data columns.
-    rig.make_next_block_blobs_available().await;
-
     rig.enqueue_gossip_block();
 
     rig.assert_event_journal_completes(&[WorkType::GossipBlock])
@@ -1221,10 +1195,6 @@ async fn import_gossip_block_at_current_slot() {
         "chain should be at the correct slot"
     );
 
-    // Blobs are sourced from the EL rather than lookup/gossip, so make them available to allow the
-    // deneb/electra block to import. No-op for peerDAS blocks, which use data columns.
-    rig.make_next_block_blobs_available().await;
-
     rig.enqueue_gossip_block();
 
     rig.assert_event_journal_completes(&[WorkType::GossipBlock])
@@ -1291,7 +1261,6 @@ async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod
     // Make the block's blobs available up front, simulating the execution layer supplying them.
     // Blobs are no longer fetched via lookup sync, so deneb/electra blocks become available this
     // way; data columns are still lookup-synced post-fulu.
-    rig.make_next_block_blobs_available().await;
 
     // Send the block and ensure that the attestation is received back and imported.
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
@@ -1373,7 +1342,6 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
     // Make the block's blobs available up front, simulating the execution layer supplying them.
     // Blobs are no longer fetched via lookup sync, so deneb/electra blocks become available this
     // way; data columns are still lookup-synced post-fulu.
-    rig.make_next_block_blobs_available().await;
 
     // Send the block and ensure that the attestation is received back and imported.
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
@@ -1580,7 +1548,6 @@ async fn test_rpc_block_reprocessing() {
     // Make the block's blobs available up front, simulating the execution layer supplying them.
     // Blobs are no longer fetched via lookup sync, so deneb/electra blocks become available this
     // way; data columns are still lookup-synced post-fulu.
-    rig.make_next_block_blobs_available().await;
 
     // Insert the next block into the duplicate cache manually
     let handle = rig.duplicate_cache.check_and_insert(next_block_root);

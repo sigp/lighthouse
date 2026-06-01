@@ -895,12 +895,10 @@ impl<E: EthSpec> AvailableBlock<E> {
         match &block_data {
             AvailableBlockData::NoData => {
                 // For Gloas, DA is checked for the PayloadEnvelope, not for the block.
-                if !block.fork_name_unchecked().gloas_enabled() {
-                    if columns_required {
-                        return Err(AvailabilityCheckError::MissingCustodyColumns);
-                    } else if blobs_required {
-                        return Err(AvailabilityCheckError::MissingBlobs);
-                    }
+                // Blobs are no longer required for availability (Deneb/Electra blobs are sourced
+                // from the execution layer); only custody columns gate block availability.
+                if !block.fork_name_unchecked().gloas_enabled() && columns_required {
+                    return Err(AvailabilityCheckError::MissingCustodyColumns);
                 }
             }
             AvailableBlockData::Blobs(blobs) => {

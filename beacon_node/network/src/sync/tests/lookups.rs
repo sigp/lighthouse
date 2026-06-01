@@ -422,12 +422,6 @@ impl TestRig {
                                 result,
                             });
                         } else {
-                            // Blobs are no longer fetched via lookup sync; they are sourced from
-                            // the EL. Simulate that here by making the block's blobs available in
-                            // the data availability checker before processing the block, so that
-                            // deneb/electra block lookups can complete on block import. No-op for
-                            // peerDAS blocks (which lookup-sync columns instead).
-                            self.make_block_blobs_available(beacon_block_root).await;
                             process_fn.await
                         }
                     }
@@ -1115,32 +1109,6 @@ impl TestRig {
         self.harness.chain.recompute_head_at_current_slot().await;
     }
 
-    /// Make a block's blobs available in the data availability checker, simulating the execution
-    /// layer supplying them. Blobs are no longer fetched via lookup sync, so for deneb/electra
-    /// blocks (which are not peerDAS) this is how their data becomes available and lets the block
-    /// import complete. No-op for blocks without blobs (e.g. peerDAS blocks, which use columns).
-    async fn make_block_blobs_available(&self, block_root: Hash256) {
-        let Some(lookup_block) = self.network_blocks_by_root.get(&block_root) else {
-            return;
-        };
-        let Some(blobs) = lookup_block.block_data().blobs() else {
-            return;
-        };
-        if blobs.is_empty() {
-            return;
-        }
-        let slot = lookup_block.slot();
-        let blobs =
-            types::data::FixedBlobSidecarList::new(blobs.into_iter().map(Some).collect::<Vec<_>>());
-        // Ignore the result: a `DuplicateFullyImported` error simply means the block's data was
-        // already available, which is fine for the purpose of unblocking the lookup.
-        let _ = self
-            .harness
-            .chain
-            .process_rpc_blobs(slot, block_root, blobs)
-            .await;
-    }
-
     fn trigger_with_last_unknown_block_parent(&mut self) {
         let peer_id = self.new_connected_supernode_peer();
         let last_block = self.get_last_block().block_cloned();
@@ -1652,20 +1620,6 @@ impl TestRig {
             .expect("Error processing block")
     }
 
-    async fn insert_block_to_da_chain_and_assert_missing_componens(
-        &mut self,
-        block: Arc<SignedBeaconBlock<E>>,
-    ) {
-        match self.import_block_to_da_checker(block).await {
-            AvailabilityProcessingStatus::Imported(_) => {
-                panic!("block removed from da_checker, available")
-            }
-            AvailabilityProcessingStatus::MissingComponents(_, block_root) => {
-                self.log(&format!("inserted block to da_checker {block_root:?}"))
-            }
-        }
-    }
-
     fn insert_block_to_da_checker_as_pre_execution(&mut self, block: Arc<SignedBeaconBlock<E>>) {
         self.log(&format!(
             "Inserting block to availability_cache as pre_execution_block {:?}",
@@ -1698,10 +1652,6 @@ impl TestRig {
         block: Arc<SignedBeaconBlock<E>>,
     ) {
         let block_root = block.canonical_root();
-
-        // Blobs are sourced from the EL rather than lookup sync, so make them available here so
-        // that the block import completes for deneb/electra. No-op for blocks without blobs.
-        self.make_block_blobs_available(block_root).await;
 
         match self.import_block_to_da_checker(block).await {
             AvailabilityProcessingStatus::Imported(block_root) => {
@@ -2256,32 +2206,6 @@ async fn test_same_chain_race_condition() {
     // continued processing blocks 2 and 3.
     r.assert_head_slot(3);
     r.assert_successful_lookup_sync();
-}
-
-#[tokio::test]
-/// Assert that if the lookup's block is in the da_checker we don't download it again
-async fn block_in_da_checker_skips_download() {
-    // Only in Deneb, as the block needs blobs to remain in the da_checker
-    let Some(mut r) = TestRig::new_after_deneb_before_fulu() else {
-        return;
-    };
-    // Add block to da_checker
-    // Complete test with happy path
-    // Assert that there were no requests for blocks
-    r.build_chain(1).await;
-    r.insert_block_to_da_chain_and_assert_missing_componens(r.block_at_slot(1))
-        .await;
-    r.trigger_with_block_at_slot(1);
-    r.simulate(SimulateConfig::happy_path()).await;
-    r.assert_successful_lookup_sync();
-    assert_eq!(
-        r.requests
-            .iter()
-            .filter(|(request, _)| matches!(request, RequestType::BlocksByRoot(_)))
-            .collect::<Vec<_>>(),
-        Vec::<&(RequestType<E>, AppRequestId)>::new(),
-        "There should be no block requests"
-    );
 }
 
 #[tokio::test]
