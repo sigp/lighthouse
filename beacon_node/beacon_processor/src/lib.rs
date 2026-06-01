@@ -390,7 +390,6 @@ pub enum Work<E: EthSpec> {
         process_batch: Box<dyn FnOnce(Vec<GossipAggregatePackage<E>>) + Send + Sync>,
     },
     GossipBlock(AsyncFn),
-    GossipBlobSidecar(AsyncFn),
     GossipDataColumnSidecar(AsyncFn),
     GossipPartialDataColumnSidecar(AsyncFn),
     DelayedImportBlock {
@@ -418,6 +417,7 @@ pub enum Work<E: EthSpec> {
         process_fn: AsyncFn,
     },
     RpcCustodyColumn(AsyncFn),
+    RpcEnvelope(AsyncFn),
     ColumnReconstruction(AsyncFn),
     IgnoredRpcBlock {
         process_fn: BlockingFn,
@@ -470,7 +470,6 @@ pub enum WorkType {
     UnknownLightClientOptimisticUpdate,
     GossipAggregateBatch,
     GossipBlock,
-    GossipBlobSidecar,
     GossipDataColumnSidecar,
     GossipPartialDataColumnSidecar,
     DelayedImportBlock,
@@ -485,6 +484,7 @@ pub enum WorkType {
     RpcBlock,
     RpcBlobs,
     RpcCustodyColumn,
+    RpcEnvelope,
     ColumnReconstruction,
     IgnoredRpcBlock,
     ChainSegment,
@@ -526,7 +526,6 @@ impl<E: EthSpec> Work<E> {
             Work::GossipAggregate { .. } => WorkType::GossipAggregate,
             Work::GossipAggregateBatch { .. } => WorkType::GossipAggregateBatch,
             Work::GossipBlock(_) => WorkType::GossipBlock,
-            Work::GossipBlobSidecar(_) => WorkType::GossipBlobSidecar,
             Work::GossipDataColumnSidecar(_) => WorkType::GossipDataColumnSidecar,
             Work::GossipPartialDataColumnSidecar(_) => WorkType::GossipPartialDataColumnSidecar,
             Work::DelayedImportBlock { .. } => WorkType::DelayedImportBlock,
@@ -548,6 +547,7 @@ impl<E: EthSpec> Work<E> {
             Work::RpcBlock { .. } => WorkType::RpcBlock,
             Work::RpcBlobs { .. } => WorkType::RpcBlobs,
             Work::RpcCustodyColumn { .. } => WorkType::RpcCustodyColumn,
+            Work::RpcEnvelope(_) => WorkType::RpcEnvelope,
             Work::ColumnReconstruction(_) => WorkType::ColumnReconstruction,
             Work::IgnoredRpcBlock { .. } => WorkType::IgnoredRpcBlock,
             Work::ChainSegment { .. } => WorkType::ChainSegment,
@@ -825,6 +825,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Some(item)
                         } else if let Some(item) = work_queues.rpc_custody_column_queue.pop() {
                             Some(item)
+                        } else if let Some(item) = work_queues.rpc_envelope_queue.pop() {
+                            Some(item)
                         // Check delayed blocks before gossip blocks, the gossip blocks might rely
                         // on the delayed ones.
                         } else if let Some(item) = work_queues.delayed_block_queue.pop() {
@@ -837,8 +839,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Some(item)
                         } else if let Some(item) = work_queues.gossip_execution_payload_queue.pop()
                         {
-                            Some(item)
-                        } else if let Some(item) = work_queues.gossip_blob_queue.pop() {
                             Some(item)
                         } else if let Some(item) = work_queues.gossip_data_column_queue.pop() {
                             Some(item)
@@ -1152,9 +1152,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::GossipBlock { .. } => {
                                 work_queues.gossip_block_queue.push(work, work_id)
                             }
-                            Work::GossipBlobSidecar { .. } => {
-                                work_queues.gossip_blob_queue.push(work, work_id)
-                            }
                             Work::GossipDataColumnSidecar { .. } => {
                                 work_queues.gossip_data_column_queue.push(work, work_id)
                             }
@@ -1192,6 +1189,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 work_queues.rpc_block_queue.push(work, work_id)
                             }
                             Work::RpcBlobs { .. } => work_queues.rpc_blob_queue.push(work, work_id),
+                            Work::RpcEnvelope(_) => {
+                                work_queues.rpc_envelope_queue.push(work, work_id)
+                            }
                             Work::RpcCustodyColumn { .. } => {
                                 work_queues.rpc_custody_column_queue.push(work, work_id)
                             }
@@ -1298,7 +1298,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         }
                         WorkType::GossipAggregateBatch => 0, // No queue
                         WorkType::GossipBlock => work_queues.gossip_block_queue.len(),
-                        WorkType::GossipBlobSidecar => work_queues.gossip_blob_queue.len(),
                         WorkType::GossipDataColumnSidecar => {
                             work_queues.gossip_data_column_queue.len()
                         }
@@ -1330,6 +1329,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::RpcBlobs | WorkType::IgnoredRpcBlock => {
                             work_queues.rpc_blob_queue.len()
                         }
+                        WorkType::RpcEnvelope => work_queues.rpc_envelope_queue.len(),
                         WorkType::RpcCustodyColumn => work_queues.rpc_custody_column_queue.len(),
                         WorkType::ColumnReconstruction => {
                             work_queues.column_reconstruction_queue.len()
@@ -1523,10 +1523,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
             }
             | Work::RpcBlobs { process_fn }
             | Work::RpcCustodyColumn(process_fn)
+            | Work::RpcEnvelope(process_fn)
             | Work::ColumnReconstruction(process_fn) => task_spawner.spawn_async(process_fn),
             Work::IgnoredRpcBlock { process_fn } => task_spawner.spawn_blocking(process_fn),
             Work::GossipBlock(work)
-            | Work::GossipBlobSidecar(work)
             | Work::GossipDataColumnSidecar(work)
             | Work::GossipPartialDataColumnSidecar(work)
             | Work::GossipExecutionPayload(work) => task_spawner.spawn_async(async move {

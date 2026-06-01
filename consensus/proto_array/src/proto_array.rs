@@ -1,4 +1,3 @@
-use crate::error::InvalidBestNodeInfo;
 use crate::proto_array_fork_choice::IndexedForkChoiceNode;
 use crate::{
     Block, ExecutionStatus, JustifiedBalances, LatestMessage, PayloadStatus, error::Error,
@@ -155,6 +154,10 @@ pub struct ProtoNode {
     /// Tiebreak derived as: `num_set_bits() > ptc_size / 2`.
     #[superstruct(only(V29))]
     pub payload_data_availability_votes: BitVector<U512>,
+    /// Tracks which PTC members have cast a vote.
+    /// Bit i set means PTC member i has submitted a payload attestation.
+    #[superstruct(only(V29))]
+    pub ptc_participation: BitVector<U512>,
     /// Whether the execution payload for this block has been received and validated locally.
     /// Maps to `root in store.payload_states` in the spec.
     #[superstruct(only(V29), partial_getter(copy))]
@@ -193,31 +196,60 @@ impl ProtoNode {
         }
     }
 
-    pub fn is_payload_timely<E: EthSpec>(&self) -> bool {
+    /// Checks if `timely` matches our view of payload timeliness.
+    /// Returns whether the execution payload for the node is considered `timely`
+    /// (or not `timely` when `timely` is `false`), taking into consideration local
+    /// availability and PTC votes.
+    pub fn payload_timeliness<E: EthSpec>(&self, timely: bool) -> Result<bool, Error> {
         let Ok(node) = self.as_v29() else {
-            return false;
+            return Err(Error::InvalidNodeVariant {
+                block_root: self.root(),
+            });
         };
 
-        // Equivalent to `if root not in store.payload_states` in the spec.
+        // Equivalent to `if not is_payload_verified(store, root)` in the spec.
         if !node.payload_received {
-            return false;
+            return Ok(!timely);
         }
 
-        node.payload_timeliness_votes.num_set_bits() > E::payload_timely_threshold()
+        let matching_votes = if timely {
+            node.payload_timeliness_votes.num_set_bits()
+        } else {
+            // We take into consideration only participating ptc votes. An unset bit
+            // in `payload_timeliness_votes` could be an absent vote or a no vote.
+            node.ptc_participation
+                .num_set_bits()
+                .saturating_sub(node.payload_timeliness_votes.num_set_bits())
+        };
+        Ok(matching_votes > E::payload_timely_threshold())
     }
 
-    pub fn is_payload_data_available<E: EthSpec>(&self) -> bool {
+    /// Checks if `available` matches our view of payload data availability.
+    /// Return whether the blob data for the node is considered `available`
+    /// (or not, when `available` is `False`), taking into consideration local
+    /// availability and PTC votes.
+    pub fn payload_data_availability<E: EthSpec>(&self, available: bool) -> Result<bool, Error> {
         let Ok(node) = self.as_v29() else {
-            return false;
+            return Err(Error::InvalidNodeVariant {
+                block_root: self.root(),
+            });
         };
 
-        // Equivalent to `if root not in store.payload_states` in the spec.
+        // Equivalent to `if not is_payload_verified(store, root)` in the spec.
         if !node.payload_received {
-            return false;
+            return Ok(!available);
         }
 
-        node.payload_data_availability_votes.num_set_bits()
-            > E::data_availability_timely_threshold()
+        let matching_votes = if available {
+            node.payload_data_availability_votes.num_set_bits()
+        } else {
+            // We take into consideration only participating ptc votes. An unset bit
+            // in `payload_data_availability_votes` could be an absent vote or a no vote.
+            node.ptc_participation
+                .num_set_bits()
+                .saturating_sub(node.payload_data_availability_votes.num_set_bits())
+        };
+        Ok(matching_votes > E::data_availability_timely_threshold())
     }
 }
 
@@ -605,6 +637,7 @@ impl ProtoArray {
                 execution_payload_parent_hash,
                 payload_timeliness_votes: BitVector::default(),
                 payload_data_availability_votes: BitVector::default(),
+                ptc_participation: BitVector::default(),
                 payload_received: false,
                 proposer_index,
                 // Spec: `record_block_timeliness` + `get_forkchoice_store`.
@@ -667,11 +700,9 @@ impl ProtoArray {
         justified_balances: &JustifiedBalances,
         spec: &ChainSpec,
     ) -> bool {
-        let reorg_threshold = calculate_committee_fraction::<E>(
-            justified_balances,
-            spec.reorg_head_weight_threshold.unwrap_or(20),
-        )
-        .unwrap_or(0);
+        let reorg_threshold =
+            calculate_committee_fraction::<E>(justified_balances, spec.reorg_head_weight_threshold)
+                .unwrap_or(0);
 
         let head_weight = head_node
             .attestation_score(PayloadStatus::Pending)
@@ -1060,28 +1091,6 @@ impl ProtoArray {
             justified_balances,
             spec,
         )?;
-
-        // Perform a sanity check that the node is indeed valid to be the head.
-        let best_node = self
-            .nodes
-            .get(best_fc_node.proto_node_index)
-            .ok_or(Error::InvalidNodeIndex(best_fc_node.proto_node_index))?;
-        if !self.node_is_viable_for_head::<E>(
-            best_node,
-            current_slot,
-            best_justified_checkpoint,
-            best_finalized_checkpoint,
-        ) {
-            return Err(Error::InvalidBestNode(Box::new(InvalidBestNodeInfo {
-                current_slot,
-                start_root: *justified_root,
-                justified_checkpoint: best_justified_checkpoint,
-                finalized_checkpoint: best_finalized_checkpoint,
-                head_root: best_node.root(),
-                head_justified_checkpoint: *best_node.justified_checkpoint(),
-                head_finalized_checkpoint: *best_node.finalized_checkpoint(),
-            })));
-        }
 
         Ok((best_fc_node.root, best_fc_node.payload_status))
     }
@@ -1501,12 +1510,46 @@ impl ProtoArray {
         }
     }
 
+    /// Called by the proposer to decide whether to build on the full or empty
+    /// parent pending node. Returns false if the PTC has voted the data as unavailable.
+    pub fn should_build_on_full<E: EthSpec>(
+        &self,
+        fc_node: &IndexedForkChoiceNode,
+        proto_node: &ProtoNode,
+    ) -> Result<bool, Error> {
+        if fc_node.payload_status == PayloadStatus::Pending {
+            return Err(Error::InvalidPayloadStatus {
+                block_root: proto_node.root(),
+                payload_status: fc_node.payload_status,
+            });
+        }
+
+        if fc_node.payload_status == PayloadStatus::Empty {
+            return Ok(false);
+        }
+        // Check that false votes have not achieved an absolute majority. This allows the payload to be
+        // considered available when either a majority have voted true or not enough votes have
+        // been cast either way.
+        Ok(!proto_node.payload_data_availability::<E>(false)?)
+    }
+
     pub fn should_extend_payload<E: EthSpec>(
         &self,
         fc_node: &IndexedForkChoiceNode,
         proto_node: &ProtoNode,
         proposer_boost_root: Hash256,
     ) -> Result<bool, Error> {
+        let Ok(node) = proto_node.as_v29() else {
+            return Err(Error::InvalidNodeVariant {
+                block_root: fc_node.root,
+            });
+        };
+
+        // Spec equivalent to `if not is_payload_verified(store, root): return False`
+        if !node.payload_received {
+            return Ok(false);
+        }
+
         // Per spec: `proposer_root == Root()` is one of the `or` conditions that
         // makes `should_extend_payload` return True.
         if proposer_boost_root.is_zero() {
@@ -1531,11 +1574,10 @@ impl ProtoArray {
             .ok_or(Error::InvalidNodeIndex(parent_index))?
             .root();
 
-        Ok(
-            (proto_node.is_payload_timely::<E>() && proto_node.is_payload_data_available::<E>())
-                || proposer_boost_parent_root != fc_node.root
-                || proposer_boost_node.is_parent_node_full(),
-        )
+        Ok((proto_node.payload_timeliness::<E>(true)?
+            && proto_node.payload_data_availability::<E>(true)?)
+            || proposer_boost_parent_root != fc_node.root
+            || proposer_boost_node.is_parent_node_full())
     }
 
     /// Update the tree with new finalization information. The tree is only actually pruned if both
@@ -1819,10 +1861,7 @@ fn get_proposer_score<E: EthSpec>(
     justified_balances: &JustifiedBalances,
     spec: &ChainSpec,
 ) -> Result<u64, Error> {
-    let Some(proposer_score_boost) = spec.proposer_score_boost else {
-        return Ok(0);
-    };
-    calculate_committee_fraction::<E>(justified_balances, proposer_score_boost)
+    calculate_committee_fraction::<E>(justified_balances, spec.proposer_score_boost)
         .ok_or(Error::ProposerBoostOverflow(0))
 }
 

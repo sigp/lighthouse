@@ -2855,8 +2855,11 @@ dependencies = [
  "fs2",
  "hex",
  "kzg",
+ "lighthouse_network",
  "logging",
  "milhouse",
+ "network",
+ "proto_array",
  "rayon",
  "serde",
  "serde_json",
@@ -3282,9 +3285,9 @@ dependencies = [
 
 [[package]]
 name = "ethereum_ssz"
-version = "0.10.3"
+version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "368a4a4e4273b0135111fe9464e35465067766a8f664615b5a86338b73864407"
+checksum = "e462875ad8693755ea8913d6e905715c76ea4836e2254e18c9cf0f7a8f8c2a13"
 dependencies = [
  "alloy-primitives",
  "arbitrary",
@@ -8199,6 +8202,7 @@ dependencies = [
 name = "simulator"
 version = "0.2.0"
 dependencies = [
+ "beacon_chain",
  "clap",
  "environment",
  "execution_layer",

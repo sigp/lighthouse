@@ -26,6 +26,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, trace, warn};
 use types::{
     BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, PartialDataColumn, SignedBeaconBlock,
+    SignedExecutionPayloadEnvelope,
 };
 
 /// Handles messages from the network and routes them to the appropriate service to be handled.
@@ -339,8 +340,8 @@ impl<T: BeaconChainTypes> Router<T> {
             Response::BlobsByRange(blob) => {
                 self.on_blobs_by_range_response(peer_id, app_request_id, blob);
             }
-            Response::BlobsByRoot(blob) => {
-                self.on_blobs_by_root_response(peer_id, app_request_id, blob);
+            Response::BlobsByRoot(_) => {
+                crit!(%peer_id, "Unexpected BlobsByRoot response; lookup blob requests removed");
             }
             Response::DataColumnsByRoot(data_column) => {
                 self.on_data_columns_by_root_response(peer_id, app_request_id, data_column);
@@ -348,10 +349,13 @@ impl<T: BeaconChainTypes> Router<T> {
             Response::DataColumnsByRange(data_column) => {
                 self.on_data_columns_by_range_response(peer_id, app_request_id, data_column);
             }
-            // TODO(EIP-7732): implement outgoing payload envelopes by range and root
-            // responses once sync manager requests them.
-            Response::PayloadEnvelopesByRoot(_) | Response::PayloadEnvelopesByRange(_) => {
-                debug!("Requesting envelopes by root and by range not supported yet");
+            Response::PayloadEnvelopesByRoot(envelope) => {
+                self.on_payload_envelopes_by_root_response(peer_id, app_request_id, envelope);
+            }
+            // TODO(EIP-7732): implement outgoing payload envelopes by range responses
+            // once sync manager requests them.
+            Response::PayloadEnvelopesByRange(_) => {
+                debug!("Requesting envelopes by range not supported yet");
             }
             // Lighthouse currently only serves BlocksByHead and does not issue it as a client,
             // so receiving a response is unexpected. Drop it without crashing.
@@ -408,19 +412,6 @@ impl<T: BeaconChainTypes> Router<T> {
                     seen_timestamp,
                 ),
             ),
-            PubsubMessage::BlobSidecar(data) => {
-                let (blob_index, blob_sidecar) = *data;
-                self.handle_beacon_processor_send_result(
-                    self.network_beacon_processor.send_gossip_blob_sidecar(
-                        message_id,
-                        peer_id,
-                        self.network_globals.client(&peer_id),
-                        blob_index,
-                        blob_sidecar,
-                        seen_timestamp,
-                    ),
-                )
-            }
             PubsubMessage::DataColumnSidecar(data) => {
                 let (subnet_id, column_sidecar) = *data;
                 self.handle_beacon_processor_send_result(
@@ -730,40 +721,6 @@ impl<T: BeaconChainTypes> Router<T> {
         });
     }
 
-    /// Handle a `BlobsByRoot` response from the peer.
-    pub fn on_blobs_by_root_response(
-        &mut self,
-        peer_id: PeerId,
-        app_request_id: AppRequestId,
-        blob_sidecar: Option<Arc<BlobSidecar<T::EthSpec>>>,
-    ) {
-        let sync_request_id = match app_request_id {
-            AppRequestId::Sync(sync_id) => match sync_id {
-                id @ SyncRequestId::SingleBlob { .. } => id,
-                other => {
-                    crit!(request = ?other, "BlobsByRoot response on incorrect request");
-                    return;
-                }
-            },
-            AppRequestId::Router => {
-                crit!(%peer_id, "All BlobsByRoot requests belong to sync");
-                return;
-            }
-            AppRequestId::Internal => unreachable!("Handled internally"),
-        };
-
-        trace!(
-            %peer_id,
-            "Received BlobsByRoot Response"
-        );
-        self.send_to_sync(SyncMessage::RpcBlob {
-            sync_request_id,
-            peer_id,
-            blob_sidecar,
-            seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
-        });
-    }
-
     /// Handle a `DataColumnsByRoot` response from the peer.
     pub fn on_data_columns_by_root_response(
         &mut self,
@@ -819,6 +776,29 @@ impl<T: BeaconChainTypes> Router<T> {
         } else {
             crit!("All data columns by range responses should belong to sync");
         }
+    }
+
+    /// Handle a `PayloadEnvelopesByRoot` response from the peer.
+    pub fn on_payload_envelopes_by_root_response(
+        &mut self,
+        peer_id: PeerId,
+        app_request_id: AppRequestId,
+        envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+    ) {
+        let sync_request_id = match app_request_id {
+            AppRequestId::Sync(id @ SyncRequestId::SinglePayloadEnvelope { .. }) => id,
+            other => {
+                crit!(request = ?other, %peer_id, "PayloadEnvelopesByRoot response on incorrect request");
+                return;
+            }
+        };
+
+        self.send_to_sync(SyncMessage::RpcPayloadEnvelope {
+            sync_request_id,
+            peer_id,
+            envelope,
+            seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
+        });
     }
 
     fn handle_beacon_processor_send_result(

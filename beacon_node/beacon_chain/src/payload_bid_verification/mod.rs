@@ -48,7 +48,7 @@ pub enum PayloadBidError {
     },
     /// The bids fee recipient doesn't match the proposer preferences fee recipient.
     InvalidFeeRecipient,
-    /// The bids gas limit doesn't match the proposer preferences gas limit.
+    /// The bid's gas limit is not compatible with the proposer's target gas limit.
     InvalidGasLimit,
     /// The bids execution payment is non-zero
     ExecutionPaymentNonZero { execution_payment: u64 },

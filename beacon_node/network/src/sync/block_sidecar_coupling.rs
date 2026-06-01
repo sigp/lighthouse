@@ -607,11 +607,14 @@ mod tests {
 
         let mut spec = test_spec::<E>();
         spec.deneb_fork_epoch = Some(Epoch::new(0));
+        // Pin to pre-PeerDAS so this exercises the blob (not custody-column) path under any
+        // FORK_NAME.
+        spec.fulu_fork_epoch = None;
         let spec = Arc::new(spec);
         let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        // Assert response is finished and RpcBlocks cannot be constructed, because blobs weren't returned.
+        // Blobs are no longer required for availability, so the response succeeds without them.
         let result = info.responses(da_checker, spec).unwrap();
-        assert!(result.is_err())
+        assert!(result.is_ok())
     }
 
     #[test]

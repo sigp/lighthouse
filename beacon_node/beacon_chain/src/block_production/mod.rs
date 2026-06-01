@@ -1,10 +1,10 @@
 use std::{sync::Arc, time::Duration};
 
 use fork_choice::PayloadStatus;
-use proto_array::ProposerHeadError;
+use proto_array::{ProposerHeadError, ReOrgThreshold};
 use slot_clock::SlotClock;
 use tracing::{debug, error, info, instrument, warn};
-use types::{BeaconState, Hash256, SignedExecutionPayloadEnvelope, Slot};
+use types::{BeaconState, Epoch, Hash256, SignedExecutionPayloadEnvelope, Slot};
 
 use crate::{
     BeaconChain, BeaconChainTypes, BlockProductionError, StateSkipConfig,
@@ -174,16 +174,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         head_slot: Slot,
         canonical_head: Hash256,
     ) -> Option<(BeaconState<T::EthSpec>, Hash256)> {
-        let re_org_head_threshold = self.config.re_org_head_threshold?;
-        let re_org_parent_threshold = self.config.re_org_parent_threshold?;
-
-        if self.spec.proposer_score_boost.is_none() {
-            warn!(
-                reason = "this network does not have proposer boost enabled",
-                "Ignoring proposer re-org configuration"
-            );
-            return None;
-        }
+        let re_org_head_threshold = ReOrgThreshold(self.spec.reorg_head_weight_threshold);
+        let re_org_parent_threshold = ReOrgThreshold(self.spec.reorg_parent_weight_threshold);
+        let re_org_max_epochs_since_finalization =
+            Epoch::new(self.spec.reorg_max_epochs_since_finalization);
 
         let slot_delay = self
             .slot_clock
@@ -198,8 +192,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // 1. It seems we have time to propagate and still receive the proposer boost.
         // 2. The current head block was seen late.
         // 3. The `get_proposer_head` conditions from fork choice pass.
-        let proposing_on_time =
-            slot_delay < self.config.re_org_cutoff(self.spec.get_slot_duration());
+        let re_org_cutoff_duration = self
+            .spec
+            .compute_slot_component_duration(self.spec.proposer_reorg_cutoff_bps)
+            .ok()?;
+
+        let proposing_on_time = slot_delay < re_org_cutoff_duration;
         if !proposing_on_time {
             debug!(reason = "not proposing on time", "Not attempting re-org");
             return None;
@@ -223,7 +221,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 re_org_head_threshold,
                 re_org_parent_threshold,
                 &self.config.re_org_disallowed_offsets,
-                self.config.re_org_max_epochs_since_finalization,
+                re_org_max_epochs_since_finalization,
             )
             .map_err(|e| match e {
                 ProposerHeadError::DoNotReOrg(reason) => {

@@ -120,11 +120,11 @@ pub struct BeaconProcessorQueueLengths {
     rpc_block_queue: usize,
     rpc_blob_queue: usize,
     rpc_custody_column_queue: usize,
+    rpc_envelope_queue: usize,
     column_reconstruction_queue: usize,
     chain_segment_queue: usize,
     backfill_chain_segment: usize,
     gossip_block_queue: usize,
-    gossip_blob_queue: usize,
     gossip_data_column_queue: usize,
     gossip_partial_data_column_queue: usize,
     delayed_block_queue: usize,
@@ -195,11 +195,12 @@ impl BeaconProcessorQueueLengths {
             // We don't request more than `PARENT_DEPTH_TOLERANCE` (32) lookups, so we can limit
             // this queue size. With 48 max blobs per block, each column sidecar list could be up to 12MB.
             rpc_custody_column_queue: 64,
+            // Bounded by `PARENT_DEPTH_TOLERANCE`; one envelope per Gloas block.
+            rpc_envelope_queue: 1024,
             column_reconstruction_queue: 1,
             chain_segment_queue: 64,
             backfill_chain_segment: 64,
             gossip_block_queue: 1024,
-            gossip_blob_queue: 1024,
             gossip_data_column_queue: 1024,
             gossip_partial_data_column_queue: 1024,
             delayed_block_queue: 1024,
@@ -215,7 +216,7 @@ impl BeaconProcessorQueueLengths {
             payload_envelopes_brange_queue: 1024,
             payload_envelopes_broots_queue: 1024,
             gossip_bls_to_execution_change_queue: 16384,
-            // TODO(EIP-7732): verify 1024 is preferable. I used same value as `gossip_block_queue` and `gossip_blob_queue`
+            // TODO(EIP-7732): verify 1024 is preferable.
             gossip_execution_payload_queue: 1024,
             // TODO(EIP-7732) how big should this queue be?
             gossip_execution_payload_bid_queue: 1024,
@@ -253,11 +254,11 @@ pub struct WorkQueues<E: EthSpec> {
     pub rpc_block_queue: FifoQueue<Work<E>>,
     pub rpc_blob_queue: FifoQueue<Work<E>>,
     pub rpc_custody_column_queue: FifoQueue<Work<E>>,
+    pub rpc_envelope_queue: FifoQueue<Work<E>>,
     pub column_reconstruction_queue: LifoQueue<Work<E>>,
     pub chain_segment_queue: FifoQueue<Work<E>>,
     pub backfill_chain_segment: FifoQueue<Work<E>>,
     pub gossip_block_queue: FifoQueue<Work<E>>,
-    pub gossip_blob_queue: FifoQueue<Work<E>>,
     pub gossip_data_column_queue: FifoQueue<Work<E>>,
     pub gossip_partial_data_column_queue: FifoQueue<Work<E>>,
     pub delayed_block_queue: FifoQueue<Work<E>>,
@@ -323,11 +324,11 @@ impl<E: EthSpec> WorkQueues<E> {
         let rpc_block_queue = FifoQueue::new(queue_lengths.rpc_block_queue);
         let rpc_blob_queue = FifoQueue::new(queue_lengths.rpc_blob_queue);
         let rpc_custody_column_queue = FifoQueue::new(queue_lengths.rpc_custody_column_queue);
+        let rpc_envelope_queue = FifoQueue::new(queue_lengths.rpc_envelope_queue);
         let column_reconstruction_queue = LifoQueue::new(queue_lengths.column_reconstruction_queue);
         let chain_segment_queue = FifoQueue::new(queue_lengths.chain_segment_queue);
         let backfill_chain_segment = FifoQueue::new(queue_lengths.backfill_chain_segment);
         let gossip_block_queue = FifoQueue::new(queue_lengths.gossip_block_queue);
-        let gossip_blob_queue = FifoQueue::new(queue_lengths.gossip_blob_queue);
         let gossip_data_column_queue = FifoQueue::new(queue_lengths.gossip_data_column_queue);
         let gossip_partial_data_column_queue =
             FifoQueue::new(queue_lengths.gossip_partial_data_column_queue);
@@ -391,11 +392,11 @@ impl<E: EthSpec> WorkQueues<E> {
             rpc_block_queue,
             rpc_blob_queue,
             rpc_custody_column_queue,
+            rpc_envelope_queue,
             chain_segment_queue,
             column_reconstruction_queue,
             backfill_chain_segment,
             gossip_block_queue,
-            gossip_blob_queue,
             gossip_data_column_queue,
             gossip_partial_data_column_queue,
             delayed_block_queue,
