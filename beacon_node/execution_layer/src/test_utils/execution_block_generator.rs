@@ -176,6 +176,7 @@ pub struct ExecutionBlockGenerator<E: EthSpec> {
     /// If set, the next call to `build_new_execution_payload` will associate these
     /// execution requests with the generated payload ID.
     next_execution_requests: Option<ExecutionRequests<E>>,
+    generate_blobs: bool,
 }
 
 fn make_rng() -> Arc<Mutex<StdRng>> {
@@ -216,6 +217,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             rng: make_rng(),
             execution_requests: <_>::default(),
             next_execution_requests: None,
+            generate_blobs: true,
         };
 
         generator.insert_pow_block(0).unwrap();
@@ -325,6 +327,10 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
 
     pub fn set_min_blob_count(&mut self, count: usize) {
         self.min_blobs_count = count;
+    }
+
+    pub fn generate_blobs(&mut self, enabled: bool) {
+        self.generate_blobs = enabled;
     }
 
     pub fn insert_pow_block(&mut self, block_number: u64) -> Result<(), String> {
@@ -809,18 +815,24 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
 
         let fork_name = execution_payload.fork_name();
         if fork_name.deneb_enabled() {
-            // get random number between 0 and 1 blobs by default
-            // For tests that need higher blob count, consider adding a `set_max_blob_count` method
-            let mut rng = self.rng.lock();
-            let max_blobs = max(1, self.min_blobs_count);
-            let num_blobs = rng.random_range(self.min_blobs_count..=max_blobs);
-            let (bundle, transactions) = generate_blobs(num_blobs, fork_name)?;
-            for tx in Vec::from(transactions) {
-                execution_payload
-                    .transactions_mut()
-                    .push(tx)
-                    .map_err(|_| "transactions are full".to_string())?;
-            }
+            let bundle = if self.generate_blobs {
+                // get random number between 0 and 1 blobs by default
+                // For tests that need higher blob count, consider adding a `set_max_blob_count` method
+                let mut rng = self.rng.lock();
+                let max_blobs = max(1, self.min_blobs_count);
+                let num_blobs = rng.random_range(self.min_blobs_count..=max_blobs);
+                let (bundle, transactions) = generate_blobs(num_blobs, fork_name)?;
+                for tx in Vec::from(transactions) {
+                    execution_payload
+                        .transactions_mut()
+                        .push(tx)
+                        .map_err(|_| "transactions are full".to_string())?;
+                }
+                bundle
+            } else {
+                BlobsBundle::default()
+            };
+
             self.blobs_bundles.insert(id, bundle);
         }
 

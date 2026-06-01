@@ -53,7 +53,23 @@ async fn get_chain_segment() -> (Vec<BeaconSnapshot<E>>, Vec<Option<DataSidecars
     // is no longer true, as fullnodes stores less than what they sample.
     // We use a supernode here to build a chain segment.
     let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
+    build_chain_segment_from_harness(harness).await
+}
 
+/// Build a chain segment of blocks without blobs. Used for testing pre-fulu blocks, where
+/// gossip blob functionality has been deprecated.
+async fn get_chain_segment_no_blobs() -> Vec<BeaconSnapshot<E>> {
+    // The assumption that you can re-import a block based on what you have in your DB
+    // is no longer true, as fullnodes stores less than what they sample.
+    // We use a supernode here to build a chain segment.
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
+    harness.execution_block_generator().generate_blobs(false);
+    build_chain_segment_from_harness(harness).await.0
+}
+
+async fn build_chain_segment_from_harness(
+    harness: BeaconChainHarness<EphemeralHarnessType<E>>,
+) -> (Vec<BeaconSnapshot<E>>, Vec<Option<DataSidecars<E>>>) {
     harness
         .extend_chain(
             CHAIN_SEGMENT_LENGTH,
@@ -1137,7 +1153,16 @@ fn unwrap_err<T, U>(result: Result<T, U>) -> U {
 #[tokio::test]
 async fn block_gossip_verification() {
     let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
-    let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
+    let (chain_segment, chain_segment_blobs) = if harness.spec.is_fulu_scheduled() {
+        get_chain_segment().await
+    } else {
+        // disable blobs if we're testing pre-fulu forks, as gossip blobs support has been removed.
+        let chain_segment = get_chain_segment_no_blobs().await;
+        let chain_segment_blobs = std::iter::repeat_with(|| None)
+            .take(chain_segment.len())
+            .collect();
+        (chain_segment, chain_segment_blobs)
+    };
 
     let block_index = CHAIN_SEGMENT_LENGTH - 2;
 
@@ -1503,15 +1528,22 @@ async fn verify_block_for_gossip_slashing_detection() {
         .initial_mutator(Box::new(move |builder| builder.slasher(inner_slasher)))
         .mock_execution_layer()
         .build();
+    harness
+        .execution_block_generator()
+        .generate_blobs(spec.is_fulu_scheduled());
     harness.advance_slot();
 
     let state = harness.get_current_state();
-    let ((block1, blobs1), _) = harness.make_block(state.clone(), Slot::new(1)).await;
+    let ((block1, _blobs1), _) = harness.make_block(state.clone(), Slot::new(1)).await;
     let ((block2, _blobs2), _) = harness.make_block(state, Slot::new(1)).await;
 
     let verified_block = harness.chain.verify_block_for_gossip(block1).await.unwrap();
 
-    if blobs1.is_some() {
+    if harness
+        .chain
+        .spec
+        .is_peer_das_enabled_for_epoch(verified_block.block().epoch())
+    {
         harness
             .process_gossip_columns(verified_block.block(), None)
             .await;
