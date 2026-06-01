@@ -2054,8 +2054,6 @@ async fn happy_path_multiple_triggers(depth: usize) {
         // unknown-parent-from-data trigger. The block triggers above already exercise dedup.
     } else if r.is_after_fulu() {
         r.trigger_with_last_unknown_data_column_parent();
-    } else if r.is_after_deneb() {
-        r.trigger_with_last_unknown_blob_parent();
     }
     r.simulate(SimulateConfig::happy_path()).await;
     assert_eq!(r.created_lookups(), depth + 1, "Don't create extra lookups");
@@ -2214,11 +2212,8 @@ async fn unknown_parent_does_not_add_peers_to_itself() {
     // unknown-parent-from-data trigger — one fewer peer reaches the parent lookup.
     let parent_lookup_peers = if r.is_after_gloas() {
         2
-    } else if r.is_after_fulu() {
-        r.trigger_with_last_unknown_data_column_parent();
-        3
     } else {
-        r.trigger_with_last_unknown_blob_parent();
+        r.trigger_with_last_unknown_data_column_parent();
         3
     };
     r.simulate(SimulateConfig::happy_path()).await;
