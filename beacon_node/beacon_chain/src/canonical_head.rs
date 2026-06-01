@@ -735,12 +735,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let votes = fork_choice_read_lock.proto_array().votes();
             let equivocating_indices = fork_choice_read_lock.fc_store().equivocating_indices();
 
+            // FCR's spec runs once per slot at the *current* (wall-clock) slot. The
+            // state-advance timer drives `recompute_head_at_slot(next_slot = S+1)` near the
+            // end of wall-clock slot S, so the recompute's `current_slot` is one slot ahead.
+            // Feeding that to FCR rotates its tracking variables a slot early, skewing the
+            // epoch-boundary observed-justified snapshot and preventing bootstrap. Use the
+            // wall-clock slot instead.
+            let fcr_current_slot = self.slot().unwrap_or(current_slot);
+
             if let Err(e) = fcr.on_fast_confirmation::<T::EthSpec>(
                 head_root,
                 &finalized_cp,
                 &justified_cp,
                 &unrealized_justified_cp,
-                current_slot,
+                fcr_current_slot,
                 proto_array,
                 votes,
                 equivocating_indices,

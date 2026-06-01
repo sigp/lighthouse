@@ -412,7 +412,6 @@ impl FastConfirmationRule {
         // Phase 2: Restart from justified if conditions met.
         let observed_jcp = &self.current_epoch_observed_justified_checkpoint;
         if is_epoch_start
-            && observed_jcp.epoch.saturating_add(1u64) == current_epoch
             && self
                 .block_epoch::<E>(observed_jcp.root, proto_array)
                 .is_some_and(|e| e.saturating_add(1u64) == current_epoch)
