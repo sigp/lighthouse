@@ -77,26 +77,23 @@ const LOOKUP_MAX_DURATION_NO_PEERS_SECS: u64 = 10;
 /// take at most 2 GB. 200 lookups allow 3 parallel chains of depth 64 (current maximum).
 const MAX_LOOKUPS: usize = 200;
 
-/// The values for `Blob`, `DataColumn` and `PartialDataColumn` is the parent root of the column.
+/// The value for `DataColumn` is the parent root of the column.
 pub enum BlockComponent<E: EthSpec> {
     Block(DownloadResult<Arc<SignedBeaconBlock<E>>>),
     DataColumn(DownloadResult<Hash256>),
-    PartialDataColumn(DownloadResult<Hash256>),
 }
 
 impl<E: EthSpec> BlockComponent<E> {
     fn parent_root(&self) -> Hash256 {
         match self {
             BlockComponent::Block(block) => block.value.parent_root(),
-            BlockComponent::DataColumn(parent_root)
-            | BlockComponent::PartialDataColumn(parent_root) => parent_root.value,
+            BlockComponent::DataColumn(parent_root) => parent_root.value,
         }
     }
     fn get_type(&self) -> &'static str {
         match self {
             BlockComponent::Block(_) => "block",
             BlockComponent::DataColumn(_) => "data_column",
-            BlockComponent::PartialDataColumn(_) => "partial_data_column",
         }
     }
 }
@@ -211,7 +208,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 block_root,
                 Some(block_component),
                 Some(parent_root),
-                // On a `UnknownParentBlock` or `UnknownParentDataColumn` event the peer is not
+                // On a `UnknownParentBlock` or `UnknownParentHeader` event the peer is not
                 // required to have the rest of the block components. Create the lookup with zero
                 // peers to house the block components.
                 &[],
