@@ -35,10 +35,6 @@ use types::{AttestationShufflingId, BeaconStateError, EthSpec, Hash256, Relative
 ///
 /// This avoids doing unnecessary work whilst the node is syncing or has perhaps been put to sleep
 /// for some period of time.
-///
-/// Also reused by the Fast Confirmation Rule in `canonical_head` to skip running while the head is
-/// this far behind: beyond this distance the advanced head state FCR needs isn't cached (the timer
-/// won't have advanced it), so running FCR would force an expensive load+advance during sync.
 pub(crate) const MAX_ADVANCE_DISTANCE: u64 = 256;
 
 /// Similarly for fork choice: avoid the fork choice lookahead during sync.

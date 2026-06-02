@@ -162,10 +162,8 @@ pub struct FastConfirmationRule {
     head_assignments: SlotAssignments,
 
     // === FFG data from the head state ===
-    /// Built from the spec's `get_pulled_up_head_state` (FCR spec, "State helpers"):
-    /// the caller passes the current head's state advanced ("pulled up") to the
-    /// current slot, so validator activations/exits/slashings realized at the epoch
-    /// boundary are reflected here.
+    /// Built from the spec's `get_pulled_up_head_state`: the current head's state advanced
+    /// to the current slot, so epoch-boundary activations/exits/slashings are reflected.
     ///
     /// `checkpoint.root` is repurposed here to carry the **dependent root** of
     /// the cached epoch (the block at the previous epoch's last slot), used as
@@ -442,9 +440,8 @@ impl FastConfirmationRule {
         let is_epoch_start = is_start_slot_at_epoch::<E>(current_slot);
         let mut confirmed_root = self.confirmed_root;
 
-        // Revert to the finalized block if the confirmed block is older than the
-        // previous epoch, is no longer on the canonical chain, or — at the start of
-        // an epoch — its chain can no longer be re-confirmed.
+        // Revert to finalized if the confirmed block is older than the previous epoch, is off
+        // the canonical chain, or (at an epoch start) its chain can't be re-confirmed.
         let confirmed_epoch_too_old = self
             .block_epoch::<E>(confirmed_root, proto_array)?
             .saturating_add(1u64)
@@ -479,10 +476,9 @@ impl FastConfirmationRule {
             metrics::inc_counter(&metrics::FCR_REVERT_TO_FINALIZED);
         }
 
-        // Restart the confirmation chain from the current-epoch observed justified
-        // checkpoint when, at the start of an epoch: its block is in the previous
-        // epoch, it equals the head's unrealized justification, and the confirmed
-        // block is older than it.
+        // At an epoch start, restart from the current-epoch observed justified checkpoint when
+        // its block is in the previous epoch, equals the head's unrealized justification, and
+        // is newer than the confirmed block.
         let observed_jcp = self.current_epoch_observed_justified_checkpoint;
         let observed_justified_block_slot = self.block_slot(observed_jcp.root, proto_array)?;
         let is_observed_justified_block_epoch_ok = observed_justified_block_slot

@@ -713,16 +713,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             });
         }
 
+        // Lets the early-return below still push an FCR-advanced `confirmed_root` to the EL
+        // `safe_block_hash` when only attestations (not the head/checkpoints) changed.
+        let mut fcr_confirmed_root_changed = false;
+
         // Run the Fast Confirmation Rule (FCR) while we still hold the fork choice read lock.
         // FCR must run even when the head hasn't changed, because new attestations may advance
         // the confirmed_root without changing the head/justified/finalized view.
         // FCR is a read-only observer and errors must never affect consensus.
         //
         // Skip FCR while the head is more than `MAX_ADVANCE_DISTANCE` behind wall-clock (deep
-        // sync): beyond that, the state-advance timer hasn't cached the advanced head state FCR
-        // needs, so running it would force an expensive load+advance under this lock for no
-        // benefit — we don't confirm during sync. (Review: don't run FCR on every
-        // `recompute_head` / during sync.)
+        // sync): the state-advance timer won't have cached the head state FCR needs, so running
+        // it would force an expensive load+advance under the fork-choice lock.
         if let Some(ref fcr_mutex) = self.canonical_head.fast_confirmation
             && new_head_proto_block.slot.as_u64() + MAX_ADVANCE_DISTANCE
                 >= self.slot().unwrap_or(current_slot).as_u64()
@@ -746,32 +748,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // wall-clock slot instead.
             let fcr_current_slot = self.slot().unwrap_or(current_slot);
 
-            // Spec `get_pulled_up_head_state`: FCR reads the *current head's* state
-            // (`store.block_states[get_head(store)]`) advanced ("pulled up") to the
-            // current epoch. `get_advanced_hot_state` returns exactly that — the head
-            // state advanced to the wall-clock slot — served from the state cache that
-            // the `state_advance_timer` populates each slot, and loaded+advanced on a
-            // miss. FCR is a read-only observer whose errors must never affect consensus,
-            // so a failure to obtain the state just skips FCR for this tick (we never
-            // propagate the error).
-            let fcr_head_state = match self.store.get_advanced_hot_state(
+            // The current head's pulled-up state (spec `get_pulled_up_head_state`). FCR errors
+            // must never affect consensus, so on failure we log and skip it this tick.
+            let fcr_head_state = match self.fcr_pulled_up_head_state(
                 head_root,
                 fcr_current_slot,
                 new_head_proto_block.state_root,
             ) {
-                Ok(Some((_, mut state))) => match state.build_all_caches(&self.spec) {
-                    Ok(()) => Some(state),
-                    Err(e) => {
-                        error!(error = ?e, "FCR: failed to build head-state caches, skipping tick");
-                        None
-                    }
-                },
-                Ok(None) => {
-                    error!("FCR: advanced head state unavailable, skipping tick");
-                    None
-                }
+                Ok(state) => Some(state),
                 Err(e) => {
-                    error!(error = ?e, "FCR: failed to load advanced head state, skipping tick");
+                    error!(error = ?e, "FCR: could not obtain head state, skipping tick");
                     None
                 }
             };
@@ -792,6 +778,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     metrics::inc_counter_vec(&fcr_metrics::FCR_ERRORS, &[label]);
                 } else {
                     let confirmed_root_changed = fcr.confirmed_root != old_confirmed;
+                    fcr_confirmed_root_changed = confirmed_root_changed;
                     if confirmed_root_changed {
                         metrics::inc_counter(&fcr_metrics::FCR_CONFIRMED_ROOT_CHANGES);
                     }
@@ -839,13 +826,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        // Exit early if the head, checkpoints, and payload status have not changed.
-        //
-        // NOTE: FCR updates `confirmed_root` above this check, so if new attestations
-        // advance the confirmed root without changing head/checkpoints, the EL won't see
-        // the updated `safe_block_hash` until the next head change. This lag is at most
-        // one slot in practice.
-        if new_view == old_view && new_payload_status == old_payload_status {
+        // Exit early if nothing changed — unless FCR advanced `confirmed_root`, in which case we
+        // proceed so the new `safe_block_hash` reaches the EL now instead of at the next head
+        // change. The head-unchanged path below handles this (reuses the snapshot, skips
+        // `after_new_head`).
+        if new_view == old_view
+            && new_payload_status == old_payload_status
+            && !fcr_confirmed_root_changed
+        {
             debug!(
                 head = ?new_view.head_block_root,
                 "No change in canonical head"
@@ -1021,6 +1009,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(recompute_head_lock);
 
         Ok(Some(el_update_handle))
+    }
+
+    /// The current head's state pulled up to `slot` (spec `get_pulled_up_head_state`), with
+    /// committee caches built, as the Fast Confirmation Rule requires. Served from the state
+    /// cache the `state_advance_timer` fills each slot, loaded+advanced on a miss.
+    fn fcr_pulled_up_head_state(
+        &self,
+        head_root: Hash256,
+        slot: Slot,
+        state_root: Hash256,
+    ) -> Result<BeaconState<T::EthSpec>, Error> {
+        let (_, mut state) = self
+            .store
+            .get_advanced_hot_state(head_root, slot, state_root)?
+            .ok_or(Error::MissingBeaconState(state_root))?;
+        state.build_all_caches(&self.spec)?;
+        Ok(state)
     }
 
     /// Perform updates to caches and other components after the canonical head has been changed.
