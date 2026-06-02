@@ -708,13 +708,6 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
             return false;
         }
 
-        // No FCU override tests prior to bellatrix, and removed in Gloas.
-        if self.handler_name == "should_override_forkchoice_update"
-            && (!fork_name.bellatrix_enabled() || fork_name.gloas_enabled())
-        {
-            return false;
-        }
-
         // Deposit tests exist only for Electra and later.
         if self.handler_name == "deposit_with_reorg" && !fork_name.electra_enabled() {
             return false;

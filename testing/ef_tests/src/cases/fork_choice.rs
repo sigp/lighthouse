@@ -54,6 +54,10 @@ pub struct PowBlock {
 pub struct Head {
     slot: Slot,
     root: Hash256,
+    // Post-Gloas, the head check also asserts the payload status of the head block
+    // (`PayloadStatus` repr: Empty=0, Full=1, Pending=2).
+    #[serde(default)]
+    payload_status: Option<u8>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -170,8 +174,12 @@ fn default_true() -> bool {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Meta {
-    #[serde(rename(deserialize = "description"))]
-    _description: String,
+    #[serde(default, rename(deserialize = "description"))]
+    _description: Option<String>,
+    // Some Gloas fork choice tests carry a `bls_setting` instead of a description. We accept and
+    // ignore it: the value is always `1` (BLS required), which matches our default behaviour.
+    #[serde(default, rename(deserialize = "bls_setting"))]
+    _bls_setting: Option<u8>,
 }
 
 #[derive(Debug)]
@@ -909,9 +917,17 @@ impl<E: EthSpec> Tester<E> {
         let chain_head = Head {
             slot: head.head_slot(),
             root: head.head_block_root(),
+            // Compared separately below so the slot/root equality is not affected.
+            payload_status: expected_head.payload_status,
         };
 
-        check_equal("head", chain_head, expected_head)
+        check_equal("head", chain_head, expected_head)?;
+
+        if let Some(expected_status) = expected_head.payload_status {
+            self.check_head_payload_status(expected_status)?;
+        }
+
+        Ok(())
     }
 
     pub fn check_time(&self, expected_time: u64) -> Result<(), Error> {

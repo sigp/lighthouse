@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use bls::Signature;
 use slot_clock::{SlotClock, TestingSlotClock};
-use state_processing::AllCaches;
 use types::{
     Domain, Epoch, EthSpec, ForkName, Hash256, MinimalEthSpec, PayloadAttestationData,
     PayloadAttestationMessage, SignedRoot, Slot,
@@ -377,10 +376,11 @@ async fn ptc_cache_is_primed_at_gloas_fork_boundary() {
     }
 }
 
-/// Exercises payload attestation gossip verification when the message epoch is ahead of the
-/// canonical head due to many missed slots.
+/// A payload attestation whose assigned slot is empty must be ignored per consensus-specs #5281,
+/// even after many missed slots: the message references the stale canonical head (from an earlier
+/// slot) for a later `data.slot`, so `block.slot != data.slot`.
 #[tokio::test]
-async fn stale_head_payload_attestation() {
+async fn stale_head_empty_slot_payload_attestation_ignored() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
@@ -390,9 +390,9 @@ async fn stale_head_payload_attestation() {
     let head_slot = Slot::new(slots_per_epoch);
     let missed_epochs = 4;
     let target_slot = Slot::new(slots_per_epoch * (1 + missed_epochs));
-    let target_epoch = target_slot.epoch(slots_per_epoch);
 
-    // GIVEN a chain with blocks through epoch 1 (so the store has states).
+    // GIVEN a chain with blocks through epoch 1, then a slot clock advanced 4 epochs without
+    // producing blocks (simulating missed slots during a liveness failure).
     let harness = BeaconChainHarness::builder(E::default())
         .default_spec()
         .deterministic_keypairs(64)
@@ -400,71 +400,31 @@ async fn stale_head_payload_attestation() {
         .mock_execution_layer()
         .build();
     harness.extend_to_slot(head_slot).await;
-
-    let head = harness.chain.canonical_head.cached_head();
-    let head_epoch = head.snapshot.beacon_state.current_epoch();
-    assert!(
-        target_epoch > head_epoch + harness.spec.min_seed_lookahead,
-        "precondition: message epoch must exceed head + min_seed_lookahead"
-    );
-
-    // GIVEN a slot clock advanced to epoch 5 without producing blocks
-    // (simulating missed slots during a liveness failure).
     harness.chain.slot_clock.set_slot(target_slot.as_u64());
 
-    // Advance a reference state to compute the PTC at the target slot.
-    let mut reference_state = head.snapshot.beacon_state.clone();
-    state_processing::state_advance::partial_state_advance(
-        &mut reference_state,
-        Some(head.snapshot.beacon_state_root()),
-        target_slot,
-        &harness.spec,
-    )
-    .expect("should advance reference state");
-    reference_state
-        .build_all_caches(&harness.spec)
-        .expect("should build caches");
+    let head = harness.chain.canonical_head.cached_head();
 
-    let ptc = reference_state
-        .get_ptc(target_slot, &harness.spec)
-        .expect("should get PTC from reference state");
-    let validator_index = *ptc.0.first().expect("PTC should have at least one member") as u64;
-
-    // WHEN a properly-signed payload attestation from a PTC member is verified. The signature
-    // domain should come from the spec fork schedule and genesis validators root, not a loaded
-    // state in the verifier.
-    let domain = harness.spec.get_domain(
-        target_epoch,
-        Domain::PTCAttester,
-        &reference_state.fork(),
-        reference_state.genesis_validators_root(),
-    );
+    // WHEN a payload attestation for the (empty) target slot references the stale head block,
+    // which is from an earlier slot.
     let data = PayloadAttestationData {
         beacon_block_root: head.head_block_root(),
         slot: target_slot,
         payload_present: true,
         blob_data_available: true,
     };
-    let message = data.signing_root(domain);
-    let signature = harness.validator_keypairs[validator_index as usize]
-        .sk
-        .sign(message);
     let msg = PayloadAttestationMessage {
-        validator_index,
+        validator_index: 0,
         data,
-        signature,
+        signature: Signature::empty(),
     };
 
-    // THEN verification succeeds despite the head being 4 epochs stale.
+    // THEN it is ignored because the referenced block is not at the attestation slot.
     let result = harness
         .chain
         .verify_payload_attestation_message_for_gossip(msg);
     assert!(
-        result.is_ok(),
-        "expected Ok (head epoch {}, message epoch {}), got: {:?}",
-        head_epoch,
-        target_epoch,
-        result.unwrap_err()
+        matches!(result, Err(PayloadAttestationError::BlockNotAtSlot { .. })),
+        "expected BlockNotAtSlot, got: {result:?}"
     );
 }
 

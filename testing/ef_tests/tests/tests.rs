@@ -1050,12 +1050,6 @@ fn fork_choice_withholding() {
 }
 
 #[test]
-fn fork_choice_should_override_forkchoice_update() {
-    ForkChoiceHandler::<MinimalEthSpec>::new("should_override_forkchoice_update").run();
-    ForkChoiceHandler::<MainnetEthSpec>::new("should_override_forkchoice_update").run();
-}
-
-#[test]
 fn fork_choice_get_proposer_head() {
     ForkChoiceHandler::<MinimalEthSpec>::new("get_proposer_head").run();
     ForkChoiceHandler::<MainnetEthSpec>::new("get_proposer_head").run();
