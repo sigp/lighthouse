@@ -34,7 +34,7 @@
 //! search for the block and subsequently search for parents if needed.
 
 use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
-use super::block_lookups::{BlockLookups, NewLookupTrigger};
+use super::block_lookups::BlockLookups;
 use super::network_context::{
     CustodyByRootResult, RangeBlockComponent, RangeRequestId, RpcEvent, SyncNetworkContext,
 };
@@ -1001,7 +1001,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block_component,
                     awaiting_parent,
                     peer_id,
-                    NewLookupTrigger::NetworkMessage,
                     &mut self.network,
                 ) {
                     // Lookup created. No need to log here it's logged in `new_current_lookup`
@@ -1030,7 +1029,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 if self.block_lookups.search_unknown_block(
                     block_root,
                     &[peer_id],
-                    NewLookupTrigger::NetworkMessage,
                     &mut self.network,
                 ) {
                     // Lookup created. No need to log here it's logged in `new_current_lookup`

@@ -42,7 +42,6 @@ impl AwaitingParent {
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct DownloadResult<T: Clone> {
     pub value: T,
     pub seen_timestamp: Duration,
@@ -83,7 +82,6 @@ pub enum LookupRequestError {
         expected_req_id: ReqId,
         req_id: ReqId,
     },
-    InternalError(String),
 }
 
 // Dedicated enum for LookupResult to force its usage
@@ -216,11 +214,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.block_root
     }
 
-    /// Check the block root matches the requested block root.
-    pub fn is_for_block(&self, block_root: Hash256) -> bool {
-        self.block_root == block_root
-    }
-
     pub fn awaiting_parent(&self) -> Option<AwaitingParent> {
         self.awaiting_parent
     }
@@ -248,6 +241,11 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 false
             }
         }
+    }
+
+    /// Check the block root matches the requested block root.
+    pub fn is_for_block(&self, block_root: Hash256) -> bool {
+        self.block_root == block_root
     }
 
     /// Returns true if this request is expecting some event to make progress
@@ -285,7 +283,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         if self.awaiting_parent.is_none()
             && let Some(data) = self.block_request.state.maybe_start_processing()
         {
-            cx.send_block_for_processing(id, self.block_root, data.value, Duration::ZERO)
+            cx.send_block_for_processing(id, self.block_root, data.value, data.seen_timestamp)
                 .map_err(LookupRequestError::SendFailedProcessor)?;
         }
 
@@ -295,8 +293,12 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 // None = waiting for block
                 DataRequestState::WaitingForBlock => {
                     if let Some(block) = self.block_request.state.peek_downloaded_data() {
-                        if block.has_data() {
-                            // TODO(gloas): Only start if expected_blobs > 0
+                        let block_epoch = block
+                            .slot()
+                            .epoch(<T as BeaconChainTypes>::EthSpec::slots_per_epoch());
+                        if block.num_expected_blobs() == 0 {
+                            self.data_request = DataRequestState::NoData;
+                        } else if cx.chain.should_fetch_custody_columns(block_epoch) {
                             let peers = self.peers.clone();
                             self.data_request = DataRequestState::Request(DataRequest {
                                 peers,
@@ -334,7 +336,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                             id,
                             block_root,
                             data.value,
-                            Duration::ZERO,
+                            data.seen_timestamp,
                             BlockProcessType::SingleCustodyColumn(id),
                         )
                         .map_err(LookupRequestError::SendFailedProcessor)?;
@@ -464,8 +466,8 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     }
 
     /// Returns true if this lookup has zero peers
-    pub fn has_peers(&self) -> bool {
-        !self.peers.read().is_empty()
+    pub fn has_no_peers(&self) -> bool {
+        self.peers.read().is_empty()
     }
 }
 

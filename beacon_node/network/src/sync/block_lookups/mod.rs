@@ -81,14 +81,6 @@ pub enum BlockComponent<E: EthSpec> {
 
 pub type SingleLookupId = u32;
 
-#[derive(Debug, Copy, Clone)]
-pub enum NewLookupTrigger {
-    // `ParentUnknown` carries the parent block root for logging/metrics; not consumed
-    // elsewhere yet. Keep the field so the trigger reason stays in debug logs.
-    ParentUnknown(#[allow(dead_code)] Hash256),
-    NetworkMessage,
-}
-
 pub struct BlockLookups<T: BeaconChainTypes> {
     /// A cache of block roots that must be ignored for some time to prevent useless searches. For
     /// example if a chain is too long, its lookup chain is dropped, and range sync is expected to
@@ -178,16 +170,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         block_component: BlockComponent<T::EthSpec>,
         awaiting_parent: AwaitingParent,
         peer_id: PeerId,
-        new_lookup_trigger: NewLookupTrigger,
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
-        let parent_lookup_exists = self.search_parent_of_child(
-            awaiting_parent,
-            block_root,
-            &[peer_id],
-            new_lookup_trigger,
-            cx,
-        );
+        let parent_lookup_exists =
+            self.search_parent_of_child(awaiting_parent, block_root, &[peer_id], cx);
         // Only create the child lookup if the parent exists
         if parent_lookup_exists {
             // `search_parent_of_child` ensures that the parent lookup exists so we can safely wait for it
@@ -199,7 +185,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // required to have the rest of the block components (refer to decoupled blob
                 // gossip). Create the lookup with zero peers to house the block components.
                 &[],
-                new_lookup_trigger,
                 cx,
             )
         } else {
@@ -215,10 +200,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         block_root: Hash256,
         peer_source: &[PeerId],
-        new_lookup_trigger: NewLookupTrigger,
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
-        self.new_current_lookup(block_root, None, None, peer_source, new_lookup_trigger, cx)
+        self.new_current_lookup(block_root, None, None, peer_source, cx)
     }
 
     /// A block or blob triggers the search of a parent.
@@ -233,7 +217,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         awaiting_parent: AwaitingParent,
         child_block_root_trigger: Hash256,
         peers: &[PeerId],
-        new_lookup_trigger: NewLookupTrigger,
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
         let block_root_to_search = awaiting_parent.parent_root();
@@ -332,28 +315,19 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
 
         // `block_root_to_search` is a failed chain check happens inside new_current_lookup
-        self.new_current_lookup(
-            block_root_to_search,
-            None,
-            None,
-            peers,
-            new_lookup_trigger,
-            cx,
-        )
+        self.new_current_lookup(block_root_to_search, None, None, peers, cx)
     }
 
     /// Searches for a single block hash. If the blocks parent is unknown, a chain of blocks is
     /// constructed.
     /// Returns true if the lookup is created or already exists
     #[must_use = "only reference the new lookup if returns true"]
-    #[allow(clippy::too_many_arguments)]
     fn new_current_lookup(
         &mut self,
         block_root: Hash256,
         block_component: Option<BlockComponent<T::EthSpec>>,
         awaiting_parent: Option<AwaitingParent>,
         peers: &[PeerId],
-        new_lookup_trigger: NewLookupTrigger,
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
         // If this block or it's parent is part of a known ignored chain, ignore it.
@@ -427,7 +401,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 .map(|root| root.to_string())
                 .unwrap_or("none".to_owned()),
             id = lookup.id,
-            ?new_lookup_trigger,
             "Created block lookup"
         );
         metrics::inc_counter(&metrics::SYNC_LOOKUP_CREATED);
@@ -478,7 +451,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn peer_disconnected(&mut self, peer_id: &PeerId) {
         for (id, lookup) in self.single_block_lookups.iter_mut() {
             lookup.remove_peer(peer_id);
-            if !lookup.has_peers() {
+            if lookup.has_no_peers() {
                 debug!(%id, "Lookup has no peers");
             }
         }
@@ -535,6 +508,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let lookup_result = if imported {
             Ok(LookupResult::Completed)
         } else {
+            // A lookup may be in the following state:
+            // - Block awaiting processing from a different source
+            // - Blobs downloaded processed, and inserted into the da_checker
+            //
+            // At this point the block fails processing (e.g. execution engine offline) and it is
+            // removed from the da_checker. Note that ALL components are removed from the da_checker
+            // so when we re-download and process the block we get the error
+            // MissingComponentsAfterAllProcessed and get stuck.
             lookup.reset_requests();
             lookup.continue_requests(cx)
         };
@@ -616,7 +597,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     AwaitingParent::from_root(parent_root),
                     block_root,
                     &peers,
-                    NewLookupTrigger::ParentUnknown(parent_root),
                     cx,
                 ) {
                     true
@@ -702,7 +682,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .filter(|lookup| {
                 // Do not drop lookup that are awaiting events to prevent inconsinstencies. If a
                 // lookup gets stuck, it will be eventually pruned by `drop_stuck_lookups`
-                !lookup.has_peers()
+                lookup.has_no_peers()
                     && lookup.elapsed_since_created()
                         > Duration::from_secs(LOOKUP_MAX_DURATION_NO_PEERS_SECS)
                     && !lookup.is_awaiting_event()
@@ -793,6 +773,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// - Block peers are added at each level (needed for block download).
     /// - When recursing from child to parent, also adds to parent's data peer sets,
     ///   since children arriving activates the parent's data downloads.
+    ///
+    /// Note: Takes a `lookup_id` as argument to allow recursion on mutable lookups, without having
+    /// to duplicate the code to add peers to a lookup
     fn add_peers_to_lookup_and_ancestors(
         &mut self,
         lookup_id: SingleLookupId,
