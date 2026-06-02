@@ -168,13 +168,34 @@ fn unknown_head_block() {
 }
 
 #[test]
+fn block_not_at_slot() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
+
+    // The genesis block is at slot 0, but the message claims slot 1. A PTC member assigned to an
+    // empty slot must not attest, so this must be ignored (per consensus-specs #5281).
+    let msg = make_payload_attestation(Slot::new(1), 0, ctx.genesis_block_root);
+    let result = VerifiedPayloadAttestationMessage::new(msg, &gossip);
+    assert!(
+        matches!(result, Err(PayloadAttestationError::BlockNotAtSlot { .. })),
+        "expected BlockNotAtSlot, got: {:?}",
+        result
+    );
+}
+
+#[test]
 fn not_in_ptc() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    let slot = Slot::new(1);
+    // The genesis block is at slot 0, so attest at slot 0 to satisfy the `block.slot == data.slot`
+    // gossip rule. Slot 0 is still within the propagation range at the current slot.
+    let slot = Slot::new(0);
 
     let ptc_members = ctx.ptc_members(slot);
     let non_ptc_validator = (0..NUM_VALIDATORS as u64)
@@ -196,7 +217,9 @@ fn invalid_signature() {
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    let slot = Slot::new(1);
+    // The genesis block is at slot 0, so attest at slot 0 to satisfy the `block.slot == data.slot`
+    // gossip rule. Slot 0 is still within the propagation range at the current slot.
+    let slot = Slot::new(0);
 
     let ptc_members = ctx.ptc_members(slot);
     let validator_index = ptc_members[0] as u64;
@@ -216,7 +239,9 @@ fn valid_payload_attestation() {
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    let slot = Slot::new(1);
+    // The genesis block is at slot 0, so attest at slot 0 to satisfy the `block.slot == data.slot`
+    // gossip rule. Slot 0 is still within the propagation range at the current slot.
+    let slot = Slot::new(0);
 
     let ptc_members = ctx.ptc_members(slot);
     let validator_index = ptc_members[0] as u64;
@@ -243,7 +268,9 @@ fn duplicate_after_valid() {
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    let slot = Slot::new(1);
+    // The genesis block is at slot 0, so attest at slot 0 to satisfy the `block.slot == data.slot`
+    // gossip rule. Slot 0 is still within the propagation range at the current slot.
+    let slot = Slot::new(0);
 
     let ptc_members = ctx.ptc_members(slot);
     let validator_index = ptc_members[0] as u64;

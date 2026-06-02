@@ -1539,11 +1539,11 @@ impl ProtoArray {
         // considered available when either a majority have voted true or not enough votes have
         // been cast either way.
         if proto_node.payload_data_availability::<E>(false)? {
-            return Ok(false)
+            return Ok(false);
         }
-        
+
         if proto_node.payload_timeliness::<E>(false)? {
-            return Ok(false)
+            return Ok(false);
         }
 
         Ok(true)

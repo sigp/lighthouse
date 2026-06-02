@@ -4003,6 +4003,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
+            PayloadAttestationError::BlockNotAtSlot { .. } => {
+                debug!(
+                    %peer_id,
+                    %message_slot,
+                    "Payload attestation references block at wrong slot"
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
             PayloadAttestationError::NotInPTC { .. } => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(
