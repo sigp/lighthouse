@@ -4,7 +4,7 @@ use fork_choice::PayloadStatus;
 use proto_array::{ProposerHeadError, ReOrgThreshold};
 use slot_clock::SlotClock;
 use tracing::{debug, error, info, instrument, warn};
-use types::{BeaconState, Epoch, Hash256, SignedExecutionPayloadEnvelope, Slot};
+use types::{BeaconState, Epoch, Hash256, SignedExecutionPayloadEnvelope, Slot, EthSpec};
 
 use crate::{
     BeaconChain, BeaconChainTypes, BlockProductionError, StateSkipConfig,
@@ -14,7 +14,7 @@ use crate::{
 mod gloas;
 
 /// State loaded from the database for block production.
-pub(crate) struct BlockProductionState<E: types::EthSpec> {
+pub(crate) struct BlockProductionState<E: EthSpec> {
     pub state: BeaconState<E>,
     pub state_root: Option<Hash256>,
     pub parent_payload_status: PayloadStatus,
@@ -22,7 +22,7 @@ pub(crate) struct BlockProductionState<E: types::EthSpec> {
 }
 
 /// Inputs assembled for producing a block via a proposer re-org.
-struct ReOrgInputs<E: types::EthSpec> {
+struct ReOrgInputs<E: EthSpec> {
     state: BeaconState<E>,
     state_root: Hash256,
     parent_payload_status: PayloadStatus,
@@ -174,7 +174,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
         head_slot: Slot,
         canonical_head: Hash256,
-    ) -> Option<(BeaconState<T::EthSpec>, Hash256)> {
+    ) -> Option<ReOrgInputs<T::EthSpec>> {
         let re_org_head_threshold = ReOrgThreshold(self.spec.reorg_head_weight_threshold);
         let re_org_parent_threshold = ReOrgThreshold(self.spec.reorg_parent_weight_threshold);
         let re_org_max_epochs_since_finalization =
