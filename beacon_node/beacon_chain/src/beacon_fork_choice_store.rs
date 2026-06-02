@@ -129,8 +129,8 @@ impl BalancesCache {
 /// Implements `fork_choice::ForkChoiceStore` in order to provide a persistent backing to the
 /// `fork_choice::ForkChoice` struct.
 #[derive(Debug, Educe)]
-#[educe(PartialEq(bound(E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>)))]
-pub struct BeaconForkChoiceStore<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
+#[educe(PartialEq(bound(E: EthSpec, Hot: ItemStore, Cold: ItemStore)))]
+pub struct BeaconForkChoiceStore<E: EthSpec, Hot: ItemStore, Cold: ItemStore> {
     #[educe(PartialEq(ignore))]
     store: Arc<HotColdDB<E, Hot, Cold>>,
     balances_cache: BalancesCache,
@@ -150,8 +150,8 @@ pub struct BeaconForkChoiceStore<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<
 impl<E, Hot, Cold> BeaconForkChoiceStore<E, Hot, Cold>
 where
     E: EthSpec,
-    Hot: ItemStore<E>,
-    Cold: ItemStore<E>,
+    Hot: ItemStore,
+    Cold: ItemStore,
 {
     /// Initialize `Self` from some `anchor` checkpoint which may or may not be the genesis state.
     ///
@@ -267,8 +267,8 @@ where
 impl<E, Hot, Cold> ForkChoiceStore<E> for BeaconForkChoiceStore<E, Hot, Cold>
 where
     E: EthSpec,
-    Hot: ItemStore<E>,
-    Cold: ItemStore<E>,
+    Hot: ItemStore,
+    Cold: ItemStore,
 {
     type Error = Error;
 

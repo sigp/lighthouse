@@ -57,7 +57,6 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     get_payload_v5: true,
     get_payload_v6: true,
     get_client_version_v1: true,
-    get_blobs_v1: true,
     get_blobs_v2: true,
     get_blobs_v3: true,
 };

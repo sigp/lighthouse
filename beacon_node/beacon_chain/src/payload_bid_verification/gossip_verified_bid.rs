@@ -43,9 +43,6 @@ pub(crate) fn verify_bid_consistency<E: EthSpec>(
     if bid.fee_recipient != proposer_preferences.message.fee_recipient {
         return Err(PayloadBidError::InvalidFeeRecipient);
     }
-    if bid.gas_limit != proposer_preferences.message.gas_limit {
-        return Err(PayloadBidError::InvalidGasLimit);
-    }
 
     let max_blobs_per_block =
         spec.max_blobs_per_block(bid_slot.epoch(E::slots_per_epoch())) as usize;
@@ -161,7 +158,23 @@ impl<T: BeaconChainTypes> GossipVerifiedPayloadBid<T> {
             });
         }
 
-        // TODO(gloas) [IGNORE] bid.parent_block_hash is the block hash of a known execution payload in fork choice.
+        // TODO(gloas): [IGNORE] bid.parent_block_hash is the block hash of a known execution
+        // payload in fork choice.
+
+        // TODO(gloas): This uses head state's bid gas_limit as parent_gas_limit, which is only
+        // correct when the bid's parent is the head. If the parent is an ancestor further back
+        // this check may be inaccurate. Fixing this requires storing
+        // gas_limit in fork choice or looking it up from the store by parent_block_hash. Taking the above
+        // TODO into consideration maybe should persist parent block hash and gas limit in fork choice?
+        if let Ok(parent_bid) = head_state.latest_execution_payload_bid()
+            && !is_gas_limit_target_compatible(
+                parent_bid.gas_limit,
+                signed_bid.message.gas_limit,
+                proposer_preferences.message.target_gas_limit,
+            )?
+        {
+            return Err(PayloadBidError::InvalidGasLimit);
+        }
 
         drop(fork_choice);
 
@@ -263,8 +276,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 }
 
+/// Check if `gas_limit` is compatible with `target_gas_limit` under the
+/// EIP-1559 transition rule from `parent_gas_limit`.
+pub fn is_gas_limit_target_compatible(
+    parent_gas_limit: u64,
+    gas_limit: u64,
+    target_gas_limit: u64,
+) -> Result<bool, PayloadBidError> {
+    let max_gas_limit_difference = (parent_gas_limit / 1024)
+        .max(1)
+        .checked_sub(1)
+        .ok_or(PayloadBidError::InvalidGasLimit)?;
+    let min_gas_limit = parent_gas_limit
+        .checked_sub(max_gas_limit_difference)
+        .ok_or(PayloadBidError::InvalidGasLimit)?;
+    let max_gas_limit = parent_gas_limit
+        .checked_add(max_gas_limit_difference)
+        .ok_or(PayloadBidError::InvalidGasLimit)?;
+
+    if target_gas_limit >= min_gas_limit && target_gas_limit <= max_gas_limit {
+        Ok(gas_limit == target_gas_limit)
+    } else if target_gas_limit > max_gas_limit {
+        Ok(gas_limit == max_gas_limit)
+    } else {
+        Ok(gas_limit == min_gas_limit)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::is_gas_limit_target_compatible;
     use bls::Signature;
     use kzg::KzgCommitment;
     use ssz_types::VariableList;
@@ -288,11 +329,14 @@ mod tests {
         }
     }
 
-    fn make_preferences(fee_recipient: Address, gas_limit: u64) -> SignedProposerPreferences {
+    fn make_preferences(
+        fee_recipient: Address,
+        target_gas_limit: u64,
+    ) -> SignedProposerPreferences {
         SignedProposerPreferences {
             message: ProposerPreferences {
                 fee_recipient,
-                gas_limit,
+                target_gas_limit,
                 ..ProposerPreferences::default()
             },
             signature: Signature::empty(),
@@ -382,13 +426,41 @@ mod tests {
     }
 
     #[test]
-    fn test_gas_limit_mismatch() {
-        let (state, spec) = state_and_spec();
-        let current_slot = Slot::new(10);
-        let bid = make_bid(current_slot, Address::ZERO, 30_000_000);
-        let prefs = make_preferences(Address::ZERO, 50_000_000);
+    fn test_is_gas_limit_target_compatible_increase_within_limit() {
+        assert!(is_gas_limit_target_compatible(60_000_000, 60_000_100, 60_000_100).unwrap());
+    }
 
-        let result = verify_bid_consistency::<E>(&bid, current_slot, &prefs, &state, &spec);
-        assert!(matches!(result, Err(PayloadBidError::InvalidGasLimit)));
+    #[test]
+    fn test_is_gas_limit_target_compatible_increase_exceeding_limit() {
+        // max_diff = 60_000_000 / 1024 - 1 = 58_592
+        // max_gas_limit = 60_000_000 + 58_592 = 60_058_592
+        assert!(is_gas_limit_target_compatible(60_000_000, 60_058_592, 100_000_000).unwrap());
+    }
+
+    #[test]
+    fn test_is_gas_limit_target_compatible_increase_exceeding_off_by_one() {
+        assert!(!is_gas_limit_target_compatible(60_000_000, 60_058_593, 100_000_000).unwrap());
+    }
+
+    #[test]
+    fn test_is_gas_limit_target_compatible_decrease_within_limit() {
+        assert!(is_gas_limit_target_compatible(60_000_000, 59_999_990, 59_999_990).unwrap());
+    }
+
+    #[test]
+    fn test_is_gas_limit_target_compatible_decrease_exceeding_limit() {
+        // min_gas_limit = 60_000_000 - 58_592 = 59_941_408
+        assert!(is_gas_limit_target_compatible(60_000_000, 59_941_408, 30_000_000).unwrap());
+    }
+
+    #[test]
+    fn test_is_gas_limit_target_compatible_target_equals_parent() {
+        assert!(is_gas_limit_target_compatible(60_000_000, 60_000_000, 60_000_000).unwrap());
+    }
+
+    #[test]
+    fn test_is_gas_limit_target_compatible_parent_underflows() {
+        // parent=1023: max(1023/1024, 1) - 1 = max(0, 1) - 1 = 0, no change allowed
+        assert!(is_gas_limit_target_compatible(1023, 1023, 60_000_000).unwrap());
     }
 }

@@ -24,10 +24,7 @@ use lighthouse_network::service::api_types::CustodyBackfillBatchId;
 use logging::crit;
 use std::sync::Arc;
 use std::time::Duration;
-use store::KzgCommitment;
 use tracing::{debug, debug_span, error, info, instrument, warn};
-use types::data::FixedBlobSidecarList;
-use types::kzg_ext::format_kzg_commitments;
 use types::{BlockImportSource, DataColumnSidecarList, Epoch, Hash256};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
@@ -239,114 +236,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         // Drop the handle to remove the entry from the cache
         drop(handle);
-    }
-
-    /// Returns an async closure which processes a list of blobs received via RPC.
-    ///
-    /// This separate function was required to prevent a cycle during compiler
-    /// type checking.
-    pub fn generate_rpc_blobs_process_fn(
-        self: Arc<Self>,
-        block_root: Hash256,
-        blobs: FixedBlobSidecarList<T::EthSpec>,
-        seen_timestamp: Duration,
-        process_type: BlockProcessType,
-    ) -> AsyncFn {
-        let process_fn = async move {
-            self.clone()
-                .process_rpc_blobs(block_root, blobs, seen_timestamp, process_type)
-                .await;
-        };
-        Box::pin(process_fn)
-    }
-
-    /// Attempt to process a list of blobs received from a direct RPC request.
-    #[instrument(
-        name = "lh_process_rpc_blobs",
-        parent = None,
-        level = "debug",
-        skip_all,
-        fields(?block_root),
-    )]
-    pub async fn process_rpc_blobs(
-        self: Arc<NetworkBeaconProcessor<T>>,
-        block_root: Hash256,
-        blobs: FixedBlobSidecarList<T::EthSpec>,
-        seen_timestamp: Duration,
-        process_type: BlockProcessType,
-    ) {
-        let Some(slot) = blobs
-            .iter()
-            .find_map(|blob| blob.as_ref().map(|blob| blob.slot()))
-        else {
-            return;
-        };
-
-        let (indices, commitments): (Vec<u64>, Vec<KzgCommitment>) = blobs
-            .iter()
-            .filter_map(|blob_opt| {
-                blob_opt
-                    .as_ref()
-                    .map(|blob| (blob.index, blob.kzg_commitment))
-            })
-            .unzip();
-        let commitments = format_kzg_commitments(&commitments);
-
-        debug!(
-            ?indices,
-            %block_root,
-            %slot,
-            commitments,
-            "RPC blobs received"
-        );
-
-        if let Ok(current_slot) = self.chain.slot()
-            && current_slot == slot
-        {
-            // Note: this metric is useful to gauge how long it takes to receive blobs requested
-            // over rpc. Since we always send the request for block components at `get_unaggregated_attestation_due() / 2`
-            // we can use that as a baseline to measure against.
-            let delay = get_slot_delay_ms(seen_timestamp, slot, &self.chain.slot_clock);
-
-            metrics::observe_duration(&metrics::BEACON_BLOB_RPC_SLOT_START_DELAY_TIME, delay);
-        }
-
-        let result = self.chain.process_rpc_blobs(slot, block_root, blobs).await;
-        register_process_result_metrics(&result, metrics::BlockSource::Rpc, "blobs");
-
-        match &result {
-            Ok(AvailabilityProcessingStatus::Imported(hash)) => {
-                debug!(
-                    result = "imported block and blobs",
-                    %slot,
-                    block_hash = %hash,
-                    "Block components retrieved"
-                );
-                self.chain.recompute_head_at_current_slot().await;
-            }
-            Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
-                debug!(
-                    block_hash = %block_root,
-                    %slot,
-                    "Missing components over rpc"
-                );
-            }
-            Err(BlockError::DuplicateFullyImported(_)) => {
-                debug!(
-                    block_hash = %block_root,
-                    %slot,
-                    "Blobs have already been imported"
-                );
-            }
-            // Errors are handled and logged in `block_lookups`
-            Err(_) => {}
-        }
-
-        // Sync handles these results
-        self.send_sync_message(SyncMessage::BlockComponentProcessed {
-            process_type,
-            result: result.into(),
-        });
     }
 
     #[instrument(

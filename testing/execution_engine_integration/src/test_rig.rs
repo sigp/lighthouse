@@ -320,6 +320,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                     Some(vec![]),
                     None,
                     None,
+                    None,
                 ),
             )
             .await;
@@ -366,11 +367,12 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             Some(vec![]),
             None,
             None,
+            None,
         );
 
         let payload_parameters = PayloadParameters {
             parent_hash,
-            parent_gas_limit,
+            parent_gas_limit: Some(parent_gas_limit),
             proposer_gas_limit: None,
             payload_attributes: &payload_attributes,
             forkchoice_update_params: &forkchoice_update_params,
@@ -527,11 +529,12 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             Some(vec![]),
             None,
             None,
+            None,
         );
 
         let payload_parameters = PayloadParameters {
             parent_hash,
-            parent_gas_limit,
+            parent_gas_limit: Some(parent_gas_limit),
             proposer_gas_limit: None,
             payload_attributes: &payload_attributes,
             forkchoice_update_params: &forkchoice_update_params,
@@ -586,6 +589,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             prev_randao,
             Address::repeat_byte(42),
             Some(vec![]),
+            None,
             None,
             None,
         );

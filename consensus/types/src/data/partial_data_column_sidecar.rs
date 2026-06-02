@@ -69,7 +69,7 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
             .count();
         self.column
             .get(storage_idx)
-            .and_then(|cell| self.kzg_proofs.get(storage_idx).map(|proof| (cell, proof)))
+            .zip(self.kzg_proofs.get(storage_idx))
     }
 
     /// Creates a reference to this sidecar containing only the blob indices for which the passed

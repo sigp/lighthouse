@@ -284,10 +284,6 @@ pub(crate) fn create_whitelist_filter(
         for id in 0..sync_committee_subnet_count {
             add(SyncCommitteeMessage(SyncSubnetId::new(id)));
         }
-        let blob_subnet_count = spec.blob_sidecar_subnet_count_max();
-        for id in 0..blob_subnet_count {
-            add(BlobSidecar(id));
-        }
         for id in 0..spec.data_column_sidecar_subnet_count {
             add(DataColumnSidecar(DataColumnSubnetId::new(id)));
         }

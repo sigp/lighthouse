@@ -39,7 +39,7 @@ use fnv::FnvHashMap;
 use lighthouse_network::service::api_types::SingleLookupReqId;
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
-pub use single_block_lookup::{BlobRequestState, BlockRequestState, CustodyRequestState};
+pub use single_block_lookup::{BlockRequestState, CustodyRequestState};
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use std::time::Duration;
@@ -80,7 +80,6 @@ const MAX_LOOKUPS: usize = 200;
 /// The values for `Blob`, `DataColumn` and `PartialDataColumn` is the parent root of the column.
 pub enum BlockComponent<E: EthSpec> {
     Block(DownloadResult<Arc<SignedBeaconBlock<E>>>),
-    Blob(DownloadResult<Hash256>),
     DataColumn(DownloadResult<Hash256>),
     PartialDataColumn(DownloadResult<Hash256>),
 }
@@ -89,15 +88,13 @@ impl<E: EthSpec> BlockComponent<E> {
     fn parent_root(&self) -> Hash256 {
         match self {
             BlockComponent::Block(block) => block.value.parent_root(),
-            BlockComponent::Blob(parent_root)
-            | BlockComponent::DataColumn(parent_root)
+            BlockComponent::DataColumn(parent_root)
             | BlockComponent::PartialDataColumn(parent_root) => parent_root.value,
         }
     }
     fn get_type(&self) -> &'static str {
         match self {
             BlockComponent::Block(_) => "block",
-            BlockComponent::Blob(_) => "blob",
             BlockComponent::DataColumn(_) => "data_column",
             BlockComponent::PartialDataColumn(_) => "partial_data_column",
         }
@@ -214,9 +211,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 block_root,
                 Some(block_component),
                 Some(parent_root),
-                // On a `UnknownParentBlock` or `UnknownParentBlob` event the peer is not required
-                // to have the rest of the block components (refer to decoupled blob gossip). Create
-                // the lookup with zero peers to house the block components.
+                // On a `UnknownParentBlock` or `UnknownParentDataColumn` event the peer is not
+                // required to have the rest of the block components. Create the lookup with zero
+                // peers to house the block components.
                 &[],
                 cx,
             )
@@ -553,9 +550,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             BlockProcessType::SingleBlock { id } => {
                 self.on_processing_result_inner::<BlockRequestState<T::EthSpec>>(id, result, cx)
             }
-            BlockProcessType::SingleBlob { id } => {
-                self.on_processing_result_inner::<BlobRequestState<T::EthSpec>>(id, result, cx)
-            }
             BlockProcessType::SingleCustodyColumn(id) => {
                 self.on_processing_result_inner::<CustodyRequestState<T::EthSpec>>(id, result, cx)
             }
@@ -699,7 +693,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                                 PeerAction::MidToleranceError,
                                 match R::response_type() {
                                     ResponseType::Block => "lookup_block_processing_failure",
-                                    ResponseType::Blob => "lookup_blobs_processing_failure",
                                     ResponseType::CustodyColumn => {
                                         "lookup_custody_column_processing_failure"
                                     }
