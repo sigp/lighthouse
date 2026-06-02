@@ -39,7 +39,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::Hash256;
 use tracing::{debug, error, warn};
-use types::{EthSpec, SignedBeaconBlock};
+use types::{DataColumnSidecarList, EthSpec, SignedBeaconBlock};
 
 pub mod parent_chain;
 mod single_block_lookup;
@@ -70,10 +70,9 @@ const LOOKUP_MAX_DURATION_NO_PEERS_SECS: u64 = 10;
 /// take at most 2 GB. 200 lookups allow 3 parallel chains of depth 64 (current maximum).
 const MAX_LOOKUPS: usize = 200;
 
-type BlockDownloadResponse<E> =
-    Result<(Arc<SignedBeaconBlock<E>>, PeerGroup, Duration), RpcResponseError>;
+type BlockDownloadResponse<E> = Result<DownloadResult<Arc<SignedBeaconBlock<E>>>, RpcResponseError>;
 type CustodyDownloadResponse<E> =
-    Result<(types::DataColumnSidecarList<E>, PeerGroup, Duration), RpcResponseError>;
+    Result<DownloadResult<DataColumnSidecarList<E>>, RpcResponseError>;
 
 pub enum BlockComponent<E: EthSpec> {
     Block(DownloadResult<Arc<SignedBeaconBlock<E>>>),
