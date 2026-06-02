@@ -98,8 +98,8 @@ use tokio_stream::{
 };
 use tracing::{debug, info, warn};
 use types::{
-    BeaconStateError, Checkpoint, ConfigAndPreset, Epoch, EthSpec, ForkName, Hash256,
-    SignedBlindedBeaconBlock,
+    BeaconStateError, ChainSpec, Checkpoint, ConfigAndPreset, Epoch, EthSpec, ForkName, Hash256,
+    KzgProof, SignedBlindedBeaconBlock,
 };
 use validator::execution_payload_envelope::get_validator_execution_payload_envelope;
 use version::{
@@ -324,6 +324,24 @@ pub fn tracing_logging() -> warp::filters::log::Log<impl Fn(warp::filters::log::
     })
 }
 
+/// Shared `Content-Length` limit for the SSZ POST endpoints, sized for the largest such body.
+/// Formula: max block size + blobs + KZG proofs + SSZ offsets.
+pub fn max_ssz_content_length<E: EthSpec>(spec: &ChainSpec) -> u64 {
+    // Max blob count across all scheduled forks, so the limit survives BPO bumps.
+    let max_blobs = spec.max_blobs_per_block_within_fork(ForkName::latest());
+    let blobs_size = max_blobs.saturating_mul(E::bytes_per_blob() as u64);
+    // Fulu carries one KZG proof per cell, `cells_per_ext_blob` per blob.
+    let proofs_size = max_blobs
+        .saturating_mul(E::cells_per_ext_blob() as u64)
+        .saturating_mul(<KzgProof as Encode>::ssz_fixed_len() as u64);
+    // One SSZ offset per variable-length component summed above (block, blobs, proofs).
+    let ssz_offsets = 3u64.saturating_mul(ssz::BYTES_PER_LENGTH_OFFSET as u64);
+    spec.max_payload_size
+        .saturating_add(blobs_size)
+        .saturating_add(proofs_size)
+        .saturating_add(ssz_offsets)
+}
+
 /// Creates a server that will serve requests using information from `ctx`.
 ///
 /// The server will shut down gracefully when the `shutdown` future resolves.
@@ -424,6 +442,14 @@ pub fn serve<T: BeaconChainTypes>(
             }
         })
         .boxed();
+
+    // Shared `Content-Length` limit for the SSZ POST endpoints; the default spec covers the
+    // pre-genesis window before `chain` exists.
+    let max_ssz_content_length = ctx
+        .chain
+        .as_ref()
+        .map(|chain| max_ssz_content_length::<T::EthSpec>(&chain.spec))
+        .unwrap_or_else(|| max_ssz_content_length::<T::EthSpec>(&T::EthSpec::default_spec()));
 
     let historical_committee_cache = ctx.historical_committee_cache.clone();
     let beacon_states_committees_filter = warp::any()
@@ -3457,6 +3483,8 @@ pub fn serve<T: BeaconChainTypes>(
         .uor(
             warp::post().and(
                 warp::header::exact(CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER)
+                    // Bound the body of every SSZ endpoint behind this gate before it's buffered.
+                    .and(warp::body::content_length_limit(max_ssz_content_length))
                     // Routes which expect `application/octet-stream` go within this `and`.
                     .and(
                         post_beacon_blocks_ssz
@@ -3547,4 +3575,32 @@ pub fn serve<T: BeaconChainTypes>(
     );
 
     Ok(http_server)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::max_ssz_content_length;
+    use ssz::Encode;
+    use types::{EthSpec, ForkName, KzgProof, MainnetEthSpec};
+
+    #[test]
+    fn max_ssz_content_length_covers_block_contents() {
+        type E = MainnetEthSpec;
+        let spec = E::default_spec();
+        let limit = max_ssz_content_length::<E>(&spec);
+        let max_blobs = spec.max_blobs_per_block_within_fork(ForkName::latest());
+
+        // Must exceed a single payload-sized chunk (the block on its own)...
+        assert!(limit > spec.max_payload_size);
+        // ...with room for the full blob + cell-proof bundle on top of a max-sized block.
+        let proof_len = <KzgProof as Encode>::ssz_fixed_len() as u64;
+        let bundle = max_blobs
+            .saturating_mul(E::bytes_per_blob() as u64)
+            .saturating_add(
+                max_blobs
+                    .saturating_mul(E::cells_per_ext_blob() as u64)
+                    .saturating_mul(proof_len),
+            );
+        assert!(limit >= spec.max_payload_size + bundle);
+    }
 }

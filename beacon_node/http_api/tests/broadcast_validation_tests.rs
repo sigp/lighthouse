@@ -103,6 +103,35 @@ pub async fn gossip_invalid() {
     assert_server_message_error(error_response, expected_error_msg);
 }
 
+/// This test checks that an oversized SSZ request body is rejected rather than served.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn ssz_request_body_exceeding_limit_is_rejected() {
+    let validator_count = 64;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
+
+    let max_body_size = http_api::max_ssz_content_length::<E>(&tester.harness.spec) as usize;
+    let mut url = tester.client.server().expose_full().clone();
+    url.set_path("eth/v1/beacon/blocks");
+    let client = reqwest::Client::new();
+
+    let outcome = client
+        .post(url.clone())
+        .header("Eth-Consensus-Version", "electra")
+        .header("Content-Type", "application/octet-stream")
+        .body(vec![0u8; max_body_size + 1])
+        .send()
+        .await;
+
+    // Surfaces as a 400, or a connection reset if the server closes mid-upload.
+    match outcome {
+        Ok(response) => assert_eq!(response.status(), StatusCode::BAD_REQUEST),
+        Err(err) => assert!(
+            err.is_request(),
+            "expected a 400 or a connection reset, got: {err:?}"
+        ),
+    }
+}
+
 /// This test checks that a block that is valid from a gossip perspective is accepted when using `broadcast_validation=gossip`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn gossip_partial_pass() {
