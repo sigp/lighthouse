@@ -44,6 +44,11 @@ impl<E: EthSpec> LookupBlock<E> {
 /// A block that has been constructed by range sync, ready for import.
 /// Pre-Gloas: wraps an `AvailableBlock` with all data.
 /// Gloas: carries the block and an optional envelope which contains the sidecar data.
+///
+/// Note: In the gloas case, we only ensure that the block is consistent with the envelope
+/// if the envelope is `Some` when constructing a `RangeSyncBlock` type.
+/// If `envelope` is None, then there is no guarantee that the canonical chain also contains
+/// an empty payload. The only way to ensure that is to process the next block.
 #[derive(Clone)]
 pub enum RangeSyncBlock<E: EthSpec> {
     Base(AvailableBlock<E>),
@@ -106,16 +111,64 @@ impl<E: EthSpec> RangeSyncBlock<E> {
     where
         T: BeaconChainTypes<EthSpec = E>,
     {
+        if block.fork_name_unchecked().gloas_enabled() {
+            return Err(AvailabilityCheckError::InvalidVariant);
+        }
         let available_block = AvailableBlock::new(block, block_data, da_checker, spec)?;
         Ok(Self::Base(available_block))
     }
 
     /// Constructs a Gloas `RangeSyncBlock` with block and optional envelope.
+    ///
+    /// This function only checks for consistency between the block and the envelope
+    /// if envelope.is_some() == true .
+    /// In the `None` case, we cannot guarantee that the payload is empty until we
+    /// process the block that builds on top of this block.
     pub fn new_gloas(
         block: Arc<SignedBeaconBlock<E>>,
         envelope: Option<Box<AvailableEnvelope<E>>>,
-    ) -> Self {
-        Self::Gloas { block, envelope }
+    ) -> Result<Self, String> {
+        if let Some(envelope) = envelope.as_ref() {
+            let execution_bid = &block
+                .message()
+                .body()
+                .signed_execution_payload_bid()
+                .map_err(|e| format!("missing signed_execution_payload_bid: {e:?}"))?
+                .message;
+            let envelope = envelope.message();
+
+            let block_root = block.canonical_root();
+            if envelope.beacon_block_root != block_root {
+                return Err(format!(
+                    "envelope block root mismatch: block {block_root:?}, envelope {:?}",
+                    envelope.beacon_block_root
+                ));
+            }
+
+            if envelope.slot() != block.slot() {
+                return Err(format!(
+                    "envelope slot mismatch: block {}, envelope {}",
+                    block.slot(),
+                    envelope.slot()
+                ));
+            }
+
+            if envelope.builder_index != execution_bid.builder_index {
+                return Err(format!(
+                    "envelope builder index mismatch: committed {}, envelope {}",
+                    execution_bid.builder_index, envelope.builder_index
+                ));
+            }
+
+            if envelope.payload.block_hash != execution_bid.block_hash {
+                return Err(format!(
+                    "envelope block hash mismatch: committed {:?}, envelope {:?}",
+                    execution_bid.block_hash, envelope.payload.block_hash
+                ));
+            }
+        }
+
+        Ok(Self::Gloas { block, envelope })
     }
 
     #[allow(clippy::type_complexity)]
@@ -150,6 +203,7 @@ impl<E: EthSpec> RangeSyncBlock<E> {
 
     /// Converts into an `AvailableBlock` for import, returning any associated envelope
     /// separately. Callers processing Gloas blocks must handle the envelope themselves.
+    #[allow(clippy::type_complexity)]
     pub fn into_available_block<T>(
         self,
         da_checker: &DataAvailabilityChecker<T>,

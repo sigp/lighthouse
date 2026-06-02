@@ -80,6 +80,7 @@ pub(crate) enum CouplingError {
         exceeded_retries: bool,
     },
     BlobPeerFailure(String),
+    EnvelopePeerFailure(String),
 }
 
 impl<E: EthSpec> RangeBlockComponentsRequest<E> {
@@ -543,7 +544,10 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             let available_envelope =
                 envelope.map(|env| Box::new(AvailableEnvelope::new(env, columns)));
 
-            range_sync_blocks.push(RangeSyncBlock::new_gloas(block, available_envelope));
+            range_sync_blocks.push(
+                RangeSyncBlock::new_gloas(block, available_envelope)
+                    .map_err(CouplingError::EnvelopePeerFailure)?,
+            );
         }
 
         // Recoverable error, log and continue
