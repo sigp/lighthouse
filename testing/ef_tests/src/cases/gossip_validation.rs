@@ -187,11 +187,10 @@ impl<E: EthSpec> GossipTester<E> {
     fn new(case: &GossipValidation<E>, spec: ChainSpec) -> Result<Self, Error> {
         let genesis_time = case.state.genesis_time();
         let blocks = case.load_beacon_blocks(&spec)?;
-        let case_head_root = case.case_head_root()?;
         let spec = Arc::new(spec);
 
-        let (harness, anchor_index) =
-            Self::build_harness(case, spec.clone(), &blocks, case_head_root, genesis_time)?;
+        let (harness, initial_block_index) =
+            Self::build_harness(case, spec.clone(), &blocks, genesis_time)?;
         let network_beacon_processor =
             Arc::new(NetworkBeaconProcessor::null_from_harness(&harness));
 
@@ -204,7 +203,7 @@ impl<E: EthSpec> GossipTester<E> {
         };
 
         tester.set_time_ms(case.meta.current_time_ms)?;
-        tester.import_setup_blocks(case, &blocks, anchor_index)?;
+        tester.import_setup_blocks(case, &blocks, initial_block_index)?;
 
         Ok(tester)
     }
@@ -213,14 +212,9 @@ impl<E: EthSpec> GossipTester<E> {
         case: &GossipValidation<E>,
         spec: Arc<ChainSpec>,
         blocks: &HashMap<String, SignedBeaconBlock<E>>,
-        case_head_root: Hash256,
         genesis_time: u64,
     ) -> Result<(BeaconChainHarness<EphemeralHarnessType<E>>, Option<usize>), Error> {
-        let anchor_index = if case.meta.blocks.is_empty() {
-            None
-        } else {
-            Some(case.anchor_setup_block_index(blocks, case_head_root)?)
-        };
+        let initial_block_index = (!case.meta.blocks.is_empty()).then_some(0);
 
         let harness_builder = || {
             BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
@@ -228,51 +222,29 @@ impl<E: EthSpec> GossipTester<E> {
                 .keypairs(vec![])
                 .mock_execution_layer()
                 .recalculate_fork_times_with_genesis(genesis_time)
+                // Default to valid EL responses. Setup blocks with `payload_status` override this
+                // during import.
                 .mock_execution_layer_all_payloads_valid()
         };
 
-        let harness = if let Some(anchor_index) = anchor_index {
-            let anchor_setup_block = &case.meta.blocks[anchor_index];
-            if anchor_setup_block.failed {
-                return Err(Error::FailedToParseTest(format!(
-                    "anchor block {} is marked as failed",
-                    anchor_setup_block.block
-                )));
-            }
-            if !matches!(
-                anchor_setup_block.payload_status,
-                None | Some(PayloadStatus::Valid)
-            ) {
-                return Err(Error::FailedToParseTest(format!(
-                    "anchor block {} has unsupported payload status {:?}",
-                    anchor_setup_block.block, anchor_setup_block.payload_status
-                )));
-            }
-
-            // Anchor the chain at the setup block whose post-state is `state.ssz_snappy`. Other
-            // setup blocks are imported below through Lighthouse's normal block import path.
+        let harness = if let Some(initial_block_index) = initial_block_index {
+            let initial_setup_block = &case.meta.blocks[initial_block_index];
+            // The first setup block's post-state is `state.ssz_snappy`. Other setup blocks are
+            // imported below through Lighthouse's normal block import path.
             let finalized_checkpoint = case.finalized_checkpoint(blocks)?;
-            let anchor_block = blocks
-                .get(&anchor_setup_block.block)
-                .ok_or_else(|| Error::FailedToParseTest("missing anchor block".into()))?
+            let initial_block = blocks
+                .get(&initial_setup_block.block)
+                .ok_or_else(|| Error::FailedToParseTest("missing initial setup block".into()))?
                 .clone();
-            let anchor_state = case.state.clone();
-            // The ephemeral store still needs genesis metadata. These networking vectors do not
-            // include a replayable genesis chain, so use the anchor state for that metadata too.
-            let genesis_metadata_state = case.state.clone();
+            let initial_state = case.state.clone();
             let store =
                 Arc::new(HotColdDB::open_ephemeral(StoreConfig::default(), spec.clone()).unwrap());
             harness_builder()
                 .resumed_ephemeral_store(store)
                 .override_store_mutator(Box::new(move |builder| {
                     builder
-                        .testing_anchor_state(
-                            anchor_state,
-                            anchor_block,
-                            finalized_checkpoint,
-                            genesis_metadata_state,
-                        )
-                        .expect("should build test anchor state")
+                        .testing_initial_state(initial_state, initial_block, finalized_checkpoint)
+                        .expect("should build test initial state")
                 }))
                 .build()
         } else {
@@ -281,20 +253,20 @@ impl<E: EthSpec> GossipTester<E> {
                 .build()
         };
 
-        Ok((harness, anchor_index))
+        Ok((harness, initial_block_index))
     }
 
     fn import_setup_blocks(
         &self,
         case: &GossipValidation<E>,
         blocks: &HashMap<String, SignedBeaconBlock<E>>,
-        anchor_index: Option<usize>,
+        initial_block_index: Option<usize>,
     ) -> Result<(), Error> {
         for (index, setup_block) in case.meta.blocks.iter().enumerate() {
             if setup_block.failed {
                 continue;
             }
-            if anchor_index == Some(index) {
+            if initial_block_index == Some(index) {
                 continue;
             }
             let block = blocks.get(&setup_block.block).ok_or_else(|| {
@@ -515,34 +487,6 @@ impl<E: EthSpec> GossipValidation<E> {
                 .file_name()
                 .and_then(|name| name.to_str())
                 .is_some_and(|case_name| IGNORED_BEACON_BLOCK_CASES.contains(&case_name))
-    }
-
-    fn case_head_root(&self) -> Result<Hash256, Error> {
-        let mut state = self.state.clone();
-        let state_root = state.update_tree_hash_cache().map_err(|e| {
-            Error::FailedToParseTest(format!("unable to compute case state root: {e:?}"))
-        })?;
-        Ok(state.get_latest_block_root(state_root))
-    }
-
-    fn anchor_setup_block_index(
-        &self,
-        blocks: &HashMap<String, SignedBeaconBlock<E>>,
-        case_head_root: Hash256,
-    ) -> Result<usize, Error> {
-        self.meta
-            .blocks
-            .iter()
-            .position(|setup_block| {
-                blocks
-                    .get(&setup_block.block)
-                    .is_some_and(|block| block.canonical_root() == case_head_root)
-            })
-            .ok_or_else(|| {
-                Error::FailedToParseTest(format!(
-                    "no setup block matches case head root {case_head_root:?}"
-                ))
-            })
     }
 
     fn finalized_checkpoint(
