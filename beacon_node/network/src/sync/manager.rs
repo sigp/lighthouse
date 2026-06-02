@@ -144,7 +144,7 @@ pub enum SyncMessage<E: EthSpec> {
     /// A block with an unknown parent has been received.
     UnknownParentBlock(PeerId, Arc<SignedBeaconBlock<E>>, Hash256),
 
-    /// A sidecar (data column) with an unknown parent has been received. Carries only the header
+    /// A sidecar (full/partial data column) with an unknown parent has been received. Carries only the header
     /// info needed to trigger a parent lookup, decoupled from the concrete sidecar type.
     UnknownParentSidecarHeader {
         peer_id: PeerId,
