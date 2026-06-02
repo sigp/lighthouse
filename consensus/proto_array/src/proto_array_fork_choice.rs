@@ -1015,6 +1015,7 @@ impl ProtoArrayForkChoice {
         &self,
         block_root: &Hash256,
         parent_payload_status: PayloadStatus,
+        proposal_slot: Slot,
     ) -> Result<bool, String> {
         let block_index = self
             .proto_array
@@ -1032,7 +1033,7 @@ impl ProtoArrayForkChoice {
             payload_status: parent_payload_status,
         };
         self.proto_array
-            .should_build_on_full::<E>(&fc_node, proto_node)
+            .should_build_on_full::<E>(&fc_node, proto_node, proposal_slot)
             .map_err(|e| format!("{e:?}"))
     }
 

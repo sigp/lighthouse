@@ -1542,9 +1542,10 @@ where
         &self,
         block_root: &Hash256,
         parent_payload_status: PayloadStatus,
+        proposal_slot: Slot,
     ) -> Result<bool, Error<T::Error>> {
         self.proto_array
-            .should_build_on_full::<E>(block_root, parent_payload_status)
+            .should_build_on_full::<E>(block_root, parent_payload_status, proposal_slot)
             .map_err(Error::ProtoArrayStringError)
     }
 
