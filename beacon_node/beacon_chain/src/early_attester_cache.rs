@@ -138,7 +138,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
         };
 
         let (blobs, data_columns) = match block.data() {
-            AvailableBlockData::NoData | AvailableBlockData::DataInEnvelope => (None, None),
+            AvailableBlockData::NoData => (None, None),
             AvailableBlockData::Blobs(blobs) => (Some(blobs.clone()), None),
             AvailableBlockData::DataColumns(data_columns) => (None, Some(data_columns.clone())),
         };

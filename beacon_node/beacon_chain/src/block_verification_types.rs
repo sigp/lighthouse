@@ -43,7 +43,7 @@ impl<E: EthSpec> LookupBlock<E> {
 
 /// A block that has been constructed by range sync, ready for import.
 /// Pre-Gloas: wraps an `AvailableBlock` with all data.
-/// Gloas: carries the block and an optional envelope (data arrives separately).
+/// Gloas: carries the block and an optional envelope which contains the sidecar data.
 #[derive(Clone)]
 pub enum RangeSyncBlock<E: EthSpec> {
     Base(AvailableBlock<E>),
@@ -90,7 +90,7 @@ impl<E: EthSpec> RangeSyncBlock<E> {
     pub fn block_data(&self) -> &AvailableBlockData<E> {
         match self {
             Self::Base(block) => block.data(),
-            Self::Gloas { .. } => &AvailableBlockData::DataInEnvelope,
+            Self::Gloas { .. } => &AvailableBlockData::NoData,
         }
     }
 }
@@ -122,20 +122,16 @@ impl<E: EthSpec> RangeSyncBlock<E> {
     pub fn deconstruct(self) -> (Hash256, Arc<SignedBeaconBlock<E>>, AvailableBlockData<E>) {
         match self {
             Self::Base(block) => block.deconstruct(),
-            Self::Gloas { block, .. } => (
-                block.canonical_root(),
-                block,
-                AvailableBlockData::DataInEnvelope,
-            ),
+            Self::Gloas { block, .. } => {
+                (block.canonical_root(), block, AvailableBlockData::NoData)
+            }
         }
     }
 
     pub fn n_blobs(&self) -> usize {
         match self {
             Self::Base(block) => match block.data() {
-                AvailableBlockData::NoData
-                | AvailableBlockData::DataInEnvelope
-                | AvailableBlockData::DataColumns(_) => 0,
+                AvailableBlockData::NoData | AvailableBlockData::DataColumns(_) => 0,
                 AvailableBlockData::Blobs(blobs) => blobs.len(),
             },
             Self::Gloas { .. } => 0,
@@ -145,9 +141,7 @@ impl<E: EthSpec> RangeSyncBlock<E> {
     pub fn n_data_columns(&self) -> usize {
         match self {
             Self::Base(block) => match block.data() {
-                AvailableBlockData::NoData
-                | AvailableBlockData::DataInEnvelope
-                | AvailableBlockData::Blobs(_) => 0,
+                AvailableBlockData::NoData | AvailableBlockData::Blobs(_) => 0,
                 AvailableBlockData::DataColumns(columns) => columns.len(),
             },
             Self::Gloas { .. } => 0,
@@ -167,12 +161,8 @@ impl<E: EthSpec> RangeSyncBlock<E> {
         match self {
             Self::Base(block) => Ok((block, None)),
             Self::Gloas { block, envelope } => {
-                let available = AvailableBlock::new(
-                    block,
-                    AvailableBlockData::DataInEnvelope,
-                    da_checker,
-                    spec,
-                )?;
+                let available =
+                    AvailableBlock::new(block, AvailableBlockData::NoData, da_checker, spec)?;
                 Ok((available, envelope))
             }
         }

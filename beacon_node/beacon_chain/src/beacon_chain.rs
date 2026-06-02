@@ -7546,7 +7546,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_data: AvailableBlockData<T::EthSpec>,
     ) -> Option<StoreOp<'_, T::EthSpec>> {
         match block_data {
-            AvailableBlockData::NoData | AvailableBlockData::DataInEnvelope => None,
+            AvailableBlockData::NoData => None,
             AvailableBlockData::Blobs(blobs) => {
                 debug!(
                     %block_root,
