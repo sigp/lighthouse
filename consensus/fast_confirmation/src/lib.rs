@@ -439,14 +439,19 @@ impl FastConfirmationRule {
         equivocating_indices: &BTreeSet<u64>,
     ) -> Result<Hash256, Error> {
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
+        let is_epoch_start = is_start_slot_at_epoch::<E>(current_slot);
         let mut confirmed_root = self.confirmed_root;
 
-        // Phase 1: Revert to finalized if needed.
-        let confirmed_epoch = self.block_epoch::<E>(confirmed_root, proto_array);
-        let is_epoch_start = is_start_slot_at_epoch::<E>(current_slot);
-
-        if confirmed_epoch.is_none_or(|e| e.saturating_add(1u64) < current_epoch)
-            || !self.is_ancestor(head_root, confirmed_root, proto_array)?
+        // Revert to the finalized block if the confirmed block is older than the
+        // previous epoch, is no longer on the canonical chain, or — at the start of
+        // an epoch — its chain can no longer be re-confirmed.
+        let confirmed_epoch_too_old = self
+            .block_epoch::<E>(confirmed_root, proto_array)?
+            .saturating_add(1u64)
+            < current_epoch;
+        let confirmed_not_ancestor = !self.is_ancestor(head_root, confirmed_root, proto_array)?;
+        if confirmed_epoch_too_old
+            || confirmed_not_ancestor
             || (is_epoch_start
                 && !self.is_confirmed_chain_safe::<E>(
                     confirmed_root,
@@ -456,12 +461,9 @@ impl FastConfirmationRule {
                     equivocating_indices,
                 )?)
         {
-            let reason = if confirmed_epoch.is_none_or(|e| e.saturating_add(1u64) < current_epoch) {
+            let reason = if confirmed_epoch_too_old {
                 "epoch_too_old"
-            } else if !self
-                .is_ancestor(head_root, confirmed_root, proto_array)
-                .unwrap_or(false)
-            {
+            } else if confirmed_not_ancestor {
                 "not_ancestor"
             } else {
                 "chain_unsafe"
@@ -474,17 +476,27 @@ impl FastConfirmationRule {
                 "FCR reverted to finalized"
             );
             confirmed_root = finalized_checkpoint.root;
-            metrics::inc_counter(&metrics::FCR_PHASE1_REVERT);
+            metrics::inc_counter(&metrics::FCR_REVERT_TO_FINALIZED);
         }
-        // Phase 2: Restart from justified if conditions met.
-        let observed_jcp = &self.current_epoch_observed_justified_checkpoint;
+
+        // Restart the confirmation chain from the current-epoch observed justified
+        // checkpoint when, at the start of an epoch: its block is in the previous
+        // epoch, it equals the head's unrealized justification, and the confirmed
+        // block is older than it.
+        let observed_jcp = self.current_epoch_observed_justified_checkpoint;
+        let observed_justified_block_slot = self.block_slot(observed_jcp.root, proto_array)?;
+        let is_observed_justified_block_epoch_ok = observed_justified_block_slot
+            .epoch(E::slots_per_epoch())
+            .saturating_add(1u64)
+            == current_epoch;
+        let is_head_unrealized_justified_ok =
+            observed_jcp == self.unrealized_justification_of(head_root, proto_array)?;
+        let is_confirmed_block_stale =
+            self.block_slot(confirmed_root, proto_array)? < observed_justified_block_slot;
         if is_epoch_start
-            && self
-                .block_epoch::<E>(observed_jcp.root, proto_array)
-                .is_some_and(|e| e.saturating_add(1u64) == current_epoch)
-            && *observed_jcp == self.unrealized_justification_of(head_root, proto_array)?
-            && self.block_slot(confirmed_root, proto_array)?
-                < self.block_slot(observed_jcp.root, proto_array)?
+            && is_observed_justified_block_epoch_ok
+            && is_head_unrealized_justified_ok
+            && is_confirmed_block_stale
         {
             debug!(
                 prev_confirmed = %confirmed_root,
@@ -493,13 +505,16 @@ impl FastConfirmationRule {
                 "FCR restarted from observed justified"
             );
             confirmed_root = observed_jcp.root;
-            metrics::inc_counter(&metrics::FCR_PHASE2_RESTART);
+            metrics::inc_counter(&metrics::FCR_RESTART_FROM_JUSTIFIED);
         }
         let pre_advance_root = confirmed_root;
 
-        // Phase 3: Advance via find_latest_confirmed_descendant.
-        let confirmed_epoch = self.block_epoch::<E>(confirmed_root, proto_array);
-        if confirmed_epoch.is_some_and(|e| e.saturating_add(1u64) >= current_epoch) {
+        // Attempt to advance the confirmed block to a descendant.
+        if self
+            .block_epoch::<E>(confirmed_root, proto_array)?
+            .saturating_add(1u64)
+            >= current_epoch
+        {
             confirmed_root = self.find_latest_confirmed_descendant::<E>(
                 confirmed_root,
                 head_root,
@@ -511,7 +526,7 @@ impl FastConfirmationRule {
             )?;
         }
         if confirmed_root != pre_advance_root {
-            metrics::inc_counter(&metrics::FCR_PHASE3_ADVANCE);
+            metrics::inc_counter(&metrics::FCR_ADVANCE);
         }
 
         Ok(confirmed_root)
@@ -577,8 +592,9 @@ impl FastConfirmationRule {
             self.get_voting_source_epoch::<E>(self.previous_slot_head, current_slot, proto_array);
 
         let confirmed_epoch_check = self
-            .block_epoch::<E>(confirmed_root, proto_array)
-            .is_some_and(|e| e.saturating_add(1u64) == current_epoch);
+            .block_epoch::<E>(confirmed_root, proto_array)?
+            .saturating_add(1u64)
+            == current_epoch;
         let voting_source_check =
             prev_head_voting_source_epoch.is_some_and(|e| e.saturating_add(2u64) >= current_epoch);
         let no_conflict = self.will_no_conflicting_checkpoint_be_justified::<E>(
@@ -603,8 +619,7 @@ impl FastConfirmationRule {
                 self.get_ancestor_roots(head_root, confirmed_root, proto_array)?;
 
             for block_root in &canonical_roots {
-                let block_epoch = self.block_epoch::<E>(*block_root, proto_array);
-                if block_epoch.is_none_or(|e| e >= current_epoch) {
+                if self.block_epoch::<E>(*block_root, proto_array)? >= current_epoch {
                     break;
                 }
                 if !self.is_ancestor(self.previous_slot_head, *block_root, proto_array)? {
@@ -640,8 +655,9 @@ impl FastConfirmationRule {
             let mut tentative_confirmed_root = confirmed_root;
 
             for block_root in &canonical_roots {
-                let block_epoch = self.block_epoch::<E>(*block_root, proto_array);
-                let tentative_epoch = self.block_epoch::<E>(tentative_confirmed_root, proto_array);
+                let block_epoch = self.block_epoch::<E>(*block_root, proto_array)?;
+                let tentative_epoch =
+                    self.block_epoch::<E>(tentative_confirmed_root, proto_array)?;
 
                 // When crossing into current epoch, check FFG.
                 if block_epoch > tentative_epoch {
@@ -669,14 +685,14 @@ impl FastConfirmationRule {
             }
 
             // Promote tentative if safe.
-            let tentative_epoch = self.block_epoch::<E>(tentative_confirmed_root, proto_array);
+            let tentative_epoch = self.block_epoch::<E>(tentative_confirmed_root, proto_array)?;
             let tentative_voting_source_epoch = self.get_voting_source_epoch::<E>(
                 tentative_confirmed_root,
                 current_slot,
                 proto_array,
             );
 
-            let promote_check1 = tentative_epoch == Some(current_epoch);
+            let promote_check1 = tentative_epoch == current_epoch;
             // Reuse `no_conflict` from above: `will_no_conflicting_checkpoint_be_justified` here
             // takes identical arguments and is deterministic, so its result is unchanged.
             let promote_check2 = tentative_voting_source_epoch
@@ -732,8 +748,8 @@ impl FastConfirmationRule {
                 .saturating_sub(1u64)
                 .start_slot(E::slots_per_epoch());
             let ancestor = self.get_ancestor(confirmed_root, prev_epoch_start, proto_array)?;
-            let ancestor_epoch = self.block_epoch::<E>(ancestor, proto_array);
-            if ancestor_epoch.is_some_and(|e| e.saturating_add(1u64) == current_epoch) {
+            let ancestor_epoch = self.block_epoch::<E>(ancestor, proto_array)?;
+            if ancestor_epoch.saturating_add(1u64) == current_epoch {
                 // The parent of the first block of the previous epoch.
                 match self.parent_root(ancestor, proto_array) {
                     Some(r) => r,
@@ -876,13 +892,11 @@ impl FastConfirmationRule {
         let Some(parent_root) = self.parent_root(block_root, proto_array) else {
             return Ok(0);
         };
-        let parent_epoch = self.block_epoch::<E>(parent_root, proto_array);
-        let block_epoch = self.block_epoch::<E>(block_root, proto_array);
+        let parent_epoch = self.block_epoch::<E>(parent_root, proto_array)?;
+        let block_epoch = self.block_epoch::<E>(block_root, proto_array)?;
 
         let start_slot = if block_epoch > parent_epoch {
-            block_epoch
-                .ok_or(Error::BlockEpochNone(block_root))?
-                .start_slot(E::slots_per_epoch())
+            block_epoch.start_slot(E::slots_per_epoch())
         } else {
             block_slot
         };
@@ -1120,12 +1134,13 @@ impl FastConfirmationRule {
         &self,
         root: Hash256,
         proto_array: &ProtoArray,
-    ) -> Option<types::Epoch> {
+    ) -> Result<types::Epoch, Error> {
         proto_array
             .indices
             .get(&root)
             .and_then(|&idx| proto_array.nodes.get(idx))
             .map(|n| n.slot().epoch(E::slots_per_epoch()))
+            .ok_or(Error::BlockEpochNone(root))
     }
 
     fn parent_root(&self, root: Hash256, proto_array: &ProtoArray) -> Option<Hash256> {

@@ -35,22 +35,22 @@ pub static FCR_CONFIRMATION_DELAY_SLOTS: LazyLock<Result<IntGauge>> = LazyLock::
         "Confirmation delay: current head slot minus confirmed root slot",
     )
 });
-pub static FCR_PHASE1_REVERT: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+pub static FCR_REVERT_TO_FINALIZED: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
-        "beacon_fcr_phase1_revert_total",
-        "Count of FCR phase 1 (revert to finalized) activations",
+        "beacon_fcr_revert_to_finalized_total",
+        "Count of FCR reverts of the confirmed root to the finalized block",
     )
 });
-pub static FCR_PHASE2_RESTART: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+pub static FCR_RESTART_FROM_JUSTIFIED: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
-        "beacon_fcr_phase2_restart_total",
-        "Count of FCR phase 2 (restart from justified) activations",
+        "beacon_fcr_restart_from_justified_total",
+        "Count of FCR restarts of the confirmed root from the observed justified checkpoint",
     )
 });
-pub static FCR_PHASE3_ADVANCE: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+pub static FCR_ADVANCE: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
-        "beacon_fcr_phase3_advance_total",
-        "Count of FCR phase 3 (advance confirmed root) activations",
+        "beacon_fcr_advance_total",
+        "Count of FCR advances of the confirmed root to a descendant",
     )
 });
 pub static FCR_BALANCE_SOURCE_AGE_EPOCHS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
