@@ -19,28 +19,6 @@ use strum::IntoStaticStr;
 use tracing::{Span, debug_span};
 use types::{DataColumnSidecarList, EthSpec, SignedBeaconBlock, Slot};
 
-/// What a child lookup is waiting for its parent to resolve.
-#[derive(Debug, Clone, Copy)]
-pub struct AwaitingParent {
-    parent_root: Hash256,
-}
-
-impl AwaitingParent {
-    pub fn parent_root(&self) -> Hash256 {
-        self.parent_root
-    }
-
-    pub fn from_block<E: EthSpec>(block: &SignedBeaconBlock<E>) -> Self {
-        Self {
-            parent_root: block.message().parent_root(),
-        }
-    }
-
-    pub fn from_root(parent_root: Hash256) -> Self {
-        Self { parent_root }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct DownloadResult<T: Clone> {
     pub value: T,
@@ -165,7 +143,7 @@ pub struct SingleBlockLookup<T: BeaconChainTypes> {
     peers: PeerSet,
 
     // Parent tracking
-    awaiting_parent: Option<AwaitingParent>,
+    awaiting_parent: Option<Hash256>,
     created: Instant,
     pub(crate) span: Span,
 }
@@ -175,7 +153,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         requested_block_root: Hash256,
         peers: &[PeerId],
         id: Id,
-        awaiting_parent: Option<AwaitingParent>,
+        awaiting_parent: Option<Hash256>,
     ) -> Self {
         let lookup_span = debug_span!(
             "lh_single_block_lookup",
@@ -214,8 +192,14 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.block_root
     }
 
-    pub fn awaiting_parent(&self) -> Option<AwaitingParent> {
+    pub fn awaiting_parent(&self) -> Option<Hash256> {
         self.awaiting_parent
+    }
+
+    /// Mark this lookup as awaiting a parent lookup from being processed. Meanwhile don't send
+    /// components for processing.
+    pub fn set_awaiting_parent(&mut self, parent_root: Hash256) {
+        self.awaiting_parent = Some(parent_root)
     }
 
     /// Mark this lookup as no longer awaiting a parent lookup. Components can be sent for
@@ -245,7 +229,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
 
     /// Check the block root matches the requested block root.
     pub fn is_for_block(&self, block_root: Hash256) -> bool {
-        self.block_root == block_root
+        self.block_root() == block_root
     }
 
     /// Returns true if this request is expecting some event to make progress
@@ -373,7 +357,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 // future call to `continue_requests` will re-submit the block for processing once
                 // the parent lookup completes.
                 self.block_request.state.revert_to_awaiting_processing()?;
-                self.awaiting_parent = Some(AwaitingParent::from_root(parent_root));
+                self.set_awaiting_parent(parent_root);
                 return Ok(LookupResult::ParentUnknown {
                     parent_root,
                     block_root: self.block_root,
@@ -757,12 +741,6 @@ impl<T: Clone> std::fmt::Debug for State<T> {
             Self::Processing(_) => write!(f, "Processing"),
             Self::Processed(reason, _) => write!(f, "Processed({})", reason),
         }
-    }
-}
-
-impl std::fmt::Display for AwaitingParent {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.parent_root)
     }
 }
 

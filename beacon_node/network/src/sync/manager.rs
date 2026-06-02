@@ -45,7 +45,7 @@ use crate::network_beacon_processor::{
 };
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
-use crate::sync::block_lookups::{AwaitingParent, BlockComponent, DownloadResult};
+use crate::sync::block_lookups::{BlockComponent, DownloadResult};
 use crate::sync::custody_backfill_sync::CustodyBackFillSync;
 use crate::sync::network_context::{PeerGroup, RpcResponseResult};
 use beacon_chain::block_verification_types::AsBlock;
@@ -863,8 +863,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 self.handle_unknown_parent(
                     peer_id,
                     block_root,
+                    parent_root,
                     block_slot,
-                    AwaitingParent::from_block(&block),
                     BlockComponent::Block(DownloadResult {
                         value: block.block_cloned(),
                         seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
@@ -882,8 +882,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         self.handle_unknown_parent(
                             peer_id,
                             block_root,
+                            parent_root,
                             data_column_slot,
-                            AwaitingParent::from_root(parent_root),
                             BlockComponent::Sidecar,
                         );
                     }
@@ -907,8 +907,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 self.handle_unknown_parent(
                     peer_id,
                     block_root,
+                    parent_root,
                     slot,
-                    AwaitingParent::from_root(parent_root),
                     BlockComponent::Sidecar,
                 );
             }
@@ -990,8 +990,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         &mut self,
         peer_id: PeerId,
         block_root: Hash256,
+        parent_root: Hash256,
         slot: Slot,
-        awaiting_parent: AwaitingParent,
         block_component: BlockComponent<T::EthSpec>,
     ) {
         match self.should_search_for_block(Some(slot), &peer_id) {
@@ -999,7 +999,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 if self.block_lookups.search_child_and_parent(
                     block_root,
                     block_component,
-                    awaiting_parent,
+                    parent_root,
                     peer_id,
                     &mut self.network,
                 ) {
@@ -1007,18 +1007,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 } else {
                     debug!(
                         ?block_root,
-                        %awaiting_parent,
+                        ?parent_root,
                         "No lookup created for child and parent"
                     );
                 }
             }
             Err(reason) => {
-                debug!(
-                    %block_root,
-                    %awaiting_parent,
-                    reason,
-                    "Ignoring unknown parent request"
-                );
+                debug!(%block_root, %parent_root, reason, "Ignoring unknown parent request");
             }
         }
     }
