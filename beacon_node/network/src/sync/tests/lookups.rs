@@ -1,15 +1,14 @@
 use super::*;
 use crate::NetworkMessage;
+use crate::network_beacon_processor::BlockProcessingResult;
+use crate::network_beacon_processor::sync_methods::WhichPeerToPenalize;
 use crate::network_beacon_processor::{
     ChainSegmentProcessId, InvalidBlockStorage, NetworkBeaconProcessor,
 };
 use crate::sync::block_lookups::{BlockLookupSummary, PARENT_DEPTH_TOLERANCE};
 use crate::sync::{
     SyncMessage,
-    manager::{
-        BatchProcessResult, BlockProcessType, BlockProcessingResult, SyncManager,
-        WhichPeerToPenalize,
-    },
+    manager::{BatchProcessResult, BlockProcessType, SyncManager},
 };
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::custody_context::NodeCustodyType;
@@ -1952,10 +1951,11 @@ async fn too_many_processing_failures(depth: usize) {
     r.simulate(
         SimulateConfig::new().with_process_result(|| BlockProcessingResult::Error {
             penalty: Some((
-                lighthouse_network::PeerAction::MidToleranceError,
+                PeerAction::MidToleranceError,
                 WhichPeerToPenalize::BlockPeer,
+                "lookup_block_processing_failure",
             )),
-            reason: "lookup_block_processing_failure",
+            reason: "lookup_block_processing_failure".to_string(),
         }),
     )
     .await;
@@ -2000,22 +2000,21 @@ async fn unknown_parent_does_not_add_peers_to_itself() {
 }
 
 #[tokio::test]
-/// Assert that if the beacon processor returns a processor-overloaded error, the lookup retries
-/// without penalizing peers and eventually fails after MAX_ATTEMPTS.
+/// Assert that a non-attributable processing error (e.g. processor overloaded) is retried up to
+/// `SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS`, no peer is penalized, and the lookup is then dropped.
 async fn test_single_block_lookup_ignored_response() {
     let mut r = TestRig::default();
     r.build_chain_and_trigger_last_block(1).await;
-    // Send a "processor overloaded" response repeatedly. Under the new model this is just an
-    // Error with no peer penalty; the lookup retries until MAX_ATTEMPTS, then drops.
     r.simulate(
         SimulateConfig::new().with_process_result(|| BlockProcessingResult::Error {
             penalty: None,
-            reason: "processor_overloaded",
+            reason: "processor_overloaded".to_string(),
         }),
     )
     .await;
     // The block was not actually imported
     r.assert_head_slot(0);
+    r.assert_no_penalties();
     assert_eq!(r.created_lookups(), 1, "no created lookups");
     assert_eq!(r.dropped_lookups(), 1, "no dropped lookups");
     assert_eq!(r.completed_lookups(), 0, "some completed lookups");
@@ -2028,7 +2027,8 @@ async fn test_single_block_lookup_duplicate_response() {
     r.build_chain_and_trigger_last_block(1).await;
     // Send a DuplicateFullyImported response, the lookup should complete successfully
     r.simulate(
-        SimulateConfig::new().with_process_result(|| BlockProcessingResult::Imported("duplicate")),
+        SimulateConfig::new()
+            .with_process_result(|| BlockProcessingResult::Imported(true, "duplicate")),
     )
     .await;
     // The block was not actually imported
@@ -2407,7 +2407,7 @@ async fn crypto_on_fail_with_invalid_block_signature() {
         r.assert_no_penalties();
     } else {
         r.assert_failed_lookup_sync();
-        r.assert_penalties_of_type("lookup_block_processing_failure");
+        r.assert_penalties_of_type("InvalidSignature");
     }
 }
 
@@ -2425,7 +2425,7 @@ async fn crypto_on_fail_with_bad_column_proposer_signature() {
         r.assert_no_penalties();
     } else {
         r.assert_failed_lookup_sync();
-        r.assert_penalties_of_type("lookup_custody_column_processing_failure");
+        r.assert_penalties_of_type("InvalidSignature");
     }
 }
 
@@ -2443,6 +2443,6 @@ async fn crypto_on_fail_with_bad_column_kzg_proof() {
         r.assert_no_penalties();
     } else {
         r.assert_failed_lookup_sync();
-        r.assert_penalties_of_type("lookup_custody_column_processing_failure");
+        r.assert_penalties_of_type("AvailabilityCheck");
     }
 }

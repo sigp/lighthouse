@@ -1,6 +1,7 @@
 use super::{BlockComponent, PeerId, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS};
+use crate::network_beacon_processor::BlockProcessingResult;
 use crate::sync::block_lookups::{BlockDownloadResponse, CustodyDownloadResponse};
-use crate::sync::manager::{BlockProcessType, BlockProcessingResult};
+use crate::sync::manager::BlockProcessType;
 use crate::sync::network_context::{
     LookupRequestResult, PeerGroup, ReqId, RpcRequestSendError, RpcResponseError,
     SendErrorProcessor, SyncNetworkContext,
@@ -626,7 +627,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         let block_peer = *peer;
 
         match result {
-            BlockProcessingResult::Imported(_) => {
+            BlockProcessingResult::Imported(_fully_imported, _info) => {
                 let block = block.clone();
                 self.block_request = BlockRequest::Complete {
                     block,
@@ -652,8 +653,14 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 })
             }
             BlockProcessingResult::Error { penalty, reason } => {
-                if let Some((action, whom)) = penalty {
-                    whom.apply(action, &PeerGroup::from_single(block_peer), reason, cx);
+                debug!(
+                    block_root = ?self.block_root,
+                    reason,
+                    ?penalty,
+                    "Lookup block processing failed; retrying"
+                );
+                if let Some((action, whom, msg)) = penalty {
+                    whom.apply(action, &PeerGroup::from_single(block_peer), msg, cx);
                 }
                 // Block processing failed — reset everything and retry from scratch.
                 self.reset_requests();
@@ -680,7 +687,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         let peer_group = peer_group.clone();
 
         match result {
-            BlockProcessingResult::Imported(_) => {
+            BlockProcessingResult::Imported(_fully_imported, _info) => {
                 if let Some(req) = &mut self.data_request {
                     req.state = DataRequestState::Complete;
                 }
@@ -690,8 +697,14 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 "data processing returned ParentUnknown".to_owned(),
             )),
             BlockProcessingResult::Error { penalty, reason } => {
-                if let Some((action, whom)) = penalty {
-                    whom.apply(action, &peer_group, reason, cx);
+                debug!(
+                    block_root = ?self.block_root,
+                    reason,
+                    ?penalty,
+                    "Lookup data processing failed; retrying"
+                );
+                if let Some((action, whom, msg)) = penalty {
+                    whom.apply(action, &peer_group, msg, cx);
                 }
                 // Data processing failed — bump the shared processing-failure counter and rebuild
                 // the data request so retries stay bounded against MAX_ATTEMPTS.

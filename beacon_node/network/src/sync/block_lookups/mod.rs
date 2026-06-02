@@ -23,9 +23,10 @@
 use self::parent_chain::{NodeChain, compute_parent_chains};
 pub use self::single_block_lookup::{AwaitingParent, DownloadResult};
 use self::single_block_lookup::{LookupRequestError, LookupResult, SingleBlockLookup};
-use super::manager::{BlockProcessType, BlockProcessingResult, SLOT_IMPORT_TOLERANCE};
+use super::manager::{BlockProcessType, SLOT_IMPORT_TOLERANCE};
 use super::network_context::{PeerGroup, RpcResponseError, SyncNetworkContext};
 use crate::metrics;
+use crate::network_beacon_processor::BlockProcessingResult;
 use crate::sync::SyncMessage;
 use crate::sync::block_lookups::parent_chain::find_oldest_fork_ancestor;
 use beacon_chain::BeaconChainTypes;

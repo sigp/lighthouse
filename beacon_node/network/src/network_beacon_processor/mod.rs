@@ -36,13 +36,13 @@ use {
     slot_clock::ManualSlotClock, store::MemoryStore, tokio::sync::mpsc::UnboundedSender,
 };
 
-pub use sync_methods::ChainSegmentProcessId;
+pub use sync_methods::{BlockProcessingResult, ChainSegmentProcessId};
 
 pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
 
 mod gossip_methods;
 mod rpc_methods;
-mod sync_methods;
+pub(crate) mod sync_methods;
 mod tests;
 
 pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
