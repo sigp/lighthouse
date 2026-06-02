@@ -88,7 +88,7 @@ impl<E: EthSpec> StateCache<E> {
             finalized_state: None,
             states: LruCache::new(state_capacity.get()),
             block_map: BlockMap::default(),
-            hdiff_buffers: HotHDiffBufferCache::new(hdiff_capacity),
+            hdiff_buffers: HotHDiffBufferCache::new(hdiff_capacity.get()),
             max_epoch: Epoch::new(0),
             head_block_root: Hash256::ZERO,
             headroom,
@@ -154,7 +154,7 @@ impl<E: EthSpec> StateCache<E> {
         // preferences older slots.
         // NOTE: This isn't perfect as it prunes by slot: there could be multiple buffers
         // at some slots in the case of long forks without finality.
-        let new_hdiff_cache = HotHDiffBufferCache::new_from_capacity(self.hdiff_buffers.capacity());
+        let new_hdiff_cache = HotHDiffBufferCache::new(self.hdiff_buffers.capacity());
         let old_hdiff_cache = std::mem::replace(&mut self.hdiff_buffers, new_hdiff_cache);
         for (state_root, (slot, buffer)) in old_hdiff_cache.hdiff_buffers {
             if pre_finalized_slots_to_retain.contains(&slot) {
@@ -450,13 +450,7 @@ impl BlockMap {
 }
 
 impl HotHDiffBufferCache {
-    pub fn new(capacity: NonZeroUsize) -> Self {
-        Self {
-            hdiff_buffers: LruCache::new(capacity.get()),
-        }
-    }
-
-    fn new_from_capacity(capacity: usize) -> Self {
+    pub fn new(capacity: usize) -> Self {
         Self {
             hdiff_buffers: LruCache::new(capacity),
         }
