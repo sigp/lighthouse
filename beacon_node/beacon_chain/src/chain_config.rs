@@ -139,6 +139,16 @@ impl FastConfirmationMode {
     }
 }
 
+impl From<bool> for FastConfirmationMode {
+    fn from(enabled: bool) -> Self {
+        if enabled {
+            FastConfirmationMode::Enabled
+        } else {
+            FastConfirmationMode::Disabled
+        }
+    }
+}
+
 impl Default for ChainConfig {
     fn default() -> Self {
         Self {

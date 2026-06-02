@@ -39,13 +39,7 @@ impl BalanceSourceData {
         checkpoint: Checkpoint,
         relative_epoch: RelativeEpoch,
     ) -> Result<Self, Error> {
-        let epoch = match relative_epoch {
-            RelativeEpoch::Current => state.current_epoch(),
-            RelativeEpoch::Previous => state.previous_epoch(),
-            RelativeEpoch::Next => state
-                .next_epoch()
-                .map_err(|e| Error::CommitteeCache(format!("{e:?}")))?,
-        };
+        let epoch = relative_epoch.into_epoch(state.current_epoch());
         let (slashed, mut per_epoch) = Self::build_for_epochs(state, &[epoch]);
         let eb = per_epoch.pop().unwrap_or_default();
         Ok(Self::from_parts(
