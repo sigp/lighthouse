@@ -1569,18 +1569,19 @@ where
     /// block and is therefore always present, so a Gloas child at the fork-transition boundary must
     /// not be gated on it.
     pub fn is_parent_imported_status(&self, block: &SignedBeaconBlock<E>) -> ParentImportedStatus {
-        if let Some(proto_block) = self.get_block(&block.parent_root()) {
-            // `execution_payload_block_hash` is only set for post-Gloas proto nodes; a pre-Gloas
-            // parent (`None`) has no separately-imported payload to wait for.
-            let parent_is_post_gloas = proto_block.execution_payload_block_hash.is_some();
-            if parent_is_post_gloas
-                && let Ok(bid) = block.message().body().signed_execution_payload_bid()
-                && proto_block.is_parent_full(bid)
+        if let Some(parent_block) = self.get_block(&block.parent_root()) {
+            let Some(parent_block_hash) = parent_block.execution_payload_block_hash else {
+                // `execution_payload_block_hash` is only set for post-Gloas proto nodes; a
+                // pre-Gloas parent (`None`) has no separately-imported payload to wait for.
+                return ParentImportedStatus::Imported(parent_block);
+            };
+            if block.is_parent_block_full(parent_block_hash)
                 && !self.is_payload_received(&block.parent_root())
             {
-                return ParentImportedStatus::UnimportedPayload;
+                ParentImportedStatus::UnimportedPayload
+            } else {
+                ParentImportedStatus::Imported(parent_block)
             }
-            ParentImportedStatus::Imported(proto_block)
         } else {
             ParentImportedStatus::UnknownBlock
         }
