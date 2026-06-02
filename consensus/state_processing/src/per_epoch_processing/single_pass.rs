@@ -1104,9 +1104,15 @@ impl PendingDepositsContext {
 
         let pending_deposits = state.pending_deposits()?;
 
+        // Support for the former Eth1 bridge deposit mechanism was removed in Fulu (spec PR #4704),
+        // so the gate that withholds deposit requests until bridge deposits are applied only runs
+        // pre-Fulu.
+        let apply_eth1_bridge_gate = !state.fork_name_unchecked().fulu_enabled();
+
         for deposit in pending_deposits.iter() {
             // Do not process deposit requests if the Eth1 bridge deposits are not yet applied.
-            if deposit.slot > spec.genesis_slot
+            if apply_eth1_bridge_gate
+                && deposit.slot > spec.genesis_slot
                 && state.eth1_deposit_index() < state.deposit_requests_start_index()?
             {
                 break;
