@@ -21,6 +21,14 @@ pub(crate) struct BlockProductionState<E: types::EthSpec> {
     pub parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
 }
 
+/// Inputs assembled for producing a block via a proposer re-org.
+struct ReOrgInputs<E: types::EthSpec> {
+    state: BeaconState<E>,
+    state_root: Hash256,
+    parent_payload_status: PayloadStatus,
+    parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+}
+
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Load a beacon state from the database for block production. This is a long-running process
     /// that should not be performed in an `async` context.
@@ -40,54 +48,47 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Atomically read some values from the head whilst avoiding holding cached head `Arc` any
         // longer than necessary. If the head has a payload envelope (Gloas full head), cheaply
         // clone the `Arc` so we can pass it to block production without a DB load.
-        let (head_slot, head_block_root, head_state_root, head_payload_status, head_envelope) = {
+        let (head_slot, head_block_root, head_state_root) = {
             let head = self.canonical_head.cached_head();
             (
                 head.head_slot(),
                 head.head_block_root(),
                 head.head_state_root(),
-                head.head_payload_status(),
-                head.snapshot.execution_envelope.clone(),
             )
         };
+
         let result = if head_slot < slot {
             // Attempt an aggressive re-org if configured and the conditions are right.
-            // TODO(gloas): re-enable reorgs
-            let gloas_enabled = self
-                .spec
-                .fork_name_at_slot::<T::EthSpec>(slot)
-                .gloas_enabled();
-            if !gloas_enabled
-                && let Some((re_org_state, re_org_state_root)) =
-                    self.get_state_for_re_org(slot, head_slot, head_block_root)
-            {
+            if let Some(inputs) = self.get_state_for_re_org(slot, head_slot, head_block_root) {
                 info!(
                     %slot,
                     head_to_reorg = %head_block_root,
                     "Proposing block to re-org current head"
                 );
-                // TODO(gloas): ensure we use a sensible payload status when we enable reorgs
-                // for Gloas
                 BlockProductionState {
-                    state: re_org_state,
-                    state_root: Some(re_org_state_root),
-                    parent_payload_status: PayloadStatus::Pending,
-                    parent_envelope: None,
+                    state: inputs.state,
+                    state_root: Some(inputs.state_root),
+                    parent_payload_status: inputs.parent_payload_status,
+                    parent_envelope: inputs.parent_envelope,
                 }
             } else {
-                // Fetch the head state advanced through to `slot`, which should be present in the
-                // state cache thanks to the state advance timer.
+                // Continuation: the new block builds on the current head. Fetch the head state
+                // advanced through to `slot`, which should be present in the state cache thanks to
+                // the state advance timer.
                 let parent_state_root = head_state_root;
                 let (state_root, state) = self
                     .store
                     .get_advanced_hot_state(head_block_root, slot, parent_state_root)
                     .map_err(BlockProductionError::FailedToLoadState)?
                     .ok_or(BlockProductionError::UnableToProduceAtSlot(slot))?;
+
+
+
                 BlockProductionState {
                     state,
                     state_root: Some(state_root),
-                    parent_payload_status: head_payload_status,
-                    parent_envelope: head_envelope,
+                    parent_payload_status: PayloadStatus::Pending,
+                    parent_envelope: None,
                 }
             }
         } else {
@@ -173,7 +174,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
         head_slot: Slot,
         canonical_head: Hash256,
-    ) -> Option<(BeaconState<T::EthSpec>, Hash256)> {
+    ) -> Option<ReOrgInputs<T::EthSpec>> {
         let re_org_head_threshold = self.config.re_org_head_threshold?;
         let re_org_parent_threshold = self.config.re_org_parent_threshold?;
 
@@ -240,8 +241,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             })
             .ok()?;
+
         drop(proposer_head_timer);
         let re_org_parent_block = proposer_head.parent_node.root();
+
+        let parent_payload_status = match self
+            .canonical_head
+            .fork_choice_read_lock()
+            .should_extend_payload(&re_org_parent_block)
+        {
+            Ok(true) => PayloadStatus::Full,
+            Ok(false) => PayloadStatus::Empty,
+            Err(e) => {
+                warn!(
+                    error = ?e,
+                    parent = ?re_org_parent_block,
+                    "Not attempting re-org: failed to resolve parent payload status"
+                );
+                return None;
+            }
+        };
 
         let (state_root, state) = self
             .store
@@ -251,6 +270,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None
             })?;
 
+        let parent_envelope = if parent_payload_status == PayloadStatus::Full {
+            self.store
+                .get_payload_envelope(&re_org_parent_block)
+                .ok()
+                .flatten()
+                .map(Arc::new)
+        } else {
+            None
+        };
+
         info!(
             weak_head = ?canonical_head,
             parent = ?re_org_parent_block,
@@ -259,6 +288,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "Attempting re-org due to weak head"
         );
 
-        Some((state, state_root))
+        Some(ReOrgInputs {
+            state,
+            state_root,
+            parent_payload_status,
+            parent_envelope,
+        })
     }
 }

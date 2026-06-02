@@ -1569,6 +1569,7 @@ where
         beacon_block_root: Hash256,
         mut state: Cow<BeaconState<E>>,
         state_root: Hash256,
+        payload_present_override: Option<bool>,
     ) -> Result<Attestation<E>, BeaconChainError> {
         assert_eq!(
             state.get_latest_block_root(state_root),
@@ -1603,12 +1604,17 @@ where
             *state.get_block_root(target_slot)?
         };
 
-        let payload_present = state.fork_name_unchecked().gloas_enabled()
-            && state.latest_block_header().slot != slot
-            && self
-                .chain
-                .canonical_head
-                .block_has_canonical_payload(&beacon_block_root, &self.spec)?;
+        let payload_present = match payload_present_override {
+            Some(payload_present) => payload_present,
+            None => {
+                state.fork_name_unchecked().gloas_enabled()
+                    && state.latest_block_header().slot != slot
+                    && self
+                        .chain
+                        .canonical_head
+                        .block_has_canonical_payload(&beacon_block_root, &self.spec)?
+            }
+        };
 
         Ok(Attestation::empty_for_signing(
             index,
@@ -1688,7 +1694,7 @@ where
         attestation_slot: Slot,
         opts: MakeAttestationOptions,
     ) -> (Vec<CommitteeSingleAttestations>, Vec<usize>) {
-        let MakeAttestationOptions { limit, fork } = opts;
+        let MakeAttestationOptions { limit, fork, .. } = opts;
         let committee_count = state.get_committee_count_at_slot(state.slot()).unwrap();
         let num_attesters = AtomicUsize::new(0);
 
@@ -1781,6 +1787,27 @@ where
         attestation_slot: Slot,
         opts: MakeAttestationOptions,
     ) -> (Vec<CommitteeAttestations<E>>, Vec<usize>) {
+        self.make_unaggregated_attestations_impl(
+            attesting_validators,
+            state,
+            state_root,
+            head_block_root,
+            attestation_slot,
+            opts,
+            None,
+        )
+    }
+
+    fn make_unaggregated_attestations_impl(
+        &self,
+        attesting_validators: &[usize],
+        state: &BeaconState<E>,
+        state_root: Hash256,
+        head_block_root: SignedBeaconBlockHash,
+        attestation_slot: Slot,
+        opts: MakeAttestationOptions,
+        payload_present_override: Option<bool>,
+    ) -> (Vec<CommitteeAttestations<E>>, Vec<usize>) {
         let MakeAttestationOptions { limit, fork } = opts;
         let committee_count = state.get_committee_count_at_slot(state.slot()).unwrap();
         let num_attesters = AtomicUsize::new(0);
@@ -1814,6 +1841,7 @@ where
                                 head_block_root.into(),
                                 Cow::Borrowed(state),
                                 state_root,
+                                payload_present_override,
                             )
                             .unwrap();
 
@@ -2029,14 +2057,61 @@ where
         slot: Slot,
         opts: MakeAttestationOptions,
     ) -> (HarnessAttestations<E>, Vec<usize>) {
-        let MakeAttestationOptions { fork, .. } = opts;
-        let (unaggregated_attestations, attesters) = self.make_unaggregated_attestations_with_opts(
+        self.make_attestations_impl(
             attesting_validators,
             state,
             state_root,
             block_hash,
             slot,
             opts,
+            None,
+        )
+    }
+
+    /// Like `make_attestations_with_opts`, but forces every produced attestation's
+    /// `payload_present` field to the supplied value. Use only for Gloas tests that need to
+    /// simulate validators voting `payload_present = false` despite the block's payload being
+    /// canonical (or vice versa).
+    pub fn make_attestations_with_payload_present_override(
+        &self,
+        attesting_validators: &[usize],
+        state: &BeaconState<E>,
+        state_root: Hash256,
+        block_hash: SignedBeaconBlockHash,
+        slot: Slot,
+        fork: Fork,
+        payload_present: bool,
+    ) -> (HarnessAttestations<E>, Vec<usize>) {
+        self.make_attestations_impl(
+            attesting_validators,
+            state,
+            state_root,
+            block_hash,
+            slot,
+            MakeAttestationOptions { limit: None, fork },
+            Some(payload_present),
+        )
+    }
+
+    fn make_attestations_impl(
+        &self,
+        attesting_validators: &[usize],
+        state: &BeaconState<E>,
+        state_root: Hash256,
+        block_hash: SignedBeaconBlockHash,
+        slot: Slot,
+        opts: MakeAttestationOptions,
+        payload_present_override: Option<bool>,
+    ) -> (HarnessAttestations<E>, Vec<usize>) {
+        let MakeAttestationOptions { fork, .. } = opts;
+        let (unaggregated_attestations, attesters) = self.make_unaggregated_attestations_impl(
+            attesting_validators,
+            state,
+            state_root,
+            block_hash,
+            slot,
+            opts,
+            payload_present_override,
         );
 
         let aggregated_attestations: Vec<Option<SignedAggregateAndProof<E>>> =

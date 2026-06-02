@@ -5210,6 +5210,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         canonical_forkchoice_params: ForkchoiceUpdateParameters,
     ) -> Result<ForkchoiceUpdateParameters, Error> {
+        let current_slot = self.slot()?;
+        if self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(current_slot)
+            .gloas_enabled()
+        {
+            return Ok(canonical_forkchoice_params);
+        }
+
         self.overridden_forkchoice_update_params_or_failure_reason(&canonical_forkchoice_params)
             .or_else(|e| match *e {
                 ProposerHeadError::DoNotReOrg(reason) => {
@@ -5321,10 +5330,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(Box::new(DoNotReOrg::NotProposing.into()));
         }
 
-        // TODO(gloas): reorg weight logic needs updating for Gloas. For now use
-        // total weight which is correct for pre-Gloas and conservative for post-Gloas.
-        let head_weight = info.head_node.weight();
-        let parent_weight = info.parent_node.weight();
+        // Spec-aligned re-org weight checks. For Gloas (V29) nodes this uses
+        // payload-aware bucket weights matching `is_parent_strong`/`is_head_weak`;
+        // for pre-Gloas (V17) nodes `attestation_score` falls back to `weight()`.
+        let parent_payload_status = info.head_node.get_parent_payload_status();
+        let parent_weight = info.parent_node.attestation_score(parent_payload_status);
+        let head_weight = info
+            .head_node
+            .attestation_score(fork_choice::PayloadStatus::Pending)
+            .saturating_add(
+                info.head_node
+                    .equivocating_attestation_score()
+                    .unwrap_or(0),
+            );
 
         let (head_weak, parent_strong) = if fork_choice_slot == re_org_block_slot {
             (
