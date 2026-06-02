@@ -773,9 +773,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     equivocating_indices,
                     fcr_head_state,
                 ) {
-                    error!(error = ?e, "Fast Confirmation Rule error, continuing without FCR");
-                    let label: &'static str = (&e).into();
-                    metrics::inc_counter_vec(&fcr_metrics::FCR_ERRORS, &[label]);
+                    // During sync and just after checkpoint sync the head state can't yet
+                    // provide current-epoch committee assignments; FCR skips those ticks. These
+                    // are expected transients (never seen in steady state), so log them at debug
+                    // and don't count them as FCR errors.
+                    if matches!(
+                        e,
+                        fast_confirmation::Error::StaleStateForAssignments { .. }
+                            | fast_confirmation::Error::CommitteeCache(_)
+                    ) {
+                        debug!(error = ?e, "FCR: head state not ready, skipping tick");
+                    } else {
+                        error!(error = ?e, "Fast Confirmation Rule error, continuing without FCR");
+                        let label: &'static str = (&e).into();
+                        metrics::inc_counter_vec(&fcr_metrics::FCR_ERRORS, &[label]);
+                    }
                 } else {
                     let confirmed_root_changed = fcr.confirmed_root != old_confirmed;
                     fcr_confirmed_root_changed = confirmed_root_changed;
