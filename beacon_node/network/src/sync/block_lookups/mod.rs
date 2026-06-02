@@ -21,7 +21,7 @@
 //! returned to this module as `LookupRequestResult` variants.
 
 use self::parent_chain::{NodeChain, compute_parent_chains};
-pub use self::single_block_lookup::{AwaitingParent, DownloadResult};
+pub use self::single_block_lookup::DownloadResult;
 use self::single_block_lookup::{LookupRequestError, LookupResult, SingleBlockLookup};
 use super::manager::{BlockProcessType, SLOT_IMPORT_TOLERANCE};
 use super::network_context::{PeerGroup, RpcResponseError, SyncNetworkContext};
@@ -81,14 +81,6 @@ pub enum BlockComponent<E: EthSpec> {
 }
 
 pub type SingleLookupId = u32;
-
-#[derive(Debug, Copy, Clone)]
-pub enum NewLookupTrigger {
-    // `ParentUnknown` carries the parent block root for logging/metrics; not consumed
-    // elsewhere yet. Keep the field so the trigger reason stays in debug logs.
-    ParentUnknown(#[allow(dead_code)] Hash256),
-    NetworkMessage,
-}
 
 pub struct BlockLookups<T: BeaconChainTypes> {
     /// A cache of block roots that must be ignored for some time to prevent useless searches. For
@@ -177,30 +169,23 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         block_root: Hash256,
         block_component: BlockComponent<T::EthSpec>,
-        awaiting_parent: AwaitingParent,
+        parent_root: Hash256,
         peer_id: PeerId,
-        new_lookup_trigger: NewLookupTrigger,
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
-        let parent_lookup_exists = self.search_parent_of_child(
-            awaiting_parent,
-            block_root,
-            &[peer_id],
-            new_lookup_trigger,
-            cx,
-        );
+        let parent_lookup_exists =
+            self.search_parent_of_child(parent_root, block_root, &[peer_id], cx);
         // Only create the child lookup if the parent exists
         if parent_lookup_exists {
             // `search_parent_of_child` ensures that the parent lookup exists so we can safely wait for it
             self.new_current_lookup(
                 block_root,
                 Some(block_component),
-                Some(awaiting_parent),
+                Some(parent_root),
                 // On a `UnknownParentBlock` or `UnknownParentDataColumn` event the peer is not
-                // required to have the rest of the block components (refer to decoupled blob
-                // gossip). Create the lookup with zero peers to house the block components.
+                // required to have the rest of the block components. Create the lookup with zero
+                // peers to house the block components.
                 &[],
-                new_lookup_trigger,
                 cx,
             )
         } else {
@@ -208,7 +193,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
     }
 
-    /// Search a block whose parent root is unknown.
+    /// Seach a block whose parent root is unknown.
     ///
     /// Returns true if the lookup is created or already exists
     #[must_use = "only reference the new lookup if returns true"]
@@ -216,10 +201,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         block_root: Hash256,
         peer_source: &[PeerId],
-        new_lookup_trigger: NewLookupTrigger,
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
-        self.new_current_lookup(block_root, None, None, peer_source, new_lookup_trigger, cx)
+        self.new_current_lookup(block_root, None, None, peer_source, cx)
     }
 
     /// A block or blob triggers the search of a parent.
@@ -231,14 +215,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     #[must_use = "only reference the new lookup if returns true"]
     pub fn search_parent_of_child(
         &mut self,
-        awaiting_parent: AwaitingParent,
+        block_root_to_search: Hash256,
         child_block_root_trigger: Hash256,
         peers: &[PeerId],
-        new_lookup_trigger: NewLookupTrigger,
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
-        let block_root_to_search = awaiting_parent.parent_root();
-
         // The zero hash is the parent root of the genesis block, not a real block.
         if block_root_to_search == Hash256::ZERO {
             debug!("Not searching for zero hash (parent of genesis)");
@@ -333,28 +314,19 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
 
         // `block_root_to_search` is a failed chain check happens inside new_current_lookup
-        self.new_current_lookup(
-            block_root_to_search,
-            None,
-            None,
-            peers,
-            new_lookup_trigger,
-            cx,
-        )
+        self.new_current_lookup(block_root_to_search, None, None, peers, cx)
     }
 
     /// Searches for a single block hash. If the blocks parent is unknown, a chain of blocks is
     /// constructed.
     /// Returns true if the lookup is created or already exists
     #[must_use = "only reference the new lookup if returns true"]
-    #[allow(clippy::too_many_arguments)]
     fn new_current_lookup(
         &mut self,
         block_root: Hash256,
         block_component: Option<BlockComponent<T::EthSpec>>,
-        awaiting_parent: Option<AwaitingParent>,
+        awaiting_parent: Option<Hash256>,
         peers: &[PeerId],
-        new_lookup_trigger: NewLookupTrigger,
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
         // If this block or it's parent is part of a known ignored chain, ignore it.
@@ -388,7 +360,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             && !self
                 .single_block_lookups
                 .iter()
-                .any(|(_, lookup)| lookup.is_for_block(awaiting_parent.parent_root()))
+                .any(|(_, lookup)| lookup.is_for_block(awaiting_parent))
         {
             warn!(block_root = ?awaiting_parent, "Ignoring child lookup parent lookup not found");
             return false;
@@ -428,7 +400,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 .map(|root| root.to_string())
                 .unwrap_or("none".to_owned()),
             id = lookup.id,
-            ?new_lookup_trigger,
             "Created block lookup"
         );
         metrics::inc_counter(&metrics::SYNC_LOOKUP_CREATED);
@@ -579,7 +550,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let mut lookup_results = vec![]; // < need to buffer lookup results to not re-borrow &mut self
 
         for (id, lookup) in self.single_block_lookups.iter_mut() {
-            if lookup.awaiting_parent().map(|a| a.parent_root()) == Some(block_root) {
+            if lookup.awaiting_parent() == Some(block_root) {
                 lookup.resolve_awaiting_parent();
                 debug!(
                     parent_root = ?block_root,
@@ -615,10 +586,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             let child_lookups = self
                 .single_block_lookups
                 .iter()
-                .filter(|(_, lookup)| {
-                    lookup.awaiting_parent().map(|a| a.parent_root())
-                        == Some(dropped_lookup.block_root())
-                })
+                .filter(|(_, lookup)| lookup.awaiting_parent() == Some(dropped_lookup.block_root()))
                 .map(|(id, _)| *id)
                 .collect::<Vec<_>>();
 
@@ -644,13 +612,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 block_root,
                 peers,
             }) => {
-                if self.search_parent_of_child(
-                    AwaitingParent::from_root(parent_root),
-                    block_root,
-                    &peers,
-                    NewLookupTrigger::ParentUnknown(parent_root),
-                    cx,
-                ) {
+                if self.search_parent_of_child(parent_root, block_root, &peers, cx) {
                     true
                 } else {
                     self.drop_lookup_and_children(id, "Failed");
@@ -805,16 +767,17 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &'a self,
         lookup: &'a SingleBlockLookup<T>,
     ) -> Result<&'a SingleBlockLookup<T>, String> {
-        if let Some(awaiting) = lookup.awaiting_parent() {
-            let parent_root = awaiting.parent_root();
+        if let Some(awaiting_parent) = lookup.awaiting_parent() {
             if let Some(lookup) = self
                 .single_block_lookups
                 .values()
-                .find(|l| l.block_root() == parent_root)
+                .find(|l| l.block_root() == awaiting_parent)
             {
                 self.find_oldest_ancestor_lookup(lookup)
             } else {
-                Err(format!("Lookup references unknown parent {parent_root:?}"))
+                Err(format!(
+                    "Lookup references unknown parent {awaiting_parent:?}"
+                ))
             }
         } else {
             Ok(lookup)
@@ -848,8 +811,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
         }
 
-        if let Some(awaiting) = lookup.awaiting_parent() {
-            let parent_root = awaiting.parent_root();
+        if let Some(parent_root) = lookup.awaiting_parent() {
             if let Some((&parent_id, _)) = self
                 .single_block_lookups
                 .iter()
