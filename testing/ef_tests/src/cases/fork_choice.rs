@@ -1294,7 +1294,6 @@ impl<E: EthSpec> Tester<E> {
         let fork_choice_lock = self.harness.chain.canonical_head.fork_choice_read_lock();
         let head_root = cached_head.head_block_root();
         let finalized_cp = fork_choice_lock.finalized_checkpoint();
-        let justified_cp = fork_choice_lock.justified_checkpoint();
         let unrealized_justified_cp = fork_choice_lock.unrealized_justified_checkpoint();
         let proto_array = fork_choice_lock.proto_array().core_proto_array();
         let votes = fork_choice_lock.proto_array().votes();
@@ -1306,7 +1305,6 @@ impl<E: EthSpec> Tester<E> {
                 .get_latest_confirmed::<E>(
                     head_root,
                     &finalized_cp,
-                    &justified_cp,
                     &unrealized_justified_cp,
                     current_slot,
                     proto_array,

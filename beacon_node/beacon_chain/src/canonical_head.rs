@@ -733,7 +733,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let head_root = new_view.head_block_root;
             let finalized_cp = fork_choice_read_lock.finalized_checkpoint();
-            let justified_cp = fork_choice_read_lock.justified_checkpoint();
             let unrealized_justified_cp = fork_choice_read_lock.unrealized_justified_checkpoint();
             let proto_array = fork_choice_read_lock.proto_array().core_proto_array();
             let votes = fork_choice_read_lock.proto_array().votes();
@@ -781,7 +780,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 if let Err(e) = fcr.on_fast_confirmation::<T::EthSpec>(
                     head_root,
                     &finalized_cp,
-                    &justified_cp,
                     &unrealized_justified_cp,
                     fcr_current_slot,
                     proto_array,

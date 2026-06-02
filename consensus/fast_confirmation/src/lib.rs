@@ -341,7 +341,6 @@ impl FastConfirmationRule {
         &mut self,
         head_root: Hash256,
         finalized_checkpoint: &Checkpoint,
-        justified_checkpoint: &Checkpoint,
         unrealized_justified_checkpoint: &Checkpoint,
         current_slot: Slot,
         proto_array: &ProtoArray,
@@ -375,7 +374,6 @@ impl FastConfirmationRule {
             self.confirmed_root = self.get_latest_confirmed::<E>(
                 head_root,
                 finalized_checkpoint,
-                justified_checkpoint,
                 unrealized_justified_checkpoint,
                 current_slot,
                 proto_array,
@@ -429,13 +427,11 @@ impl FastConfirmationRule {
     // Spec: get_latest_confirmed
     // -----------------------------------------------------------------------
 
-    /// `_justified_checkpoint` is unused but kept to match the spec function signature.
     #[allow(clippy::too_many_arguments)]
     pub fn get_latest_confirmed<E: EthSpec>(
         &self,
         head_root: Hash256,
         finalized_checkpoint: &Checkpoint,
-        _justified_checkpoint: &Checkpoint,
         unrealized_justified_checkpoint: &Checkpoint,
         current_slot: Slot,
         proto_array: &ProtoArray,
