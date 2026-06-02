@@ -46,7 +46,10 @@ use ssz::{Decode, Encode};
 use std::fmt;
 use std::future::Future;
 use std::time::Duration;
-use types::{PayloadAttestationData, PayloadAttestationMessage, SignedProposerPreferences};
+use types::{
+    PayloadAttestationData, PayloadAttestationMessage, SignedExecutionPayloadBid,
+    SignedProposerPreferences,
+};
 
 pub const V1: EndpointVersion = EndpointVersion(1);
 pub const V2: EndpointVersion = EndpointVersion(2);
@@ -2830,6 +2833,54 @@ impl BeaconNodeHttpClient {
         self.post_generic_with_consensus_version_and_ssz_body(
             path,
             envelope.as_ssz_bytes(),
+            Some(self.timeouts.proposal),
+            fork_name,
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// `POST v1/beacon/execution_payload_bid`
+    pub async fn post_beacon_execution_payload_bid<E: EthSpec>(
+        &self,
+        bid: &SignedExecutionPayloadBid<E>,
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("execution_payload_bid");
+
+        self.post_generic_with_consensus_version(
+            path,
+            bid,
+            Some(self.timeouts.proposal),
+            fork_name,
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// `POST v1/beacon/execution_payload_bid` in SSZ format
+    pub async fn post_beacon_execution_payload_bid_ssz<E: EthSpec>(
+        &self,
+        bid: &SignedExecutionPayloadBid<E>,
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("execution_payload_bid");
+
+        self.post_generic_with_consensus_version_and_ssz_body(
+            path,
+            bid.as_ssz_bytes(),
             Some(self.timeouts.proposal),
             fork_name,
         )
