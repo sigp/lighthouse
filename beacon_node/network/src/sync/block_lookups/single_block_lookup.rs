@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::Hash256;
 use strum::IntoStaticStr;
-use tracing::{Span, debug, debug_span};
+use tracing::{Span, debug_span};
 use types::{DataColumnSidecarList, EthSpec, SignedBeaconBlock, Slot};
 
 /// What a child lookup is waiting for its parent to resolve.
@@ -112,6 +112,10 @@ impl<E: EthSpec> BlockRequest<E> {
             state: SingleLookupRequestState::new(),
         }
     }
+
+    fn is_complete(&self) -> bool {
+        self.state.is_processed()
+    }
 }
 
 #[derive(Debug)]
@@ -120,6 +124,23 @@ struct DataRequest<E: EthSpec> {
     block_root: Hash256,
     slot: Slot,
     state: SingleLookupRequestState<DataColumnSidecarList<E>>,
+}
+
+#[derive(Debug)]
+enum DataRequestState<E: EthSpec> {
+    WaitingForBlock,
+    Request(DataRequest<E>),
+    NoData,
+}
+
+impl<E: EthSpec> DataRequestState<E> {
+    fn is_complete(&self) -> bool {
+        match &self {
+            DataRequestState::WaitingForBlock => false,
+            DataRequestState::Request(request) => request.state.is_processed(),
+            DataRequestState::NoData => true,
+        }
+    }
 }
 
 type PeerSet = Arc<RwLock<HashSet<PeerId>>>;
@@ -134,7 +155,7 @@ pub struct SingleBlockLookup<T: BeaconChainTypes> {
     block_request: BlockRequest<T::EthSpec>,
 
     // Data request — starts as None, set after block downloaded
-    data_request: Option<DataRequest<T::EthSpec>>,
+    data_request: DataRequestState<T::EthSpec>,
 
     // Peer sets.
     //
@@ -168,7 +189,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             id,
             block_root: requested_block_root,
             block_request: BlockRequest::new(),
-            data_request: None,
+            data_request: DataRequestState::WaitingForBlock,
             peers: Arc::new(RwLock::new(peers.iter().copied().collect())),
             awaiting_parent,
             created: Instant::now(),
@@ -179,7 +200,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     /// Reset the status of all requests (used on block processing failure)
     pub fn reset_requests(&mut self) {
         self.block_request = BlockRequest::new();
-        self.data_request = None;
+        self.data_request = DataRequestState::WaitingForBlock;
     }
 
     /// Return the slot of this lookup's block if it's currently cached
@@ -234,8 +255,9 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.awaiting_parent.is_some()
             || self.block_request.state.is_awaiting_event()
             || match &self.data_request {
-                Some(request) => request.state.is_awaiting_event(),
-                None => true,
+                DataRequestState::WaitingForBlock => true,
+                DataRequestState::Request(request) => request.state.is_awaiting_event(),
+                DataRequestState::NoData => false,
             }
     }
 
@@ -271,20 +293,25 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         loop {
             match &mut self.data_request {
                 // None = waiting for block
-                None => {
-                    let Some(block) = self.block_request.state.peek_downloaded_data() else {
+                DataRequestState::WaitingForBlock => {
+                    if let Some(block) = self.block_request.state.peek_downloaded_data() {
+                        if block.has_data() {
+                            // TODO(gloas): Only start if expected_blobs > 0
+                            let peers = self.peers.clone();
+                            self.data_request = DataRequestState::Request(DataRequest {
+                                peers,
+                                block_root: self.block_root,
+                                slot: block.slot(),
+                                state: SingleLookupRequestState::new(),
+                            });
+                        } else {
+                            self.data_request = DataRequestState::NoData;
+                        }
+                    } else {
                         break;
-                    };
-                    // TODO(gloas): Only start if expected_blobs > 0
-                    let peers = self.peers.clone();
-                    self.data_request = Some(DataRequest {
-                        peers,
-                        block_root: self.block_root,
-                        slot: block.slot(),
-                        state: SingleLookupRequestState::new(),
-                    });
+                    }
                 }
-                Some(request) => {
+                DataRequestState::Request(request) => {
                     if request.state.is_awaiting_download() {
                         request.state.make_request(|| {
                             cx.custody_lookup_request(
@@ -314,16 +341,12 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                     }
                     break;
                 }
+                DataRequestState::NoData => break,
             }
         }
 
         // === Check completion ===
-        if self.block_request.state.is_processed()
-            && self
-                .data_request
-                .as_ref()
-                .is_some_and(|r| r.state.is_processed())
-        {
+        if self.block_request.is_complete() && self.data_request.is_complete() {
             return Ok(LookupResult::Completed);
         }
 
@@ -341,7 +364,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         match result {
             BlockProcessingResult::Imported(_fully_imported, _info) => {
                 self.block_request.state.on_processing_success()?;
-                self.continue_requests(cx)
             }
             BlockProcessingResult::ParentUnknown { parent_root } => {
                 // `BlockError::ParentUnknown` is only returned when processing blocks. Revert the
@@ -350,26 +372,20 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 // the parent lookup completes.
                 self.block_request.state.revert_to_awaiting_processing()?;
                 self.awaiting_parent = Some(AwaitingParent::from_root(parent_root));
-                Ok(LookupResult::ParentUnknown {
+                return Ok(LookupResult::ParentUnknown {
                     parent_root,
                     block_root: self.block_root,
                     peers: self.all_peers(),
-                })
+                });
             }
-            BlockProcessingResult::Error { penalty, reason } => {
-                debug!(
-                    block_root = ?self.block_root,
-                    reason,
-                    ?penalty,
-                    "Lookup block processing failed; retrying"
-                );
-                let block_peer = self.block_request.state.on_processing_failure()?;
+            BlockProcessingResult::Error { penalty, .. } => {
+                let peers = self.block_request.state.on_processing_failure()?;
                 if let Some((action, whom, msg)) = penalty {
-                    whom.apply(action, &block_peer, msg, cx);
+                    whom.apply(action, &peers, msg, cx);
                 }
-                self.continue_requests(cx)
             }
         }
+        self.continue_requests(cx)
     }
 
     /// Handle data processing result (blobs or custody columns imported).
@@ -378,33 +394,27 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         result: BlockProcessingResult,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
-        let DataRequest { state, .. } = self
-            .data_request
-            .as_mut()
-            .ok_or(LookupRequestError::BadState("no data_request".to_owned()))?;
+        let DataRequestState::Request(DataRequest { state, .. }) = &mut self.data_request else {
+            return Err(LookupRequestError::BadState("no data_request".to_owned()));
+        };
 
         match result {
             BlockProcessingResult::Imported(_fully_imported, _info) => {
                 state.on_processing_success()?;
-                self.continue_requests(cx)
             }
-            BlockProcessingResult::ParentUnknown { .. } => Err(LookupRequestError::BadState(
-                "data processing returned ParentUnknown".to_owned(),
-            )),
-            BlockProcessingResult::Error { penalty, reason } => {
-                debug!(
-                    block_root = ?self.block_root,
-                    reason,
-                    ?penalty,
-                    "Lookup data processing failed; retrying"
-                );
-                let peer_group = state.on_processing_failure()?;
+            BlockProcessingResult::ParentUnknown { .. } => {
+                return Err(LookupRequestError::BadState(
+                    "data processing returned ParentUnknown".to_owned(),
+                ));
+            }
+            BlockProcessingResult::Error { penalty, .. } => {
+                let peers = state.on_processing_failure()?;
                 if let Some((action, whom, msg)) = penalty {
-                    whom.apply(action, &peer_group, msg, cx);
+                    whom.apply(action, &peers, msg, cx);
                 }
-                self.continue_requests(cx)
             }
         }
+        self.continue_requests(cx)
     }
 
     // -- Download response handlers --
@@ -429,11 +439,11 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         result: CustodyDownloadResponse<T::EthSpec>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
-        self.data_request
-            .as_mut()
-            .ok_or(LookupRequestError::BadState("no data_request".to_owned()))?
-            .state
-            .on_download_response(req_id, result)?;
+        let DataRequestState::Request(DataRequest { state, .. }) = &mut self.data_request else {
+            return Err(LookupRequestError::BadState("no data_request".to_owned()));
+        };
+
+        state.on_download_response(req_id, result)?;
         self.continue_requests(cx)
     }
 

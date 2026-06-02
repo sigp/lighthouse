@@ -347,6 +347,10 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
         self.message().tree_hash_root()
     }
 
+    pub fn has_data(&self) -> bool {
+        self.num_expected_blobs() > 0
+    }
+
     pub fn num_expected_blobs(&self) -> usize {
         self.message()
             .body()

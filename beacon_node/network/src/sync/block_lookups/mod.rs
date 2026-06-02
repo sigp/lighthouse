@@ -493,59 +493,28 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T>,
     ) {
         let lookup_id = process_type.id();
+        let Some(lookup) = self.single_block_lookups.get_mut(&lookup_id) else {
+            debug!(id = lookup_id, "Unknown single block lookup");
+            return;
+        };
+
+        debug!(
+            block_root = ?lookup.block_root(),
+            id = lookup_id,
+            ?process_type,
+            ?result,
+            "Received processing result"
+        );
+
         let lookup_result = match process_type {
-            BlockProcessType::SingleBlock { .. } => {
-                self.on_block_processing_result(lookup_id, result, cx)
-            }
+            BlockProcessType::SingleBlock { .. } => lookup.on_block_processing_result(result, cx),
             BlockProcessType::SingleCustodyColumn(_) => {
-                self.on_data_processing_result(lookup_id, result, cx)
+                lookup.on_data_processing_result(result, cx)
             }
             // TODO(gloas): route into the payload envelope lookup state machine.
             BlockProcessType::SinglePayloadEnvelope(_) => Ok(LookupResult::Pending),
         };
         self.on_lookup_result(lookup_id, lookup_result, "processing_result", cx);
-    }
-
-    /// Handle block processing result. The block is sent for processing alone (without data).
-    /// On success: marks block processing done and advances data streams.
-    /// On error: penalizes block peer, resets all streams, retries from scratch.
-    fn on_block_processing_result(
-        &mut self,
-        lookup_id: SingleLookupId,
-        result: BlockProcessingResult,
-        cx: &mut SyncNetworkContext<T>,
-    ) -> Result<LookupResult, LookupRequestError> {
-        let Some(lookup) = self.single_block_lookups.get_mut(&lookup_id) else {
-            debug!(id = lookup_id, "Unknown single block lookup");
-            return Err(LookupRequestError::UnknownLookup);
-        };
-        debug!(
-            block_root = ?lookup.block_root(),
-            id = lookup_id,
-            ?result,
-            "Received block processing result"
-        );
-        lookup.on_block_processing_result(result, cx)
-    }
-
-    /// Handle data processing result (blobs or custody columns).
-    fn on_data_processing_result(
-        &mut self,
-        lookup_id: SingleLookupId,
-        result: BlockProcessingResult,
-        cx: &mut SyncNetworkContext<T>,
-    ) -> Result<LookupResult, LookupRequestError> {
-        let Some(lookup) = self.single_block_lookups.get_mut(&lookup_id) else {
-            debug!(id = lookup_id, "Unknown single block lookup");
-            return Err(LookupRequestError::UnknownLookup);
-        };
-        debug!(
-            block_root = ?lookup.block_root(),
-            id = lookup_id,
-            ?result,
-            "Received data processing result"
-        );
-        lookup.on_data_processing_result(result, cx)
     }
 
     pub fn on_external_processing_result(
