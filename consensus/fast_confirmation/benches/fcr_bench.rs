@@ -28,7 +28,6 @@ struct BenchData {
     fcr: FastConfirmationRule,
     head_root: Hash256,
     finalized_checkpoint: Checkpoint,
-    justified_checkpoint: Checkpoint,
     unrealized_justified_checkpoint: Checkpoint,
     current_slot: Slot,
     equivocating_indices: BTreeSet<u64>,
@@ -174,7 +173,6 @@ fn build_chain(num_validators: usize) -> BenchData {
         fcr,
         head_root,
         finalized_checkpoint,
-        justified_checkpoint,
         unrealized_justified_checkpoint,
         current_slot,
         equivocating_indices: BTreeSet::new(),
@@ -256,7 +254,6 @@ fn bench_get_latest_confirmed(c: &mut Criterion) {
                 data.fcr.get_latest_confirmed::<E>(
                     data.head_root,
                     &data.finalized_checkpoint,
-                    &data.justified_checkpoint,
                     &data.unrealized_justified_checkpoint,
                     data.current_slot,
                     &data.proto_array,
