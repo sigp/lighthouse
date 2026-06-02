@@ -16,6 +16,7 @@ use crate::{
     beacon_fork_choice_store::BeaconForkChoiceStore,
     beacon_snapshot::BeaconSnapshot,
     canonical_head::CanonicalHead,
+    chain_config::FastConfirmationMode,
     proposer_preferences_verification::{
         ProposerPreferencesError,
         gossip_verified_proposer_preferences::{
@@ -80,8 +81,8 @@ impl TestContext {
         let canonical_head = CanonicalHead::new(
             fork_choice,
             Arc::new(snapshot),
-            crate::chain_config::FastConfirmationMode::Disabled,
             PayloadStatus::Pending,
+            FastConfirmationMode::Disabled,
             &spec,
         );
 
