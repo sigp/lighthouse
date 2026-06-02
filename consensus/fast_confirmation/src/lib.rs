@@ -298,19 +298,31 @@ impl FastConfirmationRule {
         let (slashed, per_epoch) = BalanceSourceData::build_for_epochs(state, &epochs);
 
         if let Some(i) = head_i {
-            let (eb, total) = &per_epoch[i];
-            self.head_balance_source =
-                BalanceSourceData::from_parts(head_checkpoint, eb.clone(), *total, slashed.clone());
+            let eb = &per_epoch[i];
+            self.head_balance_source = BalanceSourceData::from_parts(
+                head_checkpoint,
+                eb.effective_balances.clone(),
+                eb.total_active_balance,
+                slashed.clone(),
+            );
         }
         if let Some(i) = current_i {
-            let (eb, total) = &per_epoch[i];
-            self.current_balance_source =
-                BalanceSourceData::from_parts(current_cp, eb.clone(), *total, slashed.clone());
+            let eb = &per_epoch[i];
+            self.current_balance_source = BalanceSourceData::from_parts(
+                current_cp,
+                eb.effective_balances.clone(),
+                eb.total_active_balance,
+                slashed.clone(),
+            );
         }
         if let Some(i) = previous_i {
-            let (eb, total) = &per_epoch[i];
-            self.previous_balance_source =
-                BalanceSourceData::from_parts(previous_cp, eb.clone(), *total, slashed);
+            let eb = &per_epoch[i];
+            self.previous_balance_source = BalanceSourceData::from_parts(
+                previous_cp,
+                eb.effective_balances.clone(),
+                eb.total_active_balance,
+                slashed,
+            );
         }
 
         Ok(())

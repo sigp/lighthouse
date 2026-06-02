@@ -19,6 +19,16 @@ pub struct BalanceSourceData {
     pub slashed: Vec<bool>,
 }
 
+/// Active-validator balances for a single epoch, produced by
+/// [`BalanceSourceData::build_for_epochs`].
+#[derive(Default)]
+pub struct EpochBalances {
+    /// Per-validator effective balance; `0` for validators not active at the epoch.
+    pub effective_balances: Vec<u64>,
+    /// Sum of `effective_balances` over validators active at the epoch.
+    pub total_active_balance: u64,
+}
+
 impl BalanceSourceData {
     /// Build a `BalanceSourceData` from a beacon state.
     ///
@@ -37,11 +47,11 @@ impl BalanceSourceData {
                 .map_err(|e| Error::CommitteeCache(format!("{e:?}")))?,
         };
         let (slashed, mut per_epoch) = Self::build_for_epochs(state, &[epoch]);
-        let (effective_balances, total_active_balance) = per_epoch.pop().unwrap_or_default();
+        let eb = per_epoch.pop().unwrap_or_default();
         Ok(Self::from_parts(
             checkpoint,
-            effective_balances,
-            total_active_balance,
+            eb.effective_balances,
+            eb.total_active_balance,
             slashed,
         ))
     }
@@ -80,14 +90,17 @@ impl BalanceSourceData {
     pub fn build_for_epochs<E: EthSpec>(
         state: &BeaconState<E>,
         epochs: &[Epoch],
-    ) -> (Vec<bool>, Vec<(Vec<u64>, u64)>) {
+    ) -> (Vec<bool>, Vec<EpochBalances>) {
         let _span = debug_span!("fcr_build_balance_source", epochs = epochs.len()).entered();
 
         let validator_count = state.validators().len();
         let mut slashed = Vec::with_capacity(validator_count);
-        let mut per_epoch: Vec<(Vec<u64>, u64)> = epochs
+        let mut per_epoch: Vec<EpochBalances> = epochs
             .iter()
-            .map(|_| (Vec::with_capacity(validator_count), 0u64))
+            .map(|_| EpochBalances {
+                effective_balances: Vec::with_capacity(validator_count),
+                total_active_balance: 0,
+            })
             .collect();
 
         for validator in state.validators().iter() {
@@ -95,10 +108,12 @@ impl BalanceSourceData {
             let effective_balance = validator.effective_balance;
             for (i, &epoch) in epochs.iter().enumerate() {
                 if validator.is_active_at(epoch) {
-                    per_epoch[i].0.push(effective_balance);
-                    per_epoch[i].1 = per_epoch[i].1.saturating_add(effective_balance);
+                    per_epoch[i].effective_balances.push(effective_balance);
+                    per_epoch[i].total_active_balance = per_epoch[i]
+                        .total_active_balance
+                        .saturating_add(effective_balance);
                 } else {
-                    per_epoch[i].0.push(0);
+                    per_epoch[i].effective_balances.push(0);
                 }
             }
         }
