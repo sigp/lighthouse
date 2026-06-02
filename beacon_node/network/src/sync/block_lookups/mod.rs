@@ -24,7 +24,7 @@ use self::parent_chain::{NodeChain, compute_parent_chains};
 pub use self::single_block_lookup::{AwaitingParent, DownloadResult};
 use self::single_block_lookup::{LookupRequestError, LookupResult, SingleBlockLookup};
 use super::manager::{BlockProcessType, SLOT_IMPORT_TOLERANCE};
-use super::network_context::{PeerGroup, RpcResponseError, SyncNetworkContext};
+use super::network_context::{RpcResponseError, SyncNetworkContext};
 use crate::metrics;
 use crate::network_beacon_processor::BlockProcessingResult;
 use crate::sync::SyncMessage;

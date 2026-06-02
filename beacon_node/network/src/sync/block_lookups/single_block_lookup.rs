@@ -107,8 +107,10 @@ struct BlockRequest<E: EthSpec> {
 }
 
 impl<E: EthSpec> BlockRequest<E> {
-    fn new(block_root: Hash256) -> Self {
-        Self { state: todo!() }
+    fn new() -> Self {
+        Self {
+            state: SingleLookupRequestState::new(),
+        }
     }
 }
 
@@ -147,9 +149,6 @@ pub struct SingleBlockLookup<T: BeaconChainTypes> {
     awaiting_parent: Option<AwaitingParent>,
     created: Instant,
     pub(crate) span: Span,
-
-    // Retry tracking
-    failed_processing: u8,
 }
 
 impl<T: BeaconChainTypes> SingleBlockLookup<T> {
@@ -168,19 +167,18 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         Self {
             id,
             block_root: requested_block_root,
-            block_request: BlockRequest::new(requested_block_root),
+            block_request: BlockRequest::new(),
             data_request: None,
             peers: Arc::new(RwLock::new(peers.iter().copied().collect())),
             awaiting_parent,
             created: Instant::now(),
-            failed_processing: 0,
             span: lookup_span,
         }
     }
 
     /// Reset the status of all requests (used on block processing failure)
     pub fn reset_requests(&mut self) {
-        self.block_request = BlockRequest::new(self.block_root);
+        self.block_request = BlockRequest::new();
         self.data_request = None;
     }
 
@@ -257,19 +255,16 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         let block_root = self.block_root;
 
         // === Block request ===
-        loop {
-            if self.block_request.state.is_awaiting_download() {
-                self.block_request
-                    .state
-                    .make_request(|| cx.block_lookup_request(id, self.peers.clone(), block_root))?;
-            }
-            if self.awaiting_parent.is_none() {
-                if let Some(data) = self.block_request.state.maybe_start_processing() {
-                    cx.send_block_for_processing(id, self.block_root, data.value, Duration::ZERO)
-                        .map_err(LookupRequestError::SendFailedProcessor)?;
-                }
-            }
-            break;
+        if self.block_request.state.is_awaiting_download() {
+            self.block_request
+                .state
+                .make_request(|| cx.block_lookup_request(id, self.peers.clone(), block_root))?;
+        }
+        if self.awaiting_parent.is_none()
+            && let Some(data) = self.block_request.state.maybe_start_processing()
+        {
+            cx.send_block_for_processing(id, self.block_root, data.value, Duration::ZERO)
+                .map_err(LookupRequestError::SendFailedProcessor)?;
         }
 
         // === Data request ===
@@ -317,6 +312,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                         )
                         .map_err(LookupRequestError::SendFailedProcessor)?;
                     }
+                    break;
                 }
             }
         }
@@ -538,7 +534,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
             State::Downloading { .. } => None,
             State::AwaitingProcess(result) => Some(&result.value),
             State::Processing(result) => Some(&result.value),
-            State::Processed(_, value) => Some(&value),
+            State::Processed(_, value) => Some(value),
         }
     }
 
