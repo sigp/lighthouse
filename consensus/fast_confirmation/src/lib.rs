@@ -1025,7 +1025,10 @@ impl FastConfirmationRule {
             if equivocating_indices.contains(&(val_idx as u64)) {
                 continue;
             }
-            let balance = bs.balance(val_idx);
+            // Spec sums over `unslashed_and_active_indices`: exclude slashed validators.
+            // `unslashed_balance` returns 0 for slashed (and inactive) validators, so the
+            // `== 0` skip below covers both the slashed and the active-set filters.
+            let balance = bs.unslashed_balance(val_idx);
             if balance == 0 {
                 continue;
             }
@@ -1462,9 +1465,11 @@ impl FastConfirmationRule {
         // Spec: compute_safety_threshold
         // safety_threshold = (maximum_support + proposer_score + 2 * adversarial_weight - support_discount) / 2
         // with an underflow guard
-        let numerator_without_discount = maximum_support + proposer_score + 2 * adversarial_weight;
+        let numerator_without_discount = maximum_support
+            .saturating_add(proposer_score)
+            .saturating_add(adversarial_weight.saturating_mul(2));
         let safety_threshold = if support_discount < numerator_without_discount {
-            (numerator_without_discount - support_discount) / 2
+            numerator_without_discount.saturating_sub(support_discount) / 2
         } else {
             0
         };
