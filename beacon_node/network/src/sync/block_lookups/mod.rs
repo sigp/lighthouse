@@ -24,7 +24,7 @@ use self::parent_chain::{NodeChain, compute_parent_chains};
 pub use self::single_block_lookup::DownloadResult;
 use self::single_block_lookup::{LookupRequestError, LookupResult, SingleBlockLookup};
 use super::manager::{BlockProcessType, SLOT_IMPORT_TOLERANCE};
-use super::network_context::{PeerGroup, RpcResponseError, SyncNetworkContext};
+use super::network_context::{RpcResponseError, SyncNetworkContext};
 use crate::metrics;
 use crate::network_beacon_processor::BlockProcessingResult;
 use crate::sync::SyncMessage;
@@ -39,7 +39,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::Hash256;
 use tracing::{debug, error, warn};
-use types::{EthSpec, SignedBeaconBlock};
+use types::{DataColumnSidecarList, EthSpec, SignedBeaconBlock};
 
 pub mod parent_chain;
 mod single_block_lookup;
@@ -70,10 +70,9 @@ const LOOKUP_MAX_DURATION_NO_PEERS_SECS: u64 = 10;
 /// take at most 2 GB. 200 lookups allow 3 parallel chains of depth 64 (current maximum).
 const MAX_LOOKUPS: usize = 200;
 
-type BlockDownloadResponse<E> =
-    Result<(Arc<SignedBeaconBlock<E>>, PeerGroup, Duration), RpcResponseError>;
+type BlockDownloadResponse<E> = Result<DownloadResult<Arc<SignedBeaconBlock<E>>>, RpcResponseError>;
 type CustodyDownloadResponse<E> =
-    Result<(types::DataColumnSidecarList<E>, PeerGroup, Duration), RpcResponseError>;
+    Result<DownloadResult<DataColumnSidecarList<E>>, RpcResponseError>;
 
 pub enum BlockComponent<E: EthSpec> {
     Block(DownloadResult<Arc<SignedBeaconBlock<E>>>),
@@ -183,8 +182,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 Some(block_component),
                 Some(parent_root),
                 // On a `UnknownParentBlock` or `UnknownParentDataColumn` event the peer is not
-                // required to have the rest of the block components. Create the lookup with zero
-                // peers to house the block components.
+                // required to have the rest of the block components (refer to decoupled blob
+                // gossip). Create the lookup with zero peers to house the block components.
                 &[],
                 cx,
             )
@@ -193,7 +192,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
     }
 
-    /// Seach a block whose parent root is unknown.
+    /// Search a block whose parent root is unknown.
     ///
     /// Returns true if the lookup is created or already exists
     #[must_use = "only reference the new lookup if returns true"]
@@ -450,7 +449,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn peer_disconnected(&mut self, peer_id: &PeerId) {
         for (id, lookup) in self.single_block_lookups.iter_mut() {
             lookup.remove_peer(peer_id);
-            if !lookup.has_peers() {
+            if lookup.has_no_peers() {
                 debug!(%id, "Lookup has no peers");
             }
         }
@@ -465,59 +464,28 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T>,
     ) {
         let lookup_id = process_type.id();
+        let Some(lookup) = self.single_block_lookups.get_mut(&lookup_id) else {
+            debug!(id = lookup_id, "Unknown single block lookup");
+            return;
+        };
+
+        debug!(
+            block_root = ?lookup.block_root(),
+            id = lookup_id,
+            ?process_type,
+            ?result,
+            "Received processing result"
+        );
+
         let lookup_result = match process_type {
-            BlockProcessType::SingleBlock { .. } => {
-                self.on_block_processing_result(lookup_id, result, cx)
-            }
+            BlockProcessType::SingleBlock { .. } => lookup.on_block_processing_result(result, cx),
             BlockProcessType::SingleCustodyColumn(_) => {
-                self.on_data_processing_result(lookup_id, result, cx)
+                lookup.on_data_processing_result(result, cx)
             }
             // TODO(gloas): route into the payload envelope lookup state machine.
             BlockProcessType::SinglePayloadEnvelope(_) => Ok(LookupResult::Pending),
         };
         self.on_lookup_result(lookup_id, lookup_result, "processing_result", cx);
-    }
-
-    /// Handle block processing result. The block is sent for processing alone (without data).
-    /// On success: marks block processing done and advances data streams.
-    /// On error: penalizes block peer, resets all streams, retries from scratch.
-    fn on_block_processing_result(
-        &mut self,
-        lookup_id: SingleLookupId,
-        result: BlockProcessingResult,
-        cx: &mut SyncNetworkContext<T>,
-    ) -> Result<LookupResult, LookupRequestError> {
-        let Some(lookup) = self.single_block_lookups.get_mut(&lookup_id) else {
-            debug!(id = lookup_id, "Unknown single block lookup");
-            return Err(LookupRequestError::UnknownLookup);
-        };
-        debug!(
-            block_root = ?lookup.block_root(),
-            id = lookup_id,
-            ?result,
-            "Received block processing result"
-        );
-        lookup.on_block_processing_result(result, cx)
-    }
-
-    /// Handle data processing result (blobs or custody columns).
-    fn on_data_processing_result(
-        &mut self,
-        lookup_id: SingleLookupId,
-        result: BlockProcessingResult,
-        cx: &mut SyncNetworkContext<T>,
-    ) -> Result<LookupResult, LookupRequestError> {
-        let Some(lookup) = self.single_block_lookups.get_mut(&lookup_id) else {
-            debug!(id = lookup_id, "Unknown single block lookup");
-            return Err(LookupRequestError::UnknownLookup);
-        };
-        debug!(
-            block_root = ?lookup.block_root(),
-            id = lookup_id,
-            ?result,
-            "Received data processing result"
-        );
-        lookup.on_data_processing_result(result, cx)
     }
 
     pub fn on_external_processing_result(
@@ -538,6 +506,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let lookup_result = if imported {
             Ok(LookupResult::Completed)
         } else {
+            // A lookup may be in the following state:
+            // - Block awaiting processing from a different source
+            // - Blobs downloaded processed, and inserted into the da_checker
+            //
+            // At this point the block fails processing (e.g. execution engine offline) and it is
+            // removed from the da_checker. Note that ALL components are removed from the da_checker
+            // so when we re-download and process the block we get the error
+            // MissingComponentsAfterAllProcessed and get stuck.
             lookup.reset_requests();
             lookup.continue_requests(cx)
         };
@@ -696,7 +672,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .filter(|lookup| {
                 // Do not drop lookup that are awaiting events to prevent inconsinstencies. If a
                 // lookup gets stuck, it will be eventually pruned by `drop_stuck_lookups`
-                !lookup.has_peers()
+                lookup.has_no_peers()
                     && lookup.elapsed_since_created()
                         > Duration::from_secs(LOOKUP_MAX_DURATION_NO_PEERS_SECS)
                     && !lookup.is_awaiting_event()
@@ -788,6 +764,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// - Block peers are added at each level (needed for block download).
     /// - When recursing from child to parent, also adds to parent's data peer sets,
     ///   since children arriving activates the parent's data downloads.
+    ///
+    /// Note: Takes a `lookup_id` as argument to allow recursion on mutable lookups, without having
+    /// to duplicate the code to add peers to a lookup
     fn add_peers_to_lookup_and_ancestors(
         &mut self,
         lookup_id: SingleLookupId,

@@ -867,7 +867,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block_slot,
                     BlockComponent::Block(DownloadResult {
                         value: block.block_cloned(),
-                        block_root,
                         seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
                         peer_group: PeerGroup::from_single(peer_id),
                     }),
@@ -1154,7 +1153,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.block_lookups.on_block_download_response(
                 id,
                 resp.map(|(value, seen_timestamp)| {
-                    (value, PeerGroup::from_single(peer_id), seen_timestamp)
+                    DownloadResult::new(value, PeerGroup::from_single(peer_id), seen_timestamp)
                 }),
                 &mut self.network,
             )
