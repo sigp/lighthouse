@@ -1,4 +1,3 @@
-use crate::error::InvalidBestNodeInfo;
 use crate::proto_array_fork_choice::IndexedForkChoiceNode;
 use crate::{
     Block, ExecutionStatus, JustifiedBalances, LatestMessage, PayloadStatus, error::Error,
@@ -1093,28 +1092,6 @@ impl ProtoArray {
             spec,
         )?;
 
-        // Perform a sanity check that the node is indeed valid to be the head.
-        let best_node = self
-            .nodes
-            .get(best_fc_node.proto_node_index)
-            .ok_or(Error::InvalidNodeIndex(best_fc_node.proto_node_index))?;
-        if !self.node_is_viable_for_head::<E>(
-            best_node,
-            current_slot,
-            best_justified_checkpoint,
-            best_finalized_checkpoint,
-        ) {
-            return Err(Error::InvalidBestNode(Box::new(InvalidBestNodeInfo {
-                current_slot,
-                start_root: *justified_root,
-                justified_checkpoint: best_justified_checkpoint,
-                finalized_checkpoint: best_finalized_checkpoint,
-                head_root: best_node.root(),
-                head_justified_checkpoint: *best_node.justified_checkpoint(),
-                head_finalized_checkpoint: *best_node.finalized_checkpoint(),
-            })));
-        }
-
         Ok((best_fc_node.root, best_fc_node.payload_status))
     }
 
@@ -1884,10 +1861,7 @@ fn get_proposer_score<E: EthSpec>(
     justified_balances: &JustifiedBalances,
     spec: &ChainSpec,
 ) -> Result<u64, Error> {
-    let Some(proposer_score_boost) = spec.proposer_score_boost else {
-        return Ok(0);
-    };
-    calculate_committee_fraction::<E>(justified_balances, proposer_score_boost)
+    calculate_committee_fraction::<E>(justified_balances, spec.proposer_score_boost)
         .ok_or(Error::ProposerBoostOverflow(0))
 }
 

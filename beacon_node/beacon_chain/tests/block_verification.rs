@@ -8,7 +8,8 @@ use beacon_chain::{
     WhenSlotSkipped,
     custody_context::NodeCustodyType,
     test_utils::{
-        AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, test_spec,
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+        MakeAttestationOptions, test_spec,
     },
 };
 use beacon_chain::{
@@ -17,6 +18,7 @@ use beacon_chain::{
 };
 use bls::{AggregateSignature, Keypair, Signature};
 use fixed_bytes::FixedBytesExtended;
+use fork_choice::PayloadStatus;
 use logging::create_test_tracing_subscriber;
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
@@ -1907,6 +1909,153 @@ async fn add_altair_block_to_base_chain() {
             })
         }
     ));
+}
+
+// This is a regression test for the bogus `InvalidBestNode` error which was reachable in Gloas
+// networks. Previously Lighthouse would return an `InvalidBestNode` error from `get_head` in
+// contradiction to the spec, which states that the justified root should be returned when no leaf
+// node is viable.
+//
+// The chain construction in this test is contrived but not impossible: the justified block's full
+// branch is what contained the evidence to justify it, but the empty branch is more weighty and
+// wins out.
+#[tokio::test]
+async fn gloas_get_head_can_return_justified_empty_payload_branch() {
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_epoch(Epoch::new(0)).gloas_enabled() {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec.clone().into())
+        .chain_config(ChainConfig {
+            archive: true,
+            ..ChainConfig::default()
+        })
+        .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
+        .node_custody_type(NodeCustodyType::Supernode)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness
+        .extend_slots(E::slots_per_epoch() as usize * 3)
+        .await;
+
+    let justified_checkpoint = harness.justified_checkpoint();
+    assert_ne!(justified_checkpoint.epoch, Epoch::new(0));
+    let justified_root = justified_checkpoint.root;
+    let justified_block = harness
+        .chain
+        .get_blinded_block(&justified_root)
+        .unwrap()
+        .unwrap();
+    let justified_slot = justified_block.message().slot();
+    let justified_state_root = justified_block.message().state_root();
+
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            E::slots_per_epoch() as usize * 2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(vec![]),
+        )
+        .await;
+
+    let current_slot = harness.get_current_slot();
+    let current_epoch = current_slot.epoch(E::slots_per_epoch());
+    assert_eq!(
+        harness
+            .chain
+            .canonical_head
+            .cached_head()
+            .head_payload_status(),
+        PayloadStatus::Full
+    );
+
+    {
+        let fork_choice = harness.chain.canonical_head.fork_choice_read_lock();
+        assert!(fork_choice.is_payload_received(&justified_root));
+        let justified_node = fork_choice.get_block(&justified_root).unwrap();
+        let voting_source = justified_node
+            .unrealized_justified_checkpoint
+            .unwrap_or(justified_node.justified_checkpoint);
+        assert!(
+            voting_source.epoch + 2 < current_epoch,
+            "the justified node's own voting source must be stale"
+        );
+    }
+
+    let mut attestation_state = harness
+        .chain
+        .get_state(&justified_state_root, Some(justified_slot), true)
+        .unwrap()
+        .unwrap();
+    assert!(
+        attestation_state
+            .validators()
+            .iter()
+            .all(|validator| !validator.slashed),
+        "reproducer must not rely on slashed validators"
+    );
+
+    let all_validators = harness.get_all_validators();
+    let mut validators_with_empty_vote = [false; VALIDATOR_COUNT];
+    let attestation_start_slot = (current_epoch - 1).start_slot(E::slots_per_epoch());
+    let attestation_slot = current_slot - 1;
+    assert_eq!(
+        attestation_start_slot + E::slots_per_epoch() - 1,
+        attestation_slot
+    );
+
+    // Create two epochs worth of attestations with `payload_present=false`, all pointing at the
+    // justified block. This ensures it's very much the canonical head, instead of the justifying
+    // chain built off its `Full` branch.
+    for slot in (attestation_start_slot.as_u64()..current_slot.as_u64()).map(Slot::new) {
+        while attestation_state.slot() < slot {
+            per_slot_processing(&mut attestation_state, None, &spec).unwrap();
+        }
+        attestation_state.build_caches(&spec).unwrap();
+        let attestation_state_root = attestation_state.update_tree_hash_cache().unwrap();
+        assert_eq!(
+            attestation_state.get_latest_block_root(attestation_state_root),
+            justified_root
+        );
+
+        let fork = spec.fork_at_epoch(slot.epoch(E::slots_per_epoch()));
+        let (attestations, attesters) = harness.make_attestations_with_opts(
+            &all_validators,
+            &attestation_state,
+            attestation_state_root,
+            justified_root.into(),
+            slot,
+            MakeAttestationOptions {
+                limit: None,
+                fork,
+                payload_present_override: Some(false),
+            },
+        );
+
+        for validator_index in attesters {
+            validators_with_empty_vote[validator_index] = true;
+        }
+        harness.process_attestations(attestations, &attestation_state);
+    }
+
+    assert!(
+        validators_with_empty_vote.iter().all(|attested| *attested),
+        "all validators should have a latest regular attestation to the justified root"
+    );
+
+    let (head_root, payload_status) = harness
+        .chain
+        .canonical_head
+        .fork_choice_write_lock()
+        .get_head(current_slot, &spec)
+        .expect("fork choice should return the justified root on the empty payload branch");
+
+    assert_eq!(head_root, justified_root);
+    assert_eq!(payload_status, PayloadStatus::Empty);
 }
 
 // This is a regression test for this bug:
