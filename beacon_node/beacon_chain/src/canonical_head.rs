@@ -68,10 +68,6 @@ use task_executor::{JoinHandle, ShutdownReason};
 use tracing::{debug, error, info, instrument, warn};
 use types::*;
 
-/// Default proposer score boost (percent) used by FCR when the `ChainSpec` does not
-/// configure one. Matches the mainnet `PROPOSER_SCORE_BOOST` value.
-const DEFAULT_PROPOSER_SCORE_BOOST: u64 = 40;
-
 /// Simple wrapper around `RwLock` that uses private visibility to prevent any other modules from
 /// accessing the contained lock without it being explicitly noted in this module.
 pub struct CanonicalHeadRwLock<T>(RwLock<T>);
@@ -304,8 +300,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             Some(Mutex::new(FastConfirmationRule::new(
                 fork_choice_view.finalized_checkpoint,
                 spec.confirmation_byzantine_threshold,
-                spec.proposer_score_boost
-                    .unwrap_or(DEFAULT_PROPOSER_SCORE_BOOST),
+                spec.proposer_score_boost,
             )))
         } else {
             None
@@ -387,8 +382,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             *fcr_mutex.lock() = FastConfirmationRule::new(
                 fork_choice_view.finalized_checkpoint,
                 spec.confirmation_byzantine_threshold,
-                spec.proposer_score_boost
-                    .unwrap_or(DEFAULT_PROPOSER_SCORE_BOOST),
+                spec.proposer_score_boost,
             );
         }
 

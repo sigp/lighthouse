@@ -39,7 +39,7 @@ use fnv::FnvHashMap;
 use lighthouse_network::service::api_types::SingleLookupReqId;
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
-pub use single_block_lookup::{BlobRequestState, BlockRequestState, CustodyRequestState};
+pub use single_block_lookup::{BlockRequestState, CustodyRequestState};
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use std::time::Duration;
@@ -550,9 +550,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             BlockProcessType::SingleBlock { id } => {
                 self.on_processing_result_inner::<BlockRequestState<T::EthSpec>>(id, result, cx)
             }
-            BlockProcessType::SingleBlob { id } => {
-                self.on_processing_result_inner::<BlobRequestState<T::EthSpec>>(id, result, cx)
-            }
             BlockProcessType::SingleCustodyColumn(id) => {
                 self.on_processing_result_inner::<CustodyRequestState<T::EthSpec>>(id, result, cx)
             }
@@ -696,7 +693,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                                 PeerAction::MidToleranceError,
                                 match R::response_type() {
                                     ResponseType::Block => "lookup_block_processing_failure",
-                                    ResponseType::Blob => "lookup_blobs_processing_failure",
                                     ResponseType::CustodyColumn => {
                                         "lookup_custody_column_processing_failure"
                                     }
