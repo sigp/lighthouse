@@ -37,6 +37,7 @@
 use crate::chain_config::FastConfirmationMode;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::BlockShufflingIds;
+use crate::state_advance_timer::MAX_ADVANCE_DISTANCE;
 use crate::{
     BeaconChain, BeaconChainError as Error, BeaconChainTypes, BeaconSnapshot,
     beacon_chain::{BeaconForkChoice, BeaconStore, FORK_CHOICE_DB_KEY, OverrideForkchoiceUpdate},
@@ -716,7 +717,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // FCR must run even when the head hasn't changed, because new attestations may advance
         // the confirmed_root without changing the head/justified/finalized view.
         // FCR is a read-only observer and errors must never affect consensus.
-        if let Some(ref fcr_mutex) = self.canonical_head.fast_confirmation {
+        //
+        // Skip FCR while the head is more than `MAX_ADVANCE_DISTANCE` behind wall-clock (deep
+        // sync): beyond that, the state-advance timer hasn't cached the advanced head state FCR
+        // needs, so running it would force an expensive load+advance under this lock for no
+        // benefit — we don't confirm during sync. (Review: don't run FCR on every
+        // `recompute_head` / during sync.)
+        if let Some(ref fcr_mutex) = self.canonical_head.fast_confirmation
+            && new_head_proto_block.slot.as_u64() + MAX_ADVANCE_DISTANCE
+                >= self.slot().unwrap_or(current_slot).as_u64()
+        {
             let mut fcr = fcr_mutex.lock();
             let _fcr_timer = metrics::start_timer(&fcr_metrics::FCR_TIMES);
             let old_confirmed = fcr.confirmed_root;
@@ -737,60 +747,97 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // wall-clock slot instead.
             let fcr_current_slot = self.slot().unwrap_or(current_slot);
 
-            if let Err(e) = fcr.on_fast_confirmation::<T::EthSpec>(
+            // Spec `get_pulled_up_head_state`: FCR reads the *current head's* state
+            // (`store.block_states[get_head(store)]`) advanced ("pulled up") to the
+            // current epoch. `get_advanced_hot_state` returns exactly that — the head
+            // state advanced to the wall-clock slot — served from the state cache that
+            // the `state_advance_timer` populates each slot, and loaded+advanced on a
+            // miss. FCR is a read-only observer whose errors must never affect consensus,
+            // so a failure to obtain the state just skips FCR for this tick (we never
+            // propagate the error).
+            let fcr_head_state = match self.store.get_advanced_hot_state(
                 head_root,
-                &finalized_cp,
-                &justified_cp,
-                &unrealized_justified_cp,
                 fcr_current_slot,
-                proto_array,
-                votes,
-                equivocating_indices,
-                &old_cached_head.snapshot.beacon_state,
+                new_head_proto_block.state_root,
             ) {
-                error!(error = ?e, "Fast Confirmation Rule error, continuing without FCR");
-                let label: &'static str = (&e).into();
-                metrics::inc_counter_vec(&fcr_metrics::FCR_ERRORS, &[label]);
-            } else {
-                let confirmed_root_changed = fcr.confirmed_root != old_confirmed;
-                if confirmed_root_changed {
-                    metrics::inc_counter(&fcr_metrics::FCR_CONFIRMED_ROOT_CHANGES);
-                }
-                if let Some(confirmed_slot) = proto_array
-                    .indices
-                    .get(&fcr.confirmed_root)
-                    .and_then(|&idx| proto_array.nodes.get(idx))
-                    .map(|n| n.slot())
-                {
-                    metrics::set_gauge(
-                        &fcr_metrics::FCR_CONFIRMED_ROOT_SLOT,
-                        confirmed_slot.as_u64() as i64,
-                    );
-                    let delay = current_slot
-                        .as_u64()
-                        .saturating_sub(confirmed_slot.as_u64());
-                    metrics::set_gauge(&fcr_metrics::FCR_CONFIRMATION_DELAY_SLOTS, delay as i64);
-
-                    // Emit a single `fast_confirmation` event for the most recent confirmed
-                    // block. A single FCR pass can confirm several blocks at once, but per
-                    // beacon-APIs#611 only the root and slot of the latest confirmed block
-                    // are sent, to avoid spamming the event stream.
-                    if confirmed_root_changed
-                        && let Some(event_handler) = self.event_handler.as_ref()
-                        && event_handler.has_fast_confirmation_subscribers()
-                    {
-                        event_handler.register(EventKind::FastConfirmation(SseFastConfirmation {
-                            block: fcr.confirmed_root,
-                            slot: confirmed_slot,
-                        }));
+                Ok(Some((_, mut state))) => match state.build_all_caches(&self.spec) {
+                    Ok(()) => Some(state),
+                    Err(e) => {
+                        error!(error = ?e, "FCR: failed to build head-state caches, skipping tick");
+                        None
                     }
+                },
+                Ok(None) => {
+                    error!("FCR: advanced head state unavailable, skipping tick");
+                    None
                 }
-                let balance_epoch = fcr.current_balance_source.checkpoint.epoch;
-                let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
-                let age = current_epoch
-                    .as_u64()
-                    .saturating_sub(balance_epoch.as_u64());
-                metrics::set_gauge(&fcr_metrics::FCR_BALANCE_SOURCE_AGE_EPOCHS, age as i64);
+                Err(e) => {
+                    error!(error = ?e, "FCR: failed to load advanced head state, skipping tick");
+                    None
+                }
+            };
+
+            if let Some(fcr_head_state) = fcr_head_state.as_ref() {
+                if let Err(e) = fcr.on_fast_confirmation::<T::EthSpec>(
+                    head_root,
+                    &finalized_cp,
+                    &justified_cp,
+                    &unrealized_justified_cp,
+                    fcr_current_slot,
+                    proto_array,
+                    votes,
+                    equivocating_indices,
+                    fcr_head_state,
+                ) {
+                    error!(error = ?e, "Fast Confirmation Rule error, continuing without FCR");
+                    let label: &'static str = (&e).into();
+                    metrics::inc_counter_vec(&fcr_metrics::FCR_ERRORS, &[label]);
+                } else {
+                    let confirmed_root_changed = fcr.confirmed_root != old_confirmed;
+                    if confirmed_root_changed {
+                        metrics::inc_counter(&fcr_metrics::FCR_CONFIRMED_ROOT_CHANGES);
+                    }
+                    if let Some(confirmed_slot) = proto_array
+                        .indices
+                        .get(&fcr.confirmed_root)
+                        .and_then(|&idx| proto_array.nodes.get(idx))
+                        .map(|n| n.slot())
+                    {
+                        metrics::set_gauge(
+                            &fcr_metrics::FCR_CONFIRMED_ROOT_SLOT,
+                            confirmed_slot.as_u64() as i64,
+                        );
+                        let delay = current_slot
+                            .as_u64()
+                            .saturating_sub(confirmed_slot.as_u64());
+                        metrics::set_gauge(
+                            &fcr_metrics::FCR_CONFIRMATION_DELAY_SLOTS,
+                            delay as i64,
+                        );
+
+                        // Emit a single `fast_confirmation` event for the most recent
+                        // confirmed block. A single FCR pass can confirm several blocks at
+                        // once, but per beacon-APIs#611 only the root and slot of the latest
+                        // confirmed block are sent, to avoid spamming the event stream.
+                        if confirmed_root_changed
+                            && let Some(event_handler) = self.event_handler.as_ref()
+                            && event_handler.has_fast_confirmation_subscribers()
+                        {
+                            event_handler.register(EventKind::FastConfirmation(
+                                SseFastConfirmation {
+                                    block: fcr.confirmed_root,
+                                    slot: confirmed_slot,
+                                },
+                            ));
+                        }
+                    }
+                    let balance_epoch = fcr.current_balance_source.checkpoint.epoch;
+                    let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
+                    let age = current_epoch
+                        .as_u64()
+                        .saturating_sub(balance_epoch.as_u64());
+                    metrics::set_gauge(&fcr_metrics::FCR_BALANCE_SOURCE_AGE_EPOCHS, age as i64);
+                }
             }
         }
 

@@ -162,11 +162,10 @@ pub struct FastConfirmationRule {
     head_assignments: SlotAssignments,
 
     // === FFG data from the head state ===
-    /// Approximates the spec's `get_pulled_up_head_state` (FCR spec, "State helpers").
-    /// The spec advances the head state via `process_slots` to the current epoch's
-    /// start; this implementation reads from the head state directly and skips
-    /// `process_slots`, accepting that validator activations/exits/slashings due
-    /// to be realized at an unprocessed epoch boundary are missing.
+    /// Built from the spec's `get_pulled_up_head_state` (FCR spec, "State helpers"):
+    /// the caller passes the current head's state advanced ("pulled up") to the
+    /// current slot, so validator activations/exits/slashings realized at the epoch
+    /// boundary are reflected here.
     ///
     /// `checkpoint.root` is repurposed here to carry the **dependent root** of
     /// the cached epoch (the block at the previous epoch's last slot), used as
