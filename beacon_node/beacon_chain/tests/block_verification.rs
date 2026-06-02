@@ -176,8 +176,8 @@ where
                 .collect::<Vec<_>>(),
             Some(DataSidecars::Blobs(_)) | None => vec![],
         };
-        let envelope = execution_envelope
-            .map(|envelope| Box::new(AvailableEnvelope::new(envelope, columns)));
+        let envelope =
+            execution_envelope.map(|envelope| Box::new(AvailableEnvelope::new(envelope, columns)));
         return RangeSyncBlock::new_gloas(block, envelope).unwrap();
     }
 
@@ -664,14 +664,14 @@ async fn assert_invalid_signature(
 
     let process_res = harness
         .chain
-            .process_block(
-                snapshots[block_index].beacon_block.canonical_root(),
-                build_range_sync_block(
-                    snapshots[block_index].beacon_block.clone(),
-                    snapshots[block_index].execution_envelope.clone(),
-                    &chain_segment_blobs[block_index],
-                    harness.chain.clone(),
-                ),
+        .process_block(
+            snapshots[block_index].beacon_block.canonical_root(),
+            build_range_sync_block(
+                snapshots[block_index].beacon_block.clone(),
+                snapshots[block_index].execution_envelope.clone(),
+                &chain_segment_blobs[block_index],
+                harness.chain.clone(),
+            ),
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -2232,11 +2232,8 @@ async fn import_execution_pending_block<T: BeaconChainTypes>(
     }
 }
 
-async fn make_gloas_range_sync_block_inputs(
-) -> Option<(
-    Arc<SignedBeaconBlock<E>>,
-    SignedExecutionPayloadEnvelope<E>,
-)> {
+async fn make_gloas_range_sync_block_inputs()
+-> Option<(Arc<SignedBeaconBlock<E>>, SignedExecutionPayloadEnvelope<E>)> {
     let spec = test_spec::<E>();
     if !spec.fork_name_at_slot::<E>(Slot::new(1)).gloas_enabled() {
         return None;
