@@ -40,18 +40,18 @@ use super::network_context::{
 };
 use super::peer_sync_info::{PeerSyncType, remote_sync_type};
 use super::range_sync::{EPOCHS_PER_BATCH, RangeSync, RangeSyncType};
-use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
+use crate::network_beacon_processor::{
+    BlockProcessingResult, ChainSegmentProcessId, NetworkBeaconProcessor,
+};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::{
-    BlobRequestState, BlockComponent, BlockRequestState, CustodyRequestState, DownloadResult,
+    BlockComponent, BlockRequestState, CustodyRequestState, DownloadResult,
 };
 use crate::sync::custody_backfill_sync::CustodyBackFillSync;
 use crate::sync::network_context::{PeerGroup, RpcResponseResult};
 use beacon_chain::block_verification_types::AsBlock;
-use beacon_chain::{
-    AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
-};
+use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
 use futures::StreamExt;
 use lighthouse_network::SyncInfo;
 use lighthouse_network::rpc::RPCError;
@@ -195,7 +195,6 @@ pub enum SyncMessage<E: EthSpec> {
 #[derive(Debug, Clone)]
 pub enum BlockProcessType {
     SingleBlock { id: Id },
-    SingleBlob { id: Id },
     SingleCustodyColumn(Id),
     SinglePayloadEnvelope(Id),
 }
@@ -204,18 +203,10 @@ impl BlockProcessType {
     pub fn id(&self) -> Id {
         match self {
             BlockProcessType::SingleBlock { id }
-            | BlockProcessType::SingleBlob { id }
             | BlockProcessType::SingleCustodyColumn(id)
             | BlockProcessType::SinglePayloadEnvelope(id) => *id,
         }
     }
-}
-
-#[derive(Debug)]
-pub enum BlockProcessingResult {
-    Ok(AvailabilityProcessingStatus),
-    Err(BlockError),
-    Ignored,
 }
 
 /// The result of processing multiple blocks (a chain segment).
@@ -504,9 +495,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         match sync_request_id {
             SyncRequestId::SingleBlock { id } => {
                 self.on_single_block_response(id, peer_id, RpcEvent::RPCError(error))
-            }
-            SyncRequestId::SingleBlob { id } => {
-                self.on_single_blob_response(id, peer_id, RpcEvent::RPCError(error))
             }
             SyncRequestId::SinglePayloadEnvelope { id } => {
                 self.on_single_payload_envelope_response(id, peer_id, RpcEvent::RPCError(error))
@@ -1156,11 +1144,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         seen_timestamp: Duration,
     ) {
         match sync_request_id {
-            SyncRequestId::SingleBlob { id } => self.on_single_blob_response(
-                id,
-                peer_id,
-                RpcEvent::from_chunk(blob, seen_timestamp),
-            ),
             SyncRequestId::BlobsByRange(id) => self.on_blobs_by_range_response(
                 id,
                 peer_id,
@@ -1234,24 +1217,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             // TODO(gloas): dispatch into
             // `block_lookups.on_download_response::<PayloadEnvelopeRequestState<_>>(...)` once
             // the envelope lookup state machine lands.
-        }
-    }
-
-    fn on_single_blob_response(
-        &mut self,
-        id: SingleLookupReqId,
-        peer_id: PeerId,
-        blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
-    ) {
-        if let Some(resp) = self.network.on_single_blob_response(id, peer_id, blob) {
-            self.block_lookups
-                .on_download_response::<BlobRequestState<T::EthSpec>>(
-                    id,
-                    resp.map(|(value, seen_timestamp)| {
-                        (value, PeerGroup::from_single(peer_id), seen_timestamp)
-                    }),
-                    &mut self.network,
-                )
         }
     }
 
@@ -1452,20 +1417,5 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
             }
         }
-    }
-}
-
-impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingResult {
-    fn from(result: Result<AvailabilityProcessingStatus, BlockError>) -> Self {
-        match result {
-            Ok(status) => BlockProcessingResult::Ok(status),
-            Err(e) => BlockProcessingResult::Err(e),
-        }
-    }
-}
-
-impl From<BlockError> for BlockProcessingResult {
-    fn from(e: BlockError) -> Self {
-        BlockProcessingResult::Err(e)
     }
 }
