@@ -916,8 +916,8 @@ where
         let canonical_head = CanonicalHead::new(
             fork_choice,
             Arc::new(head_snapshot),
-            self.chain_config.fast_confirmation,
             head_payload_status,
+            self.chain_config.fast_confirmation,
             &self.spec,
         );
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;

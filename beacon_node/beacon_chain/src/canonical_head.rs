@@ -280,8 +280,8 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     pub fn new(
         fork_choice: BeaconForkChoice<T>,
         snapshot: Arc<BeaconSnapshot<T::EthSpec>>,
-        fast_confirmation: FastConfirmationMode,
         head_payload_status: proto_array::PayloadStatus,
+        fast_confirmation: FastConfirmationMode,
         spec: &ChainSpec,
     ) -> Self {
         let fork_choice_view = fork_choice.cached_fork_choice_view();
