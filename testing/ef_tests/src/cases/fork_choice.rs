@@ -849,7 +849,6 @@ impl<E: EthSpec> Tester<E> {
                     block_delay,
                     &state,
                     PayloadVerificationStatus::Irrelevant,
-                    block.message().proposer_index(),
                     &self.harness.chain.spec,
                 );
 
