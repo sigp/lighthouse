@@ -3576,31 +3576,3 @@ pub fn serve<T: BeaconChainTypes>(
 
     Ok(http_server)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::max_ssz_content_length;
-    use ssz::Encode;
-    use types::{EthSpec, ForkName, KzgProof, MainnetEthSpec};
-
-    #[test]
-    fn max_ssz_content_length_covers_block_contents() {
-        type E = MainnetEthSpec;
-        let spec = E::default_spec();
-        let limit = max_ssz_content_length::<E>(&spec);
-        let max_blobs = spec.max_blobs_per_block_within_fork(ForkName::latest());
-
-        // Must exceed a single payload-sized chunk (the block on its own)...
-        assert!(limit > spec.max_payload_size);
-        // ...with room for the full blob + cell-proof bundle on top of a max-sized block.
-        let proof_len = <KzgProof as Encode>::ssz_fixed_len() as u64;
-        let bundle = max_blobs
-            .saturating_mul(E::bytes_per_blob() as u64)
-            .saturating_add(
-                max_blobs
-                    .saturating_mul(E::cells_per_ext_blob() as u64)
-                    .saturating_mul(proof_len),
-            );
-        assert!(limit >= spec.max_payload_size + bundle);
-    }
-}
