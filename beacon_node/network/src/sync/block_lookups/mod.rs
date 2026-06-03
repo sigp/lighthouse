@@ -219,12 +219,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         peers: &[PeerId],
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
-        // The zero hash is the parent root of the genesis block, not a real block.
-        if block_root_to_search == Hash256::ZERO {
-            debug!("Not searching for zero hash (parent of genesis)");
-            return false;
-        }
-
         let parent_chains = self.active_parent_lookups();
 
         for (chain_idx, parent_chain) in parent_chains.iter().enumerate() {
