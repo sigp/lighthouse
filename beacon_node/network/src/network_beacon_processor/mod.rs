@@ -36,14 +36,13 @@ use {
     slot_clock::ManualSlotClock, store::MemoryStore, tokio::sync::mpsc::UnboundedSender,
 };
 
-pub use sync_methods::ChainSegmentProcessId;
-use types::data::FixedBlobSidecarList;
+pub use sync_methods::{BlockProcessingResult, ChainSegmentProcessId};
 
 pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
 
 mod gossip_methods;
 mod rpc_methods;
-mod sync_methods;
+pub(crate) mod sync_methods;
 mod tests;
 
 pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
@@ -531,31 +530,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 process_fn,
                 beacon_block_root: block_root,
             },
-        })
-    }
-
-    /// Create a new `Work` event for some blobs, where the result from computation (if any) is
-    /// sent to the other side of `result_tx`.
-    pub fn send_rpc_blobs(
-        self: &Arc<Self>,
-        block_root: Hash256,
-        blobs: FixedBlobSidecarList<T::EthSpec>,
-        seen_timestamp: Duration,
-        process_type: BlockProcessType,
-    ) -> Result<(), Error<T::EthSpec>> {
-        let blob_count = blobs.iter().filter(|b| b.is_some()).count();
-        if blob_count == 0 {
-            return Ok(());
-        }
-        let process_fn = self.clone().generate_rpc_blobs_process_fn(
-            block_root,
-            blobs,
-            seen_timestamp,
-            process_type,
-        );
-        self.try_send(BeaconWorkEvent {
-            drop_during_sync: false,
-            work: Work::RpcBlobs { process_fn },
         })
     }
 

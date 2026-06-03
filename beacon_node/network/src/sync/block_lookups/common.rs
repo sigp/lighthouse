@@ -1,9 +1,7 @@
 use crate::sync::block_lookups::single_block_lookup::{
     LookupRequestError, SingleBlockLookup, SingleLookupRequestState,
 };
-use crate::sync::block_lookups::{
-    BlobRequestState, BlockRequestState, CustodyRequestState, PeerId,
-};
+use crate::sync::block_lookups::{BlockRequestState, CustodyRequestState, PeerId};
 use crate::sync::manager::BlockProcessType;
 use crate::sync::network_context::{LookupRequestResult, SyncNetworkContext};
 use beacon_chain::BeaconChainTypes;
@@ -11,7 +9,6 @@ use lighthouse_network::service::api_types::Id;
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::sync::Arc;
-use types::data::FixedBlobSidecarList;
 use types::{DataColumnSidecarList, SignedBeaconBlock};
 
 use super::SingleLookupId;
@@ -20,17 +17,16 @@ use super::single_block_lookup::{ComponentRequests, DownloadResult};
 #[derive(Debug, Copy, Clone)]
 pub enum ResponseType {
     Block,
-    Blob,
     CustodyColumn,
 }
 
-/// This trait unifies common single block lookup functionality across blocks and blobs. This
-/// includes making requests, verifying responses, and handling processing results. A
-/// `SingleBlockLookup` includes both a `BlockRequestState` and a `BlobRequestState`, this trait is
-/// implemented for each.
+/// This trait unifies common single block lookup functionality across blocks and data columns.
+/// This includes making requests, verifying responses, and handling processing results. A
+/// `SingleBlockLookup` includes both a `BlockRequestState` and a `CustodyRequestState`, this trait
+/// is implemented for each.
 ///
 /// The use of the `ResponseType` associated type gives us a degree of type
-/// safety when handling a block/blob response ensuring we only mutate the correct corresponding
+/// safety when handling a block/column response ensuring we only mutate the correct corresponding
 /// state.
 pub trait RequestState<T: BeaconChainTypes> {
     /// The type created after validation.
@@ -61,7 +57,7 @@ pub trait RequestState<T: BeaconChainTypes> {
     /// Returns the `ResponseType` associated with this trait implementation. Useful in logging.
     fn response_type() -> ResponseType;
 
-    /// A getter for the `BlockRequestState` or `BlobRequestState` associated with this trait.
+    /// A getter for the `BlockRequestState` or `CustodyRequestState` associated with this trait.
     fn request_state_mut(request: &mut SingleBlockLookup<T>) -> Result<&mut Self, &'static str>;
 
     /// A getter for a reference to the `SingleLookupRequestState` associated with this trait.
@@ -114,54 +110,6 @@ impl<T: BeaconChainTypes> RequestState<T> for BlockRequestState<T::EthSpec> {
     }
 }
 
-impl<T: BeaconChainTypes> RequestState<T> for BlobRequestState<T::EthSpec> {
-    type VerifiedResponseType = FixedBlobSidecarList<T::EthSpec>;
-
-    fn make_request(
-        &self,
-        id: Id,
-        lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
-        expected_blobs: usize,
-        cx: &mut SyncNetworkContext<T>,
-    ) -> Result<LookupRequestResult, LookupRequestError> {
-        cx.blob_lookup_request(id, lookup_peers, self.block_root, expected_blobs)
-            .map_err(LookupRequestError::SendFailedNetwork)
-    }
-
-    fn send_for_processing(
-        id: Id,
-        download_result: DownloadResult<Self::VerifiedResponseType>,
-        cx: &SyncNetworkContext<T>,
-    ) -> Result<(), LookupRequestError> {
-        let DownloadResult {
-            value,
-            block_root,
-            seen_timestamp,
-            ..
-        } = download_result;
-        cx.send_blobs_for_processing(id, block_root, value, seen_timestamp)
-            .map_err(LookupRequestError::SendFailedProcessor)
-    }
-
-    fn response_type() -> ResponseType {
-        ResponseType::Blob
-    }
-    fn request_state_mut(request: &mut SingleBlockLookup<T>) -> Result<&mut Self, &'static str> {
-        match &mut request.component_requests {
-            ComponentRequests::WaitingForBlock => Err("waiting for block"),
-            ComponentRequests::ActiveBlobRequest(request, _) => Ok(request),
-            ComponentRequests::ActiveCustodyRequest { .. } => Err("expecting custody request"),
-            ComponentRequests::NotNeeded { .. } => Err("not needed"),
-        }
-    }
-    fn get_state(&self) -> &SingleLookupRequestState<Self::VerifiedResponseType> {
-        &self.state
-    }
-    fn get_state_mut(&mut self) -> &mut SingleLookupRequestState<Self::VerifiedResponseType> {
-        &mut self.state
-    }
-}
-
 impl<T: BeaconChainTypes> RequestState<T> for CustodyRequestState<T::EthSpec> {
     type VerifiedResponseType = DataColumnSidecarList<T::EthSpec>;
 
@@ -203,7 +151,6 @@ impl<T: BeaconChainTypes> RequestState<T> for CustodyRequestState<T::EthSpec> {
     fn request_state_mut(request: &mut SingleBlockLookup<T>) -> Result<&mut Self, &'static str> {
         match &mut request.component_requests {
             ComponentRequests::WaitingForBlock => Err("waiting for block"),
-            ComponentRequests::ActiveBlobRequest { .. } => Err("expecting blob request"),
             ComponentRequests::ActiveCustodyRequest(request) => Ok(request),
             ComponentRequests::NotNeeded { .. } => Err("not needed"),
         }

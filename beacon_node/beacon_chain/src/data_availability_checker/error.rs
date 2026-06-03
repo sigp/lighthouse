@@ -1,7 +1,8 @@
 use kzg::{Error as KzgError, KzgCommitment};
+use strum::IntoStaticStr;
 use types::{BeaconStateError, ColumnIndex, Hash256};
 
-#[derive(Debug)]
+#[derive(Debug, IntoStaticStr)]
 pub enum Error {
     InvalidBlobs(KzgError),
     MissingBid(Hash256),
