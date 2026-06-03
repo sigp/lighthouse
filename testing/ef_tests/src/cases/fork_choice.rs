@@ -137,6 +137,10 @@ pub enum Step<
     },
     Attestation {
         attestation: TAttestation,
+        // Post-Gloas `on_attestation` tests can assert that an attestation is rejected (e.g. an
+        // invalid payload-present index). Defaults to `true` for the pre-Gloas tests that omit it.
+        #[serde(default = "default_true")]
+        valid: bool,
     },
     AttesterSlashing {
         attester_slashing: TAttesterSlashing,
@@ -249,17 +253,19 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                         valid,
                     })
                 }
-                Step::Attestation { attestation } => {
+                Step::Attestation { attestation, valid } => {
                     if fork_name.electra_enabled() {
                         ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation))).map(
                             |attestation| Step::Attestation {
                                 attestation: Attestation::Electra(attestation),
+                                valid,
                             },
                         )
                     } else {
                         ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation))).map(
                             |attestation| Step::Attestation {
                                 attestation: Attestation::Base(attestation),
+                                valid,
                             },
                         )
                     }
@@ -398,7 +404,9 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     proofs.clone(),
                     *valid,
                 )?,
-                Step::Attestation { attestation } => tester.process_attestation(attestation)?,
+                Step::Attestation { attestation, valid } => {
+                    tester.process_attestation(attestation, *valid)?
+                }
                 Step::AttesterSlashing { attester_slashing } => {
                     tester.process_attester_slashing(attester_slashing.to_ref())
                 }
@@ -682,7 +690,7 @@ impl<E: EthSpec> Tester<E> {
         if success {
             for attestation in block.message().body().attestations() {
                 let att = attestation.clone_as_attestation();
-                let _ = self.process_attestation(&att);
+                let _ = self.process_attestation(&att, true);
             }
             for attester_slashing in block.message().body().attester_slashings() {
                 self.process_attester_slashing(attester_slashing);
@@ -795,7 +803,7 @@ impl<E: EthSpec> Tester<E> {
         if success {
             for attestation in block.message().body().attestations() {
                 let att = attestation.clone_as_attestation();
-                let _ = self.process_attestation(&att);
+                let _ = self.process_attestation(&att, true);
             }
             for attester_slashing in block.message().body().attester_slashings() {
                 self.process_attester_slashing(attester_slashing);
@@ -871,22 +879,41 @@ impl<E: EthSpec> Tester<E> {
         Ok(())
     }
 
-    pub fn process_attestation(&self, attestation: &Attestation<E>) -> Result<(), Error> {
-        let (indexed_attestation, _) = obtain_indexed_attestation_and_committees_per_slot(
+    pub fn process_attestation(
+        &self,
+        attestation: &Attestation<E>,
+        valid: bool,
+    ) -> Result<(), Error> {
+        // Post-Gloas `on_attestation` tests can assert that an attestation is rejected (e.g. an
+        // invalid same-slot/payload-present index). Treat any failure in either indexing or fork
+        // choice application as a rejection so it can be compared against the expected `valid` flag.
+        let result = obtain_indexed_attestation_and_committees_per_slot(
             &self.harness.chain,
             attestation.to_ref(),
         )
-        .map_err(|e| Error::InternalError(format!("attestation indexing failed with {:?}", e)))?;
-        let verified_attestation: ManuallyVerifiedAttestation<EphemeralHarnessType<E>> =
-            ManuallyVerifiedAttestation {
-                attestation,
-                indexed_attestation,
-            };
+        .map_err(|e| format!("attestation indexing failed with {:?}", e))
+        .and_then(|(indexed_attestation, _)| {
+            let verified_attestation: ManuallyVerifiedAttestation<EphemeralHarnessType<E>> =
+                ManuallyVerifiedAttestation {
+                    attestation,
+                    indexed_attestation,
+                };
 
-        self.harness
-            .chain
-            .apply_attestation_to_fork_choice(&verified_attestation)
-            .map_err(|e| Error::InternalError(format!("attestation import failed with {:?}", e)))
+            self.harness
+                .chain
+                .apply_attestation_to_fork_choice(&verified_attestation)
+                .map_err(|e| format!("attestation import failed with {:?}", e))
+        });
+
+        if valid {
+            result.map_err(Error::InternalError)
+        } else if result.is_ok() {
+            Err(Error::DidntFail(
+                "attestation was valid but the test expects it to be rejected".to_string(),
+            ))
+        } else {
+            Ok(())
+        }
     }
 
     pub fn process_attester_slashing(&self, attester_slashing: AttesterSlashingRef<E>) {

@@ -1030,6 +1030,12 @@ fn fork_choice_get_head() {
 }
 
 #[test]
+fn fork_choice_on_attestation() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("on_attestation").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("on_attestation").run();
+}
+
+#[test]
 fn fork_choice_on_block() {
     ForkChoiceHandler::<MinimalEthSpec>::new("on_block").run();
     ForkChoiceHandler::<MainnetEthSpec>::new("on_block").run();

@@ -718,9 +718,10 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
             return false;
         }
 
-        // on_execution_payload_envelope, get_parent_payload_status, and
+        // on_attestation, on_execution_payload_envelope, get_parent_payload_status, and
         // on_payload_attestation_message tests exist only for Gloas and later.
-        if (self.handler_name == "on_execution_payload_envelope"
+        if (self.handler_name == "on_attestation"
+            || self.handler_name == "on_execution_payload_envelope"
             || self.handler_name == "get_parent_payload_status"
             || self.handler_name == "on_payload_attestation_message")
             && !fork_name.gloas_enabled()
