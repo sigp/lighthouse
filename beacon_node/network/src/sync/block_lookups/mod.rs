@@ -474,7 +474,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             id = lookup_id,
             ?process_type,
             ?result,
-            "Received processing result"
+            "Received lookup processing result"
         );
 
         let lookup_result = match process_type {
@@ -761,9 +761,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     }
 
     /// Adds peers to a lookup and its ancestors recursively.
-    /// - Block peers are added at each level (needed for block download).
-    /// - When recursing from child to parent, also adds to parent's data peer sets,
-    ///   since children arriving activates the parent's data downloads.
     ///
     /// Note: Takes a `lookup_id` as argument to allow recursion on mutable lookups, without having
     /// to duplicate the code to add peers to a lookup

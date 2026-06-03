@@ -37,10 +37,7 @@ pub enum LookupResult {
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
 pub enum LookupRequestError {
     /// Too many failed attempts
-    TooManyAttempts {
-        /// The failed attempts were primarily due to processing failures.
-        cannot_process: bool,
-    },
+    TooManyAttempts,
     /// Error sending event to network
     SendFailedNetwork(RpcRequestSendError),
     /// Error sending event to processor
@@ -81,7 +78,6 @@ impl<E: EthSpec> BlockRequest<E> {
 enum DataRequest<E: EthSpec> {
     WaitingForBlock,
     Request {
-        block_root: Hash256,
         slot: Slot,
         state: SingleLookupRequestState<DataColumnSidecarList<E>>,
     },
@@ -105,23 +101,14 @@ type PeerSet = Arc<RwLock<HashSet<PeerId>>>;
 pub struct SingleBlockLookup<T: BeaconChainTypes> {
     pub id: Id,
     block_root: Hash256,
-
     block_request: BlockRequest<T::EthSpec>,
-
-    // Data request — starts as `WaitingForBlock`, resolved to `NoData` or `Request` after the
-    // block is downloaded
     data_request: DataRequest<T::EthSpec>,
-
-    // Peer sets.
-    //
-    // `Arc<RwLock<..>>` is required by `ActiveCustodyRequest` (columns only), which lives
-    // in `SyncNetworkContext` and needs to observe peers being added/removed at runtime
-    // while it's in flight.
-    /// Peers for block and data download.
+    /// Peers that claim to have imported this set of block components. This state is shared with
+    /// the custody request to have an updated view of the peers that claim to have imported the
+    /// block associated with this lookup. The peer set of a lookup can change rapidly, and faster
+    /// than the lifetime of a custody request.
     #[educe(Debug(method(fmt_peer_set_as_len)))]
     peers: PeerSet,
-
-    // Parent tracking
     awaiting_parent: Option<Hash256>,
     created: Instant,
     pub(crate) span: Span,
@@ -224,29 +211,20 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
 
     /// Makes progress on all requests of this lookup. Any error is not recoverable and must result
     /// in dropping the lookup. May mark the lookup as completed.
-    ///
-    /// Each of the block / data sub-state-machines is driven inside its own `loop`
-    /// so that synchronous state transitions (e.g. Downloading → AwaitingProcess → Processing) run
-    /// without returning. Each loop `break`s when further progress requires an external event
-    /// (download response, processing result, or a parent lookup to resolve).
     pub fn continue_requests(
         &mut self,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
         let _guard = self.span.clone().entered();
-        let id = self.id;
-        let block_root = self.block_root;
 
         // === Block request ===
-        if self.block_request.state.is_awaiting_download() {
-            self.block_request
-                .state
-                .make_request(|| cx.block_lookup_request(id, self.peers.clone(), block_root))?;
-        }
+        self.block_request.state.maybe_start_downloading(|| {
+            cx.block_lookup_request(self.id, self.peers.clone(), self.block_root)
+        })?;
         if self.awaiting_parent.is_none()
             && let Some(data) = self.block_request.state.maybe_start_processing()
         {
-            cx.send_block_for_processing(id, self.block_root, data.value, data.seen_timestamp)
+            cx.send_block_for_processing(self.id, self.block_root, data.value, data.seen_timestamp)
                 .map_err(LookupRequestError::SendFailedProcessor)?;
         }
 
@@ -262,7 +240,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                             DataRequest::NoData
                         } else if cx.chain.should_fetch_custody_columns(block_epoch) {
                             DataRequest::Request {
-                                block_root: self.block_root,
                                 slot: block.slot(),
                                 state: SingleLookupRequestState::new(),
                             }
@@ -273,33 +250,26 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                         break;
                     }
                 }
-                DataRequest::Request {
-                    block_root: data_block_root,
-                    slot,
-                    state,
-                } => {
-                    if state.is_awaiting_download() {
-                        state.make_request(|| {
-                            cx.custody_lookup_request(
-                                id,
-                                *data_block_root,
-                                *slot,
-                                self.peers.clone(),
-                            )
-                        })?;
-                    }
+                DataRequest::Request { slot, state } => {
+                    state.maybe_start_downloading(|| {
+                        cx.custody_lookup_request(
+                            self.id,
+                            self.block_root,
+                            *slot,
+                            self.peers.clone(),
+                        )
+                    })?;
                     // Wait for the parent to be imported, data column processing result handle does
                     // not support `ParentUnknown`.
-                    if self.awaiting_parent.is_some() {
-                        break;
-                    }
-                    if let Some(data) = state.maybe_start_processing() {
+                    if self.awaiting_parent.is_none()
+                        && let Some(data) = state.maybe_start_processing()
+                    {
                         cx.send_custody_columns_for_processing(
-                            id,
-                            block_root,
+                            self.id,
+                            self.block_root,
                             data.value,
                             data.seen_timestamp,
-                            BlockProcessType::SingleCustodyColumn(id),
+                            BlockProcessType::SingleCustodyColumn(self.id),
                         )
                         .map_err(LookupRequestError::SendFailedProcessor)?;
                     }
@@ -309,15 +279,15 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             }
         }
 
-        // === Check completion ===
+        // If all components of this lookup are already processed, there will be no future events
+        // that can make progress so it must be dropped. Consider the lookup completed.
+        // This case can happen if we receive the components from gossip during a retry.
         if self.block_request.is_complete() && self.data_request.is_complete() {
             return Ok(LookupResult::Completed);
         }
 
         Ok(LookupResult::Pending)
     }
-
-    // -- Processing result handlers --
 
     /// Handle block processing result. Advances the lookup state machine.
     pub fn on_block_processing_result(
@@ -352,7 +322,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.continue_requests(cx)
     }
 
-    /// Handle data processing result (custody columns imported).
+    /// Handle data processing result
     pub fn on_data_processing_result(
         &mut self,
         result: BlockProcessingResult,
@@ -380,8 +350,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         }
         self.continue_requests(cx)
     }
-
-    // -- Download response handlers --
 
     /// Handle a block download response. Updates download state and advances the lookup.
     pub fn on_block_download_response(
@@ -530,23 +498,20 @@ impl<T: Clone> SingleLookupRequestState<T> {
     }
 
     /// Drive download: check max attempts, issue request, handle result.
-    fn make_request(
+    fn maybe_start_downloading(
         &mut self,
         request_fn: impl FnOnce() -> Result<LookupRequestResult<T>, RpcRequestSendError>,
     ) -> Result<(), LookupRequestError> {
-        if !self.is_awaiting_download() {
-            return Ok(());
-        }
-        if self.failed_attempts() >= SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS {
-            let cannot_process = self.more_failed_processing_attempts();
-            return Err(LookupRequestError::TooManyAttempts { cannot_process });
-        }
-        match request_fn().map_err(LookupRequestError::SendFailedNetwork)? {
-            LookupRequestResult::RequestSent(req_id) => self.on_download_start(req_id)?,
-            LookupRequestResult::NoRequestNeeded(reason, value) => {
-                self.on_completed_request(reason, value)?
+        if self.is_awaiting_download() {
+            match request_fn().map_err(LookupRequestError::SendFailedNetwork)? {
+                LookupRequestResult::RequestSent(req_id) => self.on_download_start(req_id)?,
+                LookupRequestResult::NoRequestNeeded(reason, value) => {
+                    self.on_completed_request(reason, value)?
+                }
+                LookupRequestResult::Pending(reason) => {
+                    self.update_awaiting_download_status(reason)
+                }
             }
-            LookupRequestResult::Pending(reason) => self.update_awaiting_download_status(reason),
         }
         Ok(())
     }
@@ -606,6 +571,10 @@ impl<T: Clone> SingleLookupRequestState<T> {
                     });
                 }
                 self.failed_downloading = self.failed_downloading.saturating_add(1);
+                if self.failed_downloading >= SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS {
+                    return Err(LookupRequestError::TooManyAttempts);
+                }
+
                 self.state = State::AwaitingDownload("not started");
                 Ok(())
             }
@@ -670,6 +639,9 @@ impl<T: Clone> SingleLookupRequestState<T> {
             State::Processing(result) => {
                 let peers_source = result.peer_group.clone();
                 self.failed_processing = self.failed_processing.saturating_add(1);
+                if self.failed_processing >= SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS {
+                    return Err(LookupRequestError::TooManyAttempts);
+                }
                 self.state = State::AwaitingDownload("not started");
                 Ok(peers_source)
             }
@@ -706,15 +678,6 @@ impl<T: Clone> SingleLookupRequestState<T> {
                 "Bad state on_completed_request expected AwaitingDownload got {other}"
             ))),
         }
-    }
-
-    /// The total number of failures, whether it be processing or downloading.
-    pub fn failed_attempts(&self) -> u8 {
-        self.failed_processing + self.failed_downloading
-    }
-
-    pub fn more_failed_processing_attempts(&self) -> bool {
-        self.failed_processing >= self.failed_downloading
     }
 }
 
