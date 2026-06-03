@@ -19,6 +19,21 @@ use strum::IntoStaticStr;
 use tracing::{Span, debug_span};
 use types::{DataColumnSidecarList, EthSpec, SignedBeaconBlock, Slot};
 
+// Dedicated enum for LookupResult to force its usage
+#[must_use = "LookupResult must be handled with on_lookup_result"]
+pub enum LookupResult {
+    /// Lookup completed successfully
+    Completed,
+    /// Lookup is expecting some future event from the network
+    Pending,
+    /// Block's parent is not known to fork-choice, a parent lookup is needed
+    ParentUnknown {
+        parent_root: Hash256,
+        block_root: Hash256,
+        peers: Vec<PeerId>,
+    },
+}
+
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
 pub enum LookupRequestError {
     /// Too many failed attempts
@@ -42,21 +57,6 @@ pub enum LookupRequestError {
     UnexpectedRequestId {
         expected_req_id: ReqId,
         req_id: ReqId,
-    },
-}
-
-// Dedicated enum for LookupResult to force its usage
-#[must_use = "LookupResult must be handled with on_lookup_result"]
-pub enum LookupResult {
-    /// Lookup completed successfully
-    Completed,
-    /// Lookup is expecting some future event from the network
-    Pending,
-    /// Block's parent is not known to fork-choice, a parent lookup is needed
-    ParentUnknown {
-        parent_root: Hash256,
-        block_root: Hash256,
-        peers: Vec<PeerId>,
     },
 }
 
