@@ -62,14 +62,15 @@ impl Observe for SystemHealth {
         let idle_seconds_total = (cpu_total.idle + iowait_ticks) / ticks_per_second;
         let iowait_seconds_total = iowait_ticks / ticks_per_second;
 
-        // Total CPU time (user + nice + system + idle + iowait + irq + softirq)
+        // Total CPU time (user + nice + system + idle + iowait + irq + softirq + steal).
         let cpu_time_total = (cpu_total.user
             + cpu_total.nice
             + cpu_total.system
             + cpu_total.idle
             + cpu_total.iowait.unwrap_or(0)
             + cpu_total.irq.unwrap_or(0)
-            + cpu_total.softirq.unwrap_or(0))
+            + cpu_total.softirq.unwrap_or(0)
+            + cpu_total.steal.unwrap_or(0))
             / ticks_per_second;
 
         let cpu_threads = kernel_stats.cpu_time.len() as u64;

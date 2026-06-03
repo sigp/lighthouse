@@ -8,5 +8,5 @@ eth2 = { workspace = true, features = ["lighthouse"] }
 metrics = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-nix = { version = "0.26", default-features = false, features = ["fs"] }
+nix = { version = "0.30", default-features = false, features = ["fs"] }
 procfs = { version = "0.18", default-features = false }
