@@ -856,6 +856,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Some(item)
                         } else if let Some(item) = work_queues.gossip_data_column_queue.pop() {
                             Some(item)
+                        } else if let Some(item) = work_queues.unknown_block_data_column_queue.pop()
+                        {
+                            Some(item)
                         } else if let Some(item) =
                             work_queues.gossip_partial_data_column_queue.pop()
                         {
@@ -995,9 +998,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         } else if let Some(item) = work_queues.unknown_block_aggregate_queue.pop() {
                             Some(item)
                         } else if let Some(item) = work_queues.unknown_block_attestation_queue.pop()
-                        {
-                            Some(item)
-                        } else if let Some(item) = work_queues.unknown_block_data_column_queue.pop()
                         {
                             Some(item)
                         // Check execution payload bids. Most proposers will request bids directly from builders
