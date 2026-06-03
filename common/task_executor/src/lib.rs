@@ -6,7 +6,7 @@ use futures::channel::mpsc::Sender;
 use futures::prelude::*;
 use std::sync::{Arc, Weak};
 use tokio::runtime::{Handle, Runtime};
-use tracing::debug;
+use tracing::{Span, debug};
 
 use crate::rayon_pool_provider::RayonPoolProvider;
 pub use crate::rayon_pool_provider::RayonPoolType;
@@ -225,9 +225,11 @@ impl TaskExecutor {
         F: FnOnce() + Send + 'static,
     {
         let thread_pool = self.rayon_pool_provider.get_thread_pool(rayon_pool_type);
+        let span = Span::current();
         self.spawn_blocking(
             move || {
                 thread_pool.install(|| {
+                    let _guard = span.enter();
                     task();
                 });
             },
@@ -247,8 +249,10 @@ impl TaskExecutor {
     {
         let thread_pool = self.rayon_pool_provider.get_thread_pool(rayon_pool_type);
         let (tx, rx) = tokio::sync::oneshot::channel();
+        let span = Span::current();
 
         thread_pool.spawn(move || {
+            let _guard = span.enter();
             let result = task();
             let _ = tx.send(result);
         });
@@ -320,8 +324,12 @@ impl TaskExecutor {
         let timer = metrics::start_timer_vec(&metrics::BLOCKING_TASKS_HISTOGRAM, &[name]);
         metrics::inc_gauge_vec(&metrics::BLOCKING_TASKS_COUNT, &[name]);
 
+        let span = Span::current();
         let join_handle = if let Some(handle) = self.handle() {
-            handle.spawn_blocking(task)
+            handle.spawn_blocking(move || {
+                let _guard = span.enter();
+                task()
+            })
         } else {
             debug!("Couldn't spawn task. Runtime shutting down");
             return None;

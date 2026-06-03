@@ -45,7 +45,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::Hash256;
 use tracing::{debug, error, warn};
-use types::{BlobSidecar, DataColumnSidecar, EthSpec, SignedBeaconBlock};
+use types::{EthSpec, SignedBeaconBlock};
 
 pub mod common;
 pub mod parent_chain;
@@ -77,29 +77,26 @@ const LOOKUP_MAX_DURATION_NO_PEERS_SECS: u64 = 10;
 /// take at most 2 GB. 200 lookups allow 3 parallel chains of depth 64 (current maximum).
 const MAX_LOOKUPS: usize = 200;
 
+/// The values for `Blob`, `DataColumn` and `PartialDataColumn` is the parent root of the column.
 pub enum BlockComponent<E: EthSpec> {
     Block(DownloadResult<Arc<SignedBeaconBlock<E>>>),
-    Blob(DownloadResult<Arc<BlobSidecar<E>>>),
-    DataColumn(DownloadResult<Arc<DataColumnSidecar<E>>>),
+    DataColumn(DownloadResult<Hash256>),
+    PartialDataColumn(DownloadResult<Hash256>),
 }
 
 impl<E: EthSpec> BlockComponent<E> {
     fn parent_root(&self) -> Hash256 {
         match self {
             BlockComponent::Block(block) => block.value.parent_root(),
-            BlockComponent::Blob(blob) => blob.value.block_parent_root(),
-            BlockComponent::DataColumn(column) => match column.value.as_ref() {
-                DataColumnSidecar::Fulu(column) => column.block_parent_root(),
-                // TODO(gloas) we don't have a parent root post gloas, not sure what to do here
-                DataColumnSidecar::Gloas(column) => column.beacon_block_root,
-            },
+            BlockComponent::DataColumn(parent_root)
+            | BlockComponent::PartialDataColumn(parent_root) => parent_root.value,
         }
     }
     fn get_type(&self) -> &'static str {
         match self {
             BlockComponent::Block(_) => "block",
-            BlockComponent::Blob(_) => "blob",
             BlockComponent::DataColumn(_) => "data_column",
+            BlockComponent::PartialDataColumn(_) => "partial_data_column",
         }
     }
 }
@@ -214,9 +211,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 block_root,
                 Some(block_component),
                 Some(parent_root),
-                // On a `UnknownParentBlock` or `UnknownParentBlob` event the peer is not required
-                // to have the rest of the block components (refer to decoupled blob gossip). Create
-                // the lookup with zero peers to house the block components.
+                // On a `UnknownParentBlock` or `UnknownParentDataColumn` event the peer is not
+                // required to have the rest of the block components. Create the lookup with zero
+                // peers to house the block components.
                 &[],
                 cx,
             )
@@ -559,6 +556,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             BlockProcessType::SingleCustodyColumn(id) => {
                 self.on_processing_result_inner::<CustodyRequestState<T::EthSpec>>(id, result, cx)
             }
+            // TODO(gloas): route into the payload envelope lookup state machine.
+            BlockProcessType::SinglePayloadEnvelope(_) => Ok(LookupResult::Pending),
         };
         self.on_lookup_result(process_type.id(), lookup_result, "processing_result", cx);
     }

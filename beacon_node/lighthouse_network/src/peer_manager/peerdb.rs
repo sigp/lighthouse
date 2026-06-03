@@ -874,7 +874,7 @@ impl<E: EthSpec> PeerDB<E> {
         self.peers
             .get_mut(peer_id)
             .map(|info| info.set_custody_subnets(custody_subnets))
-            .ok_or("Cannot set custody subnets, peer not found".to_string())
+            .ok_or_else(|| "Cannot set custody subnets, peer not found".to_string())
     }
 
     /// The connection state of the peer has been changed. Modify the peer in the db to ensure all

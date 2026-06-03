@@ -54,6 +54,7 @@ pub enum BeaconChainError {
     },
     SlotClockDidNotStart,
     NoStateForSlot(Slot),
+    NoBlockForSlot(Slot),
     BeaconStateError(BeaconStateError),
     EpochCacheError(EpochCacheError),
     DBInconsistent(String),
@@ -62,6 +63,7 @@ pub enum BeaconChainError {
     ForkChoiceStoreError(ForkChoiceStoreError),
     MissingBeaconBlock(Hash256),
     MissingBeaconState(Hash256),
+    MissingExecutionPayloadEnvelope(Hash256),
     MissingHotStateSummary(Hash256),
     SlotProcessingError(SlotProcessingError),
     EpochProcessingError(EpochProcessingError),
@@ -249,6 +251,13 @@ pub enum BeaconChainError {
         request_epoch: Epoch,
         cache_epoch: Epoch,
     },
+    AttesterCachePtcOutOfBounds {
+        slot: Slot,
+        epoch: Epoch,
+    },
+    AttesterCacheNoPtcPreGloas {
+        slot: Slot,
+    },
     SkipProposerPreparation,
     FailedColumnCustodyInfoUpdate,
 }
@@ -293,9 +302,6 @@ pub enum BlockProductionError {
     BeaconStateError(BeaconStateError),
     StateAdvanceError(StateAdvanceError),
     OpPoolError(OpPoolError),
-    /// The `BeaconChain` was explicitly configured _without_ a connection to eth1, therefore it
-    /// cannot produce blocks.
-    NoEth1ChainConnection,
     StateSlotTooHigh {
         produce_at_slot: Slot,
         state_slot: Slot,
@@ -323,6 +329,8 @@ pub enum BlockProductionError {
     SszTypesError(ssz_types::Error),
     EnvelopeProcessingError(EnvelopeProcessingError),
     BlsError(bls::Error),
+    MissingParentExecutionPayload,
+    MissingExecutionPayloadEnvelope(Hash256),
     // TODO(gloas): Remove this once Gloas is implemented
     GloasNotImplemented(String),
 }

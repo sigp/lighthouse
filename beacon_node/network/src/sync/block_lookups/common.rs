@@ -172,7 +172,7 @@ impl<T: BeaconChainTypes> RequestState<T> for CustodyRequestState<T::EthSpec> {
         _: usize,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupRequestResult, LookupRequestError> {
-        cx.custody_lookup_request(id, self.block_root, lookup_peers)
+        cx.custody_lookup_request(id, self.block_root, self.slot, lookup_peers)
             .map_err(LookupRequestError::SendFailedNetwork)
     }
 

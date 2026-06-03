@@ -109,31 +109,30 @@ For VSCode users, this is already configured in the repository's `.vscode/settin
 }
 ```
 
-### test_logger
+### Logging in tests
 
-The test_logger, located in `/common/logging/` can be used to create a `Logger` that by
-default returns a NullLogger. But if `--features 'logging/test_logger'` is passed while
-testing the logs are displayed. This can be very helpful while debugging tests.
+By default, when running tests, the logs will not be printed if the tests passed. For example, to run the tests for the `beacon_chain` package:
 
-Example:
-
+```bash
+cargo test --release  -p beacon_chain
 ```
-$ cargo nextest run -p beacon_chain -E 'test(validator_pubkey_cache::test::basic_operation)' --features 'logging/test_logger'
-    Finished test [unoptimized + debuginfo] target(s) in 0.20s
-     Running unittests (target/debug/deps/beacon_chain-975363824f1143bc)
 
-running 1 test
-Sep 19 19:23:25.192 INFO Beacon chain initialized, head_slot: 0, head_block: 0x2353…dcf4, head_state: 0xef4b…4615, module: beacon_chain::builder:649
-Sep 19 19:23:25.192 INFO Saved beacon chain to disk, module: beacon_chain::beacon_chain:3608
-Sep 19 19:23:26.798 INFO Beacon chain initialized, head_slot: 0, head_block: 0x2353…dcf4, head_state: 0xef4b…4615, module: beacon_chain::builder:649
-Sep 19 19:23:26.798 INFO Saved beacon chain to disk, module: beacon_chain::beacon_chain:3608
-Sep 19 19:23:28.407 INFO Beacon chain initialized, head_slot: 0, head_block: 0xdcdd…501f, head_state: 0x3055…032c, module: beacon_chain::builder:649
-Sep 19 19:23:28.408 INFO Saved beacon chain to disk, module: beacon_chain::beacon_chain:3608
-Sep 19 19:23:30.069 INFO Beacon chain initialized, head_slot: 0, head_block: 0xa739…1b22, head_state: 0xac1c…eab6, module: beacon_chain::builder:649
-Sep 19 19:23:30.069 INFO Saved beacon chain to disk, module: beacon_chain::beacon_chain:3608
-test validator_pubkey_cache::test::basic_operation ... ok
+To always show the logs, run the tests with `-- --nocapture`.
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 51 filtered out; finished in 6.46s
+```bash
+cargo test --release  -p beacon_chain -- --nocapture
+```
+
+By default, the log shown is `DEBUG` level. This can be overridden using the environment variable `RUST_LOG`. For example, to only show logs with `INFO` level and above:
+
+```bash
+RUST_LOG=info cargo test --release  -p beacon_chain -- --nocapture
+```
+
+To only show logs from the `beacon_chain` crate and with `INFO` level and above:
+
+```bash
+RUST_LOG=beacon_chain=info cargo test --release  -p beacon_chain -- --nocapture
 ```
 
 ### Consensus Spec Tests

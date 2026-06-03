@@ -514,11 +514,6 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
         Self::verify_slashable(signed_aggregate, chain)
-            .inspect(|verified_aggregate| {
-                if let Some(slasher) = chain.slasher.as_ref() {
-                    slasher.accept_attestation(verified_aggregate.indexed_attestation.clone());
-                }
-            })
             .map_err(|slash_info| process_slash_info(slash_info, chain))
     }
 
@@ -971,11 +966,6 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
         Self::verify_slashable(attestation, subnet_id, chain)
-            .inspect(|verified_unaggregated| {
-                if let Some(slasher) = chain.slasher.as_ref() {
-                    slasher.accept_attestation(verified_unaggregated.indexed_attestation.clone());
-                }
-            })
             .map_err(|slash_info| process_slash_info(slash_info, chain))
     }
 
@@ -1033,7 +1023,8 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
         let (committee_opt, committees_per_slot) = chain.with_committee_cache(
             attestation.data.target.root,
             attestation.data.slot.epoch(T::EthSpec::slots_per_epoch()),
-            |committee_cache, _| {
+            |cached_shuffling, _| {
+                let committee_cache = cached_shuffling.committee_cache.as_ref();
                 let committee_opt = committee_cache
                     .get_beacon_committee(attestation.data.slot, attestation.committee_index)
                     .map(|beacon_committee| beacon_committee.committee.to_vec());
@@ -1584,7 +1575,8 @@ where
         return Err(Error::UnknownTargetRoot(target.root));
     }
 
-    chain.with_committee_cache(target.root, attestation_epoch, |committee_cache, _| {
+    chain.with_committee_cache(target.root, attestation_epoch, |cached_shuffling, _| {
+        let committee_cache = cached_shuffling.committee_cache.as_ref();
         let committees_per_slot = committee_cache.committees_per_slot();
 
         Ok(committee_cache

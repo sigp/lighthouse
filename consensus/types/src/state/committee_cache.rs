@@ -62,6 +62,9 @@ fn compare_shuffling_positions(xs: &Vec<NonZeroUsizeOption>, ys: &Vec<NonZeroUsi
 impl CommitteeCache {
     /// Return a new, fully initialized cache.
     ///
+    /// The epoch must be within the range that the state can service: historic epochs with
+    /// available randao data, up to `current_epoch + 1` (the "next" epoch).
+    ///
     /// Spec v0.12.1
     pub fn initialized<E: EthSpec>(
         state: &BeaconState<E>,
@@ -81,12 +84,44 @@ impl CommitteeCache {
             || epoch
                 > state
                     .current_epoch()
-                    .safe_add(1)
+                    .safe_add(1u64)
                     .map_err(BeaconStateError::ArithError)?
         {
             return Err(BeaconStateError::EpochOutOfBounds);
         }
 
+        Self::initialized_unchecked(state, epoch, spec)
+    }
+
+    /// Return a new, fully initialized cache for a lookahead epoch.
+    ///
+    /// Like [`initialized`](Self::initialized), but allows epochs beyond `current_epoch + 1`.
+    /// The only bound enforced is that the required randao seed is available in the state.
+    ///
+    /// This is used by PTC window computation, which needs committee shufflings for
+    /// `current_epoch + 1 + MIN_SEED_LOOKAHEAD`.
+    pub fn initialized_for_lookahead<E: EthSpec>(
+        state: &BeaconState<E>,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<Arc<CommitteeCache>, BeaconStateError> {
+        let reqd_randao_epoch = epoch
+            .saturating_sub(spec.min_seed_lookahead)
+            .saturating_sub(1u64);
+
+        if reqd_randao_epoch < state.min_randao_epoch() {
+            return Err(BeaconStateError::EpochOutOfBounds);
+        }
+
+        Self::initialized_unchecked(state, epoch, spec)
+    }
+
+    /// Core committee cache construction. Callers are responsible for bounds-checking `epoch`.
+    fn initialized_unchecked<E: EthSpec>(
+        state: &BeaconState<E>,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<Arc<CommitteeCache>, BeaconStateError> {
         // May cause divide-by-zero errors.
         if E::slots_per_epoch() == 0 {
             return Err(BeaconStateError::ZeroSlotsPerEpoch);

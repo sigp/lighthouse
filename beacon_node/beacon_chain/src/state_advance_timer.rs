@@ -15,7 +15,9 @@
 //! 2. There's a possibility that the head block is never built upon, causing wasted CPU cycles.
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::{
-    BeaconChain, BeaconChainError, BeaconChainTypes, chain_config::FORK_CHOICE_LOOKAHEAD_FACTOR,
+    BeaconChain, BeaconChainError, BeaconChainTypes,
+    chain_config::FORK_CHOICE_LOOKAHEAD_FACTOR,
+    shuffling_cache::{CachedPTCs, CachedShuffling},
 };
 use slot_clock::SlotClock;
 use state_processing::per_slot_processing;
@@ -26,10 +28,7 @@ use std::sync::{
 use task_executor::TaskExecutor;
 use tokio::time::{Instant, sleep, sleep_until};
 use tracing::{Instrument, debug, debug_span, error, instrument, warn};
-use types::{
-    AttestationShufflingId, BeaconStateError, EthSpec, Hash256, RelativeEpoch, Slot,
-    StatePayloadStatus,
-};
+use types::{AttestationShufflingId, BeaconStateError, EthSpec, Hash256, RelativeEpoch, Slot};
 
 /// If the head slot is more than `MAX_ADVANCE_DISTANCE` from the current slot, then don't perform
 /// the state advancement.
@@ -280,16 +279,9 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
         (snapshot.beacon_block_root, snapshot.beacon_state_root())
     };
 
-    // TODO(gloas): do better once we have fork choice
-    let payload_status = StatePayloadStatus::Pending;
     let (head_state_root, mut state) = beacon_chain
         .store
-        .get_advanced_hot_state(
-            head_block_root,
-            payload_status,
-            current_slot,
-            head_block_state_root,
-        )?
+        .get_advanced_hot_state(head_block_root, current_slot, head_block_state_root)?
         .ok_or(Error::HeadMissingFromSnapshotCache(head_block_root))?;
 
     let initial_slot = state.slot();
@@ -404,19 +396,30 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
                 .map_err(BeaconChainError::from)?;
         let committee_cache = state
             .committee_cache(RelativeEpoch::Next)
-            .map_err(BeaconChainError::from)?;
-        beacon_chain
-            .shuffling_cache
-            .write()
-            .insert_committee_cache(shuffling_id.clone(), committee_cache);
+            .map_err(BeaconChainError::from)?
+            .clone();
+        let shuffling_epoch = RelativeEpoch::Next.into_epoch(state.current_epoch());
 
-        debug!(
-            ?head_block_root,
-            next_epoch_shuffling_root = ?shuffling_id.shuffling_decision_block,
-            state_epoch = %state.current_epoch(),
-            current_epoch = %current_slot.epoch(T::EthSpec::slots_per_epoch()),
-            "Primed proposer and attester caches"
-        );
+        if let Some(ptcs) = CachedPTCs::try_from_state(&state, shuffling_epoch, &beacon_chain.spec)?
+        {
+            beacon_chain.shuffling_cache.write().insert_committee_cache(
+                shuffling_id.clone(),
+                CachedShuffling::new(committee_cache, ptcs),
+            );
+
+            debug!(
+                ?head_block_root,
+                next_epoch_shuffling_root = ?shuffling_id.shuffling_decision_block,
+                state_epoch = %state.current_epoch(),
+                current_epoch = %current_slot.epoch(T::EthSpec::slots_per_epoch()),
+                "Primed proposer and attester caches"
+            );
+        } else {
+            debug!(
+                %shuffling_epoch,
+                "Skipping priming of attester cache for Gloas boundary epoch"
+            );
+        }
     }
 
     let final_slot = state.slot();

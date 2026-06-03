@@ -2,11 +2,11 @@ use crate::sync::network_context::{
     DataColumnsByRootRequestId, DataColumnsByRootSingleBlockRequest,
 };
 use beacon_chain::BeaconChainTypes;
-use beacon_chain::validator_monitor::timestamp_now;
 use fnv::FnvHashMap;
 use lighthouse_network::PeerId;
 use lighthouse_network::service::api_types::{CustodyId, DataColumnsByRootRequester};
 use parking_lot::RwLock;
+use slot_clock::SlotClock;
 use std::collections::HashSet;
 use std::hash::{BuildHasher, RandomState};
 use std::time::{Duration, Instant};
@@ -223,7 +223,10 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                 .collect::<Result<Vec<_>, _>>()?;
 
             let peer_group = PeerGroup::from_set(peers);
-            let max_seen_timestamp = seen_timestamps.into_iter().max().unwrap_or(timestamp_now());
+            let max_seen_timestamp = seen_timestamps
+                .into_iter()
+                .max()
+                .unwrap_or_else(|| cx.chain.slot_clock.now_duration().unwrap_or_default());
             return Ok(Some((columns, peer_group, max_seen_timestamp)));
         }
 
@@ -302,7 +305,12 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     // must have its columns in custody. In that case, set `true = enforce max_requests`
                     // and downscore if data_columns_by_root does not return the expected custody
                     // columns. For the rest of peers, don't downscore if columns are missing.
-                    lookup_peers.contains(&peer_id),
+                    //
+                    // Post-Gloas, blocks and payload envelopes are decoupled. A peer may
+                    // have the block but not yet imported the envelope and data columns.
+                    // Don't enforce max_responses in this case.
+                    lookup_peers.contains(&peer_id)
+                        && !cx.fork_context.current_fork_name().gloas_enabled(),
                 )
                 .map_err(Error::SendFailed)?;
 
