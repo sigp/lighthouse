@@ -75,6 +75,12 @@ excluded_paths = [
     "tests/.*/compute_challenge/.*",
     # We don't need these manifest files at the moment.
     "tests/.*/manifest.yaml",
+    # Must match IGNORED_BEACON_BLOCK_CASES in ef_tests::cases::gossip_validation.
+    # See that list for the per-case rationale.
+    "tests/.*/.*/networking/gossip_beacon_block/.*/gossip_beacon_block__reject_finalized_checkpoint_not_ancestor/.*",
+    "tests/.*/.*/networking/gossip_beacon_block/.*/gossip_beacon_block__ignore_parent_consensus_failed_execution_known/.*",
+    "tests/.*/.*/networking/gossip_beacon_block/.*/gossip_beacon_block__reject_parent_consensus_failed_execution_not_verified/.*",
+    "tests/.*/.*/networking/gossip_beacon_block/.*/gossip_beacon_block__reject_parent_failed_validation/.*",
     # TODO: Remaining gossip validation topics not yet implemented
     "tests/.*/.*/networking/gossip_beacon_attestation/.*",
     "tests/.*/.*/networking/gossip_beacon_aggregate_and_proof/.*",

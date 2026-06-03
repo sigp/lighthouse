@@ -1218,13 +1218,13 @@ where
             ));
         }
 
-        if let Some(checkpoint) = finalized_checkpoint {
-            if checkpoint.root != initial_block_root {
-                return Err(format!(
-                    "testing_initial_state can only finalize the initial block, checkpoint root: {:?}, initial root: {:?}",
-                    checkpoint.root, initial_block_root,
-                ));
-            }
+        if let Some(checkpoint) = finalized_checkpoint
+            && checkpoint.root != initial_block_root
+        {
+            return Err(format!(
+                "testing_initial_state can only finalize the initial block, checkpoint root: {:?}, initial root: {:?}",
+                checkpoint.root, initial_block_root,
+            ));
         }
 
         let fork_choice_epoch = finalized_checkpoint

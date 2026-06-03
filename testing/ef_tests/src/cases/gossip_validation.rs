@@ -414,18 +414,18 @@ impl<E: EthSpec> GossipTester<E> {
             }
         }
 
-        if status == Some(PayloadStatus::Valid) {
-            if let Ok(payload) = block.message().execution_payload() {
-                let block_hash = payload.block_hash();
-                mock_execution_layer.server.set_payload_statuses(
-                    block_hash,
-                    PayloadStatusV1 {
-                        status: PayloadStatusV1Status::Valid,
-                        latest_valid_hash: Some(block_hash),
-                        validation_error: None,
-                    },
-                );
-            }
+        if status == Some(PayloadStatus::Valid)
+            && let Ok(payload) = block.message().execution_payload()
+        {
+            let block_hash = payload.block_hash();
+            mock_execution_layer.server.set_payload_statuses(
+                block_hash,
+                PayloadStatusV1 {
+                    status: PayloadStatusV1Status::Valid,
+                    latest_valid_hash: Some(block_hash),
+                    validation_error: None,
+                },
+            );
         }
     }
 
