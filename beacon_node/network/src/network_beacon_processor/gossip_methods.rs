@@ -719,17 +719,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             MessageAcceptance::Accept,
                         );
                     }
-                    GossipDataColumnError::ParentUnknown { parent_root, .. } => {
+                    GossipDataColumnError::ParentUnknown { parent_root, slot } => {
                         debug!(
                             action = "requesting parent",
                             %block_root,
                             %parent_root,
                             "Unknown parent hash for column"
                         );
-                        self.send_sync_message(SyncMessage::UnknownParentDataColumn(
+                        self.send_sync_message(SyncMessage::UnknownParentSidecarHeader {
                             peer_id,
-                            column_sidecar,
-                        ));
+                            block_root,
+                            parent_root,
+                            slot,
+                        });
                     }
                     GossipDataColumnError::BlockRootUnknown {
                         block_root: unknown_block_root,
@@ -1047,7 +1049,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         %parent_root,
                         "Unknown parent hash for partial column"
                     );
-                    self.send_sync_message(SyncMessage::UnknownParentPartialDataColumn {
+                    self.send_sync_message(SyncMessage::UnknownParentSidecarHeader {
                         peer_id,
                         block_root,
                         parent_root,
