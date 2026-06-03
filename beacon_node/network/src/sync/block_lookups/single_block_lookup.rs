@@ -291,11 +291,9 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                             )
                         })?;
                     }
-                    // Do not send data for processing until the block has been imported (the
-                    // availability check needs the block) and we are not awaiting a parent
-                    // lookup. Otherwise data processing can fail with a transient
-                    // `ParentUnknown` / missing-block error.
-                    if self.awaiting_parent.is_some() || !self.block_request.state.is_processed() {
+                    // Wait for the parent to be imported, data column processing result handle does
+                    // not support `ParentUnknown`.
+                    if self.awaiting_parent.is_some() {
                         break;
                     }
                     if let Some(data) = state.maybe_start_processing() {
