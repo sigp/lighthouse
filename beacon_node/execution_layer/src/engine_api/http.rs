@@ -669,6 +669,20 @@ impl HttpJsonRpc {
             request = request.bearer_auth(auth.generate_token()?);
         };
 
+        // Inject the current span's trace context as a `traceparent` header.
+        {
+            use opentelemetry::global;
+            use opentelemetry_http::HeaderInjector;
+            use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+            let cx = tracing::Span::current().context();
+            let mut headers = reqwest::header::HeaderMap::new();
+            global::get_text_map_propagator(|prop| {
+                prop.inject_context(&cx, &mut HeaderInjector(&mut headers))
+            });
+            request = request.headers(headers);
+        }
+
         let body: JsonResponseBody = request.send().await?.error_for_status()?.json().await?;
 
         match (body.result, body.error) {
