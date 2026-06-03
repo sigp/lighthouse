@@ -42,6 +42,13 @@ pub fn upgrade_state_to_fulu<E: EthSpec>(
     let epoch = pre_state.current_epoch();
     let proposer_lookahead = initialize_proposer_lookahead(pre_state, spec)?;
     let pre = pre_state.as_electra_mut()?;
+    // Finalize the Eth1 bridge at the Fulu fork (spec PR #5322).
+    let deposit_requests_start_index =
+        if pre.deposit_requests_start_index == spec.unset_deposit_requests_start_index {
+            pre.eth1_data.deposit_count
+        } else {
+            pre.deposit_requests_start_index
+        };
     // Where possible, use something like `mem::take` to move fields from behind the &mut
     // reference. For other fields that don't have a good default value, use `clone`.
     //
@@ -93,7 +100,7 @@ pub fn upgrade_state_to_fulu<E: EthSpec>(
         next_withdrawal_validator_index: pre.next_withdrawal_validator_index,
         historical_summaries: pre.historical_summaries.clone(),
         // Electra
-        deposit_requests_start_index: pre.deposit_requests_start_index,
+        deposit_requests_start_index,
         deposit_balance_to_consume: pre.deposit_balance_to_consume,
         exit_balance_to_consume: pre.exit_balance_to_consume,
         earliest_exit_epoch: pre.earliest_exit_epoch,
