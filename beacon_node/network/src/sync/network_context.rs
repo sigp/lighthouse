@@ -1433,8 +1433,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         if self
             .chain
-            .data_availability_checker
-            .envelopes_required_for_epoch(epoch)
+            .spec
+            .gloas_fork_epoch
+            .is_some_and(|gloas_epoch| epoch >= gloas_epoch)
         {
             ByRangeRequestType::BlocksAndEnvelopesAndColumns
         } else if self

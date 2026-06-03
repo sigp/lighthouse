@@ -519,12 +519,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.da_check_required_for_epoch(epoch) && self.spec.is_peer_das_enabled_for_epoch(epoch)
     }
 
-    pub fn envelopes_required_for_epoch(&self, epoch: Epoch) -> bool {
-        self.spec
-            .gloas_fork_epoch
-            .is_some_and(|gloas_epoch| epoch >= gloas_epoch)
-    }
-
     /// See `Self::blobs_required_for_epoch`
     fn blobs_required_for_block(&self, block: &SignedBeaconBlock<T::EthSpec>) -> bool {
         block.num_expected_blobs() > 0 && self.blobs_required_for_epoch(block.epoch())
