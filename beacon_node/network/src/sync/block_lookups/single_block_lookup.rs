@@ -79,7 +79,6 @@ impl<E: EthSpec> BlockRequest<E> {
 
 #[derive(Debug)]
 struct DataRequest<E: EthSpec> {
-    peers: PeerSet,
     block_root: Hash256,
     slot: Slot,
     state: SingleLookupRequestState<DataColumnSidecarList<E>>,
@@ -113,7 +112,7 @@ pub struct SingleBlockLookup<T: BeaconChainTypes> {
     // Block request — always present
     block_request: BlockRequest<T::EthSpec>,
 
-    // Data request — starts as None, set after block downloaded
+    // Data request — starts as `WaitingForBlock`, resolved once the block is downloaded
     data_request: DataRequestState<T::EthSpec>,
 
     // Peer sets.
@@ -203,8 +202,10 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 self.block_request.state.insert_verified_response(block)
             }
             BlockComponent::Sidecar => {
-                // For now ignore single blobs and columns, as the blob request state assumes all
-                // blobs are attributed to the same peer = the peer serving the remaining blobs.
+                // For now ignore single blobs and columns, as the blob request state assumes all blobs are
+                // attributed to the same peer = the peer serving the remaining blobs. Ignoring this
+                // block component has a minor effect, causing the node to re-request this blob
+                // once the parent chain is successfully resolved
                 false
             }
         }
@@ -266,9 +267,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                         if block.num_expected_blobs() == 0 {
                             self.data_request = DataRequestState::NoData;
                         } else if cx.chain.should_fetch_custody_columns(block_epoch) {
-                            let peers = self.peers.clone();
                             self.data_request = DataRequestState::Request(DataRequest {
-                                peers,
                                 block_root: self.block_root,
                                 slot: block.slot(),
                                 state: SingleLookupRequestState::new(),
@@ -287,7 +286,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                                 id,
                                 request.block_root,
                                 request.slot,
-                                request.peers.clone(),
+                                self.peers.clone(),
                             )
                         })?;
                     }
