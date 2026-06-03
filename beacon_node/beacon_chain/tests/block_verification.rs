@@ -497,13 +497,18 @@ async fn chain_segment_non_linear_parent_roots() {
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.parent_root_mut() = Hash256::zero();
 
-    blocks[3] = RangeSyncBlock::new(
-        Arc::new(SignedBeaconBlock::from_block(block, signature)),
-        blocks[3].block_data().clone(),
-        &harness.chain.data_availability_checker,
-        harness.spec.clone(),
-    )
-    .unwrap();
+    let mutated_block = Arc::new(SignedBeaconBlock::from_block(block, signature));
+    blocks[3] = if mutated_block.fork_name_unchecked().gloas_enabled() {
+        RangeSyncBlock::new_gloas(mutated_block, None).unwrap()
+    } else {
+        RangeSyncBlock::new(
+            mutated_block,
+            blocks[3].block_data().clone(),
+            &harness.chain.data_availability_checker,
+            harness.spec.clone(),
+        )
+        .unwrap()
+    };
 
     assert!(
         matches!(
@@ -537,13 +542,18 @@ async fn chain_segment_non_linear_slots() {
             .collect();
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.slot_mut() = Slot::new(0);
-    blocks[3] = RangeSyncBlock::new(
-        Arc::new(SignedBeaconBlock::from_block(block, signature)),
-        blocks[3].block_data().clone(),
-        &harness.chain.data_availability_checker,
-        harness.spec.clone(),
-    )
-    .unwrap();
+    let mutated_block = Arc::new(SignedBeaconBlock::from_block(block, signature));
+    blocks[3] = if mutated_block.fork_name_unchecked().gloas_enabled() {
+        RangeSyncBlock::new_gloas(mutated_block, None).unwrap()
+    } else {
+        RangeSyncBlock::new(
+            mutated_block,
+            blocks[3].block_data().clone(),
+            &harness.chain.data_availability_checker,
+            harness.spec.clone(),
+        )
+        .unwrap()
+    };
 
     assert!(
         matches!(
@@ -567,13 +577,18 @@ async fn chain_segment_non_linear_slots() {
             .collect();
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.slot_mut() = blocks[2].slot();
-    blocks[3] = RangeSyncBlock::new(
-        Arc::new(SignedBeaconBlock::from_block(block, signature)),
-        blocks[3].block_data().clone(),
-        &harness.chain.data_availability_checker,
-        harness.chain.spec.clone(),
-    )
-    .unwrap();
+    let mutated_block = Arc::new(SignedBeaconBlock::from_block(block, signature));
+    blocks[3] = if mutated_block.fork_name_unchecked().gloas_enabled() {
+        RangeSyncBlock::new_gloas(mutated_block, None).unwrap()
+    } else {
+        RangeSyncBlock::new(
+            mutated_block,
+            blocks[3].block_data().clone(),
+            &harness.chain.data_availability_checker,
+            harness.chain.spec.clone(),
+        )
+        .unwrap()
+    };
 
     assert!(
         matches!(
@@ -2151,13 +2166,19 @@ async fn import_duplicate_block_unrealized_justification() {
     // Create two verified variants of the block, representing the same block being processed in
     // parallel.
     let notify_execution_layer = NotifyExecutionLayer::Yes;
-    let range_sync_block = RangeSyncBlock::new(
-        block.clone(),
-        AvailableBlockData::NoData,
-        &harness.chain.data_availability_checker,
-        harness.spec.clone(),
-    )
-    .unwrap();
+    let range_sync_block = if block.fork_name_unchecked().gloas_enabled() {
+        // Fine to pass no envelope as we are testing duplicate block import
+        // which is not related.
+        RangeSyncBlock::new_gloas(block.clone(), None).unwrap()
+    } else {
+        RangeSyncBlock::new(
+            block.clone(),
+            AvailableBlockData::NoData,
+            &harness.chain.data_availability_checker,
+            harness.spec.clone(),
+        )
+        .unwrap()
+    };
     let verified_block1 = range_sync_block
         .clone()
         .into_execution_pending_block(block_root, chain, notify_execution_layer)
