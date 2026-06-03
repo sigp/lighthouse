@@ -41,9 +41,6 @@ pub enum LookupRequestError {
     BadState(String),
     /// Lookup failed for some other reason and should be dropped
     Failed(/* reason: */ String),
-    /// Received MissingComponents when all components have been processed. This should never
-    /// happen, and indicates some internal bug
-    MissingComponentsAfterAllProcessed,
     /// Attempted to retrieve a not known lookup id
     UnknownLookup,
     /// Received a download result for a different request id than the in-flight request.
@@ -154,7 +151,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 .block_request_state
                 .state
                 .insert_verified_response(block),
-            BlockComponent::DataColumn(_) | BlockComponent::PartialDataColumn(_) => {
+            BlockComponent::Sidecar { .. } => {
                 // For now ignore single blobs and columns, as the blob request state assumes all blobs are
                 // attributed to the same peer = the peer serving the remaining blobs. Ignoring this
                 // block component has a minor effect, causing the node to re-request this blob
