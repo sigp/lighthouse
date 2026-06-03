@@ -4,7 +4,7 @@ use fork_choice::PayloadStatus;
 use proto_array::{ProposerHeadError, ReOrgThreshold};
 use slot_clock::SlotClock;
 use tracing::{debug, error, info, instrument, warn};
-use types::{BeaconState, Epoch, Hash256, SignedExecutionPayloadEnvelope, Slot, EthSpec};
+use types::{BeaconState, Epoch, EthSpec, Hash256, SignedExecutionPayloadEnvelope, Slot};
 
 use crate::{
     BeaconChain, BeaconChainTypes, BlockProductionError, StateSkipConfig,
@@ -81,13 +81,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .get_advanced_hot_state(head_block_root, slot, parent_state_root)
                     .map_err(BlockProductionError::FailedToLoadState)?
                     .ok_or(BlockProductionError::UnableToProduceAtSlot(slot))?;
-
-
-
+                //TODO(manas): deal with this weird shit here with the parent_payload_status
                 BlockProductionState {
                     state,
                     state_root: Some(state_root),
-                    parent_payload_status: PayloadStatus::Pending,
+                    parent_payload_status: PayloadStatus::Empty,
                     parent_envelope: None,
                 }
             }
@@ -101,7 +99,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
                 .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
 
-            // TODO(gloas): update this to read payload canonicity from fork choice once ready
+            // TODO(gloasxmanas): update this to read payload canonicity from fork choice once ready
             let parent_payload_status = PayloadStatus::Pending;
             BlockProductionState {
                 state,

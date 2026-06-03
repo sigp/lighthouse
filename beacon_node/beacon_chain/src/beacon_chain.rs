@@ -5137,15 +5137,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         canonical_forkchoice_params: ForkchoiceUpdateParameters,
     ) -> Result<ForkchoiceUpdateParameters, Error> {
-        let current_slot = self.slot()?;
-        if self
-            .spec
-            .fork_name_at_slot::<T::EthSpec>(current_slot)
-            .gloas_enabled()
-        {
-            return Ok(canonical_forkchoice_params);
-        }
-
         self.overridden_forkchoice_update_params_or_failure_reason(&canonical_forkchoice_params)
             .or_else(|e| match *e {
                 ProposerHeadError::DoNotReOrg(reason) => {
@@ -5159,7 +5150,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             })
     }
 
-    // TODO(gloas): wrong for Gloas, needs an update
     pub fn overridden_forkchoice_update_params_or_failure_reason(
         &self,
         canonical_forkchoice_params: &ForkchoiceUpdateParameters,
@@ -5269,11 +5259,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let head_weight = info
             .head_node
             .attestation_score(fork_choice::PayloadStatus::Pending)
-            .saturating_add(
-                info.head_node
-                    .equivocating_attestation_score()
-                    .unwrap_or(0),
-            );
+            .saturating_add(info.head_node.equivocating_attestation_score().unwrap_or(0));
 
         let (head_weak, parent_strong) = if fork_choice_slot == re_org_block_slot {
             (
@@ -5313,14 +5299,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(Box::new(DoNotReOrg::HeadNotLate.into()));
         }
 
-        // TODO(gloas): V29 nodes don't carry execution_status, so this returns
-        // None for post-Gloas re-orgs. Need to source the EL block hash from
-        // the bid's block_hash instead. Re-org is disabled for Gloas for now.
+        // Pre-Gloas the EL block hash lives in the node's `execution_status`. Post-Gloas (V29) the
+        // payload is decoupled from the beacon block, so source the EL head the re-org block will
+        // build on from the parent's committed bid block hash instead.
         let parent_head_hash = info
             .parent_node
             .execution_status()
             .ok()
-            .and_then(|execution_status| execution_status.block_hash());
+            .and_then(|execution_status| execution_status.block_hash())
+            .or_else(|| info.parent_node.execution_payload_block_hash().ok());
         let forkchoice_update_params = ForkchoiceUpdateParameters {
             head_root: info.parent_node.root(),
             head_hash: parent_head_hash,

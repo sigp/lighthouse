@@ -1,9 +1,10 @@
-//! Gloas (ePBS / EIP-7732) payload re-org tests.
+//! post-gloas payload re-org tests.
 //!
 //! These tests are deliberately kept separate from `interactive_tests.rs` because they exercise
-//! Gloas-only fork-choice behaviour: the head is a `ForkChoiceNode` = (block root, payload status),
+//! post-gloas fork-choice behaviour: the head is a `ForkChoiceNode` = (block root, payload status),
 //! and a block's *payload* can be re-orged (head flips `FULL` -> `EMPTY`) independently of the
 //! beacon block, when later-slot voters attest the block with `payload_present = false`.
+//!
 use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy},
     custody_context::NodeCustodyType,
@@ -274,8 +275,8 @@ async fn gloas_payload_reorg_proposer_builds_on_empty_path() {
     // TODO:
     // 1. get_proposer_head=grand-parent (do-reorg) + payload_status=empty
     // 1. get_proposer_head=grant-parent (do-reorg) + payload_status=full
-    // 1. get_proposer_head=parent (do-reorg) + payload_status=full
-    // 1. get_proposer_head=parent (do-reorg) + payload_status=empty
+    // 1. get_proposer_head=parent (don't-reorg) + payload_status=full
+    // 1. get_proposer_head=parent (don't-reorg) + payload_status=empty
     //
     // should make sure that all existing test pass
     // - run each for gloas and understand what changes are needed to make them pass for gloas

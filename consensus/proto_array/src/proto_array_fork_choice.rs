@@ -756,11 +756,8 @@ impl ProtoArrayForkChoice {
 
         // Spec: `is_parent_strong`. Use `PayloadStatus::Pending` to avoid weight split
         // between payload statuses. https://github.com/ethereum/consensus-specs/issues/5305
-
         let parent_pending_weight = info.parent_node.attestation_score(PayloadStatus::Pending);
-
         let re_org_parent_weight_threshold = info.re_org_parent_weight_threshold;
-
         let parent_strong = parent_pending_weight > re_org_parent_weight_threshold;
         if !parent_strong {
             return Err(DoNotReOrg::ParentNotStrong {
