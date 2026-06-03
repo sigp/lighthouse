@@ -326,10 +326,8 @@ async fn ptc_cache_is_primed_at_gloas_fork_boundary() {
         .mock_execution_layer()
         .build();
 
-    harness.extend_to_slot(fork_boundary_slot).await;
-
     for slot in test_slots {
-        harness.chain.slot_clock.set_slot(slot.as_u64());
+        harness.extend_to_slot(slot).await;
         assert!(
             harness
                 .chain
