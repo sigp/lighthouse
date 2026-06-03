@@ -19,23 +19,6 @@ use strum::IntoStaticStr;
 use tracing::{Span, debug_span};
 use types::{DataColumnSidecarList, EthSpec, SignedBeaconBlock, Slot};
 
-#[derive(Debug, Clone)]
-pub struct DownloadResult<T: Clone> {
-    pub value: T,
-    pub seen_timestamp: Duration,
-    pub peer_group: PeerGroup,
-}
-
-impl<T: Clone> DownloadResult<T> {
-    pub fn new(value: T, peer_group: PeerGroup, seen_timestamp: Duration) -> Self {
-        Self {
-            value,
-            seen_timestamp,
-            peer_group,
-        }
-    }
-}
-
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
 pub enum LookupRequestError {
     /// Too many failed attempts
@@ -452,6 +435,23 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     /// Returns true if this lookup has zero peers
     pub fn has_no_peers(&self) -> bool {
         self.peers.read().is_empty()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DownloadResult<T: Clone> {
+    pub value: T,
+    pub seen_timestamp: Duration,
+    pub peer_group: PeerGroup,
+}
+
+impl<T: Clone> DownloadResult<T> {
+    pub fn new(value: T, peer_group: PeerGroup, seen_timestamp: Duration) -> Self {
+        Self {
+            value,
+            seen_timestamp,
+            peer_group,
+        }
     }
 }
 

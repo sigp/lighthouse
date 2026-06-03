@@ -1365,7 +1365,18 @@ impl TestRig {
         peer_id: PeerId,
         data_column: Arc<DataColumnSidecar<E>>,
     ) {
-        self.send_sync_message(SyncMessage::UnknownParentDataColumn(peer_id, data_column));
+        let block_root = data_column.block_root();
+        let slot = data_column.slot();
+        let parent_root = match data_column.as_ref() {
+            DataColumnSidecar::Fulu(column) => column.block_parent_root(),
+            DataColumnSidecar::Gloas(_) => panic!("Gloas data column not supported in this test"),
+        };
+        self.send_sync_message(SyncMessage::UnknownParentSidecarHeader {
+            peer_id,
+            block_root,
+            parent_root,
+            slot,
+        });
     }
 
     fn trigger_unknown_block_from_attestation(&mut self, block_root: Hash256, peer_id: PeerId) {

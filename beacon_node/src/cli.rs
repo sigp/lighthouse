@@ -388,6 +388,14 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("enable-mplex")
+                .long("enable-mplex")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .help("Enables mplex multiplexer alongside yamux. Yamux is preferred when both are available.")
+                .display_order(0)
+        )
+        .arg(
             Arg::new("disable-peer-scoring")
                 .long("disable-peer-scoring")
                 .help("Disables peer scoring in lighthouse. WARNING: This is a dev only flag is only meant to be used in local testing scenarios \
