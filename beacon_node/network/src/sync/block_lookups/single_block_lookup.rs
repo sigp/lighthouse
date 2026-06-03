@@ -106,10 +106,10 @@ pub struct SingleBlockLookup<T: BeaconChainTypes> {
     pub id: Id,
     block_root: Hash256,
 
-    // Block request — always present
     block_request: BlockRequest<T::EthSpec>,
 
-    // Data request — starts as `WaitingForBlock`, resolved once the block is downloaded
+    // Data request — starts as `WaitingForBlock`, resolved to `NoData` or `Request` after the
+    // block is downloaded
     data_request: DataRequest<T::EthSpec>,
 
     // Peer sets.
@@ -199,10 +199,8 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 self.block_request.state.insert_verified_response(block)
             }
             BlockComponent::Sidecar => {
-                // For now ignore single blobs and columns, as the blob request state assumes all blobs are
-                // attributed to the same peer = the peer serving the remaining blobs. Ignoring this
-                // block component has a minor effect, causing the node to re-request this blob
-                // once the parent chain is successfully resolved
+                // There's nothing to do here, there's no component to insert. The lookup downloads
+                // its required data columns itself once it has the block.
                 false
             }
         }
@@ -228,7 +226,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     /// in dropping the lookup. May mark the lookup as completed.
     ///
     /// Each of the block / data sub-state-machines is driven inside its own `loop`
-    /// so that synchronous state transitions (e.g. Downloading → Downloaded → Processing) run
+    /// so that synchronous state transitions (e.g. Downloading → AwaitingProcess → Processing) run
     /// without returning. Each loop `break`s when further progress requires an external event
     /// (download response, processing result, or a parent lookup to resolve).
     pub fn continue_requests(
@@ -255,7 +253,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         // === Data request ===
         loop {
             match &mut self.data_request {
-                // None = waiting for block
                 DataRequest::WaitingForBlock => {
                     if let Some(block) = self.block_request.state.peek_downloaded_data() {
                         let block_epoch = block
@@ -355,7 +352,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.continue_requests(cx)
     }
 
-    /// Handle data processing result (blobs or custody columns imported).
+    /// Handle data processing result (custody columns imported).
     pub fn on_data_processing_result(
         &mut self,
         result: BlockProcessingResult,
