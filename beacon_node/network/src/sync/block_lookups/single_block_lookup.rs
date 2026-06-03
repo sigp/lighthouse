@@ -78,25 +78,22 @@ impl<E: EthSpec> BlockRequest<E> {
 }
 
 #[derive(Debug)]
-struct DataRequest<E: EthSpec> {
-    block_root: Hash256,
-    slot: Slot,
-    state: SingleLookupRequestState<DataColumnSidecarList<E>>,
-}
-
-#[derive(Debug)]
-enum DataRequestState<E: EthSpec> {
+enum DataRequest<E: EthSpec> {
     WaitingForBlock,
-    Request(DataRequest<E>),
+    Request {
+        block_root: Hash256,
+        slot: Slot,
+        state: SingleLookupRequestState<DataColumnSidecarList<E>>,
+    },
     NoData,
 }
 
-impl<E: EthSpec> DataRequestState<E> {
+impl<E: EthSpec> DataRequest<E> {
     fn is_complete(&self) -> bool {
         match &self {
-            DataRequestState::WaitingForBlock => false,
-            DataRequestState::Request(request) => request.state.is_processed(),
-            DataRequestState::NoData => true,
+            DataRequest::WaitingForBlock => false,
+            DataRequest::Request { state, .. } => state.is_processed(),
+            DataRequest::NoData => true,
         }
     }
 }
@@ -113,7 +110,7 @@ pub struct SingleBlockLookup<T: BeaconChainTypes> {
     block_request: BlockRequest<T::EthSpec>,
 
     // Data request — starts as `WaitingForBlock`, resolved once the block is downloaded
-    data_request: DataRequestState<T::EthSpec>,
+    data_request: DataRequest<T::EthSpec>,
 
     // Peer sets.
     //
@@ -147,7 +144,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             id,
             block_root: requested_block_root,
             block_request: BlockRequest::new(),
-            data_request: DataRequestState::WaitingForBlock,
+            data_request: DataRequest::WaitingForBlock,
             peers: Arc::new(RwLock::new(peers.iter().copied().collect())),
             awaiting_parent,
             created: Instant::now(),
@@ -158,7 +155,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     /// Reset the status of all requests (used on block processing failure)
     pub fn reset_requests(&mut self) {
         self.block_request = BlockRequest::new();
-        self.data_request = DataRequestState::WaitingForBlock;
+        self.data_request = DataRequest::WaitingForBlock;
     }
 
     /// Return the slot of this lookup's block if it's currently cached
@@ -221,9 +218,9 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.awaiting_parent.is_some()
             || self.block_request.state.is_awaiting_event()
             || match &self.data_request {
-                DataRequestState::WaitingForBlock => true,
-                DataRequestState::Request(request) => request.state.is_awaiting_event(),
-                DataRequestState::NoData => false,
+                DataRequest::WaitingForBlock => true,
+                DataRequest::Request { state, .. } => state.is_awaiting_event(),
+                DataRequest::NoData => false,
             }
     }
 
@@ -259,33 +256,37 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         loop {
             match &mut self.data_request {
                 // None = waiting for block
-                DataRequestState::WaitingForBlock => {
+                DataRequest::WaitingForBlock => {
                     if let Some(block) = self.block_request.state.peek_downloaded_data() {
                         let block_epoch = block
                             .slot()
                             .epoch(<T as BeaconChainTypes>::EthSpec::slots_per_epoch());
-                        if block.num_expected_blobs() == 0 {
-                            self.data_request = DataRequestState::NoData;
+                        self.data_request = if block.num_expected_blobs() == 0 {
+                            DataRequest::NoData
                         } else if cx.chain.should_fetch_custody_columns(block_epoch) {
-                            self.data_request = DataRequestState::Request(DataRequest {
+                            DataRequest::Request {
                                 block_root: self.block_root,
                                 slot: block.slot(),
                                 state: SingleLookupRequestState::new(),
-                            });
+                            }
                         } else {
-                            self.data_request = DataRequestState::NoData;
-                        }
+                            DataRequest::NoData
+                        };
                     } else {
                         break;
                     }
                 }
-                DataRequestState::Request(request) => {
-                    if request.state.is_awaiting_download() {
-                        request.state.make_request(|| {
+                DataRequest::Request {
+                    block_root: data_block_root,
+                    slot,
+                    state,
+                } => {
+                    if state.is_awaiting_download() {
+                        state.make_request(|| {
                             cx.custody_lookup_request(
                                 id,
-                                request.block_root,
-                                request.slot,
+                                *data_block_root,
+                                *slot,
                                 self.peers.clone(),
                             )
                         })?;
@@ -297,7 +298,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                     if self.awaiting_parent.is_some() || !self.block_request.state.is_processed() {
                         break;
                     }
-                    if let Some(data) = request.state.maybe_start_processing() {
+                    if let Some(data) = state.maybe_start_processing() {
                         cx.send_custody_columns_for_processing(
                             id,
                             block_root,
@@ -309,7 +310,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                     }
                     break;
                 }
-                DataRequestState::NoData => break,
+                DataRequest::NoData => break,
             }
         }
 
@@ -362,7 +363,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         result: BlockProcessingResult,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
-        let DataRequestState::Request(DataRequest { state, .. }) = &mut self.data_request else {
+        let DataRequest::Request { state, .. } = &mut self.data_request else {
             return Err(LookupRequestError::BadState("no data_request".to_owned()));
         };
 
@@ -407,7 +408,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         result: CustodyDownloadResponse<T::EthSpec>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
-        let DataRequestState::Request(DataRequest { state, .. }) = &mut self.data_request else {
+        let DataRequest::Request { state, .. } = &mut self.data_request else {
             return Err(LookupRequestError::BadState("no data_request".to_owned()));
         };
 
