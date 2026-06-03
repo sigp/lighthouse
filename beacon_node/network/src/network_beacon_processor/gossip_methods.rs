@@ -1587,6 +1587,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 debug!(error = %e, "Could not verify block for gossip. Ignoring the block");
                 (None, MessageAcceptance::Ignore)
             }
+            Err(e @ BlockError::ParentExecutionPayloadInvalid { .. }) => {
+                debug!(error = %e, "Could not verify block for gossip. Ignoring the block");
+                (None, MessageAcceptance::Ignore)
+            }
             Err(e @ BlockError::StateRootMismatch { .. })
             | Err(e @ BlockError::IncorrectBlockProposer { .. })
             | Err(e @ BlockError::BlockSlotLimitReached)
@@ -1599,7 +1603,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             | Err(e @ BlockError::WeakSubjectivityConflict)
             | Err(e @ BlockError::InconsistentFork(_))
             | Err(e @ BlockError::ExecutionPayloadError(_))
-            | Err(e @ BlockError::ParentExecutionPayloadInvalid { .. })
             | Err(e @ BlockError::KnownInvalidExecutionPayload(_))
             | Err(e @ BlockError::GenesisBlock)
             | Err(e @ BlockError::InvalidBlobCount { .. })

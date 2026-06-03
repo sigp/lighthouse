@@ -76,7 +76,6 @@ excluded_paths = [
     # We don't need these manifest files at the moment.
     "tests/.*/manifest.yaml",
     # TODO: Remaining gossip validation topics not yet implemented
-    "tests/.*/.*/networking/gossip_beacon_block/.*",
     "tests/.*/.*/networking/gossip_beacon_attestation/.*",
     "tests/.*/.*/networking/gossip_beacon_aggregate_and_proof/.*",
     "tests/.*/.*/networking/gossip_voluntary_exit/.*",
