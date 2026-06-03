@@ -1,13 +1,11 @@
 use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 use crate::{
     core::{Epoch, Hash256},
     fork::ForkName,
-    test_utils::TestRandom,
 };
 
 /// Casper FFG checkpoint, used in attestations.
@@ -27,7 +25,6 @@ use crate::{
     Encode,
     Decode,
     TreeHash,
-    TestRandom,
 )]
 #[context_deserialize(ForkName)]
 pub struct Checkpoint {

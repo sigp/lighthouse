@@ -31,7 +31,8 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
 
             match notify_execution_layer {
                 NotifyExecutionLayer::No if chain.config.optimistic_finalized_sync => {
-                    let new_payload_request = Self::build_new_payload_request(&envelope, &block)?;
+                    let new_payload_request = Self::build_new_payload_request(&envelope, &block)
+                        .map_err(EnvelopeError::ImportError)?;
                     // TODO(gloas): check and test RLP block hash calculation post-Gloas
                     if let Err(e) = new_payload_request.perform_optimistic_sync_verifications() {
                         warn!(
@@ -87,7 +88,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         Ok(NewPayloadRequest::Gloas(NewPayloadRequestGloas {
             execution_payload: &envelope.message.payload,
             versioned_hashes,
-            parent_beacon_block_root: block.message().parent_root(),
+            parent_beacon_block_root: envelope.message.parent_beacon_block_root,
             execution_requests: &envelope.message.execution_requests,
         }))
     }

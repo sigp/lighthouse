@@ -3,6 +3,8 @@ pub mod block_service;
 pub mod duties_service;
 pub mod latency_service;
 pub mod notifier_service;
+pub mod payload_attestation_service;
 pub mod preparation_service;
+pub mod proposer_preferences_service;
 pub mod sync;
 pub mod sync_committee_service;

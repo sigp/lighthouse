@@ -18,14 +18,13 @@
 //!
 //! ```
 
+use state_processing::envelope_processing::EnvelopeProcessingError;
 use std::sync::Arc;
-
 use store::Error as DBError;
-
-use state_processing::{BlockProcessingError, envelope_processing::EnvelopeProcessingError};
+use strum::AsRefStr;
 use tracing::instrument;
 use types::{
-    BeaconState, BeaconStateError, ChainSpec, DataColumnSidecarList, EthSpec, ExecutionBlockHash,
+    BeaconState, BeaconStateError, DataColumnSidecarList, EthSpec, ExecutionBlockHash,
     ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadEnvelope, Slot,
 };
 
@@ -41,24 +40,20 @@ mod payload_notifier;
 
 pub use execution_pending_envelope::ExecutionPendingEnvelope;
 
-#[derive(PartialEq)]
-pub struct EnvelopeImportData<E: EthSpec> {
-    pub block_root: Hash256,
-    pub post_state: Box<BeaconState<E>>,
-}
-
 #[derive(Debug)]
-#[allow(dead_code)]
 pub struct AvailableEnvelope<E: EthSpec> {
-    execution_block_hash: ExecutionBlockHash,
     envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
-    columns: DataColumnSidecarList<E>,
-    /// Timestamp at which this envelope first became available (UNIX timestamp, time since 1970).
-    columns_available_timestamp: Option<std::time::Duration>,
-    pub spec: Arc<ChainSpec>,
+    pub columns: DataColumnSidecarList<E>,
 }
 
 impl<E: EthSpec> AvailableEnvelope<E> {
+    pub fn new(
+        envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+        columns: DataColumnSidecarList<E>,
+    ) -> Self {
+        Self { envelope, columns }
+    }
+
     pub fn message(&self) -> &ExecutionPayloadEnvelope<E> {
         &self.envelope.message
     }
@@ -77,14 +72,6 @@ impl<E: EthSpec> AvailableEnvelope<E> {
     }
 }
 
-pub enum MaybeAvailableEnvelope<E: EthSpec> {
-    Available(AvailableEnvelope<E>),
-    AvailabilityPending {
-        block_hash: ExecutionBlockHash,
-        envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
-    },
-}
-
 /// This snapshot is to be used for verifying a payload envelope.
 #[derive(Debug, Clone)]
 pub struct EnvelopeProcessingSnapshot<E: EthSpec> {
@@ -94,40 +81,25 @@ pub struct EnvelopeProcessingSnapshot<E: EthSpec> {
     pub beacon_block_root: Hash256,
 }
 
-/// A payload envelope that has gone through processing checks and execution by an EL client.
-/// This envelope hasn't necessarily completed data availability checks.
-///
-///
-/// It contains 2 variants:
-/// 1. `Available`: This envelope has been executed and also contains all data to consider it
-///    fully available.
-/// 2. `AvailabilityPending`: This envelope hasn't received all required blobs to consider it
-///    fully available.
-pub enum ExecutedEnvelope<E: EthSpec> {
-    Available(AvailableExecutedEnvelope<E>),
-    // TODO(gloas) implement availability pending
-    AvailabilityPending(),
+/// A payload envelope that has completed all envelope processing checks, verification
+/// by an EL client but does not have all requisite columns to get imported into
+/// fork choice.
+pub struct AvailabilityPendingExecutedEnvelope<E: EthSpec> {
+    pub envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+    pub block_root: Hash256,
+    pub payload_verification_outcome: PayloadVerificationOutcome,
 }
 
-impl<E: EthSpec> ExecutedEnvelope<E> {
+impl<E: EthSpec> AvailabilityPendingExecutedEnvelope<E> {
     pub fn new(
-        envelope: MaybeAvailableEnvelope<E>,
-        import_data: EnvelopeImportData<E>,
+        envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+        block_root: Hash256,
         payload_verification_outcome: PayloadVerificationOutcome,
     ) -> Self {
-        match envelope {
-            MaybeAvailableEnvelope::Available(available_envelope) => {
-                Self::Available(AvailableExecutedEnvelope::new(
-                    available_envelope,
-                    import_data,
-                    payload_verification_outcome,
-                ))
-            }
-            // TODO(gloas) implement availability pending
-            MaybeAvailableEnvelope::AvailabilityPending {
-                block_hash: _,
-                envelope: _,
-            } => Self::AvailabilityPending(),
+        Self {
+            envelope,
+            block_root,
+            payload_verification_outcome,
         }
     }
 }
@@ -136,25 +108,25 @@ impl<E: EthSpec> ExecutedEnvelope<E> {
 /// by an EL client **and** has all requisite blob data to be imported into fork choice.
 pub struct AvailableExecutedEnvelope<E: EthSpec> {
     pub envelope: AvailableEnvelope<E>,
-    pub import_data: EnvelopeImportData<E>,
+    pub block_root: Hash256,
     pub payload_verification_outcome: PayloadVerificationOutcome,
 }
 
 impl<E: EthSpec> AvailableExecutedEnvelope<E> {
     pub fn new(
         envelope: AvailableEnvelope<E>,
-        import_data: EnvelopeImportData<E>,
+        block_root: Hash256,
         payload_verification_outcome: PayloadVerificationOutcome,
     ) -> Self {
         Self {
             envelope,
-            import_data,
+            block_root,
             payload_verification_outcome,
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, AsRefStr)]
 pub enum EnvelopeError {
     /// The envelope's block root is unknown.
     BlockRootUnknown { block_root: Hash256 },
@@ -182,22 +154,16 @@ pub enum EnvelopeError {
         payload_slot: Slot,
         latest_finalized_slot: Slot,
     },
-    /// Optimistic sync is not supported for Gloas payload envelopes.
-    OptimisticSyncNotSupported { block_root: Hash256 },
     /// Some Beacon Chain Error
     BeaconChainError(Arc<BeaconChainError>),
     /// Some Beacon State error
     BeaconStateError(BeaconStateError),
-    /// Some BlockProcessingError (for electra operations)
-    BlockProcessingError(BlockProcessingError),
     /// Some EnvelopeProcessingError
     EnvelopeProcessingError(EnvelopeProcessingError),
     /// Error verifying the execution payload
     ExecutionPayloadError(ExecutionPayloadError),
-    /// An error from block-level checks reused during envelope import
-    BlockError(BlockError),
-    /// Internal error
-    InternalError(String),
+    /// An error from importing the envelope.
+    ImportError(BlockError),
 }
 
 impl std::fmt::Display for EnvelopeError {
@@ -230,13 +196,6 @@ impl From<DBError> for EnvelopeError {
     }
 }
 
-impl From<BlockError> for EnvelopeError {
-    fn from(e: BlockError) -> Self {
-        EnvelopeError::BlockError(e)
-    }
-}
-
-/// Pull errors up from EnvelopeProcessingError to EnvelopeError
 impl From<EnvelopeProcessingError> for EnvelopeError {
     fn from(e: EnvelopeProcessingError) -> Self {
         match e {
@@ -249,9 +208,6 @@ impl From<EnvelopeProcessingError> for EnvelopeError {
                 committed_bid,
                 envelope,
             },
-            EnvelopeProcessingError::BlockProcessingError(e) => {
-                EnvelopeError::BlockProcessingError(e)
-            }
             e => EnvelopeError::EnvelopeProcessingError(e),
         }
     }

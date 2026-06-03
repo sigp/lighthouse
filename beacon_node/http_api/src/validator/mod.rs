@@ -7,10 +7,13 @@ use crate::utils::{
     ResponseFilter, TaskSpawnerFilter, ValidatorSubscriptionTxFilter, publish_network_message,
 };
 use crate::version::{V1, V2, V3, unsupported_version_rejection};
-use crate::{StateId, attester_duties, proposer_duties, sync_committees};
+use crate::{StateId, attester_duties, proposer_duties, ptc_duties, sync_committees};
 use beacon_chain::attestation_verification::VerifiedAttestation;
+use beacon_chain::proposer_preferences_verification::ProposerPreferencesError;
 use beacon_chain::{AttestationError, BeaconChain, BeaconChainError, BeaconChainTypes};
 use bls::PublicKeyBytes;
+use bytes::Bytes;
+use eth2::CONSENSUS_VERSION_HEADER;
 use eth2::types::{
     Accept, BeaconCommitteeSubscription, EndpointVersion, Failure, GenericResponse,
     StandardLivenessResponseData, StateId as CoreStateId, ValidatorAggregateAttestationQuery,
@@ -20,14 +23,15 @@ use lighthouse_network::PubsubMessage;
 use network::{NetworkMessage, ValidatorSubscriptionMessage};
 use reqwest::StatusCode;
 use slot_clock::SlotClock;
+use ssz::Decode;
 use std::sync::Arc;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio::sync::oneshot;
 use tracing::{debug, error, info, warn};
 use types::{
-    BeaconState, Epoch, EthSpec, ProposerPreparationData, SignedAggregateAndProof,
-    SignedContributionAndProof, SignedValidatorRegistrationData, Slot, SyncContributionData,
-    ValidatorSubscription,
+    BeaconState, Epoch, EthSpec, ForkName, ProposerPreparationData, SignedAggregateAndProof,
+    SignedContributionAndProof, SignedProposerPreferences, SignedValidatorRegistrationData, Slot,
+    SyncContributionData, ValidatorSubscription,
 };
 use warp::{Filter, Rejection, Reply};
 use warp_utils::reject::convert_rejection;
@@ -168,6 +172,42 @@ pub fn post_validator_duties_attester<T: BeaconChainTypes>(
         .boxed()
 }
 
+// POST validator/duties/ptc/{epoch}
+pub fn post_validator_duties_ptc<T: BeaconChainTypes>(
+    eth_v1: EthV1Filter,
+    chain_filter: ChainFilter<T>,
+    not_while_syncing_filter: NotWhileSyncingFilter,
+    task_spawner_filter: TaskSpawnerFilter<T>,
+) -> ResponseFilter {
+    eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path("duties"))
+        .and(warp::path("ptc"))
+        .and(warp::path::param::<Epoch>().or_else(|_| async {
+            Err(warp_utils::reject::custom_bad_request(
+                "Invalid epoch".to_string(),
+            ))
+        }))
+        .and(warp::path::end())
+        .and(not_while_syncing_filter.clone())
+        .and(warp_utils::json::json())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .then(
+            |epoch: Epoch,
+             not_synced_filter: Result<(), Rejection>,
+             indices: ValidatorIndexData,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_json_task(Priority::P0, move || {
+                    not_synced_filter?;
+                    ptc_duties::ptc_duties(epoch, &indices.0, &chain)
+                })
+            },
+        )
+        .boxed()
+}
+
 // GET validator/aggregate_attestation?attestation_data_root,slot
 pub fn get_validator_aggregate_attestation<T: BeaconChainTypes>(
     any_version: AnyVersionFilter,
@@ -242,6 +282,110 @@ pub fn get_validator_attestation_data<T: BeaconChainTypes>(
                         .map(|attestation| attestation.data().clone())
                         .map(GenericResponse::from)
                         .map_err(warp_utils::reject::unhandled_error)
+                })
+            },
+        )
+        .boxed()
+}
+
+// GET validator/payload_attestation_data/{slot}
+pub fn get_validator_payload_attestation_data<T: BeaconChainTypes>(
+    eth_v1: EthV1Filter,
+    chain_filter: ChainFilter<T>,
+    not_while_syncing_filter: NotWhileSyncingFilter,
+    task_spawner_filter: TaskSpawnerFilter<T>,
+) -> ResponseFilter {
+    use eth2::beacon_response::{EmptyMetadata, ForkVersionedResponse};
+    use ssz::Encode;
+    use warp::http::Response;
+
+    eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path("payload_attestation_data"))
+        .and(warp::path::param::<Slot>().or_else(|_| async {
+            Err(warp_utils::reject::custom_bad_request(
+                "Invalid slot".to_string(),
+            ))
+        }))
+        .and(warp::path::end())
+        .and(warp::header::optional::<Accept>("accept"))
+        .and(not_while_syncing_filter)
+        .and(task_spawner_filter)
+        .and(chain_filter)
+        .then(
+            |slot: Slot,
+             accept_header: Option<Accept>,
+             not_synced_filter: Result<(), Rejection>,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_response_task(Priority::P0, move || {
+                    not_synced_filter?;
+
+                    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
+
+                    // Payload attestations are only valid for Gloas and later forks
+                    if !fork_name.gloas_enabled() {
+                        return Err(warp_utils::reject::custom_bad_request(format!(
+                            "Payload attestations are not supported for fork: {fork_name}"
+                        )));
+                    }
+
+                    let payload_attestation_data = chain
+                        .produce_payload_attestation_data(slot)
+                        .map_err(|e| match e {
+                            BeaconChainError::NoBlockForSlot(_) => {
+                                warp_utils::reject::block_not_found(format!(
+                                    "No block received for slot {slot}"
+                                ))
+                            }
+                            BeaconChainError::InvalidSlot(_) => {
+                                warp_utils::reject::custom_bad_request(format!(
+                                    "Unable to produce payload attestation data: {e:?}"
+                                ))
+                            }
+                            _ => warp_utils::reject::custom_server_error(format!(
+                                "Unable to produce payload attestation data: {e:?}"
+                            )),
+                        })?;
+
+                    match accept_header {
+                        Some(Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .header("Content-Type", "application/octet-stream")
+                            .header("Eth-Consensus-Version", fork_name.to_string())
+                            .body(payload_attestation_data.as_ssz_bytes().into())
+                            .map(|res: Response<warp::hyper::Body>| res)
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "Failed to build SSZ response: {e}"
+                                ))
+                            }),
+                        _ => {
+                            let json_response = ForkVersionedResponse {
+                                version: fork_name,
+                                metadata: EmptyMetadata {},
+                                data: payload_attestation_data,
+                            };
+                            Response::builder()
+                                .status(200)
+                                .header("Content-Type", "application/json")
+                                .header("Eth-Consensus-Version", fork_name.to_string())
+                                .body(
+                                    serde_json::to_string(&json_response)
+                                        .map_err(|e| {
+                                            warp_utils::reject::custom_server_error(format!(
+                                                "Failed to serialize response: {e}"
+                                            ))
+                                        })?
+                                        .into(),
+                                )
+                                .map_err(|e| {
+                                    warp_utils::reject::custom_server_error(format!(
+                                        "Failed to build JSON response: {e}"
+                                    ))
+                                })
+                        }
+                    }
                 })
             },
         )
@@ -1007,4 +1151,118 @@ pub fn get_validator_duties_proposer<T: BeaconChainTypes>(
             },
         )
         .boxed()
+}
+
+/// POST validator/proposer_preferences (JSON)
+pub fn post_validator_proposer_preferences<T: BeaconChainTypes>(
+    eth_v1: EthV1Filter,
+    task_spawner_filter: TaskSpawnerFilter<T>,
+    chain_filter: ChainFilter<T>,
+    network_tx_filter: NetworkTxFilter<T>,
+) -> ResponseFilter {
+    eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path("proposer_preferences"))
+        .and(warp::path::end())
+        .and(warp_utils::json::json())
+        .and(warp::header::<ForkName>(CONSENSUS_VERSION_HEADER))
+        .and(task_spawner_filter)
+        .and(chain_filter)
+        .and(network_tx_filter)
+        .then(
+            |preferences: Vec<SignedProposerPreferences>,
+             _fork_name: ForkName,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                task_spawner.blocking_response_task(Priority::P0, move || {
+                    publish_proposer_preferences(&chain, &network_tx, preferences)?;
+                    Ok(warp::reply())
+                })
+            },
+        )
+        .boxed()
+}
+
+/// POST validator/proposer_preferences (SSZ)
+pub fn post_validator_proposer_preferences_ssz<T: BeaconChainTypes>(
+    eth_v1: EthV1Filter,
+    task_spawner_filter: TaskSpawnerFilter<T>,
+    chain_filter: ChainFilter<T>,
+    network_tx_filter: NetworkTxFilter<T>,
+) -> ResponseFilter {
+    eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path("proposer_preferences"))
+        .and(warp::path::end())
+        .and(warp::body::bytes())
+        .and(warp::header::<ForkName>(CONSENSUS_VERSION_HEADER))
+        .and(task_spawner_filter)
+        .and(chain_filter)
+        .and(network_tx_filter)
+        .then(
+            |body_bytes: Bytes,
+             _fork_name: ForkName,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                task_spawner.blocking_response_task(Priority::P0, move || {
+                    let preferences = Vec::<SignedProposerPreferences>::from_ssz_bytes(&body_bytes)
+                        .map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
+                        })?;
+                    publish_proposer_preferences(&chain, &network_tx, preferences)?;
+                    Ok(warp::reply())
+                })
+            },
+        )
+        .boxed()
+}
+
+fn publish_proposer_preferences<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+    preferences_list: Vec<SignedProposerPreferences>,
+) -> Result<(), warp::Rejection> {
+    let mut failures = vec![];
+    let mut num_already_known = 0;
+
+    for (index, preferences) in preferences_list.into_iter().enumerate() {
+        let validator_index = preferences.message.validator_index;
+        match chain.verify_proposer_preferences_for_gossip(Arc::new(preferences)) {
+            Ok(verified) => {
+                crate::utils::publish_pubsub_message(
+                    network_tx,
+                    PubsubMessage::ProposerPreferences(verified.signed_preferences),
+                )?;
+            }
+            Err(ProposerPreferencesError::AlreadySeen { .. }) => {
+                num_already_known += 1;
+            }
+            Err(e) => {
+                error!(
+                    error = ?e,
+                    %validator_index,
+                    "Failure verifying proposer preferences for gossip"
+                );
+                failures.push(Failure::new(index, format!("{e:?}")));
+            }
+        }
+    }
+
+    if num_already_known > 0 {
+        debug!(
+            count = num_already_known,
+            "Some proposer preferences already known"
+        );
+    }
+
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(warp_utils::reject::indexed_bad_request(
+            "error processing proposer preferences".to_string(),
+            failures,
+        ))
+    }
 }

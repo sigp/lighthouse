@@ -17,7 +17,7 @@ use std::{
 };
 use types::{
     AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
-    Slot, StatePayloadStatus,
+    Slot,
 };
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
@@ -101,26 +101,13 @@ pub enum ExecutionStatus {
 }
 
 /// Represents the status of an execution payload post-Gloas.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
 #[ssz(enum_behaviour = "tag")]
 #[repr(u8)]
 pub enum PayloadStatus {
     Empty = 0,
     Full = 1,
     Pending = 2,
-}
-
-impl PayloadStatus {
-    /// Convert a `PayloadStatus` into the equivalent `StatePayloadStatus`.
-    ///
-    /// This maps `Empty` onto `StatePayloadStatus::Pending` because empty and pending fork choice
-    /// nodes correspond to the exact same state.
-    pub fn as_state_payload_status(self) -> StatePayloadStatus {
-        match self {
-            Self::Empty | Self::Pending => StatePayloadStatus::Pending,
-            Self::Full => StatePayloadStatus::Full,
-        }
-    }
 }
 
 /// Spec's `ForkChoiceNode` augmented with ProtoNode index.
@@ -653,6 +640,9 @@ impl ProtoArrayForkChoice {
             .map_err(|e| {
                 format!("process_payload_attestation: data availability set failed: {e:?}")
             })?;
+        v29.ptc_participation
+            .set(ptc_index, true)
+            .map_err(|e| format!("process_payload_attestation: participation set failed: {e:?}"))?;
 
         Ok(())
     }
@@ -1019,6 +1009,61 @@ impl ProtoArrayForkChoice {
         })
     }
 
+    /// Called by the proposer to decide whether to build on the full or empty
+    /// parent. Returns false if the PTC has voted the data as unavailable.
+    pub fn should_build_on_full<E: EthSpec>(
+        &self,
+        block_root: &Hash256,
+        parent_payload_status: PayloadStatus,
+    ) -> Result<bool, String> {
+        let block_index = self
+            .proto_array
+            .indices
+            .get(block_root)
+            .ok_or_else(|| format!("Unknown block root: {block_root:?}"))?;
+        let proto_node = self
+            .proto_array
+            .nodes
+            .get(*block_index)
+            .ok_or_else(|| format!("Missing node at index: {block_index}"))?;
+        let fc_node = IndexedForkChoiceNode {
+            root: proto_node.root(),
+            proto_node_index: *block_index,
+            payload_status: parent_payload_status,
+        };
+        self.proto_array
+            .should_build_on_full::<E>(&fc_node, proto_node)
+            .map_err(|e| format!("{e:?}"))
+    }
+
+    /// Returns whether the proposer should extend the parent's execution payload chain.
+    ///
+    /// This checks timeliness, data availability, and proposer boost conditions per the spec.
+    pub fn should_extend_payload<E: EthSpec>(
+        &self,
+        block_root: &Hash256,
+        proposer_boost_root: Hash256,
+    ) -> Result<bool, String> {
+        let block_index = self
+            .proto_array
+            .indices
+            .get(block_root)
+            .ok_or_else(|| format!("Unknown block root: {block_root:?}"))?;
+        let proto_node = self
+            .proto_array
+            .nodes
+            .get(*block_index)
+            .ok_or_else(|| format!("Missing node at index: {block_index}"))?;
+        let fc_node = IndexedForkChoiceNode {
+            root: proto_node.root(),
+            proto_node_index: *block_index,
+            payload_status: proto_node.get_parent_payload_status(),
+        };
+        self.proto_array
+            .should_extend_payload::<E>(&fc_node, proto_node, proposer_boost_root)
+            .map_err(|e| format!("{e:?}"))
+    }
+
     /// Returns the `block.execution_status` field, if the block is present.
     pub fn get_block_execution_status(&self, block_root: &Hash256) -> Option<ExecutionStatus> {
         let block = self.get_proto_node(block_root)?;
@@ -1036,6 +1081,24 @@ impl ProtoArrayForkChoice {
         self.get_proto_node(block_root)
             .and_then(|node| node.payload_received().ok())
             .unwrap_or(false)
+    }
+
+    /// Returns the canonical payload status of a block, matching the decision
+    /// `get_head` would make between `(root, FULL)` and `(root, EMPTY)`.
+    pub fn get_canonical_payload_status<E: EthSpec>(
+        &self,
+        block_root: &Hash256,
+        current_slot: Slot,
+        proposer_boost_root: Hash256,
+        spec: &ChainSpec,
+    ) -> Result<PayloadStatus, Error> {
+        self.proto_array.get_canonical_payload_status::<E>(
+            *block_root,
+            current_slot,
+            proposer_boost_root,
+            &self.balances,
+            spec,
+        )
     }
 
     /// Returns the weight of a given block.

@@ -49,7 +49,6 @@
 #![allow(clippy::result_large_err)]
 
 use crate::beacon_snapshot::PreProcessingSnapshot;
-use crate::blob_verification::GossipBlobError;
 use crate::block_verification_types::{AsBlock, BlockImportData, LookupBlock, RangeSyncBlock};
 use crate::data_availability_checker::{
     AvailabilityCheckError, AvailableBlock, AvailableBlockData, MaybeAvailableBlock,
@@ -93,14 +92,13 @@ use std::fs;
 use std::io::Write;
 use std::sync::Arc;
 use store::{Error as DBError, KeyValueStore};
-use strum::AsRefStr;
+use strum::{AsRefStr, IntoStaticStr};
 use task_executor::JoinHandle;
 use tracing::{Instrument, Span, debug, debug_span, error, info_span, instrument};
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSidecarList,
     Epoch, EthSpec, FullPayload, Hash256, InconsistentFork, KzgProofs, RelativeEpoch,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot, StatePayloadStatus,
-    data::DataColumnSidecarError,
+    SignedBeaconBlock, SignedBeaconBlockHeader, Slot, data::DataColumnSidecarError,
 };
 
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
@@ -116,7 +114,7 @@ const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
 ///
 /// - The block is malformed/invalid (indicated by all results other than `BeaconChainError`.
 /// - We encountered an error whilst trying to verify the block (a `BeaconChainError`).
-#[derive(Debug, AsRefStr)]
+#[derive(Debug, AsRefStr, IntoStaticStr)]
 pub enum BlockError {
     /// The parent block was unknown.
     ///
@@ -287,14 +285,10 @@ pub enum BlockError {
     /// TODO: We may need to penalize the peer that gave us a potentially invalid rpc blob.
     /// https://github.com/sigp/lighthouse/issues/4546
     AvailabilityCheck(AvailabilityCheckError),
-    /// A Blob with a slot after PeerDAS is received and is not required to be imported.
-    /// This can happen because we stay subscribed to the blob subnet after 2 epochs, as we could
-    /// still receive valid blobs from a Deneb epoch after PeerDAS is activated.
-    ///
-    /// ## Peer scoring
-    ///
-    /// This indicates the peer is sending an unexpected gossip blob and should be penalised.
-    BlobNotRequired(Slot),
+    /// The payload envelope's block root is unknown.
+    EnvelopeBlockRootUnknown(Hash256),
+    /// Optimistic sync is not supported for Gloas payload envelopes.
+    OptimisticSyncNotSupported { block_root: Hash256 },
     /// An internal error has occurred when processing the block or sidecars.
     ///
     /// ## Peer scoring
@@ -342,7 +336,7 @@ impl From<AvailabilityCheckError> for BlockError {
 
 /// Returned when block validation failed due to some issue verifying
 /// the execution payload.
-#[derive(Debug)]
+#[derive(Debug, IntoStaticStr)]
 pub enum ExecutionPayloadError {
     /// There's no eth1 connection (mandatory after merge)
     ///
@@ -517,17 +511,6 @@ impl BlockSlashInfo<BlockError> {
     }
 }
 
-impl BlockSlashInfo<GossipBlobError> {
-    pub fn from_early_error_blob(header: SignedBeaconBlockHeader, e: GossipBlobError) -> Self {
-        match e {
-            GossipBlobError::ProposalSignatureInvalid => BlockSlashInfo::SignatureInvalid(e),
-            // `InvalidSignature` could indicate any signature in the block, so we want
-            // to recheck the proposer signature alone.
-            _ => BlockSlashInfo::SignatureNotChecked(header, e),
-        }
-    }
-}
-
 impl BlockSlashInfo<GossipDataColumnError> {
     pub fn from_early_error_data_column(
         header: SignedBeaconBlockHeader,
@@ -625,7 +608,8 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
             consensus_context,
         });
     }
-
+    // TODO(gloas) When implementing range and backfill sync for gloas
+    // we need a batch verify kzg function in the new da checker as well.
     chain
         .data_availability_checker
         .batch_verify_kzg_for_available_blocks(&available_blocks)?;
@@ -1509,11 +1493,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
 
         let distance = block.slot().as_u64().saturating_sub(state.slot().as_u64());
         for _ in 0..distance {
-            // TODO(gloas): could do a similar optimisation here for Full blocks if we have access
-            // to the parent envelope and its `state_root`.
-            let state_root = if parent.beacon_block.slot() == state.slot()
-                && state.payload_status() == StatePayloadStatus::Pending
-            {
+            let state_root = if parent.beacon_block.slot() == state.slot() {
                 // If it happens that `pre_state` has *not* already been advanced forward a single
                 // slot, then there is no need to compute the state root for this
                 // `per_slot_processing` call since that state root is already stored in the parent
@@ -1957,37 +1937,9 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
         // particularly important if `block` descends from the finalized/split block, but at a slot
         // prior to the finalized slot (which is invalid and inaccessible in our DB schema).
         //
-        // Post-Gloas we must also fetch a state with the correct payload status. If the current
-        // block builds upon the payload of its parent block, then we know the parent block is FULL
-        // and we need to load the full state.
-        let (payload_status, parent_state_root) = if parent_block.slot() == chain.spec.genesis_slot
-        {
-            // Genesis state is always pending, there is no such thing as a "genesis envelope".
-            // See: https://github.com/ethereum/consensus-specs/issues/5043
-            (StatePayloadStatus::Pending, parent_block.state_root())
-        } else if !block.as_block().fork_name_unchecked().gloas_enabled() {
-            // All pre-Gloas parent states are pending.
-            (StatePayloadStatus::Pending, parent_block.state_root())
-        } else if let Ok(parent_bid_block_hash) = parent_block.payload_bid_block_hash()
-            && block.as_block().is_parent_block_full(parent_bid_block_hash)
-        {
-            // Post-Gloas Full block case.
-            // TODO(gloas): loading the envelope here is not very efficient
-            let Some(envelope) = chain.store.get_payload_envelope(&root)? else {
-                return Err(BeaconChainError::DBInconsistent(format!(
-                    "Missing envelope for parent block {root:?}",
-                ))
-                .into());
-            };
-            let state_root = envelope.message.state_root;
-            (StatePayloadStatus::Full, state_root)
-        } else {
-            // Post-Gloas empty block case (also covers the Gloas fork transition).
-            (StatePayloadStatus::Pending, parent_block.state_root())
-        };
         let (parent_state_root, state) = chain
             .store
-            .get_advanced_hot_state(root, payload_status, block.slot(), parent_state_root)?
+            .get_advanced_hot_state(root, block.slot(), parent_block.state_root())?
             .ok_or_else(|| {
                 BeaconChainError::DBInconsistent(
                     format!("Missing state for parent block {root:?}",),
@@ -2010,9 +1962,7 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
             );
         }
 
-        let beacon_state_root = if state.slot() == parent_block.slot()
-            && let StatePayloadStatus::Pending = payload_status
-        {
+        let beacon_state_root = if state.slot() == parent_block.slot() {
             // Sanity check.
             if parent_state_root != parent_block.state_root() {
                 return Err(BeaconChainError::DBInconsistent(format!(
@@ -2065,23 +2015,6 @@ impl BlockBlobError for BlockError {
 
     fn proposer_signature_invalid() -> Self {
         BlockError::InvalidSignature(InvalidSignature::ProposerSignature)
-    }
-}
-
-impl BlockBlobError for GossipBlobError {
-    fn not_later_than_parent_error(blob_slot: Slot, parent_slot: Slot) -> Self {
-        GossipBlobError::BlobIsNotLaterThanParent {
-            blob_slot,
-            parent_slot,
-        }
-    }
-
-    fn unknown_validator_error(validator_index: u64) -> Self {
-        GossipBlobError::UnknownValidator(validator_index)
-    }
-
-    fn proposer_signature_invalid() -> Self {
-        GossipBlobError::ProposalSignatureInvalid
     }
 }
 

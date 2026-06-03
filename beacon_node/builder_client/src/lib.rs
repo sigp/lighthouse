@@ -540,10 +540,10 @@ impl BuilderHttpClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arbitrary::Arbitrary;
     use bls::Signature;
     use eth2::types::MainnetEthSpec;
     use eth2::types::builder::{BuilderBid, BuilderBidFulu};
-    use eth2::types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
     use mockito::{Matcher, Server, ServerGuard};
 
     type E = MainnetEthSpec;
@@ -689,12 +689,12 @@ mod tests {
     }
 
     fn fulu_signed_builder_bid() -> ForkVersionedResponse<SignedBuilderBid<E>> {
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let mut u = types::test_utils::test_unstructured();
         ForkVersionedResponse {
             version: ForkName::Fulu,
             metadata: EmptyMetadata {},
             data: SignedBuilderBid {
-                message: BuilderBid::Fulu(BuilderBidFulu::random_for_test(rng)),
+                message: BuilderBid::Fulu(BuilderBidFulu::arbitrary(&mut u).unwrap()),
                 signature: Signature::empty(),
             },
         }

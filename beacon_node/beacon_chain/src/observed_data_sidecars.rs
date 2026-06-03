@@ -6,7 +6,9 @@
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
-use types::{BlobSidecar, ChainSpec, DataColumnSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{
+    BlobSidecar, ChainSpec, DataColumnSidecar, EthSpec, Hash256, PartialDataColumnHeader, Slot,
+};
 
 type ValidatorIndex = u64;
 type BeaconBlockRoot = Hash256;
@@ -102,17 +104,17 @@ impl ObservationKey {
         }
     }
 
-    pub fn from_block<E: EthSpec>(
-        block: &SignedBeaconBlock<E>,
+    pub fn from_partial_column_header<E: EthSpec>(
+        header: &PartialDataColumnHeader<E>,
         block_root: Hash256,
         spec: &ChainSpec,
     ) -> Self {
-        let slot = block.slot();
+        let slot = header.slot();
 
         if spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
             Self::new_block_root_key(block_root, slot)
         } else {
-            Self::new_proposer_key(block.message().proposer_index(), slot)
+            Self::new_proposer_key(header.signed_block_header.message.proposer_index, slot)
         }
     }
 

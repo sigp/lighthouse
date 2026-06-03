@@ -40,18 +40,18 @@ use super::network_context::{
 };
 use super::peer_sync_info::{PeerSyncType, remote_sync_type};
 use super::range_sync::{EPOCHS_PER_BATCH, RangeSync, RangeSyncType};
-use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
+use crate::network_beacon_processor::{
+    BlockProcessingResult, ChainSegmentProcessId, NetworkBeaconProcessor,
+};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::{
-    BlobRequestState, BlockComponent, BlockRequestState, CustodyRequestState, DownloadResult,
+    BlockComponent, BlockRequestState, CustodyRequestState, DownloadResult,
 };
 use crate::sync::custody_backfill_sync::CustodyBackFillSync;
 use crate::sync::network_context::{PeerGroup, RpcResponseResult};
 use beacon_chain::block_verification_types::AsBlock;
-use beacon_chain::{
-    AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
-};
+use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
 use futures::StreamExt;
 use lighthouse_network::SyncInfo;
 use lighthouse_network::rpc::RPCError;
@@ -73,7 +73,8 @@ use strum::IntoStaticStr;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace};
 use types::{
-    BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, Hash256, SignedBeaconBlock, Slot,
+    BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, Hash256, SignedBeaconBlock,
+    SignedExecutionPayloadEnvelope, Slot,
 };
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -132,14 +133,25 @@ pub enum SyncMessage<E: EthSpec> {
         seen_timestamp: Duration,
     },
 
+    /// A payload envelope has been received from the RPC.
+    RpcPayloadEnvelope {
+        sync_request_id: SyncRequestId,
+        peer_id: PeerId,
+        envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+        seen_timestamp: Duration,
+    },
+
     /// A block with an unknown parent has been received.
     UnknownParentBlock(PeerId, Arc<SignedBeaconBlock<E>>, Hash256),
 
-    /// A blob with an unknown parent has been received.
-    UnknownParentBlob(PeerId, Arc<BlobSidecar<E>>),
-
-    /// A data column with an unknown parent has been received.
-    UnknownParentDataColumn(PeerId, Arc<DataColumnSidecar<E>>),
+    /// A sidecar (full/partial data column) with an unknown parent has been received. Carries only the header
+    /// info needed to trigger a parent lookup, decoupled from the concrete sidecar type.
+    UnknownParentSidecarHeader {
+        peer_id: PeerId,
+        block_root: Hash256,
+        parent_root: Hash256,
+        slot: Slot,
+    },
 
     /// A peer has sent an attestation that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
@@ -173,7 +185,9 @@ pub enum SyncMessage<E: EthSpec> {
         result: BlockProcessingResult,
     },
 
-    /// A block from gossip has completed processing,
+    /// A gossip-received component has completed processing and the block may now be imported.
+    /// In Fulu this is sent after block or blob processing. In Gloas this is also sent after
+    /// data column or payload envelope processing triggers availability.
     GossipBlockProcessResult { block_root: Hash256, imported: bool },
 }
 
@@ -181,25 +195,18 @@ pub enum SyncMessage<E: EthSpec> {
 #[derive(Debug, Clone)]
 pub enum BlockProcessType {
     SingleBlock { id: Id },
-    SingleBlob { id: Id },
     SingleCustodyColumn(Id),
+    SinglePayloadEnvelope(Id),
 }
 
 impl BlockProcessType {
     pub fn id(&self) -> Id {
         match self {
             BlockProcessType::SingleBlock { id }
-            | BlockProcessType::SingleBlob { id }
-            | BlockProcessType::SingleCustodyColumn(id) => *id,
+            | BlockProcessType::SingleCustodyColumn(id)
+            | BlockProcessType::SinglePayloadEnvelope(id) => *id,
         }
     }
-}
-
-#[derive(Debug)]
-pub enum BlockProcessingResult {
-    Ok(AvailabilityProcessingStatus),
-    Err(BlockError),
-    Ignored,
 }
 
 /// The result of processing multiple blocks (a chain segment).
@@ -489,8 +496,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncRequestId::SingleBlock { id } => {
                 self.on_single_block_response(id, peer_id, RpcEvent::RPCError(error))
             }
-            SyncRequestId::SingleBlob { id } => {
-                self.on_single_blob_response(id, peer_id, RpcEvent::RPCError(error))
+            SyncRequestId::SinglePayloadEnvelope { id } => {
+                self.on_single_payload_envelope_response(id, peer_id, RpcEvent::RPCError(error))
             }
             SyncRequestId::DataColumnsByRoot(req_id) => {
                 self.on_data_columns_by_root_response(req_id, peer_id, RpcEvent::RPCError(error))
@@ -838,6 +845,17 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             } => {
                 self.rpc_data_column_received(sync_request_id, peer_id, data_column, seen_timestamp)
             }
+            SyncMessage::RpcPayloadEnvelope {
+                sync_request_id,
+                peer_id,
+                envelope,
+                seen_timestamp,
+            } => self.rpc_payload_envelope_received(
+                sync_request_id,
+                peer_id,
+                envelope,
+                seen_timestamp,
+            ),
             SyncMessage::UnknownParentBlock(peer_id, block, block_root) => {
                 let block_slot = block.slot();
                 let parent_root = block.parent_root();
@@ -855,53 +873,20 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }),
                 );
             }
-            SyncMessage::UnknownParentBlob(peer_id, blob) => {
-                let blob_slot = blob.slot();
-                let block_root = blob.block_root();
-                let parent_root = blob.block_parent_root();
-                debug!(%block_root, %parent_root, "Received unknown parent blob message");
+            SyncMessage::UnknownParentSidecarHeader {
+                peer_id,
+                block_root,
+                parent_root,
+                slot,
+            } => {
+                debug!(%block_root, %parent_root, "Received unknown parent sidecar header message");
                 self.handle_unknown_parent(
                     peer_id,
                     block_root,
                     parent_root,
-                    blob_slot,
-                    BlockComponent::Blob(DownloadResult {
-                        value: blob,
-                        block_root,
-                        seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
-                        peer_group: PeerGroup::from_single(peer_id),
-                    }),
+                    slot,
+                    BlockComponent::Sidecar { parent_root },
                 );
-            }
-            SyncMessage::UnknownParentDataColumn(peer_id, data_column) => {
-                let data_column_slot = data_column.slot();
-                let block_root = data_column.block_root();
-                match data_column.as_ref() {
-                    DataColumnSidecar::Fulu(column) => {
-                        let parent_root = column.block_parent_root();
-                        debug!(%block_root, %parent_root, "Received unknown parent data column message");
-                        self.handle_unknown_parent(
-                            peer_id,
-                            block_root,
-                            parent_root,
-                            data_column_slot,
-                            BlockComponent::DataColumn(DownloadResult {
-                                value: data_column,
-                                block_root,
-                                seen_timestamp: self
-                                    .chain
-                                    .slot_clock
-                                    .now_duration()
-                                    .unwrap_or_default(),
-                                peer_group: PeerGroup::from_single(peer_id),
-                            }),
-                        );
-                    }
-                    // TODO(gloas) support gloas data column variant
-                    DataColumnSidecar::Gloas(_) => {
-                        error!("Gloas variant not yet supported")
-                    }
-                }
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_root) => {
                 if !self.notified_unknown_roots.contains(&(peer_id, block_root)) {
@@ -1159,11 +1144,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         seen_timestamp: Duration,
     ) {
         match sync_request_id {
-            SyncRequestId::SingleBlob { id } => self.on_single_blob_response(
-                id,
-                peer_id,
-                RpcEvent::from_chunk(blob, seen_timestamp),
-            ),
             SyncRequestId::BlobsByRange(id) => self.on_blobs_by_range_response(
                 id,
                 peer_id,
@@ -1171,6 +1151,27 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             ),
             _ => {
                 crit!(%peer_id, "bad request id for blob");
+            }
+        }
+    }
+
+    // TODO(gloas): dispatch into block_lookups once the envelope lookup state machine lands.
+    fn rpc_payload_envelope_received(
+        &mut self,
+        sync_request_id: SyncRequestId,
+        peer_id: PeerId,
+        envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+        seen_timestamp: Duration,
+    ) {
+        match sync_request_id {
+            SyncRequestId::SinglePayloadEnvelope { id } => self
+                .on_single_payload_envelope_response(
+                    id,
+                    peer_id,
+                    RpcEvent::from_chunk(envelope, seen_timestamp),
+                ),
+            _ => {
+                crit!(%peer_id, "bad request id for payload envelope");
             }
         }
     }
@@ -1203,21 +1204,19 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    fn on_single_blob_response(
+    fn on_single_payload_envelope_response(
         &mut self,
         id: SingleLookupReqId,
         peer_id: PeerId,
-        blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
+        envelope: RpcEvent<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
     ) {
-        if let Some(resp) = self.network.on_single_blob_response(id, peer_id, blob) {
-            self.block_lookups
-                .on_download_response::<BlobRequestState<T::EthSpec>>(
-                    id,
-                    resp.map(|(value, seen_timestamp)| {
-                        (value, PeerGroup::from_single(peer_id), seen_timestamp)
-                    }),
-                    &mut self.network,
-                )
+        if let Some(_resp) = self
+            .network
+            .on_single_payload_envelope_response(id, peer_id, envelope)
+        {
+            // TODO(gloas): dispatch into
+            // `block_lookups.on_download_response::<PayloadEnvelopeRequestState<_>>(...)` once
+            // the envelope lookup state machine lands.
         }
     }
 
@@ -1418,20 +1417,5 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
             }
         }
-    }
-}
-
-impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingResult {
-    fn from(result: Result<AvailabilityProcessingStatus, BlockError>) -> Self {
-        match result {
-            Ok(status) => BlockProcessingResult::Ok(status),
-            Err(e) => BlockProcessingResult::Err(e),
-        }
-    }
-}
-
-impl From<BlockError> for BlockProcessingResult {
-    fn from(e: BlockError) -> Self {
-        BlockProcessingResult::Err(e)
     }
 }
