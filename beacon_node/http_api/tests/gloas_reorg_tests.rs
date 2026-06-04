@@ -6,54 +6,224 @@
 //! beacon block, when later-slot voters attest the block with `payload_present = false`.
 //!
 use beacon_chain::{
-    test_utils::{AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy},
+    ChainConfig,
+    chain_config::DisallowedReOrgOffsets,
     custody_context::NodeCustodyType,
+    test_utils::{
+        AttestationStrategy, BlockStrategy, LightClientStrategy, MakeAttestationOptions,
+        SyncCommitteeStrategy, test_spec,
+    },
 };
+use beacon_processor::{Work, WorkEvent, work_reprocessing_queue::ReprocessQueueMessage};
+use eth2::types::{DepositContractData, ProduceBlockV3Response, StateId};
+use execution_layer::{ForkchoiceState, PayloadAttributes};
 use fixed_bytes::FixedBytesExtended;
 use http_api::test_utils::InteractiveTester;
+use parking_lot::Mutex;
 use proto_array::PayloadStatus;
-use state_processing::state_advance::complete_state_advance;
+use slot_clock::SlotClock;
+use state_processing::{
+    per_block_processing::get_expected_withdrawals, state_advance::complete_state_advance,
+};
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use types::{
-    Address, EthSpec, ForkName, Hash256, MainnetEthSpec, ProposerPreparationData, Slot, Uint256,
+    Address, BeaconBlockRef, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256,
+    MainnetEthSpec, MinimalEthSpec, ProposerPreparationData, Slot,
 };
 
 type E = MainnetEthSpec;
 
 const ATTESTERS_PER_SLOT: usize = 10;
 
-/// Gloas-from-genesis spec used by all tests in this module.
-fn gloas_test_spec() -> types::ChainSpec {
-    let mut spec = ForkName::latest().make_genesis_spec(E::default_spec());
-    spec.terminal_total_difficulty = Uint256::from(1);
-    spec
+/// Data structure for tracking fork choice updates received by the mock execution layer.
+#[derive(Debug, Default)]
+struct ForkChoiceUpdates {
+    updates: HashMap<ExecutionBlockHash, Vec<ForkChoiceUpdateMetadata>>,
 }
 
-/// Common harness preparation shared by the Gloas re-org tests: mark mock payloads valid, register
-/// proposer preparation data for all validators, then build `num_initial` blocks of chain depth.
-///
-/// `prep_slot` is the slot of the block the test cares about; proposer preparation is registered for
-/// its epoch + 1 (matching the lookahead the real node uses).
-async fn prepare_gloas_chain(
-    tester: &InteractiveTester<E>,
-    validator_count: usize,
-    num_initial: u64,
-    prep_slot: Slot,
-) {
-    let harness = &tester.harness;
-    harness
-        .mock_execution_layer
-        .as_ref()
-        .unwrap()
-        .server
-        .all_payloads_valid();
+#[derive(Debug, Clone)]
+struct ForkChoiceUpdateMetadata {
+    received_at: Duration,
+    state: ForkchoiceState,
+    payload_attributes: Option<PayloadAttributes>,
+}
 
-    let proposer_preparation_data = (0..validator_count)
+impl ForkChoiceUpdates {
+    fn insert(&mut self, update: ForkChoiceUpdateMetadata) {
+        self.updates
+            .entry(update.state.head_block_hash)
+            .or_default()
+            .push(update);
+    }
+
+    fn contains_update_for(&self, block_hash: ExecutionBlockHash) -> bool {
+        self.updates.contains_key(&block_hash)
+    }
+
+    /// Find the first fork choice update for `head_block_hash` with payload attributes for a
+    /// block proposal at `proposal_timestamp`.
+    fn first_update_with_payload_attributes(
+        &self,
+        head_block_hash: ExecutionBlockHash,
+        proposal_timestamp: u64,
+    ) -> Option<ForkChoiceUpdateMetadata> {
+        self.updates
+            .get(&head_block_hash)?
+            .iter()
+            .find(|update| {
+                update
+                    .payload_attributes
+                    .as_ref()
+                    .is_some_and(|payload_attributes| {
+                        payload_attributes.timestamp() == proposal_timestamp
+                    })
+            })
+            .cloned()
+    }
+}
+
+pub struct ReOrgTest {
+    head_slot: Slot,
+    /// Number of slots between parent block and canonical head.
+    parent_distance: u64,
+    /// Number of slots between head block and block proposal slot.
+    head_distance: u64,
+    /// Fraction of parent (A)'s committee that votes for A (always with payload_present=0).
+    percent_parent_votes: usize,
+    /// Fraction of B's committee that votes for A with payload_present=0.
+    percent_skip_empty_votes: usize,
+    /// Fraction of B's committee that votes for A with payload_present=1.
+    percent_skip_full_votes: usize,
+    /// Fraction of B's committee that votes for B (always with payload_present=0).
+    percent_head_votes: usize,
+    /// Fraction of A's PTC that vote for A's payload being present.
+    percent_parent_ptc_present_votes: usize,
+    /// Fraction of A's PTC that vote for A's payload being absent.
+    percent_parent_ptc_absent_votes: usize,
+    /// Expected parent payload status of our proposed block (C).
+    ///
+    /// This can be the payload status of A or B depending on whether we reorged or not.
+    expected_parent_payload_status: PayloadStatus,
+    should_re_org: bool,
+    misprediction: bool,
+    /// Whether to expect withdrawals to change on epoch boundaries.
+    expect_withdrawals_change_on_epoch: bool,
+    /// Epoch offsets to avoid proposing reorg blocks at.
+    disallowed_offsets: Vec<u64>,
+}
+
+impl Default for ReOrgTest {
+    /// Default config represents a regular easy re-org.
+    fn default() -> Self {
+        Self {
+            head_slot: Slot::new(E::slots_per_epoch() - 2),
+            parent_distance: 1,
+            head_distance: 1,
+            percent_parent_votes: 100,
+            percent_skip_empty_votes: 0,
+            percent_skip_full_votes: 100,
+            percent_head_votes: 0,
+            percent_parent_ptc_present_votes: 100,
+            percent_parent_ptc_absent_votes: 0,
+            expected_parent_payload_status: PayloadStatus::Full,
+            should_re_org: true,
+            misprediction: false,
+            expect_withdrawals_change_on_epoch: false,
+            disallowed_offsets: vec![],
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn re_org_parent_is_empty_easy() {
+    proposer_boost_re_org_test(ReOrgTest {
+        percent_skip_empty_votes: 100,
+        percent_skip_full_votes: 0,
+        expected_parent_payload_status: PayloadStatus::Empty,
+        ..Default::default()
+    })
+    .await;
+}
+
+/// Run a proposer boost re-org test.
+///
+/// - `head_slot`: the slot of the canonical head to be reorged
+/// - `reorg_threshold`: committee percentage value for reorging
+/// - `num_empty_votes`: percentage of comm of attestations for the parent block
+/// - `num_head_votes`: number of attestations for the head block
+/// - `should_re_org`: whether the proposer should build on the parent rather than the head
+#[allow(clippy::large_stack_frames)]
+pub async fn proposer_boost_re_org_test(
+    ReOrgTest {
+        head_slot,
+        parent_distance,
+        head_distance,
+        percent_parent_votes,
+        percent_skip_empty_votes,
+        percent_skip_full_votes,
+        percent_head_votes,
+        percent_parent_ptc_present_votes,
+        percent_parent_ptc_absent_votes,
+        expected_parent_payload_status,
+        should_re_org,
+        misprediction,
+        expect_withdrawals_change_on_epoch,
+        disallowed_offsets,
+    }: ReOrgTest,
+) {
+    assert!(head_slot > 0);
+
+    let spec = ForkName::latest().make_genesis_spec(E::default_spec());
+
+    // Ensure there are enough validators to have `attesters_per_slot`.
+    let attesters_per_slot = 10;
+    let validator_count = E::slots_per_epoch() as usize * attesters_per_slot;
+    let all_validators = (0..validator_count).collect::<Vec<usize>>();
+    let num_initial = head_slot.as_u64().checked_sub(parent_distance + 1).unwrap();
+
+    // Check that the required vote percentages can be satisfied exactly using `attesters_per_slot`.
+    assert_eq!(100 % attesters_per_slot, 0);
+    let percent_per_attester = 100 / attesters_per_slot;
+    assert_eq!(percent_parent_votes % percent_per_attester, 0);
+    assert_eq!(percent_skip_empty_votes % percent_per_attester, 0);
+    assert_eq!(percent_skip_full_votes % percent_per_attester, 0);
+    assert_eq!(percent_head_votes % percent_per_attester, 0);
+    let num_parent_votes = Some(attesters_per_slot * percent_parent_votes / 100);
+    let num_skip_empty_votes = Some(attesters_per_slot * percent_skip_empty_votes / 100);
+    let num_skip_full_votes = Some(attesters_per_slot * percent_skip_full_votes / 100);
+    let num_head_votes = Some(attesters_per_slot * percent_head_votes / 100);
+
+    let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
+        Some(spec),
+        validator_count,
+        None,
+        Some(Box::new(move |builder| {
+            builder.proposer_re_org_disallowed_offsets(
+                DisallowedReOrgOffsets::new::<E>(disallowed_offsets).unwrap(),
+            )
+        })),
+        Default::default(),
+        false,
+        NodeCustodyType::Fullnode,
+    )
+    .await;
+    let harness = &tester.harness;
+    let mock_el = harness.mock_execution_layer.as_ref().unwrap();
+    let execution_ctx = mock_el.server.ctx.clone();
+    let slot_clock = &harness.chain.slot_clock;
+
+    mock_el.server.all_payloads_valid();
+
+    // Send proposer preparation data for all validators.
+    let proposer_preparation_data = all_validators
+        .iter()
         .map(|i| {
             (
                 ProposerPreparationData {
-                    validator_index: i as u64,
-                    fee_recipient: Address::from_low_u64_be(i as u64),
+                    validator_index: *i as u64,
+                    fee_recipient: Address::from_low_u64_be(*i as u64),
                 },
                 None,
             )
@@ -65,11 +235,13 @@ async fn prepare_gloas_chain(
         .as_ref()
         .unwrap()
         .update_proposer_preparation(
-            prep_slot.epoch(E::slots_per_epoch()) + 1,
+            head_slot.epoch(E::slots_per_epoch()) + 1,
             proposer_preparation_data.iter().map(|(a, b)| (a, b)),
         )
         .await;
 
+    // Create some chain depth. Sign sync committee signatures so validator balances don't dip
+    // below 32 ETH and become ineligible for withdrawals.
     harness.advance_slot();
     harness
         .extend_chain_with_sync(
@@ -80,205 +252,365 @@ async fn prepare_gloas_chain(
             LightClientStrategy::Disabled,
         )
         .await;
-}
 
-/// Parameters for a single Gloas re-org scenario.
-/// Payload re-org (flavor A): a block `B` whose execution payload *is* delivered (so its `FULL`
-/// node exists in fork choice) can still have its payload orphaned if later-slot voters attest to
-/// `B` with `payload_present = false`. Those votes land in `B`'s `EMPTY` payload bucket, so
-/// `get_head` prefers `(B, EMPTY)` over `(B, FULL)` — the beacon block stays canonical but its
-/// payload is re-orged.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn gloas_payload_reorg_head_flips_to_empty_when_voters_attest_empty() {
-    let validator_count = E::slots_per_epoch() as usize * ATTESTERS_PER_SLOT;
-    let all_validators = (0..validator_count).collect::<Vec<usize>>();
+    // Start collecting fork choice updates.
+    let forkchoice_updates = Arc::new(Mutex::new(ForkChoiceUpdates::default()));
+    let forkchoice_updates_inner = forkchoice_updates.clone();
+    let chain_inner = harness.chain.clone();
 
-    // Keep B and the later votes comfortably inside one epoch.
-    let slot_b = Slot::new(E::slots_per_epoch() - 4);
-    let num_initial = slot_b.as_u64() - 1;
+    execution_ctx
+        .hook
+        .lock()
+        .set_forkchoice_updated_hook(Box::new(move |state, payload_attributes| {
+            let received_at = chain_inner.slot_clock.now_duration().unwrap();
+            let state = ForkchoiceState::from(state);
+            let payload_attributes = payload_attributes.map(Into::into);
+            let update = ForkChoiceUpdateMetadata {
+                received_at,
+                state,
+                payload_attributes,
+            };
+            forkchoice_updates_inner.lock().insert(update);
+            None
+        }));
 
-    let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
-        Some(gloas_test_spec()),
-        validator_count,
-        None,
-        None,
-        Default::default(),
-        false,
-        NodeCustodyType::Fullnode,
-    )
-    .await;
-    prepare_gloas_chain(&tester, validator_count, num_initial, slot_b).await;
-    let harness = &tester.harness;
+    // We set up the following block graph, where B is a block that arrives late and is re-orged
+    // by C.
+    //
+    // A | B | - |
+    // ^ | - | C |
 
-    // Produce B at `slot_b`. `add_block_at_slot` also delivers and verifies B's payload envelope, so
-    // B's `FULL` node exists in fork choice and B is the canonical head on the `FULL` path.
+    let slot_a = Slot::new(num_initial + 1);
+    let slot_b = slot_a + parent_distance;
+    let slot_c = slot_b + head_distance;
+
+    // We need to transition to at least epoch 2 in order to trigger
+    // `process_rewards_and_penalties`. This allows us to test withdrawals changes at epoch
+    // boundaries.
+    if expect_withdrawals_change_on_epoch {
+        assert!(
+            slot_c.epoch(E::slots_per_epoch()) >= 2,
+            "for withdrawals to change, test must end at an epoch >= 2"
+        );
+    }
+
     harness.advance_slot();
-    let (block_b_root, _block_b, mut state_b) = harness
-        .add_block_at_slot(slot_b, harness.get_current_state())
+    let (block_a_root, block_a, mut state_a) = harness
+        .add_block_at_slot(slot_a, harness.get_current_state())
         .await
         .unwrap();
-    let state_b_root = state_b.canonical_root().unwrap();
+    let state_a_root = state_a.canonical_root().unwrap();
 
-    assert_eq!(harness.head_block_root(), Hash256::from(block_b_root));
-    assert_eq!(
-        harness.chain.canonical_head.cached_head().head_payload_status(),
-        PayloadStatus::Full,
-        "B's delivered payload should make the head FULL before any EMPTY votes"
-    );
-
-    // Cast later-slot (slot_b + 1) votes for B with `payload_present = false`, forcing them into
-    // B's EMPTY payload bucket.
-    let slot_b1 = slot_b + 1;
-    harness.advance_slot();
-    let fork = harness
-        .spec
-        .fork_at_epoch(slot_b1.epoch(E::slots_per_epoch()));
-    let (empty_votes, _) = harness.make_attestations_with_payload_present_override(
+    // Attest to block A during slot A.
+    let (block_a_parent_votes, _) = harness.make_attestations_with_limit(
         &all_validators,
-        &state_b,
-        state_b_root,
-        block_b_root.into(),
-        slot_b1,
-        fork,
-        false,
+        &state_a,
+        state_a_root,
+        block_a_root,
+        slot_a,
+        num_parent_votes,
     );
-    harness.process_attestations(empty_votes, &state_b);
+    harness.process_attestations(block_a_parent_votes, &state_a);
 
-    // Advance one more slot so the `slot_b + 1` votes are applied to fork choice, then recompute.
-    harness.advance_slot();
-    harness
+    // Attest to block A during slot B.
+    for _ in 0..parent_distance {
+        harness.advance_slot();
+    }
+    let (block_a_empty_votes, block_a_attesters) = harness.make_attestations_with_opts(
+        &all_validators,
+        &state_a,
+        state_a_root,
+        block_a_root,
+        slot_b,
+        MakeAttestationOptions {
+            limit: num_skip_empty_votes,
+            fork: state_a.fork(),
+            payload_present_override: Some(false),
+        },
+    );
+    harness.process_attestations(block_a_empty_votes, &state_a);
+    let (block_a_full_votes, block_a_attesters) = harness.make_attestations_with_opts(
+        &all_validators,
+        &state_a,
+        state_a_root,
+        block_a_root,
+        slot_b,
+        MakeAttestationOptions {
+            limit: num_skip_full_votes,
+            fork: state_a.fork(),
+            payload_present_override: Some(true),
+        },
+    );
+    harness.process_attestations(block_a_full_votes, &state_a);
+
+    let remaining_attesters = all_validators
+        .iter()
+        .copied()
+        .filter(|index| !block_a_attesters.contains(index))
+        .collect::<Vec<_>>();
+
+    // Produce block B and process it halfway through the slot.
+    // When B is expected to remain canonical (no re-org), capture its Gloas payload envelope so we
+    // can reveal B's execution payload to fork choice below. Without this, B's payload status stays
+    // `Empty`/`Pending` and the forkchoiceUpdated head hash falls back to B's parent rather than B's
+    // own execution block hash. We skip this when B will be re-orged, since the execution layer
+    // must never be told about a block that is about to be re-orged away.
+    let is_gloas = harness
         .chain
-        .recompute_head_at_slot(slot_b + 2)
-        .await;
-
-    assert_eq!(
-        harness.head_block_root(),
-        Hash256::from(block_b_root),
-        "B should remain the canonical beacon block (only the payload is re-orged)"
-    );
-    assert_eq!(
-        harness.chain.canonical_head.cached_head().head_payload_status(),
-        PayloadStatus::Empty,
-        "EMPTY-bucket votes should orphan B's payload (payload re-org)"
-    );
-
-    //TODO(manas): produce block
-}
-
-/// Payload re-org (flavor B): once `B`'s payload is orphaned (head is `(B, EMPTY)` despite the
-/// payload being delivered, as in flavor A), the next proposer `C` builds on `B`'s EMPTY path. The
-/// beacon block `B` is kept as `C`'s parent, but `C`'s bid does not extend `B`'s execution payload —
-/// it points back at `B`'s parent's payload, i.e. the payload is re-orged out by the proposer.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn gloas_payload_reorg_proposer_builds_on_empty_path() {
-    let validator_count = E::slots_per_epoch() as usize * ATTESTERS_PER_SLOT;
-    let all_validators = (0..validator_count).collect::<Vec<usize>>();
-
-    let slot_b = Slot::new(E::slots_per_epoch() - 4);
-    let num_initial = slot_b.as_u64() - 1;
-    let slot_c = slot_b + 2;
-
-    let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
-        Some(gloas_test_spec()),
-        validator_count,
-        None,
-        None,
-        Default::default(),
-        false,
-        NodeCustodyType::Fullnode,
-    )
-    .await;
-    prepare_gloas_chain(&tester, validator_count, num_initial, slot_b).await;
-    let harness = &tester.harness;
-
-    // Produce B with its payload delivered (FULL node exists, B is the FULL head).
-    harness.advance_slot();
-    let (block_b_root, block_b, mut state_b) = harness
-        .add_block_at_slot(slot_b, harness.get_current_state())
-        .await
-        .unwrap();
-    let state_b_root = state_b.canonical_root().unwrap();
-
-    // `B`'s own committed execution payload hash. If `C` extends `B`'s payload its bid would point
-    // at this; a payload re-org means it must not.
-    let block_b_payload_hash = block_b
-        .0
-        .message()
-        .body()
-        .signed_execution_payload_bid()
-        .expect("Gloas block should have a payload bid")
-        .message
-        .block_hash;
-
-    // Orphan B's payload: later-slot voters attest B with `payload_present = false`.
-    let slot_b1 = slot_b + 1;
-    harness.advance_slot();
-    let fork = harness
         .spec
-        .fork_at_epoch(slot_b1.epoch(E::slots_per_epoch()));
-    let (empty_votes, _) = harness.make_attestations_with_payload_present_override(
-        &all_validators,
+        .fork_name_at_slot::<E>(slot_b)
+        .gloas_enabled();
+    let reveal_block_b_payload = is_gloas && !should_re_org;
+    let (block_b, block_b_envelope, mut state_b) = if reveal_block_b_payload {
+        harness
+            .make_block_with_envelope(state_a.clone(), slot_b)
+            .await
+    } else {
+        let (block_b, state_b) = harness.make_block(state_a.clone(), slot_b).await;
+        (block_b, None, state_b)
+    };
+    let state_b_root = state_b.canonical_root().unwrap();
+    let block_b_root = block_b.0.canonical_root();
+
+    // TODO(sproul): assert block B's parent?
+
+    let obs_time = slot_clock.start_of(slot_b).unwrap() + slot_clock.slot_duration() / 2;
+    slot_clock.set_current_time(obs_time);
+    harness.chain.block_times_cache.write().set_time_observed(
+        block_b_root,
+        slot_b,
+        obs_time,
+        None,
+        None,
+    );
+    harness.process_block_result(block_b.clone()).await.unwrap();
+
+    // Reveal B's execution payload so fork choice marks the payload as received and the
+    // forkchoiceUpdated head hash references B's own execution block hash.
+    if let Some(block_b_envelope) = block_b_envelope {
+        harness
+            .process_envelope(block_b_root, block_b_envelope, &state_b, state_b_root)
+            .await;
+    }
+
+    // Add attestations to block B.
+    let (block_b_head_votes, _) = harness.make_attestations_with_limit(
+        &remaining_attesters,
         &state_b,
         state_b_root,
         block_b_root.into(),
-        slot_b1,
-        fork,
-        false,
+        slot_b,
+        num_head_votes,
     );
-    harness.process_attestations(empty_votes, &state_b);
+    harness.process_attestations(block_b_head_votes, &state_b);
 
-    harness.advance_slot();
-    harness.chain.recompute_head_at_slot(slot_c).await;
+    let payload_lookahead = harness.chain.config.prepare_payload_lookahead;
+    let fork_choice_lookahead = Duration::from_millis(500);
+    while harness.get_current_slot() != slot_c {
+        let current_slot = harness.get_current_slot();
+        let next_slot = current_slot + 1;
 
-    // Sanity: head is `(B, EMPTY)`.
-    assert_eq!(harness.head_block_root(), Hash256::from(block_b_root));
-    assert_eq!(
-        harness.chain.canonical_head.cached_head().head_payload_status(),
-        PayloadStatus::Empty,
-    );
+        // Simulate the scheduled call to prepare proposers at 8 seconds into the slot.
+        harness.advance_to_slot_lookahead(next_slot, payload_lookahead);
+        harness
+            .chain
+            .prepare_beacon_proposer(current_slot)
+            .await
+            .unwrap();
 
-    // Produce C at `slot_c`.
+        // Simulate the scheduled call to fork choice + prepare proposers 500ms before the
+        // next slot.
+        harness.advance_to_slot_lookahead(next_slot, fork_choice_lookahead);
+        harness.chain.recompute_head_at_slot(next_slot).await;
+        harness
+            .chain
+            .prepare_beacon_proposer(current_slot)
+            .await
+            .unwrap();
+
+        harness.advance_slot();
+        harness.chain.per_slot_task().await;
+    }
+
+    // Produce block C.
+    // Advance state_b so we can get the proposer.
+    assert_eq!(state_b.slot(), slot_b);
+    let pre_advance_withdrawals = get_expected_withdrawals(&state_b, &harness.chain.spec)
+        .unwrap()
+        .withdrawals()
+        .to_vec();
     complete_state_advance(&mut state_b, None, slot_c, &harness.chain.spec).unwrap();
+
     let proposer_index = state_b
         .get_beacon_proposer_index(slot_c, &harness.chain.spec)
         .unwrap();
     let randao_reveal = harness
         .sign_randao_reveal(&state_b, proposer_index, slot_c)
         .into();
-    let (response, _) = tester
-        .client
-        .get_validator_blocks_v4::<E>(slot_c, &randao_reveal, None, None, None, None)
-        .await
-        .unwrap();
-    let block_c = Arc::new(harness.sign_beacon_block(response.data, &state_b));
+    let is_gloas = harness
+        .chain
+        .spec
+        .fork_name_at_slot::<E>(slot_c)
+        .gloas_enabled();
 
-    // C keeps B as its beacon-block parent (no *block* re-org)...
+    let (block_c, block_c_blobs) = if is_gloas {
+        let (response, _) = tester
+            .client
+            .get_validator_blocks_v4::<E>(slot_c, &randao_reveal, None, None, None, None)
+            .await
+            .unwrap();
+        (
+            Arc::new(harness.sign_beacon_block(response.data, &state_b)),
+            None,
+        )
+    } else {
+        let (unsigned_block_type, _) = tester
+            .client
+            .get_validator_blocks_v3::<E>(slot_c, &randao_reveal, None, None, None)
+            .await
+            .unwrap();
+
+        let (unsigned_block_c, block_c_blobs) = match unsigned_block_type.data {
+            ProduceBlockV3Response::Full(unsigned_block_contents_c) => {
+                unsigned_block_contents_c.deconstruct()
+            }
+            ProduceBlockV3Response::Blinded(_) => {
+                panic!("Should not be a blinded block");
+            }
+        };
+        (
+            Arc::new(harness.sign_beacon_block(unsigned_block_c, &state_b)),
+            block_c_blobs,
+        )
+    };
+
+    // Post-Gloas the execution payload is decoupled from the beacon block: the payload hash
+    // lives in the execution payload bid, and the payload timestamp is derived from the slot.
+    let exec_block_hash = |block: BeaconBlockRef<E>| -> ExecutionBlockHash {
+        if is_gloas {
+            block
+                .body()
+                .signed_execution_payload_bid()
+                .unwrap()
+                .message
+                .block_hash
+        } else {
+            block.execution_payload().unwrap().block_hash()
+        }
+    };
+
+    let block_a_exec_hash = exec_block_hash(block_a.0.message());
+    let block_b_exec_hash = exec_block_hash(block_b.0.message());
+
+    if should_re_org {
+        // Block C should build on A.
+        assert_eq!(block_c.parent_root(), Hash256::from(block_a_root));
+
+        if is_gloas {
+            assert_eq!(
+                block_c.is_parent_block_full(block_a_exec_hash),
+                expected_parent_payload_status == PayloadStatus::Full
+            );
+        }
+    } else {
+        // Block C should build on B.
+        assert_eq!(block_c.parent_root(), block_b_root);
+
+        if is_gloas {
+            assert_eq!(
+                block_c.is_parent_block_full(block_b_exec_hash),
+                expected_parent_payload_status == PayloadStatus::Full
+            );
+        }
+    }
+
+    // Applying block C should cause it to become head regardless (re-org or continuation).
+    let block_root_c = Hash256::from(
+        harness
+            .process_block_result((block_c.clone(), block_c_blobs))
+            .await
+            .unwrap(),
+    );
+
+    assert_eq!(harness.head_block_root(), block_root_c);
+
+    // Check the fork choice updates that were sent.
+    let forkchoice_updates = forkchoice_updates.lock();
+
+    let block_c_timestamp = if is_gloas {
+        harness.chain.slot_clock.start_of(slot_c).unwrap().as_secs()
+    } else {
+        block_c.message().execution_payload().unwrap().timestamp()
+    };
+
+    // If we re-orged then no fork choice update for B should have been sent.
     assert_eq!(
-        block_c.parent_root(),
-        Hash256::from(block_b_root),
-        "C should still build on beacon block B"
+        should_re_org,
+        !forkchoice_updates.contains_update_for(block_b_exec_hash),
+        "{block_b_exec_hash:?}"
     );
 
-    // ...but builds on B's EMPTY payload path: its bid does not extend B's execution payload.
-    let block_c_parent_payload_hash = block_c
-        .message()
-        .body()
-        .signed_execution_payload_bid()
-        .expect("Gloas block should have a payload bid")
-        .message
-        .parent_block_hash;
-    assert_ne!(
-        block_c_parent_payload_hash, block_b_payload_hash,
-        "C must not extend B's payload — B's payload is re-orged"
-    );
+    // Check the timing of the first fork choice update with payload attributes for block C.
+    let c_parent_hash = if should_re_org {
+        block_a_exec_hash
+    } else {
+        block_b_exec_hash
+    };
+    let first_update = forkchoice_updates
+        .first_update_with_payload_attributes(c_parent_hash, block_c_timestamp)
+        .unwrap();
+    let payload_attribs = first_update.payload_attributes.as_ref().unwrap();
 
-    // TODO:
-    // 1. get_proposer_head=grand-parent (do-reorg) + payload_status=empty
-    // 1. get_proposer_head=grant-parent (do-reorg) + payload_status=full
-    // 1. get_proposer_head=parent (don't-reorg) + payload_status=full
-    // 1. get_proposer_head=parent (don't-reorg) + payload_status=empty
-    //
-    // should make sure that all existing test pass
-    // - run each for gloas and understand what changes are needed to make them pass for gloas
-    // - some tests might require gloas-specfic setup changes:
+    // Check that withdrawals from the payload attributes match those computed from the parent's
+    // advanced state.
+    let expected_withdrawals = if should_re_org {
+        let mut state_a_advanced = state_a.clone();
+        complete_state_advance(&mut state_a_advanced, None, slot_c, &harness.chain.spec).unwrap();
+        get_expected_withdrawals(&state_a_advanced, &harness.chain.spec)
+    } else {
+        get_expected_withdrawals(&state_b, &harness.chain.spec)
+    }
+    .unwrap()
+    .withdrawals()
+    .to_vec();
+    let payload_attribs_withdrawals = payload_attribs.withdrawals().unwrap();
+    assert_eq!(expected_withdrawals, *payload_attribs_withdrawals);
+    assert!(!expected_withdrawals.is_empty());
+
+    if should_re_org
+        || expect_withdrawals_change_on_epoch
+            && slot_c.epoch(E::slots_per_epoch()) != slot_b.epoch(E::slots_per_epoch())
+    {
+        assert_ne!(expected_withdrawals, pre_advance_withdrawals);
+    }
+
+    // Check that the `parent_beacon_block_root` of the payload attributes are correct.
+    if let Ok(parent_beacon_block_root) = payload_attribs.parent_beacon_block_root() {
+        assert_eq!(parent_beacon_block_root, block_c.parent_root());
+    }
+
+    let lookahead = slot_clock
+        .start_of(slot_c)
+        .unwrap()
+        .checked_sub(first_update.received_at)
+        .unwrap();
+
+    if !misprediction {
+        assert_eq!(
+            lookahead,
+            payload_lookahead,
+            "lookahead={lookahead:?}, timestamp={}, prev_randao={:?}",
+            payload_attribs.timestamp(),
+            payload_attribs.prev_randao(),
+        );
+    } else {
+        // On a misprediction we issue the first fcU 500ms before creating a block!
+        assert_eq!(
+            lookahead,
+            fork_choice_lookahead,
+            "timestamp={}, prev_randao={:?}",
+            payload_attribs.timestamp(),
+            payload_attribs.prev_randao(),
+        );
+    }
 }
