@@ -361,6 +361,14 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             .unwrap_or(0)
     }
 
+    pub fn parent_block_hash(&self) -> Option<ExecutionBlockHash> {
+        self.message()
+            .body()
+            .signed_execution_payload_bid()
+            .ok()
+            .map(|bid| bid.message.parent_block_hash)
+    }
+
     /// Used for displaying commitments in logs.
     pub fn commitments_formatted(&self) -> String {
         let Ok(commitments) = self.message().body().blob_kzg_commitments() else {

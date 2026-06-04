@@ -92,9 +92,10 @@ use std::fs;
 use std::io::Write;
 use std::sync::Arc;
 use store::{Error as DBError, KeyValueStore};
-use strum::AsRefStr;
+use strum::{AsRefStr, IntoStaticStr};
 use task_executor::JoinHandle;
 use tracing::{Instrument, Span, debug, debug_span, error, info_span, instrument};
+use types::ExecutionBlockHash;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSidecarList,
     Epoch, EthSpec, FullPayload, Hash256, InconsistentFork, KzgProofs, RelativeEpoch,
@@ -114,7 +115,7 @@ const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
 ///
 /// - The block is malformed/invalid (indicated by all results other than `BeaconChainError`.
 /// - We encountered an error whilst trying to verify the block (a `BeaconChainError`).
-#[derive(Debug, AsRefStr)]
+#[derive(Debug, AsRefStr, IntoStaticStr)]
 pub enum BlockError {
     /// The parent block was unknown.
     ///
@@ -122,7 +123,10 @@ pub enum BlockError {
     ///
     /// It's unclear if this block is valid, but it cannot be processed without already knowing
     /// its parent.
-    ParentUnknown { parent_root: Hash256 },
+    ParentUnknown {
+        parent_root: Hash256,
+        parent_block_hash: Option<ExecutionBlockHash>,
+    },
     /// The block slot is greater than the present slot.
     ///
     /// ## Peer scoring
@@ -336,7 +340,7 @@ impl From<AvailabilityCheckError> for BlockError {
 
 /// Returned when block validation failed due to some issue verifying
 /// the execution payload.
-#[derive(Debug)]
+#[derive(Debug, IntoStaticStr)]
 pub enum ExecutionPayloadError {
     /// There's no eth1 connection (mandatory after merge)
     ///
@@ -1404,6 +1408,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 //  genesis).
                 return Err(BlockError::ParentUnknown {
                     parent_root: block.parent_root(),
+                    parent_block_hash: block.as_block().parent_block_hash(),
                 });
             }
         }
@@ -1779,6 +1784,7 @@ pub fn check_block_is_finalized_checkpoint_or_descendant<
         } else {
             Err(BlockError::ParentUnknown {
                 parent_root: block.parent_root(),
+                parent_block_hash: block.as_block().parent_block_hash(),
             })
         }
     }
@@ -1882,6 +1888,7 @@ fn verify_parent_block_is_known<T: BeaconChainTypes>(
         | ParentImportedStatus::UnknownBlock
         | ParentImportedStatus::UnimportedPayload => Err(BlockError::ParentUnknown {
             parent_root: block.parent_root(),
+            parent_block_hash: block.parent_block_hash(),
         }),
     }
 }
@@ -1913,6 +1920,7 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
     {
         return Err(BlockError::ParentUnknown {
             parent_root: block.parent_root(),
+            parent_block_hash: block.as_block().parent_block_hash(),
         });
     }
 

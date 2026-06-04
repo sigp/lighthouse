@@ -36,13 +36,13 @@ use {
     slot_clock::ManualSlotClock, store::MemoryStore, tokio::sync::mpsc::UnboundedSender,
 };
 
-pub use sync_methods::ChainSegmentProcessId;
+pub use sync_methods::{BlockProcessingResult, ChainSegmentProcessId};
 
 pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
 
 mod gossip_methods;
 mod rpc_methods;
-mod sync_methods;
+pub(crate) mod sync_methods;
 mod tests;
 
 pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
@@ -201,6 +201,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         subnet_id: DataColumnSubnetId,
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         seen_timestamp: Duration,
+        allow_reprocess: bool,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = async move {
@@ -211,6 +212,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     subnet_id,
                     column_sidecar,
                     seen_timestamp,
+                    allow_reprocess,
                 )
                 .await
         };
