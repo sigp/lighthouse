@@ -48,12 +48,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Atomically read some values from the head whilst avoiding holding cached head `Arc` any
         // longer than necessary. If the head has a payload envelope (Gloas full head), cheaply
         // clone the `Arc` so we can pass it to block production without a DB load.
-        let (head_slot, head_block_root, head_state_root) = {
+        let (head_slot, head_block_root, head_state_root, head_payload_status, head_envelope) = {
             let head = self.canonical_head.cached_head();
             (
                 head.head_slot(),
                 head.head_block_root(),
                 head.head_state_root(),
+                head.head_payload_status(),
+                head.snapshot.execution_envelope.clone(),
             )
         };
 
@@ -81,12 +83,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .get_advanced_hot_state(head_block_root, slot, parent_state_root)
                     .map_err(BlockProductionError::FailedToLoadState)?
                     .ok_or(BlockProductionError::UnableToProduceAtSlot(slot))?;
-                //TODO(manas): deal with this weird shit here with the parent_payload_status
+
                 BlockProductionState {
                     state,
                     state_root: Some(state_root),
-                    parent_payload_status: PayloadStatus::Empty,
-                    parent_envelope: None,
+                    parent_payload_status: head_payload_status,
+                    parent_envelope: head_envelope,
                 }
             }
         } else {
@@ -99,13 +101,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
                 .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
 
-            // TODO(gloasxmanas): update this to read payload canonicity from fork choice once ready
-            let parent_payload_status = PayloadStatus::Pending;
             BlockProductionState {
                 state,
                 state_root: None,
-                parent_payload_status,
-                parent_envelope: None,
+                parent_payload_status: head_payload_status,
+                parent_envelope: head_envelope,
             }
         };
 
