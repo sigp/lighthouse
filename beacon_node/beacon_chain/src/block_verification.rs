@@ -1380,8 +1380,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             .get_parent_import_status(block.as_block())
         {
             ParentImportStatus::Imported(parent) => {
-                // Reject any block where the parent has an invalid payload. It's impossible for a valid
-                // block to descend from an invalid parent.
                 if parent.execution_status.is_invalid() {
                     return Err(BlockError::ParentExecutionPayloadInvalid {
                         parent_root: block.parent_root(),
@@ -1389,16 +1387,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 }
             }
             ParentImportStatus::UnknownBlock | ParentImportStatus::UnknownPayload => {
-                // Reject any block if its parent is not known to fork choice.
-                //
-                // A block that is not in fork choice is either:
-                //
-                //  - Not yet imported: we should reject this block because we should only import a child
-                //  after its parent has been fully imported.
-                //  - Pre-finalized: if the parent block is _prior_ to finalization, we should ignore it
-                //  because it will revert finalization. Note that the finalized block is stored in fork
-                //  choice, so we will not reject any child of the finalized block (this is relevant during
-                //  genesis).
                 return Err(BlockError::ParentUnknown {
                     parent_root: block.parent_root(),
                 });
@@ -1858,18 +1846,13 @@ pub fn get_block_header_root(block_header: &SignedBeaconBlockHeader) -> Hash256 
     block_root
 }
 
-/// Verify the parent of `block` is known, returning some information about the parent block from
-/// fork choice.
+/// Verify the parent block — and, for a post-Gloas FULL child, the parent payload — are known to
+/// fork choice; both missing cases return `ParentUnknown`.
 #[allow(clippy::type_complexity)]
 fn verify_parent_block_and_envelope_are_known<T: BeaconChainTypes>(
     fork_choice_read_lock: &RwLockReadGuard<BeaconForkChoice<T>>,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
 ) -> Result<(ProtoBlock, Arc<SignedBeaconBlock<T::EthSpec>>), BlockError> {
-    // The block's parent execution payload (defined by bid.parent_block_hash) has been seen
-    // (via gossip or non-gossip sources) (a client MAY queue blocks for processing
-    // once the parent payload is retrieved). If execution_payload verification of block's execution
-    // payload parent by an execution node is complete, verify the block's execution payload
-    // parent (defined by bid.parent_block_hash) passes all validation.
     match fork_choice_read_lock.get_parent_import_status(&block) {
         ParentImportStatus::Imported(parent) => Ok((parent, block)),
         ParentImportStatus::UnknownBlock | ParentImportStatus::UnknownPayload => {

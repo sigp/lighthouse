@@ -359,9 +359,7 @@ fn update_data_column_signed_header<E: EthSpec>(
 
 #[tokio::test]
 async fn chain_segment_full_segment() {
-    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes. A multi-block
-    // segment of consecutive FULL Gloas blocks can't be imported by `process_chain_segment` until
-    // it imports payload envelopes alongside blocks.
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
     if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
