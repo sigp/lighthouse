@@ -3176,19 +3176,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         }
                     }
                     Err(BlockError::DuplicateFullyImported(block_root)) => {
-                        if let Some(envelope) = maybe_envelope
-                            && let Err(e) = self
-                                .process_range_sync_envelope(envelope, block_root, block)
-                                .await
-                        {
-                            return ChainSegmentResult::Failed {
-                                imported_blocks,
-                                error: BlockError::EnvelopeError(Box::new(e)),
-                            };
-                        }
-
+                        // Block was already imported, envelope might need re-import
                         imported_blocks.push((block_root, block_slot));
-                        continue;
                     }
                     Err(error) => {
                         return ChainSegmentResult::Failed {

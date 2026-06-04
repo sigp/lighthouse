@@ -807,11 +807,6 @@ impl<T: BeaconChainTypes> Router<T> {
         app_request_id: AppRequestId,
         envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
     ) {
-        trace!(
-            %peer_id,
-            "Received PayloadEnvelopesByRange Response"
-        );
-
         let sync_request_id = match app_request_id {
             AppRequestId::Sync(id @ SyncRequestId::PayloadEnvelopesByRange { .. }) => id,
             other => {
