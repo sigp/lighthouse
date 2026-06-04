@@ -241,21 +241,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(proposer_head_timer);
         let re_org_parent_block = proposer_head.parent_node.root();
 
-        let parent_payload_status = match self
-            .canonical_head
-            .fork_choice_read_lock()
-            .get_canonical_payload_status(&re_org_parent_block, &self.spec)
-        {
-            Ok(status) => status,
-            Err(e) => {
-                warn!(
-                    error = ?e,
-                    parent = ?re_org_parent_block,
-                    "Not attempting re-org: failed to resolve parent payload status"
-                );
-                return None;
-            }
-        };
+        // The head uniquely determines the parent payload status for the re-org block, whichever
+        // variant (full or empty) it builds on must have more weight, or else we would have already
+        // re-orged away from this block naturally, and it would not be the head, by definition.
+        let parent_payload_status = proposer_head.head_node.get_parent_payload_status();
 
         let (state_root, state) = self
             .store
