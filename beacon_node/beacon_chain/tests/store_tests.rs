@@ -3195,44 +3195,14 @@ async fn weak_subjectivity_sync_test(
             .await
             .unwrap();
 
-        // Store the envelope, its columns, and apply to fork choice.
+        // Placeholder until range sync imports payload envelopes (#9362): persist the envelope so
+        // the block can be reconstructed for cold-storage migration, and mark the payload received
+        // in fork choice so the next (FULL) block can be imported.
         if let Some(envelope) = &snapshot.execution_envelope {
-            // Persist data columns for Gloas blocks. This mirrors what production does in
-            // `import_available_execution_payload_envelope` and what the harness now does in
-            // `process_envelope` — the WSS forward-sync loop bypasses both, so do it directly.
-            let mut ops = vec![];
-            let columns_block = beacon_chain
-                .store
-                .get_blinded_block(&block_root)
-                .unwrap()
-                .and_then(|b| beacon_chain.store.make_full_block(&block_root, b).ok());
-            if let Some(full_block) = columns_block {
-                let columns = beacon_chain::test_utils::generate_data_column_sidecars_from_block(
-                    &full_block,
-                    &beacon_chain.spec,
-                );
-                if !columns.is_empty()
-                    && let Some(store_op) = beacon_chain.get_blobs_or_columns_store_op(
-                        block_root,
-                        full_block.slot(),
-                        beacon_chain::block_verification_types::AvailableBlockData::DataColumns(
-                            columns,
-                        ),
-                    )
-                {
-                    ops.push(store_op);
-                }
-            }
-            ops.push(store::StoreOp::PutPayloadEnvelope(
-                block_root,
-                std::sync::Arc::new(envelope.as_ref().clone()),
-            ));
             beacon_chain
                 .store
-                .do_atomically_with_block_and_blobs_cache(ops)
+                .put_payload_envelope(&block_root, envelope)
                 .unwrap();
-
-            // Update fork choice so head selection accounts for Full payload status.
             beacon_chain
                 .canonical_head
                 .fork_choice_write_lock()
