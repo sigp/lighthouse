@@ -301,8 +301,6 @@ pub enum BlockError {
     /// TODO: We may need to penalize the peer that gave us a potentially invalid rpc blob.
     /// https://github.com/sigp/lighthouse/issues/4546
     AvailabilityCheck(AvailabilityCheckError),
-    /// The payload envelope's block root is unknown.
-    EnvelopeBlockRootUnknown(Hash256),
     /// An internal error has occurred when processing the block or sidecars.
     ///
     /// ## Peer scoring

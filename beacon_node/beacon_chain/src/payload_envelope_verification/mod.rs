@@ -164,6 +164,14 @@ pub enum EnvelopeError {
     ExecutionPayloadError(ExecutionPayloadError),
     /// Optimistic sync is not supported for Gloas payload envelopes.
     OptimisticSyncNotSupported { block_root: Hash256 },
+    /// The envelope's beacon block was not present in fork choice at import time.
+    ///
+    /// Unlike [`EnvelopeError::BlockRootUnknown`] (raised during gossip verification, where the
+    /// block may simply not have arrived yet), this is raised during import where the block is
+    /// expected to already be present, so it indicates an internal inconsistency.
+    BlockRootNotInForkChoice(Hash256),
+    /// An internal error occurred while importing the envelope (e.g. updating fork choice).
+    InternalError(String),
 }
 
 impl std::fmt::Display for EnvelopeError {

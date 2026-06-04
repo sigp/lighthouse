@@ -1048,7 +1048,6 @@ impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingR
                     | BlockError::ParentExecutionPayloadInvalid { .. }
                     | BlockError::KnownInvalidExecutionPayload(_)
                     | BlockError::Slashable
-                    | BlockError::EnvelopeBlockRootUnknown(_)
                     | BlockError::InvalidBlobCount { .. }
                     | BlockError::BidParentRootMismatch { .. } => block_peer_penalty(&e),
                 };

@@ -183,7 +183,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn import_available_execution_payload_envelope(
         self: &Arc<Self>,
         envelope: Box<AvailableExecutedEnvelope<T::EthSpec>>,
-    ) -> Result<AvailabilityProcessingStatus, BlockError> {
+    ) -> Result<AvailabilityProcessingStatus, EnvelopeError> {
         let AvailableExecutedEnvelope {
             envelope,
             block_root,
@@ -220,13 +220,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         signed_envelope: AvailableEnvelope<T::EthSpec>,
         block_root: Hash256,
         payload_verification_status: PayloadVerificationStatus,
-    ) -> Result<Hash256, BlockError> {
+    ) -> Result<Hash256, EnvelopeError> {
         // Everything in this initial section is on the hot path for processing the envelope.
         // Take an upgradable read lock on fork choice so we can check if this block has already
         // been imported. We don't want to repeat work importing a block that is already imported.
         let fork_choice_reader = self.canonical_head.fork_choice_upgradable_read_lock();
         if !fork_choice_reader.contains_block(&block_root) {
-            return Err(BlockError::EnvelopeBlockRootUnknown(block_root));
+            return Err(EnvelopeError::BlockRootNotInForkChoice(block_root));
         }
 
         // TODO(gloas) add defensive check to see if payload envelope is already in fork choice
@@ -241,7 +241,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // node which can be eligible for head.
         fork_choice
             .on_valid_payload_envelope_received(block_root)
-            .map_err(|e| BlockError::InternalError(format!("{e:?}")))?;
+            .map_err(|e| EnvelopeError::InternalError(format!("{e:?}")))?;
 
         // TODO(gloas) emit SSE event if the payload became the new head payload
 
