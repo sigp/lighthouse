@@ -244,10 +244,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let parent_payload_status = match self
             .canonical_head
             .fork_choice_read_lock()
-            .should_extend_payload(&re_org_parent_block)
+            .get_canonical_payload_status(&re_org_parent_block, &self.spec)
         {
-            Ok(true) => PayloadStatus::Full,
-            Ok(false) => PayloadStatus::Empty,
+            Ok(status) => status,
             Err(e) => {
                 warn!(
                     error = ?e,
