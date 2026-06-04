@@ -3195,7 +3195,9 @@ async fn weak_subjectivity_sync_test(
 
         // Store the envelope, its columns, and apply to fork choice.
         if let Some(envelope) = &snapshot.execution_envelope {
-            // Persist data columns, mirroring `import_available_execution_payload_envelope`.
+            // Persist data columns for Gloas blocks. This mirrors what production does in
+            // `import_available_execution_payload_envelope` and what the harness now does in
+            // `process_envelope` — the WSS forward-sync loop bypasses both, so do it directly.
             let mut ops = vec![];
             let columns_block = beacon_chain
                 .store
