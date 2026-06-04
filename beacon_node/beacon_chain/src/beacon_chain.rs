@@ -3154,24 +3154,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     )
                     .await
                 {
-                    Ok(status) => match status {
-                        AvailabilityProcessingStatus::Imported(block_root) => {
-                            imported_blocks.push((block_root, block_slot));
+                    Ok(status) => {
+                        match status {
+                            AvailabilityProcessingStatus::Imported(block_root) => {
+                                // The block was imported successfully.
+                                imported_blocks.push((block_root, block_slot));
+                            }
+                            AvailabilityProcessingStatus::MissingComponents(slot, block_root) => {
+                                warn!(
+                                    ?block_root,
+                                    %slot,
+                                    "Blobs missing in response to range request"
+                                );
+                                return ChainSegmentResult::Failed {
+                                    imported_blocks,
+                                    error: BlockError::AvailabilityCheck(
+                                        AvailabilityCheckError::MissingBlobs,
+                                    ),
+                                };
+                            }
                         }
-                        AvailabilityProcessingStatus::MissingComponents(slot, block_root) => {
-                            warn!(
-                                ?block_root,
-                                %slot,
-                                "Blobs missing in response to range request"
-                            );
-                            return ChainSegmentResult::Failed {
-                                imported_blocks,
-                                error: BlockError::AvailabilityCheck(
-                                    AvailabilityCheckError::MissingBlobs,
-                                ),
-                            };
-                        }
-                    },
+                    }
                     Err(BlockError::DuplicateFullyImported(block_root)) => {
                         if let Some(envelope) = maybe_envelope
                             && let Err(e) = self
