@@ -242,10 +242,9 @@ fn update_fork_choice_with_envelopes(
 /// after the block is imported.
 ///
 /// Post-Gloas, a FULL child block can only be imported once its parent's payload envelope has been
-/// imported into fork choice. `process_chain_segment` imports blocks only (in production, payload
-/// envelopes are fetched and imported separately), so a multi-block segment of consecutive FULL
-/// Gloas blocks cannot be imported in a single batch. This helper mirrors production sync ordering:
-/// it imports each block and then registers its payload envelope before importing the next block.
+/// imported into fork choice. `process_chain_segment` currently imports blocks only, so a
+/// multi-block segment of consecutive FULL Gloas blocks cannot be imported in a single batch. This
+/// helper imports each block and then registers its payload envelope before importing the next.
 ///
 /// Pre-Gloas, where blocks carry no payload envelope, the whole segment is imported in a single
 /// batch so the batch import path is still exercised.

@@ -209,7 +209,7 @@ pub enum InvalidPayloadAttestation {
 
 /// The import status of a block's parent, as seen by fork choice.
 #[allow(clippy::large_enum_variant)]
-pub enum ParentImportedStatus {
+pub enum ParentImportStatus {
     /// The parent block is imported and the child's bid commits to a parent payload known to fork
     /// choice.
     Imported(ProtoBlock),
@@ -1550,11 +1550,11 @@ where
     }
 
     /// Returns `true` if the block's parent is imported (and, for a post-Gloas FULL child, its
-    /// parent's payload is imported too). See [`Self::is_parent_imported_status`].
+    /// parent's payload is imported too). See [`Self::get_parent_import_status`].
     pub fn is_parent_imported(&self, block: &SignedBeaconBlock<E>) -> bool {
         matches!(
-            self.is_parent_imported_status(block),
-            ParentImportedStatus::Imported(_)
+            self.get_parent_import_status(block),
+            ParentImportStatus::Imported(_)
         )
     }
 
@@ -1568,22 +1568,22 @@ where
     /// imported separately from the block. A pre-Gloas parent's execution payload is embedded in the
     /// block and is therefore always present, so a Gloas child at the fork-transition boundary must
     /// not be gated on it.
-    pub fn is_parent_imported_status(&self, block: &SignedBeaconBlock<E>) -> ParentImportedStatus {
+    pub fn get_parent_import_status(&self, block: &SignedBeaconBlock<E>) -> ParentImportStatus {
         if let Some(parent_block) = self.get_block(&block.parent_root()) {
             let Some(parent_block_hash) = parent_block.execution_payload_block_hash else {
                 // `execution_payload_block_hash` is only set for post-Gloas proto nodes; a
                 // pre-Gloas parent (`None`) has no separately-imported payload to wait for.
-                return ParentImportedStatus::Imported(parent_block);
+                return ParentImportStatus::Imported(parent_block);
             };
             if block.is_parent_block_full(parent_block_hash)
                 && !self.is_payload_received(&block.parent_root())
             {
-                ParentImportedStatus::UnimportedPayload
+                ParentImportStatus::UnimportedPayload
             } else {
-                ParentImportedStatus::Imported(parent_block)
+                ParentImportStatus::Imported(parent_block)
             }
         } else {
-            ParentImportedStatus::UnknownBlock
+            ParentImportStatus::UnknownBlock
         }
     }
 

@@ -4,7 +4,7 @@ mod metrics;
 
 pub use crate::fork_choice::{
     AttestationFromBlock, Error, ForkChoice, ForkChoiceView, ForkchoiceUpdateParameters,
-    InvalidAttestation, InvalidBlock, InvalidPayloadAttestation, ParentImportedStatus,
+    InvalidAttestation, InvalidBlock, InvalidPayloadAttestation, ParentImportStatus,
     PayloadVerificationStatus, PersistedForkChoice, PersistedForkChoiceV28, PersistedForkChoiceV29,
     QueuedAttestation, ResetPayloadStatuses,
 };

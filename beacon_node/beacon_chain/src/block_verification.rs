@@ -70,7 +70,7 @@ use bls::{PublicKey, PublicKeyBytes};
 use educe::Educe;
 use eth2::types::{BlockGossip, EventKind};
 use execution_layer::PayloadStatus;
-pub use fork_choice::{AttestationFromBlock, ParentImportedStatus, PayloadVerificationStatus};
+pub use fork_choice::{AttestationFromBlock, ParentImportStatus, PayloadVerificationStatus};
 use metrics::TryExt;
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
@@ -870,7 +870,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
 
         let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
         let (parent_block, block) =
-            verify_parent_block_is_known::<T>(&fork_choice_read_lock, block)?;
+            verify_parent_block_and_envelope_are_known::<T>(&fork_choice_read_lock, block)?;
 
         // [New in Gloas]: Verify bid.parent_block_root matches block.parent_root.
         if let Ok(bid) = block.message().body().signed_execution_payload_bid()
@@ -1377,9 +1377,9 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         match chain
             .canonical_head
             .fork_choice_read_lock()
-            .is_parent_imported_status(block.as_block())
+            .get_parent_import_status(block.as_block())
         {
-            ParentImportedStatus::Imported(parent) => {
+            ParentImportStatus::Imported(parent) => {
                 // Reject any block where the parent has an invalid payload. It's impossible for a valid
                 // block to descend from an invalid parent.
                 if parent.execution_status.is_invalid() {
@@ -1388,7 +1388,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                     });
                 }
             }
-            ParentImportedStatus::UnknownBlock | ParentImportedStatus::UnimportedPayload => {
+            ParentImportStatus::UnknownBlock | ParentImportStatus::UnimportedPayload => {
                 // Reject any block if its parent is not known to fork choice.
                 //
                 // A block that is not in fork choice is either:
@@ -1861,7 +1861,7 @@ pub fn get_block_header_root(block_header: &SignedBeaconBlockHeader) -> Hash256 
 /// Verify the parent of `block` is known, returning some information about the parent block from
 /// fork choice.
 #[allow(clippy::type_complexity)]
-fn verify_parent_block_is_known<T: BeaconChainTypes>(
+fn verify_parent_block_and_envelope_are_known<T: BeaconChainTypes>(
     fork_choice_read_lock: &RwLockReadGuard<BeaconForkChoice<T>>,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
 ) -> Result<(ProtoBlock, Arc<SignedBeaconBlock<T::EthSpec>>), BlockError> {
@@ -1870,9 +1870,9 @@ fn verify_parent_block_is_known<T: BeaconChainTypes>(
     // once the parent payload is retrieved). If execution_payload verification of block's execution
     // payload parent by an execution node is complete, verify the block's execution payload
     // parent (defined by bid.parent_block_hash) passes all validation.
-    match fork_choice_read_lock.is_parent_imported_status(&block) {
-        ParentImportedStatus::Imported(parent) => Ok((parent, block)),
-        ParentImportedStatus::UnknownBlock | ParentImportedStatus::UnimportedPayload => {
+    match fork_choice_read_lock.get_parent_import_status(&block) {
+        ParentImportStatus::Imported(parent) => Ok((parent, block)),
+        ParentImportStatus::UnknownBlock | ParentImportStatus::UnimportedPayload => {
             Err(BlockError::ParentUnknown {
                 parent_root: block.parent_root(),
             })
