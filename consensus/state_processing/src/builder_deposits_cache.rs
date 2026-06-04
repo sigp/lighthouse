@@ -208,7 +208,7 @@ impl OnboardBuildersCache {
 /// Returns a list of `pending_deposits` that were added for the same slot as the passed state.
 fn pending_deposits_to_verify<E: EthSpec>(state: &BeaconState<E>) -> Vec<&PendingDeposit> {
     let current_slot = state.slot();
-    let Some(pending_deposits) = state.pending_deposits().ok() else {
+    let Ok(pending_deposits) = state.pending_deposits() else {
         return Vec::new();
     };
     // Get the index of the first `pending_deposit` for the current slot
@@ -226,10 +226,11 @@ fn pending_deposits_to_verify<E: EthSpec>(state: &BeaconState<E>) -> Vec<&Pendin
         }
     }
 
-    pending_deposits
-        .iter()
-        .skip(first_current_slot_index)
-        .collect()
+    if let Ok(deposits) = pending_deposits.iter_from(first_current_slot_index) {
+        deposits.collect()
+    } else {
+        Vec::new()
+    }
 }
 
 #[cfg(all(test, not(feature = "fake_crypto")))]

@@ -296,6 +296,7 @@ impl<E: EthSpec> ShufflingCache<E> {
     }
 }
 
+#[allow(clippy::type_complexity)]
 pub fn with_cached_shuffling<T, F, R, Error>(
     canonical_head: &CanonicalHead<T>,
     shuffling_cache_lock: &RwLock<ShufflingCache<T::EthSpec>>,
