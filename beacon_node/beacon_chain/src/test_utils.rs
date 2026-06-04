@@ -758,6 +758,30 @@ pub type HarnessSyncContributions<E> = Vec<(
     Option<SignedContributionAndProof<E>>,
 )>;
 
+fn pack_payload_attestation_vote(
+    available_ptc_validators: &[(usize, usize, usize)],
+    requested_weight: usize,
+) -> Option<Vec<usize>> {
+    let mut packs = vec![None::<Vec<usize>>; requested_weight.checked_add(1)?];
+    packs[0] = Some(vec![]);
+
+    for (offset, (_, weight, _)) in available_ptc_validators.iter().enumerate() {
+        if *weight > requested_weight {
+            continue;
+        }
+
+        for weight_so_far in (0..=requested_weight - *weight).rev() {
+            if packs[weight_so_far].is_some() && packs[weight_so_far + *weight].is_none() {
+                let mut pack = packs[weight_so_far].as_ref()?.clone();
+                pack.push(offset);
+                packs[weight_so_far + *weight] = Some(pack);
+            }
+        }
+    }
+
+    packs.pop().flatten()
+}
+
 impl<E, Hot, Cold> BeaconChainHarness<BaseHarnessType<E, Hot, Cold>>
 where
     E: EthSpec,
@@ -2203,31 +2227,43 @@ where
         opts: MakePayloadAttestationOptions,
     ) -> (HarnessPayloadAttestationMessages, Vec<usize>) {
         let MakePayloadAttestationOptions { votes, fork } = opts;
-        let requested_message_count = votes.iter().map(|vote| vote.validator_count).sum::<usize>();
         let ptc = state
             .get_ptc(slot, &self.spec)
             .expect("should get payload timeliness committee");
 
-        let mut seen = HashSet::new();
-        let ptc_validators = ptc
+        debug!("PTC is {:?}", ptc.0.to_vec());
+
+        let attesting_validators = attesting_validators.iter().copied().collect::<HashSet<_>>();
+        let mut ptc_weights = HashMap::new();
+        let mut ptc_validator_order = vec![];
+        for validator_index in ptc
             .0
             .iter()
             .copied()
-            .filter(|validator_index| {
-                seen.insert(*validator_index) && attesting_validators.contains(validator_index)
+            .filter(|validator_index| attesting_validators.contains(validator_index))
+        {
+            if let Some(weight) = ptc_weights.get_mut(&validator_index) {
+                *weight += 1;
+            } else {
+                ptc_weights.insert(validator_index, 1usize);
+                ptc_validator_order.push(validator_index);
+            }
+        }
+
+        let mut available_ptc_validators = ptc_validator_order
+            .into_iter()
+            .enumerate()
+            .map(|(order, validator_index)| {
+                let weight = ptc_weights[&validator_index];
+                (validator_index, weight, order)
             })
             .collect::<Vec<_>>();
+        available_ptc_validators.sort_by(|(_, weight_a, order_a), (_, weight_b, order_b)| {
+            weight_b.cmp(weight_a).then(order_a.cmp(order_b))
+        });
 
-        assert!(
-            requested_message_count <= ptc_validators.len(),
-            "requested {requested_message_count} payload attestation messages, but only {} \
-             distinct selected validators are in the PTC",
-            ptc_validators.len()
-        );
-
-        let mut messages = Vec::with_capacity(requested_message_count);
-        let mut attesters = Vec::with_capacity(requested_message_count);
-        let mut validator_offset = 0;
+        let mut messages = Vec::new();
+        let mut attesters = Vec::new();
 
         for vote in votes {
             let data = PayloadAttestationData {
@@ -2237,11 +2273,22 @@ where
                 blob_data_available: vote.blob_data_available,
             };
 
-            for validator_index in ptc_validators
-                [validator_offset..validator_offset + vote.validator_count]
-                .iter()
-                .copied()
-            {
+            let Some(packed_validator_offsets) =
+                pack_payload_attestation_vote(&available_ptc_validators, vote.validator_count)
+            else {
+                let available_weights = available_ptc_validators
+                    .iter()
+                    .map(|(validator_index, weight, _)| (*validator_index, *weight))
+                    .collect::<Vec<_>>();
+                panic!(
+                    "requested packing couldn't be formed for payload attestation vote {vote:?}; \
+                     requested PTC weight {}, available PTC weights {:?}",
+                    vote.validator_count, available_weights
+                );
+            };
+
+            for &offset in &packed_validator_offsets {
+                let validator_index = available_ptc_validators[offset].0;
                 messages.push(self.make_payload_attestation_message(
                     validator_index,
                     data.clone(),
@@ -2250,7 +2297,9 @@ where
                 attesters.push(validator_index);
             }
 
-            validator_offset += vote.validator_count;
+            for offset in packed_validator_offsets.into_iter().rev() {
+                available_ptc_validators.remove(offset);
+            }
         }
 
         (messages, attesters)
@@ -3913,7 +3962,7 @@ pub struct MakeAttestationOptions {
 
 #[derive(Debug, Clone, Copy)]
 pub struct PayloadAttestationVote {
-    /// Number of distinct selected PTC validators to produce messages for this vote.
+    /// Amount of PTC weight to produce messages for this vote.
     pub validator_count: usize,
     pub payload_present: bool,
     pub blob_data_available: bool,

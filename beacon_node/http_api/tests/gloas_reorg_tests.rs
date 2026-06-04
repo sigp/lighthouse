@@ -11,7 +11,7 @@ use beacon_chain::{
     custody_context::NodeCustodyType,
     test_utils::{
         AttestationStrategy, BlockStrategy, LightClientStrategy, MakeAttestationOptions,
-        SyncCommitteeStrategy, test_spec,
+        MakePayloadAttestationOptions, PayloadAttestationVote, SyncCommitteeStrategy, test_spec,
     },
 };
 use beacon_processor::{Work, WorkEvent, work_reprocessing_queue::ReprocessQueueMessage};
@@ -30,12 +30,13 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::{
     Address, BeaconBlockRef, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256,
-    MainnetEthSpec, MinimalEthSpec, ProposerPreparationData, Slot,
+    MinimalEthSpec, ProposerPreparationData, Slot,
 };
 
-type E = MainnetEthSpec;
+type E = MinimalEthSpec;
 
-const ATTESTERS_PER_SLOT: usize = 10;
+// Must be at least PTC size to simplify PTC reasoning (unique PTC members per slot).
+const ATTESTERS_PER_SLOT: usize = 20;
 
 /// Data structure for tracking fork choice updates received by the mock execution layer.
 #[derive(Debug, Default)]
@@ -177,23 +178,28 @@ pub async fn proposer_boost_re_org_test(
 
     let spec = ForkName::latest().make_genesis_spec(E::default_spec());
 
-    // Ensure there are enough validators to have `attesters_per_slot`.
-    let attesters_per_slot = 10;
-    let validator_count = E::slots_per_epoch() as usize * attesters_per_slot;
+    // Ensure there are enough validators to have `ATTESTERS_PER_SLOT`.
+    assert!(ATTESTERS_PER_SLOT >= E::ptc_size());
+    let validator_count = E::slots_per_epoch() as usize * ATTESTERS_PER_SLOT;
     let all_validators = (0..validator_count).collect::<Vec<usize>>();
     let num_initial = head_slot.as_u64().checked_sub(parent_distance + 1).unwrap();
 
-    // Check that the required vote percentages can be satisfied exactly using `attesters_per_slot`.
-    assert_eq!(100 % attesters_per_slot, 0);
-    let percent_per_attester = 100 / attesters_per_slot;
+    // Check that the required vote percentages can be satisfied exactly using `ATTESTERS_PER_SLOT`.
+    assert_eq!(100 % ATTESTERS_PER_SLOT, 0);
+    let percent_per_attester = 100 / ATTESTERS_PER_SLOT;
     assert_eq!(percent_parent_votes % percent_per_attester, 0);
     assert_eq!(percent_skip_empty_votes % percent_per_attester, 0);
     assert_eq!(percent_skip_full_votes % percent_per_attester, 0);
     assert_eq!(percent_head_votes % percent_per_attester, 0);
-    let num_parent_votes = Some(attesters_per_slot * percent_parent_votes / 100);
-    let num_skip_empty_votes = Some(attesters_per_slot * percent_skip_empty_votes / 100);
-    let num_skip_full_votes = Some(attesters_per_slot * percent_skip_full_votes / 100);
-    let num_head_votes = Some(attesters_per_slot * percent_head_votes / 100);
+    let num_parent_votes = Some(ATTESTERS_PER_SLOT * percent_parent_votes / 100);
+    let num_skip_empty_votes = Some(ATTESTERS_PER_SLOT * percent_skip_empty_votes / 100);
+    let num_skip_full_votes = Some(ATTESTERS_PER_SLOT * percent_skip_full_votes / 100);
+    let num_head_votes = Some(ATTESTERS_PER_SLOT * percent_head_votes / 100);
+
+    assert_eq!((percent_parent_ptc_present_votes * E::ptc_size()) % 100, 0);
+    let num_parent_ptc_present_votes = percent_parent_ptc_present_votes * E::ptc_size() / 100;
+    assert_eq!((percent_parent_ptc_absent_votes * E::ptc_size()) % 100, 0);
+    let num_parent_ptc_absent_votes = percent_parent_ptc_absent_votes * E::ptc_size() / 100;
 
     let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
         Some(spec),
@@ -311,6 +317,33 @@ pub async fn proposer_boost_re_org_test(
         num_parent_votes,
     );
     harness.process_attestations(block_a_parent_votes, &state_a);
+
+    // Produce PTC messages for slot A.
+    let a_ptc_votes = vec![
+        PayloadAttestationVote {
+            validator_count: num_parent_ptc_present_votes,
+            payload_present: true,
+            blob_data_available: true,
+        },
+        PayloadAttestationVote {
+            validator_count: num_parent_ptc_absent_votes,
+            payload_present: false,
+            blob_data_available: false,
+        },
+    ];
+    let (a_ptc_messages, _) = harness.make_payload_attestation_messages_with_opts(
+        &all_validators,
+        &state_a,
+        block_a_root.into(),
+        slot_a,
+        MakePayloadAttestationOptions {
+            votes: a_ptc_votes,
+            fork: state_a.fork(),
+        },
+    );
+    harness
+        .import_payload_attestation_messages(a_ptc_messages)
+        .unwrap();
 
     // Attest to block A during slot B.
     for _ in 0..parent_distance {
@@ -599,7 +632,7 @@ pub async fn proposer_boost_re_org_test(
         assert_eq!(
             lookahead,
             payload_lookahead,
-            "lookahead={lookahead:?}, timestamp={}, prev_randao={:?}",
+            "observed_lookahead={lookahead:?}, expected={payload_lookahead:?}, timestamp={}, prev_randao={:?}",
             payload_attribs.timestamp(),
             payload_attribs.prev_randao(),
         );
