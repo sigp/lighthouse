@@ -1443,6 +1443,10 @@ pub fn set_network_config(
         config.disable_quic_support = true;
     }
 
+    if parse_flag(cli_args, "enable-mplex") {
+        config.enable_mplex = true;
+    }
+
     if parse_flag(cli_args, "disable-upnp") {
         config.upnp_enabled = false;
     }

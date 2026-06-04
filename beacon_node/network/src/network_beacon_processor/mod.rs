@@ -201,6 +201,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         subnet_id: DataColumnSubnetId,
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         seen_timestamp: Duration,
+        allow_reprocess: bool,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = async move {
@@ -211,6 +212,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     subnet_id,
                     column_sidecar,
                     seen_timestamp,
+                    allow_reprocess,
                 )
                 .await
         };
