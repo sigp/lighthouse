@@ -1312,12 +1312,7 @@ mod test {
 
         let available_blocks = blocks_with_columns
             .into_iter()
-            .map(|block| {
-                block
-                    .into_available_block(&da_checker, spec.clone())
-                    .unwrap()
-                    .0
-            })
+            .map(|block| block.into_available_block().unwrap().0)
             .collect::<Vec<_>>();
 
         // WHEN verifying all blocks together (totalling 256 data columns)
