@@ -7,7 +7,7 @@
 //!
 use beacon_chain::{
     ChainConfig,
-    chain_config::DisallowedReOrgOffsets,
+    chain_config::{DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, DisallowedReOrgOffsets},
     custody_context::NodeCustodyType,
     test_utils::{
         AttestationStrategy, BlockStrategy, LightClientStrategy, MakeAttestationOptions,
@@ -201,14 +201,23 @@ pub async fn proposer_boost_re_org_test(
     assert_eq!((percent_parent_ptc_absent_votes * E::ptc_size()) % 100, 0);
     let num_parent_ptc_absent_votes = percent_parent_ptc_absent_votes * E::ptc_size() / 100;
 
+    // We must configure the prepare payload lookahead so it scales with the minimal config,
+    // otherwise the late block reveal for A halfway through the slot can end up being *after*
+    // the payload lookahead, which messes up our measurement of timings.
+    let mut chain_config = ChainConfig::default();
+    chain_config.prepare_payload_lookahead =
+        spec.get_slot_duration() / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR;
+
     let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
         Some(spec),
         validator_count,
         None,
         Some(Box::new(move |builder| {
-            builder.proposer_re_org_disallowed_offsets(
-                DisallowedReOrgOffsets::new::<E>(disallowed_offsets).unwrap(),
-            )
+            builder
+                .chain_config(chain_config)
+                .proposer_re_org_disallowed_offsets(
+                    DisallowedReOrgOffsets::new::<E>(disallowed_offsets).unwrap(),
+                )
         })),
         Default::default(),
         false,
