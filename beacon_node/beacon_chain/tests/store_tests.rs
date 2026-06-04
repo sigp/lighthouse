@@ -3195,9 +3195,37 @@ async fn weak_subjectivity_sync_test(
 
         // Store the envelope, its columns, and apply to fork choice.
         if let Some(envelope) = &snapshot.execution_envelope {
+            // Persist data columns, mirroring `import_available_execution_payload_envelope`.
+            let mut ops = vec![];
+            let columns_block = beacon_chain
+                .store
+                .get_blinded_block(&block_root)
+                .unwrap()
+                .and_then(|b| beacon_chain.store.make_full_block(&block_root, b).ok());
+            if let Some(full_block) = columns_block {
+                let columns = beacon_chain::test_utils::generate_data_column_sidecars_from_block(
+                    &full_block,
+                    &beacon_chain.spec,
+                );
+                if !columns.is_empty()
+                    && let Some(store_op) = beacon_chain.get_blobs_or_columns_store_op(
+                        block_root,
+                        full_block.slot(),
+                        beacon_chain::block_verification_types::AvailableBlockData::DataColumns(
+                            columns,
+                        ),
+                    )
+                {
+                    ops.push(store_op);
+                }
+            }
+            ops.push(store::StoreOp::PutPayloadEnvelope(
+                block_root,
+                std::sync::Arc::new(envelope.as_ref().clone()),
+            ));
             beacon_chain
                 .store
-                .put_payload_envelope(&block_root, envelope)
+                .do_atomically_with_block_and_blobs_cache(ops)
                 .unwrap();
 
             // Update fork choice so head selection accounts for Full payload status.
