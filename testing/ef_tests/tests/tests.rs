@@ -1080,6 +1080,12 @@ fn fork_choice_get_parent_payload_status() {
 }
 
 #[test]
+fn fork_choice_on_payload_attestation_message() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("on_payload_attestation_message").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("on_payload_attestation_message").run();
+}
+
+#[test]
 fn optimistic_sync() {
     OptimisticSyncHandler::<MinimalEthSpec>::default().run();
     OptimisticSyncHandler::<MainnetEthSpec>::default().run();
@@ -1182,4 +1188,16 @@ fn get_custody_groups() {
 fn compute_columns_for_custody_group() {
     ComputeColumnsForCustodyGroupHandler::<MainnetEthSpec>::default().run();
     ComputeColumnsForCustodyGroupHandler::<MinimalEthSpec>::default().run();
+}
+
+#[test]
+fn gossip_proposer_slashing() {
+    GossipValidationHandler::<MinimalEthSpec>::new("gossip_proposer_slashing").run();
+    GossipValidationHandler::<MainnetEthSpec>::new("gossip_proposer_slashing").run();
+}
+
+#[test]
+fn gossip_attester_slashing() {
+    GossipValidationHandler::<MinimalEthSpec>::new("gossip_attester_slashing").run();
+    GossipValidationHandler::<MainnetEthSpec>::new("gossip_attester_slashing").run();
 }

@@ -57,14 +57,9 @@ async fn sync_committee_duties_across_fork() {
     // If there's a skip slot at the fork slot, the endpoint should return duties, even
     // though the head state hasn't transitioned yet.
     let fork_slot = fork_epoch.start_slot(E::slots_per_epoch());
-    let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
-    let (_, mut state) = harness
-        .add_attested_block_at_slot(
-            fork_slot - 1,
-            genesis_state,
-            genesis_state_root,
-            &all_validators,
-        )
+    let genesis_state = harness.get_current_state();
+    let (_, state) = harness
+        .add_attested_block_at_slot(fork_slot - 1, genesis_state, &all_validators)
         .await
         .unwrap();
 
@@ -79,9 +74,8 @@ async fn sync_committee_duties_across_fork() {
     assert_eq!(sync_duties.len(), E::sync_committee_size());
 
     // After applying a block at the fork slot the duties should remain unchanged.
-    let state_root = state.canonical_root().unwrap();
     harness
-        .add_attested_block_at_slot(fork_slot, state, state_root, &all_validators)
+        .add_attested_block_at_slot(fork_slot, state, &all_validators)
         .await
         .unwrap();
 
@@ -295,14 +289,9 @@ async fn sync_committee_indices_across_fork() {
     // If there's a skip slot at the fork slot, the endpoint will return a 400 until a block is
     // applied.
     let fork_slot = fork_epoch.start_slot(E::slots_per_epoch());
-    let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
-    let (_, mut state) = harness
-        .add_attested_block_at_slot(
-            fork_slot - 1,
-            genesis_state,
-            genesis_state_root,
-            &all_validators,
-        )
+    let genesis_state = harness.get_current_state();
+    let (_, state) = harness
+        .add_attested_block_at_slot(fork_slot - 1, genesis_state, &all_validators)
         .await
         .unwrap();
 
@@ -334,9 +323,8 @@ async fn sync_committee_indices_across_fork() {
 
     // Once the head is updated it should be useable for requests, including in the next sync
     // committee period.
-    let state_root = state.canonical_root().unwrap();
     harness
-        .add_attested_block_at_slot(fork_slot + 1, state, state_root, &all_validators)
+        .add_attested_block_at_slot(fork_slot + 1, state, &all_validators)
         .await
         .unwrap();
 

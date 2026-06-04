@@ -367,6 +367,26 @@ where
     E: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
+    indexed_payload_attestation_signature_set_from_pubkeys(
+        get_pubkey,
+        signature,
+        indexed_payload_attestation,
+        state.genesis_validators_root(),
+        spec,
+    )
+}
+
+pub fn indexed_payload_attestation_signature_set_from_pubkeys<'a, 'b, E, F>(
+    get_pubkey: F,
+    signature: &'a AggregateSignature,
+    indexed_payload_attestation: &'b IndexedPayloadAttestation<E>,
+    genesis_validators_root: Hash256,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet<'a>>
+where
+    E: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+{
     let mut pubkeys = Vec::with_capacity(indexed_payload_attestation.attesting_indices.len());
     for &validator_idx in indexed_payload_attestation.attesting_indices.iter() {
         pubkeys.push(
@@ -378,12 +398,8 @@ where
         .data
         .slot
         .epoch(E::slots_per_epoch());
-    let domain = spec.get_domain(
-        epoch,
-        Domain::PTCAttester,
-        &state.fork(),
-        state.genesis_validators_root(),
-    );
+    let fork = spec.fork_at_epoch(epoch);
+    let domain = spec.get_domain(epoch, Domain::PTCAttester, &fork, genesis_validators_root);
 
     let message = indexed_payload_attestation.data.signing_root(domain);
 

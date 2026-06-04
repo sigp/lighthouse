@@ -466,9 +466,13 @@ impl<E: EthSpec> Network<E> {
             }
         };
 
-        // Set up the transport - tcp/quic with noise and mplex
-        let transport = build_transport(local_keypair.clone(), !config.disable_quic_support)
-            .map_err(|e| format!("Failed to build transport: {:?}", e))?;
+        // Set up the transport - tcp/quic with noise and yamux (mplex optional)
+        let transport = build_transport(
+            local_keypair.clone(),
+            !config.disable_quic_support,
+            config.enable_mplex,
+        )
+        .map_err(|e| format!("Failed to build transport: {:?}", e))?;
 
         // use the executor for libp2p
         struct Executor(task_executor::TaskExecutor);
@@ -1691,6 +1695,14 @@ impl<E: EthSpec> Network<E> {
                             request_type,
                         })
                     }
+                    RequestType::BlocksByHead(_) => {
+                        metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_head"]);
+                        Some(NetworkEvent::RequestReceived {
+                            peer_id,
+                            inbound_request_id,
+                            request_type,
+                        })
+                    }
                     RequestType::PayloadEnvelopesByRange(_) => {
                         metrics::inc_counter_vec(
                             &metrics::TOTAL_RPC_REQUESTS,
@@ -1827,6 +1839,9 @@ impl<E: EthSpec> Network<E> {
                     RpcSuccessResponse::BlocksByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRoot(Some(resp)))
                     }
+                    RpcSuccessResponse::BlocksByHead(resp) => {
+                        self.build_response(id, peer_id, Response::BlocksByHead(Some(resp)))
+                    }
                     RpcSuccessResponse::PayloadEnvelopesByRange(resp) => self.build_response(
                         id,
                         peer_id,
@@ -1871,6 +1886,7 @@ impl<E: EthSpec> Network<E> {
                 let response = match termination {
                     ResponseTermination::BlocksByRange => Response::BlocksByRange(None),
                     ResponseTermination::BlocksByRoot => Response::BlocksByRoot(None),
+                    ResponseTermination::BlocksByHead => Response::BlocksByHead(None),
                     ResponseTermination::PayloadEnvelopesByRange => {
                         Response::PayloadEnvelopesByRange(None)
                     }

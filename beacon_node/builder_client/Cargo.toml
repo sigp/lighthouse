@@ -16,5 +16,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+arbitrary = { workspace = true }
 mockito = { workspace = true }
 tokio = { workspace = true }
+types = { workspace = true, features = ["arbitrary"] }

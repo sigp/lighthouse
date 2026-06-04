@@ -112,7 +112,7 @@ impl TestContext {
         let slot_in_epoch = slot.as_usize() % E::slots_per_epoch() as usize;
         let epoch = slot.epoch(E::slots_per_epoch());
         let current_epoch = state.slot().epoch(E::slots_per_epoch());
-        let index = if epoch == current_epoch.saturating_add(1u64) {
+        let index = if epoch == current_epoch.saturating_add(self.spec.min_seed_lookahead) {
             E::slots_per_epoch() as usize + slot_in_epoch
         } else {
             slot_in_epoch
@@ -127,11 +127,11 @@ fn make_signed_preferences(
 ) -> Arc<SignedProposerPreferences> {
     Arc::new(SignedProposerPreferences {
         message: ProposerPreferences {
+            dependent_root: Hash256::ZERO,
             proposal_slot,
             validator_index,
             fee_recipient: Address::ZERO,
-            gas_limit: 30_000_000,
-            ..ProposerPreferences::default()
+            target_gas_limit: 30_000_000,
         },
         signature: Signature::empty(),
     })
@@ -231,11 +231,10 @@ fn correct_proposer_bad_signature() {
         result,
         Err(ProposerPreferencesError::BadSignature)
     ));
-    assert!(!ctx.preferences_cache.get_seen_validator(
-        &slot,
-        types::Hash256::ZERO,
-        actual_proposer
-    ));
+    assert!(
+        !ctx.preferences_cache
+            .get_seen_validator(&slot, Hash256::ZERO, actual_proposer)
+    );
     assert!(ctx.preferences_cache.get_preferences(&slot).is_none());
 }
 
@@ -272,7 +271,7 @@ fn same_validator_different_dependent_root_not_deduplicated() {
                 validator_index: 42,
                 dependent_root: Hash256::repeat_byte(0xaa),
                 fee_recipient: Address::ZERO,
-                gas_limit: 30_000_000,
+                target_gas_limit: 30_000_000,
             },
             signature: Signature::empty(),
         }),

@@ -12,7 +12,6 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::Error as SszError;
 use ssz_types::{FixedVector, VariableList};
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
@@ -26,7 +25,6 @@ use crate::{
     fork::ForkName,
     kzg_ext::{KzgCommitments, KzgError},
     state::BeaconStateError,
-    test_utils::TestRandom,
 };
 
 pub type ColumnIndex = u64;
@@ -53,7 +51,6 @@ pub type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
             Deserialize,
             Decode,
             Encode,
-            TestRandom,
             Educe,
             TreeHash,
         ),
@@ -253,19 +250,16 @@ impl<E: EthSpec> DataColumnSidecarFulu<E> {
     }
 
     /// Convert this full data column into a verifiable partial data column.
-    pub fn to_partial(&self) -> PartialDataColumn<E> {
+    /// Note: This is not expected to ever fail.
+    pub fn to_partial(&self) -> Result<PartialDataColumn<E>, PartialDataColumnSidecarError> {
         let cell_count = self.column.len();
-        let mut bitmap =
-            CellBitmap::<E>::with_capacity(cell_count).expect("our column has the same bound");
-        for idx in 0..cell_count {
-            bitmap
-                .set(idx, true)
-                .expect("The correct size is initialized right above");
-        }
+        let mut bitmap = CellBitmap::<E>::with_capacity(cell_count)
+            .map_err(|_| PartialDataColumnSidecarError::UnexpectedBounds)?;
+        bitmap.not_inplace();
 
         let block_root = self.block_root();
 
-        PartialDataColumn {
+        Ok(PartialDataColumn {
             block_root,
             index: self.index,
             sidecar: PartialDataColumnSidecar {
@@ -279,7 +273,7 @@ impl<E: EthSpec> DataColumnSidecarFulu<E> {
                 })
                 .into(),
             },
-        }
+        })
     }
 }
 

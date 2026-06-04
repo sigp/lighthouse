@@ -1,4 +1,3 @@
-use crate::blob_verification::GossipVerifiedBlob;
 use crate::block_verification_types::{AsBlock, AvailableBlockData, LookupBlock, RangeSyncBlock};
 use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
@@ -20,6 +19,8 @@ pub use crate::{
     sync_committee_verification::Error as SyncCommitteeError,
     validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig},
 };
+#[cfg(feature = "arbitrary")]
+use arbitrary::Arbitrary;
 use bls::get_withdrawal_credentials;
 use bls::{
     AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey, Signature, SignatureBytes,
@@ -73,7 +74,6 @@ use typenum::U4294967296;
 use types::attestation::IndexedAttestationBase;
 use types::data::CustodyIndex;
 use types::execution::BlockProductionVersion;
-use types::test_utils::TestRandom;
 pub use types::test_utils::generate_deterministic_keypairs;
 use types::*;
 
@@ -96,7 +96,9 @@ pub const TEST_DATA_COLUMN_SIDECARS_GLOAS_SSZ: &[u8] =
 pub const DEFAULT_TARGET_AGGREGATORS: u64 = u64::MAX;
 
 // Minimum and maximum number of blobs to generate in each slot when using the `NumBlobs::Random` option (default).
+#[cfg(feature = "arbitrary")]
 const DEFAULT_MIN_BLOBS: usize = 1;
+#[cfg(feature = "arbitrary")]
 const DEFAULT_MAX_BLOBS: usize = 2;
 
 static KZG: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
@@ -121,8 +123,8 @@ pub fn get_kzg(spec: &ChainSpec) -> Arc<Kzg> {
 pub type BaseHarnessType<E, THotStore, TColdStore> =
     Witness<TestingSlotClock, E, THotStore, TColdStore>;
 
-pub type DiskHarnessType<E> = BaseHarnessType<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>;
-pub type EphemeralHarnessType<E> = BaseHarnessType<E, MemoryStore<E>, MemoryStore<E>>;
+pub type DiskHarnessType<E> = BaseHarnessType<E, BeaconNodeBackend, BeaconNodeBackend>;
+pub type EphemeralHarnessType<E> = BaseHarnessType<E, MemoryStore, MemoryStore>;
 
 pub type BoxedMutator<E, Hot, Cold> = Box<
     dyn FnOnce(
@@ -331,7 +333,7 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
     /// Manually restore from a given `MemoryStore`.
     pub fn resumed_ephemeral_store(
         mut self,
-        store: Arc<HotColdDB<E, MemoryStore<E>, MemoryStore<E>>>,
+        store: Arc<HotColdDB<E, MemoryStore, MemoryStore>>,
     ) -> Self {
         let mutator = move |builder: BeaconChainBuilder<_>| {
             builder
@@ -347,7 +349,7 @@ impl<E: EthSpec> Builder<DiskHarnessType<E>> {
     /// Disk store, start from genesis.
     pub fn fresh_disk_store(
         mut self,
-        store: Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>,
+        store: Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>>,
     ) -> Self {
         let validator_keypairs = self
             .validator_keypairs
@@ -381,7 +383,7 @@ impl<E: EthSpec> Builder<DiskHarnessType<E>> {
     /// Disk store, resume.
     pub fn resumed_disk_store(
         mut self,
-        store: Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>,
+        store: Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>>,
     ) -> Self {
         let mutator = move |builder: BeaconChainBuilder<_>| {
             builder
@@ -396,8 +398,8 @@ impl<E: EthSpec> Builder<DiskHarnessType<E>> {
 impl<E, Hot, Cold> Builder<BaseHarnessType<E, Hot, Cold>>
 where
     E: EthSpec,
-    Hot: ItemStore<E>,
-    Cold: ItemStore<E>,
+    Hot: ItemStore,
+    Cold: ItemStore,
 {
     pub fn new(eth_spec_instance: E) -> Self {
         let runtime = TestRuntime::default();
@@ -757,8 +759,8 @@ pub type HarnessSyncContributions<E> = Vec<(
 impl<E, Hot, Cold> BeaconChainHarness<BaseHarnessType<E, Hot, Cold>>
 where
     E: EthSpec,
-    Hot: ItemStore<E>,
-    Cold: ItemStore<E>,
+    Hot: ItemStore,
+    Cold: ItemStore,
 {
     pub fn builder(eth_spec_instance: E) -> Builder<BaseHarnessType<E, Hot, Cold>> {
         create_test_tracing_subscriber();
@@ -1566,7 +1568,17 @@ where
         beacon_block_root: Hash256,
         mut state: Cow<BeaconState<E>>,
         state_root: Hash256,
+        payload_present_override: Option<bool>,
     ) -> Result<Attestation<E>, BeaconChainError> {
+        assert_eq!(
+            state.get_latest_block_root(state_root),
+            beacon_block_root,
+            "State must match beacon block root, state slot {:?} attestation slot {:?} state root {:?}",
+            state.latest_block_header().slot,
+            slot,
+            state_root,
+        );
+
         let epoch = slot.epoch(E::slots_per_epoch());
 
         if state.slot() > slot {
@@ -1591,6 +1603,18 @@ where
             *state.get_block_root(target_slot)?
         };
 
+        let payload_present = match payload_present_override {
+            Some(payload_present) => payload_present,
+            None => {
+                state.fork_name_unchecked().gloas_enabled()
+                    && state.latest_block_header().slot != slot
+                    && self
+                        .chain
+                        .canonical_head
+                        .block_has_canonical_payload(&beacon_block_root, &self.spec)?
+            }
+        };
+
         Ok(Attestation::empty_for_signing(
             index,
             committee_len,
@@ -1601,7 +1625,7 @@ where
                 epoch,
                 root: target_root,
             },
-            false,
+            payload_present,
             &self.spec,
         )?)
     }
@@ -1628,7 +1652,11 @@ where
             state_root,
             head_block_root,
             attestation_slot,
-            MakeAttestationOptions { limit: None, fork },
+            MakeAttestationOptions {
+                limit: None,
+                fork,
+                payload_present_override: None,
+            },
         )
         .0
     }
@@ -1655,7 +1683,11 @@ where
             state_root,
             head_block_root,
             attestation_slot,
-            MakeAttestationOptions { limit: None, fork },
+            MakeAttestationOptions {
+                limit: None,
+                fork,
+                payload_present_override: None,
+            },
         )
         .0
     }
@@ -1669,7 +1701,7 @@ where
         attestation_slot: Slot,
         opts: MakeAttestationOptions,
     ) -> (Vec<CommitteeSingleAttestations>, Vec<usize>) {
-        let MakeAttestationOptions { limit, fork } = opts;
+        let MakeAttestationOptions { limit, fork, .. } = opts;
         let committee_count = state.get_committee_count_at_slot(state.slot()).unwrap();
         let num_attesters = AtomicUsize::new(0);
 
@@ -1762,7 +1794,11 @@ where
         attestation_slot: Slot,
         opts: MakeAttestationOptions,
     ) -> (Vec<CommitteeAttestations<E>>, Vec<usize>) {
-        let MakeAttestationOptions { limit, fork } = opts;
+        let MakeAttestationOptions {
+            limit,
+            fork,
+            payload_present_override,
+        } = opts;
         let committee_count = state.get_committee_count_at_slot(state.slot()).unwrap();
         let num_attesters = AtomicUsize::new(0);
 
@@ -1795,6 +1831,7 @@ where
                                 head_block_root.into(),
                                 Cow::Borrowed(state),
                                 state_root,
+                                payload_present_override,
                             )
                             .unwrap();
 
@@ -1997,7 +2034,11 @@ where
             state_root,
             block_hash,
             slot,
-            MakeAttestationOptions { limit, fork },
+            MakeAttestationOptions {
+                limit,
+                fork,
+                payload_present_override: None,
+            },
         )
     }
 
@@ -2832,11 +2873,42 @@ where
             .await
             .expect("newPayload should succeed");
 
-        // Store the envelope.
+        // Store the envelope and the data columns derived from the block.
+        //
+        // Production stores columns inside `import_available_execution_payload_envelope` after
+        // the cache is satisfied. The harness sidesteps that flow but must still persist columns
+        // or the `DataColumnMissing` invariant fires for any block with `num_expected_blobs > 0`.
+        let block = self
+            .chain
+            .store
+            .get_blinded_block(&block_root)
+            .expect("should read block from store")
+            .expect("block should exist in store");
+        let mut ops = vec![];
+        let block_with_full_payload = self
+            .chain
+            .store
+            .make_full_block(&block_root, block.clone())
+            .expect("should reconstruct full block");
+        let columns =
+            generate_data_column_sidecars_from_block(&block_with_full_payload, &self.spec);
+        if !columns.is_empty()
+            && let Some(store_op) = self.chain.get_blobs_or_columns_store_op(
+                block_root,
+                block.slot(),
+                AvailableBlockData::DataColumns(columns),
+            )
+        {
+            ops.push(store_op);
+        }
+        ops.push(store::StoreOp::PutPayloadEnvelope(
+            block_root,
+            std::sync::Arc::new(signed_envelope),
+        ));
         self.chain
             .store
-            .put_payload_envelope(&block_root, &signed_envelope)
-            .expect("should store envelope");
+            .do_atomically_with_block_and_blobs_cache(ops)
+            .expect("should persist envelope and columns");
 
         // Update fork choice so it knows the payload was received.
         self.chain
@@ -2857,11 +2929,10 @@ where
         block: Arc<SignedBeaconBlock<E>>,
     ) -> RangeSyncBlock<E> {
         let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
-        let has_blobs = block
-            .message()
-            .body()
-            .blob_kzg_commitments()
-            .is_ok_and(|c| !c.is_empty());
+        // For Gloas, kzg commitments live in the bid (`signed_execution_payload_bid`), so the
+        // body's `blob_kzg_commitments()` accessor returns Err. `num_expected_blobs` already
+        // handles both shapes.
+        let has_blobs = block.num_expected_blobs() > 0;
         if !has_blobs {
             return RangeSyncBlock::new(
                 block,
@@ -3108,13 +3179,11 @@ where
         &self,
         slot: Slot,
         state: BeaconState<E>,
-        state_root: Hash256,
         validators: &[usize],
     ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError> {
         self.add_attested_block_at_slot_with_sync(
             slot,
             state,
-            state_root,
             validators,
             SyncCommitteeStrategy::NoValidators,
         )
@@ -3125,18 +3194,18 @@ where
         &self,
         slot: Slot,
         state: BeaconState<E>,
-        state_root: Hash256,
         validators: &[usize],
         sync_committee_strategy: SyncCommitteeStrategy,
     ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError> {
-        let (block_hash, block, state) = self.add_block_at_slot(slot, state).await?;
-        self.attest_block(&state, state_root, block_hash, &block.0, validators);
+        let (block_hash, block, mut new_state) = self.add_block_at_slot(slot, state).await?;
+        let new_state_root = new_state.canonical_root().unwrap();
+        self.attest_block(&new_state, new_state_root, block_hash, &block.0, validators);
 
         if sync_committee_strategy == SyncCommitteeStrategy::AllValidators
-            && state.current_sync_committee().is_ok()
+            && new_state.current_sync_committee().is_ok()
         {
             self.sync_committee_sign_block(
-                &state,
+                &new_state,
                 block_hash.into(),
                 slot,
                 if (slot + 1).epoch(E::slots_per_epoch())
@@ -3150,19 +3219,17 @@ where
             );
         }
 
-        Ok((block_hash, state))
+        Ok((block_hash, new_state))
     }
 
     pub async fn add_attested_blocks_at_slots(
         &self,
         state: BeaconState<E>,
-        state_root: Hash256,
         slots: &[Slot],
         validators: &[usize],
     ) -> AddBlocksResult<E> {
         self.add_attested_blocks_at_slots_with_sync(
             state,
-            state_root,
             slots,
             validators,
             SyncCommitteeStrategy::NoValidators,
@@ -3173,7 +3240,6 @@ where
     pub async fn add_attested_blocks_at_slots_with_sync(
         &self,
         state: BeaconState<E>,
-        state_root: Hash256,
         slots: &[Slot],
         validators: &[usize],
         sync_committee_strategy: SyncCommitteeStrategy,
@@ -3181,7 +3247,6 @@ where
         assert!(!slots.is_empty());
         self.add_attested_blocks_at_slots_given_lbh(
             state,
-            state_root,
             slots,
             validators,
             None,
@@ -3238,7 +3303,6 @@ where
     pub async fn add_attested_blocks_at_slots_with_lc_data(
         &self,
         mut state: BeaconState<E>,
-        state_root: Hash256,
         slots: &[Slot],
         validators: &[usize],
         mut latest_block_hash: Option<SignedBeaconBlockHash>,
@@ -3252,7 +3316,6 @@ where
                 .add_attested_block_at_slot_with_sync(
                     *slot,
                     state,
-                    state_root,
                     validators,
                     sync_committee_strategy,
                 )
@@ -3278,7 +3341,6 @@ where
     async fn add_attested_blocks_at_slots_given_lbh(
         &self,
         mut state: BeaconState<E>,
-        state_root: Hash256,
         slots: &[Slot],
         validators: &[usize],
         mut latest_block_hash: Option<SignedBeaconBlockHash>,
@@ -3292,7 +3354,6 @@ where
             let (block_hash, new_state) = Box::pin(self.add_attested_block_at_slot_with_sync(
                 *slot,
                 state,
-                state_root,
                 validators,
                 sync_committee_strategy,
             ))
@@ -3356,14 +3417,8 @@ where
         for epoch in min_epoch.as_u64()..=max_epoch.as_u64() {
             let mut new_chains = vec![];
 
-            for (
-                mut head_state,
-                slots,
-                validators,
-                mut block_hashes,
-                mut state_hashes,
-                head_block,
-            ) in chains
+            for (head_state, slots, validators, mut block_hashes, mut state_hashes, head_block) in
+                chains
             {
                 let epoch_slots = slots
                     .iter()
@@ -3371,11 +3426,9 @@ where
                     .copied()
                     .collect::<Vec<_>>();
 
-                let head_state_root = head_state.update_tree_hash_cache().unwrap();
                 let (new_block_hashes, new_state_hashes, new_head_block, new_head_state) = self
                     .add_attested_blocks_at_slots_given_lbh(
                         head_state,
-                        head_state_root,
                         &epoch_slots,
                         &validators,
                         Some(head_block),
@@ -3537,7 +3590,7 @@ where
         sync_committee_strategy: SyncCommitteeStrategy,
         light_client_strategy: LightClientStrategy,
     ) -> Hash256 {
-        let (mut state, slots) = match block_strategy {
+        let (state, slots) = match block_strategy {
             BlockStrategy::OnCanonicalHead => {
                 let current_slot: u64 = self.get_current_slot().into();
                 let slots: Vec<Slot> = (current_slot..(current_slot + (num_blocks as u64)))
@@ -3566,12 +3619,10 @@ where
             AttestationStrategy::SomeValidators(vals) => vals,
         };
 
-        let state_root = state.update_tree_hash_cache().unwrap();
         let (_, _, last_produced_block_hash, _) = match light_client_strategy {
             LightClientStrategy::Enabled => {
                 self.add_attested_blocks_at_slots_with_lc_data(
                     state,
-                    state_root,
                     &slots,
                     &validators,
                     None,
@@ -3582,7 +3633,6 @@ where
             LightClientStrategy::Disabled => {
                 self.add_attested_blocks_at_slots_with_sync(
                     state,
-                    state_root,
                     &slots,
                     &validators,
                     sync_committee_strategy,
@@ -3668,55 +3718,39 @@ where
         Ok(())
     }
 
-    /// Simulate some of the blobs / data columns being seen on gossip.
-    /// Converts the blobs to data columns if the slot is Fulu or later.
-    pub async fn process_gossip_blobs_or_columns<'a>(
+    /// Simulate the block's custody data columns (or those in `custody_columns_opt`) being
+    /// seen on gossip. Panics unless PeerDAS is enabled for the block's epoch.
+    pub async fn process_gossip_columns(
         &self,
         block: &SignedBeaconBlock<E>,
-        blobs: impl Iterator<Item = &'a Blob<E>>,
-        proofs: impl Iterator<Item = &'a KzgProof>,
         custody_columns_opt: Option<HashSet<ColumnIndex>>,
     ) {
-        let is_peerdas_enabled = self.chain.spec.is_peer_das_enabled_for_epoch(block.epoch());
-        if is_peerdas_enabled {
-            let custody_columns = custody_columns_opt.unwrap_or_else(|| {
-                let epoch = block.slot().epoch(E::slots_per_epoch());
-                self.chain
-                    .sampling_columns_for_epoch(epoch)
-                    .iter()
-                    .copied()
-                    .collect()
-            });
+        assert!(self.chain.spec.is_peer_das_enabled_for_epoch(block.epoch()));
+        let custody_columns = custody_columns_opt.unwrap_or_else(|| {
+            let epoch = block.slot().epoch(E::slots_per_epoch());
+            self.chain
+                .sampling_columns_for_epoch(epoch)
+                .iter()
+                .copied()
+                .collect()
+        });
 
-            let verified_columns = generate_data_column_sidecars_from_block(block, &self.spec)
-                .into_iter()
-                .filter(|c| custody_columns.contains(c.index()))
-                .map(|sidecar| {
-                    let subnet_id =
-                        DataColumnSubnetId::from_column_index(*sidecar.index(), &self.spec);
-                    self.chain
-                        .verify_data_column_sidecar_for_gossip(sidecar, subnet_id)
-                })
-                .collect::<Result<Vec<_>, _>>()
+        let verified_columns = generate_data_column_sidecars_from_block(block, &self.spec)
+            .into_iter()
+            .filter(|c| custody_columns.contains(c.index()))
+            .map(|sidecar| {
+                let subnet_id = DataColumnSubnetId::from_column_index(*sidecar.index(), &self.spec);
+                self.chain
+                    .verify_data_column_sidecar_for_gossip(sidecar, subnet_id)
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        if !verified_columns.is_empty() {
+            self.chain
+                .process_gossip_data_columns(verified_columns, || Ok(()))
+                .await
                 .unwrap();
-
-            if !verified_columns.is_empty() {
-                self.chain
-                    .process_gossip_data_columns(verified_columns, || Ok(()))
-                    .await
-                    .unwrap();
-            }
-        } else {
-            for (i, (kzg_proof, blob)) in proofs.into_iter().zip(blobs).enumerate() {
-                let sidecar =
-                    Arc::new(BlobSidecar::new(i, blob.clone(), block, *kzg_proof).unwrap());
-                let gossip_blob = GossipVerifiedBlob::new(sidecar, i as u64, &self.chain)
-                    .expect("should obtain gossip verified blob");
-                self.chain
-                    .process_gossip_blob(gossip_blob)
-                    .await
-                    .expect("should import valid gossip verified blob");
-            }
         }
     }
 }
@@ -3733,6 +3767,8 @@ pub struct MakeAttestationOptions {
     pub limit: Option<usize>,
     /// Fork to use for signing attestations.
     pub fork: Fork,
+    /// Override post-Gloas regular attestation payload-present encoding.
+    pub payload_present_override: Option<bool>,
 }
 
 pub enum NumBlobs {
@@ -3741,10 +3777,11 @@ pub enum NumBlobs {
     None,
 }
 
+#[cfg(feature = "arbitrary")]
 macro_rules! add_blob_transactions {
-    ($message:expr, $payload_type:ty, $num_blobs:expr, $rng:expr, $fork_name:expr) => {{
+    ($message:expr, $payload_type:ty, $num_blobs:expr, $u:expr, $fork_name:expr) => {{
         let num_blobs = match $num_blobs {
-            NumBlobs::Random => $rng.random_range(DEFAULT_MIN_BLOBS..=DEFAULT_MAX_BLOBS),
+            NumBlobs::Random => $u.int_in_range(DEFAULT_MIN_BLOBS..=DEFAULT_MAX_BLOBS)?,
             NumBlobs::Number(n) => n,
             NumBlobs::None => 0,
         };
@@ -3761,28 +3798,49 @@ macro_rules! add_blob_transactions {
     }};
 }
 
+#[cfg(feature = "arbitrary")]
+#[allow(clippy::type_complexity)]
 pub fn generate_rand_block_and_blobs<E: EthSpec>(
     fork_name: ForkName,
     num_blobs: NumBlobs,
-    rng: &mut impl Rng,
-) -> (SignedBeaconBlock<E, FullPayload<E>>, Vec<BlobSidecar<E>>) {
-    let inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(rng));
+    u: &mut arbitrary::Unstructured,
+) -> arbitrary::Result<(SignedBeaconBlock<E, FullPayload<E>>, Vec<BlobSidecar<E>>)> {
+    let inner = map_fork_name!(fork_name, BeaconBlock, <_>::arbitrary(&mut *u)?);
 
-    let mut block = SignedBeaconBlock::from_block(inner, Signature::random_for_test(rng));
+    let mut block = SignedBeaconBlock::from_block(inner, Signature::arbitrary(&mut *u)?);
     let mut blob_sidecars = vec![];
 
     let bundle = match block {
         SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb {
             ref mut message, ..
-        }) => add_blob_transactions!(message, FullPayloadDeneb<E>, num_blobs, rng, fork_name),
+        }) => add_blob_transactions!(message, FullPayloadDeneb<E>, num_blobs, u, fork_name),
         SignedBeaconBlock::Electra(SignedBeaconBlockElectra {
             ref mut message, ..
-        }) => add_blob_transactions!(message, FullPayloadElectra<E>, num_blobs, rng, fork_name),
+        }) => add_blob_transactions!(message, FullPayloadElectra<E>, num_blobs, u, fork_name),
         SignedBeaconBlock::Fulu(SignedBeaconBlockFulu {
             ref mut message, ..
-        }) => add_blob_transactions!(message, FullPayloadFulu<E>, num_blobs, rng, fork_name),
-        // TODO(EIP-7732) Add `SignedBeaconBlock::Gloas` variant
-        _ => return (block, blob_sidecars),
+        }) => add_blob_transactions!(message, FullPayloadFulu<E>, num_blobs, u, fork_name),
+        SignedBeaconBlock::Gloas(SignedBeaconBlockGloas {
+            ref mut message, ..
+        }) => {
+            // For Gloas, commitments are in the bid, not directly in the body.
+            // BlobSidecars cannot be created for Gloas because there's no merkle proof
+            // from the block body to the commitments. Return early with empty blob_sidecars.
+            let num_blobs = match num_blobs {
+                NumBlobs::Random => u.int_in_range(DEFAULT_MIN_BLOBS..=DEFAULT_MAX_BLOBS)?,
+                NumBlobs::Number(n) => n,
+                NumBlobs::None => 0,
+            };
+            let (bundle, _transactions) =
+                execution_layer::test_utils::generate_blobs::<E>(num_blobs, fork_name).unwrap();
+            message
+                .body
+                .signed_execution_payload_bid
+                .message
+                .blob_kzg_commitments = bundle.commitments.clone();
+            return Ok((block, blob_sidecars));
+        }
+        _ => return Ok((block, blob_sidecars)),
     };
 
     let eth2::types::BlobsBundle {
@@ -3807,21 +3865,23 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
                 .unwrap(),
         });
     }
-    (block, blob_sidecars)
+    Ok((block, blob_sidecars))
 }
 
+#[cfg(feature = "arbitrary")]
+#[allow(clippy::type_complexity)]
 pub fn generate_rand_block_and_data_columns<E: EthSpec>(
     fork_name: ForkName,
     num_blobs: NumBlobs,
-    rng: &mut impl Rng,
+    u: &mut arbitrary::Unstructured,
     spec: &ChainSpec,
-) -> (
+) -> arbitrary::Result<(
     SignedBeaconBlock<E, FullPayload<E>>,
     DataColumnSidecarList<E>,
-) {
-    let (block, _blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, rng);
+)> {
+    let (block, _blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, u)?;
     let data_columns = generate_data_column_sidecars_from_block(&block, spec);
-    (block, data_columns)
+    Ok((block, data_columns))
 }
 
 /// Generate data column sidecars from pre-computed cells and proofs.
