@@ -451,11 +451,11 @@ async fn gloas_attestation_index_payload_absent() {
 }
 
 /// Verify that `produce_payload_attestation_data` reports `payload_present = true` but
-/// `blob_data_available = false` when the envelope was observed on time yet not imported
+/// `blob_data_available = false` when the envelope was observed on but not imported
 /// because its data was unavailable.
 ///
 /// Setup: build a chain through slot 2, then at slot 3 import only the beacon block (no
-/// envelope) and mark the envelope as observed on time. The PTC vote is for the current slot.
+/// envelope) and mark the envelope as observed on time.
 #[tokio::test]
 async fn gloas_payload_attestation_seen_but_data_unavailable() {
     if fork_name_from_env().is_some_and(|f| !f.gloas_enabled()) {
@@ -493,8 +493,7 @@ async fn gloas_payload_attestation_seen_but_data_unavailable() {
 
     assert_eq!(chain.head_snapshot().beacon_block.slot(), Slot::new(3));
 
-    // Mark the envelope as observed at the start of the slot (before the payload-due deadline),
-    // even though it was never imported.
+    // Mark the envelope as observed at the start of the slot, before its deadline.
     let slot_start = chain.slot_clock.start_of(Slot::new(3)).unwrap();
     chain.envelope_times_cache.write().set_time_observed(
         block_root,

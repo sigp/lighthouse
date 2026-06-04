@@ -4981,7 +4981,7 @@ impl ApiTester {
         self
     }
 
-    /// When a block is seen but its envelope is not imported, the payload attestation data
+    /// When a payload hasn't been seen, the payload attestation data
     /// must report `payload_present = false` and `blob_data_available = false`.
     pub async fn test_payload_attestation_unavailable_without_envelope(self) -> Self {
         if !self.chain.spec.is_gloas_scheduled() {
