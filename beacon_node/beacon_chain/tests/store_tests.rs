@@ -3195,14 +3195,14 @@ async fn weak_subjectivity_sync_test(
             .await
             .unwrap();
 
-        // TODO(gloas): persist the envelope so
-        // the block can be reconstructed for cold-storage migration, and mark the payload received
-        // in fork choice so the next (FULL) block can be imported.
+        // Store the envelope, its columns, and apply to fork choice.
         if let Some(envelope) = &snapshot.execution_envelope {
             beacon_chain
                 .store
                 .put_payload_envelope(&block_root, envelope)
                 .unwrap();
+
+            // Update fork choice so head selection accounts for Full payload status.
             beacon_chain
                 .canonical_head
                 .fork_choice_write_lock()
