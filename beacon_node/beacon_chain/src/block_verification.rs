@@ -70,7 +70,7 @@ use bls::{PublicKey, PublicKeyBytes};
 use educe::Educe;
 use eth2::types::{BlockGossip, EventKind};
 use execution_layer::PayloadStatus;
-pub use fork_choice::{AttestationFromBlock, ParentImportedStatus, PayloadVerificationStatus};
+pub use fork_choice::{AttestationFromBlock, ParentImportStatus, PayloadVerificationStatus};
 use metrics::TryExt;
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
@@ -874,7 +874,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
 
         let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
         let (parent_block, block) =
-            verify_parent_block_is_known::<T>(&fork_choice_read_lock, block)?;
+            verify_parent_block_and_envelope_are_known::<T>(&fork_choice_read_lock, block)?;
 
         // [New in Gloas]: Verify bid.parent_block_root matches block.parent_root.
         if let Ok(bid) = block.message().body().signed_execution_payload_bid()
@@ -1381,31 +1381,16 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         match chain
             .canonical_head
             .fork_choice_read_lock()
-            .is_parent_imported_status(block.as_block())
+            .get_parent_import_status(block.as_block())
         {
-            ParentImportedStatus::Imported(parent) => {
-                // Reject any block where the parent has an invalid payload. It's impossible for a valid
-                // block to descend from an invalid parent.
+            ParentImportStatus::Imported(parent) => {
                 if parent.execution_status.is_invalid() {
                     return Err(BlockError::ParentExecutionPayloadInvalid {
                         parent_root: block.parent_root(),
                     });
                 }
             }
-            // A genesis block has no parent payload to reject. Genesis is loaded as the anchor and
-            // not normally processed here, but handle it defensively as importable.
-            ParentImportedStatus::Genesis => {}
-            ParentImportedStatus::UnknownBlock | ParentImportedStatus::UnimportedPayload => {
-                // Reject any block if its parent is not known to fork choice.
-                //
-                // A block that is not in fork choice is either:
-                //
-                //  - Not yet imported: we should reject this block because we should only import a child
-                //  after its parent has been fully imported.
-                //  - Pre-finalized: if the parent block is _prior_ to finalization, we should ignore it
-                //  because it will revert finalization. Note that the finalized block is stored in fork
-                //  choice, so we will not reject any child of the finalized block (this is relevant during
-                //  genesis).
+            ParentImportStatus::UnknownBlock | ParentImportStatus::UnknownPayload => {
                 return Err(BlockError::ParentUnknown {
                     parent_root: block.parent_root(),
                     parent_block_hash: block.as_block().parent_block_hash(),
@@ -1867,29 +1852,21 @@ pub fn get_block_header_root(block_header: &SignedBeaconBlockHeader) -> Hash256 
     block_root
 }
 
-/// Verify the parent of `block` is known, returning some information about the parent block from
-/// fork choice.
+/// Verify the parent block — and, for a post-Gloas FULL child, the parent payload — are known to
+/// fork choice; both missing cases return `ParentUnknown`.
 #[allow(clippy::type_complexity)]
-fn verify_parent_block_is_known<T: BeaconChainTypes>(
+fn verify_parent_block_and_envelope_are_known<T: BeaconChainTypes>(
     fork_choice_read_lock: &RwLockReadGuard<BeaconForkChoice<T>>,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
 ) -> Result<(ProtoBlock, Arc<SignedBeaconBlock<T::EthSpec>>), BlockError> {
-    // The block's parent execution payload (defined by bid.parent_block_hash) has been seen
-    // (via gossip or non-gossip sources) (a client MAY queue blocks for processing
-    // once the parent payload is retrieved). If execution_payload verification of block's execution
-    // payload parent by an execution node is complete, verify the block's execution payload
-    // parent (defined by bid.parent_block_hash) passes all validation.
-    match fork_choice_read_lock.is_parent_imported_status(&block) {
-        ParentImportedStatus::Imported(parent) => Ok((parent, block)),
-        // Genesis is loaded as the anchor, not verified via this (gossip) path. It has no parent
-        // proto-block to return, so treat it defensively as parent-unknown — it should never reach
-        // here in practice.
-        ParentImportedStatus::Genesis
-        | ParentImportedStatus::UnknownBlock
-        | ParentImportedStatus::UnimportedPayload => Err(BlockError::ParentUnknown {
-            parent_root: block.parent_root(),
-            parent_block_hash: block.parent_block_hash(),
-        }),
+    match fork_choice_read_lock.get_parent_import_status(&block) {
+        ParentImportStatus::Imported(parent) => Ok((parent, block)),
+        ParentImportStatus::UnknownBlock | ParentImportStatus::UnknownPayload => {
+            Err(BlockError::ParentUnknown {
+                parent_root: block.parent_root(),
+                parent_block_hash: block.parent_block_hash(),
+            })
+        }
     }
 }
 
