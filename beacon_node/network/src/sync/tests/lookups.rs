@@ -63,6 +63,10 @@ pub struct SimulateConfig {
     return_too_few_data_n_times: usize,
     return_no_columns_on_indices_n_times: usize,
     return_no_columns_on_indices: Vec<ColumnIndex>,
+    /// If set, only omit columns for requests of this block root. Used to scope the withholding to
+    /// the block under test (e.g. the parent in a Gloas parent/child lookup), so an unrelated
+    /// lookup's broad-pool custody requests don't consume the omission budget.
+    return_no_columns_for_block: Option<Hash256>,
     skip_by_range_routes: bool,
     // Use a callable fn because BlockProcessingResult does not implement Clone
     #[educe(Debug(ignore))]
@@ -133,6 +137,11 @@ impl SimulateConfig {
     fn return_no_columns_on_indices(mut self, indices: &[ColumnIndex], times: usize) -> Self {
         self.return_no_columns_on_indices_n_times = times;
         self.return_no_columns_on_indices = indices.to_vec();
+        self
+    }
+
+    fn return_no_columns_for_block(mut self, block_root: Hash256) -> Self {
+        self.return_no_columns_for_block = Some(block_root);
         self
     }
 
@@ -563,11 +572,14 @@ impl TestRig {
                 }
 
                 let will_omit_columns = req.data_column_ids.iter().any(|id| {
-                    id.columns.iter().any(|c| {
-                        self.complete_strategy
-                            .return_no_columns_on_indices
-                            .contains(c)
-                    })
+                    self.complete_strategy
+                        .return_no_columns_for_block
+                        .is_none_or(|root| id.block_root == root)
+                        && id.columns.iter().any(|c| {
+                            self.complete_strategy
+                                .return_no_columns_on_indices
+                                .contains(c)
+                        })
                 });
                 let columns_to_omit = if will_omit_columns
                     && self.complete_strategy.return_no_columns_on_indices_n_times > 0
@@ -2481,17 +2493,33 @@ async fn custody_lookup_some_custody_failures(test_type: FuluTestType) {
         return;
     };
     // Gloas: a block's columns are only attributable to peers that imported a FULL child (which
-    // donate their peers into the parent's custody peer set). Add one level of depth so the block
-    // under test has such a child, making the withholding peers attributable and penalizable.
-    let depth = if r.is_after_gloas() { 2 } else { 1 };
-    let block_root = r.build_chain(depth).await;
-    // Send the same trigger from all peers, so that the lookup has all peers
-    for peer in r.new_connected_peers_for_peerdas() {
-        r.trigger_unknown_block_from_attestation(block_root, peer);
-    }
+    // donate their peers into the parent's custody peer set). Build one level of depth and drive
+    // the lookup off the FULL child, so the block under test is the parent whose custody peers are
+    // attributable and penalizable. Pre-Gloas: attestation trigger on the single block.
+    let block_under_test = if r.is_after_gloas() {
+        r.build_chain(2).await;
+        let child = r.get_last_block().block_cloned();
+        // Send the same child from all peers, so the parent lookup donates all peers.
+        for peer in r.new_connected_peers_for_peerdas() {
+            r.trigger_unknown_parent_block(peer, child.clone());
+        }
+        // The block under test is the parent; the child's own custody is served from the broad
+        // pool and must not consume the omission budget.
+        Some(child.parent_root())
+    } else {
+        let block_root = r.build_chain(1).await;
+        // Send the same trigger from all peers, so that the lookup has all peers
+        for peer in r.new_connected_peers_for_peerdas() {
+            r.trigger_unknown_block_from_attestation(block_root, peer);
+        }
+        None
+    };
     let custody_columns = r.custody_columns();
-    r.simulate(SimulateConfig::new().return_no_columns_on_indices(&custody_columns[..4], 3))
-        .await;
+    let mut config = SimulateConfig::new().return_no_columns_on_indices(&custody_columns[..4], 3);
+    if let Some(block_root) = block_under_test {
+        config = config.return_no_columns_for_block(block_root);
+    }
+    r.simulate(config).await;
     r.assert_penalties_of_type("NotEnoughResponsesReturned");
     r.assert_successful_lookup_sync();
 }
@@ -2501,21 +2529,35 @@ async fn custody_lookup_permanent_custody_failures(test_type: FuluTestType) {
         return;
     };
     // Gloas: a block's columns are only attributable to peers that imported a FULL child (which
-    // donate their peers into the parent's custody peer set). Add one level of depth so the block
-    // under test has such a child, making the withholding peers attributable and penalizable.
-    let depth = if r.is_after_gloas() { 2 } else { 1 };
-    let block_root = r.build_chain(depth).await;
-
-    // Send the same trigger from all peers, so that the lookup has all peers
-    for peer in r.new_connected_peers_for_peerdas() {
-        r.trigger_unknown_block_from_attestation(block_root, peer);
-    }
+    // donate their peers into the parent's custody peer set). Build one level of depth and drive
+    // the lookup off the FULL child, so the block under test is the parent whose custody peers are
+    // attributable and penalizable. Pre-Gloas: attestation trigger on the single block.
+    let block_under_test = if r.is_after_gloas() {
+        r.build_chain(2).await;
+        let child = r.get_last_block().block_cloned();
+        // Send the same child from all peers, so the parent lookup donates all peers.
+        for peer in r.new_connected_peers_for_peerdas() {
+            r.trigger_unknown_parent_block(peer, child.clone());
+        }
+        // The block under test is the parent; the child's own custody is served from the broad
+        // pool and must not consume the omission budget.
+        Some(child.parent_root())
+    } else {
+        let block_root = r.build_chain(1).await;
+        // Send the same trigger from all peers, so that the lookup has all peers
+        for peer in r.new_connected_peers_for_peerdas() {
+            r.trigger_unknown_block_from_attestation(block_root, peer);
+        }
+        None
+    };
 
     let custody_columns = r.custody_columns();
-    r.simulate(
-        SimulateConfig::new().return_no_columns_on_indices(&custody_columns[..2], usize::MAX),
-    )
-    .await;
+    let mut config =
+        SimulateConfig::new().return_no_columns_on_indices(&custody_columns[..2], usize::MAX);
+    if let Some(block_root) = block_under_test {
+        config = config.return_no_columns_for_block(block_root);
+    }
+    r.simulate(config).await;
     // Every peer that does not return a column is part of the lookup because it claimed to have
     // imported the lookup, so we will penalize.
     r.assert_penalties_of_type("NotEnoughResponsesReturned");

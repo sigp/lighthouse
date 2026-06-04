@@ -404,7 +404,12 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                     state.maybe_start_downloading(|| {
                         cx.payload_lookup_request(self.id, peers.clone(), self.block_root)
                     })?;
-                    if let Some(data) = state.maybe_start_processing() {
+                    // The envelope can only be verified once the block itself is imported;
+                    // otherwise processing returns `BlockRootUnknown` and the lookup burns retries
+                    // until `TooManyAttempts` while the block is parked awaiting its parent.
+                    if self.block_request.state.is_processed()
+                        && let Some(data) = state.maybe_start_processing()
+                    {
                         cx.send_payload_for_processing(
                             self.block_root,
                             data.value,
