@@ -28,7 +28,7 @@ use logging::crit;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, debug_span, error, info, instrument, warn};
-use types::{BlockImportSource, DataColumnSidecarList, Epoch, ExecutionBlockHash, Hash256};
+use types::{BlockImportSource, DataColumnSidecarList, Epoch, Hash256};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
 #[derive(Clone, Debug, PartialEq)]
@@ -969,7 +969,6 @@ pub enum BlockProcessingResult {
     Imported(bool, &'static str),
     ParentUnknown {
         parent_root: Hash256,
-        parent_block_hash: Option<ExecutionBlockHash>,
     },
     /// Processing failed. `penalty` is `Some` when an attributable peer should be downscored;
     /// the third tuple element is the `report_peer` telemetry msg. `reason` is for logs only.
@@ -1001,13 +1000,9 @@ impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingR
                         return Self::Imported(true, "duplicate");
                     }
                     BlockError::GenesisBlock => return Self::Imported(true, "genesis"),
-                    BlockError::ParentUnknown {
-                        parent_root,
-                        parent_block_hash,
-                    } => {
+                    BlockError::ParentUnknown { parent_root } => {
                         return Self::ParentUnknown {
                             parent_root: *parent_root,
-                            parent_block_hash: *parent_block_hash,
                         };
                     }
                     BlockError::BeaconChainError(_) | BlockError::InternalError(_) => None,

@@ -177,9 +177,6 @@ pub struct SingleBlockLookup<T: BeaconChainTypes> {
     #[educe(Debug(method(fmt_peer_map_as_len)))]
     gloas_child_peers: GloasChildPeers,
     awaiting_parent: Option<Hash256>,
-    /// Post-Gloas only: this block's bid `parent_block_hash` (the parent's execution hash). Used to
-    /// derive the `PeerType` when propagating peers up to the parent lookup.
-    awaiting_parent_bid_hash: Option<ExecutionBlockHash>,
     created: Instant,
     pub(crate) span: Span,
 }
@@ -216,7 +213,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             peers: block_peers,
             gloas_child_peers: Arc::new(RwLock::new(gloas_child_peers)),
             awaiting_parent,
-            awaiting_parent_bid_hash: None,
             created: Instant::now(),
             span: lookup_span,
         }
@@ -247,27 +243,29 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     }
 
     /// Mark this lookup as awaiting a parent lookup from being processed. Meanwhile don't send
-    /// components for processing. `parent_block_hash` is the block's bid `parent_block_hash`
-    /// (post-Gloas only), used to partition the parent lookup's peers.
-    pub fn set_awaiting_parent(
-        &mut self,
-        parent_root: Hash256,
-        parent_block_hash: Option<ExecutionBlockHash>,
-    ) {
+    /// components for processing.
+    pub fn set_awaiting_parent(&mut self, parent_root: Hash256) {
         self.awaiting_parent = Some(parent_root);
-        self.awaiting_parent_bid_hash = parent_block_hash;
     }
 
     /// Mark this lookup as no longer awaiting a parent lookup. Components can be sent for
     /// processing.
     pub fn resolve_awaiting_parent(&mut self) {
         self.awaiting_parent = None;
-        self.awaiting_parent_bid_hash = None;
+    }
+
+    /// This block's bid `parent_block_hash` (the parent's execution hash), derived from the
+    /// downloaded block. Post-Gloas only; `None` pre-Gloas or before the block is downloaded.
+    fn bid_parent_block_hash(&self) -> Option<ExecutionBlockHash> {
+        self.block_request
+            .state
+            .peek_downloaded_data()
+            .and_then(|block| block.parent_block_hash())
     }
 
     /// Returns the `PeerType` to use when propagating this lookup's peers up to its parent lookup.
     pub fn awaiting_parent_peer_type(&self) -> PeerType {
-        match self.awaiting_parent_bid_hash {
+        match self.bid_parent_block_hash() {
             Some(execution_hash) => PeerType::PostGloas(execution_hash),
             None => PeerType::PreGloas,
         }
@@ -343,13 +341,9 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                         self.data_request = if block.num_expected_blobs() == 0 {
                             DataRequest::NoData
                         } else if cx.chain.should_fetch_custody_columns(block_epoch) {
-                            let slot = block.slot();
-                            // Post-Gloas data columns are served by the FULL children's peers, not
-                            // by `self.peers`. Pre-Gloas this returns `self.peers` unchanged.
-                            let peers = self.get_data_peers(block);
                             DataRequest::Request {
-                                slot,
-                                peers,
+                                slot: block.slot(),
+                                peers: self.get_data_peers(block),
                                 state: SingleLookupRequestState::new(),
                             }
                         } else {
@@ -466,16 +460,14 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             BlockProcessingResult::Imported(_fully_imported, _info) => {
                 self.block_request.state.on_processing_success()?;
             }
-            BlockProcessingResult::ParentUnknown {
-                parent_root,
-                parent_block_hash,
-            } => {
+            BlockProcessingResult::ParentUnknown { parent_root } => {
                 // `BlockError::ParentUnknown` is only returned when processing blocks. Revert the
                 // block request to `Downloaded` and park this lookup until the parent resolves; a
                 // future call to `continue_requests` will re-submit the block for processing once
                 // the parent lookup completes.
+                let parent_block_hash = self.bid_parent_block_hash();
                 self.block_request.state.revert_to_awaiting_processing()?;
-                self.set_awaiting_parent(parent_root, parent_block_hash);
+                self.set_awaiting_parent(parent_root);
                 return Ok(LookupResult::ParentUnknown {
                     parent_root,
                     parent_block_hash,
