@@ -136,6 +136,8 @@ impl Default for ReOrgTest {
     }
 }
 
+// This test doesn't actually exercise the re-org code path because the chain just naturally
+// re-orgs to A-empty at the start of slot C anyway.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn re_org_parent_is_empty_easy() {
     proposer_boost_re_org_test(ReOrgTest {
@@ -147,21 +149,46 @@ pub async fn re_org_parent_is_empty_easy() {
     .await;
 }
 
-// A-Empty chain has 50% of one committee supporting it A-Full chain has 55% of one committee
+// A-Empty chain has 55% of one committee supporting it A-Full chain has 45% of one committee
 // supporting it, including 15% for descendant B that is late and re-orgable.
 //
 // A-Full has 100% PTC support, but this should be completely ignored.
 //
 // We should re-org B and build on A-Empty.
+//
+// This test doesn't actually exercise the re-org code path because the chain just naturally
+// re-orgs to A-empty at the start of slot C anyway.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn re_org_parent_is_empty_marginal_win() {
     proposer_boost_re_org_test(ReOrgTest {
-        percent_skip_empty_votes: 50,
-        percent_skip_full_votes: 40,
+        percent_skip_empty_votes: 55,
+        percent_skip_full_votes: 30,
         percent_head_votes: 15,
         percent_parent_ptc_present_votes: 100,
         percent_parent_ptc_absent_votes: 0,
         expected_parent_payload_status: PayloadStatus::Empty,
+        ..Default::default()
+    })
+    .await;
+}
+
+// A-Empty chain has 45% of one committee supporting it A-Full chain has 55% of one committee
+// supporting it, including 15% for descendant B that is late and re-orgable.
+//
+// A-Full has 100% PTC support, but this should be completely ignored.
+//
+// We should re-org B and build on A-Full.
+// This test doesn't actually exercise the re-org code path because the chain just naturally
+// re-orgs to A-empty at the start of slot C anyway.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn re_org_parent_is_full_marginal_win() {
+    proposer_boost_re_org_test(ReOrgTest {
+        percent_skip_empty_votes: 45,
+        percent_skip_full_votes: 40,
+        percent_head_votes: 15,
+        percent_parent_ptc_present_votes: 100,
+        percent_parent_ptc_absent_votes: 0,
+        expected_parent_payload_status: PayloadStatus::Full,
         ..Default::default()
     })
     .await;
@@ -390,8 +417,13 @@ pub async fn proposer_boost_re_org_test(
         },
     );
     harness.process_attestations(block_a_empty_votes, &state_a);
+    let remaining_attesters_after_empty = all_validators
+        .iter()
+        .copied()
+        .filter(|index| !block_a_empty_attesters.contains(index))
+        .collect::<Vec<_>>();
     let (block_a_full_votes, block_a_full_attesters) = harness.make_attestations_with_opts(
-        &all_validators,
+        &remaining_attesters_after_empty,
         &state_a,
         state_a_root,
         block_a_root,
@@ -404,12 +436,10 @@ pub async fn proposer_boost_re_org_test(
     );
     harness.process_attestations(block_a_full_votes, &state_a);
 
-    let remaining_attesters = all_validators
+    let remaining_attesters = remaining_attesters_after_empty
         .iter()
         .copied()
-        .filter(|index| {
-            !block_a_empty_attesters.contains(index) && !block_a_full_attesters.contains(index)
-        })
+        .filter(|index| !block_a_full_attesters.contains(index))
         .collect::<Vec<_>>();
 
     // Produce block B and process it halfway through the slot.
