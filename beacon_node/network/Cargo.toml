@@ -60,6 +60,7 @@ kzg = { workspace = true }
 libp2p = { workspace = true }
 matches = "0.1.8"
 paste = { workspace = true }
+proto_array = { workspace = true }
 rand_08 = { package = "rand", version = "0.8.5" }
 rand_chacha = "0.9.0"
 rand_chacha_03 = { package = "rand_chacha", version = "0.3.1" }

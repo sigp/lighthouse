@@ -509,6 +509,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             "Received lookup processing result"
         );
 
+        let block_root = lookup.block_root();
+        // Gloas: a block imports into fork choice on block + columns, *before* its payload
+        // envelope. Children awaiting it must re-evaluate at that point: an EMPTY child can import
+        // on the parent block alone, while a FULL child re-awaits the parent's payload.
+        let block_imported = matches!(process_type, BlockProcessType::SingleBlock { .. })
+            && matches!(result, BlockProcessingResult::Imported(..));
+
         let lookup_result = match process_type {
             BlockProcessType::SingleBlock { .. } => lookup.on_block_processing_result(result, cx),
             BlockProcessType::SingleCustodyColumn(_) => {
@@ -519,6 +526,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
         };
         self.on_lookup_result(lookup_id, lookup_result, "processing_result", cx);
+        if block_imported {
+            self.continue_child_lookups(block_root, cx);
+        }
     }
 
     pub fn on_external_processing_result(
@@ -657,12 +667,35 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             // update metrics because the lookup does not exist.
             Err(LookupRequestError::UnknownLookup) => false,
             Err(error) => {
+                // Retain a failed lookup while another lookup awaits it: a FULL Gloas child awaits
+                // its parent's payload, so the parent's failed payload download must not cascade-
+                // drop the child. The parent stays until its payload arrives (or it is reaped as
+                // stuck).
+                if let Some(block_root) = self.single_block_lookups.get(&id).map(|l| l.block_root())
+                    && self.is_awaited(block_root)
+                {
+                    debug!(
+                        id,
+                        source,
+                        ?error,
+                        ?block_root,
+                        "Retaining failed lookup awaited by a child"
+                    );
+                    return false;
+                }
                 debug!(id, source, ?error, "Dropping lookup on request error");
                 self.drop_lookup_and_children(id, error.into());
                 self.update_metrics();
                 false
             }
         }
+    }
+
+    /// Returns true if any lookup is awaiting `block_root` as its parent.
+    fn is_awaited(&self, block_root: Hash256) -> bool {
+        self.single_block_lookups
+            .values()
+            .any(|lookup| lookup.awaiting_parent() == Some(block_root))
     }
 
     /* Helper functions */

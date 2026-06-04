@@ -69,6 +69,11 @@ pub struct SimulateConfig {
     /// the block under test (e.g. the parent in a Gloas parent/child lookup), so an unrelated
     /// lookup's broad-pool custody requests don't consume the omission budget.
     return_no_columns_for_block: Option<Hash256>,
+    /// Number of `PayloadEnvelopesByRoot` requests for `return_no_envelope_for_block` answered with
+    /// an empty stream (no envelope). Lets a Gloas block's *block* import before its payload.
+    return_no_envelope_n_times: usize,
+    /// The block whose payload envelope is withheld (see `return_no_envelope_n_times`).
+    return_no_envelope_for_block: Option<Hash256>,
     skip_by_range_routes: bool,
     // Use a callable fn because BlockProcessingResult does not implement Clone
     #[educe(Debug(ignore))]
@@ -144,6 +149,14 @@ impl SimulateConfig {
 
     fn return_no_columns_for_block(mut self, block_root: Hash256) -> Self {
         self.return_no_columns_for_block = Some(block_root);
+        self
+    }
+
+    /// Withhold `block_root`'s payload envelope for the next `times` `PayloadEnvelopesByRoot`
+    /// requests (answered with an empty stream), so the block imports before its payload.
+    fn return_no_envelope_for_block(mut self, block_root: Hash256, times: usize) -> Self {
+        self.return_no_envelope_for_block = Some(block_root);
+        self.return_no_envelope_n_times = times;
         self
     }
 
@@ -661,7 +674,15 @@ impl TestRig {
                     .first()
                     .copied()
                     .unwrap_or_else(|| panic!("empty envelope request: {req:?}"));
-                let envelope = self.network_envelopes_by_root.get(&block_root).cloned();
+                let withhold = self.complete_strategy.return_no_envelope_for_block
+                    == Some(block_root)
+                    && self.complete_strategy.return_no_envelope_n_times > 0;
+                let envelope = if withhold {
+                    self.complete_strategy.return_no_envelope_n_times -= 1;
+                    None
+                } else {
+                    self.network_envelopes_by_root.get(&block_root).cloned()
+                };
                 self.send_rpc_envelope_response(req_id, peer_id, envelope);
             }
 
@@ -1022,6 +1043,142 @@ impl TestRig {
             .set_current_slot(external_harness.get_current_slot());
 
         blocks.last().expect("empty blocks").1
+    }
+
+    /// Builds a Gloas fork with a FULL child (B) and an EMPTY child (C) of the same parent (A):
+    ///
+    /// ```text
+    /// G (full) --> A (full) --> B   (FULL child:  B.bid.parent_block_hash == A.block_hash)
+    ///              A         --> C   (EMPTY child: C.bid.parent_block_hash == G.block_hash)
+    /// ```
+    ///
+    /// Returns `(a_root, b_root, c_root)`. B and C are produced (but not imported) on A's
+    /// post-state and inserted into the rig's block/envelope maps.
+    pub(super) async fn build_full_empty_fork(&mut self) -> (Hash256, Hash256, Hash256) {
+        // Initialise a new beacon chain (mirrors `build_chain`).
+        let external_harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
+            .spec(self.harness.spec.clone())
+            .deterministic_keypairs(TEST_RIG_VALIDATOR_COUNT)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .testing_slot_clock(self.harness.chain.slot_clock.clone())
+            .node_custody_type(NodeCustodyType::Supernode)
+            .build();
+        external_harness
+            .execution_block_generator()
+            .set_min_blob_count(1);
+
+        // Add genesis block for completeness.
+        let genesis_block = external_harness.get_head_block();
+        self.network_blocks_by_root
+            .insert(genesis_block.canonical_root(), genesis_block.clone());
+        self.network_blocks_by_slot
+            .insert(genesis_block.slot(), genesis_block);
+
+        // Build + import G and A as FULL blocks (2 iterations, mirroring `build_chain`).
+        let mut g_root = Hash256::ZERO;
+        let mut a_root = Hash256::ZERO;
+        let mut a_slot = 0u64;
+        for i in 0..2 {
+            external_harness.advance_slot();
+            let block_root = external_harness
+                .extend_chain(
+                    1,
+                    BlockStrategy::OnCanonicalHead,
+                    AttestationStrategy::AllValidators,
+                )
+                .await;
+            let block = external_harness.get_full_block(&block_root);
+            let block_root = block.canonical_root();
+            let block_slot = block.slot();
+            self.network_blocks_by_root
+                .insert(block_root, block.clone());
+            self.network_blocks_by_slot.insert(block_slot, block);
+            if let Ok(Some(envelope)) = external_harness.chain.get_payload_envelope(&block_root) {
+                self.network_envelopes_by_root
+                    .insert(block_root, Arc::new(envelope));
+            }
+            if i == 0 {
+                g_root = block_root;
+            } else {
+                a_root = block_root;
+                a_slot = block_slot.as_u64();
+            }
+        }
+
+        // A's post-state (A is the current head of the external harness).
+        let a_state = external_harness.get_current_state();
+
+        // Parent envelopes for the two children.
+        let a_envelope = self.network_envelopes_by_root.get(&a_root).cloned();
+        let g_envelope = self.network_envelopes_by_root.get(&g_root).cloned();
+
+        let child_slot = Slot::new(a_slot + 1);
+
+        // B: FULL child of A — commits A's payload as present, so B.bid.parent_block_hash == A.block_hash.
+        let (b_contents, b_envelope, b_columns, _) = external_harness
+            .make_gloas_block_with_status(
+                a_state.clone(),
+                child_slot,
+                proto_array::PayloadStatus::Full,
+                a_envelope,
+            )
+            .await;
+        let b_block = b_contents.0;
+        let b_root = b_block.canonical_root();
+        self.insert_external_block(b_block, b_envelope, b_columns);
+
+        // C: EMPTY child of A — commits A's payload as absent, so C.bid.parent_block_hash == G.block_hash.
+        let (c_contents, c_envelope, c_columns, _) = external_harness
+            .make_gloas_block_with_status(
+                a_state.clone(),
+                child_slot,
+                proto_array::PayloadStatus::Empty,
+                g_envelope,
+            )
+            .await;
+        let c_block = c_contents.0;
+        let c_root = c_block.canonical_root();
+        self.insert_external_block(c_block, c_envelope, c_columns);
+
+        // Auto-update the clock on the main harness to accept the blocks. The children sit at
+        // `child_slot`, one past the external harness's head slot.
+        self.harness.set_current_slot(child_slot);
+
+        (a_root, b_root, c_root)
+    }
+
+    /// Inserts an externally-produced (not imported) Gloas block + optional signed envelope into
+    /// the rig maps. For Gloas, blob data lives in the envelope; `columns` are the block's data
+    /// column sidecars (built from the envelope's blobs) so the rig can serve them on lookup.
+    fn insert_external_block(
+        &mut self,
+        block: Arc<SignedBeaconBlock<E>>,
+        envelope: Option<SignedExecutionPayloadEnvelope<E>>,
+        columns: types::DataColumnSidecarList<E>,
+    ) {
+        let block_root = block.canonical_root();
+        let block_slot = block.slot();
+        let block_data = if columns.is_empty() {
+            AvailableBlockData::NoData
+        } else {
+            AvailableBlockData::new_with_data_columns(columns)
+        };
+        let range_sync_block = RangeSyncBlock::new(
+            block,
+            block_data,
+            &self.harness.chain.data_availability_checker,
+            self.harness.chain.spec.clone(),
+        )
+        .unwrap();
+        self.network_blocks_by_slot
+            .insert(block_slot, range_sync_block.clone());
+        self.network_blocks_by_root
+            .insert(block_root, range_sync_block);
+        if let Some(envelope) = envelope {
+            self.network_envelopes_by_root
+                .insert(block_root, Arc::new(envelope));
+        }
     }
 
     fn corrupt_last_block_signature(&mut self) {
@@ -2658,4 +2815,116 @@ async fn crypto_on_fail_with_bad_column_kzg_proof() {
         r.assert_failed_lookup_sync();
         r.assert_penalties_of_type("AvailabilityCheck");
     }
+}
+
+#[tokio::test]
+async fn gloas_build_full_empty_fork_shape() {
+    let Some(mut r) = TestRig::new_fulu_peer_test(FuluTestType::WeSupernodeThemSupernode) else {
+        return;
+    };
+    if !r.is_after_gloas() {
+        return;
+    }
+
+    let (a, b, c) = r.build_full_empty_fork().await;
+
+    let a_block = r.network_blocks_by_root.get(&a).unwrap().block_cloned();
+    let b_block = r.network_blocks_by_root.get(&b).unwrap().block_cloned();
+    let c_block = r.network_blocks_by_root.get(&c).unwrap().block_cloned();
+
+    // G is A's parent; resolve its bid block hash.
+    let g = a_block.parent_root();
+    let g_block = r.network_blocks_by_root.get(&g).unwrap().block_cloned();
+
+    let a_block_hash = a_block.payload_bid_block_hash().unwrap();
+    let g_block_hash = g_block.payload_bid_block_hash().unwrap();
+
+    // B is a FULL child of A: its bid commits A's payload as present.
+    assert!(
+        b_block.is_parent_block_full(a_block_hash),
+        "B must be a FULL child of A"
+    );
+    // C is an EMPTY child of A: its bid does NOT commit A's payload...
+    assert!(
+        !c_block.is_parent_block_full(a_block_hash),
+        "C must NOT be a FULL child of A"
+    );
+    // ...it builds on G's execution payload instead.
+    assert!(
+        c_block.is_parent_block_full(g_block_hash),
+        "C must build on G's payload"
+    );
+
+    // Both B and C are BEACON children of A.
+    assert_eq!(b_block.parent_root(), a, "B's parent must be A");
+    assert_eq!(c_block.parent_root(), a, "C's parent must be A");
+}
+
+#[tokio::test]
+async fn gloas_full_empty_children_retain_parent_for_payload() {
+    let Some(mut r) = TestRig::new_fulu_peer_test(FuluTestType::WeSupernodeThemSupernode) else {
+        return;
+    };
+    if !r.is_after_gloas() {
+        return;
+    }
+
+    let (_a, b, c) = r.build_full_empty_fork().await;
+    let b_block = r.network_blocks_by_root.get(&b).unwrap().block_cloned();
+    let c_block = r.network_blocks_by_root.get(&c).unwrap().block_cloned();
+
+    // Trigger lookups for the FULL child B and the EMPTY child C; both create a parent lookup for A.
+    for peer in r.new_connected_peers_for_peerdas() {
+        r.trigger_unknown_parent_block(peer, b_block.clone());
+        r.trigger_unknown_parent_block(peer, c_block.clone());
+    }
+
+    r.simulate(SimulateConfig::happy_path()).await;
+
+    // G, A (parent), B (full child) and C (empty child) all import; none dropped.
+    r.assert_successful_lookup_sync();
+}
+
+#[tokio::test]
+async fn gloas_empty_child_continues_while_parent_payload_withheld() {
+    let Some(mut r) = TestRig::new_fulu_peer_test(FuluTestType::WeSupernodeThemSupernode) else {
+        return;
+    };
+    if !r.is_after_gloas() {
+        return;
+    }
+
+    let (a, b, c) = r.build_full_empty_fork().await;
+    let b_block = r.network_blocks_by_root.get(&b).unwrap().block_cloned();
+    let c_block = r.network_blocks_by_root.get(&c).unwrap().block_cloned();
+
+    for peer in r.new_connected_peers_for_peerdas() {
+        r.trigger_unknown_parent_block(peer, b_block.clone());
+        r.trigger_unknown_parent_block(peer, c_block.clone());
+    }
+
+    // Withhold A's payload envelope: A's block imports, but its payload never arrives.
+    r.simulate(SimulateConfig::happy_path().return_no_envelope_for_block(a, usize::MAX))
+        .await;
+
+    let active: Vec<Hash256> = r
+        .active_single_lookups()
+        .iter()
+        .map(|l| l.block_root)
+        .collect();
+    // C (empty child) only needs A's block in fork choice, so it completes.
+    assert!(
+        !active.contains(&c),
+        "C (empty child) should have completed"
+    );
+    // B (full child) needs A's payload, which is withheld, so it stays active awaiting A.
+    assert!(
+        active.contains(&b),
+        "B (full child) should still be active awaiting A's payload"
+    );
+    // A must be retained while B awaits it (not dropped once its block imports).
+    assert!(
+        active.contains(&a),
+        "A should be retained while B awaits its payload"
+    );
 }

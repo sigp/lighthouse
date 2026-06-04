@@ -6090,6 +6090,7 @@ dependencies = [
  "operation_pool",
  "parking_lot",
  "paste",
+ "proto_array",
  "rand 0.8.5",
  "rand 0.9.2",
  "rand_chacha 0.3.1",
