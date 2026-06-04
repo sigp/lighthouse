@@ -1436,12 +1436,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             "To deal with alignment with deneb boundaries, batches need to be of just one epoch"
         );
 
-        if self
-            .chain
-            .spec
-            .gloas_fork_epoch
-            .is_some_and(|gloas_epoch| epoch >= gloas_epoch)
-        {
+        if self.chain.spec.fork_name_at_epoch(epoch).gloas_enabled() {
+            // TODO(gloas): Not precise and we can be post-gloas and not require columns
             ByRangeRequestType::BlocksAndEnvelopesAndColumns
         } else if self
             .chain

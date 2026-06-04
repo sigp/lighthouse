@@ -866,8 +866,6 @@ pub struct AvailableBlock<E: EthSpec> {
     #[educe(Hash(ignore))]
     /// Timestamp at which this block first became available (UNIX timestamp, time since 1970).
     blobs_available_timestamp: Option<Duration>,
-    #[educe(Hash(ignore))]
-    pub spec: Arc<ChainSpec>,
 }
 
 impl<E: EthSpec> AvailableBlock<E> {
@@ -957,8 +955,20 @@ impl<E: EthSpec> AvailableBlock<E> {
             block,
             blob_data: block_data,
             blobs_available_timestamp: None,
-            spec: spec.clone(),
         })
+    }
+
+    pub fn new_gloas(block: Arc<SignedBeaconBlock<E>>) -> Result<Self, String> {
+        if block.fork_name_unchecked().gloas_enabled() {
+            Ok(Self {
+                block_root: block.canonical_root(),
+                block,
+                blob_data: AvailableBlockData::NoData,
+                blobs_available_timestamp: None,
+            })
+        } else {
+            Err("Block is not gloas".to_owned())
+        }
     }
 
     pub fn block(&self) -> &SignedBeaconBlock<E> {
@@ -1012,7 +1022,6 @@ impl<E: EthSpec> AvailableBlock<E> {
                 }
             },
             blobs_available_timestamp: self.blobs_available_timestamp,
-            spec: self.spec.clone(),
         })
     }
 }

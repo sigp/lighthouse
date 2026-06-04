@@ -200,7 +200,7 @@ impl<E: EthSpec> PendingComponents<E> {
     /// must be persisted in the DB along with the block.
     pub fn make_available(
         &self,
-        spec: &Arc<ChainSpec>,
+        _spec: &Arc<ChainSpec>,
         num_expected_columns_opt: Option<usize>,
     ) -> Result<Option<AvailableExecutedBlock<E>>, AvailabilityCheckError> {
         let Some(CachedBlock::Executed(block)) = &self.block else {
@@ -271,7 +271,6 @@ impl<E: EthSpec> PendingComponents<E> {
             block: block.clone(),
             blob_data,
             blobs_available_timestamp,
-            spec: spec.clone(),
         };
 
         self.span.in_scope(|| {

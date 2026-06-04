@@ -684,10 +684,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let total_blocks = downloaded_blocks.len();
         let mut available_blocks = Vec::with_capacity(total_blocks);
         for block in downloaded_blocks {
-            match block.into_available_block(
-                &self.chain.data_availability_checker,
-                self.chain.spec.clone(),
-            ) {
+            match block.into_available_block() {
                 Ok((available, _envelope)) => available_blocks.push(available),
                 Err(e) => {
                     return (
