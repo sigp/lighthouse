@@ -31,13 +31,14 @@ use lighthouse_network::{
     types::SyncState,
 };
 use slot_clock::{SlotClock, TestingSlotClock};
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::info;
 use types::{
-    BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, ForkContext, ForkName, Hash256,
-    MinimalEthSpec as E, SignedBeaconBlock, Slot,
+    BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, DataColumnSubnetId,
+    ForkContext, ForkName, Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
 };
 
 const D: Duration = Duration::new(0, 0);
@@ -1454,7 +1455,7 @@ impl TestRig {
             .network_globals
             .peers
             .write()
-            .__add_connected_peer_testing_only(false, &self.harness.spec, key);
+            .__add_connected_peer_with_custody_subnets(false, &self.harness.spec, key);
 
         // Assumes custody subnet count == column count
         let custody_subnets = self
@@ -1485,11 +1486,36 @@ impl TestRig {
             .network_globals
             .peers
             .write()
-            .__add_connected_peer_testing_only(true, &self.harness.spec, key);
+            .__add_connected_peer_with_custody_subnets(true, &self.harness.spec, key);
         self.log(&format!(
             "Added new peer for testing {peer_id:?}, custody: supernode"
         ));
         peer_id
+    }
+
+    /// Add a connected supernode peer, but without setting the peers' custody subnet.
+    /// This is to simulate the real behaviour where metadata is only received some time after
+    ///  a connection is established.
+    pub fn new_connected_supernode_peer_no_metadata_custody_subnet(&mut self) -> PeerId {
+        let key = self.determinstic_key();
+        self.network_globals
+            .peers
+            .write()
+            .__add_connected_peer(true, key, &self.harness.spec)
+    }
+
+    /// Update the peer's custody subnet in PeerDB and send a `UpdatedPeerCgc` message to sync.
+    pub fn send_peer_cgc_update_to_sync(
+        &mut self,
+        peer_id: &PeerId,
+        subnets: HashSet<DataColumnSubnetId>,
+    ) {
+        self.network_globals
+            .peers
+            .write()
+            .__set_custody_subnets(peer_id, subnets)
+            .unwrap();
+        self.send_sync_message(SyncMessage::UpdatedPeerCgc(*peer_id))
     }
 
     fn determinstic_key(&mut self) -> CombinedKey {
