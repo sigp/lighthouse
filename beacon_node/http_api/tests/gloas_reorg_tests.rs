@@ -11,11 +11,10 @@ use beacon_chain::{
     custody_context::NodeCustodyType,
     test_utils::{
         AttestationStrategy, BlockStrategy, LightClientStrategy, MakeAttestationOptions,
-        MakePayloadAttestationOptions, PayloadAttestationVote, SyncCommitteeStrategy, test_spec,
+        MakePayloadAttestationOptions, PayloadAttestationVote, SyncCommitteeStrategy,
     },
 };
-use beacon_processor::{Work, WorkEvent, work_reprocessing_queue::ReprocessQueueMessage};
-use eth2::types::{DepositContractData, ProduceBlockV3Response, StateId};
+use eth2::types::ProduceBlockV3Response;
 use execution_layer::{ForkchoiceState, PayloadAttributes};
 use fixed_bytes::FixedBytesExtended;
 use http_api::test_utils::InteractiveTester;
@@ -29,7 +28,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Address, BeaconBlockRef, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256,
+    Address, BeaconBlockRef, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256,
     MinimalEthSpec, ProposerPreparationData, Slot,
 };
 
@@ -142,6 +141,26 @@ pub async fn re_org_parent_is_empty_easy() {
     proposer_boost_re_org_test(ReOrgTest {
         percent_skip_empty_votes: 100,
         percent_skip_full_votes: 0,
+        expected_parent_payload_status: PayloadStatus::Empty,
+        ..Default::default()
+    })
+    .await;
+}
+
+// A-Empty chain has 50% of one committee supporting it A-Full chain has 55% of one committee
+// supporting it, including 15% for descendant B that is late and re-orgable.
+//
+// A-Full has 100% PTC support, but this should be completely ignored.
+//
+// We should re-org B and build on A-Empty.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn re_org_parent_is_empty_marginal_win() {
+    proposer_boost_re_org_test(ReOrgTest {
+        percent_skip_empty_votes: 50,
+        percent_skip_full_votes: 40,
+        percent_head_votes: 15,
+        percent_parent_ptc_present_votes: 100,
+        percent_parent_ptc_absent_votes: 0,
         expected_parent_payload_status: PayloadStatus::Empty,
         ..Default::default()
     })
@@ -358,7 +377,7 @@ pub async fn proposer_boost_re_org_test(
     for _ in 0..parent_distance {
         harness.advance_slot();
     }
-    let (block_a_empty_votes, block_a_attesters) = harness.make_attestations_with_opts(
+    let (block_a_empty_votes, block_a_empty_attesters) = harness.make_attestations_with_opts(
         &all_validators,
         &state_a,
         state_a_root,
@@ -371,7 +390,7 @@ pub async fn proposer_boost_re_org_test(
         },
     );
     harness.process_attestations(block_a_empty_votes, &state_a);
-    let (block_a_full_votes, block_a_attesters) = harness.make_attestations_with_opts(
+    let (block_a_full_votes, block_a_full_attesters) = harness.make_attestations_with_opts(
         &all_validators,
         &state_a,
         state_a_root,
@@ -388,7 +407,9 @@ pub async fn proposer_boost_re_org_test(
     let remaining_attesters = all_validators
         .iter()
         .copied()
-        .filter(|index| !block_a_attesters.contains(index))
+        .filter(|index| {
+            !block_a_empty_attesters.contains(index) && !block_a_full_attesters.contains(index)
+        })
         .collect::<Vec<_>>();
 
     // Produce block B and process it halfway through the slot.
