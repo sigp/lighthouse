@@ -3148,6 +3148,14 @@ async fn weak_subjectivity_sync_test(
             .store
             .put_payload_envelope(&wss_block_root, &envelope)
             .unwrap();
+
+        // `from_anchor` doesn't mark the anchor's payload received, so do it here; otherwise the
+        // first forward block (a FULL child of the anchor) would be rejected with `ParentUnknown`.
+        beacon_chain
+            .canonical_head
+            .fork_choice_write_lock()
+            .on_valid_payload_envelope_received(wss_block_root)
+            .unwrap();
     }
 
     // Apply blocks forward to reach head.
