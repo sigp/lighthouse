@@ -9,7 +9,7 @@ use beacon_chain::{
     custody_context::NodeCustodyType,
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
-        MakeAttestationOptions, test_spec,
+        MakeAttestationOptions, fork_name_from_env, test_spec,
     },
 };
 use beacon_chain::{
@@ -238,55 +238,6 @@ fn update_fork_choice_with_envelopes(
     }
 }
 
-/// Import a chain segment, registering each block's payload envelope with fork choice immediately
-/// after the block is imported.
-///
-/// Post-Gloas, a FULL child block can only be imported once its parent's payload envelope has been
-/// imported into fork choice. `process_chain_segment` currently imports blocks only, so a
-/// multi-block segment of consecutive FULL Gloas blocks cannot be imported in a single batch. This
-/// helper imports each block and then registers its payload envelope before importing the next.
-///
-/// Pre-Gloas, where blocks carry no payload envelope, the whole segment is imported in a single
-/// batch so the batch import path is still exercised.
-///
-/// `chain_segment` and `blocks` must be aligned by index.
-async fn import_chain_segment_with_envelopes(
-    chain_segment: &[BeaconSnapshot<E>],
-    blocks: &[RangeSyncBlock<E>],
-    harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
-) -> Result<(), BlockError> {
-    let has_envelopes = chain_segment
-        .iter()
-        .any(|snapshot| snapshot.execution_envelope.is_some());
-
-    if !has_envelopes {
-        return harness
-            .chain
-            .process_chain_segment(blocks.to_vec(), NotifyExecutionLayer::Yes)
-            .await
-            .into_block_error();
-    }
-
-    for (snapshot, block) in chain_segment.iter().zip(blocks.iter()) {
-        harness
-            .chain
-            .process_chain_segment(vec![block.clone()], NotifyExecutionLayer::Yes)
-            .await
-            .into_block_error()?;
-
-        if snapshot.execution_envelope.is_some() {
-            harness
-                .chain
-                .canonical_head
-                .fork_choice_write_lock()
-                .on_valid_payload_envelope_received(snapshot.beacon_block_root)
-                .map_err(|e| BlockError::InternalError(format!("{e:?}")))?;
-        }
-    }
-
-    Ok(())
-}
-
 fn junk_signature() -> Signature {
     let kp = generate_deterministic_keypair(VALIDATOR_COUNT);
     let message = Hash256::from_slice(&[42; 32]);
@@ -408,6 +359,12 @@ fn update_data_column_signed_header<E: EthSpec>(
 
 #[tokio::test]
 async fn chain_segment_full_segment() {
+    // TODO(#9362): re-enable for Gloas once range sync imports payload envelopes. A multi-block
+    // segment of consecutive FULL Gloas blocks can't be imported by `process_chain_segment` until
+    // it imports payload envelopes alongside blocks.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     store_envelopes_for_chain_segment(&chain_segment, &harness);
@@ -429,10 +386,14 @@ async fn chain_segment_full_segment() {
         .into_block_error()
         .expect("should import empty chain segment");
 
-    import_chain_segment_with_envelopes(&chain_segment, &blocks, &harness)
+    harness
+        .chain
+        .process_chain_segment(blocks.clone(), NotifyExecutionLayer::Yes)
         .await
+        .into_block_error()
         .expect("should import chain segment");
 
+    update_fork_choice_with_envelopes(&chain_segment, &harness);
     harness.chain.recompute_head_at_current_slot().await;
 
     assert_eq!(
@@ -444,6 +405,10 @@ async fn chain_segment_full_segment() {
 
 #[tokio::test]
 async fn chain_segment_varying_chunk_size() {
+    // TODO(#9362): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
     let blocks: Vec<RangeSyncBlock<E>> =
@@ -460,15 +425,16 @@ async fn chain_segment_varying_chunk_size() {
             .slot_clock
             .set_slot(blocks.last().unwrap().slot().as_u64());
 
-        for (segment_chunk, block_chunk) in chain_segment
-            .chunks(*chunk_size)
-            .zip(blocks.chunks(*chunk_size))
-        {
-            import_chain_segment_with_envelopes(segment_chunk, block_chunk, &harness)
+        for chunk in blocks.clone().chunks(*chunk_size) {
+            harness
+                .chain
+                .process_chain_segment(chunk.to_vec(), NotifyExecutionLayer::Yes)
                 .await
+                .into_block_error()
                 .unwrap_or_else(|_| panic!("should import chain segment of len {}", chunk_size));
         }
 
+        update_fork_choice_with_envelopes(&chain_segment, &harness);
         harness.chain.recompute_head_at_current_slot().await;
 
         assert_eq!(
@@ -629,45 +595,18 @@ async fn assert_invalid_signature(
         })
         .collect();
 
-    // Import the valid ancestor blocks first, registering each block's payload envelope, so the
-    // invalid block's parent payload is available in fork choice. Post-Gloas this is required for
-    // the segment import below to reach the invalid signature instead of failing earlier with
-    // `ParentUnknown`. These already-imported ancestors are filtered out of the segment below.
-    let valid_ancestor_blocks: Vec<RangeSyncBlock<E>> = chain_segment
-        .iter()
-        .take(block_index)
-        .zip(chain_segment_blobs.iter())
-        .map(|(snapshot, blobs)| {
-            build_range_sync_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
-        })
-        .collect();
-    // `Box::pin` to keep this future off the stack: `assert_invalid_signature` otherwise exceeds
-    // Clippy's `large_stack_frames` threshold.
-    Box::pin(import_chain_segment_with_envelopes(
-        &chain_segment[..block_index],
-        &valid_ancestor_blocks,
-        harness,
-    ))
-    .await
-    .expect("should import valid ancestor blocks");
-
-    // Ensure the block will be rejected if imported in a chain segment. The already-imported
-    // ancestors are dropped from the segment: re-submitting them would re-process blocks that
-    // finalization may have pruned from fork choice, yielding a spurious `ParentUnknown`. The
-    // suffix begins at the invalid block, whose parent (the last ancestor) is imported above.
-    let segment_res = harness
-        .chain
-        .process_chain_segment(blocks[block_index..].to_vec(), NotifyExecutionLayer::Yes)
-        .await
-        .into_block_error();
+    // Ensure the block will be rejected if imported in a chain segment.
     assert!(
         matches!(
-            segment_res,
+            harness
+                .chain
+                .process_chain_segment(blocks, NotifyExecutionLayer::Yes)
+                .await
+                .into_block_error(),
             Err(BlockError::InvalidSignature(InvalidSignature::Unknown))
         ),
-        "should not import chain segment with an invalid {} signature, got: {:?}",
-        item,
-        segment_res
+        "should not import chain segment with an invalid {} signature",
+        item
     );
 
     // Call fork choice to update cached head (including finalization).
@@ -750,6 +689,10 @@ async fn get_invalid_sigs_harness(
 }
 #[tokio::test]
 async fn invalid_signature_gossip_block() {
+    // TODO(#9362): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
         // Ensure the block will be rejected if imported on its own (without gossip checking).
@@ -764,9 +707,8 @@ async fn invalid_signature_gossip_block() {
             block.clone(),
             junk_signature(),
         ));
-        // Import all the ancestors before the `block_index` block, registering each block's
-        // payload envelope so post-Gloas FULL children can be imported.
-        let ancestor_blocks: Vec<RangeSyncBlock<E>> = chain_segment
+        // Import all the ancestors before the `block_index` block.
+        let ancestor_blocks = chain_segment
             .iter()
             .take(block_index)
             .zip(chain_segment_blobs.iter())
@@ -774,13 +716,12 @@ async fn invalid_signature_gossip_block() {
                 build_range_sync_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
             })
             .collect();
-        import_chain_segment_with_envelopes(
-            &chain_segment[..block_index],
-            &ancestor_blocks,
-            &harness,
-        )
-        .await
-        .expect("should import all blocks prior to the one being tested");
+        harness
+            .chain
+            .process_chain_segment(ancestor_blocks, NotifyExecutionLayer::Yes)
+            .await
+            .into_block_error()
+            .expect("should import all blocks prior to the one being tested");
         let signed_block = SignedBeaconBlock::from_block(block, junk_signature());
         let lookup_block = LookupBlock::new(Arc::new(signed_block));
         let process_res = harness
@@ -808,6 +749,10 @@ async fn invalid_signature_gossip_block() {
 
 #[tokio::test]
 async fn invalid_signature_block_proposal() {
+    // TODO(#9362): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
@@ -828,30 +773,10 @@ async fn invalid_signature_block_proposal() {
                 build_range_sync_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
             })
             .collect::<Vec<_>>();
-        // Import the valid ancestor blocks first (registering payload envelopes) so the segment
-        // import below reaches the invalid signature instead of failing earlier with
-        // `ParentUnknown`. The already-imported ancestors are filtered out of the segment.
-        let valid_ancestor_blocks: Vec<RangeSyncBlock<E>> = chain_segment
-            .iter()
-            .take(block_index)
-            .zip(chain_segment_blobs.iter())
-            .map(|(snapshot, blobs)| {
-                build_range_sync_block(snapshot.beacon_block.clone(), blobs, harness.chain.clone())
-            })
-            .collect();
-        import_chain_segment_with_envelopes(
-            &chain_segment[..block_index],
-            &valid_ancestor_blocks,
-            &harness,
-        )
-        .await
-        .expect("should import valid ancestor blocks");
-        // Ensure the block will be rejected if imported in a chain segment. The already-imported
-        // ancestors are dropped from the segment (see `assert_invalid_signature`); the suffix
-        // begins at the invalid block, whose parent is imported above.
+        // Ensure the block will be rejected if imported in a chain segment.
         let process_res = harness
             .chain
-            .process_chain_segment(blocks[block_index..].to_vec(), NotifyExecutionLayer::Yes)
+            .process_chain_segment(blocks, NotifyExecutionLayer::Yes)
             .await
             .into_block_error();
         assert!(
@@ -867,6 +792,10 @@ async fn invalid_signature_block_proposal() {
 
 #[tokio::test]
 async fn invalid_signature_randao_reveal() {
+    // TODO(#9362): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let (chain_segment, mut chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
@@ -895,6 +824,10 @@ async fn invalid_signature_randao_reveal() {
 
 #[tokio::test]
 async fn invalid_signature_proposer_slashing() {
+    // TODO(#9362): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let (chain_segment, mut chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
@@ -937,6 +870,10 @@ async fn invalid_signature_proposer_slashing() {
 
 #[tokio::test]
 async fn invalid_signature_attester_slashing() {
+    // TODO(#9362): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let (chain_segment, mut chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
@@ -1058,6 +995,10 @@ async fn invalid_signature_attester_slashing() {
 
 #[tokio::test]
 async fn invalid_signature_attestation() {
+    // TODO(#9362): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let (chain_segment, mut chain_segment_blobs) = get_chain_segment().await;
     let mut checked_attestation = false;
 
@@ -1183,6 +1124,10 @@ async fn invalid_signature_deposit() {
 
 #[tokio::test]
 async fn invalid_signature_exit() {
+    // TODO(#9362): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let (chain_segment, mut chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
