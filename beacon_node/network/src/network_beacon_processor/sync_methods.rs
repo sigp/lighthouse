@@ -367,7 +367,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     )
                     .await
             }
-            Err(e) => Err(e),
+            Err(e) => Err(BlockError::EnvelopeError(Box::new(e))),
         };
 
         // TODO(gloas): structured penalty classification arrives with the envelope lookup state
@@ -1024,6 +1024,10 @@ impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingR
                         } else {
                             None
                         }
+                    }
+                    BlockError::EnvelopeError(_) => {
+                        // TODO(gloas): penalize correctly in range sync PR
+                        None
                     }
                     // Remaining invalid blocks: penalize the block peer. Listed explicitly so a
                     // new `BlockError` variant forces a compile error here.

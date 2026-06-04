@@ -59,6 +59,7 @@ use crate::execution_payload::{
 };
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_block_producers::SeenBlock;
+use crate::payload_envelope_verification::EnvelopeError;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
@@ -122,7 +123,9 @@ pub enum BlockError {
     ///
     /// It's unclear if this block is valid, but it cannot be processed without already knowing
     /// its parent.
-    ParentUnknown { parent_root: Hash256 },
+    ParentUnknown {
+        parent_root: Hash256,
+    },
     /// The block slot is greater than the present slot.
     ///
     /// ## Peer scoring
@@ -137,7 +140,10 @@ pub enum BlockError {
     /// ## Peer scoring
     ///
     /// The peer has incompatible state transition logic and is faulty.
-    StateRootMismatch { block: Hash256, local: Hash256 },
+    StateRootMismatch {
+        block: Hash256,
+        local: Hash256,
+    },
     /// The block was a genesis block, these blocks cannot be re-imported.
     GenesisBlock,
     /// The slot is finalized, no need to import.
@@ -156,7 +162,9 @@ pub enum BlockError {
     ///
     /// It's unclear if this block is valid, but it conflicts with finality and shouldn't be
     /// imported.
-    NotFinalizedDescendant { block_parent_root: Hash256 },
+    NotFinalizedDescendant {
+        block_parent_root: Hash256,
+    },
     /// Block is already known and valid, no need to re-import.
     ///
     /// ## Peer scoring
@@ -183,7 +191,10 @@ pub enum BlockError {
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty.
-    IncorrectBlockProposer { block: u64, local_shuffling: u64 },
+    IncorrectBlockProposer {
+        block: u64,
+        local_shuffling: u64,
+    },
     /// The `block.proposal_index` is not known.
     ///
     /// ## Peer scoring
@@ -201,7 +212,10 @@ pub enum BlockError {
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty.
-    BlockIsNotLaterThanParent { block_slot: Slot, parent_slot: Slot },
+    BlockIsNotLaterThanParent {
+        block_slot: Slot,
+        parent_slot: Slot,
+    },
     /// At least one block in the chain segment did not have it's parent root set to the root of
     /// the prior block.
     ///
@@ -257,7 +271,9 @@ pub enum BlockError {
     /// If it's actually our fault (e.g. our execution node database is corrupt) we have bigger
     /// problems to worry about than losing peers, and we're doing the network a favour by
     /// disconnecting.
-    ParentExecutionPayloadInvalid { parent_root: Hash256 },
+    ParentExecutionPayloadInvalid {
+        parent_root: Hash256,
+    },
     /// This is a known invalid block that was listed in Lighthouses configuration.
     /// At the moment this error is only relevant as part of the Holesky network recovery efforts.
     KnownInvalidExecutionPayload(Hash256),
@@ -288,7 +304,9 @@ pub enum BlockError {
     /// The payload envelope's block root is unknown.
     EnvelopeBlockRootUnknown(Hash256),
     /// Optimistic sync is not supported for Gloas payload envelopes.
-    OptimisticSyncNotSupported { block_root: Hash256 },
+    OptimisticSyncNotSupported {
+        block_root: Hash256,
+    },
     /// An internal error has occurred when processing the block or sidecars.
     ///
     /// ## Peer scoring
@@ -315,6 +333,7 @@ pub enum BlockError {
         bid_parent_root: Hash256,
         block_parent_root: Hash256,
     },
+    EnvelopeError(Box<EnvelopeError>),
 }
 
 /// Which specific signature(s) are invalid in a SignedBeaconBlock

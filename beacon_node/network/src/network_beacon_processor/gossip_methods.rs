@@ -1654,6 +1654,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 crit!(error = %e, "Internal block gossip validation error. Availability check during gossip validation");
                 return None;
             }
+            // This error variant cannot be reached from gossip processing as there is no envelope
+            // to check within a block.
+            // TODO(pawan): check this is true
+            Err(e @ BlockError::EnvelopeError(_)) => {
+                crit!(error = %e, "Internal block gossip validation error. Envelope error during gossip validation");
+                return None;
+            }
             Err(e @ BlockError::InternalError(_))
             | Err(e @ BlockError::EnvelopeBlockRootUnknown(_))
             | Err(e @ BlockError::OptimisticSyncNotSupported { .. }) => {
@@ -3747,8 +3754,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                     EnvelopeError::PriorToFinalization { .. }
                     | EnvelopeError::BeaconChainError(_)
-                    | EnvelopeError::BeaconStateError(_)
-                    | EnvelopeError::ImportError(_) => {
+                    | EnvelopeError::BeaconStateError(_) => {
                         self.propagate_validation_result(
                             message_id,
                             peer_id,

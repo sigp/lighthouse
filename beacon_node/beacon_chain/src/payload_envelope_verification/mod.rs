@@ -155,15 +155,13 @@ pub enum EnvelopeError {
         latest_finalized_slot: Slot,
     },
     /// Some Beacon Chain Error
-    BeaconChainError(Arc<BeaconChainError>),
+    BeaconChainError(Box<BeaconChainError>),
     /// Some Beacon State error
     BeaconStateError(BeaconStateError),
     /// Some EnvelopeProcessingError
     EnvelopeProcessingError(EnvelopeProcessingError),
     /// Error verifying the execution payload
     ExecutionPayloadError(ExecutionPayloadError),
-    /// An error from importing the envelope.
-    ImportError(BlockError),
 }
 
 impl std::fmt::Display for EnvelopeError {
@@ -174,7 +172,7 @@ impl std::fmt::Display for EnvelopeError {
 
 impl From<BeaconChainError> for EnvelopeError {
     fn from(e: BeaconChainError) -> Self {
-        EnvelopeError::BeaconChainError(Arc::new(e))
+        EnvelopeError::BeaconChainError(Box::new(e))
     }
 }
 
@@ -192,7 +190,13 @@ impl From<BeaconStateError> for EnvelopeError {
 
 impl From<DBError> for EnvelopeError {
     fn from(e: DBError) -> Self {
-        EnvelopeError::BeaconChainError(Arc::new(BeaconChainError::DBError(e)))
+        EnvelopeError::BeaconChainError(Box::new(BeaconChainError::DBError(e)))
+    }
+}
+
+impl From<EnvelopeError> for BlockError {
+    fn from(e: EnvelopeError) -> Self {
+        BlockError::EnvelopeError(Box::new(e))
     }
 }
 

@@ -31,8 +31,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
 
             match notify_execution_layer {
                 NotifyExecutionLayer::No if chain.config.optimistic_finalized_sync => {
-                    let new_payload_request = Self::build_new_payload_request(&envelope, &block)
-                        .map_err(EnvelopeError::ImportError)?;
+                    let new_payload_request = Self::build_new_payload_request(&envelope, &block)?;
                     // TODO(gloas): check and test RLP block hash calculation post-Gloas
                     if let Err(e) = new_payload_request.perform_optimistic_sync_verifications() {
                         warn!(
@@ -63,7 +62,8 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
             Ok(precomputed_status)
         } else {
             let parent_root = self.block.message().parent_root();
-            let request = Self::build_new_payload_request(&self.envelope, &self.block)?;
+            let request = Self::build_new_payload_request(&self.envelope, &self.block)
+                .map_err(|e| BlockError::EnvelopeError(Box::new(e)))?;
             notify_new_payload(&self.chain, self.envelope.slot(), parent_root, request).await
         }
     }
@@ -71,12 +71,12 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
     fn build_new_payload_request<'a>(
         envelope: &'a SignedExecutionPayloadEnvelope<T::EthSpec>,
         block: &'a SignedBeaconBlock<T::EthSpec>,
-    ) -> Result<NewPayloadRequest<'a, T::EthSpec>, BlockError> {
+    ) -> Result<NewPayloadRequest<'a, T::EthSpec>, EnvelopeError> {
         let bid = &block
             .message()
             .body()
             .signed_execution_payload_bid()
-            .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?
+            .map_err(|e| EnvelopeError::BeaconChainError(Box::new(e.into())))?
             .message;
 
         let versioned_hashes = bid

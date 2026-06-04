@@ -41,7 +41,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         notify_execution_layer: NotifyExecutionLayer,
         envelope_source: BlockImportSource,
         publish_fn: impl FnOnce() -> Result<(), EnvelopeError>,
-    ) -> Result<AvailabilityProcessingStatus, EnvelopeError> {
+    ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let block_slot = unverified_envelope.signed_envelope.slot();
 
         // Set observed time if not already set. Usually this should be set by gossip or RPC,
@@ -85,10 +85,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .into_executed_payload_envelope(execution_pending)
                 .await
                 .map_err(|error| match error {
-                    BlockError::ExecutionPayloadError(error) => {
-                        EnvelopeError::ExecutionPayloadError(error)
-                    }
-                    error => EnvelopeError::ImportError(error),
+                    BlockError::ExecutionPayloadError(error) => BlockError::EnvelopeError(
+                        Box::new(EnvelopeError::ExecutionPayloadError(error)),
+                    ),
+                    error => error,
                 })?;
 
             // Record the time it took to wait for execution layer verification.
@@ -100,7 +100,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             self.check_envelope_availability_and_import(executed_envelope)
                 .await
-                .map_err(EnvelopeError::ImportError)
         };
 
         // Verify and import the payload envelope.
@@ -128,28 +127,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 Ok(status)
             }
-            Err(EnvelopeError::BeaconChainError(e)) => {
-                if matches!(e.as_ref(), BeaconChainError::TokioJoin(_)) {
-                    debug!(error = ?e, "Envelope processing cancelled");
-                } else {
-                    warn!(error = ?e, "Execution payload envelope rejected");
-                }
-                Err(EnvelopeError::BeaconChainError(e))
-            }
-            Err(EnvelopeError::ImportError(BlockError::BeaconChainError(e))) => {
-                if matches!(e.as_ref(), BeaconChainError::TokioJoin(_)) {
-                    debug!(error = ?e, "Envelope processing cancelled");
-                } else {
-                    warn!(error = ?e, "Execution payload envelope rejected");
-                }
-                Err(EnvelopeError::ImportError(BlockError::BeaconChainError(e)))
-            }
-            Err(other) => {
+            Err(err) => {
                 warn!(
-                    reason = other.to_string(),
+                    reason = err.to_string(),
                     "Execution payload envelope rejected"
                 );
-                Err(other)
+                Err(err)
             }
         }
     }
