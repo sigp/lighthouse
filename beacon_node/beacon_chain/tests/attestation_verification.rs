@@ -1654,6 +1654,7 @@ async fn attestation_verification_use_head_state_fork() {
                 MakeAttestationOptions {
                     fork: capella_fork,
                     limit: None,
+                    payload_present_override: None,
                 },
             )
             .0
@@ -1685,6 +1686,7 @@ async fn attestation_verification_use_head_state_fork() {
                 MakeAttestationOptions {
                     fork: bellatrix_fork,
                     limit: None,
+                    payload_present_override: None,
                 },
             )
             .0
@@ -1759,6 +1761,7 @@ async fn aggregated_attestation_verification_use_head_state_fork() {
                 MakeAttestationOptions {
                     fork: capella_fork,
                     limit: None,
+                    payload_present_override: None,
                 },
             )
             .0
@@ -1786,6 +1789,7 @@ async fn aggregated_attestation_verification_use_head_state_fork() {
                 MakeAttestationOptions {
                     fork: bellatrix_fork,
                     limit: None,
+                    payload_present_override: None,
                 },
             )
             .0

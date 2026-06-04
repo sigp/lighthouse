@@ -1,3 +1,4 @@
+use crate::sync::block_lookups::DownloadResult;
 use crate::sync::network_context::{
     DataColumnsByRootRequestId, DataColumnsByRootSingleBlockRequest,
 };
@@ -56,8 +57,7 @@ struct ActiveBatchColumnsRequest {
     span: Span,
 }
 
-pub type CustodyRequestResult<E> =
-    Result<Option<(DataColumnSidecarList<E>, PeerGroup, Duration)>, Error>;
+pub type CustodyRequestResult<E> = Result<Option<DownloadResult<DataColumnSidecarList<E>>>, Error>;
 
 impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
     pub(crate) fn new(
@@ -227,7 +227,11 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                 .into_iter()
                 .max()
                 .unwrap_or_else(|| cx.chain.slot_clock.now_duration().unwrap_or_default());
-            return Ok(Some((columns, peer_group, max_seen_timestamp)));
+            return Ok(Some(DownloadResult::new(
+                columns,
+                peer_group,
+                max_seen_timestamp,
+            )));
         }
 
         let active_request_count_by_peer = cx.active_request_count_by_peer();
@@ -343,7 +347,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                         },
                     );
                 }
-                LookupRequestResult::NoRequestNeeded(_) => unreachable!(),
+                LookupRequestResult::NoRequestNeeded(..) => unreachable!(),
                 LookupRequestResult::Pending(_) => unreachable!(),
             }
         }
