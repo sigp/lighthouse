@@ -83,13 +83,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // about what the function actually does.
             let executed_envelope = chain
                 .into_executed_payload_envelope(execution_pending)
-                .await
-                .map_err(|error| match error {
-                    BlockError::ExecutionPayloadError(error) => BlockError::EnvelopeError(
-                        Box::new(EnvelopeError::ExecutionPayloadError(error)),
-                    ),
-                    error => error,
-                })?;
+                .await?;
 
             // Record the time it took to wait for execution layer verification.
             if let Some(timestamp) = slot_clock.now_duration() {
@@ -158,7 +152,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     async fn into_executed_payload_envelope(
         self: Arc<Self>,
         pending_envelope: ExecutionPendingEnvelope<T::EthSpec>,
-    ) -> Result<AvailabilityPendingExecutedEnvelope<T::EthSpec>, BlockError> {
+    ) -> Result<AvailabilityPendingExecutedEnvelope<T::EthSpec>, EnvelopeError> {
         let ExecutionPendingEnvelope {
             signed_envelope,
             block_root,
@@ -175,7 +169,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .payload_verification_status
             .is_optimistic()
         {
-            return Err(BlockError::OptimisticSyncNotSupported { block_root });
+            return Err(EnvelopeError::OptimisticSyncNotSupported { block_root });
         }
 
         Ok(AvailabilityPendingExecutedEnvelope::new(

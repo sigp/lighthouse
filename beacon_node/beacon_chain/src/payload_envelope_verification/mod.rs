@@ -162,6 +162,8 @@ pub enum EnvelopeError {
     EnvelopeProcessingError(EnvelopeProcessingError),
     /// Error verifying the execution payload
     ExecutionPayloadError(ExecutionPayloadError),
+    /// Optimistic sync is not supported for Gloas payload envelopes.
+    OptimisticSyncNotSupported { block_root: Hash256 },
 }
 
 impl std::fmt::Display for EnvelopeError {

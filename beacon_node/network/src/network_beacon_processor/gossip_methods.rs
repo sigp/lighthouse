@@ -1654,16 +1654,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 crit!(error = %e, "Internal block gossip validation error. Availability check during gossip validation");
                 return None;
             }
-            // This error variant cannot be reached from gossip processing as there is no envelope
-            // to check within a block.
-            // TODO(pawan): check this is true
+            // This error variant cannot be reached when doing gossip block validation: a block has
+            // no envelope to verify, and `BlockError::EnvelopeError` is only ever produced by the
+            // envelope import pipeline.
             Err(e @ BlockError::EnvelopeError(_)) => {
                 crit!(error = %e, "Internal block gossip validation error. Envelope error during gossip validation");
                 return None;
             }
             Err(e @ BlockError::InternalError(_))
-            | Err(e @ BlockError::EnvelopeBlockRootUnknown(_))
-            | Err(e @ BlockError::OptimisticSyncNotSupported { .. }) => {
+            | Err(e @ BlockError::EnvelopeBlockRootUnknown(_)) => {
                 error!(error = %e, "Internal block gossip validation error");
                 return None;
             }
@@ -3754,7 +3753,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                     EnvelopeError::PriorToFinalization { .. }
                     | EnvelopeError::BeaconChainError(_)
-                    | EnvelopeError::BeaconStateError(_) => {
+                    | EnvelopeError::BeaconStateError(_)
+                    // `OptimisticSyncNotSupported` is produced during envelope import, not gossip
+                    // verification, so it cannot be reached here. Ignore it to be safe.
+                    | EnvelopeError::OptimisticSyncNotSupported { .. } => {
                         self.propagate_validation_result(
                             message_id,
                             peer_id,

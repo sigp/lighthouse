@@ -303,10 +303,6 @@ pub enum BlockError {
     AvailabilityCheck(AvailabilityCheckError),
     /// The payload envelope's block root is unknown.
     EnvelopeBlockRootUnknown(Hash256),
-    /// Optimistic sync is not supported for Gloas payload envelopes.
-    OptimisticSyncNotSupported {
-        block_root: Hash256,
-    },
     /// An internal error has occurred when processing the block or sidecars.
     ///
     /// ## Peer scoring
