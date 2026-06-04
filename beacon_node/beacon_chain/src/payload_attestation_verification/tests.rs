@@ -16,7 +16,10 @@ use crate::{
             GossipVerificationContext, VerifiedPayloadAttestationMessage,
         },
     },
-    test_utils::{BeaconChainHarness, EphemeralHarnessType, fork_name_from_env, test_spec},
+    test_utils::{
+        BeaconChainHarness, EphemeralHarnessType, MakePayloadAttestationOptions,
+        PayloadAttestationVote, fork_name_from_env, test_spec,
+    },
 };
 
 type E = MinimalEthSpec;
@@ -269,6 +272,73 @@ fn duplicate_after_valid() {
         result2,
         Err(PayloadAttestationError::PriorPayloadAttestationMessageKnown { .. })
     ));
+}
+
+#[test]
+fn harness_builds_and_imports_payload_attestation_messages() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let slot = Slot::new(1);
+    let state = &ctx.harness.chain.head_snapshot().beacon_state;
+    let votes = vec![
+        PayloadAttestationVote {
+            validator_count: 2,
+            payload_present: true,
+            blob_data_available: true,
+        },
+        PayloadAttestationVote {
+            validator_count: 3,
+            payload_present: false,
+            blob_data_available: false,
+        },
+    ];
+
+    let (messages, attesters) = ctx.harness.make_payload_attestation_messages_with_opts(
+        &ctx.harness.get_all_validators(),
+        state,
+        ctx.genesis_block_root,
+        slot,
+        MakePayloadAttestationOptions {
+            votes,
+            fork: state.fork(),
+        },
+    );
+
+    assert_eq!(messages.len(), 5);
+    assert_eq!(attesters.len(), 5);
+    assert_eq!(
+        attesters
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        5
+    );
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|message| message.data.payload_present && message.data.blob_data_available)
+            .count(),
+        2
+    );
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|message| !message.data.payload_present && !message.data.blob_data_available)
+            .count(),
+        3
+    );
+
+    let pool_count_before = ctx.harness.chain.op_pool.num_payload_attestation_messages();
+    ctx.harness
+        .import_payload_attestation_messages(messages)
+        .expect("payload attestation messages should import");
+    assert_eq!(
+        ctx.harness.chain.op_pool.num_payload_attestation_messages(),
+        pool_count_before + 5
+    );
 }
 
 #[tokio::test]
