@@ -42,6 +42,7 @@ use logging::create_test_tracing_subscriber;
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
 use parking_lot::{Mutex, RwLockWriteGuard};
+use proto_array::PayloadStatus;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -1190,8 +1191,32 @@ where
     /// For pre-Gloas forks, the envelope is `None` and this behaves like `make_block`.
     pub async fn make_block_with_envelope(
         &self,
+        state: BeaconState<E>,
+        slot: Slot,
+    ) -> (
+        SignedBlockContentsTuple<E>,
+        Option<SignedExecutionPayloadEnvelope<E>>,
+        BeaconState<E>,
+    ) {
+        let parent_payload_status = self
+            .chain
+            .canonical_head
+            .cached_head()
+            .head_payload_status();
+        self.make_block_with_envelope_on(state, slot, parent_payload_status)
+            .await
+    }
+
+    /// Returns a newly created block built with the given parent payload status,
+    /// signed by the proposer for the given slot, along with the execution
+    /// payload envelope (for Gloas) and the post-block state.
+    ///
+    /// For pre-Gloas forks, the envelope is `None` and this behaves like `make_block`.
+    pub async fn make_block_with_envelope_on(
+        &self,
         mut state: BeaconState<E>,
         slot: Slot,
+        parent_payload_status: PayloadStatus,
     ) -> (
         SignedBlockContentsTuple<E>,
         Option<SignedExecutionPayloadEnvelope<E>>,
@@ -1214,15 +1239,21 @@ where
                 GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
             let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
-            // Load the parent's payload envelope and status from the cached head.
-            // TODO(gloas): we may want to pass these as arguments to support cases where we build
-            // on alternate chains to the head.
-            let (parent_payload_status, parent_envelope) = {
-                let head = self.chain.canonical_head.cached_head();
-                (
-                    head.head_payload_status(),
-                    head.snapshot.execution_envelope.clone(),
-                )
+            let parent_envelope = if parent_payload_status == PayloadStatus::Full {
+                let parent_root = if state.slot() > 0 {
+                    *state
+                        .get_block_root(state.slot() - 1)
+                        .expect("should get parent block root")
+                } else {
+                    state.latest_block_header().canonical_root()
+                };
+                self.chain
+                    .store
+                    .get_payload_envelope(&parent_root)
+                    .expect("should load parent payload envelope")
+                    .map(Arc::new)
+            } else {
+                None
             };
 
             let (block, post_block_state, _consensus_block_value) = self
@@ -2319,11 +2350,11 @@ where
                 verified.indexed_payload_attestation(),
                 verified.ptc(),
             )
-            .map_err(PayloadAttestationImportError::ForkChoice)?;
+            .map_err(|e| PayloadAttestationImportError::ForkChoice(Box::new(e)))?;
 
         self.chain
             .add_payload_attestation_to_pool(&verified)
-            .map_err(PayloadAttestationImportError::Pool)?;
+            .map_err(|e| PayloadAttestationImportError::Pool(Box::new(e)))?;
 
         Ok(())
     }
@@ -3978,8 +4009,8 @@ pub struct MakePayloadAttestationOptions {
 #[derive(Debug)]
 pub enum PayloadAttestationImportError {
     Verification(crate::payload_attestation_verification::Error),
-    ForkChoice(BeaconChainError),
-    Pool(BeaconChainError),
+    ForkChoice(Box<BeaconChainError>),
+    Pool(Box<BeaconChainError>),
 }
 
 pub enum NumBlobs {

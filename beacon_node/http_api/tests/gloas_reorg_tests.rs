@@ -98,6 +98,8 @@ pub struct ReOrgTest {
     percent_skip_full_votes: usize,
     /// Fraction of B's committee that votes for B (always with payload_present=0).
     percent_head_votes: usize,
+    /// Parent payload status of block B.
+    head_parent_payload_status: PayloadStatus,
     /// Fraction of A's PTC that vote for A's payload being present.
     percent_parent_ptc_present_votes: usize,
     /// Fraction of A's PTC that vote for A's payload being absent.
@@ -125,6 +127,7 @@ impl Default for ReOrgTest {
             percent_skip_empty_votes: 0,
             percent_skip_full_votes: 100,
             percent_head_votes: 0,
+            head_parent_payload_status: PayloadStatus::Full,
             percent_parent_ptc_present_votes: 100,
             percent_parent_ptc_absent_votes: 0,
             expected_parent_payload_status: PayloadStatus::Full,
@@ -211,6 +214,7 @@ pub async fn proposer_boost_re_org_test(
         percent_skip_empty_votes,
         percent_skip_full_votes,
         percent_head_votes,
+        head_parent_payload_status,
         percent_parent_ptc_present_votes,
         percent_parent_ptc_absent_votes,
         expected_parent_payload_status,
@@ -250,9 +254,11 @@ pub async fn proposer_boost_re_org_test(
     // We must configure the prepare payload lookahead so it scales with the minimal config,
     // otherwise the late block reveal for A halfway through the slot can end up being *after*
     // the payload lookahead, which messes up our measurement of timings.
-    let mut chain_config = ChainConfig::default();
-    chain_config.prepare_payload_lookahead =
-        spec.get_slot_duration() / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR;
+    let chain_config = ChainConfig {
+        prepare_payload_lookahead: spec.get_slot_duration()
+            / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
+        ..Default::default()
+    };
 
     let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
         Some(spec),
@@ -454,10 +460,16 @@ pub async fn proposer_boost_re_org_test(
         .fork_name_at_slot::<E>(slot_b)
         .gloas_enabled();
     let reveal_block_b_payload = is_gloas && !should_re_org;
-    let (block_b, block_b_envelope, mut state_b) = if reveal_block_b_payload {
-        harness
-            .make_block_with_envelope(state_a.clone(), slot_b)
-            .await
+    let (block_b, block_b_envelope, mut state_b) = if is_gloas {
+        let (block_b, block_b_envelope, state_b) = harness
+            .make_block_with_envelope_on(state_a.clone(), slot_b, head_parent_payload_status)
+            .await;
+        let block_b_envelope = if reveal_block_b_payload {
+            block_b_envelope
+        } else {
+            None
+        };
+        (block_b, block_b_envelope, state_b)
     } else {
         let (block_b, state_b) = harness.make_block(state_a.clone(), slot_b).await;
         (block_b, None, state_b)
@@ -594,6 +606,13 @@ pub async fn proposer_boost_re_org_test(
 
     let block_a_exec_hash = exec_block_hash(block_a.0.message());
     let block_b_exec_hash = exec_block_hash(block_b.0.message());
+
+    if is_gloas {
+        assert_eq!(
+            block_b.0.is_parent_block_full(block_a_exec_hash),
+            head_parent_payload_status == PayloadStatus::Full
+        );
+    }
 
     if should_re_org {
         // Block C should build on A.
