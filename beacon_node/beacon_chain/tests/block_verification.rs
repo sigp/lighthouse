@@ -359,7 +359,7 @@ fn update_data_column_signed_header<E: EthSpec>(
 
 #[tokio::test]
 async fn chain_segment_full_segment() {
-    // TODO(#9362): re-enable for Gloas once range sync imports payload envelopes. A multi-block
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes. A multi-block
     // segment of consecutive FULL Gloas blocks can't be imported by `process_chain_segment` until
     // it imports payload envelopes alongside blocks.
     if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
@@ -405,7 +405,7 @@ async fn chain_segment_full_segment() {
 
 #[tokio::test]
 async fn chain_segment_varying_chunk_size() {
-    // TODO(#9362): re-enable for Gloas once range sync imports payload envelopes.
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
     if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
@@ -689,7 +689,7 @@ async fn get_invalid_sigs_harness(
 }
 #[tokio::test]
 async fn invalid_signature_gossip_block() {
-    // TODO(#9362): re-enable for Gloas once range sync imports payload envelopes.
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
     if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
@@ -749,7 +749,7 @@ async fn invalid_signature_gossip_block() {
 
 #[tokio::test]
 async fn invalid_signature_block_proposal() {
-    // TODO(#9362): re-enable for Gloas once range sync imports payload envelopes.
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
     if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
@@ -792,7 +792,7 @@ async fn invalid_signature_block_proposal() {
 
 #[tokio::test]
 async fn invalid_signature_randao_reveal() {
-    // TODO(#9362): re-enable for Gloas once range sync imports payload envelopes.
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
     if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
@@ -824,7 +824,7 @@ async fn invalid_signature_randao_reveal() {
 
 #[tokio::test]
 async fn invalid_signature_proposer_slashing() {
-    // TODO(#9362): re-enable for Gloas once range sync imports payload envelopes.
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
     if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
@@ -870,7 +870,7 @@ async fn invalid_signature_proposer_slashing() {
 
 #[tokio::test]
 async fn invalid_signature_attester_slashing() {
-    // TODO(#9362): re-enable for Gloas once range sync imports payload envelopes.
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
     if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
@@ -995,7 +995,7 @@ async fn invalid_signature_attester_slashing() {
 
 #[tokio::test]
 async fn invalid_signature_attestation() {
-    // TODO(#9362): re-enable for Gloas once range sync imports payload envelopes.
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
     if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
@@ -1124,7 +1124,7 @@ async fn invalid_signature_deposit() {
 
 #[tokio::test]
 async fn invalid_signature_exit() {
-    // TODO(#9362): re-enable for Gloas once range sync imports payload envelopes.
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
     if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }

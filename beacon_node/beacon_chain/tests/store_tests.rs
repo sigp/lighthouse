@@ -3195,7 +3195,7 @@ async fn weak_subjectivity_sync_test(
             .await
             .unwrap();
 
-        // Placeholder until range sync imports payload envelopes (#9362): persist the envelope so
+        // TODO(gloas): persist the envelope so
         // the block can be reconstructed for cold-storage migration, and mark the payload received
         // in fork choice so the next (FULL) block can be imported.
         if let Some(envelope) = &snapshot.execution_envelope {
