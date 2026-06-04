@@ -178,8 +178,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         peer_id: PeerId,
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
-        let parent_lookup_exists =
-            self.search_parent_of_child(parent_root, parent_block_hash, block_root, &[peer_id], cx);
+        let parent_lookup_exists = self.search_parent_of_child(
+            parent_root,
+            &PeerType::new(parent_block_hash),
+            block_root,
+            &[peer_id],
+            cx,
+        );
         // Only create the child lookup if the parent exists
         if parent_lookup_exists {
             // `search_parent_of_child` ensures that the parent lookup exists so we can safely wait for it
@@ -190,10 +195,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // On a `UnknownParentBlock` or `UnknownParentSidecarHeader` event the peer is not
                 // required to have the rest of the block components. Create the lookup with zero
                 // peers to house the block components. We don't know the child's fork yet, so use
-                // `PreGloas` conservatively; the correct peer set is established when the child's
+                // `Block` conservatively; the correct peer set is established when the child's
                 // block downloads and its FULL children begin attesting.
                 &[],
-                &PeerType::PreGloas,
+                &PeerType::Block,
                 cx,
             )
         } else {
@@ -211,7 +216,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         peer_source: &[PeerId],
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
-        self.new_current_lookup(block_root, None, None, peer_source, &PeerType::PreGloas, cx)
+        self.new_current_lookup(block_root, None, None, peer_source, &PeerType::Block, cx)
     }
 
     /// A block or blob triggers the search of a parent.
@@ -224,17 +229,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn search_parent_of_child(
         &mut self,
         block_root_to_search: Hash256,
-        // Post-Gloas only: the child's bid `parent_block_hash` (the parent's execution hash). Peers
-        // that imported the FULL child can serve the parent's payload envelope and data columns.
-        parent_block_hash: Option<ExecutionBlockHash>,
+        // Classifies `peers` relative to the parent being searched: `GloasChild` when they imported
+        // the FULL child (and so can serve the parent's payload envelope and data columns), else
+        // `Block`.
+        peer_type: &PeerType,
         child_block_root_trigger: Hash256,
         peers: &[PeerId],
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
-        let peer_type = match parent_block_hash {
-            Some(execution_hash) => PeerType::PostGloas(execution_hash),
-            None => PeerType::PreGloas,
-        };
         let parent_chains = self.active_parent_lookups();
 
         for (chain_idx, parent_chain) in parent_chains.iter().enumerate() {
@@ -323,7 +325,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
 
         // `block_root_to_search` is a failed chain check happens inside new_current_lookup
-        self.new_current_lookup(block_root_to_search, None, None, peers, &peer_type, cx)
+        self.new_current_lookup(block_root_to_search, None, None, peers, peer_type, cx)
     }
 
     /// Searches for a single block hash. If the blocks parent is unknown, a chain of blocks is
@@ -622,7 +624,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }) => {
                 if self.search_parent_of_child(
                     parent_root,
-                    parent_block_hash,
+                    &PeerType::new(parent_block_hash),
                     block_root,
                     &peers,
                     cx,

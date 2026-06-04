@@ -1227,17 +1227,9 @@ mod tests {
 
     #[test]
     fn request_batches_should_not_loop_infinitely() {
-        // Backfill sync doesn't yet support Gloas (the harness can't build a Gloas interop genesis
-        // here); skip under a Gloas genesis. TODO(gloas): support backfill sync.
-        if beacon_chain::test_utils::test_spec::<MinimalEthSpec>()
-            .fork_name_at_epoch(Epoch::new(0))
-            .gloas_enabled()
-        {
-            return;
-        }
         let harness = BeaconChainHarness::builder(MinimalEthSpec)
             .default_spec()
-            .deterministic_keypairs(4)
+            .deterministic_keypairs(8)
             .fresh_ephemeral_store()
             .build();
 

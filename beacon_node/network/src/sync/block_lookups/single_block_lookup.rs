@@ -149,12 +149,22 @@ impl<E: EthSpec> PayloadRequest<E> {
 
 /// Classifies how a peer relates to a lookup, controlling which peer set it is added to.
 pub enum PeerType {
-    /// Pre-Gloas: the peer can serve the block and its data columns.
-    PreGloas,
-    /// Post-Gloas: the peer claims to have imported a child of this block whose bid references
+    /// The peer can serve the looked-up block and (pre-Gloas) its data columns.
+    Block,
+    /// The peer claims to have imported a FULL child of this block whose bid references
     /// `ExecutionBlockHash` as its parent. Such peers can serve this block's payload envelope and
-    /// data columns (only if this block is FULL).
-    PostGloas(ExecutionBlockHash),
+    /// data columns.
+    GloasChild(ExecutionBlockHash),
+}
+
+impl PeerType {
+    /// `GloasChild` when the block's bid `parent_block_hash` is known (post-Gloas), else `Block`.
+    pub fn new(parent_block_hash: Option<ExecutionBlockHash>) -> Self {
+        match parent_block_hash {
+            Some(execution_hash) => PeerType::GloasChild(execution_hash),
+            None => PeerType::Block,
+        }
+    }
 }
 
 #[derive(Educe)]
@@ -198,8 +208,8 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         let block_peers: PeerSet = Arc::new(RwLock::new(peers.iter().copied().collect()));
         let mut gloas_child_peers = HashMap::new();
         match peer_type {
-            PeerType::PreGloas => {}
-            PeerType::PostGloas(execution_hash) => {
+            PeerType::Block => {}
+            PeerType::GloasChild(execution_hash) => {
                 gloas_child_peers.insert(*execution_hash, block_peers.clone());
             }
         }
@@ -265,10 +275,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
 
     /// Returns the `PeerType` to use when propagating this lookup's peers up to its parent lookup.
     pub fn awaiting_parent_peer_type(&self) -> PeerType {
-        match self.bid_parent_block_hash() {
-            Some(execution_hash) => PeerType::PostGloas(execution_hash),
-            None => PeerType::PreGloas,
-        }
+        PeerType::new(self.bid_parent_block_hash())
     }
 
     /// Returns the time elapsed since this lookup was created
@@ -600,7 +607,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     pub fn add_peer(&mut self, peer_id: PeerId, peer_type: &PeerType) -> bool {
         let mut added = false;
         match peer_type {
-            PeerType::PostGloas(execution_hash) => {
+            PeerType::GloasChild(execution_hash) => {
                 // This peer claims to have imported a FULL child of this block whose bid references
                 // `execution_hash` as its parent. It is therefore proven to hold this block's
                 // payload envelope and data columns.
@@ -612,7 +619,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                     .write()
                     .insert(peer_id);
             }
-            PeerType::PreGloas => {}
+            PeerType::Block => {}
         }
         // Always add to the main block peers, they can at least serve the block.
         added |= self.peers.write().insert(peer_id);
