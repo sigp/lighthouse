@@ -1388,7 +1388,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                     });
                 }
             }
-            ParentImportStatus::UnknownBlock | ParentImportStatus::UnimportedPayload => {
+            ParentImportStatus::UnknownBlock | ParentImportStatus::UnknownPayload => {
                 // Reject any block if its parent is not known to fork choice.
                 //
                 // A block that is not in fork choice is either:
@@ -1872,7 +1872,7 @@ fn verify_parent_block_and_envelope_are_known<T: BeaconChainTypes>(
     // parent (defined by bid.parent_block_hash) passes all validation.
     match fork_choice_read_lock.get_parent_import_status(&block) {
         ParentImportStatus::Imported(parent) => Ok((parent, block)),
-        ParentImportStatus::UnknownBlock | ParentImportStatus::UnimportedPayload => {
+        ParentImportStatus::UnknownBlock | ParentImportStatus::UnknownPayload => {
             Err(BlockError::ParentUnknown {
                 parent_root: block.parent_root(),
             })

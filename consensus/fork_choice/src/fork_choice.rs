@@ -216,7 +216,7 @@ pub enum ParentImportStatus {
     /// The parent block is not known to fork choice.
     UnknownBlock,
     /// The parent block is known, but the child's bid commits to a payload not known to fork choice.
-    UnimportedPayload,
+    UnknownPayload,
 }
 
 impl<T> From<String> for Error<T> {
@@ -1578,7 +1578,7 @@ where
             if block.is_parent_block_full(parent_block_hash)
                 && !self.is_payload_received(&block.parent_root())
             {
-                ParentImportStatus::UnimportedPayload
+                ParentImportStatus::UnknownPayload
             } else {
                 ParentImportStatus::Imported(parent_block)
             }
