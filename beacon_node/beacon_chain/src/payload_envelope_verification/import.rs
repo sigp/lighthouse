@@ -33,6 +33,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Returns an `Err` if the given payload envelope was invalid, or an error was encountered during
     /// verification.
+    ///
+    /// Note: Returns a `BlockError` even though its an envelope processing function.
+    /// The reason is that this function actually imports the envelope in `check_envelope_availability_and_import`
+    /// which is coupled tightly with the block and data column import functions.
+    /// These functions return one error type for consistency across function signatures.
+    /// In the future, we could make the import error types more generic and then
+    /// this function could return an `EnvelopeError` as well.
     #[instrument(skip_all, fields(block_root = ?block_root, envelope_source = %envelope_source))]
     pub async fn process_execution_payload_envelope(
         self: &Arc<Self>,
