@@ -255,11 +255,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             })?;
 
         let parent_envelope = if parent_payload_status == PayloadStatus::Full {
-            self.store
+            let envelope = self
+                .store
                 .get_payload_envelope(&re_org_parent_block)
                 .ok()
                 .flatten()
                 .map(Arc::new)
+                .or_else(|| {
+                    warn!(
+                        reason = "missing execution payload envelope",
+                        "Not attempting re-org"
+                    );
+                    None
+                })?;
+            Some(envelope)
         } else {
             None
         };
