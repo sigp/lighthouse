@@ -30,7 +30,7 @@ use types::{
 
 use crate::{
     BeaconChainError, BeaconChainTypes, BeaconStore, BlockError, ExecutionPayloadError,
-    PayloadVerificationOutcome,
+    PayloadVerificationError, PayloadVerificationOutcome,
 };
 
 pub mod execution_pending_envelope;
@@ -197,6 +197,17 @@ impl From<DBError> for EnvelopeError {
 impl From<EnvelopeError> for BlockError {
     fn from(e: EnvelopeError) -> Self {
         BlockError::EnvelopeError(Box::new(e))
+    }
+}
+
+impl From<PayloadVerificationError> for EnvelopeError {
+    fn from(e: PayloadVerificationError) -> Self {
+        match e {
+            PayloadVerificationError::ExecutionPayloadError(e) => {
+                EnvelopeError::ExecutionPayloadError(e)
+            }
+            PayloadVerificationError::BeaconChainError(e) => EnvelopeError::BeaconChainError(e),
+        }
     }
 }
 

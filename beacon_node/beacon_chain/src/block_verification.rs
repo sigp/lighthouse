@@ -506,6 +506,50 @@ pub struct PayloadVerificationOutcome {
     pub payload_verification_status: PayloadVerificationStatus,
 }
 
+/// The set of errors that can occur while notifying the execution layer of a new payload.
+///
+/// This is deliberately narrow: notifying the EL can only fail in these two ways. The type is
+/// shared by both the pre-Gloas block import path and the Gloas payload envelope path so that
+/// neither pipeline has to borrow the other's error enum. It converts cleanly into both
+/// [`BlockError`] and [`EnvelopeError`](crate::payload_envelope_verification::EnvelopeError) at the
+/// point where the verification handle is consumed.
+#[derive(Debug)]
+pub enum PayloadVerificationError {
+    /// The execution payload was rejected by, or could not be sent to, the execution engine.
+    ExecutionPayloadError(ExecutionPayloadError),
+    /// An internal error occurred while notifying the execution layer.
+    BeaconChainError(Box<BeaconChainError>),
+}
+
+impl From<ExecutionPayloadError> for PayloadVerificationError {
+    fn from(e: ExecutionPayloadError) -> Self {
+        PayloadVerificationError::ExecutionPayloadError(e)
+    }
+}
+
+impl From<BeaconChainError> for PayloadVerificationError {
+    fn from(e: BeaconChainError) -> Self {
+        PayloadVerificationError::BeaconChainError(Box::new(e))
+    }
+}
+
+impl From<BeaconStateError> for PayloadVerificationError {
+    fn from(e: BeaconStateError) -> Self {
+        PayloadVerificationError::BeaconChainError(Box::new(BeaconChainError::BeaconStateError(e)))
+    }
+}
+
+impl From<PayloadVerificationError> for BlockError {
+    fn from(e: PayloadVerificationError) -> Self {
+        match e {
+            PayloadVerificationError::ExecutionPayloadError(e) => {
+                BlockError::ExecutionPayloadError(e)
+            }
+            PayloadVerificationError::BeaconChainError(e) => BlockError::BeaconChainError(e),
+        }
+    }
+}
+
 /// Information about invalid blocks which might still be slashable despite being invalid.
 #[allow(clippy::enum_variant_names)]
 pub enum BlockSlashInfo<TErr> {
@@ -676,7 +720,7 @@ pub struct SignatureVerifiedBlock<T: BeaconChainTypes> {
 
 /// Used to await the result of executing payload with an EE.
 pub type PayloadVerificationHandle =
-    JoinHandle<Option<Result<PayloadVerificationOutcome, BlockError>>>;
+    JoinHandle<Option<Result<PayloadVerificationOutcome, PayloadVerificationError>>>;
 
 /// A wrapper around a `SignedBeaconBlock` that indicates that this block is fully verified and
 /// ready to import into the `BeaconChain`. The validation includes:
