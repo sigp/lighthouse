@@ -2064,7 +2064,13 @@ async fn gloas_get_head_can_return_justified_empty_payload_branch() {
     // chain built off its `Full` branch.
     for slot in (attestation_start_slot.as_u64()..current_slot.as_u64()).map(Slot::new) {
         while attestation_state.slot() < slot {
-            per_slot_processing(&mut attestation_state, None, &spec).unwrap();
+            per_slot_processing(
+                &mut attestation_state,
+                None,
+                GloasVerificationContext::FullVerification,
+                &spec,
+            )
+            .unwrap();
         }
         attestation_state.build_caches(&spec).unwrap();
         let attestation_state_root = attestation_state.update_tree_hash_cache().unwrap();
