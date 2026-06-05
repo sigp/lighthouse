@@ -8,7 +8,8 @@ use beacon_chain::{
     WhenSlotSkipped,
     custody_context::NodeCustodyType,
     test_utils::{
-        AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, test_spec,
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+        MakeAttestationOptions, fork_name_from_env, test_spec,
     },
 };
 use beacon_chain::{
@@ -17,6 +18,7 @@ use beacon_chain::{
 };
 use bls::{AggregateSignature, Keypair, Signature};
 use fixed_bytes::FixedBytesExtended;
+use fork_choice::PayloadStatus;
 use logging::create_test_tracing_subscriber;
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
@@ -323,24 +325,44 @@ fn update_data_column_signed_header<E: EthSpec>(
 ) {
     for old_custody_column_sidecar in data_columns.as_mut_slice() {
         let old_column_sidecar = old_custody_column_sidecar.as_data_column();
-        let new_column_sidecar = Arc::new(DataColumnSidecar::Fulu(DataColumnSidecarFulu {
-            index: *old_column_sidecar.index(),
-            column: old_column_sidecar.column().clone(),
-            kzg_commitments: old_column_sidecar.kzg_commitments().unwrap().clone(),
-            kzg_proofs: old_column_sidecar.kzg_proofs().clone(),
-            signed_block_header: signed_block.signed_block_header(),
-            kzg_commitments_inclusion_proof: signed_block
-                .message()
-                .body()
-                .kzg_commitments_merkle_proof()
-                .unwrap(),
-        }));
+        let new_column_sidecar = match old_column_sidecar.as_ref() {
+            DataColumnSidecar::Fulu(_) => {
+                Arc::new(DataColumnSidecar::Fulu(DataColumnSidecarFulu {
+                    index: *old_column_sidecar.index(),
+                    column: old_column_sidecar.column().clone(),
+                    kzg_commitments: old_column_sidecar.kzg_commitments().unwrap().clone(),
+                    kzg_proofs: old_column_sidecar.kzg_proofs().clone(),
+                    signed_block_header: signed_block.signed_block_header(),
+                    kzg_commitments_inclusion_proof: signed_block
+                        .message()
+                        .body()
+                        .kzg_commitments_merkle_proof()
+                        .unwrap(),
+                }))
+            }
+            // Gloas columns reference the block by `beacon_block_root` instead of holding the
+            // block header inline, so updating the parent root just means re-keying the column to
+            // the new canonical root.
+            DataColumnSidecar::Gloas(g) => {
+                Arc::new(DataColumnSidecar::Gloas(types::DataColumnSidecarGloas {
+                    index: g.index,
+                    column: g.column.clone(),
+                    kzg_proofs: g.kzg_proofs.clone(),
+                    slot: g.slot,
+                    beacon_block_root: signed_block.canonical_root(),
+                }))
+            }
+        };
         *old_custody_column_sidecar = CustodyDataColumn::from_asserted_custody(new_column_sidecar);
     }
 }
 
 #[tokio::test]
 async fn chain_segment_full_segment() {
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     store_envelopes_for_chain_segment(&chain_segment, &harness);
@@ -381,6 +403,10 @@ async fn chain_segment_full_segment() {
 
 #[tokio::test]
 async fn chain_segment_varying_chunk_size() {
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
     let blocks: Vec<RangeSyncBlock<E>> =
@@ -661,6 +687,10 @@ async fn get_invalid_sigs_harness(
 }
 #[tokio::test]
 async fn invalid_signature_gossip_block() {
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
         // Ensure the block will be rejected if imported on its own (without gossip checking).
@@ -717,6 +747,10 @@ async fn invalid_signature_gossip_block() {
 
 #[tokio::test]
 async fn invalid_signature_block_proposal() {
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
@@ -756,6 +790,10 @@ async fn invalid_signature_block_proposal() {
 
 #[tokio::test]
 async fn invalid_signature_randao_reveal() {
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let (chain_segment, mut chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
@@ -784,6 +822,10 @@ async fn invalid_signature_randao_reveal() {
 
 #[tokio::test]
 async fn invalid_signature_proposer_slashing() {
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let (chain_segment, mut chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
@@ -826,6 +868,10 @@ async fn invalid_signature_proposer_slashing() {
 
 #[tokio::test]
 async fn invalid_signature_attester_slashing() {
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let (chain_segment, mut chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
@@ -947,6 +993,10 @@ async fn invalid_signature_attester_slashing() {
 
 #[tokio::test]
 async fn invalid_signature_attestation() {
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let (chain_segment, mut chain_segment_blobs) = get_chain_segment().await;
     let mut checked_attestation = false;
 
@@ -1072,6 +1122,10 @@ async fn invalid_signature_deposit() {
 
 #[tokio::test]
 async fn invalid_signature_exit() {
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let (chain_segment, mut chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
@@ -1150,8 +1204,13 @@ async fn block_gossip_verification() {
             )
             .await
             .expect("should import valid gossip verified block");
+        if let Some(data_sidecars) = blobs_opt {
+            verify_and_process_gossip_data_sidecars(&harness, data_sidecars).await;
+        }
         // Post-Gloas, store the execution payload envelope so that subsequent blocks can look up
-        // the parent envelope.
+        // the parent envelope. This must run after gossip column processing because marking the
+        // payload as received in fork choice causes the gossip column path's
+        // `is_block_data_imported` gate to reject otherwise-valid columns as duplicates.
         if let Some(ref envelope) = snapshot.execution_envelope {
             harness
                 .chain
@@ -1164,9 +1223,6 @@ async fn block_gossip_verification() {
                 .fork_choice_write_lock()
                 .on_valid_payload_envelope_received(snapshot.beacon_block_root)
                 .expect("should update fork choice with envelope");
-        }
-        if let Some(data_sidecars) = blobs_opt {
-            verify_and_process_gossip_data_sidecars(&harness, data_sidecars).await;
         }
     }
 
@@ -1438,20 +1494,8 @@ async fn verify_and_process_gossip_data_sidecars(
     data_sidecars: DataSidecars<E>,
 ) {
     match data_sidecars {
-        DataSidecars::Blobs(blob_sidecars) => {
-            for blob_sidecar in blob_sidecars {
-                let blob_index = blob_sidecar.index;
-                let gossip_verified = harness
-                    .chain
-                    .verify_blob_sidecar_for_gossip(blob_sidecar.clone(), blob_index)
-                    .expect("should obtain gossip verified blob");
-
-                harness
-                    .chain
-                    .process_gossip_blob(gossip_verified)
-                    .await
-                    .expect("should import valid gossip verified blob");
-            }
+        DataSidecars::Blobs(_blob_sidecars) => {
+            // Blob gossip is deprecated, blobs are available via RPC.
         }
         DataSidecars::DataColumns(column_sidecars) => {
             let gossip_verified = column_sidecars
@@ -1503,14 +1547,9 @@ async fn verify_block_for_gossip_slashing_detection() {
 
     let verified_block = harness.chain.verify_block_for_gossip(block1).await.unwrap();
 
-    if let Some((kzg_proofs, blobs)) = blobs1 {
+    if blobs1.is_some() {
         harness
-            .process_gossip_blobs_or_columns(
-                verified_block.block(),
-                blobs.iter(),
-                kzg_proofs.iter(),
-                None,
-            )
+            .process_gossip_columns(verified_block.block(), None)
             .await;
     }
     harness
@@ -1908,6 +1947,153 @@ async fn add_altair_block_to_base_chain() {
     ));
 }
 
+// This is a regression test for the bogus `InvalidBestNode` error which was reachable in Gloas
+// networks. Previously Lighthouse would return an `InvalidBestNode` error from `get_head` in
+// contradiction to the spec, which states that the justified root should be returned when no leaf
+// node is viable.
+//
+// The chain construction in this test is contrived but not impossible: the justified block's full
+// branch is what contained the evidence to justify it, but the empty branch is more weighty and
+// wins out.
+#[tokio::test]
+async fn gloas_get_head_can_return_justified_empty_payload_branch() {
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_epoch(Epoch::new(0)).gloas_enabled() {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec.clone().into())
+        .chain_config(ChainConfig {
+            archive: true,
+            ..ChainConfig::default()
+        })
+        .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
+        .node_custody_type(NodeCustodyType::Supernode)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness
+        .extend_slots(E::slots_per_epoch() as usize * 3)
+        .await;
+
+    let justified_checkpoint = harness.justified_checkpoint();
+    assert_ne!(justified_checkpoint.epoch, Epoch::new(0));
+    let justified_root = justified_checkpoint.root;
+    let justified_block = harness
+        .chain
+        .get_blinded_block(&justified_root)
+        .unwrap()
+        .unwrap();
+    let justified_slot = justified_block.message().slot();
+    let justified_state_root = justified_block.message().state_root();
+
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            E::slots_per_epoch() as usize * 2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(vec![]),
+        )
+        .await;
+
+    let current_slot = harness.get_current_slot();
+    let current_epoch = current_slot.epoch(E::slots_per_epoch());
+    assert_eq!(
+        harness
+            .chain
+            .canonical_head
+            .cached_head()
+            .head_payload_status(),
+        PayloadStatus::Full
+    );
+
+    {
+        let fork_choice = harness.chain.canonical_head.fork_choice_read_lock();
+        assert!(fork_choice.is_payload_received(&justified_root));
+        let justified_node = fork_choice.get_block(&justified_root).unwrap();
+        let voting_source = justified_node
+            .unrealized_justified_checkpoint
+            .unwrap_or(justified_node.justified_checkpoint);
+        assert!(
+            voting_source.epoch + 2 < current_epoch,
+            "the justified node's own voting source must be stale"
+        );
+    }
+
+    let mut attestation_state = harness
+        .chain
+        .get_state(&justified_state_root, Some(justified_slot), true)
+        .unwrap()
+        .unwrap();
+    assert!(
+        attestation_state
+            .validators()
+            .iter()
+            .all(|validator| !validator.slashed),
+        "reproducer must not rely on slashed validators"
+    );
+
+    let all_validators = harness.get_all_validators();
+    let mut validators_with_empty_vote = [false; VALIDATOR_COUNT];
+    let attestation_start_slot = (current_epoch - 1).start_slot(E::slots_per_epoch());
+    let attestation_slot = current_slot - 1;
+    assert_eq!(
+        attestation_start_slot + E::slots_per_epoch() - 1,
+        attestation_slot
+    );
+
+    // Create two epochs worth of attestations with `payload_present=false`, all pointing at the
+    // justified block. This ensures it's very much the canonical head, instead of the justifying
+    // chain built off its `Full` branch.
+    for slot in (attestation_start_slot.as_u64()..current_slot.as_u64()).map(Slot::new) {
+        while attestation_state.slot() < slot {
+            per_slot_processing(&mut attestation_state, None, &spec).unwrap();
+        }
+        attestation_state.build_caches(&spec).unwrap();
+        let attestation_state_root = attestation_state.update_tree_hash_cache().unwrap();
+        assert_eq!(
+            attestation_state.get_latest_block_root(attestation_state_root),
+            justified_root
+        );
+
+        let fork = spec.fork_at_epoch(slot.epoch(E::slots_per_epoch()));
+        let (attestations, attesters) = harness.make_attestations_with_opts(
+            &all_validators,
+            &attestation_state,
+            attestation_state_root,
+            justified_root.into(),
+            slot,
+            MakeAttestationOptions {
+                limit: None,
+                fork,
+                payload_present_override: Some(false),
+            },
+        );
+
+        for validator_index in attesters {
+            validators_with_empty_vote[validator_index] = true;
+        }
+        harness.process_attestations(attestations, &attestation_state);
+    }
+
+    assert!(
+        validators_with_empty_vote.iter().all(|attested| *attested),
+        "all validators should have a latest regular attestation to the justified root"
+    );
+
+    let (head_root, payload_status) = harness
+        .chain
+        .canonical_head
+        .fork_choice_write_lock()
+        .get_head(current_slot, &spec)
+        .expect("fork choice should return the justified root on the empty payload branch");
+
+    assert_eq!(head_root, justified_root);
+    assert_eq!(payload_status, PayloadStatus::Empty);
+}
+
 // This is a regression test for this bug:
 // https://github.com/sigp/lighthouse/issues/4332#issuecomment-1565092279
 #[tokio::test]
@@ -2246,7 +2432,6 @@ async fn rpc_block_allows_construction_past_da_boundary() {
             // Now verify the block is past the DA boundary
             let da_boundary = harness
                 .chain
-                .data_availability_checker
                 .data_availability_boundary()
                 .expect("DA boundary should be set");
             assert!(

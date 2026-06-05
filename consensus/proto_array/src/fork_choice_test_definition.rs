@@ -144,7 +144,7 @@ impl ForkChoiceTestDefinition {
     pub fn run(self) {
         let spec = self.spec.unwrap_or_else(|| {
             let mut spec = MainnetEthSpec::default_spec();
-            spec.proposer_score_boost = Some(50);
+            spec.proposer_score_boost = 50;
             // Legacy test definitions target pre-Gloas behaviour unless explicitly overridden.
             spec.gloas_fork_epoch = None;
             spec
@@ -556,7 +556,11 @@ impl ForkChoiceTestDefinition {
                     node_v29.payload_data_availability_votes =
                         BitVector::from_bytes(smallvec::smallvec![fill; 64])
                             .expect("valid 512-bit bitvector");
-                    // Per spec, is_payload_timely/is_payload_data_available require
+                    // Mark all PTC members as having participated.
+                    node_v29.ptc_participation =
+                        BitVector::from_bytes(smallvec::smallvec![0xFF; 64])
+                            .expect("valid 512-bit bitvector");
+                    // Per spec, payload_timeliness/payload_data_availability require
                     // the payload to be in payload_states (payload_received).
                     node_v29.payload_received = is_timely || is_data_available;
                 }

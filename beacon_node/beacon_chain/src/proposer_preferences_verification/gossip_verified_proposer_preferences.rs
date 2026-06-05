@@ -18,13 +18,16 @@ pub(crate) fn verify_preferences_consistency<E: EthSpec>(
     preferences: &ProposerPreferences,
     current_slot: Slot,
     head_state: &BeaconState<E>,
+    spec: &ChainSpec,
 ) -> Result<(), ProposerPreferencesError> {
     let proposal_slot = preferences.proposal_slot;
     let validator_index = preferences.validator_index;
     let current_epoch = current_slot.epoch(E::slots_per_epoch());
     let proposal_epoch = proposal_slot.epoch(E::slots_per_epoch());
 
-    if proposal_epoch < current_epoch || proposal_epoch > current_epoch.saturating_add(1u64) {
+    if proposal_epoch < current_epoch
+        || proposal_epoch > current_epoch.saturating_add(spec.min_seed_lookahead)
+    {
         return Err(ProposerPreferencesError::InvalidProposalEpoch { proposal_epoch });
     }
 
@@ -35,7 +38,7 @@ pub(crate) fn verify_preferences_consistency<E: EthSpec>(
         });
     }
 
-    if !head_state.is_valid_proposal_slot(preferences)? {
+    if !head_state.is_valid_proposal_slot(preferences, spec)? {
         return Err(ProposerPreferencesError::InvalidProposalSlot {
             validator_index,
             proposal_slot,
@@ -83,7 +86,12 @@ impl GossipVerifiedProposerPreferences {
             });
         }
 
-        verify_preferences_consistency(&signed_preferences.message, current_slot, head_state)?;
+        verify_preferences_consistency(
+            &signed_preferences.message,
+            current_slot,
+            head_state,
+            ctx.spec,
+        )?;
 
         // Verify signature
         proposer_preferences_signature_set(
@@ -155,11 +163,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 #[cfg(test)]
 mod tests {
     use types::{
-        Address, BeaconState, EthSpec, Hash256, MinimalEthSpec, ProposerPreferences, Slot,
+        Address, BeaconState, ChainSpec, EthSpec, Hash256, MinimalEthSpec, ProposerPreferences,
+        Slot,
     };
 
     use super::verify_preferences_consistency;
     use crate::proposer_preferences_verification::ProposerPreferencesError;
+    use crate::test_utils::{fork_name_from_env, test_spec};
 
     type E = MinimalEthSpec;
 
@@ -169,20 +179,28 @@ mod tests {
             proposal_slot,
             validator_index,
             fee_recipient: Address::ZERO,
-            gas_limit: 30_000_000,
+            target_gas_limit: 30_000_000,
         }
     }
 
     fn state() -> BeaconState<E> {
-        BeaconState::new(0, <_>::default(), &E::default_spec())
+        let spec = spec();
+        BeaconState::new(0, <_>::default(), &spec)
+    }
+
+    fn spec() -> ChainSpec {
+        test_spec::<E>()
     }
 
     #[test]
     fn test_invalid_epoch_too_old() {
+        if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+            return;
+        }
         let current_slot = Slot::new(2 * E::slots_per_epoch());
         let prefs = make_preferences(Slot::new(3), 0);
 
-        let result = verify_preferences_consistency::<E>(&prefs, current_slot, &state());
+        let result = verify_preferences_consistency::<E>(&prefs, current_slot, &state(), &spec());
         assert!(matches!(
             result,
             Err(ProposerPreferencesError::InvalidProposalEpoch { .. })
@@ -191,10 +209,13 @@ mod tests {
 
     #[test]
     fn test_invalid_epoch_too_far_ahead() {
+        if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+            return;
+        }
         let current_slot = Slot::new(E::slots_per_epoch());
         let prefs = make_preferences(Slot::new(3 * E::slots_per_epoch() + 1), 0);
 
-        let result = verify_preferences_consistency::<E>(&prefs, current_slot, &state());
+        let result = verify_preferences_consistency::<E>(&prefs, current_slot, &state(), &spec());
         assert!(matches!(
             result,
             Err(ProposerPreferencesError::InvalidProposalEpoch { .. })
@@ -203,10 +224,13 @@ mod tests {
 
     #[test]
     fn test_proposal_slot_already_passed() {
+        if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+            return;
+        }
         let current_slot = Slot::new(10);
         let prefs = make_preferences(Slot::new(9), 0);
 
-        let result = verify_preferences_consistency::<E>(&prefs, current_slot, &state());
+        let result = verify_preferences_consistency::<E>(&prefs, current_slot, &state(), &spec());
         assert!(matches!(
             result,
             Err(ProposerPreferencesError::ProposalSlotAlreadyPassed { .. })
@@ -215,10 +239,13 @@ mod tests {
 
     #[test]
     fn test_proposal_slot_equal_to_current() {
+        if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+            return;
+        }
         let current_slot = Slot::new(10);
         let prefs = make_preferences(Slot::new(10), 0);
 
-        let result = verify_preferences_consistency::<E>(&prefs, current_slot, &state());
+        let result = verify_preferences_consistency::<E>(&prefs, current_slot, &state(), &spec());
         assert!(matches!(
             result,
             Err(ProposerPreferencesError::ProposalSlotAlreadyPassed { .. })

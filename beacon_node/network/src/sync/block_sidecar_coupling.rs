@@ -62,7 +62,7 @@ enum RangeBlockDataRequest<E: EthSpec> {
 }
 
 #[derive(Debug)]
-pub(crate) enum CouplingError {
+pub enum CouplingError {
     InternalError(String),
     /// The peer we requested the columns from was faulty/malicious
     DataColumnPeerFailure {
@@ -548,13 +548,19 @@ mod tests {
 
     #[test]
     fn no_blobs_into_responses() {
+        let spec = Arc::new(test_spec::<E>());
+
         let mut u = types::test_utils::test_unstructured();
         let blocks = (0..4)
             .map(|_| {
-                generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut u)
-                    .unwrap()
-                    .0
-                    .into()
+                generate_rand_block_and_blobs::<E>(
+                    spec.fork_name_at_epoch(Epoch::new(0)),
+                    NumBlobs::None,
+                    &mut u,
+                )
+                .unwrap()
+                .0
+                .into()
             })
             .collect::<Vec<Arc<SignedBeaconBlock<E>>>>();
 
@@ -565,7 +571,6 @@ mod tests {
         // Send blocks and complete terminate response
         info.add_blocks(blocks_req_id, blocks).unwrap();
 
-        let spec = Arc::new(test_spec::<E>());
         let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
 
         // Assert response is finished and RpcBlocks can be constructed
@@ -602,11 +607,14 @@ mod tests {
 
         let mut spec = test_spec::<E>();
         spec.deneb_fork_epoch = Some(Epoch::new(0));
+        // Pin to pre-PeerDAS so this exercises the blob (not custody-column) path under any
+        // FORK_NAME.
+        spec.fulu_fork_epoch = None;
         let spec = Arc::new(spec);
         let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        // Assert response is finished and RpcBlocks cannot be constructed, because blobs weren't returned.
+        // Blobs are no longer required for availability, so the response succeeds without them.
         let result = info.responses(da_checker, spec).unwrap();
-        assert!(result.is_err())
+        assert!(result.is_ok())
     }
 
     #[test]

@@ -136,7 +136,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
                         proposal_slot: duty.slot,
                         validator_index: duty.validator_index,
                         fee_recipient,
-                        gas_limit: proposal_data.gas_limit,
+                        target_gas_limit: proposal_data.gas_limit,
                     },
                 ));
             }
