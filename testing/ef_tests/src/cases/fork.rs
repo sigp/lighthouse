@@ -75,16 +75,6 @@ impl<E: EthSpec> Case for ForkTest<E> {
             ForkName::Gloas => upgrade_to_gloas(&mut result_state, spec).map(|_| result_state),
         };
 
-        // TODO(gloas) theres a bug in alpha.9 fork vectors that will be fixed once spec PR #5322 is merged
-        // We have to ignore these tests until alpha.10
-        if fork_name.fulu_enabled()
-            && let (Ok(result_state), Some(expected_state)) = (result.as_mut(), expected.as_ref())
-            && let Ok(expected_drsi) = expected_state.deposit_requests_start_index()
-            && let Ok(result_drsi) = result_state.deposit_requests_start_index_mut()
-        {
-            *result_drsi = expected_drsi;
-        }
-
         compare_beacon_state_results_without_caches(&mut result, &mut expected)
     }
 }
