@@ -520,10 +520,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         };
 
         match &result {
-            BlockProcessingResult::Imported(_, _) => {
+            BlockProcessingResult::Imported(fully_imported, _) => {
                 // Some component got imported potentially continue
                 if lookup.is_complete() {
-                    if let Some(_) = self.single_block_lookups.remove(&id) {
+                    if self.single_block_lookups.remove(&id).is_some() {
                         debug!(?block_root, id, "Dropping completed lookup");
                         metrics::inc_counter(&metrics::SYNC_LOOKUP_COMPLETED);
                         self.metrics.completed_lookups += 1;
@@ -536,25 +536,32 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     } else {
                         debug!(id, "Attempting to drop non-existent lookup");
                     }
-                } else if matches!(process_type, BlockProcessType::SingleBlock { .. }) {
-                    if let Some(bid_block_hash) = lookup.peek_downloaded_bid_block_hash() {
-                        // Continue child lookups for empty children
-                        self.continue_child_lookups(
-                            ImportedAction::GloasBlockComplete {
-                                block_root,
-                                bid_block_hash,
-                            },
-                            cx,
+                } else if *fully_imported
+                    && matches!(process_type, BlockProcessType::SingleBlock { .. })
+                {
+                    // The block imported into fork choice but the lookup is not `is_complete`: its
+                    // data may have become available via the da_checker (so the lookup's own
+                    // request never completed), or it is a Gloas block whose payload arrives
+                    // separately. Unblock the appropriate children, and complete the lookup unless
+                    // a FULL Gloas child still awaits the payload.
+                    let import_action = match lookup.peek_downloaded_bid_block_hash() {
+                        Some(bid_block_hash) => ImportedAction::GloasBlockComplete {
+                            block_root,
+                            bid_block_hash,
+                        },
+                        None => ImportedAction::LookupComplete { block_root },
+                    };
+                    self.continue_child_lookups(import_action, cx);
+                    if !self.has_any_awaiting_children(block_root) {
+                        self.single_block_lookups.remove(&id);
+                        metrics::inc_counter(&metrics::SYNC_LOOKUP_COMPLETED);
+                        self.metrics.completed_lookups += 1;
+                        debug!(
+                            ?block_root,
+                            id, "Dropping completed lookup after block import"
                         );
-                        if !self.has_any_awaiting_children(block_root) {
-                            self.single_block_lookups.remove(&id);
-                            debug!(
-                                ?block_root,
-                                id, "Dropping completed lookup after gloas block"
-                            );
-                        }
-                        self.update_metrics();
                     }
+                    self.update_metrics();
                 }
             }
             BlockProcessingResult::ParentUnknown {
@@ -586,19 +593,42 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         imported: bool,
         cx: &mut SyncNetworkContext<T>,
     ) {
-        let Some((id, lookup)) = self
+        let Some(id) = self
             .single_block_lookups
-            .iter_mut()
+            .iter()
             .find(|(_, lookup)| lookup.is_for_block(block_root))
+            .map(|(id, _)| *id)
         else {
             // Ok to ignore gossip process events
             return;
         };
 
-        // TOOD(gloas): This is broken... Getting a block processed result must not complete the
-        // entire post-gloas lookup
-        let lookup_result = if imported {
-            Ok(())
+        if imported {
+            // The block is imported into fork choice. Unblock its children, and complete this
+            // lookup unless a FULL Gloas child still awaits its payload (post-Gloas the payload
+            // envelope arrives separately from the block).
+            let bid_block_hash = self
+                .single_block_lookups
+                .get(&id)
+                .and_then(|lookup| lookup.peek_downloaded_bid_block_hash());
+            let import_action = match bid_block_hash {
+                Some(bid_block_hash) => ImportedAction::GloasBlockComplete {
+                    block_root,
+                    bid_block_hash,
+                },
+                None => ImportedAction::LookupComplete { block_root },
+            };
+            self.continue_child_lookups(import_action, cx);
+            if !self.has_any_awaiting_children(block_root) {
+                self.single_block_lookups.remove(&id);
+                metrics::inc_counter(&metrics::SYNC_LOOKUP_COMPLETED);
+                self.metrics.completed_lookups += 1;
+                debug!(
+                    ?block_root,
+                    id, "Dropping completed lookup (external import)"
+                );
+            }
+            self.update_metrics();
         } else {
             // A lookup may be in the following state:
             // - Block awaiting processing from a different source
@@ -608,11 +638,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             // removed from the da_checker. Note that ALL components are removed from the da_checker
             // so when we re-download and process the block we get the error
             // MissingComponentsAfterAllProcessed and get stuck.
-            lookup.reset_requests();
-            lookup.continue_requests(cx)
-        };
-        let id = *id;
-        self.on_lookup_result(id, lookup_result, "external_processing_result", cx);
+            let result = {
+                let Some(lookup) = self.single_block_lookups.get_mut(&id) else {
+                    return;
+                };
+                lookup.reset_requests();
+                lookup.continue_requests(cx)
+            };
+            self.on_lookup_result(id, result, "external_processing_result", cx);
+        }
     }
 
     pub fn has_any_awaiting_children(&self, block_root: Hash256) -> bool {
@@ -686,13 +720,48 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         id: SingleLookupId,
         result: Result<(), LookupRequestError>,
         source: &str,
-        _cx: &mut SyncNetworkContext<T>,
+        cx: &mut SyncNetworkContext<T>,
     ) -> bool {
         match result {
-            Ok(_) => true,
+            Ok(_) => {
+                // The lookup may have become complete from already-cached components during
+                // `continue_requests` (e.g. the block became available via the da_checker), in
+                // which case no `Imported` processing result is emitted. Detect that here.
+                if self
+                    .single_block_lookups
+                    .get(&id)
+                    .is_some_and(|lookup| lookup.is_complete())
+                    && let Some(lookup) = self.single_block_lookups.remove(&id)
+                {
+                    let block_root = lookup.block_root();
+                    debug!(?block_root, id, "Dropping completed lookup (cached)");
+                    metrics::inc_counter(&metrics::SYNC_LOOKUP_COMPLETED);
+                    self.metrics.completed_lookups += 1;
+                    self.continue_child_lookups(ImportedAction::LookupComplete { block_root }, cx);
+                    self.update_metrics();
+                }
+                true
+            }
             // If UnknownLookup do not log the request error. No need to drop child lookups nor
             // update metrics because the lookup does not exist.
             Err(error) => {
+                // A FULL Gloas child re-awaits its parent's payload once the parent's block
+                // imports. A failed payload download must not cascade-drop the parent (and the
+                // child) — the payload may still arrive (e.g. via gossip). Retain the parent;
+                // genuinely stuck lookups are pruned by `drop_stuck_lookups`.
+                if source == "payload_download_response"
+                    && let Some(block_root) =
+                        self.single_block_lookups.get(&id).map(|l| l.block_root())
+                    && self.has_any_awaiting_children(block_root)
+                {
+                    debug!(
+                        id,
+                        source,
+                        ?error,
+                        "Retaining parent with a child awaiting its payload"
+                    );
+                    return false;
+                }
                 debug!(id, source, ?error, "Dropping lookup on request error");
                 self.drop_lookup_and_children(id, error.into());
                 self.update_metrics();

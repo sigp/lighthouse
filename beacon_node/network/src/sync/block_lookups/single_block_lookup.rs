@@ -322,7 +322,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                         } else {
                             // A parent that's gloas imported and this lookup claims to be before gloas.
                             debug_assert!(
-                                true,
+                                false,
                                 "Received post-gloas import action for pre-gloas lookup"
                             );
                             false
