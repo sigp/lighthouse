@@ -4970,8 +4970,77 @@ impl ApiTester {
                 "payload attestation should report payload_present=true after publishing \
                  the envelope via the HTTP API (slot {slot})"
             );
+            assert!(
+                pa_data.blob_data_available,
+                "blob_data_available should be true once the envelope is imported (slot {slot})"
+            );
 
             self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+        }
+
+        self
+    }
+
+    /// When a payload hasn't been seen, the payload attestation data
+    /// must report `payload_present = false` and `blob_data_available = false`.
+    pub async fn test_payload_attestation_unavailable_without_envelope(self) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+
+        for _ in 0..E::slots_per_epoch() * 3 {
+            let slot = self.chain.slot().unwrap();
+            let epoch = self.chain.epoch().unwrap();
+            let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
+
+            if !fork_name.gloas_enabled() {
+                self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+                continue;
+            }
+
+            let (sk, randao_reveal) = self
+                .proposer_setup(slot, epoch, &fork, genesis_validators_root)
+                .await;
+
+            // Produce and publish a block, but withhold its envelope.
+            let (response, _metadata) = self
+                .client
+                .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, None, None, None)
+                .await
+                .unwrap();
+            let block = response.data;
+            let block_root = block.tree_hash_root();
+
+            let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+            let signed_block_request =
+                PublishBlockRequest::try_from(Arc::new(signed_block)).unwrap();
+            self.client
+                .post_beacon_blocks_v2(&signed_block_request, None)
+                .await
+                .unwrap();
+
+            let pa_data = self
+                .client
+                .get_validator_payload_attestation_data(slot)
+                .await
+                .unwrap()
+                .expect("expected payload attestation data for slot with block")
+                .into_data();
+
+            assert_eq!(pa_data.beacon_block_root, block_root);
+            assert!(
+                !pa_data.payload_present,
+                "payload_present should be false when the envelope is withheld (slot {slot})"
+            );
+            assert!(
+                !pa_data.blob_data_available,
+                "blob_data_available should be false when the envelope is not imported (slot {slot})"
+            );
+
+            return self;
         }
 
         self
@@ -8700,6 +8769,14 @@ async fn payload_attestation_present_after_envelope_publish() {
     ApiTester::new_with_hard_forks()
         .await
         .test_payload_attestation_present_after_envelope_publish()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn payload_attestation_unavailable_without_envelope() {
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_payload_attestation_unavailable_without_envelope()
         .await;
 }
 
