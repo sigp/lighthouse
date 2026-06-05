@@ -1862,65 +1862,6 @@ async fn test_blobs_by_root_post_fulu_should_return_empty() {
     assert_eq!(0, actual_count);
 }
 
-/// Ensure that data column processing that results in block import sends a sync notification
-#[tokio::test]
-async fn test_data_column_import_notifies_sync() {
-    if test_spec::<E>().fulu_fork_epoch.is_none() {
-        return;
-    }
-
-    let mut rig = TestRig::new(SMALL_CHAIN).await;
-    let block_root = rig.next_block.canonical_root();
-
-    // Enqueue the block first to prepare for data column processing
-    rig.enqueue_gossip_block();
-    rig.assert_event_journal_completes(&[WorkType::GossipBlock])
-        .await;
-    rig.receive_sync_messages_with_timeout(Duration::from_millis(100), Some(1))
-        .await
-        .expect("should receive sync message");
-
-    // Enqueue data columns which should trigger block import when complete
-    let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
-    if num_data_columns > 0 {
-        for i in 0..num_data_columns {
-            rig.enqueue_gossip_data_columns(i);
-            rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
-                .await;
-        }
-
-        // Verify block import succeeded
-        assert_eq!(
-            rig.head_root(),
-            block_root,
-            "block should be imported and become head"
-        );
-
-        // Check that sync was notified of the successful import
-        let sync_messages = rig
-            .receive_sync_messages_with_timeout(Duration::from_millis(100), Some(1))
-            .await
-            .expect("should receive sync message");
-
-        // Verify we received the expected GossipBlockProcessResult message
-        assert_eq!(
-            sync_messages.len(),
-            1,
-            "should receive exactly one sync message"
-        );
-        match &sync_messages[0] {
-            SyncMessage::GossipBlockProcessResult {
-                block_root: msg_block_root,
-                imported,
-            } => {
-                assert_eq!(*msg_block_root, block_root, "block root should match");
-                assert!(*imported, "block should be marked as imported");
-            }
-            other => panic!("expected GossipBlockProcessResult, got {:?}", other),
-        }
-    }
-}
-
 #[tokio::test]
 async fn test_data_columns_by_range_request_only_returns_requested_columns() {
     if test_spec::<E>().fulu_fork_epoch.is_none() {

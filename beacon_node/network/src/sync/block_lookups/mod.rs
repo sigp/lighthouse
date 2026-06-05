@@ -482,39 +482,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         self.on_lookup_result(lookup_id, lookup_result, "processing_result", cx);
     }
 
-    pub fn on_external_processing_result(
-        &mut self,
-        block_root: Hash256,
-        imported: bool,
-        cx: &mut SyncNetworkContext<T>,
-    ) {
-        let Some((id, lookup)) = self
-            .single_block_lookups
-            .iter_mut()
-            .find(|(_, lookup)| lookup.is_for_block(block_root))
-        else {
-            // Ok to ignore gossip process events
-            return;
-        };
-
-        let lookup_result = if imported {
-            Ok(LookupResult::Completed)
-        } else {
-            // A lookup may be in the following state:
-            // - Block awaiting processing from a different source
-            // - Blobs downloaded processed, and inserted into the da_checker
-            //
-            // At this point the block fails processing (e.g. execution engine offline) and it is
-            // removed from the da_checker. Note that ALL components are removed from the da_checker
-            // so when we re-download and process the block we get the error
-            // MissingComponentsAfterAllProcessed and get stuck.
-            lookup.reset_requests();
-            lookup.continue_requests(cx)
-        };
-        let id = *id;
-        self.on_lookup_result(id, lookup_result, "external_processing_result", cx);
-    }
-
     /// Makes progress on the immediate children of `block_root`
     pub fn continue_child_lookups(&mut self, block_root: Hash256, cx: &mut SyncNetworkContext<T>) {
         let mut lookup_results = vec![]; // < need to buffer lookup results to not re-borrow &mut self
