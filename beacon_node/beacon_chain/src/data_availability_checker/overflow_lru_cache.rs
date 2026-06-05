@@ -200,7 +200,6 @@ impl<E: EthSpec> PendingComponents<E> {
     /// must be persisted in the DB along with the block.
     pub fn make_available(
         &self,
-        spec: &Arc<ChainSpec>,
         num_expected_columns_opt: Option<usize>,
     ) -> Result<Option<AvailableExecutedBlock<E>>, AvailabilityCheckError> {
         let Some(CachedBlock::Executed(block)) = &self.block else {
@@ -271,7 +270,6 @@ impl<E: EthSpec> PendingComponents<E> {
             block: block.clone(),
             blob_data,
             blobs_available_timestamp,
-            spec: spec.clone(),
         };
 
         self.span.in_scope(|| {
@@ -529,7 +527,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         num_expected_columns_opt: Option<usize>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         if let Some(available_block) =
-            pending_components.make_available(&self.spec, num_expected_columns_opt)?
+            pending_components.make_available(num_expected_columns_opt)?
         {
             // Explicitly drop read lock before acquiring write lock
             drop(pending_components);

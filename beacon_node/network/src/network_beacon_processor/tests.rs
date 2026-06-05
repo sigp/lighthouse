@@ -412,6 +412,7 @@ impl TestRig {
                     DataColumnSubnetId::from_column_index(*data_column.index(), &self.chain.spec),
                     data_column.clone(),
                     Duration::from_secs(0),
+                    true,
                 )
                 .unwrap();
         }
