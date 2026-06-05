@@ -1534,16 +1534,12 @@ async fn verify_block_for_gossip_slashing_detection() {
     harness.advance_slot();
 
     let state = harness.get_current_state();
-    let ((block1, _blobs1), _) = harness.make_block(state.clone(), Slot::new(1)).await;
+    let ((block1, blobs1), _) = harness.make_block(state.clone(), Slot::new(1)).await;
     let ((block2, _blobs2), _) = harness.make_block(state, Slot::new(1)).await;
 
     let verified_block = harness.chain.verify_block_for_gossip(block1).await.unwrap();
 
-    if harness
-        .chain
-        .spec
-        .is_peer_das_enabled_for_epoch(verified_block.block().epoch())
-    {
+    if blobs1.is_some() {
         harness
             .process_gossip_columns(verified_block.block(), None)
             .await;
