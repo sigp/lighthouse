@@ -36,7 +36,6 @@ use types::{EthSpec, Hash256, Slot};
 const TASK_NAME: &str = "beacon_processor_reprocess_queue";
 const GOSSIP_BLOCKS: &str = "gossip_blocks";
 const GOSSIP_ENVELOPES: &str = "gossip_envelopes";
-const RPC_BLOCKS: &str = "rpc_blocks";
 const ATTESTATIONS: &str = "attestations";
 const ATTESTATIONS_PER_ROOT: &str = "attestations_per_root";
 const LIGHT_CLIENT_UPDATES: &str = "lc_updates";
@@ -59,9 +58,6 @@ const QUEUED_DATA_COLUMN_DELAY_SLOTS: u32 = 1;
 /// Envelope timeout as a multiplier of slot duration. Envelopes waiting for their block will be
 /// sent for processing after this many slots worth of time, even if the block hasn't arrived.
 const QUEUED_ENVELOPE_DELAY_SLOTS: u32 = 1;
-
-/// For how long to queue rpc blocks before sending them back for reprocessing.
-pub const QUEUED_RPC_BLOCK_DELAY: Duration = Duration::from_secs(4);
 
 /// For how long to queue sampling requests for reprocessing.
 pub const QUEUED_SAMPLING_REQUESTS_DELAY: Duration = Duration::from_secs(12);
@@ -110,9 +106,6 @@ pub enum ReprocessQueueMessage {
     EarlyBlock(QueuedGossipBlock),
     /// An execution payload envelope that references a block not yet in fork choice.
     UnknownBlockForEnvelope(QueuedGossipEnvelope),
-    /// A gossip block for hash `X` is being imported, we should queue the rpc block for the same
-    /// hash until the gossip block is imported.
-    RpcBlock(QueuedRpcBlock),
     /// A block that was successfully processed. We use this to handle attestations updates
     /// for unknown blocks.
     BlockImported {
@@ -140,8 +133,6 @@ pub enum ReprocessQueueMessage {
 pub enum ReadyWork {
     Block(QueuedGossipBlock),
     Envelope(QueuedGossipEnvelope),
-    RpcBlock(QueuedRpcBlock),
-    IgnoredRpcBlock(IgnoredRpcBlock),
     Unaggregate(QueuedUnaggregate),
     Aggregate(QueuedAggregate),
     LightClientUpdate(QueuedLightClientUpdate),
@@ -183,22 +174,6 @@ pub struct QueuedGossipEnvelope {
     pub beacon_block_slot: Slot,
     pub beacon_block_root: Hash256,
     pub process_fn: AsyncFn,
-}
-
-/// A block that arrived for processing when the same block was being imported over gossip.
-/// It is queued for later import.
-pub struct QueuedRpcBlock {
-    pub beacon_block_root: Hash256,
-    /// Processes/imports the block.
-    pub process_fn: AsyncFn,
-    /// Ignores the block.
-    pub ignore_fn: BlockingFn,
-}
-
-/// A block that arrived for processing when the same block was being imported over gossip.
-/// It is queued for later import.
-pub struct IgnoredRpcBlock {
-    pub process_fn: BlockingFn,
 }
 
 /// A backfill batch work that has been queued for processing later.
@@ -245,9 +220,6 @@ enum InboundEvent {
     ReadyGossipBlock(QueuedGossipBlock),
     /// An envelope whose block has been imported and is now ready for processing.
     ReadyEnvelope(Hash256),
-    /// A rpc block that was queued because the same gossip block was being imported
-    /// will now be retried for import.
-    ReadyRpcBlock(QueuedRpcBlock),
     /// An aggregated or unaggregated attestation is ready for re-processing.
     ReadyAttestation(QueuedAttestationId),
     /// A light client update that is ready for re-processing.
@@ -274,8 +246,6 @@ struct ReprocessQueue<S> {
     gossip_block_delay_queue: DelayQueue<QueuedGossipBlock>,
     /// Queue to manage envelope timeouts (keyed by block root).
     envelope_delay_queue: DelayQueue<Hash256>,
-    /// Queue to manage scheduled early blocks.
-    rpc_block_delay_queue: DelayQueue<QueuedRpcBlock>,
     /// Queue to manage scheduled attestations.
     attestations_delay_queue: DelayQueue<QueuedAttestationId>,
     /// Queue to manage scheduled light client updates.
@@ -315,7 +285,6 @@ struct ReprocessQueue<S> {
     next_lc_update: usize,
     early_block_debounce: TimeLatch,
     envelope_delay_debounce: TimeLatch,
-    rpc_block_debounce: TimeLatch,
     attestation_delay_debounce: TimeLatch,
     lc_update_delay_debounce: TimeLatch,
     data_column_delay_debounce: TimeLatch,
@@ -369,15 +338,6 @@ impl<S: SlotClock> Stream for ReprocessQueue<S> {
             Poll::Ready(Some(block_root)) => {
                 return Poll::Ready(Some(InboundEvent::ReadyEnvelope(block_root.into_inner())));
             }
-            Poll::Ready(None) | Poll::Pending => (),
-        }
-
-        match self.rpc_block_delay_queue.poll_expired(cx) {
-            Poll::Ready(Some(queued_block)) => {
-                return Poll::Ready(Some(InboundEvent::ReadyRpcBlock(queued_block.into_inner())));
-            }
-            // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
-            // will continue to get this result until something else is added into the queue.
             Poll::Ready(None) | Poll::Pending => (),
         }
 
@@ -483,7 +443,6 @@ impl<S: SlotClock> ReprocessQueue<S> {
             ready_work_tx,
             gossip_block_delay_queue: DelayQueue::new(),
             envelope_delay_queue: DelayQueue::new(),
-            rpc_block_delay_queue: DelayQueue::new(),
             attestations_delay_queue: DelayQueue::new(),
             lc_updates_delay_queue: DelayQueue::new(),
             column_reconstructions_delay_queue: DelayQueue::new(),
@@ -503,7 +462,6 @@ impl<S: SlotClock> ReprocessQueue<S> {
             next_lc_update: 0,
             early_block_debounce: TimeLatch::default(),
             envelope_delay_debounce: TimeLatch::default(),
-            rpc_block_debounce: TimeLatch::default(),
             attestation_delay_debounce: TimeLatch::default(),
             lc_update_delay_debounce: TimeLatch::default(),
             data_column_delay_debounce: TimeLatch::default(),
@@ -608,51 +566,6 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 // Store the envelope keyed by block root.
                 self.awaiting_envelopes_per_root
                     .insert(block_root, (queued_envelope, delay_key));
-            }
-            // A rpc block arrived for processing at the same time when a gossip block
-            // for the same block hash is being imported. We wait for `QUEUED_RPC_BLOCK_DELAY`
-            // and then send the rpc block back for processing assuming the gossip import
-            // has completed by then.
-            InboundEvent::Msg(RpcBlock(rpc_block)) => {
-                // Check to ensure this won't over-fill the queue.
-                if self.rpc_block_delay_queue.len() >= MAXIMUM_QUEUED_BLOCKS {
-                    if self.rpc_block_debounce.elapsed() {
-                        warn!(
-                            queue_size = MAXIMUM_QUEUED_BLOCKS,
-                            msg = "system resources may be saturated",
-                            "RPC blocks queue is full"
-                        );
-                    }
-                    // Return the block to the beacon processor signalling to
-                    // ignore processing for this block
-                    if self
-                        .ready_work_tx
-                        .try_send(ReadyWork::IgnoredRpcBlock(IgnoredRpcBlock {
-                            process_fn: rpc_block.ignore_fn,
-                        }))
-                        .is_err()
-                    {
-                        error!("Failed to send rpc block to beacon processor");
-                    }
-                    return;
-                }
-
-                // Queue the block for 1/3rd of a slot
-                self.rpc_block_delay_queue
-                    .insert(rpc_block, QUEUED_RPC_BLOCK_DELAY);
-            }
-            InboundEvent::ReadyRpcBlock(queued_rpc_block) => {
-                debug!(
-                    %queued_rpc_block.beacon_block_root,
-                    "Sending rpc block for reprocessing"
-                );
-                if self
-                    .ready_work_tx
-                    .try_send(ReadyWork::RpcBlock(queued_rpc_block))
-                    .is_err()
-                {
-                    error!("Failed to send rpc block to beacon processor");
-                }
             }
             InboundEvent::Msg(UnknownBlockAggregate(queued_aggregate)) => {
                 if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
@@ -1168,11 +1081,6 @@ impl<S: SlotClock> ReprocessQueue<S> {
         );
         metrics::set_gauge_vec(
             &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
-            &[RPC_BLOCKS],
-            self.rpc_block_delay_queue.len() as i64,
-        );
-        metrics::set_gauge_vec(
-            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
             &[ATTESTATIONS],
             self.attestations_delay_queue.len() as i64,
         );
@@ -1306,9 +1214,9 @@ mod tests {
 
         // Send some random work to `ready_work_tx` to fill up the capacity first.
         ready_work_tx
-            .try_send(ReadyWork::IgnoredRpcBlock(IgnoredRpcBlock {
-                process_fn: Box::new(|| {}),
-            }))
+            .try_send(ReadyWork::BackfillSync(QueuedBackfillBatch(Box::new(
+                || {},
+            ))))
             .unwrap();
 
         // Now queue a backfill sync batch.
@@ -1329,7 +1237,7 @@ mod tests {
         // Now drain the `ready_work` channel.
         assert!(matches!(
             ready_work_rx.try_recv(),
-            Ok(ReadyWork::IgnoredRpcBlock { .. })
+            Ok(ReadyWork::BackfillSync { .. })
         ));
         assert!(ready_work_rx.try_recv().is_err());
 

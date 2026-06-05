@@ -68,9 +68,8 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::{debug, error, trace, warn};
 use types::{EthSpec, Hash256, SignedAggregateAndProof, SingleAttestation, Slot, SubnetId};
-use work_reprocessing_queue::IgnoredRpcBlock;
 use work_reprocessing_queue::{
-    QueuedAggregate, QueuedLightClientUpdate, QueuedRpcBlock, QueuedUnaggregate, ReadyWork,
+    QueuedAggregate, QueuedLightClientUpdate, QueuedUnaggregate, ReadyWork,
     spawn_reprocess_scheduler,
 };
 
@@ -300,21 +299,6 @@ impl<E: EthSpec> From<ReadyWork> for WorkEvent<E> {
                     process_fn,
                 },
             },
-            ReadyWork::RpcBlock(QueuedRpcBlock {
-                beacon_block_root,
-                process_fn,
-                ignore_fn: _,
-            }) => Self {
-                drop_during_sync: false,
-                work: Work::RpcBlock {
-                    process_fn,
-                    beacon_block_root,
-                },
-            },
-            ReadyWork::IgnoredRpcBlock(IgnoredRpcBlock { process_fn }) => Self {
-                drop_during_sync: false,
-                work: Work::IgnoredRpcBlock { process_fn },
-            },
             ReadyWork::Unaggregate(QueuedUnaggregate {
                 beacon_block_root: _,
                 process_fn,
@@ -471,9 +455,6 @@ pub enum Work<E: EthSpec> {
     RpcCustodyColumn(AsyncFn),
     RpcEnvelope(AsyncFn),
     ColumnReconstruction(AsyncFn),
-    IgnoredRpcBlock {
-        process_fn: BlockingFn,
-    },
     ChainSegment {
         process_fn: AsyncFn,
         /// (chain_id, batch_epoch) for test observability
@@ -539,7 +520,6 @@ pub enum WorkType {
     RpcCustodyColumn,
     RpcEnvelope,
     ColumnReconstruction,
-    IgnoredRpcBlock,
     ChainSegment,
     ChainSegmentBackfill,
     Status,
@@ -602,7 +582,6 @@ impl<E: EthSpec> Work<E> {
             Work::RpcCustodyColumn { .. } => WorkType::RpcCustodyColumn,
             Work::RpcEnvelope(_) => WorkType::RpcEnvelope,
             Work::ColumnReconstruction(_) => WorkType::ColumnReconstruction,
-            Work::IgnoredRpcBlock { .. } => WorkType::IgnoredRpcBlock,
             Work::ChainSegment { .. } => WorkType::ChainSegment,
             Work::ChainSegmentBackfill(_) => WorkType::ChainSegmentBackfill,
             Work::Status(_) => WorkType::Status,
@@ -1242,7 +1221,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::GossipLightClientOptimisticUpdate { .. } => work_queues
                                 .lc_gossip_optimistic_update_queue
                                 .push(work, work_id),
-                            Work::RpcBlock { .. } | Work::IgnoredRpcBlock { .. } => {
+                            Work::RpcBlock { .. } => {
                                 work_queues.rpc_block_queue.push(work, work_id)
                             }
                             Work::RpcBlobs { .. } => work_queues.rpc_blob_queue.push(work, work_id),
@@ -1389,9 +1368,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             work_queues.lc_gossip_optimistic_update_queue.len()
                         }
                         WorkType::RpcBlock => work_queues.rpc_block_queue.len(),
-                        WorkType::RpcBlobs | WorkType::IgnoredRpcBlock => {
-                            work_queues.rpc_blob_queue.len()
-                        }
+                        WorkType::RpcBlobs => work_queues.rpc_blob_queue.len(),
                         WorkType::RpcEnvelope => work_queues.rpc_envelope_queue.len(),
                         WorkType::RpcCustodyColumn => work_queues.rpc_custody_column_queue.len(),
                         WorkType::ColumnReconstruction => {
@@ -1589,7 +1566,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
             | Work::RpcCustodyColumn(process_fn)
             | Work::RpcEnvelope(process_fn)
             | Work::ColumnReconstruction(process_fn) => task_spawner.spawn_async(process_fn),
-            Work::IgnoredRpcBlock { process_fn } => task_spawner.spawn_blocking(process_fn),
             Work::GossipBlock(work)
             | Work::GossipDataColumnSidecar(work)
             | Work::GossipPartialDataColumnSidecar(work)
