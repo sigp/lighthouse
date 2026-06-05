@@ -53,7 +53,8 @@ pub use scheduler::work_reprocessing_queue;
 use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
 use std::cmp;
-use std::collections::HashSet;
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
@@ -62,6 +63,7 @@ use std::task::Context;
 use std::time::{Duration, Instant};
 use strum::IntoStaticStr;
 use task_executor::{RayonPoolType, TaskExecutor};
+use tokio::sync::broadcast;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::{debug, error, trace, warn};
@@ -175,34 +177,62 @@ impl Drop for DuplicateCacheHandle {
     }
 }
 
-/// A simple  cache for detecting duplicate block roots across multiple threads.
+/// The outcome of [`DuplicateCache::check_and_insert`].
+pub enum DuplicateCacheResult {
+    /// The block root was not present: the caller is the first to process it and holds the returned
+    /// handle for the duration of processing.
+    New(DuplicateCacheHandle),
+    /// The block root is already being processed by another task. Await the returned waiter to be
+    /// notified once that processing completes, then retry.
+    Duplicate(DuplicateCacheWaiter),
+}
+
+/// Awaits completion of an in-progress processing of the same block root.
+pub struct DuplicateCacheWaiter {
+    receiver: broadcast::Receiver<()>,
+}
+
+impl DuplicateCacheWaiter {
+    /// Resolves when the in-progress processing of the block root completes, i.e. its
+    /// [`DuplicateCacheHandle`] is dropped (which closes the channel).
+    pub async fn wait(mut self) {
+        // A `Closed` (or any) result signals the in-progress processing has finished.
+        let _ = self.receiver.recv().await;
+    }
+}
+
+/// A simple cache for detecting duplicate block roots across multiple threads. Tasks processing a
+/// block root that is already in flight can await its completion via [`DuplicateCacheResult`].
 #[derive(Clone, Default)]
 pub struct DuplicateCache {
-    inner: Arc<Mutex<HashSet<Hash256>>>,
+    inner: Arc<Mutex<HashMap<Hash256, broadcast::Sender<()>>>>,
 }
 
 impl DuplicateCache {
-    /// Checks if the given block_root exists and inserts it into the cache if
-    /// it doesn't exist.
-    ///
-    /// Returns a `Some(DuplicateCacheHandle)` if the block_root was successfully
-    /// inserted and `None` if the block root already existed in the cache.
+    /// Inserts `block_root` if absent and returns [`DuplicateCacheResult::New`] with a handle;
+    /// otherwise returns [`DuplicateCacheResult::Duplicate`] with a waiter for the in-progress task.
     ///
     /// The handle removes the entry from the cache when it is dropped. This ensures that any unclean
-    /// shutdowns in the worker tasks does not leave inconsistent state in the cache.
-    pub fn check_and_insert(&self, block_root: Hash256) -> Option<DuplicateCacheHandle> {
+    /// shutdowns in the worker tasks does not leave inconsistent state in the cache, and notifies
+    /// any waiters that processing has completed.
+    pub fn check_and_insert(&self, block_root: Hash256) -> DuplicateCacheResult {
         let mut inner = self.inner.lock();
-        if inner.insert(block_root) {
-            Some(DuplicateCacheHandle {
-                entry: block_root,
-                cache: self.clone(),
-            })
-        } else {
-            None
+        match inner.entry(block_root) {
+            Entry::Vacant(entry) => {
+                let (sender, _) = broadcast::channel(1);
+                entry.insert(sender);
+                DuplicateCacheResult::New(DuplicateCacheHandle {
+                    entry: block_root,
+                    cache: self.clone(),
+                })
+            }
+            Entry::Occupied(entry) => DuplicateCacheResult::Duplicate(DuplicateCacheWaiter {
+                receiver: entry.get().subscribe(),
+            }),
         }
     }
 
-    /// Remove the given block_root from the cache.
+    /// Remove the given block_root from the cache, waking any waiters (the sender is dropped).
     pub fn remove(&self, block_root: &Hash256) {
         let mut inner = self.inner.lock();
         inner.remove(block_root);

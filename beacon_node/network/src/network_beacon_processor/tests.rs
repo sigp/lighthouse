@@ -1533,41 +1533,33 @@ async fn import_misc_gossip_ops() {
 /// works when the duplicate cache handle is held by another task.
 #[tokio::test]
 async fn test_rpc_block_reprocessing() {
-    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let rig = TestRig::new(SMALL_CHAIN).await;
     let next_block_root = rig.next_block.canonical_root();
 
-    // Insert the next block into the duplicate cache manually
-    let handle = rig.duplicate_cache.check_and_insert(next_block_root);
-    rig.enqueue_single_lookup_block();
-    rig.assert_event_journal_completes(&[WorkType::RpcBlock])
-        .await;
+    // Hold the duplicate-cache handle so the lookup observes an in-progress import of this block.
+    let DuplicateCacheResult::New(handle) = rig.duplicate_cache.check_and_insert(next_block_root)
+    else {
+        panic!("expected a new duplicate cache entry");
+    };
 
+    rig.enqueue_single_lookup_block();
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     if num_data_columns > 0 {
         rig.enqueue_single_lookup_rpc_data_columns();
-        rig.assert_event_journal_completes(&[WorkType::RpcCustodyColumn])
-            .await;
     }
 
-    // next_block shouldn't be processed since it couldn't get the
-    // duplicate cache handle
+    // While the handle is held, the lookup block awaits the in-progress import, so it is not yet
+    // imported.
+    tokio::time::sleep(Duration::from_millis(50)).await;
     assert_ne!(next_block_root, rig.head_root());
 
+    // Dropping the handle wakes the awaiting lookup, which retries and imports the block.
     drop(handle);
 
-    // The block should arrive at the beacon processor again after
-    // the specified delay.
-    tokio::time::sleep(QUEUED_RPC_BLOCK_DELAY).await;
-
-    rig.assert_event_journal(&[WorkType::RpcBlock.into()]).await;
-
-    let max_retries = 3;
+    let max_retries = 10;
     let mut success = false;
     for _ in 0..max_retries {
-        // Add an extra delay for block processing
-        tokio::time::sleep(Duration::from_millis(10)).await;
-        // head should update to the next block now since the duplicate
-        // cache handle was dropped.
+        tokio::time::sleep(Duration::from_millis(20)).await;
         if next_block_root == rig.head_root() {
             success = true;
             break;

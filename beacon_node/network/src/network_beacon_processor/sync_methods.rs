@@ -17,8 +17,7 @@ use beacon_chain::{
     HistoricalBlockError, NotifyExecutionLayer, validator_monitor::get_slot_delay_ms,
 };
 use beacon_processor::{
-    AsyncFn, BlockingFn, DuplicateCache,
-    work_reprocessing_queue::{QueuedRpcBlock, ReprocessQueueMessage},
+    AsyncFn, DuplicateCache, DuplicateCacheResult, work_reprocessing_queue::ReprocessQueueMessage,
 };
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::PeerAction;
@@ -73,39 +72,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         Box::pin(process_fn)
     }
 
-    /// Returns the `process_fn` and `ignore_fn` required when requeuing an RPC block.
-    pub fn generate_lookup_beacon_block_fns(
-        self: Arc<Self>,
-        block_root: Hash256,
-        block: LookupBlock<T::EthSpec>,
-        seen_timestamp: Duration,
-        process_type: BlockProcessType,
-    ) -> (AsyncFn, BlockingFn) {
-        // An async closure which will import the block.
-        let process_fn = self.clone().generate_lookup_beacon_block_process_fn(
-            block_root,
-            block,
-            seen_timestamp,
-            process_type.clone(),
-        );
-        // A closure which will ignore the block.
-        let ignore_fn = move || {
-            warn!(
-                ?process_type,
-                "Block processing task dropped, cpu might be overloaded"
-            );
-            // Sync handles these results
-            self.send_sync_message(SyncMessage::BlockComponentProcessed {
-                process_type,
-                result: BlockProcessingResult::Error {
-                    penalty: None,
-                    reason: "ignored_processor_overloaded".to_string(),
-                },
-            });
-        };
-        (process_fn, Box::new(ignore_fn))
-    }
-
     /// Attempt to process a block received from a direct RPC request.
     #[allow(clippy::too_many_arguments)]
     #[instrument(
@@ -123,39 +89,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         process_type: BlockProcessType,
         duplicate_cache: DuplicateCache,
     ) {
-        // Check if the block is already being imported through another source
-        let Some(handle) = duplicate_cache.check_and_insert(block_root) else {
-            debug!(
-                action = "sending lookup block to reprocessing queue",
-                %block_root,
-                ?process_type,
-                "Gossip block is being processed"
-            );
-
-            // Send message to work reprocess queue to retry the block
-            let (process_fn, ignore_fn) = self.clone().generate_lookup_beacon_block_fns(
-                block_root,
-                block,
-                seen_timestamp,
-                process_type,
-            );
-            let reprocess_msg = ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
-                beacon_block_root: block_root,
-                process_fn,
-                ignore_fn,
-            });
-
-            if self
-                .beacon_processor_send
-                .try_send(WorkEvent {
-                    drop_during_sync: false,
-                    work: Work::Reprocess(reprocess_msg),
-                })
-                .is_err()
-            {
-                error!(source = "rpc", %block_root,"Failed to inform block import")
-            };
-            return;
+        // If the block is already being imported by another source, await that import and retry, so
+        // that this `process_type` always observes a processing result (e.g. a
+        // `DuplicateFullyImported` once the in-progress import completes).
+        let handle = loop {
+            match duplicate_cache.check_and_insert(block_root) {
+                DuplicateCacheResult::New(handle) => break handle,
+                DuplicateCacheResult::Duplicate(waiter) => {
+                    debug!(
+                        %block_root,
+                        ?process_type,
+                        "Lookup block is being processed by another source, awaiting result"
+                    );
+                    waiter.wait().await;
+                }
+            }
         };
 
         let slot = block.slot();

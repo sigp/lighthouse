@@ -59,7 +59,7 @@ use types::{
 
 use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
 use beacon_processor::{
-    DuplicateCache, GossipAggregatePackage, GossipAttestationBatch,
+    DuplicateCache, DuplicateCacheResult, GossipAggregatePackage, GossipAttestationBatch,
     work_reprocessing_queue::{
         QueuedAggregate, QueuedGossipBlock, QueuedGossipDataColumn, QueuedGossipEnvelope,
         QueuedLightClientUpdate, QueuedUnaggregate, ReprocessQueueMessage,
@@ -1443,21 +1443,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             let block_root = gossip_verified_block.block_root;
             Span::current().record("block_root", block_root.to_string());
 
-            if let Some(handle) = duplicate_cache.check_and_insert(block_root) {
-                self.process_gossip_verified_block(
-                    peer_id,
-                    gossip_verified_block,
-                    invalid_block_storage,
-                    seen_duration,
-                )
-                .await;
-                // Drop the handle to remove the entry from the cache
-                drop(handle);
-            } else {
-                debug!(
-                    %block_root,
-                    "RPC block is being imported"
-                );
+            match duplicate_cache.check_and_insert(block_root) {
+                DuplicateCacheResult::New(handle) => {
+                    self.process_gossip_verified_block(
+                        peer_id,
+                        gossip_verified_block,
+                        invalid_block_storage,
+                        seen_duration,
+                    )
+                    .await;
+                    // Drop the handle to remove the entry from the cache
+                    drop(handle);
+                }
+                // Another source is already importing this block; nothing to do for gossip.
+                DuplicateCacheResult::Duplicate(_) => {
+                    debug!(
+                        %block_root,
+                        "RPC block is being imported"
+                    );
+                }
             }
         }
     }
