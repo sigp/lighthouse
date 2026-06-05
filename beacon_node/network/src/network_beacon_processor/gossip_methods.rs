@@ -1443,18 +1443,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             let block_root = gossip_verified_block.block_root;
             Span::current().record("block_root", block_root.to_string());
 
-            // If the block is already being imported by another source, await that import and
-            // retry, so we observe a result (a `DuplicateFullyImported`) rather than dropping it.
-            let handle = duplicate_cache.insert_or_wait(block_root).await;
-            self.process_gossip_verified_block(
-                peer_id,
-                gossip_verified_block,
-                invalid_block_storage,
-                seen_duration,
-            )
-            .await;
-            // Drop the handle to remove the entry from the cache
-            drop(handle);
+            // Hold the duplicate-cache handle (awaiting any in-progress import) for the duration of
+            // processing; it is removed from the cache when dropped at the end of this block.
+            {
+                let _handle = duplicate_cache.insert_or_wait(block_root).await;
+                self.process_gossip_verified_block(
+                    peer_id,
+                    gossip_verified_block,
+                    invalid_block_storage,
+                    seen_duration,
+                )
+                .await;
+            }
         }
     }
 

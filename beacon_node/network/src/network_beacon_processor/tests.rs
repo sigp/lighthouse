@@ -1537,10 +1537,7 @@ async fn test_rpc_block_reprocessing() {
     let next_block_root = rig.next_block.canonical_root();
 
     // Hold the duplicate-cache handle so the lookup observes an in-progress import of this block.
-    let DuplicateCacheResult::New(handle) = rig.duplicate_cache.check_and_insert(next_block_root)
-    else {
-        panic!("expected a new duplicate cache entry");
-    };
+    let handle = rig.duplicate_cache.insert_or_wait(next_block_root).await;
 
     rig.enqueue_single_lookup_block();
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);

@@ -176,77 +176,39 @@ impl Drop for DuplicateCacheHandle {
     }
 }
 
-/// The outcome of [`DuplicateCache::check_and_insert`].
-pub enum DuplicateCacheResult {
-    /// The block root was not present: the caller is the first to process it and holds the returned
-    /// handle for the duration of processing.
-    New(DuplicateCacheHandle),
-    /// The block root is already being processed by another task. Await the returned waiter to be
-    /// notified once that processing completes, then retry.
-    Duplicate(DuplicateCacheWaiter),
-}
-
-/// Awaits completion of an in-progress processing of the same block root.
-pub struct DuplicateCacheWaiter {
-    receiver: broadcast::Receiver<()>,
-}
-
-impl DuplicateCacheWaiter {
-    /// Resolves when the in-progress processing of the block root completes, i.e. its
-    /// [`DuplicateCacheHandle`] is dropped (which closes the channel).
-    pub async fn wait(mut self) {
-        // A `Closed` (or any) result signals the in-progress processing has finished.
-        let _ = self.receiver.recv().await;
-    }
-}
-
-/// A simple cache for detecting duplicate block roots across multiple threads. Tasks processing a
-/// block root that is already in flight can await its completion via [`DuplicateCacheResult`].
+/// A simple cache for detecting duplicate block roots across multiple threads.
 #[derive(Clone, Default)]
 pub struct DuplicateCache {
     inner: Arc<Mutex<HashMap<Hash256, broadcast::Sender<()>>>>,
 }
 
 impl DuplicateCache {
-    /// Inserts `block_root` if absent and returns [`DuplicateCacheResult::New`] with a handle;
-    /// otherwise returns [`DuplicateCacheResult::Duplicate`] with a waiter for the in-progress task.
-    ///
-    /// The handle removes the entry from the cache when it is dropped. This ensures that any unclean
-    /// shutdowns in the worker tasks does not leave inconsistent state in the cache, and notifies
-    /// any waiters that processing has completed.
-    pub fn check_and_insert(&self, block_root: Hash256) -> DuplicateCacheResult {
-        let mut inner = self.inner.lock();
-        match inner.entry(block_root) {
-            Entry::Vacant(entry) => {
-                let (sender, _) = broadcast::channel(1);
-                entry.insert(sender);
-                DuplicateCacheResult::New(DuplicateCacheHandle {
-                    entry: block_root,
-                    cache: self.clone(),
-                })
-            }
-            Entry::Occupied(entry) => DuplicateCacheResult::Duplicate(DuplicateCacheWaiter {
-                receiver: entry.get().subscribe(),
-            }),
-        }
-    }
-
-    /// Insert `block_root`, awaiting and retrying while another task is already processing it, and
-    /// return a handle once this task becomes the one responsible for it. The handle must be held
-    /// for the duration of processing; dropping it removes the entry and wakes any waiters.
+    /// Returns a handle for processing `block_root`, awaiting and retrying while another task is
+    /// already processing it. The handle must be held for the duration of processing; dropping it
+    /// removes the entry from the cache and wakes any waiters.
     pub async fn insert_or_wait(&self, block_root: Hash256) -> DuplicateCacheHandle {
         loop {
-            match self.check_and_insert(block_root) {
-                DuplicateCacheResult::New(handle) => return handle,
-                DuplicateCacheResult::Duplicate(waiter) => {
-                    debug!(%block_root, "Block root is being processed by another source, awaiting");
-                    waiter.wait().await;
+            let mut receiver = {
+                let mut inner = self.inner.lock();
+                match inner.entry(block_root) {
+                    Entry::Vacant(entry) => {
+                        let (sender, _) = broadcast::channel(1);
+                        entry.insert(sender);
+                        return DuplicateCacheHandle {
+                            entry: block_root,
+                            cache: self.clone(),
+                        };
+                    }
+                    Entry::Occupied(entry) => entry.get().subscribe(),
                 }
-            }
+            };
+            debug!(%block_root, "Block root is being processed by another source, awaiting");
+            // A `Closed` result (the handle was dropped) signals processing has finished.
+            let _ = receiver.recv().await;
         }
     }
 
-    /// Remove the given block_root from the cache, waking any waiters (the sender is dropped).
+    /// Remove the given block_root from the cache.
     pub fn remove(&self, block_root: &Hash256) {
         let mut inner = self.inner.lock();
         inner.remove(block_root);

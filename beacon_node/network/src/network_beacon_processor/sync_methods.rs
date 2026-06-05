@@ -87,9 +87,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         process_type: BlockProcessType,
         duplicate_cache: DuplicateCache,
     ) {
-        // If the block is already being imported by another source, await that import and retry, so
-        // that this `process_type` always observes a processing result (e.g. a
-        // `DuplicateFullyImported` once the in-progress import completes).
+        // Check if the block is already being imported through another source
         let handle = duplicate_cache.insert_or_wait(block_root).await;
 
         let slot = block.slot();
