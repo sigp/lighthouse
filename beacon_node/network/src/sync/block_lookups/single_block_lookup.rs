@@ -24,24 +24,6 @@ use types::{
     SignedExecutionPayloadEnvelope, Slot,
 };
 
-// Dedicated enum for LookupResult to force its usage
-#[must_use = "LookupResult must be handled with on_lookup_result"]
-pub enum LookupResult {
-    /// Lookup completed successfully
-    Completed,
-    /// Lookup is expecting some future event from the network
-    Pending,
-    /// Block's parent is not known to fork-choice, a parent lookup is needed
-    ParentUnknown {
-        parent_root: Hash256,
-        /// Post-Gloas only: the child's bid `parent_block_hash`. Lets the parent lookup partition
-        /// peers (a peer that imported this FULL child holds the parent's payload + columns).
-        parent_block_hash: Option<ExecutionBlockHash>,
-        block_root: Hash256,
-        peers: Vec<PeerId>,
-    },
-}
-
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
 pub enum LookupRequestError {
     /// Too many failed attempts
@@ -54,8 +36,6 @@ pub enum LookupRequestError {
     BadState(String),
     /// Lookup failed for some other reason and should be dropped
     Failed(/* reason: */ String),
-    /// Attempted to retrieve a not known lookup id
-    UnknownLookup,
     /// Received a download result for a different request id than the in-flight request.
     /// There should only exist a single request at a time. Having multiple requests is a bug and
     /// can result in undefined state, so it's treated as a hard error and the lookup is dropped.
@@ -63,6 +43,24 @@ pub enum LookupRequestError {
         expected_req_id: ReqId,
         req_id: ReqId,
     },
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct AwaitingParent {
+    parent_root: Hash256,
+    parent_block_hash: Option<ExecutionBlockHash>,
+}
+
+impl AwaitingParent {
+    pub fn new(parent_root: Hash256, parent_block_hash: Option<ExecutionBlockHash>) -> Self {
+        Self {
+            parent_root,
+            parent_block_hash,
+        }
+    }
+    pub fn parent_root(&self) -> Hash256 {
+        self.parent_root
+    }
 }
 
 type PeerSet = Arc<RwLock<HashSet<PeerId>>>;
@@ -167,6 +165,23 @@ impl PeerType {
     }
 }
 
+impl From<&AwaitingParent> for PeerType {
+    fn from(value: &AwaitingParent) -> Self {
+        Self::new(value.parent_block_hash)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ImportedAction {
+    LookupComplete {
+        block_root: Hash256,
+    },
+    GloasBlockComplete {
+        block_root: Hash256,
+        bid_block_hash: ExecutionBlockHash,
+    },
+}
+
 #[derive(Educe)]
 #[educe(Debug(bound(T: BeaconChainTypes)))]
 pub struct SingleBlockLookup<T: BeaconChainTypes> {
@@ -186,7 +201,7 @@ pub struct SingleBlockLookup<T: BeaconChainTypes> {
     /// block's payload envelope and data columns.
     #[educe(Debug(method(fmt_peer_map_as_len)))]
     gloas_child_peers: GloasChildPeers,
-    awaiting_parent: Option<Hash256>,
+    awaiting_parent: Option<AwaitingParent>,
     created: Instant,
     pub(crate) span: Span,
 }
@@ -197,7 +212,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         peers: &[PeerId],
         peer_type: &PeerType,
         id: Id,
-        awaiting_parent: Option<Hash256>,
+        awaiting_parent: Option<AwaitingParent>,
     ) -> Self {
         let lookup_span = debug_span!(
             "lh_single_block_lookup",
@@ -243,39 +258,87 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             .map(|block| block.slot())
     }
 
+    pub fn peek_downloaded_bid_block_hash(&self) -> Option<ExecutionBlockHash> {
+        self.block_request
+            .state
+            .peek_downloaded_data()
+            .and_then(|block| {
+                block
+                    .message()
+                    .body()
+                    .signed_execution_payload_bid()
+                    .ok()
+                    .map(|bid| bid.message.block_hash)
+            })
+    }
+
     /// Get the block root that is being requested.
     pub fn block_root(&self) -> Hash256 {
         self.block_root
     }
 
-    pub fn awaiting_parent(&self) -> Option<Hash256> {
-        self.awaiting_parent
+    pub fn is_parent_of(&self, child_awaiting_parent: &AwaitingParent) -> bool {
+        self.block_root == child_awaiting_parent.parent_root
+    }
+
+    pub fn is_awaiting_block(&self, block_root: Hash256) -> bool {
+        if let Some(awaiting_parent) = &self.awaiting_parent {
+            awaiting_parent.parent_root() == block_root
+        } else {
+            false
+        }
+    }
+
+    pub fn awaiting_parent(&self) -> Option<&AwaitingParent> {
+        self.awaiting_parent.as_ref()
     }
 
     /// Mark this lookup as awaiting a parent lookup from being processed. Meanwhile don't send
     /// components for processing.
-    pub fn set_awaiting_parent(&mut self, parent_root: Hash256) {
-        self.awaiting_parent = Some(parent_root);
+    pub fn set_awaiting_parent(&mut self, parent: AwaitingParent) {
+        self.awaiting_parent = Some(parent);
     }
 
     /// Mark this lookup as no longer awaiting a parent lookup. Components can be sent for
     /// processing.
-    pub fn resolve_awaiting_parent(&mut self) {
-        self.awaiting_parent = None;
-    }
-
-    /// This block's bid `parent_block_hash` (the parent's execution hash), derived from the
-    /// downloaded block. Post-Gloas only; `None` pre-Gloas or before the block is downloaded.
-    fn bid_parent_block_hash(&self) -> Option<ExecutionBlockHash> {
-        self.block_request
-            .state
-            .peek_downloaded_data()
-            .and_then(|block| block.parent_block_hash())
-    }
-
-    /// Returns the `PeerType` to use when propagating this lookup's peers up to its parent lookup.
-    pub fn awaiting_parent_peer_type(&self) -> PeerType {
-        PeerType::new(self.bid_parent_block_hash())
+    pub fn maybe_resolve_awaiting_parent(&mut self, action: ImportedAction) -> bool {
+        if let Some(awaiting_parent) = self.awaiting_parent {
+            let should_resolve = match action {
+                ImportedAction::LookupComplete { block_root } => {
+                    awaiting_parent.parent_root() == block_root
+                }
+                ImportedAction::GloasBlockComplete {
+                    block_root,
+                    bid_block_hash,
+                    ..
+                } => {
+                    if awaiting_parent.parent_root() == block_root {
+                        if let Some(parent_block_hash) = awaiting_parent.parent_block_hash {
+                            // This lookup is the execution child of `parent_execution_hash`. If the
+                            // parent hash the same `bid_block_hash` this is FULL child and we must wait
+                            // for the entire parent lookup to be imported. Otherwise it's a EMPTY child
+                            // and we can import now.
+                            parent_block_hash != bid_block_hash
+                        } else {
+                            // A parent that's gloas imported and this lookup claims to be before gloas.
+                            debug_assert!(
+                                true,
+                                "Received post-gloas import action for pre-gloas lookup"
+                            );
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                }
+            };
+            if should_resolve {
+                self.awaiting_parent = None;
+            }
+            should_resolve
+        } else {
+            false
+        }
     }
 
     /// Returns the time elapsed since this lookup was created
@@ -318,12 +381,18 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             }
     }
 
+    pub fn is_complete(&self) -> bool {
+        self.block_request.is_complete()
+            && self.data_request.is_complete()
+            && self.payload_request.is_complete()
+    }
+
     /// Makes progress on all requests of this lookup. Any error is not recoverable and must result
     /// in dropping the lookup. May mark the lookup as completed.
     pub fn continue_requests(
         &mut self,
         cx: &mut SyncNetworkContext<T>,
-    ) -> Result<LookupResult, LookupRequestError> {
+    ) -> Result<(), LookupRequestError> {
         let _guard = self.span.clone().entered();
 
         // === Block request ===
@@ -425,17 +494,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             }
         }
 
-        // If all components of this lookup are already processed, there will be no future events
-        // that can make progress so it must be dropped. Consider the lookup completed.
-        // This case can happen if we receive the components from gossip during a retry.
-        if self.block_request.is_complete()
-            && self.data_request.is_complete()
-            && self.payload_request.is_complete()
-        {
-            return Ok(LookupResult::Completed);
-        }
-
-        Ok(LookupResult::Pending)
+        Ok(())
     }
 
     /// Returns the peers that should serve this block's data columns and payload envelope. For FULL
@@ -460,32 +519,33 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     /// Handle block processing result. Advances the lookup state machine.
     pub fn on_block_processing_result(
         &mut self,
-        result: BlockProcessingResult,
+        result: &BlockProcessingResult,
         cx: &mut SyncNetworkContext<T>,
-    ) -> Result<LookupResult, LookupRequestError> {
+    ) -> Result<(), LookupRequestError> {
         match result {
             BlockProcessingResult::Imported(_fully_imported, _info) => {
                 self.block_request.state.on_processing_success()?;
+                // TODO(gloas): Potentially continue child lookups for empty child
+                // TODO(gloas): If no-one is waiting on this lookup clean it
             }
-            BlockProcessingResult::ParentUnknown { parent_root } => {
+            BlockProcessingResult::ParentUnknown {
+                parent_root,
+                parent_block_hash,
+            } => {
                 // `BlockError::ParentUnknown` is only returned when processing blocks. Revert the
                 // block request to `Downloaded` and park this lookup until the parent resolves; a
                 // future call to `continue_requests` will re-submit the block for processing once
                 // the parent lookup completes.
-                let parent_block_hash = self.bid_parent_block_hash();
                 self.block_request.state.revert_to_awaiting_processing()?;
-                self.set_awaiting_parent(parent_root);
-                return Ok(LookupResult::ParentUnknown {
-                    parent_root,
-                    parent_block_hash,
-                    block_root: self.block_root,
-                    peers: self.all_peers(),
+                self.set_awaiting_parent(AwaitingParent {
+                    parent_root: *parent_root,
+                    parent_block_hash: *parent_block_hash,
                 });
             }
             BlockProcessingResult::Error { penalty, .. } => {
                 let peers = self.block_request.state.on_processing_failure()?;
                 if let Some((action, whom, msg)) = penalty {
-                    whom.apply(action, &peers, msg, cx);
+                    whom.apply(*action, &peers, msg, cx);
                 }
             }
         }
@@ -495,9 +555,9 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     /// Handle data processing result
     pub fn on_data_processing_result(
         &mut self,
-        result: BlockProcessingResult,
+        result: &BlockProcessingResult,
         cx: &mut SyncNetworkContext<T>,
-    ) -> Result<LookupResult, LookupRequestError> {
+    ) -> Result<(), LookupRequestError> {
         let DataRequest::Request { state, .. } = &mut self.data_request else {
             return Err(LookupRequestError::BadState("no data_request".to_owned()));
         };
@@ -514,47 +574,19 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             BlockProcessingResult::Error { penalty, .. } => {
                 let peers = state.on_processing_failure()?;
                 if let Some((action, whom, msg)) = penalty {
-                    whom.apply(action, &peers, msg, cx);
+                    whom.apply(*action, &peers, msg, cx);
                 }
             }
         }
         self.continue_requests(cx)
     }
 
-    /// Handle a block download response. Updates download state and advances the lookup.
-    pub fn on_block_download_response(
-        &mut self,
-        req_id: ReqId,
-        result: BlockDownloadResponse<T::EthSpec>,
-        cx: &mut SyncNetworkContext<T>,
-    ) -> Result<LookupResult, LookupRequestError> {
-        self.block_request
-            .state
-            .on_download_response(req_id, result)?;
-        self.continue_requests(cx)
-    }
-
-    /// Handle a custody columns download response. Updates download state and advances the lookup.
-    pub fn on_custody_download_response(
-        &mut self,
-        req_id: ReqId,
-        result: CustodyDownloadResponse<T::EthSpec>,
-        cx: &mut SyncNetworkContext<T>,
-    ) -> Result<LookupResult, LookupRequestError> {
-        let DataRequest::Request { state, .. } = &mut self.data_request else {
-            return Err(LookupRequestError::BadState("no data_request".to_owned()));
-        };
-
-        state.on_download_response(req_id, result)?;
-        self.continue_requests(cx)
-    }
-
     /// Handle payload envelope processing result (Gloas only).
     pub fn on_payload_processing_result(
         &mut self,
-        result: BlockProcessingResult,
+        result: &BlockProcessingResult,
         cx: &mut SyncNetworkContext<T>,
-    ) -> Result<LookupResult, LookupRequestError> {
+    ) -> Result<(), LookupRequestError> {
         let PayloadRequest::Request { state, .. } = &mut self.payload_request else {
             return Err(LookupRequestError::BadState(
                 "no payload_request".to_owned(),
@@ -573,10 +605,38 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             BlockProcessingResult::Error { penalty, .. } => {
                 let peers = state.on_processing_failure()?;
                 if let Some((action, whom, msg)) = penalty {
-                    whom.apply(action, &peers, msg, cx);
+                    whom.apply(*action, &peers, msg, cx);
                 }
             }
         }
+        self.continue_requests(cx)
+    }
+
+    /// Handle a block download response. Updates download state and advances the lookup.
+    pub fn on_block_download_response(
+        &mut self,
+        req_id: ReqId,
+        result: BlockDownloadResponse<T::EthSpec>,
+        cx: &mut SyncNetworkContext<T>,
+    ) -> Result<(), LookupRequestError> {
+        self.block_request
+            .state
+            .on_download_response(req_id, result)?;
+        self.continue_requests(cx)
+    }
+
+    /// Handle a custody columns download response. Updates download state and advances the lookup.
+    pub fn on_custody_download_response(
+        &mut self,
+        req_id: ReqId,
+        result: CustodyDownloadResponse<T::EthSpec>,
+        cx: &mut SyncNetworkContext<T>,
+    ) -> Result<(), LookupRequestError> {
+        let DataRequest::Request { state, .. } = &mut self.data_request else {
+            return Err(LookupRequestError::BadState("no data_request".to_owned()));
+        };
+
+        state.on_download_response(req_id, result)?;
         self.continue_requests(cx)
     }
 
@@ -586,7 +646,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         req_id: ReqId,
         result: PayloadDownloadResponse<T::EthSpec>,
         cx: &mut SyncNetworkContext<T>,
-    ) -> Result<LookupResult, LookupRequestError> {
+    ) -> Result<(), LookupRequestError> {
         let PayloadRequest::Request { state, .. } = &mut self.payload_request else {
             return Err(LookupRequestError::BadState(
                 "no payload_request".to_owned(),
