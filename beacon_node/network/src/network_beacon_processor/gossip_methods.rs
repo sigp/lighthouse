@@ -171,17 +171,6 @@ impl<E: EthSpec> FailedAtt<E> {
     }
 }
 
-/// `MessageAcceptance` doesn't implement clone so we do a manual match here.
-/// TODO: remove this once `Clone` is available on this type:
-/// https://github.com/libp2p/rust-libp2p/pull/6445
-fn clone_message_acceptance(a: &MessageAcceptance) -> MessageAcceptance {
-    match a {
-        MessageAcceptance::Accept => MessageAcceptance::Accept,
-        MessageAcceptance::Reject => MessageAcceptance::Reject,
-        MessageAcceptance::Ignore => MessageAcceptance::Ignore,
-    }
-}
-
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /* Auxiliary functions */
 
@@ -2018,11 +2007,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         };
 
-        self.propagate_validation_result(
-            message_id,
-            peer_id,
-            clone_message_acceptance(&validation_result),
-        );
+        self.propagate_validation_result(message_id, peer_id, validation_result);
 
         if let Some(slashing) = verified_slashing_opt {
             metrics::inc_counter(&metrics::BEACON_PROCESSOR_PROPOSER_SLASHING_VERIFIED_TOTAL);
@@ -2084,11 +2069,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         };
 
-        self.propagate_validation_result(
-            message_id,
-            peer_id,
-            clone_message_acceptance(&validation_result),
-        );
+        self.propagate_validation_result(message_id, peer_id, validation_result);
 
         if let Some(slashing) = verified_slashing_opt {
             metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_VERIFIED_TOTAL);
