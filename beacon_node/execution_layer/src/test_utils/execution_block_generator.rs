@@ -329,7 +329,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         self.min_blobs_count = count;
     }
 
-    pub fn generate_blobs(&mut self, enabled: bool) {
+    pub fn set_generate_blobs(&mut self, enabled: bool) {
         self.generate_blobs = enabled;
     }
 

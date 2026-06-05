@@ -187,7 +187,7 @@ impl TestRig {
 
         harness
             .execution_block_generator()
-            .generate_blobs(generate_blobs);
+            .set_generate_blobs(generate_blobs);
 
         harness.advance_slot();
 

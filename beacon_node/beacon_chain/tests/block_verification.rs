@@ -63,7 +63,9 @@ async fn get_chain_segment_no_blobs() -> Vec<BeaconSnapshot<E>> {
     // is no longer true, as fullnodes stores less than what they sample.
     // We use a supernode here to build a chain segment.
     let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
-    harness.execution_block_generator().generate_blobs(false);
+    harness
+        .execution_block_generator()
+        .set_generate_blobs(false);
     build_chain_segment_from_harness(harness).await.0
 }
 
@@ -1530,7 +1532,7 @@ async fn verify_block_for_gossip_slashing_detection() {
         .build();
     harness
         .execution_block_generator()
-        .generate_blobs(spec.is_fulu_scheduled());
+        .set_generate_blobs(spec.is_fulu_scheduled());
     harness.advance_slot();
 
     let state = harness.get_current_state();
