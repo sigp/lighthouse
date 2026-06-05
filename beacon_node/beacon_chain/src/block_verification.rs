@@ -59,6 +59,7 @@ use crate::execution_payload::{
 };
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_block_producers::SeenBlock;
+use crate::payload_envelope_verification::EnvelopeError;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
@@ -122,7 +123,9 @@ pub enum BlockError {
     ///
     /// It's unclear if this block is valid, but it cannot be processed without already knowing
     /// its parent.
-    ParentUnknown { parent_root: Hash256 },
+    ParentUnknown {
+        parent_root: Hash256,
+    },
     /// The block slot is greater than the present slot.
     ///
     /// ## Peer scoring
@@ -137,7 +140,10 @@ pub enum BlockError {
     /// ## Peer scoring
     ///
     /// The peer has incompatible state transition logic and is faulty.
-    StateRootMismatch { block: Hash256, local: Hash256 },
+    StateRootMismatch {
+        block: Hash256,
+        local: Hash256,
+    },
     /// The block was a genesis block, these blocks cannot be re-imported.
     GenesisBlock,
     /// The slot is finalized, no need to import.
@@ -156,7 +162,9 @@ pub enum BlockError {
     ///
     /// It's unclear if this block is valid, but it conflicts with finality and shouldn't be
     /// imported.
-    NotFinalizedDescendant { block_parent_root: Hash256 },
+    NotFinalizedDescendant {
+        block_parent_root: Hash256,
+    },
     /// Block is already known and valid, no need to re-import.
     ///
     /// ## Peer scoring
@@ -183,7 +191,10 @@ pub enum BlockError {
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty.
-    IncorrectBlockProposer { block: u64, local_shuffling: u64 },
+    IncorrectBlockProposer {
+        block: u64,
+        local_shuffling: u64,
+    },
     /// The `block.proposal_index` is not known.
     ///
     /// ## Peer scoring
@@ -201,7 +212,10 @@ pub enum BlockError {
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty.
-    BlockIsNotLaterThanParent { block_slot: Slot, parent_slot: Slot },
+    BlockIsNotLaterThanParent {
+        block_slot: Slot,
+        parent_slot: Slot,
+    },
     /// At least one block in the chain segment did not have it's parent root set to the root of
     /// the prior block.
     ///
@@ -257,7 +271,9 @@ pub enum BlockError {
     /// If it's actually our fault (e.g. our execution node database is corrupt) we have bigger
     /// problems to worry about than losing peers, and we're doing the network a favour by
     /// disconnecting.
-    ParentExecutionPayloadInvalid { parent_root: Hash256 },
+    ParentExecutionPayloadInvalid {
+        parent_root: Hash256,
+    },
     /// This is a known invalid block that was listed in Lighthouses configuration.
     /// At the moment this error is only relevant as part of the Holesky network recovery efforts.
     KnownInvalidExecutionPayload(Hash256),
@@ -285,10 +301,6 @@ pub enum BlockError {
     /// TODO: We may need to penalize the peer that gave us a potentially invalid rpc blob.
     /// https://github.com/sigp/lighthouse/issues/4546
     AvailabilityCheck(AvailabilityCheckError),
-    /// The payload envelope's block root is unknown.
-    EnvelopeBlockRootUnknown(Hash256),
-    /// Optimistic sync is not supported for Gloas payload envelopes.
-    OptimisticSyncNotSupported { block_root: Hash256 },
     /// An internal error has occurred when processing the block or sidecars.
     ///
     /// ## Peer scoring
@@ -315,6 +327,7 @@ pub enum BlockError {
         bid_parent_root: Hash256,
         block_parent_root: Hash256,
     },
+    EnvelopeError(Box<EnvelopeError>),
 }
 
 /// Which specific signature(s) are invalid in a SignedBeaconBlock
@@ -487,6 +500,50 @@ pub struct PayloadVerificationOutcome {
     pub payload_verification_status: PayloadVerificationStatus,
 }
 
+/// The set of errors that can occur while notifying the execution layer of a new payload.
+///
+/// This is deliberately narrow: notifying the EL can only fail in these two ways. The type is
+/// shared by both the pre-Gloas block import path and the Gloas payload envelope path so that
+/// neither pipeline has to borrow the other's error enum. It converts cleanly into both
+/// [`BlockError`] and [`EnvelopeError`](crate::payload_envelope_verification::EnvelopeError) at the
+/// point where the verification handle is consumed.
+#[derive(Debug)]
+pub enum PayloadVerificationError {
+    /// The execution payload was rejected by, or could not be sent to, the execution engine.
+    ExecutionPayloadError(ExecutionPayloadError),
+    /// An internal error occurred while notifying the execution layer.
+    BeaconChainError(Box<BeaconChainError>),
+}
+
+impl From<ExecutionPayloadError> for PayloadVerificationError {
+    fn from(e: ExecutionPayloadError) -> Self {
+        PayloadVerificationError::ExecutionPayloadError(e)
+    }
+}
+
+impl From<BeaconChainError> for PayloadVerificationError {
+    fn from(e: BeaconChainError) -> Self {
+        PayloadVerificationError::BeaconChainError(Box::new(e))
+    }
+}
+
+impl From<BeaconStateError> for PayloadVerificationError {
+    fn from(e: BeaconStateError) -> Self {
+        PayloadVerificationError::BeaconChainError(Box::new(BeaconChainError::BeaconStateError(e)))
+    }
+}
+
+impl From<PayloadVerificationError> for BlockError {
+    fn from(e: PayloadVerificationError) -> Self {
+        match e {
+            PayloadVerificationError::ExecutionPayloadError(e) => {
+                BlockError::ExecutionPayloadError(e)
+            }
+            PayloadVerificationError::BeaconChainError(e) => BlockError::BeaconChainError(e),
+        }
+    }
+}
+
 /// Information about invalid blocks which might still be slashable despite being invalid.
 #[allow(clippy::enum_variant_names)]
 pub enum BlockSlashInfo<TErr> {
@@ -657,7 +714,7 @@ pub struct SignatureVerifiedBlock<T: BeaconChainTypes> {
 
 /// Used to await the result of executing payload with an EE.
 pub type PayloadVerificationHandle =
-    JoinHandle<Option<Result<PayloadVerificationOutcome, BlockError>>>;
+    JoinHandle<Option<Result<PayloadVerificationOutcome, PayloadVerificationError>>>;
 
 /// A wrapper around a `SignedBeaconBlock` that indicates that this block is fully verified and
 /// ready to import into the `BeaconChain`. The validation includes:
