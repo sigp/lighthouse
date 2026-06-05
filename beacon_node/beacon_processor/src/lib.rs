@@ -232,6 +232,21 @@ impl DuplicateCache {
         }
     }
 
+    /// Insert `block_root`, awaiting and retrying while another task is already processing it, and
+    /// return a handle once this task becomes the one responsible for it. The handle must be held
+    /// for the duration of processing; dropping it removes the entry and wakes any waiters.
+    pub async fn insert_or_wait(&self, block_root: Hash256) -> DuplicateCacheHandle {
+        loop {
+            match self.check_and_insert(block_root) {
+                DuplicateCacheResult::New(handle) => return handle,
+                DuplicateCacheResult::Duplicate(waiter) => {
+                    debug!(%block_root, "Block root is being processed by another source, awaiting");
+                    waiter.wait().await;
+                }
+            }
+        }
+    }
+
     /// Remove the given block_root from the cache, waking any waiters (the sender is dropped).
     pub fn remove(&self, block_root: &Hash256) {
         let mut inner = self.inner.lock();

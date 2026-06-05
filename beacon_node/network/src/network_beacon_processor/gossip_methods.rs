@@ -59,7 +59,7 @@ use types::{
 
 use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
 use beacon_processor::{
-    DuplicateCache, DuplicateCacheResult, GossipAggregatePackage, GossipAttestationBatch,
+    DuplicateCache, GossipAggregatePackage, GossipAttestationBatch,
     work_reprocessing_queue::{
         QueuedAggregate, QueuedGossipBlock, QueuedGossipDataColumn, QueuedGossipEnvelope,
         QueuedLightClientUpdate, QueuedUnaggregate, ReprocessQueueMessage,
@@ -1445,18 +1445,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
             // If the block is already being imported by another source, await that import and
             // retry, so we observe a result (a `DuplicateFullyImported`) rather than dropping it.
-            let handle = loop {
-                match duplicate_cache.check_and_insert(block_root) {
-                    DuplicateCacheResult::New(handle) => break handle,
-                    DuplicateCacheResult::Duplicate(waiter) => {
-                        debug!(
-                            %block_root,
-                            "Gossip block is being processed by another source, awaiting result"
-                        );
-                        waiter.wait().await;
-                    }
-                }
-            };
+            let handle = duplicate_cache.insert_or_wait(block_root).await;
             self.process_gossip_verified_block(
                 peer_id,
                 gossip_verified_block,

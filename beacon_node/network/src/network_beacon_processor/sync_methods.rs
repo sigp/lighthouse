@@ -16,9 +16,7 @@ use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, BlockError, ChainSegmentResult,
     HistoricalBlockError, NotifyExecutionLayer, validator_monitor::get_slot_delay_ms,
 };
-use beacon_processor::{
-    AsyncFn, DuplicateCache, DuplicateCacheResult, work_reprocessing_queue::ReprocessQueueMessage,
-};
+use beacon_processor::{AsyncFn, DuplicateCache, work_reprocessing_queue::ReprocessQueueMessage};
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::PeerAction;
 use lighthouse_network::PeerId;
@@ -92,19 +90,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // If the block is already being imported by another source, await that import and retry, so
         // that this `process_type` always observes a processing result (e.g. a
         // `DuplicateFullyImported` once the in-progress import completes).
-        let handle = loop {
-            match duplicate_cache.check_and_insert(block_root) {
-                DuplicateCacheResult::New(handle) => break handle,
-                DuplicateCacheResult::Duplicate(waiter) => {
-                    debug!(
-                        %block_root,
-                        ?process_type,
-                        "Lookup block is being processed by another source, awaiting result"
-                    );
-                    waiter.wait().await;
-                }
-            }
-        };
+        let handle = duplicate_cache.insert_or_wait(block_root).await;
 
         let slot = block.slot();
         let parent_root = block.message().parent_root();
