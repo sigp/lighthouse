@@ -53,8 +53,8 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tracing::{Span, debug, debug_span, error, warn};
 use types::{
-    BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
-    ForkContext, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
+    BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, ForkContext,
+    Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
 };
 
 pub mod custody;

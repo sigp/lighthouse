@@ -6,7 +6,7 @@ use crate::{
         ChainSegmentProcessId, DuplicateCache, InvalidBlockStorage, NetworkBeaconProcessor,
     },
     service::NetworkMessage,
-    sync::{SyncMessage, manager::BlockProcessType},
+    sync::manager::BlockProcessType,
 };
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::custody_context::NodeCustodyType;
@@ -76,7 +76,6 @@ struct TestRig {
     beacon_processor_tx: BeaconProcessorSend<E>,
     work_journal_rx: mpsc::Receiver<&'static str>,
     network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
-    sync_rx: mpsc::UnboundedReceiver<SyncMessage<E>>,
     duplicate_cache: DuplicateCache,
     network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
     _harness: BeaconChainHarness<T>,
@@ -270,7 +269,7 @@ impl TestRig {
             beacon_processor_rx,
         } = BeaconProcessorChannels::new(&beacon_processor_config);
 
-        let (sync_tx, sync_rx) = mpsc::unbounded_channel();
+        let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
 
         // Default metadata
         let meta_data = if spec.is_peer_das_scheduled() {
@@ -375,7 +374,6 @@ impl TestRig {
             beacon_processor_tx,
             work_journal_rx,
             network_rx,
-            sync_rx,
             duplicate_cache,
             network_beacon_processor,
             _harness: harness,
@@ -830,45 +828,6 @@ impl TestRig {
             tokio::select! {
                 _ = &mut timeout_future => break,
                 maybe_msg = self.network_rx.recv() => {
-                    match maybe_msg {
-                        Some(msg) => events.push(msg),
-                        None => break, // Channel closed
-                    }
-                }
-            }
-        }
-
-        if events.is_empty() {
-            None
-        } else {
-            Some(events)
-        }
-    }
-
-    /// Listen for sync messages and collect them for a specified duration or until reaching a count.
-    ///
-    /// Returns None if no messages were received, or Some(Vec) containing the received messages.
-    pub async fn receive_sync_messages_with_timeout(
-        &mut self,
-        timeout: Duration,
-        count: Option<usize>,
-    ) -> Option<Vec<SyncMessage<E>>> {
-        let mut events = vec![];
-
-        let timeout_future = tokio::time::sleep(timeout);
-        tokio::pin!(timeout_future);
-
-        loop {
-            // Break if we've received the requested count of messages
-            if let Some(target_count) = count
-                && events.len() >= target_count
-            {
-                break;
-            }
-
-            tokio::select! {
-                _ = &mut timeout_future => break,
-                maybe_msg = self.sync_rx.recv() => {
                     match maybe_msg {
                         Some(msg) => events.push(msg),
                         None => break, // Channel closed
