@@ -2,19 +2,13 @@
 participants:
   - cl_type: lighthouse
     cl_image: lighthouse:local
-    el_type: geth
-    el_image: ethpandaops/geth:glamsterdam-devnet-0
     count: 2
   # nodes without validators, used for testing sync.
   - cl_type: lighthouse
     cl_image: lighthouse:local
-    el_type: geth
-    el_image: ethpandaops/geth:glamsterdam-devnet-0
     validator_count: 0
   - cl_type: lighthouse
     cl_image: lighthouse:local
-    el_type: geth
-    el_image: ethpandaops/geth:glamsterdam-devnet-0
     validator_count: 0
 network_params:
   gloas_fork_epoch: 0
