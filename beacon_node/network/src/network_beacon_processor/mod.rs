@@ -977,7 +977,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         // Publish partial columns without eager send
         // TODO(gloas): implement publish partial columns without eager send
-        if let Some(assembler) = self.chain.data_availability_checker.partial_assembler() {
+        if let Some(assembler) = self.chain.data_availability_checker.partial_assembler()
+            && publish_blobs
+        {
             let columns = assembler.get_partials_and_mark_as_local_fetched(block_root, &header);
             let present_indices: HashSet<ColumnIndex> = columns.iter().map(|c| c.index()).collect();
 
@@ -1035,11 +1037,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 debug!(
                     block = %block_root,
                     count = messages.len(),
-                    "Publishing all partials after getBlobs"
+                    "Publishing all partials"
                 );
                 self.send_network_message(NetworkMessage::PublishPartialColumns { messages });
             } else {
-                debug!(block = %block_root, "No partials to publish after getBlobs");
+                // This should not happen, as any custody columns will have at least an empty
+                // partial published.
+                warn!(block = %block_root, "No partials to publish");
             }
         }
     }

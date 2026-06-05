@@ -61,8 +61,15 @@ pub enum PubsubMessage<E: EthSpec> {
 pub enum PubsubPartialMessage<E: EthSpec> {
     /// A partial data column sidecar from the Fulu fork.
     DataColumnFulu {
+        /// The column to publish. Libp2p will cache it and treat it as the data to send if any peer
+        /// asks for data within it.
         column: Arc<PartialDataColumn<E>>,
+        /// The cells we are requesting. Usually, this will be all-ones, as we need all cells.
+        /// However, while get_blobs is still in progress, blobs we expect from the EL should not be
+        /// requested to conserve bandwidth.
         request_cells: CellBitmap<E>,
+        /// The header associated with the column above. This is set separately here, as the column
+        /// to be published does not contain the header - it is stored without.
         header: Arc<PartialDataColumnHeader<E>>,
     },
 }
