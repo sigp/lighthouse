@@ -11,7 +11,6 @@ use beacon_chain::payload_envelope_verification::EnvelopeError;
 use beacon_chain::{BeaconChain, BeaconChainTypes, NotifyExecutionLayer};
 use bytes::Bytes;
 use eth2::types as api_types;
-use eth2::{CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use ssz::{Decode, Encode};
@@ -36,10 +35,6 @@ pub(crate) fn post_beacon_execution_payload_envelope_ssz<T: BeaconChainTypes>(
         .and(warp::path("beacon"))
         .and(warp::path("execution_payload_envelope"))
         .and(warp::path::end())
-        .and(warp::header::exact(
-            CONTENT_TYPE_HEADER,
-            SSZ_CONTENT_TYPE_HEADER,
-        ))
         .and(warp::body::bytes())
         .and(task_spawner_filter)
         .and(chain_filter)

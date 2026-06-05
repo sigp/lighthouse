@@ -1,8 +1,6 @@
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use beacon_node::beacon_chain::chain_config::{
-    DEFAULT_RE_ORG_CUTOFF_DENOMINATOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
-    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_SYNC_TOLERANCE_EPOCHS,
-    DisallowedReOrgOffsets,
+    DEFAULT_SYNC_TOLERANCE_EPOCHS, DisallowedReOrgOffsets,
 };
 use beacon_node::beacon_chain::custody_context::NodeCustodyType;
 use beacon_node::{
@@ -2344,19 +2342,12 @@ fn ensure_panic_on_failed_launch() {
 fn enable_proposer_re_orgs_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.re_org_head_threshold,
-                Some(DEFAULT_RE_ORG_HEAD_THRESHOLD)
-            );
-            assert_eq!(
-                config.chain.re_org_max_epochs_since_finalization,
-                DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
-            );
-            assert_eq!(
-                config.chain.re_org_cutoff(Duration::from_secs(12)),
-                Duration::from_secs(12) / DEFAULT_RE_ORG_CUTOFF_DENOMINATOR
-            );
+        .with_config_and_spec::<MainnetEthSpec, _>(|config, spec| {
+            assert!(!config.chain.disable_proposer_reorg);
+            assert_eq!(spec.reorg_head_weight_threshold, 20);
+            assert_eq!(spec.reorg_parent_weight_threshold, 160);
+            assert_eq!(spec.reorg_max_epochs_since_finalization, 2);
+            assert_eq!(spec.proposer_reorg_cutoff_bps, 1667);
         });
 }
 
@@ -2365,52 +2356,8 @@ fn disable_proposer_re_orgs() {
     CommandLineTest::new()
         .flag("disable-proposer-reorgs", None)
         .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(config.chain.re_org_head_threshold, None);
-            assert_eq!(config.chain.re_org_parent_threshold, None)
-        });
-}
-
-#[test]
-fn proposer_re_org_parent_threshold() {
-    CommandLineTest::new()
-        .flag("proposer-reorg-parent-threshold", Some("90"))
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.re_org_parent_threshold.unwrap().0, 90));
-}
-
-#[test]
-fn proposer_re_org_head_threshold() {
-    CommandLineTest::new()
-        .flag("proposer-reorg-threshold", Some("90"))
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.re_org_head_threshold.unwrap().0, 90));
-}
-
-#[test]
-fn proposer_re_org_max_epochs_since_finalization() {
-    CommandLineTest::new()
-        .flag("proposer-reorg-epochs-since-finalization", Some("8"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.re_org_max_epochs_since_finalization.as_u64(),
-                8
-            )
-        });
-}
-
-#[test]
-fn proposer_re_org_cutoff() {
-    CommandLineTest::new()
-        .flag("proposer-reorg-cutoff", Some("500"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.re_org_cutoff(Duration::from_secs(12)),
-                Duration::from_millis(500)
-            )
-        });
+        // When --disable-proposer-reorg is used, the field in ChainConfig should become true
+        .with_config(|config| assert!(config.chain.disable_proposer_reorg));
 }
 
 #[test]
@@ -2874,11 +2821,68 @@ fn partial_columns() {
             assert!(config.network.enable_partial_columns);
             assert!(config.chain.enable_partial_columns);
         });
-    // And disabled by default:
+    // And disabled by default on mainnet:
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
             assert!(!config.network.enable_partial_columns);
             assert!(!config.chain.enable_partial_columns);
         })
+}
+
+#[test]
+fn partial_columns_default_hoodi() {
+    CommandLineTest::new()
+        .flag("network", Some("hoodi"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_partial_columns);
+            assert!(config.chain.enable_partial_columns);
+        });
+}
+
+#[test]
+fn partial_columns_default_sepolia() {
+    CommandLineTest::new()
+        .flag("network", Some("sepolia"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_partial_columns);
+            assert!(config.chain.enable_partial_columns);
+        });
+}
+
+#[test]
+fn partial_columns_disable_overrides_hoodi_default() {
+    CommandLineTest::new()
+        .flag("network", Some("hoodi"))
+        .flag("disable-partial-columns", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.network.enable_partial_columns);
+            assert!(!config.chain.enable_partial_columns);
+        });
+}
+
+#[test]
+fn partial_columns_disable_on_mainnet_no_op() {
+    CommandLineTest::new()
+        .flag("disable-partial-columns", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.network.enable_partial_columns);
+            assert!(!config.chain.enable_partial_columns);
+        });
+}
+
+#[test]
+fn partial_columns_enable_disable_conflict() {
+    let mut cmd = base_cmd();
+    cmd.arg("--enable-partial-columns")
+        .arg("--disable-partial-columns");
+    let output = cmd.output().expect("should run command");
+    assert!(
+        !output.status.success(),
+        "expected clap to reject --enable-partial-columns and --disable-partial-columns together",
+    );
 }

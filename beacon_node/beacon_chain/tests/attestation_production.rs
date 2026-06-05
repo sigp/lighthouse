@@ -8,6 +8,7 @@ use beacon_chain::test_utils::{
 use beacon_chain::validator_monitor::UNAGGREGATED_ATTESTATION_LAG_SLOTS;
 use beacon_chain::{StateSkipConfig, WhenSlotSkipped, metrics};
 use bls::{AggregateSignature, Keypair};
+use slot_clock::SlotClock;
 use std::sync::{Arc, LazyLock};
 use tree_hash::TreeHash;
 use types::{Attestation, EthSpec, MainnetEthSpec, RelativeEpoch, Slot};
@@ -446,5 +447,71 @@ async fn gloas_attestation_index_payload_absent() {
         attestation.data().index,
         0,
         "gloas attestation to prior slot without payload should have index=0 (payload_absent)"
+    );
+}
+
+/// Verify that `produce_payload_attestation_data` reports `payload_present = true` but
+/// `blob_data_available = false` when the envelope was observed on but not imported
+/// because its data was unavailable.
+///
+/// Setup: build a chain through slot 2, then at slot 3 import only the beacon block (no
+/// envelope) and mark the envelope as observed on time.
+#[tokio::test]
+async fn gloas_payload_attestation_seen_but_data_unavailable() {
+    if fork_name_from_env().is_some_and(|f| !f.gloas_enabled()) {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .default_spec()
+        .keypairs(KEYPAIRS[..].to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    let chain = &harness.chain;
+
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Slot 3: import the beacon block but withhold its envelope.
+    harness.advance_slot();
+    let state = harness.get_current_state();
+    let (block_contents, _envelope, _new_state) =
+        harness.make_block_with_envelope(state, Slot::new(3)).await;
+    let block_root = block_contents.0.canonical_root();
+    harness
+        .process_block(Slot::new(3), block_root, block_contents)
+        .await
+        .expect("block should import without envelope");
+
+    assert_eq!(chain.head_snapshot().beacon_block.slot(), Slot::new(3));
+
+    // Mark the envelope as observed at the start of the slot, before its deadline.
+    let slot_start = chain.slot_clock.start_of(Slot::new(3)).unwrap();
+    chain.envelope_times_cache.write().set_time_observed(
+        block_root,
+        Slot::new(3),
+        slot_start,
+        None,
+    );
+
+    let pa_data = chain
+        .produce_payload_attestation_data(Slot::new(3))
+        .expect("should produce payload attestation data");
+
+    assert!(
+        pa_data.payload_present,
+        "envelope observed before the deadline should vote payload_present=true"
+    );
+    assert!(
+        !pa_data.blob_data_available,
+        "unimported envelope data should vote blob_data_available=false"
     );
 }
