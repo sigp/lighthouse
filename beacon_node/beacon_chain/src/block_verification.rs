@@ -673,7 +673,6 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         .data_availability_checker
         .batch_verify_kzg_for_available_blocks(&available_blocks)?;
 
-    // Verify KZG for Gloas envelope columns out-of-band (commitments live in block bid).
     for (available_block, maybe_envelope) in available_blocks.iter().zip(envelopes.iter()) {
         if let Some(envelope) = maybe_envelope {
             verify_columns_against_block(&chain.kzg, available_block.block(), &envelope.columns)?;
