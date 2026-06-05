@@ -7020,6 +7020,7 @@ dependencies = [
 name = "proto_array"
 version = "0.2.0"
 dependencies = [
+ "criterion",
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "fixed_bytes",
