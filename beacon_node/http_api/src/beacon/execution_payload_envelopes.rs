@@ -24,8 +24,8 @@ use warp::{
     hyper::{Body, Response},
 };
 
-// POST beacon/execution_payload_envelope (SSZ)
-pub(crate) fn post_beacon_execution_payload_envelope_ssz<T: BeaconChainTypes>(
+// POST beacon/execution_payload_envelopes (SSZ)
+pub(crate) fn post_beacon_execution_payload_envelopes_ssz<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
     task_spawner_filter: TaskSpawnerFilter<T>,
     chain_filter: ChainFilter<T>,
@@ -33,7 +33,7 @@ pub(crate) fn post_beacon_execution_payload_envelope_ssz<T: BeaconChainTypes>(
 ) -> ResponseFilter {
     eth_v1
         .and(warp::path("beacon"))
-        .and(warp::path("execution_payload_envelope"))
+        .and(warp::path("execution_payload_envelopes"))
         .and(warp::path::end())
         .and(warp::body::bytes())
         .and(task_spawner_filter)
@@ -57,8 +57,8 @@ pub(crate) fn post_beacon_execution_payload_envelope_ssz<T: BeaconChainTypes>(
         .boxed()
 }
 
-// POST beacon/execution_payload_envelope
-pub(crate) fn post_beacon_execution_payload_envelope<T: BeaconChainTypes>(
+// POST beacon/execution_payload_envelopes
+pub(crate) fn post_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
     task_spawner_filter: TaskSpawnerFilter<T>,
     chain_filter: ChainFilter<T>,
@@ -66,7 +66,7 @@ pub(crate) fn post_beacon_execution_payload_envelope<T: BeaconChainTypes>(
 ) -> ResponseFilter {
     eth_v1
         .and(warp::path("beacon"))
-        .and(warp::path("execution_payload_envelope"))
+        .and(warp::path("execution_payload_envelopes"))
         .and(warp::path::end())
         .and(warp::body::json())
         .and(task_spawner_filter.clone())
@@ -85,7 +85,7 @@ pub(crate) fn post_beacon_execution_payload_envelope<T: BeaconChainTypes>(
         .boxed()
 }
 /// Publishes a signed execution payload envelope to the network. Implements
-/// `POST /eth/v1/beacon/execution_payload_envelope` per the in-flight beacon-APIs PR
+/// `POST /eth/v1/beacon/execution_payload_envelopes` per the in-flight beacon-APIs PR
 /// <https://github.com/ethereum/beacon-APIs/pull/580>.
 pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
     envelope: SignedExecutionPayloadEnvelope<T::EthSpec>,
@@ -292,8 +292,8 @@ fn build_gloas_data_columns<T: BeaconChainTypes>(
 }
 
 // TODO(gloas): add tests for this endpoint once we support importing payloads into the db
-// GET beacon/execution_payload_envelope/{block_id}
-pub(crate) fn get_beacon_execution_payload_envelope<T: BeaconChainTypes>(
+// GET beacon/execution_payload_envelopes/{block_id}
+pub(crate) fn get_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
     block_id_or_err: impl Filter<Extract = (BlockId,), Error = Rejection>
     + Clone
@@ -305,7 +305,7 @@ pub(crate) fn get_beacon_execution_payload_envelope<T: BeaconChainTypes>(
 ) -> ResponseFilter {
     eth_v1
         .and(warp::path("beacon"))
-        .and(warp::path("execution_payload_envelope"))
+        .and(warp::path("execution_payload_envelopes"))
         .and(block_id_or_err)
         .and(warp::path::end())
         .and(task_spawner_filter)
