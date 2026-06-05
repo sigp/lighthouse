@@ -922,14 +922,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         &metrics::BEACON_BLOB_DELAY_FULL_VERIFICATION,
                         processing_start_time.elapsed().as_millis() as i64,
                     );
-
-                    // If a block is in the da_checker, sync maybe awaiting for an event when block is finally
-                    // imported. A block can become imported both after processing a block or data column. If
-                    // importing a block results in `Imported`, notify. Do not notify of data column errors.
-                    self.send_sync_message(SyncMessage::GossipBlockProcessResult {
-                        block_root,
-                        imported: true,
-                    });
                 }
                 AvailabilityProcessingStatus::MissingComponents(slot, block_root) => {
                     trace!(
@@ -1353,16 +1345,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // We can't really penalize here, as the error might be the fault of another peer
                 // contributing to the partial.
             }
-        }
-
-        // If a block is in the da_checker, sync maybe awaiting for an event when block is finally
-        // imported. A block can become imported both after processing a block or data column. If a
-        // importing a block results in `Imported`, notify. Do not notify of data column errors.
-        if matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))) {
-            self.send_sync_message(SyncMessage::GossipBlockProcessResult {
-                block_root,
-                imported: true,
-            });
         }
     }
 
@@ -1898,11 +1880,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         if let Err(e) = &result {
             self.maybe_store_invalid_block(&invalid_block_storage, block_root, &block, e);
         }
-
-        self.send_sync_message(SyncMessage::GossipBlockProcessResult {
-            block_root,
-            imported: matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))),
-        });
     }
 
     pub fn process_gossip_voluntary_exit(
