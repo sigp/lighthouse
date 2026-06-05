@@ -144,7 +144,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
             PubsubMessage::ExecutionPayload(Box::new(envelope_for_gossip)),
         )
         .map_err(|_| {
-            EnvelopeError::BeaconChainError(Arc::new(
+            EnvelopeError::BeaconChainError(Box::new(
                 beacon_chain::BeaconChainError::UnableToPublish,
             ))
         })
