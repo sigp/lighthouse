@@ -1443,26 +1443,29 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             let block_root = gossip_verified_block.block_root;
             Span::current().record("block_root", block_root.to_string());
 
-            match duplicate_cache.check_and_insert(block_root) {
-                DuplicateCacheResult::New(handle) => {
-                    self.process_gossip_verified_block(
-                        peer_id,
-                        gossip_verified_block,
-                        invalid_block_storage,
-                        seen_duration,
-                    )
-                    .await;
-                    // Drop the handle to remove the entry from the cache
-                    drop(handle);
+            // If the block is already being imported by another source, await that import and
+            // retry, so we observe a result (a `DuplicateFullyImported`) rather than dropping it.
+            let handle = loop {
+                match duplicate_cache.check_and_insert(block_root) {
+                    DuplicateCacheResult::New(handle) => break handle,
+                    DuplicateCacheResult::Duplicate(waiter) => {
+                        debug!(
+                            %block_root,
+                            "Gossip block is being processed by another source, awaiting result"
+                        );
+                        waiter.wait().await;
+                    }
                 }
-                // Another source is already importing this block; nothing to do for gossip.
-                DuplicateCacheResult::Duplicate(_) => {
-                    debug!(
-                        %block_root,
-                        "RPC block is being imported"
-                    );
-                }
-            }
+            };
+            self.process_gossip_verified_block(
+                peer_id,
+                gossip_verified_block,
+                invalid_block_storage,
+                seen_duration,
+            )
+            .await;
+            // Drop the handle to remove the entry from the cache
+            drop(handle);
         }
     }
 
