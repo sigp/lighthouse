@@ -1,3 +1,4 @@
+use crate::sync::block_lookups::DownloadResult;
 use crate::sync::network_context::{
     DataColumnsByRootRequestId, DataColumnsByRootSingleBlockRequest,
 };
@@ -56,8 +57,7 @@ struct ActiveBatchColumnsRequest {
     span: Span,
 }
 
-pub type CustodyRequestResult<E> =
-    Result<Option<(DataColumnSidecarList<E>, PeerGroup, Duration)>, Error>;
+pub type CustodyRequestResult<E> = Result<Option<DownloadResult<DataColumnSidecarList<E>>>, Error>;
 
 impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
     pub(crate) fn new(
@@ -227,7 +227,11 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                 .into_iter()
                 .max()
                 .unwrap_or_else(|| cx.chain.slot_clock.now_duration().unwrap_or_default());
-            return Ok(Some((columns, peer_group, max_seen_timestamp)));
+            return Ok(Some(DownloadResult::new(
+                columns,
+                peer_group,
+                max_seen_timestamp,
+            )));
         }
 
         let active_request_count_by_peer = cx.active_request_count_by_peer();
@@ -305,7 +309,12 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     // must have its columns in custody. In that case, set `true = enforce max_requests`
                     // and downscore if data_columns_by_root does not return the expected custody
                     // columns. For the rest of peers, don't downscore if columns are missing.
-                    lookup_peers.contains(&peer_id),
+                    //
+                    // Post-Gloas, blocks and payload envelopes are decoupled. A peer may
+                    // have the block but not yet imported the envelope and data columns.
+                    // Don't enforce max_responses in this case.
+                    lookup_peers.contains(&peer_id)
+                        && !cx.fork_context.current_fork_name().gloas_enabled(),
                 )
                 .map_err(Error::SendFailed)?;
 
@@ -338,7 +347,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                         },
                     );
                 }
-                LookupRequestResult::NoRequestNeeded(_) => unreachable!(),
+                LookupRequestResult::NoRequestNeeded(..) => unreachable!(),
                 LookupRequestResult::Pending(_) => unreachable!(),
             }
         }

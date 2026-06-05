@@ -1247,7 +1247,7 @@ mod tests {
             let peer_id = network_globals
                 .peers
                 .write()
-                .__add_connected_peer_testing_only(
+                .__add_connected_peer_with_custody_subnets(
                     true,
                     &beacon_chain.spec,
                     k256::ecdsa::SigningKey::random(&mut rng).into(),

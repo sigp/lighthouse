@@ -1,4 +1,3 @@
-use crate::blob_verification::GossipVerifiedBlob;
 use crate::block_verification_types::{AsBlock, AvailableBlockData, LookupBlock, RangeSyncBlock};
 use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
@@ -124,8 +123,8 @@ pub fn get_kzg(spec: &ChainSpec) -> Arc<Kzg> {
 pub type BaseHarnessType<E, THotStore, TColdStore> =
     Witness<TestingSlotClock, E, THotStore, TColdStore>;
 
-pub type DiskHarnessType<E> = BaseHarnessType<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>;
-pub type EphemeralHarnessType<E> = BaseHarnessType<E, MemoryStore<E>, MemoryStore<E>>;
+pub type DiskHarnessType<E> = BaseHarnessType<E, BeaconNodeBackend, BeaconNodeBackend>;
+pub type EphemeralHarnessType<E> = BaseHarnessType<E, MemoryStore, MemoryStore>;
 
 pub type BoxedMutator<E, Hot, Cold> = Box<
     dyn FnOnce(
@@ -334,7 +333,7 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
     /// Manually restore from a given `MemoryStore`.
     pub fn resumed_ephemeral_store(
         mut self,
-        store: Arc<HotColdDB<E, MemoryStore<E>, MemoryStore<E>>>,
+        store: Arc<HotColdDB<E, MemoryStore, MemoryStore>>,
     ) -> Self {
         let mutator = move |builder: BeaconChainBuilder<_>| {
             builder
@@ -350,7 +349,7 @@ impl<E: EthSpec> Builder<DiskHarnessType<E>> {
     /// Disk store, start from genesis.
     pub fn fresh_disk_store(
         mut self,
-        store: Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>,
+        store: Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>>,
     ) -> Self {
         let validator_keypairs = self
             .validator_keypairs
@@ -384,7 +383,7 @@ impl<E: EthSpec> Builder<DiskHarnessType<E>> {
     /// Disk store, resume.
     pub fn resumed_disk_store(
         mut self,
-        store: Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>,
+        store: Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>>,
     ) -> Self {
         let mutator = move |builder: BeaconChainBuilder<_>| {
             builder
@@ -399,8 +398,8 @@ impl<E: EthSpec> Builder<DiskHarnessType<E>> {
 impl<E, Hot, Cold> Builder<BaseHarnessType<E, Hot, Cold>>
 where
     E: EthSpec,
-    Hot: ItemStore<E>,
-    Cold: ItemStore<E>,
+    Hot: ItemStore,
+    Cold: ItemStore,
 {
     pub fn new(eth_spec_instance: E) -> Self {
         let runtime = TestRuntime::default();
@@ -760,8 +759,8 @@ pub type HarnessSyncContributions<E> = Vec<(
 impl<E, Hot, Cold> BeaconChainHarness<BaseHarnessType<E, Hot, Cold>>
 where
     E: EthSpec,
-    Hot: ItemStore<E>,
-    Cold: ItemStore<E>,
+    Hot: ItemStore,
+    Cold: ItemStore,
 {
     pub fn builder(eth_spec_instance: E) -> Builder<BaseHarnessType<E, Hot, Cold>> {
         create_test_tracing_subscriber();
@@ -1569,6 +1568,7 @@ where
         beacon_block_root: Hash256,
         mut state: Cow<BeaconState<E>>,
         state_root: Hash256,
+        payload_present_override: Option<bool>,
     ) -> Result<Attestation<E>, BeaconChainError> {
         assert_eq!(
             state.get_latest_block_root(state_root),
@@ -1603,12 +1603,17 @@ where
             *state.get_block_root(target_slot)?
         };
 
-        let payload_present = state.fork_name_unchecked().gloas_enabled()
-            && state.latest_block_header().slot != slot
-            && self
-                .chain
-                .canonical_head
-                .block_has_canonical_payload(&beacon_block_root, &self.spec)?;
+        let payload_present = match payload_present_override {
+            Some(payload_present) => payload_present,
+            None => {
+                state.fork_name_unchecked().gloas_enabled()
+                    && state.latest_block_header().slot != slot
+                    && self
+                        .chain
+                        .canonical_head
+                        .block_has_canonical_payload(&beacon_block_root, &self.spec)?
+            }
+        };
 
         Ok(Attestation::empty_for_signing(
             index,
@@ -1647,7 +1652,11 @@ where
             state_root,
             head_block_root,
             attestation_slot,
-            MakeAttestationOptions { limit: None, fork },
+            MakeAttestationOptions {
+                limit: None,
+                fork,
+                payload_present_override: None,
+            },
         )
         .0
     }
@@ -1674,7 +1683,11 @@ where
             state_root,
             head_block_root,
             attestation_slot,
-            MakeAttestationOptions { limit: None, fork },
+            MakeAttestationOptions {
+                limit: None,
+                fork,
+                payload_present_override: None,
+            },
         )
         .0
     }
@@ -1688,7 +1701,7 @@ where
         attestation_slot: Slot,
         opts: MakeAttestationOptions,
     ) -> (Vec<CommitteeSingleAttestations>, Vec<usize>) {
-        let MakeAttestationOptions { limit, fork } = opts;
+        let MakeAttestationOptions { limit, fork, .. } = opts;
         let committee_count = state.get_committee_count_at_slot(state.slot()).unwrap();
         let num_attesters = AtomicUsize::new(0);
 
@@ -1781,7 +1794,11 @@ where
         attestation_slot: Slot,
         opts: MakeAttestationOptions,
     ) -> (Vec<CommitteeAttestations<E>>, Vec<usize>) {
-        let MakeAttestationOptions { limit, fork } = opts;
+        let MakeAttestationOptions {
+            limit,
+            fork,
+            payload_present_override,
+        } = opts;
         let committee_count = state.get_committee_count_at_slot(state.slot()).unwrap();
         let num_attesters = AtomicUsize::new(0);
 
@@ -1814,6 +1831,7 @@ where
                                 head_block_root.into(),
                                 Cow::Borrowed(state),
                                 state_root,
+                                payload_present_override,
                             )
                             .unwrap();
 
@@ -2016,7 +2034,11 @@ where
             state_root,
             block_hash,
             slot,
-            MakeAttestationOptions { limit, fork },
+            MakeAttestationOptions {
+                limit,
+                fork,
+                payload_present_override: None,
+            },
         )
     }
 
@@ -2851,11 +2873,42 @@ where
             .await
             .expect("newPayload should succeed");
 
-        // Store the envelope.
+        // Store the envelope and the data columns derived from the block.
+        //
+        // Production stores columns inside `import_available_execution_payload_envelope` after
+        // the cache is satisfied. The harness sidesteps that flow but must still persist columns
+        // or the `DataColumnMissing` invariant fires for any block with `num_expected_blobs > 0`.
+        let block = self
+            .chain
+            .store
+            .get_blinded_block(&block_root)
+            .expect("should read block from store")
+            .expect("block should exist in store");
+        let mut ops = vec![];
+        let block_with_full_payload = self
+            .chain
+            .store
+            .make_full_block(&block_root, block.clone())
+            .expect("should reconstruct full block");
+        let columns =
+            generate_data_column_sidecars_from_block(&block_with_full_payload, &self.spec);
+        if !columns.is_empty()
+            && let Some(store_op) = self.chain.get_blobs_or_columns_store_op(
+                block_root,
+                block.slot(),
+                AvailableBlockData::DataColumns(columns),
+            )
+        {
+            ops.push(store_op);
+        }
+        ops.push(store::StoreOp::PutPayloadEnvelope(
+            block_root,
+            std::sync::Arc::new(signed_envelope),
+        ));
         self.chain
             .store
-            .put_payload_envelope(&block_root, &signed_envelope)
-            .expect("should store envelope");
+            .do_atomically_with_block_and_blobs_cache(ops)
+            .expect("should persist envelope and columns");
 
         // Update fork choice so it knows the payload was received.
         self.chain
@@ -2876,11 +2929,10 @@ where
         block: Arc<SignedBeaconBlock<E>>,
     ) -> RangeSyncBlock<E> {
         let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
-        let has_blobs = block
-            .message()
-            .body()
-            .blob_kzg_commitments()
-            .is_ok_and(|c| !c.is_empty());
+        // For Gloas, kzg commitments live in the bid (`signed_execution_payload_bid`), so the
+        // body's `blob_kzg_commitments()` accessor returns Err. `num_expected_blobs` already
+        // handles both shapes.
+        let has_blobs = block.num_expected_blobs() > 0;
         if !has_blobs {
             return RangeSyncBlock::new(
                 block,
@@ -3666,55 +3718,39 @@ where
         Ok(())
     }
 
-    /// Simulate some of the blobs / data columns being seen on gossip.
-    /// Converts the blobs to data columns if the slot is Fulu or later.
-    pub async fn process_gossip_blobs_or_columns<'a>(
+    /// Simulate the block's custody data columns (or those in `custody_columns_opt`) being
+    /// seen on gossip. Panics unless PeerDAS is enabled for the block's epoch.
+    pub async fn process_gossip_columns(
         &self,
         block: &SignedBeaconBlock<E>,
-        blobs: impl Iterator<Item = &'a Blob<E>>,
-        proofs: impl Iterator<Item = &'a KzgProof>,
         custody_columns_opt: Option<HashSet<ColumnIndex>>,
     ) {
-        let is_peerdas_enabled = self.chain.spec.is_peer_das_enabled_for_epoch(block.epoch());
-        if is_peerdas_enabled {
-            let custody_columns = custody_columns_opt.unwrap_or_else(|| {
-                let epoch = block.slot().epoch(E::slots_per_epoch());
-                self.chain
-                    .sampling_columns_for_epoch(epoch)
-                    .iter()
-                    .copied()
-                    .collect()
-            });
+        assert!(self.chain.spec.is_peer_das_enabled_for_epoch(block.epoch()));
+        let custody_columns = custody_columns_opt.unwrap_or_else(|| {
+            let epoch = block.slot().epoch(E::slots_per_epoch());
+            self.chain
+                .sampling_columns_for_epoch(epoch)
+                .iter()
+                .copied()
+                .collect()
+        });
 
-            let verified_columns = generate_data_column_sidecars_from_block(block, &self.spec)
-                .into_iter()
-                .filter(|c| custody_columns.contains(c.index()))
-                .map(|sidecar| {
-                    let subnet_id =
-                        DataColumnSubnetId::from_column_index(*sidecar.index(), &self.spec);
-                    self.chain
-                        .verify_data_column_sidecar_for_gossip(sidecar, subnet_id)
-                })
-                .collect::<Result<Vec<_>, _>>()
+        let verified_columns = generate_data_column_sidecars_from_block(block, &self.spec)
+            .into_iter()
+            .filter(|c| custody_columns.contains(c.index()))
+            .map(|sidecar| {
+                let subnet_id = DataColumnSubnetId::from_column_index(*sidecar.index(), &self.spec);
+                self.chain
+                    .verify_data_column_sidecar_for_gossip(sidecar, subnet_id)
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        if !verified_columns.is_empty() {
+            self.chain
+                .process_gossip_data_columns(verified_columns, || Ok(()))
+                .await
                 .unwrap();
-
-            if !verified_columns.is_empty() {
-                self.chain
-                    .process_gossip_data_columns(verified_columns, || Ok(()))
-                    .await
-                    .unwrap();
-            }
-        } else {
-            for (i, (kzg_proof, blob)) in proofs.into_iter().zip(blobs).enumerate() {
-                let sidecar =
-                    Arc::new(BlobSidecar::new(i, blob.clone(), block, *kzg_proof).unwrap());
-                let gossip_blob = GossipVerifiedBlob::new(sidecar, i as u64, &self.chain)
-                    .expect("should obtain gossip verified blob");
-                self.chain
-                    .process_gossip_blob(gossip_blob)
-                    .await
-                    .expect("should import valid gossip verified blob");
-            }
         }
     }
 }
@@ -3731,6 +3767,8 @@ pub struct MakeAttestationOptions {
     pub limit: Option<usize>,
     /// Fork to use for signing attestations.
     pub fork: Fork,
+    /// Override post-Gloas regular attestation payload-present encoding.
+    pub payload_present_override: Option<bool>,
 }
 
 pub enum NumBlobs {
@@ -3782,7 +3820,26 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
         SignedBeaconBlock::Fulu(SignedBeaconBlockFulu {
             ref mut message, ..
         }) => add_blob_transactions!(message, FullPayloadFulu<E>, num_blobs, u, fork_name),
-        // TODO(EIP-7732) Add `SignedBeaconBlock::Gloas` variant
+        SignedBeaconBlock::Gloas(SignedBeaconBlockGloas {
+            ref mut message, ..
+        }) => {
+            // For Gloas, commitments are in the bid, not directly in the body.
+            // BlobSidecars cannot be created for Gloas because there's no merkle proof
+            // from the block body to the commitments. Return early with empty blob_sidecars.
+            let num_blobs = match num_blobs {
+                NumBlobs::Random => u.int_in_range(DEFAULT_MIN_BLOBS..=DEFAULT_MAX_BLOBS)?,
+                NumBlobs::Number(n) => n,
+                NumBlobs::None => 0,
+            };
+            let (bundle, _transactions) =
+                execution_layer::test_utils::generate_blobs::<E>(num_blobs, fork_name).unwrap();
+            message
+                .body
+                .signed_execution_payload_bid
+                .message
+                .blob_kzg_commitments = bundle.commitments.clone();
+            return Ok((block, blob_sidecars));
+        }
         _ => return Ok((block, blob_sidecars)),
     };
 

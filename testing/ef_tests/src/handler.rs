@@ -715,10 +715,8 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
             return false;
         }
 
-        // Deposit tests exist only for Electra and Fulu (not Gloas).
-        if self.handler_name == "deposit_with_reorg"
-            && (!fork_name.electra_enabled() || fork_name.gloas_enabled())
-        {
+        // Deposit tests exist only for Electra and later.
+        if self.handler_name == "deposit_with_reorg" && !fork_name.electra_enabled() {
             return false;
         }
 
@@ -727,10 +725,11 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
             return false;
         }
 
-        // on_execution_payload_envelope and get_parent_payload_status tests exist only for
-        // Gloas and later.
+        // on_execution_payload_envelope, get_parent_payload_status, and
+        // on_payload_attestation_message tests exist only for Gloas and later.
         if (self.handler_name == "on_execution_payload_envelope"
-            || self.handler_name == "get_parent_payload_status")
+            || self.handler_name == "get_parent_payload_status"
+            || self.handler_name == "on_payload_attestation_message")
             && !fork_name.gloas_enabled()
         {
             return false;
@@ -977,6 +976,36 @@ impl<E: EthSpec + TypeName> Handler for ComputeColumnsForCustodyGroupHandler<E> 
 
     fn handler_name(&self) -> String {
         "compute_columns_for_custody_group".into()
+    }
+}
+
+pub struct GossipValidationHandler<E> {
+    handler_name: &'static str,
+    _phantom: PhantomData<E>,
+}
+
+impl<E> GossipValidationHandler<E> {
+    pub const fn new(handler_name: &'static str) -> Self {
+        Self {
+            handler_name,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<E: EthSpec + TypeName> Handler for GossipValidationHandler<E> {
+    type Case = cases::GossipValidation<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "networking"
+    }
+
+    fn handler_name(&self) -> String {
+        self.handler_name.into()
     }
 }
 

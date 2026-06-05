@@ -6,7 +6,7 @@ use beacon_chain::{
     BeaconChainError, BlockError, ChainConfig, ExecutionPayloadError,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, NotifyExecutionLayer, StateSkipConfig,
     WhenSlotSkipped,
-    canonical_head::{CachedHead, CanonicalHead},
+    canonical_head::CachedHead,
     test_utils::{BeaconChainHarness, EphemeralHarnessType, fork_name_from_env, test_spec},
 };
 use execution_layer::{
@@ -106,10 +106,6 @@ impl InvalidPayloadRig {
 
     fn cached_head(&self) -> CachedHead<E> {
         self.harness.chain.canonical_head.cached_head()
-    }
-
-    fn canonical_head(&self) -> &CanonicalHead<EphemeralHarnessType<E>> {
-        &self.harness.chain.canonical_head
     }
 
     fn previous_forkchoice_update_params(&self) -> (ForkchoiceState, PayloadAttributes) {
@@ -352,19 +348,6 @@ impl InvalidPayloadRig {
             .process_invalid_execution_payload(&InvalidationOperation::InvalidateOne { block_root })
             .await
             .unwrap();
-    }
-
-    fn assert_get_head_error_contains(&self, s: &str) {
-        match self
-            .harness
-            .chain
-            .canonical_head
-            .fork_choice_write_lock()
-            .get_head(self.harness.chain.slot().unwrap(), &self.harness.chain.spec)
-        {
-            Err(ForkChoiceError::ProtoArrayStringError(e)) if e.contains(s) => (),
-            other => panic!("expected {} error, got {:?}", s, other),
-        };
     }
 }
 
@@ -1035,6 +1018,7 @@ async fn payload_preparation() {
         None,
         None,
         None,
+        None,
     );
     assert_eq!(rig.previous_payload_attributes(), payload_attributes);
 }
@@ -1296,21 +1280,14 @@ impl InvalidHeadSetup {
         rig.invalidate_manually(invalid_head.head_block_root())
             .await;
 
-        // Since our setup ensures that there is only a single, invalid block
-        // that's viable for head (according to FFG filtering), setting the
-        // head block as invalid should not result in another head being chosen.
-        // Rather, it should fail to run fork choice and leave the invalid block as
-        // the head.
-        assert!(
-            rig.canonical_head()
-                .head_execution_status()
-                .unwrap()
-                .is_invalid()
-        );
-
-        // Ensure that we're getting the correct error when trying to find a new
-        // head.
-        rig.assert_get_head_error_contains("InvalidBestNode");
+        // Ensure the justified root is the head. This is the spec-correct choice of head when
+        // all leaves are ineligible.
+        let mut fork_choice = rig.harness.chain.canonical_head.fork_choice_write_lock();
+        let head = fork_choice
+            .get_head(rig.harness.chain.slot().unwrap(), &rig.harness.chain.spec)
+            .unwrap();
+        assert_eq!(head.0, fork_choice.justified_checkpoint().root);
+        drop(fork_choice);
 
         Self {
             rig,
