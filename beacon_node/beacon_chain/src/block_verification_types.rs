@@ -118,7 +118,8 @@ impl<E: EthSpec> RangeSyncBlock<E> {
         Ok(Self::Base(available_block))
     }
 
-    /// Constructs a Gloas `RangeSyncBlock` with block and optional envelope.
+    /// Constructs a Gloas `RangeSyncBlock` with block and optional `AvailableEnvelope`
+    /// which wraps the payload envelope with its data columns.
     ///
     /// This function only checks for consistency between the block and the envelope
     /// if envelope.is_some() == true .
