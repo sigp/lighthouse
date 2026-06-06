@@ -580,7 +580,7 @@ fn bid_slot_not_after_parent() {
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
     // The genesis (parent) block is at slot 0, so a bid at slot 0 is not for a higher slot than
-    // its parent and must be rejected (per consensus-specs #5302).
+    // its parent and must be rejected.
     let slot = Slot::new(0);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 

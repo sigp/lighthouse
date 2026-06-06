@@ -192,8 +192,6 @@ fn not_in_ptc() {
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    // The genesis block is at slot 0, so attest at slot 0 to satisfy the `block.slot == data.slot`
-    // gossip rule. Slot 0 is still within the propagation range at the current slot.
     let slot = Slot::new(0);
 
     let ptc_members = ctx.ptc_members(slot);
@@ -216,8 +214,6 @@ fn invalid_signature() {
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    // The genesis block is at slot 0, so attest at slot 0 to satisfy the `block.slot == data.slot`
-    // gossip rule. Slot 0 is still within the propagation range at the current slot.
     let slot = Slot::new(0);
 
     let ptc_members = ctx.ptc_members(slot);
@@ -238,8 +234,6 @@ fn valid_payload_attestation() {
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    // The genesis block is at slot 0, so attest at slot 0 to satisfy the `block.slot == data.slot`
-    // gossip rule. Slot 0 is still within the propagation range at the current slot.
     let slot = Slot::new(0);
 
     let ptc_members = ctx.ptc_members(slot);
@@ -267,8 +261,6 @@ fn duplicate_after_valid() {
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    // The genesis block is at slot 0, so attest at slot 0 to satisfy the `block.slot == data.slot`
-    // gossip rule. Slot 0 is still within the propagation range at the current slot.
     let slot = Slot::new(0);
 
     let ptc_members = ctx.ptc_members(slot);
@@ -374,9 +366,7 @@ async fn ptc_cache_is_primed_at_gloas_fork_boundary() {
     }
 }
 
-/// A payload attestation whose assigned slot is empty must be ignored per consensus-specs #5281,
-/// even after many missed slots: the message references the stale canonical head (from an earlier
-/// slot) for a later `data.slot`, so `block.slot != data.slot`.
+/// Check that a payload attestation whose assigned slot is empty is ignored.
 #[tokio::test]
 async fn stale_head_empty_slot_payload_attestation_ignored() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
@@ -389,8 +379,8 @@ async fn stale_head_empty_slot_payload_attestation_ignored() {
     let missed_epochs = 4;
     let target_slot = Slot::new(slots_per_epoch * (1 + missed_epochs));
 
-    // GIVEN a chain with blocks through epoch 1, then a slot clock advanced 4 epochs without
-    // producing blocks (simulating missed slots during a liveness failure).
+    // Given a chain with blocks through epoch 1, then a slot clock advanced 4 epochs without
+    // producing blocks (simulating missed slots).
     let harness = BeaconChainHarness::builder(E::default())
         .default_spec()
         .deterministic_keypairs(64)
@@ -402,8 +392,8 @@ async fn stale_head_empty_slot_payload_attestation_ignored() {
 
     let head = harness.chain.canonical_head.cached_head();
 
-    // WHEN a payload attestation for the (empty) target slot references the stale head block,
-    // which is from an earlier slot.
+    // When a payload attestation for empty target slot references a stale block root
+    // it is ignored because target_slot != block.slot
     let data = PayloadAttestationData {
         beacon_block_root: head.head_block_root(),
         slot: target_slot,
@@ -416,7 +406,6 @@ async fn stale_head_empty_slot_payload_attestation_ignored() {
         signature: Signature::empty(),
     };
 
-    // THEN it is ignored because the referenced block is not at the attestation slot.
     let result = harness
         .chain
         .verify_payload_attestation_message_for_gossip(msg);
