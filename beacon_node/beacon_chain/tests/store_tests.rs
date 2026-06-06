@@ -3081,20 +3081,6 @@ async fn weak_subjectivity_sync_test(
         .build()
         .expect("should build");
 
-    // Store the WSS envelope to simulate it arriving from network sync.
-    // In production, the envelope would be synced from the network after checkpoint sync.
-    if let Some(envelope) = harness
-        .chain
-        .store
-        .get_payload_envelope(&wss_block.canonical_root())
-        .unwrap_or(None)
-    {
-        beacon_chain
-            .store
-            .put_payload_envelope(&wss_block.canonical_root(), &envelope)
-            .unwrap();
-    }
-
     let beacon_chain = Arc::new(beacon_chain);
     let wss_block_root = wss_block.canonical_root();
 
@@ -3135,118 +3121,84 @@ async fn weak_subjectivity_sync_test(
         assert_eq!(store_wss_blobs_opt, wss_blobs_opt);
     }
 
-    // Store the WSS block's envelope in the new chain (required for Gloas forward sync).
-    // The first forward block needs the checkpoint block's envelope to determine the parent's
-    // Full state.
-    if let Some(envelope) = harness
-        .chain
-        .store
-        .get_payload_envelope(&wss_block_root)
-        .unwrap()
-    {
-        beacon_chain
-            .store
-            .put_payload_envelope(&wss_block_root, &envelope)
-            .unwrap();
-
-        // `from_anchor` doesn't mark the anchor's payload received, so do it here; otherwise the
-        // first forward block (a FULL child of the anchor) would be rejected with `ParentUnknown`.
-        beacon_chain
-            .canonical_head
-            .fork_choice_write_lock()
-            .on_valid_payload_envelope_received(wss_block_root)
-            .unwrap();
-    }
-
-    // Apply blocks forward to reach head.
+    // Apply the anchor and forward blocks via range sync. The anchor is included so
+    // `process_chain_segment` imports its envelope (not served by the checkpoint server) before
+    // its first child, exercising the same path production uses.
     let chain_dump = harness.chain.chain_dump().unwrap();
-    let new_blocks = chain_dump
+    let forward_snapshots = chain_dump
         .iter()
-        .filter(|snapshot| snapshot.beacon_block.slot() > checkpoint_slot);
+        .filter(|snapshot| snapshot.beacon_block.slot() > checkpoint_slot)
+        .collect::<Vec<_>>();
 
-    for snapshot in new_blocks {
-        let block_root = snapshot.beacon_block_root;
+    let mut segment = vec![];
+    if checkpoint_slot != 0 {
+        segment.push(harness.build_range_sync_block_from_store_blobs(
+            Some(wss_block_root),
+            Arc::new(wss_block.clone()),
+        ));
+    }
+    for snapshot in &forward_snapshots {
         let full_block = harness
             .chain
             .get_block(&snapshot.beacon_block_root)
             .await
             .unwrap()
             .unwrap();
+        segment.push(harness.build_range_sync_block_from_store_blobs(
+            Some(snapshot.beacon_block_root),
+            Arc::new(full_block),
+        ));
+    }
 
-        let slot = full_block.slot();
-        let full_block_root = full_block.canonical_root();
-        let state_root = full_block.state_root();
-
-        info!(block_root = ?full_block_root, ?state_root, %slot, "Importing block from chain dump");
-        beacon_chain.slot_clock.set_slot(slot.as_u64());
+    if let Some(last) = segment.last() {
         beacon_chain
-            .process_block(
-                full_block_root,
-                harness.build_range_sync_block_from_store_blobs(
-                    Some(block_root),
-                    Arc::new(full_block),
-                ),
-                NotifyExecutionLayer::Yes,
-                BlockImportSource::Lookup,
-                || Ok(()),
-            )
+            .slot_clock
+            .set_slot(last.as_block().slot().as_u64());
+    }
+    beacon_chain
+        .process_chain_segment(segment, NotifyExecutionLayer::Yes)
+        .await
+        .into_block_error()
+        .expect("forward range sync should import");
+    beacon_chain.recompute_head_at_current_slot().await;
+
+    // Each non-finalized forward block's state should load correctly. States below the split slot
+    // have been pruned by the finalization that occurred during import.
+    let split_slot = beacon_chain.store.get_split_slot();
+    for snapshot in &forward_snapshots {
+        let full_block = harness
+            .chain
+            .get_block(&snapshot.beacon_block_root)
             .await
+            .unwrap()
             .unwrap();
-
-        // Store the envelope, its columns, and apply to fork choice.
-        if let Some(envelope) = &snapshot.execution_envelope {
-            // Persist data columns for Gloas blocks. This mirrors what production does in
-            // `import_available_execution_payload_envelope` and what the harness now does in
-            // `process_envelope` — the WSS forward-sync loop bypasses both, so do it directly.
-            let mut ops = vec![];
-            let columns_block = beacon_chain
-                .store
-                .get_blinded_block(&block_root)
-                .unwrap()
-                .and_then(|b| beacon_chain.store.make_full_block(&block_root, b).ok());
-            if let Some(full_block) = columns_block {
-                let columns = beacon_chain::test_utils::generate_data_column_sidecars_from_block(
-                    &full_block,
-                    &beacon_chain.spec,
-                );
-                if !columns.is_empty()
-                    && let Some(store_op) = beacon_chain.get_blobs_or_columns_store_op(
-                        block_root,
-                        full_block.slot(),
-                        beacon_chain::block_verification_types::AvailableBlockData::DataColumns(
-                            columns,
-                        ),
-                    )
-                {
-                    ops.push(store_op);
-                }
-            }
-            ops.push(store::StoreOp::PutPayloadEnvelope(
-                block_root,
-                std::sync::Arc::new(envelope.as_ref().clone()),
-            ));
-            beacon_chain
-                .store
-                .do_atomically_with_block_and_blobs_cache(ops)
-                .unwrap();
-
-            // Update fork choice so head selection accounts for Full payload status.
-            beacon_chain
-                .canonical_head
-                .fork_choice_write_lock()
-                .on_valid_payload_envelope_received(block_root)
-                .unwrap();
+        if full_block.slot() < split_slot {
+            continue;
         }
-
-        beacon_chain.recompute_head_at_current_slot().await;
-
-        // Check that the new block's state can be loaded correctly.
+        let state_root = full_block.state_root();
         let mut state = beacon_chain
             .store
-            .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
+            .get_state(&state_root, Some(full_block.slot()), CACHE_STATE_IN_TESTS)
             .unwrap()
             .unwrap();
         assert_eq!(state.update_tree_hash_cache().unwrap(), state_root);
+
+        // The envelope import must persist the block's data columns, not drop them.
+        let fork = full_block.fork_name_unchecked();
+        let source_columns = harness
+            .chain
+            .store
+            .get_data_columns(&snapshot.beacon_block_root, fork)
+            .unwrap();
+        let dest_columns = beacon_chain
+            .store
+            .get_data_columns(&snapshot.beacon_block_root, fork)
+            .unwrap();
+        assert_eq!(
+            dest_columns, source_columns,
+            "data columns mismatch after import at slot {}",
+            full_block.slot()
+        );
     }
 
     if checkpoint_slot != 0 {
