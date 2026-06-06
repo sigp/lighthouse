@@ -531,11 +531,6 @@ where
     }
 
     /// Returns the dependent root for `block_root`, per the spec `get_dependent_root` helper.
-    ///
-    /// The dependent root is the block root at the slot immediately preceding the start of epoch
-    /// `current_epoch - MIN_SEED_LOOKAHEAD`. Two blocks that share a dependent root descend from
-    /// the same shuffling, which is the condition used to gate proposer boost (see the spec
-    /// `update_proposer_boost_root`).
     fn get_dependent_root(
         &self,
         block_root: Hash256,
@@ -856,18 +851,16 @@ where
         let is_first_block = self.fc_store.proposer_boost_root().is_zero();
 
         if is_timely && is_first_block {
-            // Compute the head *before* this block is added to fork choice, matching the spec's
-            // `head = get_head(store)` in `on_block`. This is gated on `is_timely && is_first_block`
-            // so `get_head` runs at most once per slot.
+            // Compute the head before adding this block to fork choice
             let (head_root, _) = self.get_head(system_time_current_slot, spec)?;
 
-            // The block has not yet been added to proto-array, so resolve its dependent root via
-            // its parent. The ancestor at the dependent slot (an earlier epoch boundary) is
-            // identical whether resolved from the block or its parent.
+            // The block isn't in fork choice so resolve its dependent root via its parent.
             let block_dependent_root =
                 self.get_dependent_root(block.parent_root(), current_slot, spec)?;
             let head_dependent_root = self.get_dependent_root(head_root, current_slot, spec)?;
 
+            // Add proposer score boost if the block is timely, not conflicting with an
+            // existing block, with the same dependent root as the canonical chain head.
             if block_dependent_root.is_some() && block_dependent_root == head_dependent_root {
                 self.fc_store.set_proposer_boost_root(block_root);
             }
