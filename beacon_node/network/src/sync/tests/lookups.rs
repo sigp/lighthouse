@@ -44,9 +44,7 @@ use types::{
 
 const D: Duration = Duration::new(0, 0);
 
-/// Minimum validator set size usable across every fork this rig runs under. Pre-Gloas
-/// tolerates 1; Gloas genesis needs enough validators to populate `proposer_lookahead`
-/// via balance-weighted selection — 8 is enough for MinimalEthSpec.
+/// Gloas genesis needs enough validators to populate `proposer_lookahead`.
 const TEST_RIG_VALIDATOR_COUNT: usize = 8;
 
 /// Configuration for how the test rig should respond to sync requests.
@@ -65,14 +63,11 @@ pub struct SimulateConfig {
     return_too_few_data_n_times: usize,
     return_no_columns_on_indices_n_times: usize,
     return_no_columns_on_indices: Vec<ColumnIndex>,
-    /// If set, only omit columns for requests of this block root. Used to scope the withholding to
-    /// the block under test (e.g. the parent in a Gloas parent/child lookup), so an unrelated
-    /// lookup's broad-pool custody requests don't consume the omission budget.
+    /// Only omit columns for this block root, if set.
     return_no_columns_for_block: Option<Hash256>,
-    /// Number of `PayloadEnvelopesByRoot` requests for `return_no_envelope_for_block` answered with
-    /// an empty stream (no envelope). Lets a Gloas block's *block* import before its payload.
+    /// Empty `PayloadEnvelopesByRoot` responses remaining.
     return_no_envelope_n_times: usize,
-    /// The block whose payload envelope is withheld (see `return_no_envelope_n_times`).
+    /// Block whose payload envelope is withheld.
     return_no_envelope_for_block: Option<Hash256>,
     skip_by_range_routes: bool,
     // Use a callable fn because BlockProcessingResult does not implement Clone
@@ -152,8 +147,6 @@ impl SimulateConfig {
         self
     }
 
-    /// Withhold `block_root`'s payload envelope for the next `times` `PayloadEnvelopesByRoot`
-    /// requests (answered with an empty stream), so the block imports before its payload.
     fn return_no_envelope_for_block(mut self, block_root: Hash256, times: usize) -> Self {
         self.return_no_envelope_for_block = Some(block_root);
         self.return_no_envelope_n_times = times;
@@ -239,6 +232,14 @@ pub(crate) struct TestRigConfig {
     node_custody_type_override: Option<NodeCustodyType>,
 }
 
+struct FullEmptyFork {
+    a: Hash256,
+    b: Hash256,
+    c: Hash256,
+    b_block: Arc<SignedBeaconBlock<E>>,
+    c_block: Arc<SignedBeaconBlock<E>>,
+}
+
 impl TestRig {
     pub(crate) fn new(test_rig_config: TestRigConfig) -> Self {
         // Use `fork_from_env` logic to set correct fork epochs
@@ -249,8 +250,7 @@ impl TestRig {
             Duration::from_secs(12),
         );
 
-        // Initialise a new beacon chain. Gloas genesis needs more than 1 validator so the
-        // `proposer_lookahead` can be populated at the Fulu → Gloas upgrade.
+        // Gloas genesis needs enough validators for proposer lookahead.
         let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
             .spec(spec.clone())
             .deterministic_keypairs(TEST_RIG_VALIDATOR_COUNT)
@@ -648,10 +648,7 @@ impl TestRig {
                         .return_wrong_sidecar_for_block_n_times -= 1;
                     let first = columns.first_mut().expect("empty columns");
                     let column = Arc::make_mut(first);
-                    // Corrupt the column so its claimed block root no longer matches the request,
-                    // which the by-root verifier rejects with `UnrequestedBlockRoot`. Pre-Gloas
-                    // columns derive their block root from the signed block header; Gloas columns
-                    // carry `beacon_block_root` directly.
+                    // Corrupt the claimed block root.
                     match column {
                         DataColumnSidecar::Fulu(col) => {
                             col.signed_block_header.message.body_root = Hash256::ZERO;
@@ -665,9 +662,7 @@ impl TestRig {
             }
 
             (RequestType::PayloadEnvelopesByRoot(req), AppRequestId::Sync(req_id)) => {
-                // The lookup-sync path always requests a single envelope per request, so
-                // there is exactly one block_root. Serve the cached envelope if the rig
-                // has one — otherwise respond with an empty stream.
+                // Lookup sync requests one envelope root at a time.
                 let block_root = req
                     .beacon_block_roots
                     .as_slice()
@@ -1020,8 +1015,7 @@ impl TestRig {
             self.network_blocks_by_root
                 .insert(block_root, block.clone());
             self.network_blocks_by_slot.insert(block_slot, block);
-            // Gloas: pull the corresponding execution payload envelope from the external
-            // harness store so the rig can serve it when the lookup requests it.
+            // Cache Gloas envelopes for lookup RPCs.
             if let Ok(Some(envelope)) = external_harness.chain.get_payload_envelope(&block_root) {
                 self.network_envelopes_by_root
                     .insert(block_root, Arc::new(envelope));
@@ -1045,15 +1039,12 @@ impl TestRig {
         blocks.last().expect("empty blocks").1
     }
 
-    /// Builds a Gloas fork with a FULL child (B) and an EMPTY child (C) of the same parent (A):
+    /// Builds:
     ///
     /// ```text
-    /// G (full) --> A (full) --> B   (FULL child:  B.bid.parent_block_hash == A.block_hash)
-    ///              A         --> C   (EMPTY child: C.bid.parent_block_hash == G.block_hash)
+    /// G (full) -> A (full) -> B (FULL:  bid.parent_block_hash == A.block_hash)
+    ///             A        -> C (EMPTY: bid.parent_block_hash == G.block_hash)
     /// ```
-    ///
-    /// Returns `(a_root, b_root, c_root)`. B and C are produced (but not imported) on A's
-    /// post-state and inserted into the rig's block/envelope maps.
     pub(super) async fn build_full_empty_fork(&mut self) -> (Hash256, Hash256, Hash256) {
         // Initialise a new beacon chain (mirrors `build_chain`).
         let external_harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
@@ -1068,18 +1059,15 @@ impl TestRig {
             .execution_block_generator()
             .set_min_blob_count(1);
 
-        // Add genesis block for completeness.
         let genesis_block = external_harness.get_head_block();
         self.network_blocks_by_root
             .insert(genesis_block.canonical_root(), genesis_block.clone());
         self.network_blocks_by_slot
             .insert(genesis_block.slot(), genesis_block);
 
-        // Build + import G and A as FULL blocks (2 iterations, mirroring `build_chain`).
-        let mut g_root = Hash256::ZERO;
-        let mut a_root = Hash256::ZERO;
-        let mut a_slot = 0u64;
-        for i in 0..2 {
+        // Build imported G and A.
+        let mut parents = vec![];
+        for _ in 0..2 {
             external_harness.advance_slot();
             let block_root = external_harness
                 .extend_chain(
@@ -1091,6 +1079,7 @@ impl TestRig {
             let block = external_harness.get_full_block(&block_root);
             let block_root = block.canonical_root();
             let block_slot = block.slot();
+            let block_hash = block.payload_bid_block_hash().unwrap();
             self.network_blocks_by_root
                 .insert(block_root, block.clone());
             self.network_blocks_by_slot.insert(block_slot, block);
@@ -1098,24 +1087,18 @@ impl TestRig {
                 self.network_envelopes_by_root
                     .insert(block_root, Arc::new(envelope));
             }
-            if i == 0 {
-                g_root = block_root;
-            } else {
-                a_root = block_root;
-                a_slot = block_slot.as_u64();
-            }
+            parents.push((block_root, block_slot, block_hash));
         }
+        let [(g_root, _, g_block_hash), (a_root, a_slot, a_block_hash)] =
+            parents.try_into().unwrap();
 
-        // A's post-state (A is the current head of the external harness).
         let a_state = external_harness.get_current_state();
-
-        // Parent envelopes for the two children.
         let a_envelope = self.network_envelopes_by_root.get(&a_root).cloned();
         let g_envelope = self.network_envelopes_by_root.get(&g_root).cloned();
 
-        let child_slot = Slot::new(a_slot + 1);
+        let child_slot = a_slot + 1;
 
-        // B: FULL child of A — commits A's payload as present, so B.bid.parent_block_hash == A.block_hash.
+        // B: FULL child of A.
         let (b_contents, b_envelope, b_columns, _) = external_harness
             .make_gloas_block_with_status(
                 a_state.clone(),
@@ -1126,9 +1109,8 @@ impl TestRig {
             .await;
         let b_block = b_contents.0;
         let b_root = b_block.canonical_root();
-        self.insert_external_block(b_block, b_envelope, b_columns);
 
-        // C: EMPTY child of A — commits A's payload as absent, so C.bid.parent_block_hash == G.block_hash.
+        // C: EMPTY child of A.
         let (c_contents, c_envelope, c_columns, _) = external_harness
             .make_gloas_block_with_status(
                 a_state.clone(),
@@ -1139,18 +1121,47 @@ impl TestRig {
             .await;
         let c_block = c_contents.0;
         let c_root = c_block.canonical_root();
+
+        assert_eq!(
+            (
+                b_block.parent_root(),
+                c_block.parent_root(),
+                b_block.is_parent_block_full(a_block_hash),
+                c_block.is_parent_block_full(a_block_hash),
+                c_block.is_parent_block_full(g_block_hash),
+            ),
+            (a_root, a_root, true, false, true)
+        );
+
+        self.insert_external_block(b_block, b_envelope, b_columns);
         self.insert_external_block(c_block, c_envelope, c_columns);
 
-        // Auto-update the clock on the main harness to accept the blocks. The children sit at
-        // `child_slot`, one past the external harness's head slot.
         self.harness.set_current_slot(child_slot);
 
         (a_root, b_root, c_root)
     }
 
-    /// Inserts an externally-produced (not imported) Gloas block + optional signed envelope into
-    /// the rig maps. For Gloas, blob data lives in the envelope; `columns` are the block's data
-    /// column sidecars (built from the envelope's blobs) so the rig can serve them on lookup.
+    async fn new_gloas_full_empty_fork() -> Option<(Self, FullEmptyFork)> {
+        let Some(mut r) = Self::new_fulu_peer_test(FuluTestType::WeSupernodeThemSupernode) else {
+            return None;
+        };
+        if !r.is_after_gloas() {
+            return None;
+        }
+
+        let (a, b, c) = r.build_full_empty_fork().await;
+        let fork = FullEmptyFork {
+            a,
+            b,
+            c,
+            b_block: r.network_blocks_by_root.get(&b).unwrap().block_cloned(),
+            c_block: r.network_blocks_by_root.get(&c).unwrap().block_cloned(),
+        };
+
+        Some((r, fork))
+    }
+
+    /// Insert an external block into the rig's network maps.
     fn insert_external_block(
         &mut self,
         block: Arc<SignedBeaconBlock<E>>,
@@ -1370,6 +1381,10 @@ impl TestRig {
         self.harness.chain.head().head_slot()
     }
 
+    pub(super) fn head_root(&self) -> Hash256 {
+        self.harness.chain.head().head_block_root()
+    }
+
     pub(super) fn assert_head_slot(&self, slot: u64) {
         assert_eq!(self.head_slot(), Slot::new(slot), "Unexpected head slot");
     }
@@ -1576,6 +1591,40 @@ impl TestRig {
         self.fork_name.fulu_enabled()
     }
 
+    fn trigger_unknown_parent_blocks_from_all_peers(
+        &mut self,
+        blocks: &[Arc<SignedBeaconBlock<E>>],
+    ) {
+        for peer in self.new_connected_peers_for_peerdas() {
+            for block in blocks {
+                self.trigger_unknown_parent_block(peer, block.clone());
+            }
+        }
+    }
+
+    fn trigger_full_empty_fork(&mut self, fork: &FullEmptyFork) {
+        self.trigger_unknown_parent_blocks_from_all_peers(&[
+            fork.b_block.clone(),
+            fork.c_block.clone(),
+        ]);
+    }
+
+    async fn trigger_custody_lookup_from_all_peers(&mut self) -> Option<Hash256> {
+        if self.is_after_gloas() {
+            self.build_chain(2).await;
+            let child = self.get_last_block().block_cloned();
+            let parent_root = child.parent_root();
+            self.trigger_unknown_parent_blocks_from_all_peers(&[child]);
+            Some(parent_root)
+        } else {
+            let block_root = self.build_chain(1).await;
+            for peer in self.new_connected_peers_for_peerdas() {
+                self.trigger_unknown_block_from_attestation(block_root, peer);
+            }
+            None
+        }
+    }
+
     fn trigger_unknown_parent_block(&mut self, peer_id: PeerId, block: Arc<SignedBeaconBlock<E>>) {
         let block_root = block.canonical_root();
         self.send_sync_message(SyncMessage::UnknownParentBlock(peer_id, block, block_root))
@@ -1587,12 +1636,8 @@ impl TestRig {
         data_column: Arc<DataColumnSidecar<E>>,
     ) {
         let DataColumnSidecar::Fulu(col) = data_column.as_ref() else {
-            // Gloas data columns don't carry a parent block root, so the
-            // `UnknownParentSidecarHeader` trigger doesn't apply post-Gloas. The production
-            // path drops these with a `warn!` (see `manager.rs` handler). Mirror that here
-            // so Gloas test paths can call the same helper as Fulu without panicking.
             self.log(&format!(
-                "trigger_unknown_parent_data_column noop (post-Gloas column has no parent root) peer {peer_id:?}"
+                "trigger_unknown_parent_data_column noop for Gloas peer {peer_id:?}"
             ));
             return;
         };
@@ -1632,6 +1677,13 @@ impl TestRig {
 
     fn active_single_lookups(&self) -> Vec<BlockLookupSummary> {
         self.sync_manager.block_lookups().active_single_lookups()
+    }
+
+    fn active_lookup_roots(&self) -> Vec<Hash256> {
+        self.active_single_lookups()
+            .iter()
+            .map(|l| l.block_root)
+            .collect()
     }
 
     fn active_single_lookups_count(&self) -> usize {
@@ -2028,8 +2080,7 @@ async fn happy_path_unknown_data_parent(depth: usize) {
     let Some(mut r) = TestRig::new_after_fulu() else {
         return;
     };
-    // Gloas data columns reference their own block, not a parent, so there is no
-    // unknown-parent-from-data trigger to exercise.
+    // No unknown-parent data-column trigger post-Gloas.
     if r.is_after_gloas() {
         return;
     }
@@ -2050,10 +2101,7 @@ async fn happy_path_multiple_triggers(depth: usize) {
     r.trigger_with_last_block();
     r.trigger_with_last_unknown_block_parent();
     r.trigger_with_last_unknown_block_parent();
-    if r.is_after_gloas() {
-        // Gloas data columns reference their own block, not a parent, so there is no
-        // unknown-parent-from-data trigger. The block triggers above already exercise dedup.
-    } else {
+    if !r.is_after_gloas() {
         r.trigger_with_last_unknown_data_column_parent();
     }
     r.simulate(SimulateConfig::happy_path()).await;
@@ -2088,10 +2136,7 @@ async fn bad_peer_empty_data_response(depth: usize) {
         .await;
     // We register a penalty, retry and complete sync successfully
     if !r.is_after_gloas() {
-        // TODO(gloas): the tip lookup's columns are only attributable to peers that imported a FULL
-        // child of the tip. The tip has no child here, so its column peer set is empty and the
-        // withholding peer can't be penalized. This holds at every depth, since the trigger always
-        // targets the tip.
+        // TODO(gloas): tip columns have no attributable FULL-child peer here.
         r.assert_penalties(&["NotEnoughResponsesReturned"]);
     }
     r.assert_successful_lookup_sync();
@@ -2109,10 +2154,7 @@ async fn bad_peer_too_few_data_response(depth: usize) {
         .await;
     // We register a penalty, retry and complete sync successfully
     if !r.is_after_gloas() {
-        // TODO(gloas): the tip lookup's columns are only attributable to peers that imported a FULL
-        // child of the tip. The tip has no child here, so its column peer set is empty and the
-        // withholding peer can't be penalized. This holds at every depth, since the trigger always
-        // targets the tip.
+        // TODO(gloas): tip columns have no attributable FULL-child peer here.
         r.assert_penalties(&["NotEnoughResponsesReturned"]);
     }
     r.assert_successful_lookup_sync();
@@ -2214,8 +2256,7 @@ async fn unknown_parent_does_not_add_peers_to_itself() {
     r.build_chain(2).await;
     r.trigger_with_last_unknown_block_parent();
     r.trigger_with_last_unknown_block_parent();
-    // Gloas data columns reference their own block, not a parent, so there is no
-    // unknown-parent-from-data trigger — one fewer peer reaches the parent lookup.
+    // No data-column parent trigger post-Gloas.
     let parent_lookup_peers = if r.is_after_gloas() {
         2
     } else {
@@ -2264,13 +2305,7 @@ async fn test_single_block_lookup_ignored_response() {
 /// Assert that if the beacon processor returns DuplicateFullyImported, the lookup completes successfully
 async fn test_single_block_lookup_duplicate_response() {
     let mut r = TestRig::default();
-    // The `with_process_result` mock only intercepts `Work::RpcBlock` and lets the real
-    // processing path run for blobs/columns/envelopes. On Gloas the lookup has an extra
-    // envelope stream; the real envelope processing fails because the block was never
-    // actually imported (only mock-imported), which produces real lookup retries and
-    // eventually `TooManyAttempts`. The pre-Gloas semantics of this test ("duplicate
-    // import => lookup immediately complete") don't carry over without also faking the
-    // envelope and column processing results, which is out of scope for this test.
+    // The mock only covers block processing; Gloas also needs real envelope/column results.
     if r.is_after_gloas() {
         return;
     }
@@ -2338,9 +2373,7 @@ async fn lookups_form_chain() {
 /// Assert that if a lookup chain (by appending ancestors) is too long we drop it
 async fn test_parent_lookup_too_deep_grow_ancestor_one() {
     let mut r = TestRig::default();
-    // TODO(gloas): gloas range sync is not yet implemented. It must deliver payload envelopes so
-    // that FULL blocks can satisfy the parent-payload import gate; without it a FULL chain stalls
-    // after the first block and the head can't advance. Skip until range sync handles payloads.
+    // TODO(gloas): range sync does not fetch payload envelopes yet.
     if r.is_after_gloas() {
         return;
     }
@@ -2494,9 +2527,7 @@ async fn block_in_da_checker_skips_download() {
     let Some(mut r) = TestRig::new_after_fulu() else {
         return;
     };
-    // TODO(gloas): a gloas block also needs its payload envelope to remain in the da_checker as
-    // missing-components; the harness helper only inserts the block + columns, so the gloas block
-    // never registers as missing-components. Skip until the helper donates an envelope.
+    // TODO(gloas): the helper does not populate the envelope missing-component path yet.
     if r.is_after_gloas() {
         return;
     }
@@ -2569,28 +2600,7 @@ async fn custody_lookup_some_custody_failures(test_type: FuluTestType) {
     let Some(mut r) = TestRig::new_fulu_peer_test(test_type) else {
         return;
     };
-    // Gloas: a block's columns are only attributable to peers that imported a FULL child (which
-    // donate their peers into the parent's custody peer set). Build one level of depth and drive
-    // the lookup off the FULL child, so the block under test is the parent whose custody peers are
-    // attributable and penalizable. Pre-Gloas: attestation trigger on the single block.
-    let block_under_test = if r.is_after_gloas() {
-        r.build_chain(2).await;
-        let child = r.get_last_block().block_cloned();
-        // Send the same child from all peers, so the parent lookup donates all peers.
-        for peer in r.new_connected_peers_for_peerdas() {
-            r.trigger_unknown_parent_block(peer, child.clone());
-        }
-        // The block under test is the parent; the child's own custody is served from the broad
-        // pool and must not consume the omission budget.
-        Some(child.parent_root())
-    } else {
-        let block_root = r.build_chain(1).await;
-        // Send the same trigger from all peers, so that the lookup has all peers
-        for peer in r.new_connected_peers_for_peerdas() {
-            r.trigger_unknown_block_from_attestation(block_root, peer);
-        }
-        None
-    };
+    let block_under_test = r.trigger_custody_lookup_from_all_peers().await;
     let custody_columns = r.custody_columns();
     let mut config = SimulateConfig::new().return_no_columns_on_indices(&custody_columns[..4], 3);
     if let Some(block_root) = block_under_test {
@@ -2605,28 +2615,7 @@ async fn custody_lookup_permanent_custody_failures(test_type: FuluTestType) {
     let Some(mut r) = TestRig::new_fulu_peer_test(test_type) else {
         return;
     };
-    // Gloas: a block's columns are only attributable to peers that imported a FULL child (which
-    // donate their peers into the parent's custody peer set). Build one level of depth and drive
-    // the lookup off the FULL child, so the block under test is the parent whose custody peers are
-    // attributable and penalizable. Pre-Gloas: attestation trigger on the single block.
-    let block_under_test = if r.is_after_gloas() {
-        r.build_chain(2).await;
-        let child = r.get_last_block().block_cloned();
-        // Send the same child from all peers, so the parent lookup donates all peers.
-        for peer in r.new_connected_peers_for_peerdas() {
-            r.trigger_unknown_parent_block(peer, child.clone());
-        }
-        // The block under test is the parent; the child's own custody is served from the broad
-        // pool and must not consume the omission budget.
-        Some(child.parent_root())
-    } else {
-        let block_root = r.build_chain(1).await;
-        // Send the same trigger from all peers, so that the lookup has all peers
-        for peer in r.new_connected_peers_for_peerdas() {
-            r.trigger_unknown_block_from_attestation(block_root, peer);
-        }
-        None
-    };
+    let block_under_test = r.trigger_custody_lookup_from_all_peers().await;
 
     let custody_columns = r.custody_columns();
     let mut config =
@@ -2635,8 +2624,6 @@ async fn custody_lookup_permanent_custody_failures(test_type: FuluTestType) {
         config = config.return_no_columns_for_block(block_root);
     }
     r.simulate(config).await;
-    // Every peer that does not return a column is part of the lookup because it claimed to have
-    // imported the lookup, so we will penalize.
     r.assert_penalties_of_type("NotEnoughResponsesReturned");
     r.assert_failed_lookup_sync();
 }
@@ -2674,8 +2661,7 @@ async fn crypto_on_fail_with_bad_column_proposer_signature() {
     let Some(mut r) = TestRig::new_fulu_peer_test(FuluTestType::WeSupernodeThemSupernode) else {
         return;
     };
-    // Gloas data columns carry no per-column proposer signature (no signed block header), so this
-    // scenario does not exist post-Gloas — column crypto failures are covered by the KZG-proof test.
+    // Gloas columns have no per-column proposer signature.
     if r.is_after_gloas() {
         return;
     }
@@ -2711,113 +2697,34 @@ async fn crypto_on_fail_with_bad_column_kzg_proof() {
 }
 
 #[tokio::test]
-async fn gloas_build_full_empty_fork_shape() {
-    let Some(mut r) = TestRig::new_fulu_peer_test(FuluTestType::WeSupernodeThemSupernode) else {
-        return;
-    };
-    if !r.is_after_gloas() {
-        return;
-    }
-
-    let (a, b, c) = r.build_full_empty_fork().await;
-
-    let a_block = r.network_blocks_by_root.get(&a).unwrap().block_cloned();
-    let b_block = r.network_blocks_by_root.get(&b).unwrap().block_cloned();
-    let c_block = r.network_blocks_by_root.get(&c).unwrap().block_cloned();
-
-    // G is A's parent; resolve its bid block hash.
-    let g = a_block.parent_root();
-    let g_block = r.network_blocks_by_root.get(&g).unwrap().block_cloned();
-
-    let a_block_hash = a_block.payload_bid_block_hash().unwrap();
-    let g_block_hash = g_block.payload_bid_block_hash().unwrap();
-
-    // B is a FULL child of A: its bid commits A's payload as present.
-    assert!(
-        b_block.is_parent_block_full(a_block_hash),
-        "B must be a FULL child of A"
-    );
-    // C is an EMPTY child of A: its bid does NOT commit A's payload...
-    assert!(
-        !c_block.is_parent_block_full(a_block_hash),
-        "C must NOT be a FULL child of A"
-    );
-    // ...it builds on G's execution payload instead.
-    assert!(
-        c_block.is_parent_block_full(g_block_hash),
-        "C must build on G's payload"
-    );
-
-    // Both B and C are BEACON children of A.
-    assert_eq!(b_block.parent_root(), a, "B's parent must be A");
-    assert_eq!(c_block.parent_root(), a, "C's parent must be A");
-}
-
-#[tokio::test]
 async fn gloas_full_empty_children_retain_parent_for_payload() {
-    let Some(mut r) = TestRig::new_fulu_peer_test(FuluTestType::WeSupernodeThemSupernode) else {
+    let Some((mut r, fork)) = TestRig::new_gloas_full_empty_fork().await else {
         return;
     };
-    if !r.is_after_gloas() {
-        return;
-    }
 
-    let (_a, b, c) = r.build_full_empty_fork().await;
-    let b_block = r.network_blocks_by_root.get(&b).unwrap().block_cloned();
-    let c_block = r.network_blocks_by_root.get(&c).unwrap().block_cloned();
-
-    // Trigger lookups for the FULL child B and the EMPTY child C; both create a parent lookup for A.
-    for peer in r.new_connected_peers_for_peerdas() {
-        r.trigger_unknown_parent_block(peer, b_block.clone());
-        r.trigger_unknown_parent_block(peer, c_block.clone());
-    }
+    r.trigger_full_empty_fork(&fork);
 
     r.simulate(SimulateConfig::happy_path()).await;
-
-    // G, A (parent), B (full child) and C (empty child) all import; none dropped.
     r.assert_successful_lookup_sync();
 }
 
 #[tokio::test]
 async fn gloas_empty_child_continues_while_parent_payload_withheld() {
-    let Some(mut r) = TestRig::new_fulu_peer_test(FuluTestType::WeSupernodeThemSupernode) else {
+    let Some((mut r, fork)) = TestRig::new_gloas_full_empty_fork().await else {
         return;
     };
-    if !r.is_after_gloas() {
-        return;
-    }
 
-    let (a, b, c) = r.build_full_empty_fork().await;
-    let b_block = r.network_blocks_by_root.get(&b).unwrap().block_cloned();
-    let c_block = r.network_blocks_by_root.get(&c).unwrap().block_cloned();
+    r.trigger_full_empty_fork(&fork);
 
-    for peer in r.new_connected_peers_for_peerdas() {
-        r.trigger_unknown_parent_block(peer, b_block.clone());
-        r.trigger_unknown_parent_block(peer, c_block.clone());
-    }
-
-    // Withhold A's payload envelope: A's block imports, but its payload never arrives.
-    r.simulate(SimulateConfig::happy_path().return_no_envelope_for_block(a, usize::MAX))
+    r.simulate(SimulateConfig::happy_path().return_no_envelope_for_block(fork.a, usize::MAX))
         .await;
 
-    let active: Vec<Hash256> = r
-        .active_single_lookups()
-        .iter()
-        .map(|l| l.block_root)
-        .collect();
-    // C (empty child) only needs A's block in fork choice, so it completes.
-    assert!(
-        !active.contains(&c),
-        "C (empty child) should have completed"
-    );
-    // B (full child) needs A's payload, which is withheld, so it stays active awaiting A.
-    assert!(
-        active.contains(&b),
-        "B (full child) should still be active awaiting A's payload"
-    );
-    // A must be retained while B awaits it (not dropped once its block imports).
-    assert!(
-        active.contains(&a),
-        "A should be retained while B awaits its payload"
-    );
+    assert_eq!(r.head_root(), fork.c);
+    assert_eq!(r.created_lookups(), 4);
+    assert_eq!(r.completed_lookups(), 2);
+    assert_eq!(r.dropped_lookups(), 0);
+    assert_eq!(r.active_lookup_roots(), vec![fork.a, fork.b]);
+    r.assert_no_penalties();
+    r.assert_empty_network();
+    r.assert_empty_processor();
 }
