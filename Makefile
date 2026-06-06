@@ -30,17 +30,15 @@ TEST_FEATURES ?=
 # Cargo profile for regular builds.
 PROFILE ?= release
 
-# List of all hard forks up to gloas. This list is used to set env variables for several tests so that
-# they run for different forks.
-# TODO(EIP-7732) Remove this once we extend network tests to support gloas and use RECENT_FORKS instead
+# List of recent hard forks before Gloas. Used by tests that do not support Gloas yet.
 RECENT_FORKS_BEFORE_GLOAS=fulu
 
-# List of all recent hard forks. This list is used to set env variables for http_api tests
+# List of all recent hard forks. This list is used to set env variables for several tests.
 # Include phase0 to test the code paths in sync that are pre blobs
 RECENT_FORKS=fulu gloas
 
 # For network tests include phase0 to cover genesis syncing (blocks without blobs or columns)
-TEST_NETWORK_FORKS=phase0 $(RECENT_FORKS_BEFORE_GLOAS)
+TEST_NETWORK_FORKS=phase0 $(RECENT_FORKS)
 
 # Extra flags for Cargo
 CARGO_INSTALL_EXTRA_FLAGS?=
@@ -228,7 +226,6 @@ test-op-pool-%:
 		-p operation_pool
 
 # Run the tests in the `network` crate for all known forks.
-# TODO(EIP-7732) Extend to support gloas by using RECENT_FORKS instead
 test-network: $(patsubst %,test-network-%,$(TEST_NETWORK_FORKS))
 
 test-network-%:

@@ -65,10 +65,8 @@ pub struct SimulateConfig {
     return_no_columns_on_indices: Vec<ColumnIndex>,
     /// Only omit columns for this block root, if set.
     return_no_columns_for_block: Option<Hash256>,
-    /// Empty `PayloadEnvelopesByRoot` responses remaining.
-    return_no_envelope_n_times: usize,
-    /// Block whose payload envelope is withheld.
-    return_no_envelope_for_block: Option<Hash256>,
+    /// Leave matching envelope requests unanswered.
+    hold_envelope_for_block: Option<Hash256>,
     skip_by_range_routes: bool,
     // Use a callable fn because BlockProcessingResult does not implement Clone
     #[educe(Debug(ignore))]
@@ -147,9 +145,8 @@ impl SimulateConfig {
         self
     }
 
-    fn return_no_envelope_for_block(mut self, block_root: Hash256, times: usize) -> Self {
-        self.return_no_envelope_for_block = Some(block_root);
-        self.return_no_envelope_n_times = times;
+    fn hold_envelope_for_block(mut self, block_root: Hash256) -> Self {
+        self.hold_envelope_for_block = Some(block_root);
         self
     }
 
@@ -669,15 +666,10 @@ impl TestRig {
                     .first()
                     .copied()
                     .unwrap_or_else(|| panic!("empty envelope request: {req:?}"));
-                let withhold = self.complete_strategy.return_no_envelope_for_block
-                    == Some(block_root)
-                    && self.complete_strategy.return_no_envelope_n_times > 0;
-                let envelope = if withhold {
-                    self.complete_strategy.return_no_envelope_n_times -= 1;
-                    None
-                } else {
-                    self.network_envelopes_by_root.get(&block_root).cloned()
-                };
+                if self.complete_strategy.hold_envelope_for_block == Some(block_root) {
+                    return;
+                }
+                let envelope = self.network_envelopes_by_root.get(&block_root).cloned();
                 self.send_rpc_envelope_response(req_id, peer_id, envelope);
             }
 
@@ -1079,7 +1071,7 @@ impl TestRig {
             let block = external_harness.get_full_block(&block_root);
             let block_root = block.canonical_root();
             let block_slot = block.slot();
-            let block_hash = block.payload_bid_block_hash().unwrap();
+            let block_hash = block.as_block().payload_bid_block_hash().unwrap();
             self.network_blocks_by_root
                 .insert(block_root, block.clone());
             self.network_blocks_by_slot.insert(block_slot, block);
@@ -2716,7 +2708,7 @@ async fn gloas_empty_child_continues_while_parent_payload_withheld() {
 
     r.trigger_full_empty_fork(&fork);
 
-    r.simulate(SimulateConfig::happy_path().return_no_envelope_for_block(fork.a, usize::MAX))
+    r.simulate(SimulateConfig::happy_path().hold_envelope_for_block(fork.a))
         .await;
 
     assert_eq!(r.head_root(), fork.c);
