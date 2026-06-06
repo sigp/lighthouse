@@ -962,7 +962,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
 /// The classified outcome of submitting a block / blob / column for processing, ready for the
 /// lookup state machine to act on without re-inspecting `BlockError`.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum BlockProcessingResult {
     /// `fully_imported` is true if the lookup is complete; false if `MissingComponents` (the
     /// lookup must keep fetching). `info` is a stable label for logs / metrics.

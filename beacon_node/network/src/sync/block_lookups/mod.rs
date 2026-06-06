@@ -195,9 +195,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 Some(AwaitingParent::new(parent_root, parent_block_hash)),
                 // On a `UnknownParentBlock` or `UnknownParentSidecarHeader` event the peer is not
                 // required to have the rest of the block components. Create the lookup with zero
-                // peers to house the block components. We don't know the child's fork yet, so use
-                // `Block` conservatively; the correct peer set is established when the child's
-                // block downloads and its FULL children begin attesting.
+                // peers to house the block components.
                 &[],
                 &PeerType::Block,
                 cx,
@@ -230,9 +228,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn search_parent_of_child(
         &mut self,
         block_root_to_search: Hash256,
-        // Classifies `peers` relative to the parent being searched: `GloasChild` when they imported
-        // the FULL child (and so can serve the parent's payload envelope and data columns), else
-        // `Block`.
         peer_type: &PeerType,
         child_block_root_trigger: Hash256,
         peers: &[PeerId],
@@ -419,12 +414,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         self.metrics.created_lookups += 1;
 
         let result = lookup.continue_requests(cx);
-        if self.on_lookup_result(id, result, "new_current_lookup", cx) {
-            self.update_metrics();
-            true
-        } else {
-            false
-        }
+        self.on_lookup_result(id, result, "new_current_lookup");
+        self.update_metrics();
+        self.single_block_lookups.contains_key(&id)
     }
 
     /* Lookup responses */
@@ -441,7 +433,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             return;
         };
         let result = lookup.on_block_download_response(id.req_id, response, cx);
-        self.on_lookup_result(id.lookup_id, result, "block_download_response", cx);
+        self.on_lookup_result(id.lookup_id, result, "block_download_response");
     }
 
     pub fn on_custody_download_response(
@@ -455,7 +447,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             return;
         };
         let result = lookup.on_custody_download_response(id.req_id, response, cx);
-        self.on_lookup_result(id.lookup_id, result, "custody_download_response", cx);
+        self.on_lookup_result(id.lookup_id, result, "custody_download_response");
     }
 
     pub fn on_payload_download_response(
@@ -472,7 +464,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             return;
         };
         let result = lookup.on_payload_download_response(id.req_id, response, cx);
-        self.on_lookup_result(id.lookup_id, result, "payload_download_response", cx);
+        self.on_lookup_result(id.lookup_id, result, "payload_download_response");
     }
 
     /* Error responses */
@@ -584,7 +576,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             BlockProcessingResult::Error { .. } => {}
         }
 
-        self.on_lookup_result(id, lookup_result, "processing_result", cx);
+        self.on_lookup_result(id, lookup_result, "processing_result");
     }
 
     pub fn has_any_awaiting_children(&self, block_root: Hash256) -> bool {
@@ -602,10 +594,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let mut lookup_results = vec![]; // < need to buffer lookup results to not re-borrow &mut self
 
         for (id, lookup) in self.single_block_lookups.iter_mut() {
-            // If lookup is awaiting parent?
-            // - If Some
-            //   - If parent_root lookup got block
-            //   - Check if the child is FULL, if so keep waiting, otherwise continue and resolve
             if lookup.maybe_resolve_awaiting_parent(import_action) {
                 debug!(
                     ?import_action,
@@ -619,7 +607,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
 
         for (id, result) in lookup_results {
-            self.on_lookup_result(id, result, "continue_child_lookups", cx);
+            self.on_lookup_result(id, result, "continue_child_lookups");
         }
     }
 
@@ -658,52 +646,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         id: SingleLookupId,
         result: Result<(), LookupRequestError>,
         source: &str,
-        cx: &mut SyncNetworkContext<T>,
-    ) -> bool {
+    ) {
         match result {
-            Ok(_) => {
-                // The lookup may have become complete from already-cached components during
-                // `continue_requests` (e.g. the block became available via the da_checker), in
-                // which case no `Imported` processing result is emitted. Detect that here.
-                if self
-                    .single_block_lookups
-                    .get(&id)
-                    .is_some_and(|lookup| lookup.is_complete())
-                    && let Some(lookup) = self.single_block_lookups.remove(&id)
-                {
-                    let block_root = lookup.block_root();
-                    debug!(?block_root, id, "Dropping completed lookup (cached)");
-                    metrics::inc_counter(&metrics::SYNC_LOOKUP_COMPLETED);
-                    self.metrics.completed_lookups += 1;
-                    self.continue_child_lookups(ImportedAction::LookupComplete { block_root }, cx);
-                    self.update_metrics();
-                }
-                true
-            }
-            // If UnknownLookup do not log the request error. No need to drop child lookups nor
-            // update metrics because the lookup does not exist.
+            Ok(_) => {}
             Err(error) => {
-                // A FULL Gloas child re-awaits its parent's payload once the parent's block
-                // imports. A failed payload download must not cascade-drop the parent (and the
-                // child) — the payload may still arrive (e.g. via gossip). Retain the parent;
-                // genuinely stuck lookups are pruned by `drop_stuck_lookups`.
-                if source == "payload_download_response"
-                    && let Some(block_root) =
-                        self.single_block_lookups.get(&id).map(|l| l.block_root())
-                    && self.has_any_awaiting_children(block_root)
-                {
-                    debug!(
-                        id,
-                        source,
-                        ?error,
-                        "Retaining parent with a child awaiting its payload"
-                    );
-                    return false;
-                }
                 debug!(id, source, ?error, "Dropping lookup on request error");
                 self.drop_lookup_and_children(id, error.into());
                 self.update_metrics();
-                false
             }
         }
     }
@@ -827,12 +776,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         lookup: &'a SingleBlockLookup<T>,
     ) -> Result<&'a SingleBlockLookup<T>, String> {
         if let Some(awaiting_parent) = lookup.awaiting_parent() {
-            if let Some(parent_lookup) = self
+            if let Some(lookup) = self
                 .single_block_lookups
                 .values()
                 .find(|l| l.is_parent_of(awaiting_parent))
             {
-                self.find_oldest_ancestor_lookup(parent_lookup)
+                self.find_oldest_ancestor_lookup(lookup)
             } else {
                 Err(format!(
                     "Lookup references unknown parent {awaiting_parent:?}"
@@ -873,11 +822,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         if let Some(&awaiting_parent) = lookup.awaiting_parent() {
             // Regardless of gloas full/empty the lookup to add peers to is keyed by block_root
-            if let Some(parent_id) = self
+            if let Some((&parent_id, _)) = self
                 .single_block_lookups
                 .iter()
                 .find(|(_, l)| l.is_parent_of(&awaiting_parent))
-                .map(|(parent_id, _)| *parent_id)
             {
                 self.add_peers_to_lookup_and_ancestors(
                     parent_id,
@@ -895,7 +843,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             // pruned with `drop_lookups_without_peers` because it has peers. This is rare corner
             // case, but it can result in stuck lookups.
             let result = lookup.continue_requests(cx);
-            self.on_lookup_result(lookup_id, result, "add_peers", cx);
+            self.on_lookup_result(lookup_id, result, "add_peers");
             Ok(())
         } else {
             Ok(())

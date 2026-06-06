@@ -852,8 +852,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncMessage::UnknownParentBlock(peer_id, block, block_root) => {
                 let block_slot = block.slot();
                 let parent_root = block.parent_root();
-                // Post-Gloas: the child's bid `parent_block_hash` lets the parent lookup partition
-                // peers and know it's FULL.
                 let parent_block_hash = block.payload_bid_parent_block_hash().ok();
                 debug!(%block_root, %parent_root, "Received unknown parent block message");
                 self.handle_unknown_parent(
@@ -880,8 +878,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     peer_id,
                     block_root,
                     parent_root,
-                    // No block downloaded yet, so the bid hash is unknown. The correct peer set is
-                    // established once the child's block downloads.
+                    // The event `UnknownParentSidecarHeader` only fires for pre-Gloas data
+                    // structues, so the bid parent hash is None.
                     None,
                     slot,
                     BlockComponent::Sidecar,
