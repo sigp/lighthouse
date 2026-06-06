@@ -2967,6 +2967,7 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
     }
 }
 
+#[allow(clippy::large_stack_frames)]
 async fn weak_subjectivity_sync_test(
     slots: Vec<Slot>,
     checkpoint_slot: Slot,
@@ -3195,7 +3196,8 @@ async fn weak_subjectivity_sync_test(
             .get_data_columns(&snapshot.beacon_block_root, fork)
             .unwrap();
         assert_eq!(
-            dest_columns, source_columns,
+            dest_columns,
+            source_columns,
             "data columns mismatch after import at slot {}",
             full_block.slot()
         );
