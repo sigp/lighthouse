@@ -118,8 +118,7 @@ enum PayloadRequest<E: EthSpec> {
     WaitingForBlock,
     /// Post-Gloas block: an execution payload envelope must be fetched and processed *if* the block
     /// is FULL. We can't tell FULL from EMPTY from the block alone: only a FULL child of this block
-    /// proves a payload was published, which is signalled by `peers` becoming non-empty. While
-    /// `peers` is empty the block is assumed EMPTY and this request is considered complete.
+    /// proves a payload was published, which is signalled by `peers` becoming non-empty.
     Request {
         peers: PeerSet,
         state: SingleLookupRequestState<Arc<SignedExecutionPayloadEnvelope<E>>>,
@@ -132,14 +131,7 @@ impl<E: EthSpec> PayloadRequest<E> {
     fn is_complete(&self) -> bool {
         match &self {
             PayloadRequest::WaitingForBlock => false,
-            PayloadRequest::Request { peers, state } => {
-                // EMPTY Gloas block: no FULL child has proven a payload exists, so there is nothing
-                // to fetch and the request never made it past `AwaitingDownload`.
-                if !state.is_awaiting_event() && peers.read().is_empty() {
-                    return true;
-                }
-                state.is_processed()
-            }
+            PayloadRequest::Request { state, .. } => state.is_processed(),
             PayloadRequest::PreGloas => true,
         }
     }
@@ -173,13 +165,8 @@ impl From<&AwaitingParent> for PeerType {
 
 #[derive(Debug, Clone, Copy)]
 pub enum ImportedAction {
-    LookupComplete {
-        block_root: Hash256,
-    },
-    GloasBlockComplete {
-        block_root: Hash256,
-        bid_block_hash: ExecutionBlockHash,
-    },
+    LookupComplete,
+    GloasBlockComplete(ExecutionBlockHash),
 }
 
 #[derive(Educe)]
@@ -270,6 +257,10 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.block_root
     }
 
+    pub fn awaiting_parent(&self) -> Option<&AwaitingParent> {
+        self.awaiting_parent.as_ref()
+    }
+
     pub fn is_parent_of(&self, child_awaiting_parent: &AwaitingParent) -> bool {
         self.block_root == child_awaiting_parent.parent_root
     }
@@ -282,10 +273,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         }
     }
 
-    pub fn awaiting_parent(&self) -> Option<&AwaitingParent> {
-        self.awaiting_parent.as_ref()
-    }
-
     /// Mark this lookup as awaiting a parent lookup from being processed. Meanwhile don't send
     /// components for processing.
     pub fn set_awaiting_parent(&mut self, parent: AwaitingParent) {
@@ -294,44 +281,37 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
 
     /// Mark this lookup as no longer awaiting a parent lookup. Components can be sent for
     /// processing.
-    pub fn maybe_resolve_awaiting_parent(&mut self, action: ImportedAction) -> bool {
-        if let Some(awaiting_parent) = self.awaiting_parent {
-            let should_resolve = match action {
-                ImportedAction::LookupComplete { block_root } => {
-                    awaiting_parent.parent_root() == block_root
-                }
-                ImportedAction::GloasBlockComplete {
-                    block_root,
-                    bid_block_hash,
-                    ..
-                } => {
-                    if awaiting_parent.parent_root() == block_root {
-                        if let Some(parent_block_hash) = awaiting_parent.parent_block_hash {
-                            // This lookup is the execution child of `parent_execution_hash`. If the
-                            // parent hash the same `bid_block_hash` this is FULL child and we must wait
-                            // for the entire parent lookup to be imported. Otherwise it's a EMPTY child
-                            // and we can import now.
-                            parent_block_hash != bid_block_hash
-                        } else {
-                            // A parent that's gloas imported and this lookup claims to be before gloas.
-                            debug_assert!(
-                                false,
-                                "Received post-gloas import action for pre-gloas lookup"
-                            );
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                }
-            };
-            if should_resolve {
-                self.awaiting_parent = None;
-            }
-            should_resolve
-        } else {
-            false
+    pub fn maybe_resolve_awaiting_parent(
+        &mut self,
+        block_root: Hash256,
+        action: ImportedAction,
+    ) -> bool {
+        let Some(awaiting_parent) = self.awaiting_parent else {
+            return false;
+        };
+        if awaiting_parent.parent_root() != block_root {
+            return false;
         }
+        let should_resolve = match action {
+            ImportedAction::LookupComplete => true,
+            ImportedAction::GloasBlockComplete(bid_block_hash) => {
+                if let Some(parent_block_hash) = awaiting_parent.parent_block_hash {
+                    // This lookup is the execution child of `parent_execution_hash`. If the
+                    // parent hash the same `bid_block_hash` this is FULL child and we must wait
+                    // for the entire parent lookup to be imported. Otherwise it's a EMPTY child
+                    // and we can import now.
+                    parent_block_hash != bid_block_hash
+                } else {
+                    // A parent that's gloas imported and this lookup claims to be before gloas.
+                    debug_assert!(false, "Received post-gloas action for pre-gloas lookup");
+                    false
+                }
+            }
+        };
+        if should_resolve {
+            self.awaiting_parent = None;
+        }
+        should_resolve
     }
 
     /// Returns the time elapsed since this lookup was created
@@ -518,8 +498,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         match result {
             BlockProcessingResult::Imported(_fully_imported, _info) => {
                 self.block_request.state.on_processing_success()?;
-                // TODO(gloas): Potentially continue child lookups for empty child
-                // TODO(gloas): If no-one is waiting on this lookup clean it
             }
             BlockProcessingResult::ParentUnknown {
                 parent_root,
@@ -682,7 +660,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     /// Remove peer from available peers.
     pub fn remove_peer(&mut self, peer_id: &PeerId) {
         self.peers.write().remove(peer_id);
-        for set in self.gloas_child_peers.write().values_mut() {
+        for set in self.gloas_child_peers.read().values() {
             set.write().remove(peer_id);
         }
     }

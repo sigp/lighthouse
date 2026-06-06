@@ -520,10 +520,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         metrics::inc_counter(&metrics::SYNC_LOOKUP_COMPLETED);
                         self.metrics.completed_lookups += 1;
                         // Block imported, continue the requests of pending child blocks
-                        self.continue_child_lookups(
-                            ImportedAction::LookupComplete { block_root },
-                            cx,
-                        );
+                        self.continue_child_lookups(block_root, ImportedAction::LookupComplete, cx);
                         self.update_metrics();
                     } else {
                         debug!(id, "Attempting to drop non-existent lookup");
@@ -537,13 +534,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     // separately. Unblock the appropriate children, and complete the lookup unless
                     // a FULL Gloas child still awaits the payload.
                     let import_action = match lookup.peek_downloaded_bid_block_hash() {
-                        Some(bid_block_hash) => ImportedAction::GloasBlockComplete {
-                            block_root,
-                            bid_block_hash,
-                        },
-                        None => ImportedAction::LookupComplete { block_root },
+                        Some(bid_block_hash) => ImportedAction::GloasBlockComplete(bid_block_hash),
+                        None => ImportedAction::LookupComplete,
                     };
-                    self.continue_child_lookups(import_action, cx);
+                    self.continue_child_lookups(block_root, import_action, cx);
                     if !self.has_any_awaiting_children(block_root) {
                         self.single_block_lookups.remove(&id);
                         metrics::inc_counter(&metrics::SYNC_LOOKUP_COMPLETED);
@@ -588,13 +582,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// Makes progress on the immediate children of `block_root`
     pub fn continue_child_lookups(
         &mut self,
+        parent_root: Hash256,
         import_action: ImportedAction,
         cx: &mut SyncNetworkContext<T>,
     ) {
         let mut lookup_results = vec![]; // < need to buffer lookup results to not re-borrow &mut self
 
         for (id, lookup) in self.single_block_lookups.iter_mut() {
-            if lookup.maybe_resolve_awaiting_parent(import_action) {
+            if lookup.maybe_resolve_awaiting_parent(parent_root, import_action) {
                 debug!(
                     ?import_action,
                     id,
