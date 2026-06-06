@@ -54,8 +54,7 @@ pub struct PowBlock {
 pub struct Head {
     slot: Slot,
     root: Hash256,
-    // Post-Gloas, the head check also asserts the payload status of the head block
-    // (`PayloadStatus` repr: Empty=0, Full=1, Pending=2).
+    // Post-gloas, the head check also asserts the payload status of the head block
     #[serde(default)]
     payload_status: Option<u8>,
 }
