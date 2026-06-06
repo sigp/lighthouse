@@ -3085,12 +3085,12 @@ impl ApiTester {
     }
 
     /// JSON bid with a valid structure reaches gossip verification and is rejected with 400.
-    pub async fn test_post_beacon_execution_payload_bid_json(self) -> Self {
+    pub async fn test_post_beacon_execution_payload_bids_json(self) -> Self {
         let (bid, fork_name) = self.make_signed_execution_payload_bid();
 
         let result = self
             .client
-            .post_beacon_execution_payload_bid(&bid, fork_name)
+            .post_beacon_execution_payload_bids(&bid, fork_name)
             .await;
 
         assert!(
@@ -3102,12 +3102,12 @@ impl ApiTester {
     }
 
     /// SSZ bid with a valid structure reaches gossip verification and is rejected with 400.
-    pub async fn test_post_beacon_execution_payload_bid_ssz(self) -> Self {
+    pub async fn test_post_beacon_execution_payload_bids_ssz(self) -> Self {
         let (bid, fork_name) = self.make_signed_execution_payload_bid();
 
         let result = self
             .client
-            .post_beacon_execution_payload_bid_ssz(&bid, fork_name)
+            .post_beacon_execution_payload_bids_ssz(&bid, fork_name)
             .await;
 
         assert!(
@@ -4433,7 +4433,7 @@ impl ApiTester {
 
             let envelope = self
                 .client
-                .get_validator_execution_payload_envelope::<E>(slot)
+                .get_validator_execution_payload_envelopes::<E>(slot)
                 .await
                 .unwrap()
                 .data;
@@ -4452,7 +4452,7 @@ impl ApiTester {
             let signed_envelope =
                 self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
             self.client
-                .post_beacon_execution_payload_envelope(&signed_envelope, fork_name)
+                .post_beacon_execution_payload_envelopes(&signed_envelope, fork_name)
                 .await
                 .unwrap();
 
@@ -4495,7 +4495,7 @@ impl ApiTester {
 
             let envelope = self
                 .client
-                .get_validator_execution_payload_envelope_ssz::<E>(slot)
+                .get_validator_execution_payload_envelopes_ssz::<E>(slot)
                 .await
                 .unwrap();
 
@@ -4513,7 +4513,7 @@ impl ApiTester {
             let signed_envelope =
                 self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
             self.client
-                .post_beacon_execution_payload_envelope_ssz(&signed_envelope, fork_name)
+                .post_beacon_execution_payload_envelopes_ssz(&signed_envelope, fork_name)
                 .await
                 .unwrap();
 
@@ -4942,7 +4942,7 @@ impl ApiTester {
             // Retrieve and publish the envelope.
             let envelope = self
                 .client
-                .get_validator_execution_payload_envelope::<E>(slot)
+                .get_validator_execution_payload_envelopes::<E>(slot)
                 .await
                 .unwrap()
                 .data;
@@ -4950,7 +4950,7 @@ impl ApiTester {
             let signed_envelope =
                 self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
             self.client
-                .post_beacon_execution_payload_envelope(&signed_envelope, fork_name)
+                .post_beacon_execution_payload_envelopes(&signed_envelope, fork_name)
                 .await
                 .unwrap();
 
@@ -9558,14 +9558,14 @@ async fn post_validator_proposer_preferences() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn post_beacon_execution_payload_bid() {
+async fn post_beacon_execution_payload_bids() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
     ApiTester::new_with_hard_forks()
         .await
-        .test_post_beacon_execution_payload_bid_json()
+        .test_post_beacon_execution_payload_bids_json()
         .await
-        .test_post_beacon_execution_payload_bid_ssz()
+        .test_post_beacon_execution_payload_bids_ssz()
         .await;
 }
