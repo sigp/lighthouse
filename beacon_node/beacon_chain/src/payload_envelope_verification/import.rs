@@ -33,6 +33,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Returns an `Err` if the given payload envelope was invalid, or an error was encountered during
     /// verification.
+    ///
+    /// Note: Returns a `BlockError` even though its an envelope processing function.
+    /// The reason is that this function actually imports the envelope in `check_envelope_availability_and_import`
+    /// which is coupled tightly with the block and data column import functions.
+    /// These functions return one error type for consistency across function signatures.
+    /// In the future, we could make the import error types more generic and then
+    /// this function could return an `EnvelopeError` as well.
     #[instrument(skip_all, fields(block_root = ?block_root, envelope_source = %envelope_source))]
     pub async fn process_execution_payload_envelope(
         self: &Arc<Self>,
@@ -41,7 +48,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         notify_execution_layer: NotifyExecutionLayer,
         envelope_source: BlockImportSource,
         publish_fn: impl FnOnce() -> Result<(), EnvelopeError>,
-    ) -> Result<AvailabilityProcessingStatus, EnvelopeError> {
+    ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let block_slot = unverified_envelope.signed_envelope.slot();
 
         // Set observed time if not already set. Usually this should be set by gossip or RPC,
@@ -83,13 +90,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // about what the function actually does.
             let executed_envelope = chain
                 .into_executed_payload_envelope(execution_pending)
-                .await
-                .map_err(|error| match error {
-                    BlockError::ExecutionPayloadError(error) => {
-                        EnvelopeError::ExecutionPayloadError(error)
-                    }
-                    error => EnvelopeError::ImportError(error),
-                })?;
+                .await?;
 
             // Record the time it took to wait for execution layer verification.
             if let Some(timestamp) = slot_clock.now_duration() {
@@ -100,7 +101,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             self.check_envelope_availability_and_import(executed_envelope)
                 .await
-                .map_err(EnvelopeError::ImportError)
         };
 
         // Verify and import the payload envelope.
@@ -128,28 +128,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 Ok(status)
             }
-            Err(EnvelopeError::BeaconChainError(e)) => {
-                if matches!(e.as_ref(), BeaconChainError::TokioJoin(_)) {
-                    debug!(error = ?e, "Envelope processing cancelled");
-                } else {
-                    warn!(error = ?e, "Execution payload envelope rejected");
-                }
-                Err(EnvelopeError::BeaconChainError(e))
-            }
-            Err(EnvelopeError::ImportError(BlockError::BeaconChainError(e))) => {
-                if matches!(e.as_ref(), BeaconChainError::TokioJoin(_)) {
-                    debug!(error = ?e, "Envelope processing cancelled");
-                } else {
-                    warn!(error = ?e, "Execution payload envelope rejected");
-                }
-                Err(EnvelopeError::ImportError(BlockError::BeaconChainError(e)))
-            }
-            Err(other) => {
+            Err(err) => {
                 warn!(
-                    reason = other.to_string(),
+                    reason = err.to_string(),
                     "Execution payload envelope rejected"
                 );
-                Err(other)
+                Err(err)
             }
         }
     }
@@ -175,7 +159,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     async fn into_executed_payload_envelope(
         self: Arc<Self>,
         pending_envelope: ExecutionPendingEnvelope<T::EthSpec>,
-    ) -> Result<AvailabilityPendingExecutedEnvelope<T::EthSpec>, BlockError> {
+    ) -> Result<AvailabilityPendingExecutedEnvelope<T::EthSpec>, EnvelopeError> {
         let ExecutionPendingEnvelope {
             signed_envelope,
             block_root,
@@ -192,7 +176,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .payload_verification_status
             .is_optimistic()
         {
-            return Err(BlockError::OptimisticSyncNotSupported { block_root });
+            return Err(EnvelopeError::OptimisticSyncNotSupported { block_root });
         }
 
         Ok(AvailabilityPendingExecutedEnvelope::new(
@@ -206,7 +190,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn import_available_execution_payload_envelope(
         self: &Arc<Self>,
         envelope: Box<AvailableExecutedEnvelope<T::EthSpec>>,
-    ) -> Result<AvailabilityProcessingStatus, BlockError> {
+    ) -> Result<AvailabilityProcessingStatus, EnvelopeError> {
         let AvailableExecutedEnvelope {
             envelope,
             block_root,
@@ -243,13 +227,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         signed_envelope: AvailableEnvelope<T::EthSpec>,
         block_root: Hash256,
         payload_verification_status: PayloadVerificationStatus,
-    ) -> Result<Hash256, BlockError> {
+    ) -> Result<Hash256, EnvelopeError> {
         // Everything in this initial section is on the hot path for processing the envelope.
         // Take an upgradable read lock on fork choice so we can check if this block has already
         // been imported. We don't want to repeat work importing a block that is already imported.
         let fork_choice_reader = self.canonical_head.fork_choice_upgradable_read_lock();
         if !fork_choice_reader.contains_block(&block_root) {
-            return Err(BlockError::EnvelopeBlockRootUnknown(block_root));
+            return Err(EnvelopeError::BlockRootNotInForkChoice(block_root));
         }
 
         // TODO(gloas) add defensive check to see if payload envelope is already in fork choice
@@ -264,7 +248,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // node which can be eligible for head.
         fork_choice
             .on_valid_payload_envelope_received(block_root)
-            .map_err(|e| BlockError::InternalError(format!("{e:?}")))?;
+            .map_err(|e| EnvelopeError::InternalError(format!("{e:?}")))?;
 
         // TODO(gloas) emit SSE event if the payload became the new head payload
 

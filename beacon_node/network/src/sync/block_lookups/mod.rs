@@ -587,68 +587,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         self.on_lookup_result(id, lookup_result, "processing_result", cx);
     }
 
-    pub fn on_external_processing_result(
-        &mut self,
-        block_root: Hash256,
-        imported: bool,
-        cx: &mut SyncNetworkContext<T>,
-    ) {
-        let Some(id) = self
-            .single_block_lookups
-            .iter()
-            .find(|(_, lookup)| lookup.is_for_block(block_root))
-            .map(|(id, _)| *id)
-        else {
-            // Ok to ignore gossip process events
-            return;
-        };
-
-        if imported {
-            // The block is imported into fork choice. Unblock its children, and complete this
-            // lookup unless a FULL Gloas child still awaits its payload (post-Gloas the payload
-            // envelope arrives separately from the block).
-            let bid_block_hash = self
-                .single_block_lookups
-                .get(&id)
-                .and_then(|lookup| lookup.peek_downloaded_bid_block_hash());
-            let import_action = match bid_block_hash {
-                Some(bid_block_hash) => ImportedAction::GloasBlockComplete {
-                    block_root,
-                    bid_block_hash,
-                },
-                None => ImportedAction::LookupComplete { block_root },
-            };
-            self.continue_child_lookups(import_action, cx);
-            if !self.has_any_awaiting_children(block_root) {
-                self.single_block_lookups.remove(&id);
-                metrics::inc_counter(&metrics::SYNC_LOOKUP_COMPLETED);
-                self.metrics.completed_lookups += 1;
-                debug!(
-                    ?block_root,
-                    id, "Dropping completed lookup (external import)"
-                );
-            }
-            self.update_metrics();
-        } else {
-            // A lookup may be in the following state:
-            // - Block awaiting processing from a different source
-            // - Blobs downloaded processed, and inserted into the da_checker
-            //
-            // At this point the block fails processing (e.g. execution engine offline) and it is
-            // removed from the da_checker. Note that ALL components are removed from the da_checker
-            // so when we re-download and process the block we get the error
-            // MissingComponentsAfterAllProcessed and get stuck.
-            let result = {
-                let Some(lookup) = self.single_block_lookups.get_mut(&id) else {
-                    return;
-                };
-                lookup.reset_requests();
-                lookup.continue_requests(cx)
-            };
-            self.on_lookup_result(id, result, "external_processing_result", cx);
-        }
-    }
-
     pub fn has_any_awaiting_children(&self, block_root: Hash256) -> bool {
         self.single_block_lookups
             .iter()
