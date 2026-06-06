@@ -971,9 +971,9 @@ pub fn get_gloas_proposer_boost_flips_ancestor_test_definition() -> ForkChoiceTe
     }
 }
 
-/// Exercises the slot check in `should_build_on_full`: for a parent from an earlier slot the
-/// function returns `true` without consulting PTC data-availability votes; only for a parent
-/// from the immediately preceding slot are those votes consulted.
+/// Tests the slot check in `should_build_on_full`. When the parent is from an earlier slot the
+/// function returns `true` and ignores PTC data-availability votes. It only checks those votes
+/// when the parent is from the immediately preceding slot.
 pub fn get_gloas_should_build_on_full_test_definition() -> ForkChoiceTestDefinition {
     let mut ops = vec![];
 
@@ -988,18 +988,17 @@ pub fn get_gloas_should_build_on_full_test_definition() -> ForkChoiceTestDefinit
         execution_payload_block_hash: Some(get_hash(1)),
     });
 
-    // PTC has voted the payload data as *unavailable*: `is_timely` sets `payload_received` so the
-    // votes are consulted, while clearing the data-availability bits gives the "false" votes an
-    // absolute majority.
+    // PTC has voted the payload data unavailable. `is_timely` sets `payload_received` so the votes
+    // are consulted, and clearing the data-availability bits gives the "false" votes a majority.
     ops.push(Operation::SetPayloadTiebreak {
         block_root: get_root(1),
         is_timely: true,
         is_data_available: false,
     });
 
-    // An `Empty` parent is never built on full, regardless of slot. The `Empty` check
-    // precedes the slot check, so neither the previous-slot case (block slot 1, proposal
-    // slot 2) nor an earlier-slot case (proposal slot 3) builds on full.
+    // When the parent is `Empty` `should_build_on_full` returns `false`. This check runs before
+    // the slot check, so the result is `false` for both the previous-slot case (block slot 1, proposal slot 2)
+    // and an earlier-slot case (proposal slot 3).
     ops.push(Operation::AssertShouldBuildOnFull {
         block_root: get_root(1),
         parent_payload_status: PayloadStatus::Empty,
@@ -1013,7 +1012,7 @@ pub fn get_gloas_should_build_on_full_test_definition() -> ForkChoiceTestDefinit
         expected: false,
     });
 
-    // `Full` parent from the immediately preceding slot (block slot 1, proposal slot 2): the PTC
+    // `Full` parent from the immediately preceding slot (block slot 1, proposal slot 2). The PTC
     // votes are consulted, and since data is unavailable the proposer does not build on full.
     ops.push(Operation::AssertShouldBuildOnFull {
         block_root: get_root(1),
@@ -1022,7 +1021,7 @@ pub fn get_gloas_should_build_on_full_test_definition() -> ForkChoiceTestDefinit
         expected: false,
     });
 
-    // `Full` parent from an *earlier* slot (block slot 1, proposal slot 3): the slot check
+    // `Full` parent from an *earlier* slot (block slot 1, proposal slot 3). The slot check
     // short-circuits to `true` without consulting the (unavailable) PTC votes.
     ops.push(Operation::AssertShouldBuildOnFull {
         block_root: get_root(1),
@@ -1031,8 +1030,8 @@ pub fn get_gloas_should_build_on_full_test_definition() -> ForkChoiceTestDefinit
         expected: true,
     });
 
-    // Flip the PTC view to *available* and re-check the previous-slot case: the votes now permit
-    // building on full, confirming that case actually consults them.
+    // Flip the PTC view to *available* and re-check the previous-slot case. The votes now permit
+    // building on full.
     ops.push(Operation::SetPayloadTiebreak {
         block_root: get_root(1),
         is_timely: true,
