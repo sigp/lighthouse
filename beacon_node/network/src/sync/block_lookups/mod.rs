@@ -512,7 +512,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         };
 
         match &result {
-            BlockProcessingResult::Imported(fully_imported, _) => {
+            BlockProcessingResult::Imported(..) => {
                 // Some component got imported potentially continue
                 if lookup.is_complete() {
                     if self.single_block_lookups.remove(&id).is_some() {
@@ -525,19 +525,17 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     } else {
                         debug!(id, "Attempting to drop non-existent lookup");
                     }
-                } else if *fully_imported
-                    && matches!(process_type, BlockProcessType::SingleBlock { .. })
+                } else if matches!(process_type, BlockProcessType::SingleBlock { .. })
+                    && let Some(bid_block_hash) = lookup.peek_downloaded_bid_block_hash()
                 {
-                    // The block imported into fork choice but the lookup is not `is_complete`: its
-                    // data may have become available via the da_checker (so the lookup's own
-                    // request never completed), or it is a Gloas block whose payload arrives
-                    // separately. Unblock the appropriate children, and complete the lookup unless
-                    // a FULL Gloas child still awaits the payload.
-                    let import_action = match lookup.peek_downloaded_bid_block_hash() {
-                        Some(bid_block_hash) => ImportedAction::GloasBlockComplete(bid_block_hash),
-                        None => ImportedAction::LookupComplete,
-                    };
-                    self.continue_child_lookups(block_root, import_action, cx);
+                    // For post-Gloas blocks, if the block just became imported attempt to make
+                    // progress on its EMPTY children. Then, if there are no FULL children, remove
+                    // the lookup.
+                    self.continue_child_lookups(
+                        block_root,
+                        ImportedAction::GloasBlockComplete(bid_block_hash),
+                        cx,
+                    );
                     if !self.has_any_awaiting_children(block_root) {
                         self.single_block_lookups.remove(&id);
                         metrics::inc_counter(&metrics::SYNC_LOOKUP_COMPLETED);
