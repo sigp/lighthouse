@@ -459,12 +459,8 @@ async fn filter_chain_segment_picks_up_only_the_anchor_envelope() {
     let other_snapshot = gloas_snapshots[1];
 
     // Import the segment so the blocks are known.
-    store_envelopes_for_chain_segment(&chain_segment, &harness);
-    let blocks = chain_segment_blocks(
-        &chain_segment,
-        &chain_segment_sidecars,
-        harness.chain.clone(),
-    );
+    store_envelopes_for_chain_segment(chain_segment, &harness);
+    let blocks = chain_segment_blocks(chain_segment, chain_segment_sidecars, harness.chain.clone());
     harness
         .chain
         .slot_clock
