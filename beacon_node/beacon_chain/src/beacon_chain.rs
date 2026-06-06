@@ -240,6 +240,7 @@ impl TryInto<Hash256> for AvailabilityProcessingStatus {
 }
 
 /// The result of a chain segment processing.
+#[derive(Debug)]
 pub enum ChainSegmentResult {
     /// Processing this chain segment finished successfully.
     Successful {
@@ -3051,7 +3052,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Err(BlockError::WouldRevertFinalizedSlot { .. }) => {
                     // The block is at/below the finalized slot and won't be imported. If it's the
                     // anchor block, its envelope may still be missing from the store, queue it for
-                    // import rather than dropping its.
+                    // import rather than dropping it.
                     self.queue_anchor_envelope_import(block_root, block, &mut anchor_envelope)?;
                     continue;
                 }
@@ -3180,11 +3181,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         };
 
-        // Import the checkpoint-sync anchor block's envelope, if this segment carried it and it
-        // wasn't already stored. This must run *before* importing the segment's blocks: a
-        // post-checkpoint child's `load_parent` needs the anchor envelope already present. Using
-        // the verified import path means a bad envelope fails the batch, so range sync will
-        // downscore the peer and retry from another.
+        // Import the anchor envelope before the segment's blocks because the checkpoint child
+        // needs it present if it builds on top of it. A bad envelope fails the batch, so range sync handles the
+        // retry/downscore.
         if let Some((block_root, block, envelope)) = anchor_envelope
             && let Err(e) = self
                 .process_range_sync_envelope(envelope, block_root, block)
