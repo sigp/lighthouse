@@ -2,10 +2,7 @@ use crate::block_verification_types::{AsBlock, AvailableBlockData, LookupBlock, 
 use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::graffiti_calculator::GraffitiSettings;
-use crate::kzg_utils::{
-    blobs_to_data_column_sidecars_gloas, build_data_column_sidecars_fulu,
-    build_data_column_sidecars_gloas,
-};
+use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sidecars_gloas};
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::{BeaconBlockResponseWrapper, CustodyContext, get_block_root};
@@ -1167,7 +1164,7 @@ where
     /// For pre-Gloas forks, the envelope is `None` and this behaves like `make_block`.
     pub async fn make_block_with_envelope(
         &self,
-        state: BeaconState<E>,
+        mut state: BeaconState<E>,
         slot: Slot,
     ) -> (
         SignedBlockContentsTuple<E>,
@@ -1180,6 +1177,17 @@ where
         if state.fork_name_unchecked().gloas_enabled()
             || self.spec.fork_name_at_slot::<E>(slot).gloas_enabled()
         {
+            complete_state_advance(&mut state, None, slot, &self.spec)
+                .expect("should be able to advance state to slot");
+            state.build_caches(&self.spec).expect("should build caches");
+
+            let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
+
+            let graffiti = Graffiti::from(self.rng.lock().random::<[u8; 32]>());
+            let graffiti_settings =
+                GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
+            let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
+
             // Load the parent's payload envelope and status from the cached head.
             // TODO(gloas): we may want to pass these as arguments to support cases where we build
             // on alternate chains to the head.
@@ -1191,116 +1199,57 @@ where
                 )
             };
 
-            let (block_contents, envelope, _columns, state) = self
-                .make_gloas_block_with_status(state, slot, parent_payload_status, parent_envelope)
-                .await;
-            (block_contents, envelope, state)
+            let (block, post_block_state, _consensus_block_value) = self
+                .chain
+                .produce_block_on_state_gloas(
+                    state,
+                    None,
+                    parent_payload_status,
+                    parent_envelope,
+                    slot,
+                    randao_reveal,
+                    graffiti_settings,
+                    ProduceBlockVerification::VerifyRandao,
+                    None,
+                )
+                .await
+                .unwrap();
+
+            let signed_block = Arc::new(block.sign(
+                &self.validator_keypairs[proposer_index].sk,
+                &post_block_state.fork(),
+                post_block_state.genesis_validators_root(),
+                &self.spec,
+            ));
+
+            // Retrieve the cached envelope produced during block production and sign it.
+            let signed_envelope = self
+                .chain
+                .pending_payload_envelopes
+                .write()
+                .remove(slot)
+                .map(|envelope| {
+                    let epoch = slot.epoch(E::slots_per_epoch());
+                    let domain = self.spec.get_domain(
+                        epoch,
+                        Domain::BeaconBuilder,
+                        &post_block_state.fork(),
+                        post_block_state.genesis_validators_root(),
+                    );
+                    let message = envelope.signing_root(domain);
+                    let signature = self.validator_keypairs[proposer_index].sk.sign(message);
+                    SignedExecutionPayloadEnvelope {
+                        message: envelope,
+                        signature,
+                    }
+                });
+
+            let block_contents: SignedBlockContentsTuple<E> = (signed_block, None);
+            (block_contents, signed_envelope, post_block_state)
         } else {
             let (block_contents, state) = self.make_block(state, slot).await;
             (block_contents, None, state)
         }
-    }
-
-    /// Like the Gloas branch of `make_block_with_envelope`, but takes the parent payload status and
-    /// envelope explicitly so callers can build on alternate parents (e.g. FULL vs EMPTY children).
-    pub async fn make_gloas_block_with_status(
-        &self,
-        mut state: BeaconState<E>,
-        slot: Slot,
-        parent_payload_status: proto_array::PayloadStatus,
-        parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
-    ) -> (
-        SignedBlockContentsTuple<E>,
-        Option<SignedExecutionPayloadEnvelope<E>>,
-        DataColumnSidecarList<E>,
-        BeaconState<E>,
-    ) {
-        complete_state_advance(&mut state, None, slot, &self.spec)
-            .expect("should be able to advance state to slot");
-        state.build_caches(&self.spec).expect("should build caches");
-
-        let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
-
-        let graffiti = Graffiti::from(self.rng.lock().random::<[u8; 32]>());
-        let graffiti_settings =
-            GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
-        let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
-
-        let (block, post_block_state, _consensus_block_value) = self
-            .chain
-            .produce_block_on_state_gloas(
-                state,
-                None,
-                parent_payload_status,
-                parent_envelope,
-                slot,
-                randao_reveal,
-                graffiti_settings,
-                ProduceBlockVerification::VerifyRandao,
-                None,
-            )
-            .await
-            .unwrap();
-
-        let signed_block = Arc::new(block.sign(
-            &self.validator_keypairs[proposer_index].sk,
-            &post_block_state.fork(),
-            post_block_state.genesis_validators_root(),
-            &self.spec,
-        ));
-
-        let block_root = signed_block.canonical_root();
-
-        // Build the gloas data column sidecars from the blobs produced during block production.
-        // For gloas, blobs travel in the execution payload envelope, so the columns are keyed by
-        // the block root and slot rather than carried by the block body.
-        let data_columns = self
-            .chain
-            .pending_payload_envelopes
-            .write()
-            .take_blobs(slot)
-            .map(|blobs| {
-                let blob_refs: Vec<_> = blobs.iter().collect();
-                blobs_to_data_column_sidecars_gloas(
-                    &blob_refs,
-                    block_root,
-                    slot,
-                    &self.chain.kzg,
-                    &self.spec,
-                )
-                .expect("should build gloas data column sidecars")
-            })
-            .unwrap_or_default();
-
-        // Retrieve the cached envelope produced during block production and sign it.
-        let signed_envelope = self
-            .chain
-            .pending_payload_envelopes
-            .write()
-            .remove(slot)
-            .map(|envelope| {
-                let epoch = slot.epoch(E::slots_per_epoch());
-                let domain = self.spec.get_domain(
-                    epoch,
-                    Domain::BeaconBuilder,
-                    &post_block_state.fork(),
-                    post_block_state.genesis_validators_root(),
-                );
-                let message = envelope.signing_root(domain);
-                let signature = self.validator_keypairs[proposer_index].sk.sign(message);
-                SignedExecutionPayloadEnvelope {
-                    message: envelope,
-                    signature,
-                }
-            });
-
-        let block_contents: SignedBlockContentsTuple<E> = (signed_block, None);
-        (
-            block_contents,
-            signed_envelope,
-            data_columns,
-            post_block_state,
-        )
     }
 
     /// Useful for the `per_block_processing` tests. Creates a block, and returns the state after

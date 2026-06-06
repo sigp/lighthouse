@@ -17,7 +17,7 @@ use beacon_chain::{
     block_verification_types::{AsBlock, AvailableBlockData},
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, NumBlobs,
-        generate_rand_block_and_blobs, test_spec,
+        generate_data_column_sidecars_from_block, generate_rand_block_and_blobs, test_spec,
     },
 };
 use beacon_processor::{BeaconProcessorChannels, DuplicateCache, Work, WorkEvent};
@@ -1057,62 +1057,76 @@ impl TestRig {
         self.network_blocks_by_slot
             .insert(genesis_block.slot(), genesis_block);
 
-        // Build imported G and A.
-        let mut parents = vec![];
-        for _ in 0..2 {
-            external_harness.advance_slot();
-            let block_root = external_harness
-                .extend_chain(
-                    1,
-                    BlockStrategy::OnCanonicalHead,
-                    AttestationStrategy::AllValidators,
-                )
-                .await;
-            let block = external_harness.get_full_block(&block_root);
-            let block_root = block.canonical_root();
-            let block_slot = block.slot();
-            let block_hash = block.as_block().payload_bid_block_hash().unwrap();
-            self.network_blocks_by_root
-                .insert(block_root, block.clone());
-            self.network_blocks_by_slot.insert(block_slot, block);
-            if let Ok(Some(envelope)) = external_harness.chain.get_payload_envelope(&block_root) {
-                self.network_envelopes_by_root
-                    .insert(block_root, Arc::new(envelope));
-            }
-            parents.push((block_root, block_slot, block_hash));
-        }
-        let [(g_root, _, g_block_hash), (a_root, a_slot, a_block_hash)] =
-            parents.try_into().unwrap();
-
-        let a_state = external_harness.get_current_state();
-        let a_envelope = self.network_envelopes_by_root.get(&a_root).cloned();
-        let g_envelope = self.network_envelopes_by_root.get(&g_root).cloned();
-
-        let child_slot = a_slot + 1;
-
-        // B: FULL child of A.
-        let (b_contents, b_envelope, b_columns, _) = external_harness
-            .make_gloas_block_with_status(
-                a_state.clone(),
-                child_slot,
-                proto_array::PayloadStatus::Full,
-                a_envelope,
+        external_harness.advance_slot();
+        let g_root = external_harness
+            .extend_chain(
+                1,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
             )
             .await;
-        let b_block = b_contents.0;
-        let b_root = b_block.canonical_root();
+        let g_block = external_harness.get_full_block(&g_root);
+        let g_block_hash = g_block.as_block().payload_bid_block_hash().unwrap();
+        self.network_blocks_by_root.insert(g_root, g_block.clone());
+        self.network_blocks_by_slot.insert(g_block.slot(), g_block);
+        self.network_envelopes_by_root.insert(
+            g_root,
+            Arc::new(
+                external_harness
+                    .chain
+                    .get_payload_envelope(&g_root)
+                    .unwrap()
+                    .unwrap(),
+            ),
+        );
+
+        external_harness.advance_slot();
+        let a_slot = external_harness.get_current_slot();
+        let (a_contents, a_envelope, a_state) = external_harness
+            .make_block_with_envelope(external_harness.get_current_state(), a_slot)
+            .await;
+        let a_block = a_contents.0.clone();
+        let a_root = a_block.canonical_root();
+        let a_block_hash = a_block.as_block().payload_bid_block_hash().unwrap();
+        external_harness
+            .process_block(a_slot, a_root, a_contents)
+            .await
+            .unwrap();
+
+        external_harness.advance_slot();
+        let child_slot = external_harness.get_current_slot();
 
         // C: EMPTY child of A.
-        let (c_contents, c_envelope, c_columns, _) = external_harness
-            .make_gloas_block_with_status(
-                a_state.clone(),
-                child_slot,
-                proto_array::PayloadStatus::Empty,
-                g_envelope,
-            )
+        let (c_contents, c_envelope, _) = external_harness
+            .make_block_with_envelope(a_state.clone(), child_slot)
             .await;
         let c_block = c_contents.0;
         let c_root = c_block.canonical_root();
+        let c_columns = generate_data_column_sidecars_from_block(
+            c_block.as_ref(),
+            &external_harness.chain.spec,
+        );
+
+        let a_envelope = a_envelope.expect("A should have envelope");
+        external_harness
+            .process_envelope(a_root, a_envelope.clone(), &a_state, a_block.state_root())
+            .await;
+        let a_block = external_harness.get_full_block(&a_root);
+        self.network_blocks_by_root.insert(a_root, a_block.clone());
+        self.network_blocks_by_slot.insert(a_slot, a_block);
+        self.network_envelopes_by_root
+            .insert(a_root, Arc::new(a_envelope));
+
+        // B: FULL child of A.
+        let (b_contents, b_envelope, _) = external_harness
+            .make_block_with_envelope(a_state.clone(), child_slot)
+            .await;
+        let b_block = b_contents.0;
+        let b_root = b_block.canonical_root();
+        let b_columns = generate_data_column_sidecars_from_block(
+            b_block.as_ref(),
+            &external_harness.chain.spec,
+        );
 
         assert_eq!(
             (
@@ -1216,7 +1230,16 @@ impl TestRig {
     }
 
     fn corrupt_last_column_kzg_proof(&mut self) {
-        let range_sync_block = self.get_last_block().clone();
+        let block_root = self.get_last_block().canonical_root();
+        self.corrupt_column_kzg_proof(block_root);
+    }
+
+    fn corrupt_column_kzg_proof(&mut self, block_root: Hash256) {
+        let range_sync_block = self
+            .network_blocks_by_root
+            .get(&block_root)
+            .unwrap_or_else(|| panic!("No block for root {block_root}"))
+            .clone();
         let block = range_sync_block.block_cloned();
         let blobs = range_sync_block.block_data().blobs();
         let mut columns = range_sync_block
@@ -1227,7 +1250,7 @@ impl TestRig {
         let column = Arc::make_mut(first);
         let proof = column.kzg_proofs_mut().first_mut().expect("no kzg proofs");
         *proof = kzg::KzgProof::empty();
-        self.re_insert_block(block, blobs, Some(columns));
+        self.upsert_block(block, blobs, Some(columns));
     }
 
     fn get_last_block(&self) -> &RangeSyncBlock<E> {
@@ -1247,6 +1270,15 @@ impl TestRig {
     ) {
         self.network_blocks_by_slot.clear();
         self.network_blocks_by_root.clear();
+        self.upsert_block(block, blobs, columns);
+    }
+
+    fn upsert_block(
+        &mut self,
+        block: Arc<SignedBeaconBlock<E>>,
+        blobs: Option<types::BlobSidecarList<E>>,
+        columns: Option<types::DataColumnSidecarList<E>>,
+    ) {
         let block_root = block.canonical_root();
         let block_slot = block.slot();
         let block_data = if let Some(columns) = columns {
@@ -2675,9 +2707,16 @@ async fn crypto_on_fail_with_bad_column_kzg_proof() {
     let Some(mut r) = TestRig::new_fulu_peer_test(FuluTestType::WeSupernodeThemSupernode) else {
         return;
     };
-    r.build_chain(1).await;
-    r.corrupt_last_column_kzg_proof();
-    r.trigger_with_last_block();
+    if r.is_after_gloas() {
+        r.build_chain(2).await;
+        let child = r.get_last_block().block_cloned();
+        r.corrupt_column_kzg_proof(child.parent_root());
+        r.trigger_unknown_parent_blocks_from_all_peers(&[child]);
+    } else {
+        r.build_chain(1).await;
+        r.corrupt_last_column_kzg_proof();
+        r.trigger_with_last_block();
+    }
     r.simulate(SimulateConfig::happy_path()).await;
     if cfg!(feature = "fake_crypto") {
         r.assert_successful_lookup_sync();
