@@ -2197,8 +2197,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 slot_start.is_some_and(|start| observed.saturating_sub(start) < payload_due)
             });
 
-        // TODO(EIP-7732): Check blob data availability. For now, default to true.
-        let blob_data_available = true;
+        // A payload is only imported into fork choice if its data was available.
+        let blob_data_available = self
+            .canonical_head
+            .fork_choice_read_lock()
+            .is_payload_received(&beacon_block_root);
 
         Ok(PayloadAttestationData {
             beacon_block_root,
@@ -4101,6 +4104,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 publish_fn()?;
                 self.import_available_execution_payload_envelope(available_envelope)
                     .await
+                    .map_err(Into::into)
             }
             PayloadAvailability::MissingComponents(block_root) => Ok(
                 AvailabilityProcessingStatus::MissingComponents(slot, block_root),

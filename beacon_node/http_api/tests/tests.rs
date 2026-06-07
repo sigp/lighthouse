@@ -3085,12 +3085,12 @@ impl ApiTester {
     }
 
     /// JSON bid with a valid structure reaches gossip verification and is rejected with 400.
-    pub async fn test_post_beacon_execution_payload_bid_json(self) -> Self {
+    pub async fn test_post_beacon_execution_payload_bids_json(self) -> Self {
         let (bid, fork_name) = self.make_signed_execution_payload_bid();
 
         let result = self
             .client
-            .post_beacon_execution_payload_bid(&bid, fork_name)
+            .post_beacon_execution_payload_bids(&bid, fork_name)
             .await;
 
         assert!(
@@ -3102,12 +3102,12 @@ impl ApiTester {
     }
 
     /// SSZ bid with a valid structure reaches gossip verification and is rejected with 400.
-    pub async fn test_post_beacon_execution_payload_bid_ssz(self) -> Self {
+    pub async fn test_post_beacon_execution_payload_bids_ssz(self) -> Self {
         let (bid, fork_name) = self.make_signed_execution_payload_bid();
 
         let result = self
             .client
-            .post_beacon_execution_payload_bid_ssz(&bid, fork_name)
+            .post_beacon_execution_payload_bids_ssz(&bid, fork_name)
             .await;
 
         assert!(
@@ -4433,7 +4433,7 @@ impl ApiTester {
 
             let envelope = self
                 .client
-                .get_validator_execution_payload_envelope::<E>(slot)
+                .get_validator_execution_payload_envelopes::<E>(slot)
                 .await
                 .unwrap()
                 .data;
@@ -4452,7 +4452,7 @@ impl ApiTester {
             let signed_envelope =
                 self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
             self.client
-                .post_beacon_execution_payload_envelope(&signed_envelope, fork_name)
+                .post_beacon_execution_payload_envelopes(&signed_envelope, fork_name)
                 .await
                 .unwrap();
 
@@ -4495,7 +4495,7 @@ impl ApiTester {
 
             let envelope = self
                 .client
-                .get_validator_execution_payload_envelope_ssz::<E>(slot)
+                .get_validator_execution_payload_envelopes_ssz::<E>(slot)
                 .await
                 .unwrap();
 
@@ -4513,7 +4513,7 @@ impl ApiTester {
             let signed_envelope =
                 self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
             self.client
-                .post_beacon_execution_payload_envelope_ssz(&signed_envelope, fork_name)
+                .post_beacon_execution_payload_envelopes_ssz(&signed_envelope, fork_name)
                 .await
                 .unwrap();
 
@@ -4942,7 +4942,7 @@ impl ApiTester {
             // Retrieve and publish the envelope.
             let envelope = self
                 .client
-                .get_validator_execution_payload_envelope::<E>(slot)
+                .get_validator_execution_payload_envelopes::<E>(slot)
                 .await
                 .unwrap()
                 .data;
@@ -4950,7 +4950,7 @@ impl ApiTester {
             let signed_envelope =
                 self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
             self.client
-                .post_beacon_execution_payload_envelope(&signed_envelope, fork_name)
+                .post_beacon_execution_payload_envelopes(&signed_envelope, fork_name)
                 .await
                 .unwrap();
 
@@ -4970,8 +4970,77 @@ impl ApiTester {
                 "payload attestation should report payload_present=true after publishing \
                  the envelope via the HTTP API (slot {slot})"
             );
+            assert!(
+                pa_data.blob_data_available,
+                "blob_data_available should be true once the envelope is imported (slot {slot})"
+            );
 
             self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+        }
+
+        self
+    }
+
+    /// When a payload hasn't been seen, the payload attestation data
+    /// must report `payload_present = false` and `blob_data_available = false`.
+    pub async fn test_payload_attestation_unavailable_without_envelope(self) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+
+        for _ in 0..E::slots_per_epoch() * 3 {
+            let slot = self.chain.slot().unwrap();
+            let epoch = self.chain.epoch().unwrap();
+            let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
+
+            if !fork_name.gloas_enabled() {
+                self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+                continue;
+            }
+
+            let (sk, randao_reveal) = self
+                .proposer_setup(slot, epoch, &fork, genesis_validators_root)
+                .await;
+
+            // Produce and publish a block, but withhold its envelope.
+            let (response, _metadata) = self
+                .client
+                .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, None, None, None)
+                .await
+                .unwrap();
+            let block = response.data;
+            let block_root = block.tree_hash_root();
+
+            let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+            let signed_block_request =
+                PublishBlockRequest::try_from(Arc::new(signed_block)).unwrap();
+            self.client
+                .post_beacon_blocks_v2(&signed_block_request, None)
+                .await
+                .unwrap();
+
+            let pa_data = self
+                .client
+                .get_validator_payload_attestation_data(slot)
+                .await
+                .unwrap()
+                .expect("expected payload attestation data for slot with block")
+                .into_data();
+
+            assert_eq!(pa_data.beacon_block_root, block_root);
+            assert!(
+                !pa_data.payload_present,
+                "payload_present should be false when the envelope is withheld (slot {slot})"
+            );
+            assert!(
+                !pa_data.blob_data_available,
+                "blob_data_available should be false when the envelope is not imported (slot {slot})"
+            );
+
+            return self;
         }
 
         self
@@ -8704,6 +8773,14 @@ async fn payload_attestation_present_after_envelope_publish() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn payload_attestation_unavailable_without_envelope() {
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_payload_attestation_unavailable_without_envelope()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_beacon_pool_payload_attestations_valid() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
@@ -9481,14 +9558,14 @@ async fn post_validator_proposer_preferences() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn post_beacon_execution_payload_bid() {
+async fn post_beacon_execution_payload_bids() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
     ApiTester::new_with_hard_forks()
         .await
-        .test_post_beacon_execution_payload_bid_json()
+        .test_post_beacon_execution_payload_bids_json()
         .await
-        .test_post_beacon_execution_payload_bid_ssz()
+        .test_post_beacon_execution_payload_bids_ssz()
         .await;
 }

@@ -16,7 +16,7 @@ use crate::network_beacon_processor::TestBeaconChainType;
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::batch::ByRangeRequestType;
-use crate::sync::block_lookups::SingleLookupId;
+use crate::sync::block_lookups::{DownloadResult, SingleLookupId};
 use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::range_data_column_batch_request::RangeDataColumnBatchRequest;
 use beacon_chain::block_verification_types::LookupBlock;
@@ -53,8 +53,8 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tracing::{Span, debug, debug_span, error, warn};
 use types::{
-    BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
-    ForkContext, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
+    BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, ForkContext,
+    Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
 };
 
 pub mod custody;
@@ -95,7 +95,7 @@ pub type RpcResponseResult<T> = Result<(T, Duration), RpcResponseError>;
 
 /// Duration = latest seen timestamp of all received data columns
 pub type CustodyByRootResult<T> =
-    Result<(DataColumnSidecarList<T>, PeerGroup, Duration), RpcResponseError>;
+    Result<DownloadResult<DataColumnSidecarList<T>>, RpcResponseError>;
 
 #[derive(Debug)]
 pub enum RpcResponseError {
@@ -176,13 +176,13 @@ impl PeerGroup {
 /// Sequential ID that uniquely identifies ReqResp outgoing requests
 pub type ReqId = u32;
 
-pub enum LookupRequestResult<I = ReqId> {
+pub enum LookupRequestResult<T, I = ReqId> {
     /// A request is sent. Sync MUST receive an event from the network in the future for either:
     /// completed response or failed request
     RequestSent(I),
     /// No request is sent, and no further action is necessary to consider this request completed.
     /// Includes a reason why this request is not needed.
-    NoRequestNeeded(&'static str),
+    NoRequestNeeded(&'static str, T),
     /// No request is sent, but the request is not completed. Sync MUST receive some future event
     /// that makes progress on the request. For example: request is processing from a different
     /// source (i.e. block received from gossip) and sync MUST receive an event with that processing
@@ -820,7 +820,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         lookup_id: SingleLookupId,
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
         block_root: Hash256,
-    ) -> Result<LookupRequestResult, RpcRequestSendError> {
+    ) -> Result<LookupRequestResult<Arc<SignedBeaconBlock<T::EthSpec>>>, RpcRequestSendError> {
         let active_request_count_by_peer = self.active_request_count_by_peer();
         let Some(peer_id) = lookup_peers
             .read()
@@ -849,31 +849,21 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         match self.chain.get_block_process_status(&block_root) {
             // Unknown block, continue request to download
             BlockProcessStatus::Unknown => {}
-            // Block is known and currently processing. Imports from gossip and HTTP API insert the
-            // block in the da_cache. However, HTTP API is unable to notify sync when it completes
-            // block import. Returning `Pending` here will result in stuck lookups if the block is
-            // importing from sync.
-            BlockProcessStatus::NotValidated(_, source) => match source {
-                BlockImportSource::Gossip => {
-                    // Lookup sync event safety: If the block is currently in the processing cache, we
-                    // are guaranteed to receive a `SyncMessage::GossipBlockProcessResult` that will
-                    // make progress on this lookup
-                    return Ok(LookupRequestResult::Pending("block in processing cache"));
-                }
-                BlockImportSource::Lookup
-                | BlockImportSource::RangeSync
-                | BlockImportSource::HttpApi => {
-                    // Lookup, RangeSync or HttpApi block import don't emit the GossipBlockProcessResult
-                    // event. If a lookup happens to be created during block import from one of
-                    // those sources just import the block twice. Otherwise the lookup will get
-                    // stuck. Double imports are fine, they just waste resources.
-                }
-            },
+            // Block is known but processing. The block may turn out to be invalid, so we want sync to
+            // NOT mark the request as complete yet. The ideal flow would be:
+            // - Wait for processing to complete
+            // - Only if there is an error re-download and re-process
+            // But implementing this introduces complexity and the risk for the lookup to get stuck.
+            // Instead we always re-download the block eagerly and de-duplicate the processing. So in
+            // the happy case we just download the block again if the lookup is created while execution
+            // processing the block.
+            BlockProcessStatus::NotValidated(..) => {}
             // Block is fully validated. If it's not yet imported it's waiting for missing block
             // components. Consider this request completed and do nothing.
-            BlockProcessStatus::ExecutionValidated { .. } => {
+            BlockProcessStatus::ExecutionValidated(block) => {
                 return Ok(LookupRequestResult::NoRequestNeeded(
                     "block execution validated",
+                    block,
                 ));
             }
         }
@@ -937,12 +927,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         lookup_id: SingleLookupId,
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
         block_root: Hash256,
-    ) -> Result<LookupRequestResult, RpcRequestSendError> {
+    ) -> Result<LookupRequestResult<()>, RpcRequestSendError> {
         // Skip the download if fork-choice already saw this envelope (e.g. imported via gossip
         // before the lookup got here).
         if self.chain.envelope_is_known_to_fork_choice(&block_root) {
             return Ok(LookupRequestResult::NoRequestNeeded(
                 "envelope already known to fork-choice",
+                (),
             ));
         }
 
@@ -1011,7 +1002,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         request: DataColumnsByRootSingleBlockRequest,
         expect_max_responses: bool,
-    ) -> Result<LookupRequestResult<DataColumnsByRootRequestId>, &'static str> {
+    ) -> Result<LookupRequestResult<(), DataColumnsByRootRequestId>, &'static str> {
         let id = DataColumnsByRootRequestId {
             id: self.next_id(),
             requester,
@@ -1060,7 +1051,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         block_root: Hash256,
         block_slot: Slot,
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
-    ) -> Result<LookupRequestResult, RpcRequestSendError> {
+    ) -> Result<LookupRequestResult<DataColumnSidecarList<T::EthSpec>>, RpcRequestSendError> {
         let custody_indexes_imported = self
             .chain
             .cached_data_column_indexes(&block_root, block_slot)
@@ -1078,7 +1069,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         if custody_indexes_to_fetch.is_empty() {
             // No indexes required, do not issue any request
-            return Ok(LookupRequestResult::NoRequestNeeded("no indices to fetch"));
+            return Ok(LookupRequestResult::NoRequestNeeded(
+                "no indices to fetch",
+                vec![],
+            ));
         }
 
         let id = SingleLookupReqId {
@@ -1528,8 +1522,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // Convert a result from internal format of `ActiveCustodyRequest` (error first to use ?) to
         // an Option first to use in an `if let Some() { act on result }` block.
         match result.as_ref() {
-            Some(Ok((columns, peer_group, _))) => {
-                debug!(?id, count = columns.len(), peers = ?peer_group, "Custody request success, removing")
+            Some(Ok(data)) => {
+                debug!(?id, count = data.value.len(), peers = ?data.peer_group, "Custody request success, removing")
             }
             Some(Err(e)) => {
                 debug!(?id, error = ?e, "Custody request failure, removing" )

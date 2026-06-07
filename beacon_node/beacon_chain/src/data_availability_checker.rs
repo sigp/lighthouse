@@ -861,8 +861,6 @@ pub struct AvailableBlock<E: EthSpec> {
     #[educe(Hash(ignore))]
     /// Timestamp at which this block first became available (UNIX timestamp, time since 1970).
     blobs_available_timestamp: Option<Duration>,
-    #[educe(Hash(ignore))]
-    pub spec: Arc<ChainSpec>,
 }
 
 impl<E: EthSpec> AvailableBlock<E> {
@@ -952,7 +950,6 @@ impl<E: EthSpec> AvailableBlock<E> {
             block,
             blob_data: block_data,
             blobs_available_timestamp: None,
-            spec: spec.clone(),
         })
     }
 
@@ -1007,7 +1004,6 @@ impl<E: EthSpec> AvailableBlock<E> {
                 }
             },
             blobs_available_timestamp: self.blobs_available_timestamp,
-            spec: self.spec.clone(),
         })
     }
 }

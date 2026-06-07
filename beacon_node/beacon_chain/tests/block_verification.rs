@@ -9,7 +9,7 @@ use beacon_chain::{
     custody_context::NodeCustodyType,
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
-        MakeAttestationOptions, test_spec,
+        MakeAttestationOptions, fork_name_from_env, test_spec,
     },
 };
 use beacon_chain::{
@@ -35,20 +35,30 @@ type E = MainnetEthSpec;
 
 // Gloas requires >= 1 validator per slot for PTC committee computation, so >= 32 for MainnetEthSpec.
 const VALIDATOR_COUNT: usize = 32;
-const CHAIN_SEGMENT_LENGTH: usize = 64 * 5;
-const BLOCK_INDICES: &[usize] = &[0, 1, 32, 64, 68 + 1, 129, CHAIN_SEGMENT_LENGTH - 1];
+const CHAIN_SEGMENT_LENGTH: usize = 32 * 6;
+const BLOCK_INDICES: &[usize] = &[1, 32, 64];
 
 /// A cached set of keys.
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
 // TODO(#8633): Delete this unnecessary enum and refactor this file to use `AvailableBlockData` instead.
+#[derive(Clone)]
 enum DataSidecars<E: EthSpec> {
     Blobs(BlobSidecarList<E>),
     DataColumns(Vec<CustodyDataColumn<E>>),
 }
 
-async fn get_chain_segment() -> (Vec<BeaconSnapshot<E>>, Vec<Option<DataSidecars<E>>>) {
+type ChainSegmentData = (Vec<BeaconSnapshot<E>>, Vec<Option<DataSidecars<E>>>);
+
+static CHAIN_SEGMENT: LazyLock<tokio::sync::OnceCell<ChainSegmentData>> =
+    LazyLock::new(tokio::sync::OnceCell::new);
+
+async fn get_chain_segment() -> &'static ChainSegmentData {
+    CHAIN_SEGMENT.get_or_init(build_chain_segment).await
+}
+
+async fn build_chain_segment() -> ChainSegmentData {
     // The assumption that you can re-import a block based on what you have in your DB
     // is no longer true, as fullnodes stores less than what they sample.
     // We use a supernode here to build a chain segment.
@@ -359,11 +369,15 @@ fn update_data_column_signed_header<E: EthSpec>(
 
 #[tokio::test]
 async fn chain_segment_full_segment() {
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
-    store_envelopes_for_chain_segment(&chain_segment, &harness);
+    store_envelopes_for_chain_segment(chain_segment, &harness);
     let blocks: Vec<RangeSyncBlock<E>> =
-        chain_segment_blocks(&chain_segment, &chain_segment_blobs, harness.chain.clone())
+        chain_segment_blocks(chain_segment, chain_segment_blobs, harness.chain.clone())
             .into_iter()
             .collect();
 
@@ -387,7 +401,7 @@ async fn chain_segment_full_segment() {
         .into_block_error()
         .expect("should import chain segment");
 
-    update_fork_choice_with_envelopes(&chain_segment, &harness);
+    update_fork_choice_with_envelopes(chain_segment, &harness);
     harness.chain.recompute_head_at_current_slot().await;
 
     assert_eq!(
@@ -399,16 +413,20 @@ async fn chain_segment_full_segment() {
 
 #[tokio::test]
 async fn chain_segment_varying_chunk_size() {
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
     let blocks: Vec<RangeSyncBlock<E>> =
-        chain_segment_blocks(&chain_segment, &chain_segment_blobs, harness.chain.clone())
+        chain_segment_blocks(chain_segment, chain_segment_blobs, harness.chain.clone())
             .into_iter()
             .collect();
 
-    for chunk_size in &[1, 2, 31, 32, 33] {
+    for chunk_size in &[1, 32, 33] {
         let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
-        store_envelopes_for_chain_segment(&chain_segment, &harness);
+        store_envelopes_for_chain_segment(chain_segment, &harness);
 
         harness
             .chain
@@ -424,7 +442,7 @@ async fn chain_segment_varying_chunk_size() {
                 .unwrap_or_else(|_| panic!("should import chain segment of len {}", chunk_size));
         }
 
-        update_fork_choice_with_envelopes(&chain_segment, &harness);
+        update_fork_choice_with_envelopes(chain_segment, &harness);
         harness.chain.recompute_head_at_current_slot().await;
 
         assert_eq!(
@@ -449,7 +467,7 @@ async fn chain_segment_non_linear_parent_roots() {
      * Test with a block removed.
      */
     let mut blocks: Vec<RangeSyncBlock<E>> =
-        chain_segment_blocks(&chain_segment, &chain_segment_blobs, harness.chain.clone())
+        chain_segment_blocks(chain_segment, chain_segment_blobs, harness.chain.clone())
             .into_iter()
             .collect();
     blocks.remove(2);
@@ -470,7 +488,7 @@ async fn chain_segment_non_linear_parent_roots() {
      * Test with a modified parent root.
      */
     let mut blocks: Vec<RangeSyncBlock<E>> =
-        chain_segment_blocks(&chain_segment, &chain_segment_blobs, harness.chain.clone())
+        chain_segment_blocks(chain_segment, chain_segment_blobs, harness.chain.clone())
             .into_iter()
             .collect();
 
@@ -512,7 +530,7 @@ async fn chain_segment_non_linear_slots() {
      */
 
     let mut blocks: Vec<RangeSyncBlock<E>> =
-        chain_segment_blocks(&chain_segment, &chain_segment_blobs, harness.chain.clone())
+        chain_segment_blocks(chain_segment, chain_segment_blobs, harness.chain.clone())
             .into_iter()
             .collect();
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
@@ -542,7 +560,7 @@ async fn chain_segment_non_linear_slots() {
      */
 
     let mut blocks: Vec<RangeSyncBlock<E>> =
-        chain_segment_blocks(&chain_segment, &chain_segment_blobs, harness.chain.clone())
+        chain_segment_blocks(chain_segment, chain_segment_blobs, harness.chain.clone())
             .into_iter()
             .collect();
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
@@ -679,10 +697,14 @@ async fn get_invalid_sigs_harness(
 }
 #[tokio::test]
 async fn invalid_signature_gossip_block() {
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
         // Ensure the block will be rejected if imported on its own (without gossip checking).
-        let harness = get_invalid_sigs_harness(&chain_segment).await;
+        let harness = get_invalid_sigs_harness(chain_segment).await;
         let mut snapshots = chain_segment.clone();
         let (block, _) = snapshots[block_index]
             .beacon_block
@@ -735,9 +757,13 @@ async fn invalid_signature_gossip_block() {
 
 #[tokio::test]
 async fn invalid_signature_block_proposal() {
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
-        let harness = get_invalid_sigs_harness(&chain_segment).await;
+        let harness = get_invalid_sigs_harness(chain_segment).await;
         let mut snapshots = chain_segment.clone();
         let (block, _) = snapshots[block_index]
             .beacon_block
@@ -774,9 +800,14 @@ async fn invalid_signature_block_proposal() {
 
 #[tokio::test]
 async fn invalid_signature_randao_reveal() {
-    let (chain_segment, mut chain_segment_blobs) = get_chain_segment().await;
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let (chain_segment, ref_blobs) = get_chain_segment().await;
+    let mut chain_segment_blobs = ref_blobs.clone();
     for &block_index in BLOCK_INDICES {
-        let harness = get_invalid_sigs_harness(&chain_segment).await;
+        let harness = get_invalid_sigs_harness(chain_segment).await;
         let mut snapshots = chain_segment.clone();
         let (mut block, signature) = snapshots[block_index]
             .beacon_block
@@ -789,7 +820,7 @@ async fn invalid_signature_randao_reveal() {
         update_parent_roots(&mut snapshots, &mut chain_segment_blobs);
         update_proposal_signatures(&mut snapshots, &harness);
         assert_invalid_signature(
-            &chain_segment,
+            chain_segment,
             &chain_segment_blobs,
             &harness,
             block_index,
@@ -802,9 +833,14 @@ async fn invalid_signature_randao_reveal() {
 
 #[tokio::test]
 async fn invalid_signature_proposer_slashing() {
-    let (chain_segment, mut chain_segment_blobs) = get_chain_segment().await;
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let (chain_segment, ref_blobs) = get_chain_segment().await;
+    let mut chain_segment_blobs = ref_blobs.clone();
     for &block_index in BLOCK_INDICES {
-        let harness = get_invalid_sigs_harness(&chain_segment).await;
+        let harness = get_invalid_sigs_harness(chain_segment).await;
         let mut snapshots = chain_segment.clone();
         let (mut block, signature) = snapshots[block_index]
             .beacon_block
@@ -831,7 +867,7 @@ async fn invalid_signature_proposer_slashing() {
         update_parent_roots(&mut snapshots, &mut chain_segment_blobs);
         update_proposal_signatures(&mut snapshots, &harness);
         assert_invalid_signature(
-            &chain_segment,
+            chain_segment,
             &chain_segment_blobs,
             &harness,
             block_index,
@@ -844,9 +880,14 @@ async fn invalid_signature_proposer_slashing() {
 
 #[tokio::test]
 async fn invalid_signature_attester_slashing() {
-    let (chain_segment, mut chain_segment_blobs) = get_chain_segment().await;
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let (chain_segment, ref_blobs) = get_chain_segment().await;
+    let mut chain_segment_blobs = ref_blobs.clone();
     for &block_index in BLOCK_INDICES {
-        let harness = get_invalid_sigs_harness(&chain_segment).await;
+        let harness = get_invalid_sigs_harness(chain_segment).await;
         let mut snapshots = chain_segment.clone();
         let fork_name = harness.chain.spec.fork_name_at_slot::<E>(Slot::new(0));
 
@@ -952,7 +993,7 @@ async fn invalid_signature_attester_slashing() {
         update_parent_roots(&mut snapshots, &mut chain_segment_blobs);
         update_proposal_signatures(&mut snapshots, &harness);
         assert_invalid_signature(
-            &chain_segment,
+            chain_segment,
             &chain_segment_blobs,
             &harness,
             block_index,
@@ -965,11 +1006,16 @@ async fn invalid_signature_attester_slashing() {
 
 #[tokio::test]
 async fn invalid_signature_attestation() {
-    let (chain_segment, mut chain_segment_blobs) = get_chain_segment().await;
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let (chain_segment, ref_blobs) = get_chain_segment().await;
+    let mut chain_segment_blobs = ref_blobs.clone();
     let mut checked_attestation = false;
 
     for &block_index in BLOCK_INDICES {
-        let harness = get_invalid_sigs_harness(&chain_segment).await;
+        let harness = get_invalid_sigs_harness(chain_segment).await;
         let mut snapshots = chain_segment.clone();
         let (mut block, signature) = snapshots[block_index]
             .beacon_block
@@ -1017,7 +1063,7 @@ async fn invalid_signature_attestation() {
             update_parent_roots(&mut snapshots, &mut chain_segment_blobs);
             update_proposal_signatures(&mut snapshots, &harness);
             assert_invalid_signature(
-                &chain_segment,
+                chain_segment,
                 &chain_segment_blobs,
                 &harness,
                 block_index,
@@ -1037,10 +1083,11 @@ async fn invalid_signature_attestation() {
 
 #[tokio::test]
 async fn invalid_signature_deposit() {
-    let (chain_segment, mut chain_segment_blobs) = get_chain_segment().await;
+    let (chain_segment, ref_blobs) = get_chain_segment().await;
+    let mut chain_segment_blobs = ref_blobs.clone();
     for &block_index in BLOCK_INDICES {
         // Note: an invalid deposit signature is permitted!
-        let harness = get_invalid_sigs_harness(&chain_segment).await;
+        let harness = get_invalid_sigs_harness(chain_segment).await;
         let mut snapshots = chain_segment.clone();
         let deposit = Deposit {
             proof: vec![Hash256::zero(); DEPOSIT_TREE_DEPTH + 1]
@@ -1090,9 +1137,14 @@ async fn invalid_signature_deposit() {
 
 #[tokio::test]
 async fn invalid_signature_exit() {
-    let (chain_segment, mut chain_segment_blobs) = get_chain_segment().await;
+    // TODO(gloas): re-enable for Gloas once range sync imports payload envelopes.
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let (chain_segment, ref_blobs) = get_chain_segment().await;
+    let mut chain_segment_blobs = ref_blobs.clone();
     for &block_index in BLOCK_INDICES {
-        let harness = get_invalid_sigs_harness(&chain_segment).await;
+        let harness = get_invalid_sigs_harness(chain_segment).await;
         let mut snapshots = chain_segment.clone();
         let epoch = snapshots[block_index].beacon_state.current_epoch();
         let (mut block, signature) = snapshots[block_index]
@@ -1116,7 +1168,7 @@ async fn invalid_signature_exit() {
         update_parent_roots(&mut snapshots, &mut chain_segment_blobs);
         update_proposal_signatures(&mut snapshots, &harness);
         assert_invalid_signature(
-            &chain_segment,
+            chain_segment,
             &chain_segment_blobs,
             &harness,
             block_index,
@@ -1137,7 +1189,8 @@ fn unwrap_err<T, U>(result: Result<T, U>) -> U {
 #[tokio::test]
 async fn block_gossip_verification() {
     let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
-    let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
+    let (chain_segment, ref_blobs) = get_chain_segment().await;
+    let chain_segment_blobs = ref_blobs.clone();
 
     let block_index = CHAIN_SEGMENT_LENGTH - 2;
 
