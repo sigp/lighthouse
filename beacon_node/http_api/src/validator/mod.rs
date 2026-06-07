@@ -36,7 +36,7 @@ use types::{
 use warp::{Filter, Rejection, Reply};
 use warp_utils::reject::convert_rejection;
 
-pub mod execution_payload_envelope;
+pub mod execution_payload_envelopes;
 
 /// Uses the `chain.validator_pubkey_cache` to resolve a pubkey to a validator
 /// index and then ensures that the validator exists in the given `state`.

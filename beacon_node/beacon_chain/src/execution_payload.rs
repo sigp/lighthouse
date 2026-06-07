@@ -9,7 +9,7 @@
 
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
-    ExecutionPayloadError,
+    ExecutionPayloadError, PayloadVerificationError,
 };
 use execution_layer::{
     BlockProposalContentsType, BuilderParams, NewPayloadRequest, PayloadAttributes,
@@ -104,7 +104,9 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         })
     }
 
-    pub async fn notify_new_payload(self) -> Result<PayloadVerificationStatus, BlockError> {
+    pub async fn notify_new_payload(
+        self,
+    ) -> Result<PayloadVerificationStatus, PayloadVerificationError> {
         if let Some(precomputed_status) = self.payload_verification_status {
             Ok(precomputed_status)
         } else {
@@ -133,7 +135,7 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
     slot: Slot,
     parent_beacon_block_root: Hash256,
     new_payload_request: NewPayloadRequest<'_, T::EthSpec>,
-) -> Result<PayloadVerificationStatus, BlockError> {
+) -> Result<PayloadVerificationStatus, PayloadVerificationError> {
     let execution_layer = chain
         .execution_layer
         .as_ref()

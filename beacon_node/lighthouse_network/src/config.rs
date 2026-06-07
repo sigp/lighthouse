@@ -508,7 +508,9 @@ pub fn gossipsub_config(
         .fanout_ttl(Duration::from_secs(60))
         .history_length(12)
         .flood_publish(false)
-        .max_messages_per_rpc(Some(500)) // Responses to IWANT can be quite large
+        .max_publish_messages(500) // Responses to IWANT can be quite large
+        .max_control_messages_sent(500)
+        .max_control_message_size(128 << 10) // 128KB
         .history_gossip(load.history_gossip)
         .validate_messages() // require validation before propagation
         .validation_mode(gossipsub::ValidationMode::Anonymous)
