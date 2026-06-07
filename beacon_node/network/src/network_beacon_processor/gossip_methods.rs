@@ -3794,13 +3794,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // TODO(gloas) metrics
         // register_process_result_metrics(&result, metrics::BlockSource::Gossip, "envelope");
 
-        if let Err(e) = &result {
-            debug!(
-                ?beacon_block_root,
-                %peer_id,
-                error = ?e,
-                "Execution payload envelope processing failed"
-            );
+        match &result {
+            Ok(AvailabilityProcessingStatus::Imported(_)) => {
+                self.chain.recompute_head_at_current_slot().await;
+            }
+            Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {}
+            Err(e) => {
+                debug!(
+                    ?beacon_block_root,
+                    %peer_id,
+                    error = ?e,
+                    "Execution payload envelope processing failed"
+                );
+            }
         }
     }
 
