@@ -385,7 +385,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             result: result.into(),
         });
     }
-    
 
     pub fn process_historic_data_columns(
         &self,
