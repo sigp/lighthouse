@@ -660,6 +660,16 @@ impl<E: EthSpec> Tester<E> {
         Ok(self.harness.chain.canonical_head.cached_head())
     }
 
+    fn refresh_head_for_current_slot_block(&self, block_slot: Slot) -> Result<(), Error> {
+        let current_slot = self.harness.chain.slot().map_err(|e| {
+            Error::InternalError(format!("reading current slot failed with {:?}", e))
+        })?;
+        if block_slot == current_slot {
+            self.find_head()?;
+        }
+        Ok(())
+    }
+
     pub fn set_tick(&self, tick: u64) {
         self.harness
             .chain
@@ -719,6 +729,7 @@ impl<E: EthSpec> Tester<E> {
         };
 
         let block = Arc::new(block);
+        self.refresh_head_for_current_slot_block(block.slot())?;
         let result: Result<Result<Hash256, ()>, _> = self
             .block_on_dangerous(self.harness.chain.process_block(
                 block_root,
@@ -828,6 +839,7 @@ impl<E: EthSpec> Tester<E> {
         };
 
         let block = Arc::new(block);
+        self.refresh_head_for_current_slot_block(block.slot())?;
         let result: Result<Result<Hash256, ()>, _> = self
             .block_on_dangerous(self.harness.chain.process_block(
                 block_root,
@@ -1412,7 +1424,6 @@ impl<E: EthSpec> Tester<E> {
         let justified_balances = fork_choice.fc_store().justified_balances().clone();
         let actual = fork_choice
             .proto_array()
-            .core_proto_array()
             .filtered_block_tree_leaves_and_weights::<E>(
                 &justified.root,
                 current_slot,
@@ -1424,7 +1435,7 @@ impl<E: EthSpec> Tester<E> {
             )
             .map_err(|e| {
                 Error::InternalError(format!(
-                    "filtered_block_tree_leaves_and_weights failed: {e:?}"
+                    "filtered_block_tree_leaves_and_weights failed: {e}"
                 ))
             })?;
         drop(fork_choice);
