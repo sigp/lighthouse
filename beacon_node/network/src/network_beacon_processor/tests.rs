@@ -907,7 +907,10 @@ async fn data_column_reconstruction_at_slot_start() {
 // reconstruction deadline.
 #[tokio::test]
 async fn data_column_reconstruction_at_deadline() {
-    if test_spec::<E>().fulu_fork_epoch.is_none() {
+    let spec = test_spec::<E>();
+    // Pre-Gloas data-column path: a Gloas block carries its columns in the payload envelope, so the
+    // harness produces no block-level data columns and this gossip/reconstruction flow doesn't apply.
+    if spec.fulu_fork_epoch.is_none() || spec.gloas_fork_epoch.is_some() {
         return;
     };
 
@@ -1094,7 +1097,10 @@ async fn import_gossip_block_unacceptably_early() {
 /// Data columns that have already been processed but unobserved should be propagated without re-importing.
 #[tokio::test]
 async fn accept_processed_gossip_data_columns_without_import() {
-    if test_spec::<E>().fulu_fork_epoch.is_none() {
+    let spec = test_spec::<E>();
+    // Pre-Gloas data-column path: a Gloas block carries its columns in the payload envelope, so the
+    // harness produces no block-level data columns and this gossip flow doesn't apply.
+    if spec.fulu_fork_epoch.is_none() || spec.gloas_fork_epoch.is_some() {
         return;
     };
 
