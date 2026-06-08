@@ -15,7 +15,7 @@ use lighthouse_network::{
 };
 use ssz_types::RuntimeVariableList;
 use std::{collections::HashMap, sync::Arc};
-use tracing::{Span, debug};
+use tracing::{Span, debug, warn};
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
     Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
@@ -527,7 +527,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         if let Some(envelopes_by_block_root) = envelopes_by_block_root
             && !envelopes_by_block_root.is_empty()
         {
-            tracing::warn!("Peer returned extra envelopes not matching any block");
+            warn!("Peer returned extra envelopes not matching any block");
         }
 
         Ok(range_sync_blocks)
