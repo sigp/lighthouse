@@ -561,10 +561,12 @@ mod tests {
     use crate::sync::network_context::MAX_COLUMN_RETRIES;
 
     use super::RangeBlockComponentsRequest;
+    use beacon_chain::block_verification_types::RangeSyncBlock;
     use beacon_chain::custody_context::NodeCustodyType;
+    use beacon_chain::data_availability_checker::DataAvailabilityChecker;
     use beacon_chain::test_utils::{
-        NumBlobs, generate_rand_block_and_blobs, generate_rand_block_and_data_columns,
-        test_da_checker, test_spec,
+        EphemeralHarnessType, NumBlobs, generate_rand_block_and_blobs,
+        generate_rand_block_and_data_columns, test_da_checker, test_spec,
     };
     use bls::Signature;
     use lighthouse_network::{
@@ -711,6 +713,77 @@ mod tests {
                     .collect(),
             )
             .unwrap();
+        }
+    }
+
+    #[allow(clippy::type_complexity)]
+    struct GloasSetup {
+        info: RangeBlockComponentsRequest<E>,
+        da_checker: Arc<DataAvailabilityChecker<EphemeralHarnessType<E>>>,
+        spec: Arc<ChainSpec>,
+        blocks: Vec<(
+            Arc<SignedBeaconBlock<E>>,
+            DataColumnSidecarList<E>,
+            Arc<SignedExecutionPayloadEnvelope<E>>,
+        )>,
+        payloads_req_id: PayloadEnvelopesByRangeRequestId,
+        expected_custody_columns: Vec<u64>,
+    }
+
+    /// Builds a Gloas coupling request with `count` blocks and all custody columns added,
+    /// ready for the per-test payload-envelope step.
+    fn setup_gloas_coupling(count: usize) -> GloasSetup {
+        let spec = Arc::new(gloas_spec());
+        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
+        let expected_custody_columns = da_checker
+            .custody_context()
+            .sampling_columns_for_epoch(Epoch::new(0), &spec)
+            .to_vec();
+        let blocks = make_gloas_blocks_and_columns(count, &spec);
+
+        let components_id = components_id();
+        let blocks_req_id = blocks_id(components_id);
+        let payloads_req_id = payloads_id(components_id);
+        let columns_req_id = expected_custody_columns
+            .iter()
+            .enumerate()
+            .map(|(i, column)| {
+                (
+                    columns_id(
+                        i as Id,
+                        DataColumnsByRangeRequester::ComponentsByRange(components_id),
+                    ),
+                    vec![*column],
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut info = RangeBlockComponentsRequest::<E>::new(
+            blocks_req_id,
+            None,
+            Some((columns_req_id.clone(), expected_custody_columns.clone())),
+            Some(payloads_req_id),
+            Span::none(),
+        );
+
+        info.add_blocks(
+            blocks_req_id,
+            blocks.iter().map(|(block, _, _)| block.clone()).collect(),
+        )
+        .unwrap();
+        add_all_columns(
+            &mut info,
+            &blocks,
+            &columns_req_id,
+            &expected_custody_columns,
+        );
+
+        GloasSetup {
+            info,
+            da_checker,
+            spec,
+            blocks,
+            payloads_req_id,
+            expected_custody_columns,
         }
     }
 
@@ -962,98 +1035,29 @@ mod tests {
 
     #[test]
     fn gloas_payload_envelopes_must_complete_before_responses() {
-        let spec = Arc::new(gloas_spec());
-        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        let expected_custody_columns = da_checker
-            .custody_context()
-            .sampling_columns_for_epoch(Epoch::new(0), &spec)
-            .to_vec();
-        let blocks = make_gloas_blocks_and_columns(2, &spec);
+        let GloasSetup {
+            mut info,
+            da_checker,
+            spec,
+            ..
+        } = setup_gloas_coupling(2);
 
-        let components_id = components_id();
-        let blocks_req_id = blocks_id(components_id);
-        let payloads_req_id = payloads_id(components_id);
-        let columns_req_id = expected_custody_columns
-            .iter()
-            .enumerate()
-            .map(|(i, column)| {
-                (
-                    columns_id(
-                        i as Id,
-                        DataColumnsByRangeRequester::ComponentsByRange(components_id),
-                    ),
-                    vec![*column],
-                )
-            })
-            .collect::<Vec<_>>();
-        let mut info = RangeBlockComponentsRequest::<E>::new(
-            blocks_req_id,
-            None,
-            Some((columns_req_id.clone(), expected_custody_columns.clone())),
-            Some(payloads_req_id),
-            Span::none(),
-        );
-
-        info.add_blocks(
-            blocks_req_id,
-            blocks.iter().map(|(block, _, _)| block.clone()).collect(),
-        )
-        .unwrap();
-        add_all_columns(
-            &mut info,
-            &blocks,
-            &columns_req_id,
-            &expected_custody_columns,
-        );
-
+        // No payload envelopes added yet, so the request must not be complete.
         assert!(info.responses(da_checker, spec).is_none());
     }
 
     #[test]
     fn gloas_payload_envelopes_are_coupled_by_block_root() {
-        let spec = Arc::new(gloas_spec());
-        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        let expected_custody_columns = da_checker
-            .custody_context()
-            .sampling_columns_for_epoch(Epoch::new(0), &spec)
-            .to_vec();
-        let blocks = make_gloas_blocks_and_columns(2, &spec);
+        let GloasSetup {
+            mut info,
+            da_checker,
+            spec,
+            blocks,
+            payloads_req_id,
+            expected_custody_columns,
+        } = setup_gloas_coupling(2);
 
-        let components_id = components_id();
-        let blocks_req_id = blocks_id(components_id);
-        let payloads_req_id = payloads_id(components_id);
-        let columns_req_id = expected_custody_columns
-            .iter()
-            .enumerate()
-            .map(|(i, column)| {
-                (
-                    columns_id(
-                        i as Id,
-                        DataColumnsByRangeRequester::ComponentsByRange(components_id),
-                    ),
-                    vec![*column],
-                )
-            })
-            .collect::<Vec<_>>();
-        let mut info = RangeBlockComponentsRequest::<E>::new(
-            blocks_req_id,
-            None,
-            Some((columns_req_id.clone(), expected_custody_columns.clone())),
-            Some(payloads_req_id),
-            Span::none(),
-        );
-
-        info.add_blocks(
-            blocks_req_id,
-            blocks.iter().map(|(block, _, _)| block.clone()).collect(),
-        )
-        .unwrap();
-        add_all_columns(
-            &mut info,
-            &blocks,
-            &columns_req_id,
-            &expected_custody_columns,
-        );
+        // Supply envelopes in reverse order to prove coupling is by block root, not position.
         info.add_payload_envelopes(
             payloads_req_id,
             blocks
@@ -1068,7 +1072,7 @@ mod tests {
         assert_eq!(responses.len(), blocks.len());
         for response in responses {
             match response {
-                beacon_chain::block_verification_types::RangeSyncBlock::Gloas {
+                RangeSyncBlock::Gloas {
                     block,
                     envelope: Some(envelope),
                 } => {
@@ -1085,128 +1089,45 @@ mod tests {
 
     #[test]
     fn gloas_payload_envelopes_allow_missing_envelopes() {
-        let spec = Arc::new(gloas_spec());
-        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        let expected_custody_columns = da_checker
-            .custody_context()
-            .sampling_columns_for_epoch(Epoch::new(0), &spec)
-            .to_vec();
-        let blocks = make_gloas_blocks_and_columns(2, &spec);
+        let GloasSetup {
+            mut info,
+            da_checker,
+            spec,
+            blocks,
+            payloads_req_id,
+            ..
+        } = setup_gloas_coupling(2);
 
-        let components_id = components_id();
-        let blocks_req_id = blocks_id(components_id);
-        let payloads_req_id = payloads_id(components_id);
-        let columns_req_id = expected_custody_columns
-            .iter()
-            .enumerate()
-            .map(|(i, column)| {
-                (
-                    columns_id(
-                        i as Id,
-                        DataColumnsByRangeRequester::ComponentsByRange(components_id),
-                    ),
-                    vec![*column],
-                )
-            })
-            .collect::<Vec<_>>();
-        let mut info = RangeBlockComponentsRequest::<E>::new(
-            blocks_req_id,
-            None,
-            Some((columns_req_id.clone(), expected_custody_columns.clone())),
-            Some(payloads_req_id),
-            Span::none(),
-        );
-
-        info.add_blocks(
-            blocks_req_id,
-            blocks.iter().map(|(block, _, _)| block.clone()).collect(),
-        )
-        .unwrap();
-        add_all_columns(
-            &mut info,
-            &blocks,
-            &columns_req_id,
-            &expected_custody_columns,
-        );
+        // Supply an envelope for only one of the two blocks.
         info.add_payload_envelopes(payloads_req_id, vec![blocks[0].2.clone()])
             .unwrap();
 
         let responses = info.responses(da_checker, spec).unwrap().unwrap();
-        assert_eq!(
+        let count_with = |with_envelope: bool| {
             responses
                 .iter()
-                .filter(|response| matches!(
-                    response,
-                    beacon_chain::block_verification_types::RangeSyncBlock::Gloas {
-                        envelope: Some(_),
-                        ..
-                    }
-                ))
-                .count(),
-            1
-        );
-        assert_eq!(
-            responses
-                .iter()
-                .filter(|response| matches!(
-                    response,
-                    beacon_chain::block_verification_types::RangeSyncBlock::Gloas {
-                        envelope: None,
-                        ..
-                    }
-                ))
-                .count(),
-            1
-        );
+                .filter(|response| {
+                    matches!(response, RangeSyncBlock::Gloas { envelope, .. } if envelope.is_some() == with_envelope)
+                })
+                .count()
+        };
+        assert_eq!(count_with(true), 1);
+        assert_eq!(count_with(false), 1);
     }
 
     #[test]
     fn gloas_payload_envelope_mismatch_fails_coupling() {
-        let spec = Arc::new(gloas_spec());
-        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        let expected_custody_columns = da_checker
-            .custody_context()
-            .sampling_columns_for_epoch(Epoch::new(0), &spec)
-            .to_vec();
-        let blocks = make_gloas_blocks_and_columns(1, &spec);
+        let GloasSetup {
+            mut info,
+            da_checker,
+            spec,
+            blocks,
+            payloads_req_id,
+            ..
+        } = setup_gloas_coupling(1);
+
         let mut bad_envelope = (*blocks[0].2).clone();
         bad_envelope.message.payload.slot_number += 1;
-
-        let components_id = components_id();
-        let blocks_req_id = blocks_id(components_id);
-        let payloads_req_id = payloads_id(components_id);
-        let columns_req_id = expected_custody_columns
-            .iter()
-            .enumerate()
-            .map(|(i, column)| {
-                (
-                    columns_id(
-                        i as Id,
-                        DataColumnsByRangeRequester::ComponentsByRange(components_id),
-                    ),
-                    vec![*column],
-                )
-            })
-            .collect::<Vec<_>>();
-        let mut info = RangeBlockComponentsRequest::<E>::new(
-            blocks_req_id,
-            None,
-            Some((columns_req_id.clone(), expected_custody_columns.clone())),
-            Some(payloads_req_id),
-            Span::none(),
-        );
-
-        info.add_blocks(
-            blocks_req_id,
-            blocks.iter().map(|(block, _, _)| block.clone()).collect(),
-        )
-        .unwrap();
-        add_all_columns(
-            &mut info,
-            &blocks,
-            &columns_req_id,
-            &expected_custody_columns,
-        );
         info.add_payload_envelopes(payloads_req_id, vec![Arc::new(bad_envelope)])
             .unwrap();
 
