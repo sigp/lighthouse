@@ -191,6 +191,13 @@ Flags:
           enabled is recommended, but disabling it can lead to reduced bandwidth
           and more predictable usage of the primary beacon node (rather than the
           fastest BN).
+      --disable-payload-available-monitor
+          Disable the payload available monitor. This monitor listens for 
+          notifications from beacon nodes indicating when a new payload 
+          (execution block) is available and attempts to attest as soon as a 
+          notification is received. Keeping this monitor enabled can help your 
+          validator produce more timely attestations whenever payloads become 
+          available, by leveraging the fastest of your configured beacon nodes.
       --disable-latency-measurement-service
           Disables the service that periodically attempts to measure latency to
           BNs.

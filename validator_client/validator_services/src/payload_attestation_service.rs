@@ -1,13 +1,14 @@
 use crate::duties_service::DutiesService;
-use beacon_node_fallback::BeaconNodeFallback;
+use beacon_node_fallback::{BeaconNodeFallback, beacon_head_monitor::PayloadAvailableEvent};
 use logging::crit;
-use slot_clock::SlotClock;
+use slot_clock::{SlotClock};
 use std::ops::Deref;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
-use tracing::{debug, error, info};
-use types::{ChainSpec, EthSpec};
+use tokio::sync::{Mutex, mpsc};
+use tracing::{debug, error, info, warn};
+use types::{ChainSpec, EthSpec, Slot};
 use validator_store::ValidatorStore;
 
 pub struct Inner<S, T> {
@@ -17,6 +18,8 @@ pub struct Inner<S, T> {
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
     executor: TaskExecutor,
     chain_spec: Arc<ChainSpec>,
+    payload_available_rx: Option<Mutex<mpsc::Receiver<PayloadAvailableEvent>>>,
+    latest_voted_slot: Mutex<Slot>,
 }
 
 pub struct PayloadAttestationService<S, T> {
@@ -47,6 +50,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
         beacon_nodes: Arc<BeaconNodeFallback<T>>,
         executor: TaskExecutor,
         chain_spec: Arc<ChainSpec>,
+        payload_available_rx: Option<Mutex<mpsc::Receiver<PayloadAvailableEvent>>>, 
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -56,6 +60,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
                 beacon_nodes,
                 executor,
                 chain_spec,
+                payload_available_rx,
+                latest_voted_slot: Mutex::new(Slot::default()),
             }),
         }
     }
@@ -99,10 +105,25 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
                     continue;
                 }
 
-                sleep(duration_to_next_slot + payload_attestation_due).await;
+                let _early_payload_event = if self.payload_available_rx.is_some() {
+                    tokio::select! {
+                        _ = sleep(duration_to_next_slot + payload_attestation_due) => None,
+                        event = self.poll_for_payload_available_event() => event,
+                    }
+                } else {
+                    sleep(duration_to_next_slot + payload_attestation_due).await;
+                    None
+                };                
 
                 let Some(attestation_slot) = self.slot_clock.now() else {
                     error!("Failed to read slot clock after sleep");
+                    continue;
+                };
+
+                let mut last_slot = self.latest_voted_slot.lock().await;
+
+                if attestation_slot <= *last_slot {
+                    debug!(%attestation_slot, "Payload attestation already produced for this slot");
                     continue;
                 };
 
@@ -113,12 +134,36 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
                     },
                     "payload_attestation_producer",
                 );
+                *last_slot = attestation_slot;
             }
         };
 
         executor.spawn(interval_fut, "payload_attestation_service");
         Ok(())
     }
+
+    async fn poll_for_payload_available_event(&self) -> Option<PayloadAvailableEvent> {
+        let Some(receiver) = &self.payload_available_rx else {
+            return None;
+        };
+        let mut receiver = receiver.lock().await;
+        loop {
+            match receiver.recv().await {
+                Some(payload_available_event) => {
+                    // Only trigger on current-slot events
+                    let current_slot = self.slot_clock.now()?;
+                    if payload_available_event.slot == current_slot {
+                        return Some(payload_available_event);
+                    }
+                    // Stale event — keep waiting for the deadline
+                }
+                None => {
+                    warn!("payload_available channel closed unexpectedly");
+                    return None;
+                }
+            }
+        }
+    }    
 
     async fn produce_and_publish(&self, slot: types::Slot) {
         let duties = self.duties_service.get_ptc_duties_for_slot(slot);

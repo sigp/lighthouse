@@ -5,7 +5,7 @@
 pub mod beacon_head_monitor;
 pub mod beacon_node_health;
 
-use beacon_head_monitor::{BeaconHeadCache, HeadEvent, poll_head_event_from_beacon_nodes};
+use beacon_head_monitor::{BeaconHeadCache, HeadEvent, PayloadAvailableEvent, poll_head_event_from_beacon_nodes, poll_payload_available_event_from_beacon_nodes};
 use beacon_node_health::{
     BeaconNodeHealth, BeaconNodeSyncDistanceTiers, ExecutionEngineHealth, IsOptimistic,
     SyncDistanceTier, check_node_health,
@@ -98,6 +98,30 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
 
         executor.spawn(head_monitor_future, "head_monitoring");
     }
+
+    let beacon_nodes_ref = beacon_nodes.clone();
+    if beacon_nodes_ref.payload_available_send.is_some() {
+        let pa_future = async move {
+            loop {
+                if let Err(error) =
+                    poll_payload_available_event_from_beacon_nodes::<E, T>(
+                        beacon_nodes_ref.clone()
+                    )
+                    .await
+                {
+                    warn!(error, "payload_available service failed, retrying next slot");
+                    let sleep_time = beacon_nodes_ref
+                        .slot_clock
+                        .as_ref()
+                        .and_then(|sc| sc.duration_to_next_slot())
+                        .unwrap_or_else(|| beacon_nodes_ref.spec.get_slot_duration());
+                    sleep(sleep_time).await;
+                }
+            }
+        };
+        
+        executor.spawn(pa_future, "payload_available_monitoring");
+    }    
 
     let future = async move {
         loop {
@@ -416,6 +440,7 @@ pub struct BeaconNodeFallback<T> {
     slot_clock: Option<T>,
     beacon_head_cache: Option<Arc<BeaconHeadCache>>,
     head_monitor_send: Option<Arc<mpsc::Sender<HeadEvent>>>,
+    payload_available_send: Option<Arc<mpsc::Sender<PayloadAvailableEvent>>>,
     broadcast_topics: Vec<ApiTopic>,
     spec: Arc<ChainSpec>,
 }
@@ -434,6 +459,7 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
             slot_clock: None,
             beacon_head_cache: None,
             head_monitor_send: None,
+            payload_available_send: None,
             broadcast_topics,
             spec,
         }
@@ -456,6 +482,16 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         self.head_monitor_send = Some(head_monitor_send);
         self.beacon_head_cache = Some(Arc::new(BeaconHeadCache::new()));
     }
+
+    /// This is the payload monitor channel that streams events from all the beacon nodes that the
+    /// validator client is connected to in the `BeaconNodeFallback`.
+    pub fn set_payload_available_send(
+        &mut self,
+        payload_available_send: Arc<mpsc::Sender<PayloadAvailableEvent>>,
+    ) {
+        self.payload_available_send = Some(payload_available_send);
+    }
+    
 
     /// The count of candidates, regardless of their state.
     pub async fn num_total(&self) -> usize {

@@ -363,6 +363,7 @@ impl CommitteeCache {
     /// Returns the index of some validator in `self.shuffling`.
     ///
     /// Always returns `None` for a non-initialized epoch.
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn shuffled_position(&self, validator_index: usize) -> Option<usize> {
         self.shuffling_positions
             .get(validator_index)?

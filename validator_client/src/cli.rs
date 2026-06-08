@@ -489,6 +489,18 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
+        help = "Disable the payload available monitor. This monitor listens for notifications from \
+                beacon nodes indicating when a new payload (execution block) is available and attempts \
+                to attest as soon as a notification is received. Keeping this monitor enabled can help \
+                your validator produce more timely attestations whenever payloads become available, \
+                by leveraging the fastest of your configured beacon nodes.",
+        display_order = 0,
+        help_heading = FLAG_HEADER
+    )]
+    pub disable_payload_available_monitor: bool,
+
+    #[clap(
+        long,
         help = "Disable Lighthouse's slashing protection for all web3signer keys. This can \
                 reduce the I/O burden on the VC but is only safe if slashing protection \
                 is enabled on the remote signer and is implemented correctly. DO NOT ENABLE \
