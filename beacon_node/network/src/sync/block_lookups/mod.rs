@@ -459,7 +459,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let Some(lookup) = self.single_block_lookups.get_mut(&id.lookup_id) else {
             debug!(
                 ?id,
-                "Payload envelope returned for single block lookup not present"
+                "Payload envelope returned for a lookup id that doesn't exist"
             );
             return;
         };

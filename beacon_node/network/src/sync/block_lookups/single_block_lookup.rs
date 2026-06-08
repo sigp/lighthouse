@@ -144,14 +144,14 @@ pub enum PeerType {
     /// The peer claims to have imported a FULL child of this block whose bid references
     /// `ExecutionBlockHash` as its parent. Such peers can serve this block's payload envelope and
     /// data columns.
-    GloasChild(ExecutionBlockHash),
+    PayloadEnvelope(ExecutionBlockHash),
 }
 
 impl PeerType {
-    /// `GloasChild` when the block's bid `parent_block_hash` is known (post-Gloas), else `Block`.
+    /// `PayloadEnvelope` when the block's bid `parent_block_hash` is known (post-Gloas), else `Block`.
     pub fn new(parent_block_hash: Option<ExecutionBlockHash>) -> Self {
         match parent_block_hash {
-            Some(execution_hash) => PeerType::GloasChild(execution_hash),
+            Some(execution_hash) => PeerType::PayloadEnvelope(execution_hash),
             None => PeerType::Block,
         }
     }
@@ -211,7 +211,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         let mut gloas_child_peers = HashMap::new();
         match peer_type {
             PeerType::Block => {}
-            PeerType::GloasChild(execution_hash) => {
+            PeerType::PayloadEnvelope(execution_hash) => {
                 gloas_child_peers.insert(*execution_hash, block_peers.clone());
             }
         }
@@ -638,7 +638,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     pub fn add_peer(&mut self, peer_id: PeerId, peer_type: &PeerType) -> bool {
         let mut added = false;
         match peer_type {
-            PeerType::GloasChild(execution_hash) => {
+            PeerType::PayloadEnvelope(execution_hash) => {
                 // This peer claims to have imported a FULL child of this block whose bid references
                 // `execution_hash` as its parent. It is therefore proven to hold this block's
                 // payload envelope and data columns.
