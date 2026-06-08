@@ -4104,6 +4104,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 publish_fn()?;
                 self.import_available_execution_payload_envelope(available_envelope)
                     .await
+                    .map_err(Into::into)
             }
             PayloadAvailability::MissingComponents(block_root) => Ok(
                 AvailabilityProcessingStatus::MissingComponents(slot, block_root),

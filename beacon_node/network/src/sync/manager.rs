@@ -182,11 +182,6 @@ pub enum SyncMessage<E: EthSpec> {
         process_type: BlockProcessType,
         result: BlockProcessingResult,
     },
-
-    /// A gossip-received component has completed processing and the block may now be imported.
-    /// In Fulu this is sent after block or blob processing. In Gloas this is also sent after
-    /// data column or payload envelope processing triggers availability.
-    GossipBlockProcessResult { block_root: Hash256, imported: bool },
 }
 
 /// The type of processing specified for a received block.
@@ -907,14 +902,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             } => self
                 .block_lookups
                 .on_processing_result(process_type, result, &mut self.network),
-            SyncMessage::GossipBlockProcessResult {
-                block_root,
-                imported,
-            } => self.block_lookups.on_external_processing_result(
-                block_root,
-                imported,
-                &mut self.network,
-            ),
             SyncMessage::BatchProcessed { sync_type, result } => match sync_type {
                 ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
                     self.range_sync.handle_block_process_result(
