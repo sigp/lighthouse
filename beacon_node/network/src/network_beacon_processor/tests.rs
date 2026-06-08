@@ -1989,6 +1989,11 @@ async fn test_payload_envelopes_by_range() {
     // Manually store payload envelopes for each block in the range
     let mut expected_roots = Vec::new();
     for slot in start_slot..slot_count {
+        // Genesis (slot 0) has no canonical execution payload, so the by-range handler filters it
+        // out via `block_has_canonical_payload` even if an envelope is stored for it.
+        if slot == 0 {
+            continue;
+        }
         if let Some(root) = rig
             .chain
             .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
@@ -2082,14 +2087,10 @@ async fn test_payload_envelopes_by_root_unknown_root_returns_empty() {
 
     let mut rig = TestRig::new(64).await;
 
-    // Request envelope for a root that has no stored envelope
-    let block_root = rig
-        .chain
-        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
-        .unwrap()
-        .unwrap();
+    // Use a root with no block: the harness persists an envelope for every block it produces, so a
+    // real block root would already have one. An unknown root has no stored envelope.
+    let block_root = Hash256::repeat_byte(0xaa);
 
-    // Don't store any envelope — the handler should return 0 envelopes
     let roots = RuntimeVariableList::new(vec![block_root], 1).unwrap();
     rig.enqueue_payload_envelopes_by_root_request(roots);
 
