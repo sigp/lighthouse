@@ -71,8 +71,8 @@ use strum::IntoStaticStr;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace};
 use types::{
-    BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, Hash256, SignedBeaconBlock,
-    SignedExecutionPayloadEnvelope, Slot,
+    BlobSidecar, DataColumnSidecar, EthSpec, ExecutionBlockHash, ForkContext, Hash256,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
 };
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -852,11 +852,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncMessage::UnknownParentBlock(peer_id, block, block_root) => {
                 let block_slot = block.slot();
                 let parent_root = block.parent_root();
+                let parent_block_hash = block.payload_bid_parent_block_hash().ok();
                 debug!(%block_root, %parent_root, "Received unknown parent block message");
                 self.handle_unknown_parent(
                     peer_id,
                     block_root,
                     parent_root,
+                    parent_block_hash,
                     block_slot,
                     BlockComponent::Block(DownloadResult {
                         value: block.block_cloned(),
@@ -876,6 +878,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     peer_id,
                     block_root,
                     parent_root,
+                    // The event `UnknownParentSidecarHeader` only fires for pre-Gloas data
+                    // structues, so the bid parent hash is None.
+                    None,
                     slot,
                     BlockComponent::Sidecar,
                 );
@@ -951,6 +956,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         block_root: Hash256,
         parent_root: Hash256,
+        parent_block_hash: Option<ExecutionBlockHash>,
         slot: Slot,
         block_component: BlockComponent<T::EthSpec>,
     ) {
@@ -960,6 +966,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block_root,
                     block_component,
                     parent_root,
+                    parent_block_hash,
                     peer_id,
                     &mut self.network,
                 ) {
@@ -1139,7 +1146,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    // TODO(gloas): dispatch into block_lookups once the envelope lookup state machine lands.
     fn rpc_payload_envelope_received(
         &mut self,
         sync_request_id: SyncRequestId,
@@ -1194,13 +1200,17 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         envelope: RpcEvent<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
     ) {
-        if let Some(_resp) = self
+        if let Some(resp) = self
             .network
             .on_single_payload_envelope_response(id, peer_id, envelope)
         {
-            // TODO(gloas): dispatch into
-            // `block_lookups.on_download_response::<PayloadEnvelopeRequestState<_>>(...)` once
-            // the envelope lookup state machine lands.
+            self.block_lookups.on_payload_download_response(
+                id,
+                resp.map(|(value, seen_timestamp)| {
+                    DownloadResult::new(value, PeerGroup::from_single(peer_id), seen_timestamp)
+                }),
+                &mut self.network,
+            )
         }
     }
 

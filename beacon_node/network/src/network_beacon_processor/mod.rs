@@ -6,6 +6,7 @@ use beacon_chain::data_column_verification::{
     GossipDataColumnError, KzgVerifiedCustodyDataColumn, observe_gossip_data_column,
 };
 use beacon_chain::fetch_blobs::{FetchEngineBlobError, fetch_and_process_engine_blobs};
+use beacon_chain::partial_data_column_assembler::AssemblyColumn;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError};
 use beacon_processor::{
@@ -982,22 +983,43 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         if let Some(assembler) = self.chain.data_availability_checker.partial_assembler()
             && publish_blobs
         {
-            let columns = assembler.get_partials_and_mark_as_local_fetched(block_root, &header);
-            let present_indices: HashSet<ColumnIndex> = columns.iter().map(|c| c.index()).collect();
+            let columns = assembler.get_columns_and_mark_as_local_fetched(block_root, &header);
 
-            let mut messages: Vec<PubsubPartialMessage<T::EthSpec>> = columns
-                .into_iter()
-                .map(|partial| {
-                    let column = partial.into_inner();
-                    let mut request_cells = column.sidecar.cells_present_bitmap.clone_zeroed();
-                    request_cells.not_inplace();
-                    PubsubPartialMessage::DataColumnFulu {
-                        column,
-                        request_cells,
-                        header: header.clone(),
+            let mut present_indices: HashSet<ColumnIndex> = HashSet::with_capacity(columns.len());
+            let mut messages: Vec<PubsubPartialMessage<T::EthSpec>> =
+                Vec::with_capacity(columns.len());
+            for column in columns {
+                // Republish both complete and incomplete columns as partials
+                let partial_column = match column {
+                    AssemblyColumn::Incomplete(partial) => partial.into_inner(),
+                    AssemblyColumn::Complete(full) => {
+                        let DataColumnSidecar::Fulu(fulu) = full.as_data_column() else {
+                            continue;
+                        };
+                        match fulu.to_partial() {
+                            Ok(partial) => Arc::new(partial),
+                            Err(err) => {
+                                error!(
+                                    %block_root,
+                                    column_index = %full.index(),
+                                    ?err,
+                                    "Failed to convert complete column to partial for re-seeding"
+                                );
+                                continue;
+                            }
+                        }
                     }
-                })
-                .collect();
+                };
+
+                present_indices.insert(partial_column.index);
+                let mut request_cells = partial_column.sidecar.cells_present_bitmap.clone_zeroed();
+                request_cells.not_inplace();
+                messages.push(PubsubPartialMessage::DataColumnFulu {
+                    column: partial_column,
+                    request_cells,
+                    header: header.clone(),
+                });
+            }
 
             // For each custody column without any local partial, send an empty placeholder
             // that requests all cells.

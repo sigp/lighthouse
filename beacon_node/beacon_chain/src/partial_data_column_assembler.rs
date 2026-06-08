@@ -204,14 +204,16 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
             .cloned()
     }
 
-    /// Get all current partials for a block for publishing after fetching local blobs.
-    /// To unlock future publishing, mark blobs as fetched locally.
-    /// We do this within one write lock to avoid useless double publishes.
-    pub fn get_partials_and_mark_as_local_fetched(
+    /// Get all current columns for a block (complete *and* incomplete) for publishing after
+    /// fetching local blobs.
+    ///
+    /// To unlock future publishing, mark blobs as fetched locally. We do this within one write
+    /// lock to avoid useless double publishes.
+    pub fn get_columns_and_mark_as_local_fetched(
         &self,
         block_root: Hash256,
         header: &Arc<PartialDataColumnHeader<E>>,
-    ) -> Vec<KzgVerifiedCustodyPartialDataColumn<E>> {
+    ) -> Vec<AssemblyColumn<E>> {
         let mut assemblies = self.assemblies.write();
         let assembly = assemblies.get_or_insert_mut(block_root, || PartialAssembly {
             header: header.clone(),
@@ -221,17 +223,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
 
         assembly.has_local_blobs = true;
 
-        assembly
-            .columns
-            .values()
-            .filter_map(|value| {
-                if let AssemblyColumn::Incomplete(partial) = value {
-                    Some(partial.clone())
-                } else {
-                    None
-                }
-            })
-            .collect()
+        assembly.columns.values().cloned().collect()
     }
 
     /// Get header for a block if we have an active assembly
@@ -471,6 +463,37 @@ mod tests {
             .unwrap();
         assert_eq!(result.updated_partials.len(), 1);
         assert_eq!(result.updated_partials[0].index(), 0);
+    }
+
+    #[test]
+    fn get_columns_returns_complete_and_incomplete() {
+        let assembler = make_assembler();
+        let root = Hash256::repeat_byte(1);
+        let header = Arc::new(make_header(4));
+
+        // One complete column (all cells present) and one still-incomplete column.
+        let complete = make_partial(root, 0, 4, &[0, 1, 2, 3]);
+        let incomplete = make_partial(root, 1, 4, &[0, 1]);
+        assembler.merge_partials(root, vec![complete, incomplete], header.clone());
+
+        // Both must be returned for seeding. Previously the complete column was dropped, so it was
+        // published as an empty placeholder and never served to peers.
+        let columns = assembler.get_columns_and_mark_as_local_fetched(root, &header);
+        assert_eq!(columns.len(), 2);
+        assert_eq!(
+            columns
+                .iter()
+                .filter(|c| matches!(c, AssemblyColumn::Complete(_)))
+                .count(),
+            1
+        );
+        assert_eq!(
+            columns
+                .iter()
+                .filter(|c| matches!(c, AssemblyColumn::Incomplete(_)))
+                .count(),
+            1
+        );
     }
 
     // -- mark_as_complete tests --
