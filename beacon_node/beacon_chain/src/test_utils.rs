@@ -2942,7 +2942,7 @@ where
                     .get_payload_envelope(&block_root)
                     .unwrap()
                     .map(Arc::new)
-                    .map(|envelope| Box::new(AvailableEnvelope::new(envelope, vec![])));
+                    .map(|envelope| AvailableEnvelope::new(envelope, vec![]));
                 RangeSyncBlock::new_gloas(block, envelope).unwrap()
             } else {
                 RangeSyncBlock::new(
@@ -2970,7 +2970,7 @@ where
                     .get_payload_envelope(&block_root)
                     .unwrap()
                     .map(Arc::new)
-                    .map(|envelope| Box::new(AvailableEnvelope::new(envelope, custody_columns)));
+                    .map(|envelope| AvailableEnvelope::new(envelope, custody_columns));
                 RangeSyncBlock::new_gloas(block, envelope).unwrap()
             } else {
                 let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
@@ -3015,7 +3015,7 @@ where
                 .get_payload_envelope(&block.canonical_root())
                 .map_err(|e| BlockError::BeaconChainError(Box::new(e)))?
                 .map(Arc::new)
-                .map(|envelope| Box::new(AvailableEnvelope::new(envelope, columns)));
+                .map(|envelope| AvailableEnvelope::new(envelope, columns));
             return RangeSyncBlock::new_gloas(block, envelope).map_err(BlockError::InternalError);
         }
 

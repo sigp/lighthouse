@@ -186,8 +186,7 @@ where
                 .collect::<Vec<_>>(),
             Some(DataSidecars::Blobs(_)) | None => vec![],
         };
-        let envelope =
-            execution_envelope.map(|envelope| Box::new(AvailableEnvelope::new(envelope, columns)));
+        let envelope = execution_envelope.map(|envelope| AvailableEnvelope::new(envelope, columns));
         return RangeSyncBlock::new_gloas(block, envelope).unwrap();
     }
 
@@ -2314,7 +2313,7 @@ async fn range_sync_block_new_gloas_accepts_matching_envelope() {
         return;
     };
 
-    let available_envelope = Box::new(AvailableEnvelope::new(Arc::new(envelope), vec![]));
+    let available_envelope = AvailableEnvelope::new(Arc::new(envelope), vec![]);
     let result = RangeSyncBlock::new_gloas(block, Some(available_envelope));
 
     assert!(
@@ -2346,7 +2345,7 @@ async fn range_sync_block_new_gloas_rejects_mismatched_block_root() {
     };
 
     envelope.message.beacon_block_root = Hash256::repeat_byte(0x11);
-    let available_envelope = Box::new(AvailableEnvelope::new(Arc::new(envelope), vec![]));
+    let available_envelope = AvailableEnvelope::new(Arc::new(envelope), vec![]);
     let result = RangeSyncBlock::new_gloas(block, Some(available_envelope));
 
     assert!(
@@ -2363,7 +2362,7 @@ async fn range_sync_block_new_gloas_rejects_slot_mismatch() {
     };
 
     envelope.message.payload.slot_number += 1;
-    let available_envelope = Box::new(AvailableEnvelope::new(Arc::new(envelope), vec![]));
+    let available_envelope = AvailableEnvelope::new(Arc::new(envelope), vec![]);
     let result = RangeSyncBlock::new_gloas(block, Some(available_envelope));
 
     assert!(
@@ -2380,7 +2379,7 @@ async fn range_sync_block_new_gloas_rejects_builder_index_mismatch() {
     };
 
     envelope.message.builder_index += 1;
-    let available_envelope = Box::new(AvailableEnvelope::new(Arc::new(envelope), vec![]));
+    let available_envelope = AvailableEnvelope::new(Arc::new(envelope), vec![]);
     let result = RangeSyncBlock::new_gloas(block, Some(available_envelope));
 
     assert!(
@@ -2397,7 +2396,7 @@ async fn range_sync_block_new_gloas_rejects_block_hash_mismatch() {
     };
 
     envelope.message.payload.block_hash = ExecutionBlockHash::repeat_byte(0x22);
-    let available_envelope = Box::new(AvailableEnvelope::new(Arc::new(envelope), vec![]));
+    let available_envelope = AvailableEnvelope::new(Arc::new(envelope), vec![]);
     let result = RangeSyncBlock::new_gloas(block, Some(available_envelope));
 
     assert!(

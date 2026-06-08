@@ -381,7 +381,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[instrument(skip_all, level = "debug")]
     pub async fn process_range_sync_envelope(
         self: &Arc<Self>,
-        available_envelope: Box<AvailableEnvelope<T::EthSpec>>,
+        available_envelope: AvailableEnvelope<T::EthSpec>,
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<(), EnvelopeError> {
@@ -416,7 +416,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .spawn_blocking_handle(
                 move || {
                     chain.import_execution_payload_envelope(
-                        *available_envelope,
+                        available_envelope,
                         block_root,
                         payload_verification_status,
                     )

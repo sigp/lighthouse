@@ -54,7 +54,7 @@ pub enum RangeSyncBlock<E: EthSpec> {
     Base(AvailableBlock<E>),
     Gloas {
         block: Arc<SignedBeaconBlock<E>>,
-        envelope: Option<Box<AvailableEnvelope<E>>>,
+        envelope: Option<AvailableEnvelope<E>>,
     },
 }
 
@@ -127,7 +127,7 @@ impl<E: EthSpec> RangeSyncBlock<E> {
     /// process the block that builds on top of this block.
     pub fn new_gloas(
         block: Arc<SignedBeaconBlock<E>>,
-        envelope: Option<Box<AvailableEnvelope<E>>>,
+        envelope: Option<AvailableEnvelope<E>>,
     ) -> Result<Self, String> {
         if let Some(envelope) = envelope.as_ref() {
             let execution_bid = &block
@@ -207,8 +207,7 @@ impl<E: EthSpec> RangeSyncBlock<E> {
     #[allow(clippy::type_complexity)]
     pub fn into_available_block(
         self,
-    ) -> Result<(AvailableBlock<E>, Option<Box<AvailableEnvelope<E>>>), AvailabilityCheckError>
-    {
+    ) -> Result<(AvailableBlock<E>, Option<AvailableEnvelope<E>>), AvailabilityCheckError> {
         match self {
             Self::Base(block) => Ok((block, None)),
             Self::Gloas { block, envelope } => {

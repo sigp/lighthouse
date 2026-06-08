@@ -500,7 +500,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             {
                 let envelope = envelopes_by_block_root.remove(&block_root);
                 let available_envelope =
-                    envelope.map(|env| Box::new(AvailableEnvelope::new(env, custody_columns)));
+                    envelope.map(|env| AvailableEnvelope::new(env, custody_columns));
 
                 RangeSyncBlock::new_gloas(block, available_envelope)
                     .map_err(CouplingError::EnvelopePeerFailure)?
