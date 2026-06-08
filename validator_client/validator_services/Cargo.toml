@@ -17,7 +17,7 @@ reqwest = { workspace = true }
 safe_arith = { workspace = true }
 slot_clock = { workspace = true }
 task_executor = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "sync", "signal", "macros", "test-util"] }
+tokio = { workspace = true }
 tracing = { workspace = true }
 tree_hash = { workspace = true }
 types = { workspace = true }
@@ -32,4 +32,11 @@ lighthouse_validator_store = { workspace = true }
 mockito = { workspace = true }
 slashing_protection = { workspace = true }
 tempfile = { workspace = true }
+tokio = { workspace = true, features = [
+    "rt-multi-thread",
+    "sync",
+    "signal",
+    "macros",
+    "test-util",
+] }
 validator_test_rig = { workspace = true }

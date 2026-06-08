@@ -211,9 +211,9 @@ impl<E: EthSpec> MockBeaconNode<E> {
                 );
                 let body = request.body().expect("Failed to get request body");
 
-                let message = <PayloadAttestationMessage>::ssz_fixed_len();
+                let chunk_size = <PayloadAttestationMessage>::ssz_fixed_len();
                 let messages: Vec<PayloadAttestationMessage> = body
-                    .chunks(message)
+                    .chunks(chunk_size)
                     .map(|chunk| {
                         PayloadAttestationMessage::from_ssz_bytes(chunk)
                             .expect("Failed to deserialize PayloadAttestationMessage from SSZ")

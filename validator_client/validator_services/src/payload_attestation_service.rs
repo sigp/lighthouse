@@ -87,7 +87,13 @@ where
             return;
         };
 
-        self.produce_and_publish(attestation_slot).await;
+        let service = self.clone();
+        self.executor.spawn(
+            async move {
+                service.produce_and_publish(attestation_slot).await;
+            },
+            "payload_attestation_producer",
+        );
     }
 
     async fn wait_for_attestation_slot(&self) -> Option<Slot> {
