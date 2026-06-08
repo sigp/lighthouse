@@ -83,6 +83,10 @@ async fn fetch_and_process_engine_blobs_inner<T: BeaconChainTypes>(
         .iter()
         .map(kzg_commitment_to_versioned_hash)
         .collect::<Vec<_>>();
+    if versioned_hashes.is_empty() {
+        debug!("Fetch blobs not triggered - none required");
+        return Ok(None);
+    };
 
     debug!(
         num_expected_blobs = versioned_hashes.len(),
