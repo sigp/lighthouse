@@ -1412,6 +1412,7 @@ impl<E: EthSpec> Tester<E> {
         let justified_balances = fork_choice.fc_store().justified_balances().clone();
         let actual = fork_choice
             .proto_array()
+            .core_proto_array()
             .filtered_block_tree_leaves_and_weights::<E>(
                 &justified.root,
                 current_slot,
@@ -1423,7 +1424,7 @@ impl<E: EthSpec> Tester<E> {
             )
             .map_err(|e| {
                 Error::InternalError(format!(
-                    "filtered_block_tree_leaves_and_weights failed: {e}"
+                    "filtered_block_tree_leaves_and_weights failed: {e:?}"
                 ))
             })?;
         drop(fork_choice);

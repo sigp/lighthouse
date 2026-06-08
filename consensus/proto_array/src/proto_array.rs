@@ -730,7 +730,7 @@ impl ProtoArray {
     /// Returns `true` if the proposer boost should be kept. Returns `false` if the
     /// boost should be subtracted (invalidated) because the parent is weak and there
     /// are no equivocating blocks at the parent's slot.
-    pub(crate) fn should_apply_proposer_boost<E: EthSpec>(
+    fn should_apply_proposer_boost<E: EthSpec>(
         &self,
         proposer_boost_root: Hash256,
         justified_balances: &JustifiedBalances,
@@ -1129,7 +1129,7 @@ impl ProtoArray {
     ///
     /// Returns the set of node indices on viable branches — those with at least
     /// one leaf descendant with correct justified/finalized checkpoints.
-    pub(crate) fn get_filtered_block_tree<E: EthSpec>(
+    fn get_filtered_block_tree<E: EthSpec>(
         &self,
         start_index: usize,
         current_slot: Slot,
@@ -1303,7 +1303,7 @@ impl ProtoArray {
     /// This is similar to `find_head_walk`, except it walks every viable branch instead of taking
     /// the maximum child at each step.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn filtered_block_tree_leaves_and_weights<E: EthSpec>(
+    pub fn filtered_block_tree_leaves_and_weights<E: EthSpec>(
         &self,
         justified_root: &Hash256,
         current_slot: Slot,
