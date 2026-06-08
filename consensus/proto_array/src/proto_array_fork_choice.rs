@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::{
-    collections::{BTreeSet, HashMap, HashSet},
+    collections::{BTreeSet, HashMap},
     fmt,
     time::Duration,
 };
@@ -514,6 +514,7 @@ impl ProtoArrayForkChoice {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
             nodes: Vec::with_capacity(1),
             indices: HashMap::with_capacity(1),
+            children: Vec::with_capacity(1),
         };
 
         let block = Block {
@@ -1143,13 +1144,15 @@ impl ProtoArrayForkChoice {
                      {justified_root:?} unknown"
                 )
             })?;
-        let viable = self.proto_array.get_filtered_block_tree::<E>(
-            start_index,
-            current_slot,
-            justified_checkpoint,
-            finalized_checkpoint,
-        );
-        let viable_indices = viable.iter().copied().collect::<HashSet<_>>();
+        let viable_indices = self
+            .proto_array
+            .get_filtered_block_tree::<E>(
+                start_index,
+                current_slot,
+                justified_checkpoint,
+                finalized_checkpoint,
+            )
+            .map_err(|e| format!("get_filtered_block_tree failed: {e:?}"))?;
 
         let apply_proposer_boost = self
             .proto_array

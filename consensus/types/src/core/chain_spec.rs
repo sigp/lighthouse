@@ -151,7 +151,7 @@ pub struct ChainSpec {
     /*
      * Fork choice
      */
-    pub proposer_score_boost: Option<u64>,
+    pub proposer_score_boost: u64,
     pub reorg_head_weight_threshold: u64,
     pub reorg_parent_weight_threshold: u64,
     pub reorg_max_epochs_since_finalization: u64,
@@ -1162,7 +1162,7 @@ impl ChainSpec {
             /*
              * Fork choice
              */
-            proposer_score_boost: Some(40),
+            proposer_score_boost: 40,
             reorg_head_weight_threshold: 20,
             reorg_parent_weight_threshold: 160,
             reorg_max_epochs_since_finalization: 2,
@@ -1587,7 +1587,7 @@ impl ChainSpec {
             /*
              * Fork choice
              */
-            proposer_score_boost: Some(40),
+            proposer_score_boost: 40,
             reorg_head_weight_threshold: 20,
             reorg_parent_weight_threshold: 160,
             reorg_max_epochs_since_finalization: 2,
@@ -2640,7 +2640,9 @@ impl Config {
             min_per_epoch_churn_limit: spec.min_per_epoch_churn_limit,
             max_per_epoch_activation_churn_limit: spec.max_per_epoch_activation_churn_limit,
 
-            proposer_score_boost: spec.proposer_score_boost.map(|value| MaybeQuoted { value }),
+            proposer_score_boost: Some(MaybeQuoted {
+                value: spec.proposer_score_boost,
+            }),
             reorg_head_weight_threshold: spec.reorg_head_weight_threshold,
             reorg_parent_weight_threshold: spec.reorg_parent_weight_threshold,
             reorg_max_epochs_since_finalization: spec.reorg_max_epochs_since_finalization,
@@ -2854,7 +2856,9 @@ impl Config {
             min_per_epoch_churn_limit,
             max_per_epoch_activation_churn_limit,
             churn_limit_quotient,
-            proposer_score_boost: proposer_score_boost.map(|q| q.value),
+            proposer_score_boost: proposer_score_boost
+                .map(|q| q.value)
+                .unwrap_or(chain_spec.proposer_score_boost),
             reorg_head_weight_threshold,
             reorg_parent_weight_threshold,
             reorg_max_epochs_since_finalization,
