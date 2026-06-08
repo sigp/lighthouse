@@ -3,6 +3,7 @@ pub use crate::data_availability_checker::{
     AvailableBlock, AvailableBlockData, MaybeAvailableBlock,
 };
 use crate::payload_envelope_verification::AvailableEnvelope;
+use crate::payload_envelope_verification::gossip_verified_envelope::verify_envelope_consistency;
 use crate::{BeaconChainTypes, PayloadVerificationOutcome};
 use state_processing::ConsensusContext;
 use std::fmt::{Debug, Formatter};
@@ -125,6 +126,8 @@ impl<E: EthSpec> RangeSyncBlock<E> {
     /// if envelope.is_some() == true .
     /// In the `None` case, we cannot guarantee that the payload is empty until we
     /// process the block that builds on top of this block.
+    ///
+    /// Expects `block.canonical_root() == envelope.beacon_block_root` as they are coupled.
     pub fn new_gloas(
         block: Arc<SignedBeaconBlock<E>>,
         envelope: Option<AvailableEnvelope<E>>,
@@ -136,37 +139,15 @@ impl<E: EthSpec> RangeSyncBlock<E> {
                 .signed_execution_payload_bid()
                 .map_err(|e| format!("missing signed_execution_payload_bid: {e:?}"))?
                 .message;
-            let envelope = envelope.message();
-
-            let block_root = block.canonical_root();
-            if envelope.beacon_block_root != block_root {
-                return Err(format!(
-                    "envelope block root mismatch: block {block_root:?}, envelope {:?}",
-                    envelope.beacon_block_root
-                ));
-            }
-
-            if envelope.slot() != block.slot() {
-                return Err(format!(
-                    "envelope slot mismatch: block {}, envelope {}",
-                    block.slot(),
-                    envelope.slot()
-                ));
-            }
-
-            if envelope.builder_index != execution_bid.builder_index {
-                return Err(format!(
-                    "envelope builder index mismatch: committed {}, envelope {}",
-                    execution_bid.builder_index, envelope.builder_index
-                ));
-            }
-
-            if envelope.payload.block_hash != execution_bid.block_hash {
-                return Err(format!(
-                    "envelope block hash mismatch: committed {:?}, envelope {:?}",
-                    execution_bid.block_hash, envelope.payload.block_hash
-                ));
-            }
+            // Skip the finalized-slot check; range sync imports historical (finalized) blocks.
+            let latest_finalized_slot = Slot::new(0);
+            verify_envelope_consistency(
+                envelope.message(),
+                &block,
+                execution_bid,
+                latest_finalized_slot,
+            )
+            .map_err(|e| format!("Inconsistent envelope: {e:?}"))?;
         }
 
         Ok(Self::Gloas { block, envelope })

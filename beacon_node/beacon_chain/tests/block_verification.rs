@@ -2339,23 +2339,6 @@ async fn range_sync_block_new_gloas_allows_missing_envelope() {
 }
 
 #[tokio::test]
-async fn range_sync_block_new_gloas_rejects_mismatched_block_root() {
-    let Some((block, mut envelope)) = make_gloas_range_sync_block_inputs().await else {
-        return;
-    };
-
-    envelope.message.beacon_block_root = Hash256::repeat_byte(0x11);
-    let available_envelope = AvailableEnvelope::new(Arc::new(envelope), vec![]);
-    let result = RangeSyncBlock::new_gloas(block, Some(available_envelope));
-
-    assert!(
-        matches!(result, Err(ref err) if err.contains("envelope block root mismatch")),
-        "new_gloas should reject mismatched block root, got: {:?}",
-        result
-    );
-}
-
-#[tokio::test]
 async fn range_sync_block_new_gloas_rejects_slot_mismatch() {
     let Some((block, mut envelope)) = make_gloas_range_sync_block_inputs().await else {
         return;
@@ -2366,7 +2349,7 @@ async fn range_sync_block_new_gloas_rejects_slot_mismatch() {
     let result = RangeSyncBlock::new_gloas(block, Some(available_envelope));
 
     assert!(
-        matches!(result, Err(ref err) if err.contains("envelope slot mismatch")),
+        matches!(result, Err(ref err) if err.contains("SlotMismatch")),
         "new_gloas should reject mismatched slot, got: {:?}",
         result
     );
@@ -2383,7 +2366,7 @@ async fn range_sync_block_new_gloas_rejects_builder_index_mismatch() {
     let result = RangeSyncBlock::new_gloas(block, Some(available_envelope));
 
     assert!(
-        matches!(result, Err(ref err) if err.contains("envelope builder index mismatch")),
+        matches!(result, Err(ref err) if err.contains("BuilderIndexMismatch")),
         "new_gloas should reject mismatched builder index, got: {:?}",
         result
     );
@@ -2400,7 +2383,7 @@ async fn range_sync_block_new_gloas_rejects_block_hash_mismatch() {
     let result = RangeSyncBlock::new_gloas(block, Some(available_envelope));
 
     assert!(
-        matches!(result, Err(ref err) if err.contains("envelope block hash mismatch")),
+        matches!(result, Err(ref err) if err.contains("BlockHashMismatch")),
         "new_gloas should reject mismatched block hash, got: {:?}",
         result
     );

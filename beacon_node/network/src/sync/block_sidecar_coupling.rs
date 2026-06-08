@@ -1136,7 +1136,7 @@ mod tests {
             matches!(
                 result,
                 Err(super::CouplingError::EnvelopePeerFailure(ref error))
-                    if error.contains("envelope slot mismatch")
+                    if error.contains("SlotMismatch")
             ),
             "expected envelope slot mismatch, got {result:?}"
         );
