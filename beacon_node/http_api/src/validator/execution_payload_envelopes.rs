@@ -12,8 +12,8 @@ use types::Slot;
 use warp::http::Response;
 use warp::{Filter, Rejection};
 
-// GET validator/execution_payload_envelope/{slot}
-pub fn get_validator_execution_payload_envelope<T: BeaconChainTypes>(
+// GET validator/execution_payload_envelopes/{slot}
+pub fn get_validator_execution_payload_envelopes<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
     chain_filter: ChainFilter<T>,
     not_while_syncing_filter: NotWhileSyncingFilter,
@@ -21,7 +21,7 @@ pub fn get_validator_execution_payload_envelope<T: BeaconChainTypes>(
 ) -> ResponseFilter {
     eth_v1
         .and(warp::path("validator"))
-        .and(warp::path("execution_payload_envelope"))
+        .and(warp::path("execution_payload_envelopes"))
         .and(warp::path::param::<Slot>().or_else(|_| async {
             Err(warp_utils::reject::custom_bad_request(
                 "Invalid slot".to_string(),

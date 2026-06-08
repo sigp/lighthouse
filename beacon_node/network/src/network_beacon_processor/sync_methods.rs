@@ -3,12 +3,14 @@ use crate::network_beacon_processor::{FUTURE_SLOT_TOLERANCE, NetworkBeaconProces
 use crate::sync::BatchProcessResult;
 use crate::sync::manager::CustodyBatchProcessResult;
 use crate::sync::{
-    ChainId,
+    ChainId, PeerGroup, SyncNetworkContext,
     manager::{BlockProcessType, SyncMessage},
 };
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::block_verification_types::{AsBlock, RangeSyncBlock};
-use beacon_chain::data_availability_checker::AvailabilityCheckError;
+use beacon_chain::data_availability_checker::{
+    AvailabilityCheckError, AvailabilityCheckErrorCategory,
+};
 use beacon_chain::historical_data_columns::HistoricalDataColumnError;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, BlockError, ChainSegmentResult,
@@ -20,6 +22,7 @@ use beacon_processor::{
 };
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::PeerAction;
+use lighthouse_network::PeerId;
 use lighthouse_network::service::api_types::CustodyBackfillBatchId;
 use logging::crit;
 use std::sync::Arc;
@@ -87,10 +90,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
         // A closure which will ignore the block.
         let ignore_fn = move || {
+            warn!(
+                ?process_type,
+                "Block processing task dropped, cpu might be overloaded"
+            );
             // Sync handles these results
             self.send_sync_message(SyncMessage::BlockComponentProcessed {
                 process_type,
-                result: crate::sync::manager::BlockProcessingResult::Ignored,
+                result: BlockProcessingResult::Error {
+                    penalty: None,
+                    reason: "ignored_processor_overloaded".to_string(),
+                },
             });
         };
         (process_fn, Box::new(ignore_fn))
@@ -357,7 +367,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     )
                     .await
             }
-            Err(e) => Err(e),
+            Err(e) => Err(e.into()),
         };
 
         // TODO(gloas): structured penalty classification arrives with the envelope lookup state
@@ -946,6 +956,135 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     peer_action: None,
                 })
             }
+        }
+    }
+}
+
+/// The classified outcome of submitting a block / blob / column for processing, ready for the
+/// lookup state machine to act on without re-inspecting `BlockError`.
+#[derive(Debug)]
+pub enum BlockProcessingResult {
+    /// `fully_imported` is true if the lookup is complete; false if `MissingComponents` (the
+    /// lookup must keep fetching). `info` is a stable label for logs / metrics.
+    Imported(bool, &'static str),
+    ParentUnknown {
+        parent_root: Hash256,
+    },
+    /// Processing failed. `penalty` is `Some` when an attributable peer should be downscored;
+    /// the third tuple element is the `report_peer` telemetry msg. `reason` is for logs only.
+    Error {
+        penalty: Option<(PeerAction, WhichPeerToPenalize, &'static str)>,
+        reason: String,
+    },
+}
+
+impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingResult {
+    fn from(result: Result<AvailabilityProcessingStatus, BlockError>) -> Self {
+        fn block_peer_penalty<E: Into<&'static str>>(
+            err: E,
+        ) -> Option<(PeerAction, WhichPeerToPenalize, &'static str)> {
+            Some((
+                PeerAction::MidToleranceError,
+                WhichPeerToPenalize::BlockPeer,
+                err.into(),
+            ))
+        }
+        match result {
+            Ok(AvailabilityProcessingStatus::Imported(_)) => Self::Imported(true, "imported"),
+            Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
+                Self::Imported(false, "missing_components")
+            }
+            Err(e) => {
+                let penalty = match &e {
+                    BlockError::DuplicateFullyImported(_) => {
+                        return Self::Imported(true, "duplicate");
+                    }
+                    BlockError::GenesisBlock => return Self::Imported(true, "genesis"),
+                    BlockError::ParentUnknown { parent_root, .. } => {
+                        return Self::ParentUnknown {
+                            parent_root: *parent_root,
+                        };
+                    }
+                    BlockError::BeaconChainError(_) | BlockError::InternalError(_) => None,
+                    BlockError::DuplicateImportStatusUnknown(_) => None,
+                    BlockError::AvailabilityCheck(inner) => match inner {
+                        AvailabilityCheckError::InvalidColumn((Some(idx), _)) => Some((
+                            PeerAction::MidToleranceError,
+                            WhichPeerToPenalize::CustodyPeerForColumn(*idx),
+                            (&e).into(),
+                        )),
+                        inner => match inner.category() {
+                            AvailabilityCheckErrorCategory::Internal => None,
+                            AvailabilityCheckErrorCategory::Malicious => block_peer_penalty(inner),
+                        },
+                    },
+                    BlockError::ExecutionPayloadError(epe) => {
+                        if epe.penalize_peer() {
+                            block_peer_penalty(epe)
+                        } else {
+                            None
+                        }
+                    }
+                    BlockError::EnvelopeError(_) => {
+                        // TODO(gloas): penalize correctly in range sync PR
+                        None
+                    }
+                    // Remaining invalid blocks: penalize the block peer. Listed explicitly so a
+                    // new `BlockError` variant forces a compile error here.
+                    BlockError::FutureSlot { .. }
+                    | BlockError::StateRootMismatch { .. }
+                    | BlockError::WouldRevertFinalizedSlot { .. }
+                    | BlockError::NotFinalizedDescendant { .. }
+                    | BlockError::BlockSlotLimitReached
+                    | BlockError::IncorrectBlockProposer { .. }
+                    | BlockError::UnknownValidator(_)
+                    | BlockError::InvalidSignature(_)
+                    | BlockError::BlockIsNotLaterThanParent { .. }
+                    | BlockError::NonLinearParentRoots
+                    | BlockError::NonLinearSlots
+                    | BlockError::PerBlockProcessingError(_)
+                    | BlockError::WeakSubjectivityConflict
+                    | BlockError::InconsistentFork(_)
+                    | BlockError::ParentExecutionPayloadInvalid { .. }
+                    | BlockError::KnownInvalidExecutionPayload(_)
+                    | BlockError::Slashable
+                    | BlockError::InvalidBlobCount { .. }
+                    | BlockError::BidParentRootMismatch { .. } => block_peer_penalty(&e),
+                };
+                Self::Error {
+                    penalty,
+                    reason: format!("{e:?}"),
+                }
+            }
+        }
+    }
+}
+
+/// Selector for which peer(s) in a `PeerGroup` to downscore.
+#[derive(Debug, Clone, Copy)]
+pub enum WhichPeerToPenalize {
+    /// All peers in the group (block peer, or all data peers).
+    BlockPeer,
+    /// Only the peer(s) that served the given column index.
+    CustodyPeerForColumn(u64),
+}
+
+impl WhichPeerToPenalize {
+    pub fn apply<T: BeaconChainTypes>(
+        self,
+        action: PeerAction,
+        peer_group: &PeerGroup,
+        msg: &'static str,
+        cx: &mut SyncNetworkContext<T>,
+    ) {
+        let peers: Vec<PeerId> = match self {
+            WhichPeerToPenalize::BlockPeer => peer_group.all().copied().collect(),
+            WhichPeerToPenalize::CustodyPeerForColumn(idx) => {
+                peer_group.of_index(idx as usize).copied().collect()
+            }
+        };
+        for peer in peers {
+            cx.report_peer(peer, action, msg);
         }
     }
 }

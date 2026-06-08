@@ -496,8 +496,12 @@ Flags:
           --listen-address and the UDP port will be --discovery-port.
       --enable-fast-confirmation
           Enable the Fast Confirmation Rule (FCR). When enabled, FCR provides
-          faster block confirmation (~12s) by computing a confirmed root that is
-          fed into the execution layer's safe_block_hash.
+          faster block confirmation (typically within 1-2 slots of the head) by
+          computing a confirmed root that is fed into the execution layer's
+          safe_block_hash.
+      --enable-mplex
+          Enables mplex multiplexer alongside yamux. Yamux is preferred when
+          both are available.
       --enable-partial-columns
           Enable partial messages for data columns. This can reduce the amount
           of data sent over the network. Enabled by default on Hoodi and

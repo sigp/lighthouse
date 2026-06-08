@@ -883,10 +883,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
             fork_context.update_current_fork(*new_fork_name, new_fork_digest, current_epoch);
             if self.beacon_chain.spec.is_peer_das_scheduled() {
-                let next_fork_digest = fork_context
-                    .next_fork_digest()
-                    .unwrap_or_else(|| fork_context.current_fork_digest());
-                self.libp2p.update_nfd(next_fork_digest);
+                self.libp2p.update_nfd(fork_context.next_fork_digest());
             }
 
             self.libp2p.update_fork_version(new_enr_fork_id);

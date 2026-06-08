@@ -40,18 +40,16 @@ use super::network_context::{
 };
 use super::peer_sync_info::{PeerSyncType, remote_sync_type};
 use super::range_sync::{EPOCHS_PER_BATCH, RangeSync, RangeSyncType};
-use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
+use crate::network_beacon_processor::{
+    BlockProcessingResult, ChainSegmentProcessId, NetworkBeaconProcessor,
+};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
-use crate::sync::block_lookups::{
-    BlockComponent, BlockRequestState, CustodyRequestState, DownloadResult,
-};
+use crate::sync::block_lookups::{BlockComponent, DownloadResult};
 use crate::sync::custody_backfill_sync::CustodyBackFillSync;
 use crate::sync::network_context::{PeerGroup, RpcResponseResult};
 use beacon_chain::block_verification_types::AsBlock;
-use beacon_chain::{
-    AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
-};
+use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
 use futures::StreamExt;
 use lighthouse_network::SyncInfo;
 use lighthouse_network::rpc::RPCError;
@@ -144,11 +142,9 @@ pub enum SyncMessage<E: EthSpec> {
     /// A block with an unknown parent has been received.
     UnknownParentBlock(PeerId, Arc<SignedBeaconBlock<E>>, Hash256),
 
-    /// A data column with an unknown parent has been received.
-    UnknownParentDataColumn(PeerId, Arc<DataColumnSidecar<E>>),
-
-    /// A partial data column with an unknown parent has been received.
-    UnknownParentPartialDataColumn {
+    /// A sidecar (full/partial data column) with an unknown parent has been received. Carries only the header
+    /// info needed to trigger a parent lookup, decoupled from the concrete sidecar type.
+    UnknownParentSidecarHeader {
         peer_id: PeerId,
         block_root: Hash256,
         parent_root: Hash256,
@@ -186,11 +182,6 @@ pub enum SyncMessage<E: EthSpec> {
         process_type: BlockProcessType,
         result: BlockProcessingResult,
     },
-
-    /// A gossip-received component has completed processing and the block may now be imported.
-    /// In Fulu this is sent after block or blob processing. In Gloas this is also sent after
-    /// data column or payload envelope processing triggers availability.
-    GossipBlockProcessResult { block_root: Hash256, imported: bool },
 }
 
 /// The type of processing specified for a received block.
@@ -209,13 +200,6 @@ impl BlockProcessType {
             | BlockProcessType::SinglePayloadEnvelope(id) => *id,
         }
     }
-}
-
-#[derive(Debug)]
-pub enum BlockProcessingResult {
-    Ok(AvailabilityProcessingStatus),
-    Err(BlockError),
-    Ignored,
 }
 
 /// The result of processing multiple blocks (a chain segment).
@@ -876,64 +860,24 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block_slot,
                     BlockComponent::Block(DownloadResult {
                         value: block.block_cloned(),
-                        block_root,
                         seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
                         peer_group: PeerGroup::from_single(peer_id),
                     }),
                 );
             }
-            SyncMessage::UnknownParentDataColumn(peer_id, data_column) => {
-                let data_column_slot = data_column.slot();
-                let block_root = data_column.block_root();
-                match data_column.as_ref() {
-                    DataColumnSidecar::Fulu(column) => {
-                        let parent_root = column.block_parent_root();
-                        debug!(%block_root, %parent_root, "Received unknown parent data column message");
-                        self.handle_unknown_parent(
-                            peer_id,
-                            block_root,
-                            parent_root,
-                            data_column_slot,
-                            BlockComponent::DataColumn(DownloadResult {
-                                value: parent_root,
-                                block_root,
-                                seen_timestamp: self
-                                    .chain
-                                    .slot_clock
-                                    .now_duration()
-                                    .unwrap_or_default(),
-                                peer_group: PeerGroup::from_single(peer_id),
-                            }),
-                        );
-                    }
-                    DataColumnSidecar::Gloas(_) => {
-                        // TODO(gloas): proper lookup sync for Gloas. Routing into
-                        // `handle_unknown_block_root` here mixes column processing with the
-                        // single-block-lookup path; the Gloas column-arrives-before-block
-                        // case wants its own queue/wakeup.
-                        debug!(%block_root, "Received unknown block data column message");
-                        self.handle_unknown_block_root(peer_id, block_root);
-                    }
-                }
-            }
-            SyncMessage::UnknownParentPartialDataColumn {
+            SyncMessage::UnknownParentSidecarHeader {
                 peer_id,
                 block_root,
                 parent_root,
                 slot,
             } => {
-                debug!(%block_root, %parent_root, "Received unknown parent partial column message");
+                debug!(%block_root, %parent_root, "Received unknown parent sidecar header message");
                 self.handle_unknown_parent(
                     peer_id,
                     block_root,
                     parent_root,
                     slot,
-                    BlockComponent::PartialDataColumn(DownloadResult {
-                        value: parent_root,
-                        block_root,
-                        seen_timestamp: self.chain.slot_clock.now_duration().unwrap_or_default(),
-                        peer_group: PeerGroup::from_single(peer_id),
-                    }),
+                    BlockComponent::Sidecar,
                 );
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_root) => {
@@ -958,14 +902,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             } => self
                 .block_lookups
                 .on_processing_result(process_type, result, &mut self.network),
-            SyncMessage::GossipBlockProcessResult {
-                block_root,
-                imported,
-            } => self.block_lookups.on_external_processing_result(
-                block_root,
-                imported,
-                &mut self.network,
-            ),
             SyncMessage::BatchProcessed { sync_type, result } => match sync_type {
                 ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
                     self.range_sync.handle_block_process_result(
@@ -1023,6 +959,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 if self.block_lookups.search_child_and_parent(
                     block_root,
                     block_component,
+                    parent_root,
                     peer_id,
                     &mut self.network,
                 ) {
@@ -1173,14 +1110,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
         if let Some(resp) = self.network.on_single_block_response(id, peer_id, block) {
-            self.block_lookups
-                .on_download_response::<BlockRequestState<T::EthSpec>>(
-                    id,
-                    resp.map(|(value, seen_timestamp)| {
-                        (value, PeerGroup::from_single(peer_id), seen_timestamp)
-                    }),
-                    &mut self.network,
-                )
+            self.block_lookups.on_block_download_response(
+                id,
+                resp.map(|(value, seen_timestamp)| {
+                    DownloadResult::new(value, PeerGroup::from_single(peer_id), seen_timestamp)
+                }),
+                &mut self.network,
+            )
         }
     }
 
@@ -1356,11 +1292,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         response: CustodyByRootResult<T::EthSpec>,
     ) {
         self.block_lookups
-            .on_download_response::<CustodyRequestState<T::EthSpec>>(
-                requester.0,
-                response,
-                &mut self.network,
-            );
+            .on_custody_download_response(requester.0, response, &mut self.network);
     }
 
     /// Handles receiving a response for a range sync request that should have both blocks and
@@ -1465,20 +1397,5 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
             }
         }
-    }
-}
-
-impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingResult {
-    fn from(result: Result<AvailabilityProcessingStatus, BlockError>) -> Self {
-        match result {
-            Ok(status) => BlockProcessingResult::Ok(status),
-            Err(e) => BlockProcessingResult::Err(e),
-        }
-    }
-}
-
-impl From<BlockError> for BlockProcessingResult {
-    fn from(e: BlockError) -> Self {
-        BlockProcessingResult::Err(e)
     }
 }

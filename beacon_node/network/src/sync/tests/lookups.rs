@@ -1,17 +1,19 @@
 use super::*;
 use crate::NetworkMessage;
+use crate::network_beacon_processor::BlockProcessingResult;
+use crate::network_beacon_processor::sync_methods::WhichPeerToPenalize;
 use crate::network_beacon_processor::{
     ChainSegmentProcessId, InvalidBlockStorage, NetworkBeaconProcessor,
 };
 use crate::sync::block_lookups::{BlockLookupSummary, PARENT_DEPTH_TOLERANCE};
 use crate::sync::{
     SyncMessage,
-    manager::{BatchProcessResult, BlockProcessType, BlockProcessingResult, SyncManager},
+    manager::{BatchProcessResult, BlockProcessType, SyncManager},
 };
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::{
-    AvailabilityProcessingStatus, BlockError, EngineState, NotifyExecutionLayer,
+    AvailabilityProcessingStatus, EngineState, NotifyExecutionLayer,
     block_verification_types::{AsBlock, AvailableBlockData},
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, NumBlobs,
@@ -29,13 +31,14 @@ use lighthouse_network::{
     types::SyncState,
 };
 use slot_clock::{SlotClock, TestingSlotClock};
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::info;
 use types::{
-    BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, ForkContext, ForkName, Hash256,
-    MinimalEthSpec as E, SignedBeaconBlock, Slot,
+    BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, DataColumnSubnetId,
+    ForkContext, ForkName, Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
 };
 
 const D: Duration = Duration::new(0, 0);
@@ -1232,12 +1235,6 @@ impl TestRig {
         self.assert_empty_network();
     }
 
-    fn assert_pending_lookup_sync(&self) {
-        assert!(self.created_lookups() > 0, "no created lookups");
-        assert_eq!(self.dropped_lookups(), 0, "some dropped lookups");
-        assert_eq!(self.completed_lookups(), 0, "some completed lookups");
-    }
-
     /// Assert there is at least one range sync chain created and that all sync chains completed
     pub(super) fn assert_successful_range_sync(&self) {
         assert!(
@@ -1327,15 +1324,6 @@ impl TestRig {
         genesis_fork().fulu_enabled().then(Self::default)
     }
 
-    fn new_after_deneb_before_fulu() -> Option<Self> {
-        let fork = genesis_fork();
-        if fork.deneb_enabled() && !fork.fulu_enabled() {
-            Some(Self::default())
-        } else {
-            None
-        }
-    }
-
     pub fn new_fulu_peer_test(fulu_test_type: FuluTestType) -> Option<Self> {
         genesis_fork().fulu_enabled().then(|| {
             Self::new(TestRigConfig {
@@ -1363,7 +1351,18 @@ impl TestRig {
         peer_id: PeerId,
         data_column: Arc<DataColumnSidecar<E>>,
     ) {
-        self.send_sync_message(SyncMessage::UnknownParentDataColumn(peer_id, data_column));
+        let block_root = data_column.block_root();
+        let slot = data_column.slot();
+        let parent_root = match data_column.as_ref() {
+            DataColumnSidecar::Fulu(column) => column.block_parent_root(),
+            DataColumnSidecar::Gloas(_) => panic!("Gloas data column not supported in this test"),
+        };
+        self.send_sync_message(SyncMessage::UnknownParentSidecarHeader {
+            peer_id,
+            block_root,
+            parent_root,
+            slot,
+        });
     }
 
     fn trigger_unknown_block_from_attestation(&mut self, block_root: Hash256, peer_id: PeerId) {
@@ -1441,7 +1440,7 @@ impl TestRig {
             .network_globals
             .peers
             .write()
-            .__add_connected_peer_testing_only(false, &self.harness.spec, key);
+            .__add_connected_peer_with_custody_subnets(false, &self.harness.spec, key);
 
         // Assumes custody subnet count == column count
         let custody_subnets = self
@@ -1472,11 +1471,36 @@ impl TestRig {
             .network_globals
             .peers
             .write()
-            .__add_connected_peer_testing_only(true, &self.harness.spec, key);
+            .__add_connected_peer_with_custody_subnets(true, &self.harness.spec, key);
         self.log(&format!(
             "Added new peer for testing {peer_id:?}, custody: supernode"
         ));
         peer_id
+    }
+
+    /// Add a connected supernode peer, but without setting the peers' custody subnet.
+    /// This is to simulate the real behaviour where metadata is only received some time after
+    ///  a connection is established.
+    pub fn new_connected_supernode_peer_no_metadata_custody_subnet(&mut self) -> PeerId {
+        let key = self.determinstic_key();
+        self.network_globals
+            .peers
+            .write()
+            .__add_connected_peer(true, key, &self.harness.spec)
+    }
+
+    /// Update the peer's custody subnet in PeerDB and send a `UpdatedPeerCgc` message to sync.
+    pub fn send_peer_cgc_update_to_sync(
+        &mut self,
+        peer_id: &PeerId,
+        subnets: HashSet<DataColumnSubnetId>,
+    ) {
+        self.network_globals
+            .peers
+            .write()
+            .__set_custody_subnets(peer_id, subnets)
+            .unwrap();
+        self.send_sync_message(SyncMessage::UpdatedPeerCgc(*peer_id))
     }
 
     fn determinstic_key(&mut self) -> CombinedKey {
@@ -1632,56 +1656,6 @@ impl TestRig {
                 self.log(&format!("inserted block to da_checker {block_root:?}"))
             }
         }
-    }
-
-    fn insert_block_to_da_checker_as_pre_execution(&mut self, block: Arc<SignedBeaconBlock<E>>) {
-        self.log(&format!(
-            "Inserting block to availability_cache as pre_execution_block {:?}",
-            block.canonical_root()
-        ));
-        self.harness
-            .chain
-            .data_availability_checker
-            .put_pre_execution_block(block.canonical_root(), block, BlockImportSource::Gossip)
-            .unwrap();
-    }
-
-    fn simulate_block_gossip_processing_becomes_invalid(&mut self, block_root: Hash256) {
-        self.log(&format!(
-            "Marking block {block_root:?} in da_checker as execution error"
-        ));
-        self.harness
-            .chain
-            .data_availability_checker
-            .remove_block_on_execution_error(&block_root);
-
-        self.send_sync_message(SyncMessage::GossipBlockProcessResult {
-            block_root,
-            imported: false,
-        });
-    }
-
-    async fn simulate_block_gossip_processing_becomes_valid(
-        &mut self,
-        block: Arc<SignedBeaconBlock<E>>,
-    ) {
-        let block_root = block.canonical_root();
-
-        match self.import_block_to_da_checker(block).await {
-            AvailabilityProcessingStatus::Imported(block_root) => {
-                self.log(&format!(
-                    "insert block to da_checker and it imported {block_root:?}"
-                ));
-            }
-            AvailabilityProcessingStatus::MissingComponents(_, _) => {
-                panic!("block not imported after adding to da_checker");
-            }
-        }
-
-        self.send_sync_message(SyncMessage::GossipBlockProcessResult {
-            block_root,
-            imported: false,
-        });
     }
 
     fn requests_count(&self) -> HashMap<&'static str, usize> {
@@ -1947,7 +1921,14 @@ async fn too_many_processing_failures(depth: usize) {
     r.build_chain_and_trigger_last_block(depth).await;
     // Simulate that a peer always returns empty
     r.simulate(
-        SimulateConfig::new().with_process_result(|| BlockError::BlockSlotLimitReached.into()),
+        SimulateConfig::new().with_process_result(|| BlockProcessingResult::Error {
+            penalty: Some((
+                PeerAction::MidToleranceError,
+                WhichPeerToPenalize::BlockPeer,
+                "lookup_block_processing_failure",
+            )),
+            reason: "lookup_block_processing_failure".to_string(),
+        }),
     )
     .await;
     // We register multiple penalties, the lookup fails and sync does not progress
@@ -1991,15 +1972,21 @@ async fn unknown_parent_does_not_add_peers_to_itself() {
 }
 
 #[tokio::test]
-/// Assert that if the beacon processor returns Ignored, the lookup is dropped
+/// Assert that a non-attributable processing error (e.g. processor overloaded) is retried up to
+/// `SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS`, no peer is penalized, and the lookup is then dropped.
 async fn test_single_block_lookup_ignored_response() {
     let mut r = TestRig::default();
     r.build_chain_and_trigger_last_block(1).await;
-    // Send an Ignored response, the request should be dropped
-    r.simulate(SimulateConfig::new().with_process_result(|| BlockProcessingResult::Ignored))
-        .await;
+    r.simulate(
+        SimulateConfig::new().with_process_result(|| BlockProcessingResult::Error {
+            penalty: None,
+            reason: "processor_overloaded".to_string(),
+        }),
+    )
+    .await;
     // The block was not actually imported
     r.assert_head_slot(0);
+    r.assert_no_penalties();
     assert_eq!(r.created_lookups(), 1, "no created lookups");
     assert_eq!(r.dropped_lookups(), 1, "no dropped lookups");
     assert_eq!(r.completed_lookups(), 0, "some completed lookups");
@@ -2013,7 +2000,7 @@ async fn test_single_block_lookup_duplicate_response() {
     // Send a DuplicateFullyImported response, the lookup should complete successfully
     r.simulate(
         SimulateConfig::new()
-            .with_process_result(|| BlockError::DuplicateFullyImported(Hash256::ZERO).into()),
+            .with_process_result(|| BlockProcessingResult::Imported(true, "duplicate")),
     )
     .await;
     // The block was not actually imported
@@ -2242,48 +2229,6 @@ async fn block_in_da_checker_skips_download() {
     );
 }
 
-#[tokio::test]
-async fn block_in_processing_cache_becomes_invalid() {
-    let Some(mut r) = TestRig::new_after_deneb_before_fulu() else {
-        return;
-    };
-    r.build_chain(1).await;
-    let block = r.block_at_slot(1);
-    r.insert_block_to_da_checker_as_pre_execution(block.clone());
-    r.trigger_with_last_block();
-    r.simulate(SimulateConfig::happy_path()).await;
-    r.assert_pending_lookup_sync();
-    // Here the only active lookup is waiting for the block to finish processing
-
-    // Simulate invalid block, removing it from processing cache
-    r.simulate_block_gossip_processing_becomes_invalid(block.canonical_root());
-    // Should download block, then issue blobs request
-    r.simulate(SimulateConfig::happy_path()).await;
-    r.assert_successful_lookup_sync();
-}
-
-#[tokio::test]
-async fn block_in_processing_cache_becomes_valid_imported() {
-    let Some(mut r) = TestRig::new_after_deneb_before_fulu() else {
-        return;
-    };
-    r.build_chain(1).await;
-    let block = r.block_at_slot(1);
-    r.insert_block_to_da_checker_as_pre_execution(block.clone());
-    r.trigger_with_last_block();
-    r.simulate(SimulateConfig::happy_path()).await;
-    r.assert_pending_lookup_sync();
-    // Here the only active lookup is waiting for the block to finish processing
-
-    // Resolve the block from processing step
-    r.simulate_block_gossip_processing_becomes_valid(block)
-        .await;
-    // Should not trigger block or blob request
-    r.assert_empty_network();
-    // Resolve blob and expect lookup completed
-    r.assert_no_active_lookups();
-}
-
 macro_rules! fulu_peer_matrix_tests {
     (
         [$($name:ident => $variant:expr),+ $(,)?]
@@ -2392,7 +2337,7 @@ async fn crypto_on_fail_with_invalid_block_signature() {
         r.assert_no_penalties();
     } else {
         r.assert_failed_lookup_sync();
-        r.assert_penalties_of_type("lookup_block_processing_failure");
+        r.assert_penalties_of_type("InvalidSignature");
     }
 }
 
@@ -2410,7 +2355,7 @@ async fn crypto_on_fail_with_bad_column_proposer_signature() {
         r.assert_no_penalties();
     } else {
         r.assert_failed_lookup_sync();
-        r.assert_penalties_of_type("lookup_custody_column_processing_failure");
+        r.assert_penalties_of_type("InvalidSignature");
     }
 }
 
@@ -2428,6 +2373,6 @@ async fn crypto_on_fail_with_bad_column_kzg_proof() {
         r.assert_no_penalties();
     } else {
         r.assert_failed_lookup_sync();
-        r.assert_penalties_of_type("lookup_custody_column_processing_failure");
+        r.assert_penalties_of_type("AvailabilityCheck");
     }
 }

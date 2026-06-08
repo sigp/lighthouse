@@ -111,6 +111,7 @@ pub struct BeaconProcessorQueueLengths {
     attestation_queue: usize,
     unknown_block_aggregate_queue: usize,
     unknown_block_attestation_queue: usize,
+    unknown_block_data_column_queue: usize,
     sync_message_queue: usize,
     sync_contribution_queue: usize,
     gossip_voluntary_exit_queue: usize,
@@ -174,6 +175,8 @@ impl BeaconProcessorQueueLengths {
         Ok(Self {
             aggregate_queue: 4096,
             unknown_block_aggregate_queue: 1024,
+            // Capacity for two slot's worth of data columns for a supernode.
+            unknown_block_data_column_queue: 256,
             // Capacity for a full slot's worth of attestations if subscribed to all subnets
             attestation_queue: std::cmp::max(
                 active_validator_count / slots_per_epoch,
@@ -245,6 +248,7 @@ pub struct WorkQueues<E: EthSpec> {
     pub attestation_debounce: TimeLatch,
     pub unknown_block_aggregate_queue: LifoQueue<Work<E>>,
     pub unknown_block_attestation_queue: LifoQueue<Work<E>>,
+    pub unknown_block_data_column_queue: FifoQueue<Work<E>>,
     pub sync_message_queue: LifoQueue<Work<E>>,
     pub sync_contribution_queue: LifoQueue<Work<E>>,
     pub gossip_voluntary_exit_queue: FifoQueue<Work<E>>,
@@ -302,6 +306,8 @@ impl<E: EthSpec> WorkQueues<E> {
             LifoQueue::new(queue_lengths.unknown_block_aggregate_queue);
         let unknown_block_attestation_queue =
             LifoQueue::new(queue_lengths.unknown_block_attestation_queue);
+        let unknown_block_data_column_queue =
+            FifoQueue::new(queue_lengths.unknown_block_data_column_queue);
 
         let sync_message_queue = LifoQueue::new(queue_lengths.sync_message_queue);
         let sync_contribution_queue = LifoQueue::new(queue_lengths.sync_contribution_queue);
@@ -383,6 +389,7 @@ impl<E: EthSpec> WorkQueues<E> {
             attestation_debounce,
             unknown_block_aggregate_queue,
             unknown_block_attestation_queue,
+            unknown_block_data_column_queue,
             sync_message_queue,
             sync_contribution_queue,
             gossip_voluntary_exit_queue,

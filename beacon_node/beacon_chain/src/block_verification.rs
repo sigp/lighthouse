@@ -59,6 +59,7 @@ use crate::execution_payload::{
 };
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_block_producers::SeenBlock;
+use crate::payload_envelope_verification::EnvelopeError;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
@@ -70,7 +71,7 @@ use bls::{PublicKey, PublicKeyBytes};
 use educe::Educe;
 use eth2::types::{BlockGossip, EventKind};
 use execution_layer::PayloadStatus;
-pub use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
+pub use fork_choice::{AttestationFromBlock, ParentImportStatus, PayloadVerificationStatus};
 use metrics::TryExt;
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
@@ -92,7 +93,7 @@ use std::fs;
 use std::io::Write;
 use std::sync::Arc;
 use store::{Error as DBError, KeyValueStore};
-use strum::AsRefStr;
+use strum::{AsRefStr, IntoStaticStr};
 use task_executor::JoinHandle;
 use tracing::{Instrument, Span, debug, debug_span, error, info_span, instrument};
 use types::{
@@ -114,7 +115,7 @@ const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
 ///
 /// - The block is malformed/invalid (indicated by all results other than `BeaconChainError`.
 /// - We encountered an error whilst trying to verify the block (a `BeaconChainError`).
-#[derive(Debug, AsRefStr)]
+#[derive(Debug, AsRefStr, IntoStaticStr)]
 pub enum BlockError {
     /// The parent block was unknown.
     ///
@@ -122,7 +123,9 @@ pub enum BlockError {
     ///
     /// It's unclear if this block is valid, but it cannot be processed without already knowing
     /// its parent.
-    ParentUnknown { parent_root: Hash256 },
+    ParentUnknown {
+        parent_root: Hash256,
+    },
     /// The block slot is greater than the present slot.
     ///
     /// ## Peer scoring
@@ -137,7 +140,10 @@ pub enum BlockError {
     /// ## Peer scoring
     ///
     /// The peer has incompatible state transition logic and is faulty.
-    StateRootMismatch { block: Hash256, local: Hash256 },
+    StateRootMismatch {
+        block: Hash256,
+        local: Hash256,
+    },
     /// The block was a genesis block, these blocks cannot be re-imported.
     GenesisBlock,
     /// The slot is finalized, no need to import.
@@ -156,7 +162,9 @@ pub enum BlockError {
     ///
     /// It's unclear if this block is valid, but it conflicts with finality and shouldn't be
     /// imported.
-    NotFinalizedDescendant { block_parent_root: Hash256 },
+    NotFinalizedDescendant {
+        block_parent_root: Hash256,
+    },
     /// Block is already known and valid, no need to re-import.
     ///
     /// ## Peer scoring
@@ -183,7 +191,10 @@ pub enum BlockError {
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty.
-    IncorrectBlockProposer { block: u64, local_shuffling: u64 },
+    IncorrectBlockProposer {
+        block: u64,
+        local_shuffling: u64,
+    },
     /// The `block.proposal_index` is not known.
     ///
     /// ## Peer scoring
@@ -201,7 +212,10 @@ pub enum BlockError {
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty.
-    BlockIsNotLaterThanParent { block_slot: Slot, parent_slot: Slot },
+    BlockIsNotLaterThanParent {
+        block_slot: Slot,
+        parent_slot: Slot,
+    },
     /// At least one block in the chain segment did not have it's parent root set to the root of
     /// the prior block.
     ///
@@ -257,7 +271,9 @@ pub enum BlockError {
     /// If it's actually our fault (e.g. our execution node database is corrupt) we have bigger
     /// problems to worry about than losing peers, and we're doing the network a favour by
     /// disconnecting.
-    ParentExecutionPayloadInvalid { parent_root: Hash256 },
+    ParentExecutionPayloadInvalid {
+        parent_root: Hash256,
+    },
     /// This is a known invalid block that was listed in Lighthouses configuration.
     /// At the moment this error is only relevant as part of the Holesky network recovery efforts.
     KnownInvalidExecutionPayload(Hash256),
@@ -285,10 +301,6 @@ pub enum BlockError {
     /// TODO: We may need to penalize the peer that gave us a potentially invalid rpc blob.
     /// https://github.com/sigp/lighthouse/issues/4546
     AvailabilityCheck(AvailabilityCheckError),
-    /// The payload envelope's block root is unknown.
-    EnvelopeBlockRootUnknown(Hash256),
-    /// Optimistic sync is not supported for Gloas payload envelopes.
-    OptimisticSyncNotSupported { block_root: Hash256 },
     /// An internal error has occurred when processing the block or sidecars.
     ///
     /// ## Peer scoring
@@ -315,6 +327,7 @@ pub enum BlockError {
         bid_parent_root: Hash256,
         block_parent_root: Hash256,
     },
+    EnvelopeError(Box<EnvelopeError>),
 }
 
 /// Which specific signature(s) are invalid in a SignedBeaconBlock
@@ -336,7 +349,7 @@ impl From<AvailabilityCheckError> for BlockError {
 
 /// Returned when block validation failed due to some issue verifying
 /// the execution payload.
-#[derive(Debug)]
+#[derive(Debug, IntoStaticStr)]
 pub enum ExecutionPayloadError {
     /// There's no eth1 connection (mandatory after merge)
     ///
@@ -485,6 +498,50 @@ impl From<ArithError> for BlockError {
 #[derive(Debug, PartialEq, Clone, Encode, Decode)]
 pub struct PayloadVerificationOutcome {
     pub payload_verification_status: PayloadVerificationStatus,
+}
+
+/// The set of errors that can occur while notifying the execution layer of a new payload.
+///
+/// This is deliberately narrow: notifying the EL can only fail in these two ways. The type is
+/// shared by both the pre-Gloas block import path and the Gloas payload envelope path so that
+/// neither pipeline has to borrow the other's error enum. It converts cleanly into both
+/// [`BlockError`] and [`EnvelopeError`](crate::payload_envelope_verification::EnvelopeError) at the
+/// point where the verification handle is consumed.
+#[derive(Debug)]
+pub enum PayloadVerificationError {
+    /// The execution payload was rejected by, or could not be sent to, the execution engine.
+    ExecutionPayloadError(ExecutionPayloadError),
+    /// An internal error occurred while notifying the execution layer.
+    BeaconChainError(Box<BeaconChainError>),
+}
+
+impl From<ExecutionPayloadError> for PayloadVerificationError {
+    fn from(e: ExecutionPayloadError) -> Self {
+        PayloadVerificationError::ExecutionPayloadError(e)
+    }
+}
+
+impl From<BeaconChainError> for PayloadVerificationError {
+    fn from(e: BeaconChainError) -> Self {
+        PayloadVerificationError::BeaconChainError(Box::new(e))
+    }
+}
+
+impl From<BeaconStateError> for PayloadVerificationError {
+    fn from(e: BeaconStateError) -> Self {
+        PayloadVerificationError::BeaconChainError(Box::new(BeaconChainError::BeaconStateError(e)))
+    }
+}
+
+impl From<PayloadVerificationError> for BlockError {
+    fn from(e: PayloadVerificationError) -> Self {
+        match e {
+            PayloadVerificationError::ExecutionPayloadError(e) => {
+                BlockError::ExecutionPayloadError(e)
+            }
+            PayloadVerificationError::BeaconChainError(e) => BlockError::BeaconChainError(e),
+        }
+    }
 }
 
 /// Information about invalid blocks which might still be slashable despite being invalid.
@@ -657,7 +714,7 @@ pub struct SignatureVerifiedBlock<T: BeaconChainTypes> {
 
 /// Used to await the result of executing payload with an EE.
 pub type PayloadVerificationHandle =
-    JoinHandle<Option<Result<PayloadVerificationOutcome, BlockError>>>;
+    JoinHandle<Option<Result<PayloadVerificationOutcome, PayloadVerificationError>>>;
 
 /// A wrapper around a `SignedBeaconBlock` that indicates that this block is fully verified and
 /// ready to import into the `BeaconChain`. The validation includes:
@@ -870,7 +927,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
 
         let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
         let (parent_block, block) =
-            verify_parent_block_is_known::<T>(&fork_choice_read_lock, block)?;
+            verify_parent_block_and_envelope_are_known::<T>(&fork_choice_read_lock, block)?;
 
         // [New in Gloas]: Verify bid.parent_block_root matches block.parent_root.
         if let Ok(bid) = block.message().body().signed_execution_payload_bid()
@@ -881,13 +938,6 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 block_parent_root: block.message().parent_root(),
             });
         }
-
-        // TODO(gloas) The following validation can only be completed once fork choice has been implemented:
-        // The block's parent execution payload (defined by bid.parent_block_hash) has been seen
-        // (via gossip or non-gossip sources) (a client MAY queue blocks for processing
-        // once the parent payload is retrieved). If execution_payload verification of block's execution
-        // payload parent by an execution node is complete, verify the block's execution payload
-        // parent (defined by bid.parent_block_hash) passes all validation.
 
         drop(fork_choice_read_lock);
 
@@ -1381,32 +1431,23 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             .observe_proposal(block_root, block.message())
             .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
 
-        if let Some(parent) = chain
+        match chain
             .canonical_head
             .fork_choice_read_lock()
-            .get_block(&block.parent_root())
+            .get_parent_import_status(block.as_block())
         {
-            // Reject any block where the parent has an invalid payload. It's impossible for a valid
-            // block to descend from an invalid parent.
-            if parent.execution_status.is_invalid() {
-                return Err(BlockError::ParentExecutionPayloadInvalid {
+            ParentImportStatus::Imported(parent) => {
+                if parent.execution_status.is_invalid() {
+                    return Err(BlockError::ParentExecutionPayloadInvalid {
+                        parent_root: block.parent_root(),
+                    });
+                }
+            }
+            ParentImportStatus::UnknownBlock | ParentImportStatus::UnknownPayload => {
+                return Err(BlockError::ParentUnknown {
                     parent_root: block.parent_root(),
                 });
             }
-        } else {
-            // Reject any block if its parent is not known to fork choice.
-            //
-            // A block that is not in fork choice is either:
-            //
-            //  - Not yet imported: we should reject this block because we should only import a child
-            //  after its parent has been fully imported.
-            //  - Pre-finalized: if the parent block is _prior_ to finalization, we should ignore it
-            //  because it will revert finalization. Note that the finalized block is stored in fork
-            //  choice, so we will not reject any child of the finalized block (this is relevant during
-            //  genesis).
-            return Err(BlockError::ParentUnknown {
-                parent_root: block.parent_root(),
-            });
         }
 
         /*
@@ -1862,19 +1903,20 @@ pub fn get_block_header_root(block_header: &SignedBeaconBlockHeader) -> Hash256 
     block_root
 }
 
-/// Verify the parent of `block` is known, returning some information about the parent block from
-/// fork choice.
+/// Verify the parent block — and, for a post-Gloas FULL child, the parent payload — are known to
+/// fork choice; both missing cases return `ParentUnknown`.
 #[allow(clippy::type_complexity)]
-fn verify_parent_block_is_known<T: BeaconChainTypes>(
+fn verify_parent_block_and_envelope_are_known<T: BeaconChainTypes>(
     fork_choice_read_lock: &RwLockReadGuard<BeaconForkChoice<T>>,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
 ) -> Result<(ProtoBlock, Arc<SignedBeaconBlock<T::EthSpec>>), BlockError> {
-    if let Some(proto_block) = fork_choice_read_lock.get_block(&block.parent_root()) {
-        Ok((proto_block, block))
-    } else {
-        Err(BlockError::ParentUnknown {
-            parent_root: block.parent_root(),
-        })
+    match fork_choice_read_lock.get_parent_import_status(&block) {
+        ParentImportStatus::Imported(parent) => Ok((parent, block)),
+        ParentImportStatus::UnknownBlock | ParentImportStatus::UnknownPayload => {
+            Err(BlockError::ParentUnknown {
+                parent_root: block.parent_root(),
+            })
+        }
     }
 }
 
@@ -1901,7 +1943,7 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
     if !chain
         .canonical_head
         .fork_choice_read_lock()
-        .contains_block(&block.parent_root())
+        .is_parent_imported(block.as_block())
     {
         return Err(BlockError::ParentUnknown {
             parent_root: block.parent_root(),
