@@ -682,21 +682,26 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         downloaded_blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let total_blocks = downloaded_blocks.len();
-        let mut available_blocks = Vec::with_capacity(total_blocks);
-        for block in downloaded_blocks {
-            match block.into_available_block() {
-                Ok((available, _envelope)) => available_blocks.push(available),
-                Err(e) => {
-                    return (
-                        0,
-                        Err(ChainSegmentFailed {
-                            peer_action: Some(PeerAction::LowToleranceError),
-                            message: format!("Block failed availability construction: {:?}", e),
-                        }),
-                    );
-                }
+        let available_blocks = match downloaded_blocks
+            .into_iter()
+            .map(|block| {
+                block
+                    .into_available_block()
+                    .map(|(available, _envelope)| available)
+            })
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(blocks) => blocks,
+            Err(e) => {
+                return (
+                    0,
+                    Err(ChainSegmentFailed {
+                        peer_action: Some(PeerAction::LowToleranceError),
+                        message: format!("Block failed availability construction: {:?}", e),
+                    }),
+                );
             }
-        }
+        };
 
         // TODO(gloas) when implementing backfill sync for gloas
         // we need a batch verify kzg function in the new da checker
@@ -905,29 +910,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 })
             }
             ref err @ BlockError::EnvelopeError(ref envelope_error) => {
-                if envelope_error.penalize_peer() {
-                    debug!(error = ?err, "Invalid execution payload envelope");
-                    Err(ChainSegmentFailed {
-                        message: format!(
-                            "Peer sent an invalid execution payload envelope. Reason: {:?}",
-                            err
-                        ),
-                        peer_action: Some(PeerAction::LowToleranceError),
-                    })
-                } else {
-                    debug!(
-                        outcome = "not penalizing peer",
-                        ?err,
-                        "Execution payload envelope processing failed"
-                    );
-                    Err(ChainSegmentFailed {
-                        message: format!(
-                            "Execution payload envelope processing failed. Reason: {:?}",
-                            err
-                        ),
-                        peer_action: None,
-                    })
-                }
+                debug!(error = ?err, "Invalid execution payload envelope");
+                Err(ChainSegmentFailed {
+                    message: format!("Invalid execution payload envelope: {err:?}"),
+                    peer_action: if envelope_error.penalize_peer() {
+                        Some(PeerAction::LowToleranceError)
+                    } else {
+                        None
+                    },
+                })
             }
             ref err @ BlockError::ExecutionPayloadError(ref epe) => {
                 if !epe.penalize_peer() {
