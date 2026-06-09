@@ -1061,12 +1061,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         block_slot: Slot,
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
     ) -> Result<LookupRequestResult<DataColumnSidecarList<T::EthSpec>>, RpcRequestSendError> {
-        if self
-            .spec()
-            .fork_name_at_slot::<T::EthSpec>(block_slot)
-            .gloas_enabled()
-            && lookup_peers.read().is_empty()
-        {
+        // Code below will issue column requests even if `lookup_peers` is empty. This is not okay,
+        // as we want to have at least one signal that some of our peers has already seen the
+        // block's data.
+        if lookup_peers.read().is_empty() {
             return Ok(LookupRequestResult::Pending("no peers"));
         }
 

@@ -74,16 +74,17 @@ impl AwaitingParent {
             parent_block_hash,
         }
     }
+
     pub fn parent_root(&self) -> Hash256 {
         self.parent_root
+    }
+
+    pub fn into_peer_type(self) -> PeerType {
+        PeerType::new(self.parent_block_hash)
     }
 }
 
 type PeerSet = Arc<RwLock<HashSet<PeerId>>>;
-/// Peers that claim to have imported a FULL child of this lookup's block, keyed by the child's bid
-/// `parent_block_hash` (which equals this block's bid `block_hash` when the child is FULL). Only
-/// such peers are proven to hold this block's execution payload envelope and its data columns.
-type GloasChildPeers = Arc<RwLock<HashMap<ExecutionBlockHash, PeerSet>>>;
 
 #[derive(Debug)]
 struct BlockRequest<E: EthSpec> {
@@ -173,12 +174,6 @@ impl PeerType {
     }
 }
 
-impl From<&AwaitingParent> for PeerType {
-    fn from(value: &AwaitingParent) -> Self {
-        Self::new(value.parent_block_hash)
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub enum ImportedParent {
     LookupComplete,
@@ -203,7 +198,7 @@ pub struct SingleBlockLookup<T: BeaconChainTypes> {
     /// child's bid `parent_block_hash`. These (not `peers`) are the peers proven to hold this
     /// block's payload envelope and data columns.
     #[educe(Debug(method(fmt_peer_map_as_len)))]
-    gloas_child_peers: GloasChildPeers,
+    gloas_child_peers: HashMap<ExecutionBlockHash, PeerSet>,
     awaiting_parent: Option<AwaitingParent>,
     created: Instant,
     pub(crate) span: Span,
@@ -239,7 +234,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             data_request: DataRequest::WaitingForBlock,
             payload_request: PayloadRequest::WaitingForBlock,
             peers: block_peers,
-            gloas_child_peers: Arc::new(RwLock::new(gloas_child_peers)),
+            gloas_child_peers,
             awaiting_parent,
             created: Instant::now(),
             span: lookup_span,
@@ -277,10 +272,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.awaiting_parent.as_ref()
     }
 
-    pub fn is_parent_of(&self, child_awaiting_parent: &AwaitingParent) -> bool {
-        self.block_root == child_awaiting_parent.parent_root
-    }
-
     pub fn is_awaiting_block(&self, block_root: Hash256) -> bool {
         if let Some(awaiting_parent) = &self.awaiting_parent {
             awaiting_parent.parent_root() == block_root
@@ -297,7 +288,13 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
 
     /// Mark this lookup as no longer awaiting a parent lookup. Components can be sent for
     /// processing.
-    pub fn maybe_resolve_awaiting_parent(
+    pub fn resolve_awaiting_parent(&mut self) {
+        self.awaiting_parent = None;
+    }
+
+    /// Check if this lookup awaiting_parent status can be resolved given that `parent_root` and
+    /// `imported_parent` have just been imported
+    pub fn is_awaiting_parent(
         &mut self,
         parent_root: Hash256,
         imported_parent: ImportedParent,
@@ -308,7 +305,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         if awaiting_parent.parent_root() != parent_root {
             return false;
         }
-        let should_resolve = match imported_parent {
+        match imported_parent {
             ImportedParent::LookupComplete => true,
             ImportedParent::OnlyGloasBlock(bid_block_hash) => {
                 if let Some(parent_block_hash) = awaiting_parent.parent_block_hash {
@@ -323,11 +320,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                     false
                 }
             }
-        };
-        if should_resolve {
-            self.awaiting_parent = None;
         }
-        should_resolve
     }
 
     /// Returns the time elapsed since this lookup was created
@@ -402,7 +395,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                         } else if cx.chain.should_fetch_custody_columns(block_epoch) {
                             DataRequest::Request {
                                 slot: block.slot(),
-                                peers: self.get_data_peers(block),
+                                peers: self.get_data_peers(block.payload_bid_block_hash().ok()),
                                 state: SingleLookupRequestState::new(),
                             }
                         } else {
@@ -443,7 +436,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                     if let Some(block) = self.block_request.state.peek_downloaded_data() {
                         self.payload_request = if block.fork_name_unchecked().gloas_enabled() {
                             PayloadRequest::Request {
-                                peers: self.get_data_peers(block),
+                                peers: self.get_data_peers(block.payload_bid_block_hash().ok()),
                                 state: SingleLookupRequestState::new(),
                             }
                         } else {
@@ -494,18 +487,17 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     /// Gloas blocks these are the peers that claimed to have imported a FULL child of this block
     /// (keyed by this block's bid `block_hash`). Pre-Gloas blocks carry no bid, so this returns the
     /// lookup's `peers` unchanged.
-    fn get_data_peers(&self, block: &SignedBeaconBlock<T::EthSpec>) -> PeerSet {
-        match block.payload_bid_block_hash() {
+    fn get_data_peers(&mut self, bid_block_hash: Option<ExecutionBlockHash>) -> PeerSet {
+        if let Some(bid_block_hash) = bid_block_hash {
             // Gloas: the child-attested peer set for this bid is the canonical peer set. DO NOT
             // default to `self.peers`: post-Gloas `self.peers` have not claimed to import this
             // block's data nor its payload. This set may remain empty until a FULL child arrives.
-            Ok(block_hash) => self
-                .gloas_child_peers
-                .write()
-                .entry(block_hash)
+            self.gloas_child_peers
+                .entry(bid_block_hash)
                 .or_default()
-                .clone(),
-            Err(_) => self.peers.clone(),
+                .clone()
+        } else {
+            self.peers.clone()
         }
     }
 
@@ -670,7 +662,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 // payload envelope and data columns.
                 added |= self
                     .gloas_child_peers
-                    .write()
                     .entry(*execution_hash)
                     .or_default()
                     .write()
@@ -686,7 +677,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     /// Remove peer from available peers.
     pub fn remove_peer(&mut self, peer_id: &PeerId) {
         self.peers.write().remove(peer_id);
-        for set in self.gloas_child_peers.read().values() {
+        for set in self.gloas_child_peers.values() {
             set.write().remove(peer_id);
         }
     }
@@ -695,16 +686,18 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     pub fn has_no_peers(&self) -> bool {
         if self.block_request.is_complete()
             && let Some(block) = self.block_request.state.peek_downloaded_data()
-            && block.fork_name_unchecked().gloas_enabled()
+            && let Ok(bid_block_hash) = block.payload_bid_block_hash()
         {
             // Gloas block request complete, the main peer set is irrelevant. Check only the gloas
             // child peers
-            self.get_data_peers(block).read().is_empty()
+            match self.gloas_child_peers.get(&bid_block_hash) {
+                Some(set) => set.read().is_empty(),
+                None => false,
+            }
         } else {
             self.peers.read().is_empty()
                 && self
                     .gloas_child_peers
-                    .read()
                     .values()
                     .all(|set| set.read().is_empty())
         }
@@ -1020,13 +1013,9 @@ fn fmt_peer_set_as_len(
 }
 
 fn fmt_peer_map_as_len(
-    peer_map: &GloasChildPeers,
+    peer_map: &HashMap<ExecutionBlockHash, PeerSet>,
     f: &mut std::fmt::Formatter,
 ) -> Result<(), std::fmt::Error> {
-    let total = peer_map
-        .read()
-        .values()
-        .map(|set| set.read().len())
-        .sum::<usize>();
+    let total = peer_map.values().map(|set| set.read().len()).sum::<usize>();
     write!(f, "{}", total)
 }

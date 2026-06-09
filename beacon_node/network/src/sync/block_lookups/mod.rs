@@ -371,7 +371,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             && !self
                 .single_block_lookups
                 .iter()
-                .any(|(_, lookup)| lookup.is_for_block(awaiting_parent.parent_root()))
+                .any(|(_, lookup)| lookup.block_root() == awaiting_parent.parent_root())
         {
             warn!(block_root = ?awaiting_parent, "Ignoring child lookup parent lookup not found");
             return false;
@@ -523,9 +523,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         cx,
                     );
                 }
-                // Then if this lookup had only empty children, and no children now, we can remove
-                // it. We must make sure that no other lookup is awaiting this one, and that no
-                // requests are on-going.
+                // Then if this lookup happens to have only empty children we can remove it now. We
+                // must make sure that no other lookup is awaiting this one, and that no requests
+                // are on-going.
                 if !lookup_is_awaiting_event && !self.has_any_awaiting_children(block_root) {
                     Ok(LookupResult::Completed)
                 } else {
@@ -558,7 +558,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let mut lookup_results = vec![]; // < need to buffer lookup results to not re-borrow &mut self
 
         for (id, lookup) in self.single_block_lookups.iter_mut() {
-            if lookup.maybe_resolve_awaiting_parent(parent_root, imported_parent) {
+            if lookup.is_awaiting_parent(parent_root, imported_parent) {
+                lookup.resolve_awaiting_parent();
                 debug!(
                     ?imported_parent,
                     id,
@@ -786,7 +787,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             if let Some(lookup) = self
                 .single_block_lookups
                 .values()
-                .find(|l| l.is_parent_of(awaiting_parent))
+                .find(|l| l.block_root() == awaiting_parent.parent_root())
             {
                 self.find_oldest_ancestor_lookup(lookup)
             } else {
@@ -832,12 +833,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             if let Some((&parent_id, _)) = self
                 .single_block_lookups
                 .iter()
-                .find(|(_, l)| l.is_parent_of(&awaiting_parent))
+                .find(|(_, l)| l.block_root() == awaiting_parent.parent_root())
             {
                 self.add_peers_to_lookup_and_ancestors(
                     parent_id,
                     peers,
-                    &(&awaiting_parent).into(),
+                    &awaiting_parent.into_peer_type(),
                     cx,
                 )
             } else {
