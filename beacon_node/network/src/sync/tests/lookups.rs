@@ -17,7 +17,7 @@ use beacon_chain::{
     block_verification_types::{AsBlock, AvailableBlockData},
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, NumBlobs,
-        generate_data_column_sidecars_from_block, generate_rand_block_and_blobs, test_spec,
+        generate_rand_block_and_blobs, test_spec,
     },
 };
 use beacon_processor::{BeaconProcessorChannels, DuplicateCache, Work, WorkEvent};
@@ -965,10 +965,7 @@ impl TestRig {
 
     // Preparation steps
 
-    /// Returns the block root of the tip of the built chain
-    pub(super) async fn build_chain(&mut self, block_count: usize) -> Hash256 {
-        let mut blocks = vec![];
-
+    fn get_external_harness_with_genesis(&mut self) -> BeaconChainHarness<EphemeralHarnessType<E>> {
         // Initialise a new beacon chain
         let external_harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
             .spec(self.harness.spec.clone())
@@ -992,7 +989,17 @@ impl TestRig {
         self.network_blocks_by_slot
             .insert(genesis_block.slot(), genesis_block);
 
-        for i in 0..block_count {
+        external_harness
+    }
+
+    /// Returns the block root of the tip of the built chain
+    pub(super) async fn build_chain(&mut self, block_count: usize) -> Hash256 {
+        let mut blocks = vec![];
+
+        // Initialise a new beacon chain
+        let external_harness = self.get_external_harness_with_genesis();
+
+        for _ in 0..block_count {
             external_harness.advance_slot();
             let block_root = external_harness
                 .extend_chain(
@@ -1002,26 +1009,15 @@ impl TestRig {
                 )
                 .await;
             let block = external_harness.get_full_block(&block_root);
-            let block_root = block.canonical_root();
             let block_slot = block.slot();
-            self.network_blocks_by_root
-                .insert(block_root, block.clone());
-            self.network_blocks_by_slot.insert(block_slot, block);
-            // Cache Gloas envelopes for lookup RPCs.
-            if let Ok(Some(envelope)) = external_harness.chain.get_payload_envelope(&block_root) {
-                self.network_envelopes_by_root
-                    .insert(block_root, Arc::new(envelope));
-            }
-            self.log(&format!(
-                "Produced block {} index {i} in external harness",
-                block_slot,
-            ));
+            self.insert_external_block(
+                block,
+                external_harness
+                    .chain
+                    .get_payload_envelope(&block_root)
+                    .unwrap(),
+            );
             blocks.push((block_slot, block_root));
-        }
-
-        // Re-log to have a nice list of block roots at the end
-        for block in &blocks {
-            self.log(&format!("Build chain {block:?}"));
         }
 
         // Auto-update the clock on the main harness to accept the blocks
@@ -1039,24 +1035,9 @@ impl TestRig {
     /// ```
     pub(super) async fn build_full_empty_fork(&mut self) -> (Hash256, Hash256, Hash256) {
         // Initialise a new beacon chain (mirrors `build_chain`).
-        let external_harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
-            .spec(self.harness.spec.clone())
-            .deterministic_keypairs(TEST_RIG_VALIDATOR_COUNT)
-            .fresh_ephemeral_store()
-            .mock_execution_layer()
-            .testing_slot_clock(self.harness.chain.slot_clock.clone())
-            .node_custody_type(NodeCustodyType::Supernode)
-            .build();
-        external_harness
-            .execution_block_generator()
-            .set_min_blob_count(1);
+        let external_harness = self.get_external_harness_with_genesis();
 
-        let genesis_block = external_harness.get_head_block();
-        self.network_blocks_by_root
-            .insert(genesis_block.canonical_root(), genesis_block.clone());
-        self.network_blocks_by_slot
-            .insert(genesis_block.slot(), genesis_block);
-
+        // G: full canonical block on genesis.
         external_harness.advance_slot();
         let g_root = external_harness
             .extend_chain(
@@ -1065,21 +1046,13 @@ impl TestRig {
                 AttestationStrategy::AllValidators,
             )
             .await;
-        let g_block = external_harness.get_full_block(&g_root);
-        let g_block_hash = g_block.as_block().payload_bid_block_hash().unwrap();
-        self.network_blocks_by_root.insert(g_root, g_block.clone());
-        self.network_blocks_by_slot.insert(g_block.slot(), g_block);
-        self.network_envelopes_by_root.insert(
-            g_root,
-            Arc::new(
-                external_harness
-                    .chain
-                    .get_payload_envelope(&g_root)
-                    .unwrap()
-                    .unwrap(),
-            ),
-        );
+        let g_block_hash = external_harness
+            .get_full_block(&g_root)
+            .as_block()
+            .payload_bid_block_hash()
+            .unwrap();
 
+        // A: full block on G, imported with its envelope so the FULL child below sees A as full.
         external_harness.advance_slot();
         let a_slot = external_harness.get_current_slot();
         let (a_contents, a_envelope, a_state) = external_harness
@@ -1096,37 +1069,25 @@ impl TestRig {
         external_harness.advance_slot();
         let child_slot = external_harness.get_current_slot();
 
-        // C: EMPTY child of A.
-        let (c_contents, c_envelope, _) = external_harness
+        // C: EMPTY child of A. Built before A's envelope is imported, so its bid points at G.
+        let (c_contents, c_envelope, c_state) = external_harness
             .make_block_with_envelope(a_state.clone(), child_slot)
             .await;
-        let c_block = c_contents.0;
+        let c_block = c_contents.0.clone();
         let c_root = c_block.canonical_root();
-        let c_columns = generate_data_column_sidecars_from_block(
-            c_block.as_ref(),
-            &external_harness.chain.spec,
-        );
 
+        // Import A's envelope so the next child sees A as full.
         let a_envelope = a_envelope.expect("A should have envelope");
         external_harness
-            .process_envelope(a_root, a_envelope.clone(), &a_state, a_block.state_root())
+            .process_envelope(a_root, a_envelope, &a_state, a_block.state_root())
             .await;
-        let a_block = external_harness.get_full_block(&a_root);
-        self.network_blocks_by_root.insert(a_root, a_block.clone());
-        self.network_blocks_by_slot.insert(a_slot, a_block);
-        self.network_envelopes_by_root
-            .insert(a_root, Arc::new(a_envelope));
 
-        // B: FULL child of A.
-        let (b_contents, b_envelope, _) = external_harness
+        // B: FULL child of A. Built after A's envelope is imported, so its bid points at A.
+        let (b_contents, b_envelope, b_state) = external_harness
             .make_block_with_envelope(a_state.clone(), child_slot)
             .await;
-        let b_block = b_contents.0;
+        let b_block = b_contents.0.clone();
         let b_root = b_block.canonical_root();
-        let b_columns = generate_data_column_sidecars_from_block(
-            b_block.as_ref(),
-            &external_harness.chain.spec,
-        );
 
         assert_eq!(
             (
@@ -1139,8 +1100,33 @@ impl TestRig {
             (a_root, a_root, true, false, true)
         );
 
-        self.insert_external_block(b_block, b_envelope, b_columns);
-        self.insert_external_block(c_block, c_envelope, c_columns);
+        // Import both children (and their envelopes) so every block is served through the same
+        // `get_full_block` path as the rest of the chain.
+        external_harness
+            .process_block(child_slot, c_root, c_contents)
+            .await
+            .unwrap();
+        if let Some(c_envelope) = c_envelope {
+            external_harness
+                .process_envelope(c_root, c_envelope, &c_state, c_block.state_root())
+                .await;
+        }
+        external_harness
+            .process_block(child_slot, b_root, b_contents)
+            .await
+            .unwrap();
+        if let Some(b_envelope) = b_envelope {
+            external_harness
+                .process_envelope(b_root, b_envelope, &b_state, b_block.state_root())
+                .await;
+        }
+
+        // Cache every block through the single `get_full_block` + `insert_external_block2` path.
+        for root in [g_root, a_root, c_root, b_root] {
+            let block = external_harness.get_full_block(&root);
+            let envelope = external_harness.chain.get_payload_envelope(&root).unwrap();
+            self.insert_external_block(block, envelope);
+        }
 
         self.harness.set_current_slot(child_slot);
 
@@ -1167,35 +1153,24 @@ impl TestRig {
         Some((r, fork))
     }
 
-    /// Insert an external block into the rig's network maps.
     fn insert_external_block(
         &mut self,
-        block: Arc<SignedBeaconBlock<E>>,
+        block: RangeSyncBlock<E>,
         envelope: Option<SignedExecutionPayloadEnvelope<E>>,
-        columns: types::DataColumnSidecarList<E>,
     ) {
         let block_root = block.canonical_root();
         let block_slot = block.slot();
-        let block_data = if columns.is_empty() {
-            AvailableBlockData::NoData
-        } else {
-            AvailableBlockData::new_with_data_columns(columns)
-        };
-        let range_sync_block = RangeSyncBlock::new(
-            block,
-            block_data,
-            &self.harness.chain.data_availability_checker,
-            self.harness.chain.spec.clone(),
-        )
-        .unwrap();
-        self.network_blocks_by_slot
-            .insert(block_slot, range_sync_block.clone());
         self.network_blocks_by_root
-            .insert(block_root, range_sync_block);
+            .insert(block_root, block.clone());
+        self.network_blocks_by_slot.insert(block_slot, block);
+        // Cache Gloas envelopes for lookup RPCs.
         if let Some(envelope) = envelope {
             self.network_envelopes_by_root
-                .insert(block_root, Arc::new(envelope));
+                .insert(block_root, envelope.into());
         }
+        self.log(&format!(
+            "Produced block {block_root:?} slot {block_slot} in external harness",
+        ));
     }
 
     fn corrupt_last_block_signature(&mut self) {
