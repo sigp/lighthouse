@@ -974,32 +974,34 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // TODO(gloas): implement publish partial columns without eager send
         if let Some(assembler) = self.chain.data_availability_checker.partial_assembler() {
             let columns = assembler.get_columns_and_mark_as_local_fetched(block_root, &header);
+            // Republish both complete and incomplete columns as partials
+            let columns: Vec<_> = columns
+                .into_iter()
+                .filter_map(|column| match column {
+                    AssemblyColumn::Incomplete(partial) => Some(partial.into_inner()),
+                    AssemblyColumn::Complete(full) => {
+                        let DataColumnSidecar::Fulu(fulu) = full.as_data_column() else {
+                            return None;
+                        };
+                        match fulu.to_partial() {
+                            Ok(partial) => Some(Arc::new(partial)),
+                            Err(err) => {
+                                error!(
+                                    %block_root,
+                                    column_index = %full.index(),
+                                    ?err,
+                                    "Failed to convert complete column to partial for re-seeding"
+                                );
+                                None
+                            }
+                        }
+                    }
+                })
+                .collect();
             if !columns.is_empty() {
                 debug!(block = %block_root, "Publishing all partials after getBlobs");
                 self.send_network_message(NetworkMessage::PublishPartialColumns {
-                    columns: columns
-                        .into_iter()
-                        // Republish both complete and incomplete columns as partials
-                        .filter_map(|column| match column {
-                            AssemblyColumn::Incomplete(partial) => Some(partial.into_inner()),
-                            AssemblyColumn::Complete(full) => {
-                                let DataColumnSidecar::Fulu(fulu) = full.as_data_column() else {
-                                    return None;
-                                };
-                                match fulu.to_partial() {
-                                    Ok(partial) => Some(Arc::new(partial)),
-                                    Err(err) => {
-                                        error!(
-                                            %block_root,
-                                            column_index = %full.index(),
-                                            ?err,
-                                            "Failed to convert complete column to partial for re-seeding"
-                                        );
-                                        None
-                                    }
-                                }
-                            }})
-                        .collect(),
+                    columns,
                     header,
                 });
             } else {
