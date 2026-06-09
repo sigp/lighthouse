@@ -2795,6 +2795,96 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 return;
             }
+            AttnError::UnknownPayloadEnvelope { beacon_block_root } => {
+                trace!(
+                    %peer_id,
+                    block = ?beacon_block_root,
+                    "Payload-present attestation for block with unseen payload envelope"
+                );
+                if allow_reprocess {
+                    // We haven't seen the block's payload envelope yet. Ask the sync manager to
+                    // retrieve it, and schedule the attestation for re-processing once it arrives.
+                    self.sync_tx
+                        .send(SyncMessage::UnknownPayloadEnvelopeFromAttestation(
+                            peer_id,
+                            *beacon_block_root,
+                        ))
+                        .unwrap_or_else(|_| {
+                            warn!(
+                                msg = "UnknownPayloadEnvelope",
+                                "Failed to send to sync service"
+                            )
+                        });
+                    let msg = match failed_att {
+                        FailedAtt::Aggregate {
+                            attestation,
+                            seen_timestamp,
+                        } => {
+                            metrics::inc_counter(
+                                &metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_REQUEUED_TOTAL,
+                            );
+                            let processor = self.clone();
+                            ReprocessQueueMessage::UnknownPayloadAggregate(QueuedAggregate {
+                                beacon_block_root: *beacon_block_root,
+                                process_fn: Box::new(move || {
+                                    processor.process_gossip_aggregate(
+                                        message_id,
+                                        peer_id,
+                                        attestation,
+                                        false, // Do not allow this attestation to be re-processed beyond this point.
+                                        seen_timestamp,
+                                    )
+                                }),
+                            })
+                        }
+                        FailedAtt::Unaggregate {
+                            attestation,
+                            subnet_id,
+                            should_import,
+                            seen_timestamp,
+                        } => {
+                            metrics::inc_counter(
+                                &metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_REQUEUED_TOTAL,
+                            );
+                            let processor = self.clone();
+                            ReprocessQueueMessage::UnknownPayloadUnaggregate(QueuedUnaggregate {
+                                beacon_block_root: *beacon_block_root,
+                                process_fn: Box::new(move || {
+                                    processor.process_gossip_attestation(
+                                        message_id,
+                                        peer_id,
+                                        attestation,
+                                        subnet_id,
+                                        should_import,
+                                        false, // Do not allow this attestation to be re-processed beyond this point.
+                                        seen_timestamp,
+                                    )
+                                }),
+                            })
+                        }
+                    };
+
+                    if self
+                        .beacon_processor_send
+                        .try_send(WorkEvent {
+                            drop_during_sync: false,
+                            work: Work::Reprocess(msg),
+                        })
+                        .is_err()
+                    {
+                        error!("Failed to send attestation for re-processing")
+                    }
+                } else {
+                    // We shouldn't make any further attempts to process this attestation.
+                    self.propagate_validation_result(
+                        message_id,
+                        peer_id,
+                        MessageAcceptance::Ignore,
+                    );
+                }
+
+                return;
+            }
             AttnError::UnknownTargetRoot(_) => {
                 /*
                  * The block indicated by the target root is not known to us.

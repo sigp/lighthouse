@@ -174,6 +174,14 @@ pub enum Error {
     /// The attestation points to a block we have not yet imported. It's unclear if the attestation
     /// is valid or not.
     UnknownHeadBlock { beacon_block_root: Hash256 },
+    /// A payload-present attestation (`index == 1`) references a block whose execution payload
+    /// envelope has not been seen yet.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The attestation may be valid once the payload envelope is retrieved; it's unclear if the
+    /// attestation is valid or not, so it is ignored (not penalized) pending the envelope.
+    UnknownPayloadEnvelope { beacon_block_root: Hash256 },
     /// The `attestation.data.beacon_block_root` block is from before the finalized checkpoint.
     ///
     /// ## Peer scoring

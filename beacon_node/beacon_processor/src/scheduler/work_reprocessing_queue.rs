@@ -119,6 +119,9 @@ pub enum ReprocessQueueMessage {
         block_root: Hash256,
         parent_root: Hash256,
     },
+    /// A block's execution payload envelope was imported. We use this to release attestations that
+    /// claim payload-present (`index == 1`) for a block whose payload had not yet been seen.
+    PayloadEnvelopeImported { block_root: Hash256 },
     /// A new `LightClientOptimisticUpdate` has been produced. We use this to handle light client
     /// updates for unknown parent blocks.
     NewLightClientOptimisticUpdate { parent_root: Hash256 },
@@ -126,6 +129,12 @@ pub enum ReprocessQueueMessage {
     UnknownBlockUnaggregate(QueuedUnaggregate),
     /// An aggregated attestation that references an unknown block.
     UnknownBlockAggregate(QueuedAggregate),
+    /// An unaggregated attestation (`index == 1`) whose block's execution payload envelope has not
+    /// been seen yet.
+    UnknownPayloadUnaggregate(QueuedUnaggregate),
+    /// An aggregated attestation (`index == 1`) whose block's execution payload envelope has not
+    /// been seen yet.
+    UnknownPayloadAggregate(QueuedAggregate),
     /// A light client optimistic update that references a parent root that has not been seen as a parent.
     UnknownLightClientOptimisticUpdate(QueuedLightClientUpdate),
     /// A new backfill batch that needs to be scheduled for processing.
@@ -296,6 +305,9 @@ struct ReprocessQueue<S> {
     queued_unaggregates: FnvHashMap<usize, (QueuedUnaggregate, DelayKey)>,
     /// Attestations (aggregated and unaggregated) per root.
     awaiting_attestations_per_root: HashMap<Hash256, Vec<QueuedAttestationId>>,
+    /// Attestations (aggregated and unaggregated) awaiting a block's execution payload envelope,
+    /// keyed by block root. Released on `PayloadEnvelopeImported`.
+    awaiting_attestations_per_payload: HashMap<Hash256, Vec<QueuedAttestationId>>,
     /// Queued Light Client Updates.
     queued_lc_updates: FnvHashMap<usize, (QueuedLightClientUpdate, DelayKey)>,
     /// Light Client Updates per parent_root.
@@ -494,6 +506,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
             queued_aggregates: FnvHashMap::default(),
             queued_unaggregates: FnvHashMap::default(),
             awaiting_attestations_per_root: HashMap::new(),
+            awaiting_attestations_per_payload: HashMap::new(),
             awaiting_lc_updates_per_parent_root: HashMap::new(),
             queued_backfill_batches: Vec::new(),
             queued_column_reconstructions: HashMap::new(),
@@ -718,6 +731,70 @@ impl<S: SlotClock> ReprocessQueue<S> {
 
                 self.next_attestation += 1;
             }
+            InboundEvent::Msg(UnknownPayloadAggregate(queued_aggregate)) => {
+                if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
+                    if self.attestation_delay_debounce.elapsed() {
+                        error!(
+                            queue_size = MAXIMUM_QUEUED_ATTESTATIONS,
+                            msg = "system resources may be saturated",
+                            "Aggregate attestation delay queue is full"
+                        );
+                    }
+                    // Drop the attestation.
+                    return;
+                }
+
+                let att_id = QueuedAttestationId::Aggregate(self.next_attestation);
+
+                // Register the delay.
+                let delay_key = self
+                    .attestations_delay_queue
+                    .insert(att_id, QUEUED_ATTESTATION_DELAY);
+
+                // Register this attestation against the block whose payload envelope it awaits.
+                self.awaiting_attestations_per_payload
+                    .entry(*queued_aggregate.beacon_block_root())
+                    .or_default()
+                    .push(att_id);
+
+                // Store the attestation and its info.
+                self.queued_aggregates
+                    .insert(self.next_attestation, (queued_aggregate, delay_key));
+
+                self.next_attestation += 1;
+            }
+            InboundEvent::Msg(UnknownPayloadUnaggregate(queued_unaggregate)) => {
+                if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
+                    if self.attestation_delay_debounce.elapsed() {
+                        error!(
+                            queue_size = MAXIMUM_QUEUED_ATTESTATIONS,
+                            msg = "system resources may be saturated",
+                            "Attestation delay queue is full"
+                        );
+                    }
+                    // Drop the attestation.
+                    return;
+                }
+
+                let att_id = QueuedAttestationId::Unaggregate(self.next_attestation);
+
+                // Register the delay.
+                let delay_key = self
+                    .attestations_delay_queue
+                    .insert(att_id, QUEUED_ATTESTATION_DELAY);
+
+                // Register this attestation against the block whose payload envelope it awaits.
+                self.awaiting_attestations_per_payload
+                    .entry(*queued_unaggregate.beacon_block_root())
+                    .or_default()
+                    .push(att_id);
+
+                // Store the attestation and its info.
+                self.queued_unaggregates
+                    .insert(self.next_attestation, (queued_unaggregate, delay_key));
+
+                self.next_attestation += 1;
+            }
             InboundEvent::Msg(UnknownBlockDataColumn(queued_data_column)) => {
                 let block_root = queued_data_column.beacon_block_root;
 
@@ -878,6 +955,59 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         {
                             error!(?block_root, "Failed to send data column for reprocessing");
                         }
+                    }
+                }
+            }
+            InboundEvent::Msg(PayloadEnvelopeImported { block_root }) => {
+                // Release attestations that were awaiting this block's execution payload envelope.
+                if let Some(queued_ids) = self.awaiting_attestations_per_payload.remove(&block_root)
+                {
+                    let mut failed_to_send_count = 0;
+
+                    for id in queued_ids {
+                        metrics::inc_counter(
+                            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_ATTESTATIONS,
+                        );
+
+                        if let Some((work, delay_key)) = match id {
+                            QueuedAttestationId::Aggregate(id) => self
+                                .queued_aggregates
+                                .remove(&id)
+                                .map(|(aggregate, delay_key)| {
+                                    (ReadyWork::Aggregate(aggregate), delay_key)
+                                }),
+                            QueuedAttestationId::Unaggregate(id) => self
+                                .queued_unaggregates
+                                .remove(&id)
+                                .map(|(unaggregate, delay_key)| {
+                                    (ReadyWork::Unaggregate(unaggregate), delay_key)
+                                }),
+                        } {
+                            // Remove the delay.
+                            self.attestations_delay_queue.remove(&delay_key);
+
+                            // Send the work.
+                            if self.ready_work_tx.try_send(work).is_err() {
+                                failed_to_send_count += 1;
+                            }
+                        } else {
+                            // There is a mismatch between the attestation ids registered for this
+                            // root and the queued attestations. This should never happen.
+                            error!(
+                                ?block_root,
+                                att_id = ?id,
+                                "Unknown queued attestation for payload envelope"
+                            );
+                        }
+                    }
+
+                    if failed_to_send_count > 0 {
+                        error!(
+                            hint = "system may be overloaded",
+                            ?block_root,
+                            failed_count = failed_to_send_count,
+                            "Ignored scheduled attestation(s) for payload envelope"
+                        );
                     }
                 }
             }

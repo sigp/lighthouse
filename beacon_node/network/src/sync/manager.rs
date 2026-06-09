@@ -155,6 +155,11 @@ pub enum SyncMessage<E: EthSpec> {
     /// manager to attempt to find the block matching the unknown hash.
     UnknownBlockHashFromAttestation(PeerId, Hash256),
 
+    /// A peer has sent a payload-present attestation (`index == 1`) for a block whose execution
+    /// payload envelope we have not seen. This triggers the manager to fetch the payload envelope
+    /// for `block_root` via `ExecutionPayloadEnvelopesByRoot`.
+    UnknownPayloadEnvelopeFromAttestation(PeerId, Hash256),
+
     /// A peer has disconnected.
     Disconnect(PeerId),
 
@@ -886,6 +891,15 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     debug!(?block_root, ?peer_id, "Received unknown block hash message");
                     self.handle_unknown_block_root(peer_id, block_root);
                 }
+            }
+            SyncMessage::UnknownPayloadEnvelopeFromAttestation(peer_id, block_root) => {
+                // TODO(gloas): trigger a payload-envelope lookup for `block_root` via
+                // `ExecutionPayloadEnvelopesByRoot`. Wired up in the gloas lookup-sync PR (#9155).
+                debug!(
+                    ?block_root,
+                    ?peer_id,
+                    "Received unknown payload envelope from attestation"
+                );
             }
             SyncMessage::Disconnect(peer_id) => {
                 debug!(%peer_id, "Received disconnected message");
