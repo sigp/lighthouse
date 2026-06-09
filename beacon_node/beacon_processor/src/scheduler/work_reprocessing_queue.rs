@@ -1163,18 +1163,25 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         );
                     }
 
-                    if let Entry::Occupied(mut queued_atts) =
-                        self.awaiting_attestations_per_root.entry(root)
-                        && let Some(index) =
-                            queued_atts.get().iter().position(|&id| id == queued_id)
-                    {
-                        let queued_atts_mut = queued_atts.get_mut();
-                        queued_atts_mut.swap_remove(index);
+                    // The attestation is awaiting either its block or its payload envelope; prune it
+                    // from whichever map holds it (the other lookup is a no-op) to avoid leaking the
+                    // entry on expiry.
+                    for awaiting in [
+                        &mut self.awaiting_attestations_per_root,
+                        &mut self.awaiting_attestations_per_payload,
+                    ] {
+                        if let Entry::Occupied(mut queued_atts) = awaiting.entry(root)
+                            && let Some(index) =
+                                queued_atts.get().iter().position(|&id| id == queued_id)
+                        {
+                            let queued_atts_mut = queued_atts.get_mut();
+                            queued_atts_mut.swap_remove(index);
 
-                        // If the vec is empty after this attestation's removal, we need to delete
-                        // the entry to prevent bloating the hashmap indefinitely.
-                        if queued_atts_mut.is_empty() {
-                            queued_atts.remove_entry();
+                            // If the vec is empty after this attestation's removal, we need to
+                            // delete the entry to prevent bloating the hashmap indefinitely.
+                            if queued_atts_mut.is_empty() {
+                                queued_atts.remove_entry();
+                            }
                         }
                     }
                 }
@@ -1540,6 +1547,70 @@ mod tests {
 
         // The entry for the block root should be gone.
         assert!(queue.awaiting_attestations_per_root.is_empty());
+    }
+
+    // Regression test for the same memory leak as `prune_awaiting_attestations_per_root`, but for
+    // attestations awaiting a block's execution payload envelope.
+    #[tokio::test]
+    async fn prune_awaiting_attestations_per_payload() {
+        create_test_tracing_subscriber();
+
+        let mut queue = test_queue();
+
+        // Pause time so it only advances manually
+        tokio::time::pause();
+
+        let beacon_block_root = Hash256::repeat_byte(0xaf);
+
+        // Insert a payload-present attestation awaiting its payload envelope.
+        let att = ReprocessQueueMessage::UnknownPayloadUnaggregate(QueuedUnaggregate {
+            beacon_block_root,
+            process_fn: Box::new(|| {}),
+        });
+        queue.handle_message(InboundEvent::Msg(att));
+
+        // Check that it is queued.
+        assert_eq!(queue.awaiting_attestations_per_payload.len(), 1);
+        assert!(
+            queue
+                .awaiting_attestations_per_payload
+                .contains_key(&beacon_block_root)
+        );
+
+        // Advance time to expire the attestation.
+        advance_time(&queue.slot_clock, 2 * QUEUED_ATTESTATION_DELAY).await;
+        let ready_msg = queue.next().await.unwrap();
+        assert!(matches!(ready_msg, InboundEvent::ReadyAttestation(_)));
+        queue.handle_message(ready_msg);
+
+        // The entry should be pruned on expiry.
+        assert!(queue.awaiting_attestations_per_payload.is_empty());
+    }
+
+    // The payload envelope import releases attestations awaiting that block's payload.
+    #[tokio::test]
+    async fn release_awaiting_attestations_on_payload_envelope_imported() {
+        create_test_tracing_subscriber();
+
+        let mut queue = test_queue();
+        tokio::time::pause();
+
+        let beacon_block_root = Hash256::repeat_byte(0xaf);
+
+        let att = ReprocessQueueMessage::UnknownPayloadUnaggregate(QueuedUnaggregate {
+            beacon_block_root,
+            process_fn: Box::new(|| {}),
+        });
+        queue.handle_message(InboundEvent::Msg(att));
+        assert_eq!(queue.awaiting_attestations_per_payload.len(), 1);
+
+        // Importing the payload envelope drains the awaiting attestations for that root.
+        queue.handle_message(InboundEvent::Msg(
+            ReprocessQueueMessage::PayloadEnvelopeImported {
+                block_root: beacon_block_root,
+            },
+        ));
+        assert!(queue.awaiting_attestations_per_payload.is_empty());
     }
 
     // This is a regression test for a memory leak in `awaiting_lc_updates_per_parent_root`.
