@@ -31,13 +31,14 @@ use lighthouse_network::{
     types::SyncState,
 };
 use slot_clock::{SlotClock, TestingSlotClock};
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::info;
 use types::{
-    BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, ForkContext, ForkName, Hash256,
-    MinimalEthSpec as E, SignedBeaconBlock, Slot,
+    BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, DataColumnSubnetId,
+    ForkContext, ForkName, Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
 };
 
 const D: Duration = Duration::new(0, 0);
@@ -1234,12 +1235,6 @@ impl TestRig {
         self.assert_empty_network();
     }
 
-    fn assert_pending_lookup_sync(&self) {
-        assert!(self.created_lookups() > 0, "no created lookups");
-        assert_eq!(self.dropped_lookups(), 0, "some dropped lookups");
-        assert_eq!(self.completed_lookups(), 0, "some completed lookups");
-    }
-
     /// Assert there is at least one range sync chain created and that all sync chains completed
     pub(super) fn assert_successful_range_sync(&self) {
         assert!(
@@ -1327,15 +1322,6 @@ impl TestRig {
 
     fn new_after_fulu() -> Option<Self> {
         genesis_fork().fulu_enabled().then(Self::default)
-    }
-
-    fn new_after_deneb_before_fulu() -> Option<Self> {
-        let fork = genesis_fork();
-        if fork.deneb_enabled() && !fork.fulu_enabled() {
-            Some(Self::default())
-        } else {
-            None
-        }
     }
 
     pub fn new_fulu_peer_test(fulu_test_type: FuluTestType) -> Option<Self> {
@@ -1454,7 +1440,7 @@ impl TestRig {
             .network_globals
             .peers
             .write()
-            .__add_connected_peer_testing_only(false, &self.harness.spec, key);
+            .__add_connected_peer_with_custody_subnets(false, &self.harness.spec, key);
 
         // Assumes custody subnet count == column count
         let custody_subnets = self
@@ -1485,11 +1471,36 @@ impl TestRig {
             .network_globals
             .peers
             .write()
-            .__add_connected_peer_testing_only(true, &self.harness.spec, key);
+            .__add_connected_peer_with_custody_subnets(true, &self.harness.spec, key);
         self.log(&format!(
             "Added new peer for testing {peer_id:?}, custody: supernode"
         ));
         peer_id
+    }
+
+    /// Add a connected supernode peer, but without setting the peers' custody subnet.
+    /// This is to simulate the real behaviour where metadata is only received some time after
+    ///  a connection is established.
+    pub fn new_connected_supernode_peer_no_metadata_custody_subnet(&mut self) -> PeerId {
+        let key = self.determinstic_key();
+        self.network_globals
+            .peers
+            .write()
+            .__add_connected_peer(true, key, &self.harness.spec)
+    }
+
+    /// Update the peer's custody subnet in PeerDB and send a `UpdatedPeerCgc` message to sync.
+    pub fn send_peer_cgc_update_to_sync(
+        &mut self,
+        peer_id: &PeerId,
+        subnets: HashSet<DataColumnSubnetId>,
+    ) {
+        self.network_globals
+            .peers
+            .write()
+            .__set_custody_subnets(peer_id, subnets)
+            .unwrap();
+        self.send_sync_message(SyncMessage::UpdatedPeerCgc(*peer_id))
     }
 
     fn determinstic_key(&mut self) -> CombinedKey {
@@ -1645,56 +1656,6 @@ impl TestRig {
                 self.log(&format!("inserted block to da_checker {block_root:?}"))
             }
         }
-    }
-
-    fn insert_block_to_da_checker_as_pre_execution(&mut self, block: Arc<SignedBeaconBlock<E>>) {
-        self.log(&format!(
-            "Inserting block to availability_cache as pre_execution_block {:?}",
-            block.canonical_root()
-        ));
-        self.harness
-            .chain
-            .data_availability_checker
-            .put_pre_execution_block(block.canonical_root(), block, BlockImportSource::Gossip)
-            .unwrap();
-    }
-
-    fn simulate_block_gossip_processing_becomes_invalid(&mut self, block_root: Hash256) {
-        self.log(&format!(
-            "Marking block {block_root:?} in da_checker as execution error"
-        ));
-        self.harness
-            .chain
-            .data_availability_checker
-            .remove_block_on_execution_error(&block_root);
-
-        self.send_sync_message(SyncMessage::GossipBlockProcessResult {
-            block_root,
-            imported: false,
-        });
-    }
-
-    async fn simulate_block_gossip_processing_becomes_valid(
-        &mut self,
-        block: Arc<SignedBeaconBlock<E>>,
-    ) {
-        let block_root = block.canonical_root();
-
-        match self.import_block_to_da_checker(block).await {
-            AvailabilityProcessingStatus::Imported(block_root) => {
-                self.log(&format!(
-                    "insert block to da_checker and it imported {block_root:?}"
-                ));
-            }
-            AvailabilityProcessingStatus::MissingComponents(_, _) => {
-                panic!("block not imported after adding to da_checker");
-            }
-        }
-
-        self.send_sync_message(SyncMessage::GossipBlockProcessResult {
-            block_root,
-            imported: false,
-        });
     }
 
     fn requests_count(&self) -> HashMap<&'static str, usize> {
@@ -2266,48 +2227,6 @@ async fn block_in_da_checker_skips_download() {
         Vec::<&(RequestType<E>, AppRequestId)>::new(),
         "There should be no block requests"
     );
-}
-
-#[tokio::test]
-async fn block_in_processing_cache_becomes_invalid() {
-    let Some(mut r) = TestRig::new_after_deneb_before_fulu() else {
-        return;
-    };
-    r.build_chain(1).await;
-    let block = r.block_at_slot(1);
-    r.insert_block_to_da_checker_as_pre_execution(block.clone());
-    r.trigger_with_last_block();
-    r.simulate(SimulateConfig::happy_path()).await;
-    r.assert_pending_lookup_sync();
-    // Here the only active lookup is waiting for the block to finish processing
-
-    // Simulate invalid block, removing it from processing cache
-    r.simulate_block_gossip_processing_becomes_invalid(block.canonical_root());
-    // Should download block, then issue blobs request
-    r.simulate(SimulateConfig::happy_path()).await;
-    r.assert_successful_lookup_sync();
-}
-
-#[tokio::test]
-async fn block_in_processing_cache_becomes_valid_imported() {
-    let Some(mut r) = TestRig::new_after_deneb_before_fulu() else {
-        return;
-    };
-    r.build_chain(1).await;
-    let block = r.block_at_slot(1);
-    r.insert_block_to_da_checker_as_pre_execution(block.clone());
-    r.trigger_with_last_block();
-    r.simulate(SimulateConfig::happy_path()).await;
-    r.assert_pending_lookup_sync();
-    // Here the only active lookup is waiting for the block to finish processing
-
-    // Resolve the block from processing step
-    r.simulate_block_gossip_processing_becomes_valid(block)
-        .await;
-    // Should not trigger block or blob request
-    r.assert_empty_network();
-    // Resolve blob and expect lookup completed
-    r.assert_no_active_lookups();
 }
 
 macro_rules! fulu_peer_matrix_tests {

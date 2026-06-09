@@ -367,7 +367,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     )
                     .await
             }
-            Err(e) => Err(e),
+            Err(e) => Err(e.into()),
         };
 
         // TODO(gloas): structured penalty classification arrives with the envelope lookup state
@@ -1025,6 +1025,10 @@ impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingR
                             None
                         }
                     }
+                    BlockError::EnvelopeError(_) => {
+                        // TODO(gloas): penalize correctly in range sync PR
+                        None
+                    }
                     // Remaining invalid blocks: penalize the block peer. Listed explicitly so a
                     // new `BlockError` variant forces a compile error here.
                     BlockError::FutureSlot { .. }
@@ -1044,8 +1048,6 @@ impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingR
                     | BlockError::ParentExecutionPayloadInvalid { .. }
                     | BlockError::KnownInvalidExecutionPayload(_)
                     | BlockError::Slashable
-                    | BlockError::EnvelopeBlockRootUnknown(_)
-                    | BlockError::OptimisticSyncNotSupported { .. }
                     | BlockError::InvalidBlobCount { .. }
                     | BlockError::BidParentRootMismatch { .. } => block_peer_penalty(&e),
                 };
