@@ -278,7 +278,7 @@ pub fn get_validator_attestation_data<T: BeaconChainTypes>(
                     }
 
                     chain
-                        .produce_unaggregated_attestation(query.slot, query.committee_index)
+                        .produce_unaggregated_attestation(query.slot, 0)
                         .map(|attestation| attestation.data().clone())
                         .map(GenericResponse::from)
                         .map_err(warp_utils::reject::unhandled_error)
