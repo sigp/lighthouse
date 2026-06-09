@@ -917,7 +917,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "Gossipsub data column processed, imported fully available block"
                     );
                     self.chain.recompute_head_at_current_slot().await;
-                    self.maybe_reprocess_after_column_import(slot, block_root);
+                    self.notify_import_after_column(slot, block_root);
 
                     metrics::set_gauge(
                         &metrics::BEACON_BLOB_DELAY_FULL_VERIFICATION,
@@ -1312,7 +1312,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "Data column from partial processed, imported fully available block"
                     );
                     self.chain.recompute_head_at_current_slot().await;
-                    self.maybe_reprocess_after_column_import(*slot, *block_root);
+                    self.notify_import_after_column(*slot, *block_root);
 
                     metrics::set_gauge(
                         &metrics::BEACON_BLOB_DELAY_FULL_VERIFICATION,
@@ -3882,7 +3882,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Inform the reprocess queue that a fully available block (or its payload envelope, post-gloas)
     /// has been imported, so any attestations waiting on it can be released.
-    fn maybe_reprocess_after_column_import(&self, slot: Slot, block_root: Hash256) {
+    fn notify_import_after_column(&self, slot: Slot, block_root: Hash256) {
         if self
             .chain
             .spec
