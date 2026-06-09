@@ -1398,15 +1398,10 @@ impl<E: EthSpec> BeaconState<E> {
 
         // Post-Gloas, slashed validators are excluded from proposer selection
         if self.fork_name_unchecked().gloas_enabled() {
-            if self.slashings_cache_is_initialized() {
-                let slashings_cache = self.slashings_cache();
-                indices.retain(|&index| !slashings_cache.is_slashed(index));
-            } else {
-                // Fallback incase the slashing cache isnt initialized for the current slot.
-                // The slashing cache may be cold during block replay or state reconstruction.
-                // This fallback makes the slashing checks infallible.
-                indices.retain(|&index| self.validators().get(index).is_some_and(|v| !v.slashed));
-            }
+            let latest_block_slot = self.latest_block_header().slot;
+            let slashings_cache = self.slashings_cache();
+            slashings_cache.check_initialized(latest_block_slot)?;
+            indices.retain(|&index| !slashings_cache.is_slashed(index));
         }
 
         let preimage = self.get_seed(epoch, Domain::BeaconProposer, spec)?;
