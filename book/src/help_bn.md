@@ -211,6 +211,11 @@ Options:
       --http-tls-key <http-tls-key>
           The path of the private key to be used when serving the HTTP API
           server over TLS. Must not be password-protected.
+      --http-unix-socket <PATH>
+          Serve the RESTful HTTP API over the specified Unix domain socket
+          instead of a TCP listener. Useful when the consensus and execution
+          clients run on the same machine. Mutually exclusive with the HTTP TLS
+          options.
       --inbound-rate-limiter-protocols <inbound-rate-limiter-protocols>
           Configures the inbound rate limiter (requests received by this
           node).Rate limit quotas per protocol can be set in the form of

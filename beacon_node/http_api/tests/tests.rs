@@ -291,7 +291,9 @@ impl ApiTester {
 
         // Late-initalize the mock builder now that the mock execution node and beacon API ports
         // have been allocated.
-        let beacon_api_port = listening_socket.port();
+        let beacon_api_port = listening_socket
+            .expect("the API tester serves the API over TCP")
+            .port();
         let beacon_url =
             SensitiveUrl::parse(format!("http://127.0.0.1:{beacon_api_port}").as_str()).unwrap();
 
@@ -399,6 +401,7 @@ impl ApiTester {
 
         harness.runtime.task_executor.spawn(server, "api_server");
 
+        let listening_socket = listening_socket.expect("the API tester serves the API over TCP");
         let client = BeaconNodeHttpClient::new(
             SensitiveUrl::parse(&format!(
                 "http://{}:{}",

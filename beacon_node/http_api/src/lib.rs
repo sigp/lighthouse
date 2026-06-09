@@ -91,6 +91,7 @@ use std::sync::Arc;
 use sysinfo::{System, SystemExt};
 use system_health::{observe_nat, observe_system_health_bn};
 use task_spawner::{Priority, TaskSpawner};
+use tokio::net::UnixListener;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::{
     StreamExt,
@@ -116,7 +117,10 @@ use warp_utils::{query::multi_key_query, uor::UnifyingOrFilter};
 const API_PREFIX: &str = "eth";
 
 /// A custom type which allows for both unsecured and TLS-enabled HTTP servers.
-type HttpServer = (SocketAddr, Pin<Box<dyn Future<Output = ()> + Send>>);
+///
+/// The `SocketAddr` is `None` when the API is served over a Unix domain socket, which has no
+/// associated `SocketAddr`.
+type HttpServer = (Option<SocketAddr>, Pin<Box<dyn Future<Output = ()> + Send>>);
 
 /// Alias for readability.
 pub type ExecutionOptimistic = bool;
@@ -149,6 +153,9 @@ pub struct Config {
     pub listen_port: u16,
     pub allow_origin: Option<String>,
     pub tls_config: Option<TlsConfig>,
+    /// When set, the API is served over this Unix domain socket instead of binding a TCP
+    /// listener. Mutually exclusive with TLS.
+    pub unix_socket: Option<PathBuf>,
     pub data_dir: PathBuf,
     pub sse_capacity_multiplier: usize,
     pub enable_beacon_processor: bool,
@@ -166,6 +173,7 @@ impl Default for Config {
             listen_port: 5052,
             allow_origin: None,
             tls_config: None,
+            unix_socket: None,
             data_dir: PathBuf::from(DEFAULT_ROOT_DIR),
             sse_capacity_multiplier: 1,
             enable_beacon_processor: true,
@@ -3517,34 +3525,107 @@ pub fn serve<T: BeaconChainTypes>(
         .with(cors_builder.build())
         .boxed();
 
-    let http_socket: SocketAddr = SocketAddr::new(config.listen_addr, config.listen_port);
-    let http_server: HttpServer = match config.tls_config {
-        Some(tls_config) => {
-            let (socket, server) = warp::serve(routes)
-                .tls()
-                .cert_path(tls_config.cert)
-                .key_path(tls_config.key)
-                .try_bind_with_graceful_shutdown(http_socket, async {
-                    shutdown.await;
-                })?;
-
-            info!("HTTP API is being served over TLS");
-
-            (socket, Box::pin(server))
+    let http_server: HttpServer = if let Some(socket_path) = config.unix_socket.clone() {
+        // TLS over a local Unix domain socket doesn't make sense, so reject the combination
+        // rather than silently ignoring the certificate.
+        if config.tls_config.is_some() {
+            return Err(Error::Other(
+                "TLS cannot be used together with a Unix domain socket".to_string(),
+            ));
         }
-        None => {
-            let (socket, server) =
-                warp::serve(routes).try_bind_with_graceful_shutdown(http_socket, async {
-                    shutdown.await;
-                })?;
-            (socket, Box::pin(server))
+
+        // Remove any socket file left behind by a previous run so the bind doesn't fail with
+        // `AddrInUse`.
+        if socket_path.exists() {
+            std::fs::remove_file(&socket_path).map_err(|e| {
+                Error::Other(format!(
+                    "Unable to remove existing socket file {}: {e}",
+                    socket_path.display()
+                ))
+            })?;
+        }
+
+        let listener = UnixListener::bind(&socket_path).map_err(|e| {
+            Error::Other(format!(
+                "Unable to bind Unix domain socket {}: {e}",
+                socket_path.display()
+            ))
+        })?;
+
+        // Resilient acceptor: log transient `accept` errors and keep serving instead of letting a
+        // single error tear down the whole HTTP server. This mirrors the behaviour hyper applies
+        // to TCP listeners via `AddrIncoming::set_sleep_on_errors`, which the `serve_incoming`
+        // path does not provide.
+        let incoming = futures::stream::unfold(listener, |listener| async {
+            loop {
+                match listener.accept().await {
+                    Ok((stream, _addr)) => {
+                        return Some((Ok::<_, std::io::Error>(stream), listener));
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "Error accepting Unix domain socket connection");
+                        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    }
+                }
+            }
+        });
+
+        let server = warp::serve(routes).serve_incoming_with_graceful_shutdown(incoming, async {
+            shutdown.await;
+        });
+
+        info!(
+            socket = %socket_path.display(),
+            "HTTP API is being served over a Unix domain socket"
+        );
+
+        // Best-effort removal of the socket file once the server has stopped, so a subsequent
+        // run starts from a clean slate.
+        let server = async move {
+            server.await;
+            let _ = std::fs::remove_file(&socket_path);
+        };
+
+        (
+            None,
+            Box::pin(server) as Pin<Box<dyn Future<Output = ()> + Send>>,
+        )
+    } else {
+        let http_socket: SocketAddr = SocketAddr::new(config.listen_addr, config.listen_port);
+        match config.tls_config {
+            Some(tls_config) => {
+                let (socket, server) = warp::serve(routes)
+                    .tls()
+                    .cert_path(tls_config.cert)
+                    .key_path(tls_config.key)
+                    .try_bind_with_graceful_shutdown(http_socket, async {
+                        shutdown.await;
+                    })?;
+
+                info!("HTTP API is being served over TLS");
+
+                (
+                    Some(socket),
+                    Box::pin(server) as Pin<Box<dyn Future<Output = ()> + Send>>,
+                )
+            }
+            None => {
+                let (socket, server) =
+                    warp::serve(routes).try_bind_with_graceful_shutdown(http_socket, async {
+                        shutdown.await;
+                    })?;
+                (
+                    Some(socket),
+                    Box::pin(server) as Pin<Box<dyn Future<Output = ()> + Send>>,
+                )
+            }
         }
     };
 
-    info!(
-        listen_address = %http_server.0,
-        "HTTP API started"
-    );
+    match http_server.0 {
+        Some(addr) => info!(listen_address = %addr, "HTTP API started"),
+        None => info!("HTTP API started"),
+    }
 
     Ok(http_server)
 }

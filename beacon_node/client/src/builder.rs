@@ -661,7 +661,8 @@ where
                 .executor
                 .spawn_without_exit(http_api_task, "http-api");
 
-            Some(listen_addr)
+            // `listen_addr` is `None` when the API is served over a Unix domain socket.
+            listen_addr
         } else {
             info!("HTTP server is disabled");
             None

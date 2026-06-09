@@ -1628,6 +1628,27 @@ fn http_port_flag() {
         .run()
         .with_config(|config| assert_eq!(config.http_api.listen_port, port1));
 }
+#[test]
+fn http_unix_socket_flag() {
+    let socket_path = "/tmp/lighthouse-test-http.sock";
+    CommandLineTest::new()
+        .flag("http", None)
+        .flag("http-unix-socket", Some(socket_path))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.http_api.unix_socket,
+                Some(std::path::PathBuf::from(socket_path))
+            )
+        });
+}
+#[test]
+fn http_no_unix_socket_by_default() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .run()
+        .with_config(|config| assert_eq!(config.http_api.unix_socket, None));
+}
 
 #[test]
 fn empty_inbound_rate_limiter_flag() {

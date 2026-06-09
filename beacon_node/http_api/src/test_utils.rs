@@ -49,7 +49,8 @@ pub struct InteractiveTester<E: EthSpec> {
 pub struct ApiServer<T: BeaconChainTypes, SFut: Future<Output = ()>> {
     pub ctx: Arc<Context<T>>,
     pub server: SFut,
-    pub listening_socket: SocketAddr,
+    /// `None` when the server is bound to a Unix domain socket rather than a TCP port.
+    pub listening_socket: Option<SocketAddr>,
     pub network_rx: NetworkReceivers<T::EthSpec>,
     pub local_enr: Enr,
     pub external_peer_id: PeerId,
@@ -131,6 +132,8 @@ impl<E: EthSpec> InteractiveTester<E> {
 
         // Late-initalize the mock builder now that the mock execution node and beacon API ports
         // have been allocated.
+        let listening_socket =
+            listening_socket.expect("the interactive tester serves the API over TCP");
         let beacon_api_ip = listening_socket.ip();
         let beacon_api_port = listening_socket.port();
         let beacon_url =

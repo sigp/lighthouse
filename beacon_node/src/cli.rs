@@ -544,6 +544,18 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("http-unix-socket")
+                .long("http-unix-socket")
+                .requires("enable_http")
+                .conflicts_with_all(["http-tls-cert", "http-tls-key"])
+                .value_name("PATH")
+                .help("Serve the RESTful HTTP API over the specified Unix domain socket instead \
+                    of a TCP listener. Useful when the consensus and execution clients run on \
+                    the same machine. Mutually exclusive with the HTTP TLS options.")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("http-allow-origin")
                 .long("http-allow-origin")
                 .requires("enable_http")

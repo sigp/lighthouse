@@ -172,6 +172,10 @@ pub fn get_config<E: EthSpec>(
                 .map_err(|_| "http-port is not a valid u16.")?;
         }
 
+        if let Some(socket_path) = cli_args.get_one::<String>("http-unix-socket") {
+            client_config.http_api.unix_socket = Some(PathBuf::from(socket_path));
+        }
+
         if let Some(allow_origin) = cli_args.get_one::<String>("http-allow-origin") {
             // Pre-validate the config value to give feedback to the user on node startup, instead of
             // as late as when the first API response is produced.
