@@ -174,9 +174,12 @@ impl PeerType {
     }
 }
 
+/// Used by `is_awaiting_parent` to decide if it can resolve its awaiting parent status
 #[derive(Debug, Clone, Copy)]
 pub enum ImportedParent {
+    /// All requests of a lookup are complete, both for pre and post Gloas
     LookupComplete,
+    /// Only post-Gloas, the block request has just been completed. Includes the bid block hash
     OnlyGloasBlock(ExecutionBlockHash),
 }
 
