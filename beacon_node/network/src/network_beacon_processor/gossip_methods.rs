@@ -2790,17 +2790,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 if allow_reprocess {
                     // We haven't seen the block's payload envelope yet. Ask the sync manager to
                     // retrieve it, and schedule the attestation for re-processing once it arrives.
-                    self.sync_tx
-                        .send(SyncMessage::UnknownPayloadEnvelopeFromAttestation(
-                            peer_id,
-                            *beacon_block_root,
-                        ))
-                        .unwrap_or_else(|_| {
-                            warn!(
-                                msg = "UnknownPayloadEnvelope",
-                                "Failed to send to sync service"
-                            )
-                        });
+                    self.send_sync_message(SyncMessage::UnknownPayloadEnvelopeFromAttestation(
+                        peer_id,
+                        *beacon_block_root,
+                    ));
                     let msg = match failed_att {
                         FailedAtt::Aggregate {
                             attestation,
