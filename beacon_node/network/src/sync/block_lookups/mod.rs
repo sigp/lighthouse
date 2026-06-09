@@ -523,9 +523,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         cx,
                     );
                 }
-                // Then if this lookup happens to have only empty children we can remove it now. We
-                // must make sure that no other lookup is awaiting this one, and that no requests
-                // are on-going.
+                // Then if this lookup had only empty children, and no children now, we can remove
+                // it. We must make sure that no other lookup is awaiting this one, and that no
+                // requests are on-going.
                 if !lookup_is_awaiting_event && !self.has_any_awaiting_children(block_root) {
                     Ok(LookupResult::Completed)
                 } else {
