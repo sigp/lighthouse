@@ -909,7 +909,6 @@ async fn queue_attestations_from_http() {
 
     // In parallel, apply the block. We need to manually notify the reprocess queue, because the
     // `beacon_chain` does not know about the queue and will not update it for us.
-    let parent_root = block.0.parent_root();
     harness
         .process_block(attestation_slot, block_root, block)
         .await
@@ -921,10 +920,7 @@ async fn queue_attestations_from_http() {
         .unwrap()
         .try_send(WorkEvent {
             drop_during_sync: false,
-            work: Work::Reprocess(ReprocessQueueMessage::BlockImported {
-                block_root,
-                parent_root,
-            }),
+            work: Work::Reprocess(ReprocessQueueMessage::BlockImported { block_root }),
         })
         .unwrap();
 

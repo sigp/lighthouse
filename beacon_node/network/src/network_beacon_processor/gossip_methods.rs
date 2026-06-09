@@ -911,12 +911,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match result {
             Ok(availability) => match availability {
-                AvailabilityProcessingStatus::Imported(block_root) => {
+                AvailabilityProcessingStatus::Imported(slot, block_root) => {
                     debug!(
                         %block_root,
                         "Gossipsub data column processed, imported fully available block"
                     );
                     self.chain.recompute_head_at_current_slot().await;
+                    self.maybe_reprocess_after_column_import(slot, block_root);
 
                     metrics::set_gauge(
                         &metrics::BEACON_BLOB_DELAY_FULL_VERIFICATION,
@@ -1305,12 +1306,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match &result {
             Ok(availability) => match availability {
-                AvailabilityProcessingStatus::Imported(block_root) => {
+                AvailabilityProcessingStatus::Imported(slot, block_root) => {
                     debug!(
                         %block_root,
                         "Data column from partial processed, imported fully available block"
                     );
                     self.chain.recompute_head_at_current_slot().await;
+                    self.maybe_reprocess_after_column_import(*slot, *block_root);
 
                     metrics::set_gauge(
                         &metrics::BEACON_BLOB_DELAY_FULL_VERIFICATION,
@@ -1778,24 +1780,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         register_process_result_metrics(&result, metrics::BlockSource::Gossip, "block");
 
         match &result {
-            Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
-                if self
-                    .beacon_processor_send
-                    .try_send(WorkEvent {
-                        drop_during_sync: false,
-                        work: Work::Reprocess(ReprocessQueueMessage::BlockImported {
-                            block_root: *block_root,
-                            parent_root: block.message().parent_root(),
-                        }),
-                    })
-                    .is_err()
-                {
-                    error!(
-                        source = "gossip",
-                        ?block_root,
-                        "Failed to inform block import"
-                    )
-                };
+            Ok(AvailabilityProcessingStatus::Imported(_, block_root)) => {
+                self.send_reprocess_block(*block_root);
 
                 debug!(
                     ?block_root,
@@ -3884,25 +3870,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // register_process_result_metrics(&result, metrics::BlockSource::Gossip, "envelope");
 
         match &result {
-            Ok(AvailabilityProcessingStatus::Imported(_)) => {
+            Ok(AvailabilityProcessingStatus::Imported(_, block_root)) => {
                 // The payload envelope is imported (`is_payload_received` is now true); release any
                 // attestations awaiting this block's payload so they can be re-processed.
-                if self
-                    .beacon_processor_send
-                    .try_send(WorkEvent {
-                        drop_during_sync: false,
-                        work: Work::Reprocess(ReprocessQueueMessage::PayloadEnvelopeImported {
-                            block_root: beacon_block_root,
-                        }),
-                    })
-                    .is_err()
-                {
-                    error!(
-                        source = "gossip",
-                        ?beacon_block_root,
-                        "Failed to inform payload envelope import"
-                    );
-                }
+                self.send_reprocess_envelope(*block_root);
             }
             Ok(_) => {}
             Err(e) => {
@@ -3914,6 +3885,60 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
             }
         }
+    }
+
+    /// Inform the reprocess queue that a fully available block (or its payload envelope, post-gloas)
+    /// has been imported, so any attestations waiting on it can be released.
+    fn maybe_reprocess_after_column_import(&self, slot: Slot, block_root: Hash256) {
+        if self
+            .chain
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(slot)
+            .gloas_enabled()
+        {
+            self.send_reprocess_envelope(block_root);
+        } else {
+            self.send_reprocess_block(block_root);
+        }
+    }
+
+    /// Inform the reprocess queue that `block_root` has been imported as a full block.
+    fn send_reprocess_block(&self, block_root: Hash256) {
+        if self
+            .beacon_processor_send
+            .try_send(WorkEvent {
+                drop_during_sync: false,
+                work: Work::Reprocess(ReprocessQueueMessage::BlockImported { block_root }),
+            })
+            .is_err()
+        {
+            error!(
+                source = "gossip",
+                ?block_root,
+                "Failed to inform block import"
+            )
+        };
+    }
+
+    /// Inform the reprocess queue that `block_root`'s payload envelope has been imported, releasing
+    /// any attestations awaiting the payload.
+    fn send_reprocess_envelope(&self, block_root: Hash256) {
+        if self
+            .beacon_processor_send
+            .try_send(WorkEvent {
+                drop_during_sync: false,
+                work: Work::Reprocess(ReprocessQueueMessage::PayloadEnvelopeImported {
+                    block_root,
+                }),
+            })
+            .is_err()
+        {
+            error!(
+                source = "gossip",
+                ?block_root,
+                "Failed to inform payload envelope import"
+            )
+        };
     }
 
     #[instrument(

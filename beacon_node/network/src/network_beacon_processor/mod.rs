@@ -932,7 +932,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         .await
         {
             Ok(Some(availability)) => match availability {
-                AvailabilityProcessingStatus::Imported(_) => {
+                AvailabilityProcessingStatus::Imported(..) => {
                     debug!(
                         result = "imported block and custody columns",
                         %block_root,
@@ -1020,7 +1020,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Ok(Some((availability_processing_status, data_columns_to_publish))) => {
                 self.publish_data_columns_gradually(data_columns_to_publish, block_root);
                 match &availability_processing_status {
-                    AvailabilityProcessingStatus::Imported(hash) => {
+                    AvailabilityProcessingStatus::Imported(_, hash) => {
                         debug!(
                             result = "imported block and custody columns",
                             block_hash = %hash,

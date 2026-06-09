@@ -115,10 +115,7 @@ pub enum ReprocessQueueMessage {
     RpcBlock(QueuedRpcBlock),
     /// A block that was successfully processed. We use this to handle attestations updates
     /// for unknown blocks.
-    BlockImported {
-        block_root: Hash256,
-        parent_root: Hash256,
-    },
+    BlockImported { block_root: Hash256 },
     /// A block's execution payload envelope was imported. We use this to release attestations that
     /// claim payload-present (`index == 1`) for a block whose payload had not yet been seen.
     PayloadEnvelopeImported { block_root: Hash256 },
@@ -862,10 +859,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
 
                 self.next_lc_update += 1;
             }
-            InboundEvent::Msg(BlockImported {
-                block_root,
-                parent_root,
-            }) => {
+            InboundEvent::Msg(BlockImported { block_root }) => {
                 // Unqueue the envelope we have for this root, if any.
                 if let Some((envelope, delay_key)) =
                     self.awaiting_envelopes_per_root.remove(&block_root)
@@ -930,7 +924,6 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     if failed_to_send_count > 0 {
                         error!(
                             hint = "system may be overloaded",
-                            ?parent_root,
                             ?block_root,
                             failed_count = failed_to_send_count,
                             sent_count,
@@ -1823,7 +1816,6 @@ mod tests {
         tokio::time::pause();
 
         let beacon_block_root = Hash256::repeat_byte(0xaf);
-        let parent_root = Hash256::repeat_byte(0xab);
 
         // Insert an envelope.
         let msg = ReprocessQueueMessage::UnknownBlockForEnvelope(QueuedGossipEnvelope {
@@ -1841,7 +1833,6 @@ mod tests {
         // Simulate block import.
         let imported = ReprocessQueueMessage::BlockImported {
             block_root: beacon_block_root,
-            parent_root,
         };
         queue.handle_message(InboundEvent::Msg(imported));
 
@@ -1917,7 +1908,6 @@ mod tests {
         // Simulate block import.
         queue.handle_message(InboundEvent::Msg(ReprocessQueueMessage::BlockImported {
             block_root: beacon_block_root,
-            parent_root: Hash256::repeat_byte(0x00),
         }));
 
         // Internal state should be cleaned up.
