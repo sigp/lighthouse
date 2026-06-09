@@ -1079,6 +1079,7 @@ pub struct BlockGossip {
 pub struct SseFastConfirmation {
     pub block: Hash256,
     pub slot: Slot,
+    pub current_slot: Slot,
 }
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct SseExecutionPayload {

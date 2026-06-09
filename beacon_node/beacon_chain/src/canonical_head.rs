@@ -812,18 +812,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             delay as i64,
                         );
 
-                        // Emit a single `fast_confirmation` event for the most recent
-                        // confirmed block. A single FCR pass can confirm several blocks at
-                        // once, but per beacon-APIs#611 only the root and slot of the latest
-                        // confirmed block are sent, to avoid spamming the event stream.
-                        if confirmed_root_changed
-                            && let Some(event_handler) = self.event_handler.as_ref()
+                        // Emit a `fast_confirmation` event on every FCR run, regardless of
+                        // whether the confirmed block changed (beacon-APIs#616). `block`/`slot`
+                        // identify the most recent confirmed block; `current_slot` is the
+                        // wall-clock slot the algorithm ran at.
+                        if let Some(event_handler) = self.event_handler.as_ref()
                             && event_handler.has_fast_confirmation_subscribers()
                         {
                             event_handler.register(EventKind::FastConfirmation(
                                 SseFastConfirmation {
                                     block: fcr.confirmed_root,
                                     slot: confirmed_slot,
+                                    current_slot: fcr_current_slot,
                                 },
                             ));
                         }
