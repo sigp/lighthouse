@@ -779,7 +779,7 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceComplianceHandler<E> {
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        cfg!(feature = "fake_crypto") && fork_name == ForkName::Fulu
+        cfg!(feature = "fake_crypto") && fork_name.fulu_enabled()
     }
 
     fn disabled_forks(&self) -> Vec<ForkName> {

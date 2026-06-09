@@ -88,8 +88,6 @@ excluded_paths = [
     "tests/.*/.*/fast_confirmation",
     # TODO: fork choice compliance invalid_message tests not implemented yet
     "tests/minimal/.*/fork_choice_compliance/invalid_message_test/.*",
-    # TODO: fork choice compliance tests are implemented for Fulu only.
-    "tests/minimal/gloas/fork_choice_compliance/.*",
 ]
 
 

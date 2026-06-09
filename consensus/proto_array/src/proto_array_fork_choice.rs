@@ -1119,33 +1119,6 @@ impl ProtoArrayForkChoice {
             .map(|node| node.weight())
     }
 
-    /// Returns the leaves of the filtered block tree (rooted at `justified_root`) along with
-    /// their weights — i.e. roots that are viable for head and have no descendant that is also
-    /// viable for head. Mirrors the spec's `viable_for_head_roots_and_weights` check.
-    #[allow(clippy::too_many_arguments)]
-    pub fn filtered_block_tree_leaves_and_weights<E: EthSpec>(
-        &self,
-        justified_root: &Hash256,
-        current_slot: Slot,
-        justified_checkpoint: Checkpoint,
-        finalized_checkpoint: Checkpoint,
-        proposer_boost_root: Hash256,
-        justified_balances: &JustifiedBalances,
-        spec: &ChainSpec,
-    ) -> Result<Vec<(Hash256, PayloadStatus, u64)>, String> {
-        self.proto_array
-            .filtered_block_tree_leaves_and_weights::<E>(
-                justified_root,
-                current_slot,
-                justified_checkpoint,
-                finalized_checkpoint,
-                proposer_boost_root,
-                justified_balances,
-                spec,
-            )
-            .map_err(|e| format!("filtered_block_tree_leaves_and_weights failed: {e:?}"))
-    }
-
     /// Returns the payload status of the head node based on accumulated weights and tiebreaker.
     ///
     /// See `ProtoArray` documentation.

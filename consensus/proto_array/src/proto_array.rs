@@ -1303,7 +1303,7 @@ impl ProtoArray {
     /// This is similar to `find_head_walk`, except it walks every viable branch instead of taking
     /// the maximum child at each step.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn filtered_block_tree_leaves_and_weights<E: EthSpec>(
+    pub fn filtered_block_tree_leaves_and_weights<E: EthSpec>(
         &self,
         justified_root: &Hash256,
         current_slot: Slot,
