@@ -1061,6 +1061,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         block_slot: Slot,
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
     ) -> Result<LookupRequestResult<DataColumnSidecarList<T::EthSpec>>, RpcRequestSendError> {
+        if self
+            .spec()
+            .fork_name_at_slot::<T::EthSpec>(block_slot)
+            .gloas_enabled()
+            && lookup_peers.read().is_empty()
+        {
+            return Ok(LookupRequestResult::Pending("no peers"));
+        }
+
         let custody_indexes_imported = self
             .chain
             .cached_data_column_indexes(&block_root, block_slot)

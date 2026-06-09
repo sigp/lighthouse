@@ -693,12 +693,21 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
 
     /// Returns true if this lookup has zero peers
     pub fn has_no_peers(&self) -> bool {
-        self.peers.read().is_empty()
-            && self
-                .gloas_child_peers
-                .read()
-                .values()
-                .all(|set| set.read().is_empty())
+        if self.block_request.is_complete()
+            && let Some(block) = self.block_request.state.peek_downloaded_data()
+            && block.fork_name_unchecked().gloas_enabled()
+        {
+            // Gloas block request complete, the main peer set is irrelevant. Check only the gloas
+            // child peers
+            self.get_data_peers(block).read().is_empty()
+        } else {
+            self.peers.read().is_empty()
+                && self
+                    .gloas_child_peers
+                    .read()
+                    .values()
+                    .all(|set| set.read().is_empty())
+        }
     }
 }
 

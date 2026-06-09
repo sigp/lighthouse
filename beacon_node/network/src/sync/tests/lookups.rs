@@ -2205,8 +2205,13 @@ async fn bad_peer_wrong_data_response(depth: usize) {
     r.build_chain_and_trigger_last_block(depth).await;
     r.simulate(SimulateConfig::new().return_wrong_sidecar_for_block_once())
         .await;
-    // We register a penalty, retry and complete sync successfully
-    r.assert_penalties(&["UnrequestedBlockRoot"]);
+    // We register a penalty, retry and complete sync successfully. Under Gloas the tip block
+    // (depth 1) has no attributable FULL-child peer so no custody request is made and no penalty
+    // is possible; at depth >= 2 the parent's columns are served by the tip (its FULL child), so
+    // the wrong-sidecar penalty is attributable.
+    if !r.is_after_gloas() || depth >= 2 {
+        r.assert_penalties(&["UnrequestedBlockRoot"]);
+    }
     r.assert_successful_lookup_sync();
     // TODO(tree-sync) Assert that a single lookup is created (no drops)
 }
