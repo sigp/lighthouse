@@ -416,9 +416,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         self.metrics.created_lookups += 1;
 
         let result = lookup.continue_requests(cx);
-        self.on_lookup_result(id, result, "new_current_lookup", cx);
-        self.update_metrics();
-        self.single_block_lookups.contains_key(&id)
+        if self.on_lookup_result(id, result, "new_current_lookup", cx) {
+            self.update_metrics();
+            true
+        } else {
+            false
+        }
     }
 
     /* Lookup responses */
@@ -488,16 +491,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         result: BlockProcessingResult,
         cx: &mut SyncNetworkContext<T>,
     ) {
-        let id = process_type.id();
-        let Some(lookup) = self.single_block_lookups.get_mut(&id) else {
-            debug!(id, "Unknown single block lookup");
+        let lookup_id = process_type.id();
+        let Some(lookup) = self.single_block_lookups.get_mut(&lookup_id) else {
+            debug!(id = lookup_id, "Unknown single block lookup");
             return;
         };
-        let block_root = lookup.block_root();
 
         debug!(
-            ?block_root,
-            id,
+            block_root = ?lookup.block_root(),
+            id = lookup_id,
             ?process_type,
             ?result,
             "Received lookup processing result"
@@ -509,6 +511,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // payload, which may error.
                 let lookup_result = lookup.on_block_processing_result(result.clone(), cx);
                 let lookup_is_awaiting_event = lookup.is_awaiting_event();
+                let block_root = lookup.block_root();
                 // Then, as a side-effect continue the EMPTY children of this lookup. Only if the
                 // block just imported which ensures we just do it once per lookup.
                 if let BlockProcessingResult::Imported(..) = result
@@ -536,7 +539,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 lookup.on_payload_processing_result(result, cx)
             }
         };
-        self.on_lookup_result(id, lookup_result, "processing_result", cx);
+        self.on_lookup_result(lookup_id, lookup_result, "processing_result", cx);
     }
 
     pub fn has_any_awaiting_children(&self, block_root: Hash256) -> bool {
@@ -608,9 +611,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         result: Result<LookupResult, LookupRequestError>,
         source: &str,
         cx: &mut SyncNetworkContext<T>,
-    ) {
+    ) -> bool {
         match result {
-            Ok(LookupResult::Pending) => {}
+            Ok(LookupResult::Pending) => true,
             Ok(LookupResult::ParentUnknown {
                 parent_root,
                 parent_block_hash,
@@ -624,10 +627,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     &peers,
                     cx,
                 ) {
-                    //
+                    true
                 } else {
                     self.drop_lookup_and_children(id, "Failed");
                     self.update_metrics();
+                    false
                 }
             }
             Ok(LookupResult::Completed) => {
@@ -649,11 +653,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 } else {
                     debug!(id, "Attempting to drop non-existent lookup");
                 }
+                false
             }
             Err(error) => {
                 debug!(id, source, ?error, "Dropping lookup on request error");
                 self.drop_lookup_and_children(id, error.into());
                 self.update_metrics();
+                false
             }
         }
     }
