@@ -6,6 +6,7 @@ use beacon_chain::data_column_verification::{
     GossipDataColumnError, KzgVerifiedCustodyDataColumn, observe_gossip_data_column,
 };
 use beacon_chain::fetch_blobs::{FetchEngineBlobError, fetch_and_process_engine_blobs};
+use beacon_chain::partial_data_column_assembler::AssemblyColumn;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError};
 use beacon_processor::{
@@ -36,14 +37,13 @@ use {
     slot_clock::ManualSlotClock, store::MemoryStore, tokio::sync::mpsc::UnboundedSender,
 };
 
-pub use sync_methods::ChainSegmentProcessId;
-use types::data::FixedBlobSidecarList;
+pub use sync_methods::{BlockProcessingResult, ChainSegmentProcessId};
 
 pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
 
 mod gossip_methods;
 mod rpc_methods;
-mod sync_methods;
+pub(crate) mod sync_methods;
 mod tests;
 
 pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
@@ -202,6 +202,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         subnet_id: DataColumnSubnetId,
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         seen_timestamp: Duration,
+        allow_reprocess: bool,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = async move {
@@ -212,6 +213,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     subnet_id,
                     column_sidecar,
                     seen_timestamp,
+                    allow_reprocess,
                 )
                 .await
         };
@@ -531,31 +533,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 process_fn,
                 beacon_block_root: block_root,
             },
-        })
-    }
-
-    /// Create a new `Work` event for some blobs, where the result from computation (if any) is
-    /// sent to the other side of `result_tx`.
-    pub fn send_rpc_blobs(
-        self: &Arc<Self>,
-        block_root: Hash256,
-        blobs: FixedBlobSidecarList<T::EthSpec>,
-        seen_timestamp: Duration,
-        process_type: BlockProcessType,
-    ) -> Result<(), Error<T::EthSpec>> {
-        let blob_count = blobs.iter().filter(|b| b.is_some()).count();
-        if blob_count == 0 {
-            return Ok(());
-        }
-        let process_fn = self.clone().generate_rpc_blobs_process_fn(
-            block_root,
-            blobs,
-            seen_timestamp,
-            process_type,
-        );
-        self.try_send(BeaconWorkEvent {
-            drop_during_sync: false,
-            work: Work::RpcBlobs { process_fn },
         })
     }
 
@@ -996,14 +973,35 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // Publish partial columns without eager send
         // TODO(gloas): implement publish partial columns without eager send
         if let Some(assembler) = self.chain.data_availability_checker.partial_assembler() {
-            let columns = assembler.get_partials_and_mark_as_local_fetched(block_root, &header);
+            let columns = assembler.get_columns_and_mark_as_local_fetched(block_root, &header);
+            // Republish both complete and incomplete columns as partials
+            let columns: Vec<_> = columns
+                .into_iter()
+                .filter_map(|column| match column {
+                    AssemblyColumn::Incomplete(partial) => Some(partial.into_inner()),
+                    AssemblyColumn::Complete(full) => {
+                        let DataColumnSidecar::Fulu(fulu) = full.as_data_column() else {
+                            return None;
+                        };
+                        match fulu.to_partial() {
+                            Ok(partial) => Some(Arc::new(partial)),
+                            Err(err) => {
+                                error!(
+                                    %block_root,
+                                    column_index = %full.index(),
+                                    ?err,
+                                    "Failed to convert complete column to partial for re-seeding"
+                                );
+                                None
+                            }
+                        }
+                    }
+                })
+                .collect();
             if !columns.is_empty() {
                 debug!(block = %block_root, "Publishing all partials after getBlobs");
                 self.send_network_message(NetworkMessage::PublishPartialColumns {
-                    columns: columns
-                        .into_iter()
-                        .map(|partial| partial.into_inner())
-                        .collect(),
+                    columns,
                     header,
                 });
             } else {

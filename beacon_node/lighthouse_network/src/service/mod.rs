@@ -201,9 +201,7 @@ impl<E: EthSpec> Network<E> {
 
         // set up a collection of variables accessible outside of the network crate
         // Create an ENR or load from disk if appropriate
-        // Per [spec](https://github.com/ethereum/consensus-specs/blob/1baa05e71148b0975e28918ac6022d2256b56f4a/specs/fulu/p2p-interface.md?plain=1#L636-L637)
-        // `nfd` must be zero-valued when no next fork is scheduled.
-        let next_fork_digest = ctx.fork_context.next_fork_digest().unwrap_or_default();
+        let next_fork_digest = ctx.fork_context.next_fork_digest();
 
         let advertised_cgc = config
             .advertise_false_custody_group_count
@@ -311,11 +309,8 @@ impl<E: EthSpec> Network<E> {
                     let fork = ctx.chain_spec.fork_name_at_epoch(epoch);
                     all_topics_at_fork::<E>(fork, &ctx.chain_spec)
                         .into_iter()
-                        .map(|topic| {
-                            Topic::new(GossipTopic::new(topic, GossipEncoding::default(), digest))
-                                .into()
-                        })
-                        .collect::<Vec<TopicHash>>()
+                        .map(|topic| GossipTopic::new(topic, GossipEncoding::default(), digest))
+                        .collect::<Vec<_>>()
                 })
                 .collect::<Vec<_>>();
 
@@ -368,11 +363,20 @@ impl<E: EthSpec> Network<E> {
                 gossipsub.add_explicit_peer(&PeerId::from(explicit_peer.clone()));
             }
 
+            // Register topics with enabled partial messages
+            for topic in all_topics_for_digests.iter().flatten() {
+                if topic.kind().use_partial_messages(&config) {
+                    gossipsub.enable_partials_for_topic(Topic::new(topic.clone()).hash(), true);
+                }
+            }
+
             // If we are using metrics, then register which topics we want to make sure to keep
             // track of
             if ctx.libp2p_registry.is_some() {
                 for topics in all_topics_for_digests {
-                    gossipsub.register_topics_for_metrics(topics);
+                    gossipsub.register_topics_for_metrics(
+                        topics.into_iter().map(|t| Topic::new(t).hash()).collect(),
+                    );
                 }
             }
 
@@ -466,9 +470,13 @@ impl<E: EthSpec> Network<E> {
             }
         };
 
-        // Set up the transport - tcp/quic with noise and mplex
-        let transport = build_transport(local_keypair.clone(), !config.disable_quic_support)
-            .map_err(|e| format!("Failed to build transport: {:?}", e))?;
+        // Set up the transport - tcp/quic with noise and yamux (mplex optional)
+        let transport = build_transport(
+            local_keypair.clone(),
+            !config.disable_quic_support,
+            config.enable_mplex,
+        )
+        .map_err(|e| format!("Failed to build transport: {:?}", e))?;
 
         // use the executor for libp2p
         struct Executor(task_executor::TaskExecutor);
@@ -819,18 +827,9 @@ impl<E: EthSpec> Network<E> {
             .write()
             .insert(topic.clone());
 
-        let partial = topic
-            .kind()
-            .use_partial_messages(self.network_globals.config.as_ref());
         let topic: Topic = topic.into();
 
-        let subscribe_result = if partial {
-            self.gossipsub_mut().subscribe_partial(&topic, true)
-        } else {
-            self.gossipsub_mut().subscribe(&topic)
-        };
-
-        match subscribe_result {
+        match self.gossipsub_mut().subscribe(&topic) {
             Err(e) => {
                 warn!(%topic, error = ?e, "Failed to subscribe to topic");
                 false
@@ -1377,9 +1376,9 @@ impl<E: EthSpec> Network<E> {
     /* Sub-behaviour event handling functions */
 
     /// Handle a gossipsub event.
-    fn inject_gs_event(&mut self, event: gossipsub::Event) -> Option<NetworkEvent<E>> {
+    fn inject_gs_event(&mut self, event: Event) -> Option<NetworkEvent<E>> {
         match event {
-            gossipsub::Event::Message {
+            Event::Message {
                 propagation_source,
                 message_id: id,
                 message: gs_msg,
@@ -1457,7 +1456,7 @@ impl<E: EthSpec> Network<E> {
                     }
                 }
             }
-            gossipsub::Event::Subscribed { peer_id, topic } => {
+            Event::Subscribed { peer_id, topic, .. } => {
                 if let Ok(topic) = GossipTopic::decode(topic.as_str()) {
                     if let Some(subnet_id) = topic.subnet_id() {
                         self.network_globals
@@ -1509,7 +1508,7 @@ impl<E: EthSpec> Network<E> {
                     }
                 }
             }
-            gossipsub::Event::Unsubscribed { peer_id, topic } => {
+            Event::Unsubscribed { peer_id, topic } => {
                 if let Some(subnet_id) = subnet_from_topic_hash(&topic) {
                     self.network_globals
                         .peers
@@ -1517,7 +1516,7 @@ impl<E: EthSpec> Network<E> {
                         .remove_subscription(&peer_id, &subnet_id);
                 }
             }
-            gossipsub::Event::GossipsubNotSupported { peer_id } => {
+            Event::GossipsubNotSupported { peer_id } => {
                 debug!(%peer_id, "Peer does not support gossipsub");
                 self.peer_manager_mut().report_peer(
                     &peer_id,
@@ -1527,7 +1526,7 @@ impl<E: EthSpec> Network<E> {
                     "does_not_support_gossipsub",
                 );
             }
-            gossipsub::Event::SlowPeer {
+            Event::SlowPeer {
                 peer_id,
                 failed_messages,
             } => {
