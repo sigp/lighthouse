@@ -97,6 +97,7 @@ use store::{Error as DBError, KeyValueStore};
 use strum::{AsRefStr, IntoStaticStr};
 use task_executor::JoinHandle;
 use tracing::{Instrument, Span, debug, debug_span, error, info_span, instrument};
+use types::ExecutionBlockHash;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSidecarList,
     Epoch, EthSpec, FullPayload, Hash256, InconsistentFork, KzgProofs, RelativeEpoch,
@@ -126,6 +127,7 @@ pub enum BlockError {
     /// its parent.
     ParentUnknown {
         parent_root: Hash256,
+        parent_block_hash: Option<ExecutionBlockHash>,
     },
     /// The block slot is greater than the present slot.
     ///
@@ -1457,6 +1459,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             ParentImportStatus::UnknownBlock | ParentImportStatus::UnknownPayload => {
                 return Err(BlockError::ParentUnknown {
                     parent_root: block.parent_root(),
+                    parent_block_hash: block.as_block().payload_bid_parent_block_hash().ok(),
                 });
             }
         }
@@ -1832,6 +1835,7 @@ pub fn check_block_is_finalized_checkpoint_or_descendant<
         } else {
             Err(BlockError::ParentUnknown {
                 parent_root: block.parent_root(),
+                parent_block_hash: block.as_block().payload_bid_parent_block_hash().ok(),
             })
         }
     }
@@ -1926,6 +1930,7 @@ fn verify_parent_block_and_envelope_are_known<T: BeaconChainTypes>(
         ParentImportStatus::UnknownBlock | ParentImportStatus::UnknownPayload => {
             Err(BlockError::ParentUnknown {
                 parent_root: block.parent_root(),
+                parent_block_hash: block.payload_bid_parent_block_hash().ok(),
             })
         }
     }
@@ -1958,6 +1963,7 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
     {
         return Err(BlockError::ParentUnknown {
             parent_root: block.parent_root(),
+            parent_block_hash: block.as_block().payload_bid_parent_block_hash().ok(),
         });
     }
 

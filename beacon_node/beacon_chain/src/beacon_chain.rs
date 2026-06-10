@@ -3419,6 +3419,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 {
                     return Err(BlockError::ParentUnknown {
                         parent_root: blob.block_parent_root(),
+                        parent_block_hash: None,
                     });
                 }
             }
@@ -3545,7 +3546,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .fork_choice_read_lock()
                 .contains_block(&parent_root)
         {
-            return Err(BlockError::ParentUnknown { parent_root });
+            return Err(BlockError::ParentUnknown {
+                parent_root,
+                parent_block_hash: None,
+            });
         }
 
         self.emit_sse_data_column_sidecar_events(

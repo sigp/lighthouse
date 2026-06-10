@@ -732,6 +732,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             %unknown_block_root,
                             "Unknown block root for column"
                         );
+                        // Data columns are only propagated once the block has been seen for both Fulu
+                        // and Gloas. `UnknownBlockHashFromAttestation` declares that `peer_id` has
+                        // imported `unknown_block_root`.
+                        self.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
+                            peer_id,
+                            unknown_block_root,
+                        ));
                         self.propagate_validation_result(
                             message_id.clone(),
                             peer_id,
@@ -1076,10 +1083,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         %unknown_block_root,
                         "Unknown block root for partial column"
                     );
-                    // TODO(gloas): wire this into proper lookup sync. Sending
-                    // `UnknownBlockHashFromAttestation` here is a Fulu-shaped fallback that
-                    // mixes column processing with the attestation lookup path and is not
-                    // the right primitive for Gloas column lookups.
+                    // Data columns are only propagated once the block has been seen for both Fulu
+                    // and Gloas. `UnknownBlockHashFromAttestation` declares that `peer_id` has
+                    // imported `unknown_block_root`.
                     self.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
                         peer_id,
                         unknown_block_root,
@@ -2714,14 +2720,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 if allow_reprocess {
                     // We don't know the block, get the sync manager to handle the block lookup, and
                     // send the attestation to be scheduled for re-processing.
-                    self.sync_tx
-                        .send(SyncMessage::UnknownBlockHashFromAttestation(
-                            peer_id,
-                            *beacon_block_root,
-                        ))
-                        .unwrap_or_else(|_| {
-                            warn!(msg = "UnknownBlockHash", "Failed to send to sync service")
-                        });
+                    self.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
+                        peer_id,
+                        *beacon_block_root,
+                    ));
                     let msg = match failed_att {
                         FailedAtt::Aggregate {
                             attestation,
@@ -3994,13 +3996,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             | PayloadAttestationError::PriorPayloadAttestationMessageKnown { .. } => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
-            PayloadAttestationError::UnknownHeadBlock { .. } => {
+            PayloadAttestationError::UnknownHeadBlock { beacon_block_root } => {
                 debug!(
                     %peer_id,
                     %message_slot,
                     "Payload attestation references unknown block"
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                self.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
+                    peer_id,
+                    *beacon_block_root,
+                ))
             }
             PayloadAttestationError::NotInPTC { .. } => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
