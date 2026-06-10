@@ -168,7 +168,9 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
     }
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
-        if fork_name.electra_enabled() {
+        if fork_name.gloas_enabled() {
+            Ok(Self::Gloas(ssz_decode_file(path)?))
+        } else if fork_name.electra_enabled() {
             Ok(Self::Electra(ssz_decode_file(path)?))
         } else {
             Ok(Self::Base(ssz_decode_file(path)?))

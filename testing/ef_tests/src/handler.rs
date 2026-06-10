@@ -21,14 +21,8 @@ pub trait Handler {
 
     // Add forks here to exclude them from EF spec testing. Helpful for adding future or
     // unspecified forks.
-    //
-    // Gloas is disabled because the published consensus-spec-tests predate the EIP-7688 rebase
-    // of Gloas (https://github.com/ethereum/consensus-specs/pull/4630), which changed the
-    // merkleization of `BeaconState`, `BeaconBlockBody` and related containers. All Gloas
-    // vectors are incompatible with the progressive merkleization now implemented by Lighthouse,
-    // and must remain disabled until vectors are generated from the updated spec.
     fn disabled_forks(&self) -> Vec<ForkName> {
-        vec![ForkName::Gloas]
+        vec![]
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
@@ -412,13 +406,6 @@ where
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         self.supported_forks.contains(&fork_name)
     }
-
-    // The `ssz_static` vectors for Gloas MUST come from an EIP-7688 spec build
-    // (consensus-specs#4630), e.g. `consensus-spec-tests-7688-1.7.0-a.8-2`. The published
-    // v1.7.x releases contain stale (pre-EIP-7688) Gloas vectors.
-    fn disabled_forks(&self) -> Vec<ForkName> {
-        vec![]
-    }
 }
 
 impl<E> Handler for SszStaticTHCHandler<BeaconState<E>, E>
@@ -437,11 +424,6 @@ where
 
     fn handler_name(&self) -> String {
         BeaconState::<E>::name().into()
-    }
-
-    // See `SszStaticHandler::disabled_forks` regarding Gloas vector compatibility.
-    fn disabled_forks(&self) -> Vec<ForkName> {
-        vec![]
     }
 }
 
@@ -467,11 +449,6 @@ where
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         self.supported_forks.contains(&fork_name)
-    }
-
-    // See `SszStaticHandler::disabled_forks` regarding Gloas vector compatibility.
-    fn disabled_forks(&self) -> Vec<ForkName> {
-        vec![]
     }
 }
 
@@ -765,6 +742,10 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
         // These tests check block validity (which may include signatures) and there is no need to
         // run them with fake crypto.
         cfg!(not(feature = "fake_crypto"))
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        vec![]
     }
 }
 
