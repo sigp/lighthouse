@@ -9876,24 +9876,32 @@ dependencies = [
 name = "validator_services"
 version = "0.1.0"
 dependencies = [
+ "account_utils",
  "beacon_node_fallback",
  "bls",
  "either",
  "eth2",
+ "eth2_keystore",
  "futures",
  "graffiti_file",
+ "initialized_validators",
+ "lighthouse_validator_store",
  "logging",
+ "mockito",
  "parking_lot",
  "reqwest",
  "safe_arith",
+ "slashing_protection",
  "slot_clock",
  "task_executor",
+ "tempfile",
  "tokio",
  "tracing",
  "tree_hash",
  "types",
  "validator_metrics",
  "validator_store",
+ "validator_test_rig",
 ]
 
 [[package]]
@@ -9912,6 +9920,7 @@ name = "validator_test_rig"
 version = "0.1.0"
 dependencies = [
  "eth2",
+ "ethereum_ssz",
  "mockito",
  "regex",
  "reqwest",
