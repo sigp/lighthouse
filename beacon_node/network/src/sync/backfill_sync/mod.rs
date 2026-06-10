@@ -1229,7 +1229,7 @@ mod tests {
     fn request_batches_should_not_loop_infinitely() {
         let harness = BeaconChainHarness::builder(MinimalEthSpec)
             .default_spec()
-            .deterministic_keypairs(4)
+            .deterministic_keypairs(8)
             .fresh_ephemeral_store()
             .build();
 

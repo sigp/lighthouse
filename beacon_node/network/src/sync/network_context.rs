@@ -53,8 +53,8 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tracing::{Span, debug, debug_span, error, warn};
 use types::{
-    BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, ForkContext,
-    Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
+    BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
+    ForkContext, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
 };
 
 pub mod custody;
@@ -98,6 +98,7 @@ pub type CustodyByRootResult<T> =
     Result<DownloadResult<DataColumnSidecarList<T>>, RpcResponseError>;
 
 #[derive(Debug)]
+#[allow(private_interfaces)]
 pub enum RpcResponseError {
     RpcError(#[allow(dead_code)] RPCError),
     VerifyError(LookupVerifyError),
@@ -308,6 +309,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             chain,
             fork_context,
         }
+    }
+
+    pub fn spec(&self) -> &ChainSpec {
+        &self.chain.spec
     }
 
     pub fn send_sync_message(&mut self, sync_message: SyncMessage<T::EthSpec>) {
@@ -921,19 +926,23 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     }
 
     /// Request a payload envelope for a block root via PayloadEnvelopesByRoot RPC.
-    #[allow(dead_code)]
     pub fn payload_lookup_request(
         &mut self,
         lookup_id: SingleLookupId,
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
         block_root: Hash256,
-    ) -> Result<LookupRequestResult<()>, RpcRequestSendError> {
+    ) -> Result<
+        LookupRequestResult<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+        RpcRequestSendError,
+    > {
         // Skip the download if fork-choice already saw this envelope (e.g. imported via gossip
-        // before the lookup got here).
-        if self.chain.envelope_is_known_to_fork_choice(&block_root) {
+        // before the lookup got here). Return the cached envelope so the request completes.
+        if self.chain.envelope_is_known_to_fork_choice(&block_root)
+            && let Ok(Some(envelope)) = self.chain.get_payload_envelope(&block_root)
+        {
             return Ok(LookupRequestResult::NoRequestNeeded(
                 "envelope already known to fork-choice",
-                (),
+                Arc::new(envelope),
             ));
         }
 
@@ -1052,6 +1061,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         block_slot: Slot,
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
     ) -> Result<LookupRequestResult<DataColumnSidecarList<T::EthSpec>>, RpcRequestSendError> {
+        // Code below will issue column requests even if `lookup_peers` is empty. This is not okay,
+        // as we want to have at least one signal that some of our peers has already seen the
+        // block's data.
+        if lookup_peers.read().is_empty() {
+            return Ok(LookupRequestResult::Pending("no peers"));
+        }
+
         let custody_indexes_imported = self
             .chain
             .cached_data_column_indexes(&block_root, block_slot)
@@ -1567,7 +1583,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             })
     }
 
-    #[allow(dead_code)]
     pub fn send_payload_for_processing(
         &self,
         block_root: Hash256,
