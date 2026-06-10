@@ -166,8 +166,6 @@ pub enum EnvelopeError {
     EnvelopeProcessingError(EnvelopeProcessingError),
     /// Error verifying the execution payload
     ExecutionPayloadError(ExecutionPayloadError),
-    /// Optimistic sync is not supported for Gloas payload envelopes.
-    OptimisticSyncNotSupported { block_root: Hash256 },
     /// The envelope's beacon block was not present in fork choice at import time.
     ///
     /// Unlike [`EnvelopeError::BlockRootUnknown`] (raised during gossip verification, where the
@@ -199,7 +197,6 @@ impl EnvelopeError {
             | EnvelopeError::PriorToFinalization { .. }
             | EnvelopeError::BeaconChainError(_)
             | EnvelopeError::BeaconStateError(_)
-            | EnvelopeError::OptimisticSyncNotSupported { .. }
             | EnvelopeError::BlockRootNotInForkChoice(_)
             | EnvelopeError::InternalError(_) => false,
         }
