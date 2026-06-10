@@ -3060,6 +3060,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "attn_ssz_types_error",
                 );
             }
+            AttnError::AttestationError(_) => {
+                error!(
+                    %peer_id,
+                    block = ?beacon_block_root,
+                    ?attestation_type,
+                    "Rejecting attestation due to a critical conversion error"
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::MidToleranceError,
+                    "attn_attestation_error",
+                );
+            }
         }
 
         debug!(

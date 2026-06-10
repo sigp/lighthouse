@@ -222,7 +222,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
             .ok_or(AvailabilityCheckError::MissingBid(block_root))?;
         let kzg_verified_columns = KzgVerifiedDataColumn::from_batch_with_scoring_and_commitments(
             custody_columns,
-            bid.message.blob_kzg_commitments.as_ref(),
+            &bid.message.blob_kzg_commitments,
             &self.kzg,
         )
         .map_err(AvailabilityCheckError::InvalidColumn)?;
@@ -323,7 +323,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         let all_data_columns = KzgVerifiedCustodyDataColumn::reconstruct_columns(
             &self.kzg,
             verified_data_columns,
-            bid.message.blob_kzg_commitments.as_ref(),
+            &bid.message.blob_kzg_commitments,
             &self.spec,
         )
         .map_err(|e| {
@@ -517,7 +517,7 @@ mod data_availability_checker_tests {
     use logging::create_test_tracing_subscriber;
     use types::test_utils::test_unstructured;
     use types::{
-        ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, ForkName,
+        ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas, ForkName,
         MinimalEthSpec, SignedExecutionPayloadEnvelope,
     };
 
@@ -618,7 +618,7 @@ mod data_availability_checker_tests {
             envelope: Arc::new(SignedExecutionPayloadEnvelope {
                 message: ExecutionPayloadEnvelope {
                     payload: ExecutionPayloadGloas::default(),
-                    execution_requests: ExecutionRequests::default(),
+                    execution_requests: ExecutionRequestsGloas::default(),
                     builder_index: 0,
                     beacon_block_root: block_root,
                     parent_beacon_block_root: Hash256::random(),

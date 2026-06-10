@@ -1,6 +1,6 @@
 use crate::per_block_processing::process_operations::apply_deposit_for_builder;
 use crate::per_block_processing::process_operations::is_pending_validator;
-use milhouse::{List, Vector};
+use milhouse::{ProgressiveList, Vector};
 use safe_arith::SafeArith;
 use ssz_types::BitVector;
 use ssz_types::FixedVector;
@@ -10,7 +10,8 @@ use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
     BeaconState, BeaconStateError as Error, BeaconStateGloas, BuilderPendingPayment, ChainSpec,
-    EthSpec, ExecutionPayloadBid, ExecutionRequests, Fork, is_builder_withdrawal_credential,
+    EthSpec, ExecutionPayloadBid, ExecutionRequestsGloas, Fork, PendingDeposit,
+    is_builder_withdrawal_credential,
 };
 
 /// Transform a `Fulu` state into a `Gloas` state.
@@ -56,22 +57,29 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         eth1_data_votes: mem::take(&mut pre.eth1_data_votes),
         eth1_deposit_index: pre.eth1_deposit_index,
         // Registry
-        validators: mem::take(&mut pre.validators),
-        balances: mem::take(&mut pre.balances),
+        // [Modified in Gloas:EIP7688] rebuild as progressive lists.
+        validators: ProgressiveList::try_from_iter(pre.validators.iter().cloned())?,
+        balances: ProgressiveList::try_from_iter(pre.balances.iter().copied())?,
         // Randomness
         randao_mixes: pre.randao_mixes.clone(),
         // Slashings
         slashings: pre.slashings.clone(),
-        // `Participation
-        previous_epoch_participation: mem::take(&mut pre.previous_epoch_participation),
-        current_epoch_participation: mem::take(&mut pre.current_epoch_participation),
+        // Participation
+        // [Modified in Gloas:EIP7688] rebuild as progressive lists.
+        previous_epoch_participation: ProgressiveList::try_from_iter(
+            pre.previous_epoch_participation.iter().cloned(),
+        )?,
+        current_epoch_participation: ProgressiveList::try_from_iter(
+            pre.current_epoch_participation.iter().cloned(),
+        )?,
         // Finality
         justification_bits: pre.justification_bits.clone(),
         previous_justified_checkpoint: pre.previous_justified_checkpoint,
         current_justified_checkpoint: pre.current_justified_checkpoint,
         finalized_checkpoint: pre.finalized_checkpoint,
         // Inactivity
-        inactivity_scores: mem::take(&mut pre.inactivity_scores),
+        // [Modified in Gloas:EIP7688] rebuild as a progressive list.
+        inactivity_scores: ProgressiveList::try_from_iter(pre.inactivity_scores.iter().copied())?,
         // Sync committees
         current_sync_committee: pre.current_sync_committee.clone(),
         next_sync_committee: pre.next_sync_committee.clone(),
@@ -79,7 +87,7 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         latest_execution_payload_bid: ExecutionPayloadBid {
             block_hash: pre.latest_execution_payload_header.block_hash,
             gas_limit: pre.latest_execution_payload_header.gas_limit,
-            execution_requests_root: ExecutionRequests::<E>::default().tree_hash_root(),
+            execution_requests_root: ExecutionRequestsGloas::<E>::default().tree_hash_root(),
             ..Default::default()
         },
         // Capella
@@ -93,12 +101,17 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         earliest_exit_epoch: pre.earliest_exit_epoch,
         consolidation_balance_to_consume: pre.consolidation_balance_to_consume,
         earliest_consolidation_epoch: pre.earliest_consolidation_epoch,
-        pending_deposits: pre.pending_deposits.clone(),
-        pending_partial_withdrawals: pre.pending_partial_withdrawals.clone(),
-        pending_consolidations: pre.pending_consolidations.clone(),
+        // [Modified in Gloas:EIP7688] rebuild as progressive lists.
+        pending_deposits: ProgressiveList::try_from_iter(pre.pending_deposits.iter().cloned())?,
+        pending_partial_withdrawals: ProgressiveList::try_from_iter(
+            pre.pending_partial_withdrawals.iter().cloned(),
+        )?,
+        pending_consolidations: ProgressiveList::try_from_iter(
+            pre.pending_consolidations.iter().cloned(),
+        )?,
         proposer_lookahead: mem::take(&mut pre.proposer_lookahead),
         // Gloas
-        builders: List::default(),
+        builders: ProgressiveList::default(),
         next_withdrawal_builder_index: 0,
         // All bits set to true per spec:
         // execution_payload_availability = [0b1 for _ in range(SLOTS_PER_HISTORICAL_ROOT)]
@@ -107,9 +120,9 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         )
         .map_err(|_| Error::InvalidBitfield)?,
         builder_pending_payments: Vector::from_elem(BuilderPendingPayment::default())?,
-        builder_pending_withdrawals: List::default(), // Empty list initially,
+        builder_pending_withdrawals: ProgressiveList::default(), // Empty list initially,
         latest_block_hash: pre.latest_execution_payload_header.block_hash,
-        payload_expected_withdrawals: List::default(),
+        payload_expected_withdrawals: ProgressiveList::default(),
         ptc_window: Vector::from_elem(FixedVector::from_elem(0))?, // placeholder, will be initialized below
         // Caches
         total_active_balance: pre.total_active_balance,
@@ -167,9 +180,9 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     // Clone pending deposits to avoid borrow conflicts when mutating state.
-    let current_pending_deposits = state.pending_deposits()?.clone();
+    let current_pending_deposits = state.pending_deposits()?.to_vec();
 
-    let mut pending_deposits = List::empty();
+    let mut pending_deposits: Vec<PendingDeposit> = Vec::new();
 
     // TODO(gloas): introduce a global builder pubkey cache, see:
     // https://github.com/sigp/lighthouse/issues/8783
@@ -183,21 +196,21 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
     for deposit in &current_pending_deposits {
         // Deposits for existing validators stay in the pending queue.
         if state.get_validator_index(&deposit.pubkey)?.is_some() {
-            pending_deposits.push(deposit.clone())?;
+            pending_deposits.push(deposit.clone());
             continue;
         }
 
         if !builder_pubkey_to_index.contains_key(&deposit.pubkey) {
             // Deposits without builder withdrawal credentials are for new validators.
             if !is_builder_withdrawal_credential(deposit.withdrawal_credentials, spec) {
-                pending_deposits.push(deposit.clone())?;
+                pending_deposits.push(deposit.clone());
                 continue;
             }
 
             // If there is a valid pending deposit for a new validator with this pubkey,
             // keep this deposit in the pending queue to be applied to that validator later.
             if is_pending_validator(&pending_deposits, &deposit.pubkey, spec) {
-                pending_deposits.push(deposit.clone())?;
+                pending_deposits.push(deposit.clone());
                 continue;
             }
         }
@@ -220,7 +233,7 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
         }
     }
 
-    *state.pending_deposits_mut()? = pending_deposits;
+    state.set_pending_deposits_from_iter(pending_deposits)?;
 
     Ok(())
 }

@@ -320,9 +320,13 @@ mod ssz_static {
     fn attestation() {
         SszStaticHandler::<AttestationBase<MinimalEthSpec>, MinimalEthSpec>::pre_electra().run();
         SszStaticHandler::<AttestationBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra().run();
-        SszStaticHandler::<AttestationElectra<MinimalEthSpec>, MinimalEthSpec>::electra_and_later()
+        SszStaticHandler::<AttestationElectra<MinimalEthSpec>, MinimalEthSpec>::electra_through_fulu()
             .run();
-        SszStaticHandler::<AttestationElectra<MainnetEthSpec>, MainnetEthSpec>::electra_and_later()
+        SszStaticHandler::<AttestationElectra<MainnetEthSpec>, MainnetEthSpec>::electra_through_fulu()
+            .run();
+        SszStaticHandler::<AttestationGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_and_later()
+            .run();
+        SszStaticHandler::<AttestationGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_and_later()
             .run();
     }
 
@@ -338,10 +342,16 @@ mod ssz_static {
             .run();
         SszStaticHandler::<AttesterSlashingBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra()
             .run();
-        SszStaticHandler::<AttesterSlashingElectra<MinimalEthSpec>, MinimalEthSpec>::electra_and_later()
+        SszStaticHandler::<AttesterSlashingElectra<MinimalEthSpec>, MinimalEthSpec>::electra_through_fulu()
             .run();
-        SszStaticHandler::<AttesterSlashingElectra<MainnetEthSpec>, MainnetEthSpec>::electra_and_later()
+        SszStaticHandler::<AttesterSlashingElectra<MainnetEthSpec>, MainnetEthSpec>::electra_through_fulu()
             .run();
+        SszStaticHandler::<AttesterSlashingGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_and_later(
+        )
+        .run();
+        SszStaticHandler::<AttesterSlashingGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_and_later(
+        )
+        .run();
     }
 
     #[test]
@@ -350,9 +360,13 @@ mod ssz_static {
             .run();
         SszStaticHandler::<IndexedAttestationBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra()
             .run();
-        SszStaticHandler::<IndexedAttestationElectra<MinimalEthSpec>, MinimalEthSpec>::electra_and_later()
+        SszStaticHandler::<IndexedAttestationElectra<MinimalEthSpec>, MinimalEthSpec>::electra_through_fulu()
             .run();
-        SszStaticHandler::<IndexedAttestationElectra<MainnetEthSpec>, MainnetEthSpec>::electra_and_later()
+        SszStaticHandler::<IndexedAttestationElectra<MainnetEthSpec>, MainnetEthSpec>::electra_through_fulu()
+            .run();
+        SszStaticHandler::<IndexedAttestationGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_and_later()
+            .run();
+        SszStaticHandler::<IndexedAttestationGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_and_later()
             .run();
     }
 
@@ -364,10 +378,16 @@ mod ssz_static {
         SszStaticHandler::<SignedAggregateAndProofBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra(
         )
         .run();
-        SszStaticHandler::<SignedAggregateAndProofElectra<MinimalEthSpec>, MinimalEthSpec>::electra_and_later(
+        SszStaticHandler::<SignedAggregateAndProofElectra<MinimalEthSpec>, MinimalEthSpec>::electra_through_fulu(
         )
         .run();
-        SszStaticHandler::<SignedAggregateAndProofElectra<MainnetEthSpec>, MainnetEthSpec>::electra_and_later(
+        SszStaticHandler::<SignedAggregateAndProofElectra<MainnetEthSpec>, MainnetEthSpec>::electra_through_fulu(
+        )
+        .run();
+        SszStaticHandler::<SignedAggregateAndProofGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_and_later(
+        )
+        .run();
+        SszStaticHandler::<SignedAggregateAndProofGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_and_later(
         )
         .run();
     }
@@ -378,10 +398,16 @@ mod ssz_static {
             .run();
         SszStaticHandler::<AggregateAndProofBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra()
             .run();
-        SszStaticHandler::<AggregateAndProofElectra<MinimalEthSpec>, MinimalEthSpec>::electra_and_later(
+        SszStaticHandler::<AggregateAndProofElectra<MinimalEthSpec>, MinimalEthSpec>::electra_through_fulu(
         )
         .run();
-        SszStaticHandler::<AggregateAndProofElectra<MainnetEthSpec>, MainnetEthSpec>::electra_and_later(
+        SszStaticHandler::<AggregateAndProofElectra<MainnetEthSpec>, MainnetEthSpec>::electra_through_fulu(
+        )
+        .run();
+        SszStaticHandler::<AggregateAndProofGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_and_later(
+        )
+        .run();
+        SszStaticHandler::<AggregateAndProofGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_and_later(
         )
         .run();
     }
@@ -788,9 +814,14 @@ mod ssz_static {
 
     #[test]
     fn execution_requests() {
-        SszStaticHandler::<ExecutionRequests<MainnetEthSpec>, MainnetEthSpec>::electra_and_later()
+        SszStaticHandler::<ExecutionRequestsElectra<MainnetEthSpec>, MainnetEthSpec>::electra_through_fulu()
             .run();
-        SszStaticHandler::<ExecutionRequests<MinimalEthSpec>, MinimalEthSpec>::electra_and_later()
+        SszStaticHandler::<ExecutionRequestsElectra<MinimalEthSpec>, MinimalEthSpec>::electra_through_fulu()
+            .run();
+        // [Modified in Gloas:EIP7688]
+        SszStaticHandler::<ExecutionRequestsGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_and_later()
+            .run();
+        SszStaticHandler::<ExecutionRequestsGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_and_later()
             .run();
     }
 

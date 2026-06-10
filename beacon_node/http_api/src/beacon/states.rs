@@ -55,7 +55,7 @@ pub fn get_beacon_state_pending_consolidations<T: BeaconChainTypes>(
                                 };
 
                                 Ok((
-                                    consolidations.clone(),
+                                    consolidations.to_owned_list(),
                                     execution_optimistic,
                                     finalized,
                                     state.fork_name_unchecked(),
@@ -101,7 +101,7 @@ pub fn get_beacon_state_pending_partial_withdrawals<T: BeaconChainTypes>(
                                 };
 
                                 Ok((
-                                    withdrawals.clone(),
+                                    withdrawals.to_owned_list(),
                                     execution_optimistic,
                                     finalized,
                                     state.fork_name_unchecked(),
@@ -147,7 +147,7 @@ pub fn get_beacon_state_pending_deposits<T: BeaconChainTypes>(
                                 };
 
                                 Ok((
-                                    deposits.clone(),
+                                    deposits.to_owned_list(),
                                     execution_optimistic,
                                     finalized,
                                     state.fork_name_unchecked(),

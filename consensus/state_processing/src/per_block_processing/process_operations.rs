@@ -22,9 +22,15 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    // [New in Gloas:EIP7688] The operation lists are `ProgressiveList`s without type-level
+    // limits, so the spec's per-block limits are enforced at runtime instead.
+    if state.fork_name_unchecked().gloas_enabled() {
+        verify_operation_list_lengths(block_body)?;
+    }
+
     process_proposer_slashings(
         state,
-        block_body.proposer_slashings(),
+        &block_body.proposer_slashings().to_cow_slice(),
         verify_signatures,
         ctxt,
         spec,
@@ -37,11 +43,21 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         spec,
     )?;
     process_attestations(state, block_body, verify_signatures, ctxt, spec)?;
-    process_deposits(state, block_body.deposits(), spec)?;
-    process_exits(state, block_body.voluntary_exits(), verify_signatures, spec)?;
+    process_deposits(state, &block_body.deposits().to_cow_slice(), spec)?;
+    process_exits(
+        state,
+        &block_body.voluntary_exits().to_cow_slice(),
+        verify_signatures,
+        spec,
+    )?;
 
     if let Ok(bls_to_execution_changes) = block_body.bls_to_execution_changes() {
-        process_bls_to_execution_changes(state, bls_to_execution_changes, verify_signatures, spec)?;
+        process_bls_to_execution_changes(
+            state,
+            &bls_to_execution_changes.to_cow_slice(),
+            verify_signatures,
+            spec,
+        )?;
     }
 
     if state.fork_name_unchecked().gloas_enabled() {
@@ -59,12 +75,72 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
             &block_body.execution_requests()?.deposits,
             spec,
         )?;
-        process_withdrawal_requests(state, &block_body.execution_requests()?.withdrawals, spec)?;
-        process_consolidation_requests(
+        process_withdrawal_requests(
             state,
-            &block_body.execution_requests()?.consolidations,
+            block_body.execution_requests()?.withdrawals.iter(),
             spec,
         )?;
+        process_consolidation_requests(
+            state,
+            block_body.execution_requests()?.consolidations.iter(),
+            spec,
+        )?;
+    }
+
+    Ok(())
+}
+
+/// Verify the lengths of the (progressive) operation lists against the spec's runtime limits.
+///
+/// [New in Gloas:EIP7688]: these limits used to be enforced by the SSZ types, but
+/// `ProgressiveList` is unbounded so they must be checked explicitly.
+pub fn verify_operation_list_lengths<E: EthSpec, Payload: AbstractExecPayload<E>>(
+    block_body: BeaconBlockBodyRef<E, Payload>,
+) -> Result<(), BlockProcessingError> {
+    let checks: [(&str, usize, usize); 6] = [
+        (
+            "proposer_slashings",
+            block_body.proposer_slashings().len(),
+            E::MaxProposerSlashings::to_usize(),
+        ),
+        (
+            "attester_slashings",
+            block_body.attester_slashings_len(),
+            E::MaxAttesterSlashingsElectra::to_usize(),
+        ),
+        (
+            "attestations",
+            block_body.attestations_len(),
+            E::MaxAttestationsElectra::to_usize(),
+        ),
+        (
+            "voluntary_exits",
+            block_body.voluntary_exits().len(),
+            E::MaxVoluntaryExits::to_usize(),
+        ),
+        (
+            "bls_to_execution_changes",
+            block_body
+                .bls_to_execution_changes()
+                .map(|changes| changes.len())
+                .unwrap_or(0),
+            E::MaxBlsToExecutionChanges::to_usize(),
+        ),
+        (
+            "payload_attestations",
+            block_body
+                .payload_attestations()
+                .map(|atts| atts.len())
+                .unwrap_or(0),
+            E::MaxPayloadAttestations::to_usize(),
+        ),
+    ];
+
+    for (kind, length, max) in checks {
+        block_verify!(
+            length <= max,
+            BlockProcessingError::OperationListTooLong { kind, length, max }
+        );
     }
 
     Ok(())
@@ -192,7 +268,7 @@ pub mod altair_deneb {
             let validator_slashed = state.slashings_cache().is_slashed(index);
 
             for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
-                let epoch_participation = state.get_epoch_participation_mut(
+                let mut epoch_participation = state.get_epoch_participation_mut(
                     data.target.epoch,
                     previous_epoch,
                     current_epoch,
@@ -312,7 +388,7 @@ pub mod gloas {
             let mut will_set_new_flag = false;
 
             for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
-                let epoch_participation = state.get_epoch_participation_mut(
+                let mut epoch_participation = state.get_epoch_participation_mut(
                     data.target.epoch,
                     previous_epoch,
                     current_epoch,
@@ -731,7 +807,7 @@ pub fn apply_deposit<E: EthSpec>(
 
     if let Some(index) = validator_index {
         // [Modified in Electra:EIP7251]
-        if let Ok(pending_deposits) = state.pending_deposits_mut() {
+        if let Ok(mut pending_deposits) = state.pending_deposits_mut() {
             pending_deposits.push(PendingDeposit {
                 pubkey: deposit_data.pubkey,
                 withdrawal_credentials: deposit_data.withdrawal_credentials,
@@ -764,7 +840,7 @@ pub fn apply_deposit<E: EthSpec>(
         )?;
 
         // [New in Electra:EIP7251]
-        if let Ok(pending_deposits) = state.pending_deposits_mut() {
+        if let Ok(mut pending_deposits) = state.pending_deposits_mut() {
             pending_deposits.push(PendingDeposit {
                 pubkey: deposit_data.pubkey,
                 withdrawal_credentials: deposit_data.withdrawal_credentials,
@@ -779,9 +855,9 @@ pub fn apply_deposit<E: EthSpec>(
 }
 
 // Make sure to build the pubkey cache before calling this function
-pub fn process_withdrawal_requests<E: EthSpec>(
+pub fn process_withdrawal_requests<'a, E: EthSpec>(
     state: &mut BeaconState<E>,
-    requests: &[WithdrawalRequest],
+    requests: impl IntoIterator<Item = &'a WithdrawalRequest>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     for request in requests {
@@ -887,7 +963,7 @@ pub fn process_deposit_requests_pre_gloas<E: EthSpec>(
         let slot = state.slot();
 
         // [New in Electra:EIP7251]
-        if let Ok(pending_deposits) = state.pending_deposits_mut() {
+        if let Ok(mut pending_deposits) = state.pending_deposits_mut() {
             pending_deposits.push(PendingDeposit {
                 pubkey: request.pubkey,
                 withdrawal_credentials: request.withdrawal_credentials,
@@ -901,9 +977,9 @@ pub fn process_deposit_requests_pre_gloas<E: EthSpec>(
     Ok(())
 }
 
-pub fn process_deposit_requests_post_gloas<E: EthSpec>(
+pub fn process_deposit_requests_post_gloas<'a, E: EthSpec>(
     state: &mut BeaconState<E>,
-    deposit_requests: &[DepositRequest],
+    deposit_requests: impl IntoIterator<Item = &'a DepositRequest>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     for request in deposit_requests {
@@ -1038,9 +1114,9 @@ pub fn apply_deposit_for_builder<E: EthSpec>(
 }
 
 // Make sure to build the pubkey cache before calling this function
-pub fn process_consolidation_requests<E: EthSpec>(
+pub fn process_consolidation_requests<'a, E: EthSpec>(
     state: &mut BeaconState<E>,
-    consolidation_requests: &[ConsolidationRequest],
+    consolidation_requests: impl IntoIterator<Item = &'a ConsolidationRequest>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     for request in consolidation_requests {

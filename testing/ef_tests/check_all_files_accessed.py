@@ -53,6 +53,11 @@ excluded_paths = [
     "tests/.*/.*/ssz_static/MatrixEntry/.*",
     # TODO: partial data column not implemented yet
     "tests/.*/.*/ssz_static/PartialDataColumn.*/.*",
+    # All Gloas vectors are disabled: the published consensus-spec-tests predate the EIP-7688
+    # rebase of Gloas (https://github.com/ethereum/consensus-specs/pull/4630), which changed the
+    # merkleization of `BeaconState`, `BeaconBlockBody` and related containers. Re-enable once
+    # vectors are generated from the updated spec.
+    "tests/.*/gloas/.*",
     # TODO(gloas): Ignore Gloas light client stuff for now
     "tests/.*/gloas/ssz_static/LightClient.*/.*",
     "tests/.*/gloas/light_client",

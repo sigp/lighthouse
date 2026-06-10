@@ -9,7 +9,8 @@ use types::{
 };
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionRequests,
+    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionRequestsElectra,
+    ExecutionRequestsGloas,
 };
 
 #[superstruct(
@@ -47,8 +48,14 @@ pub struct NewPayloadRequest<'block, E: EthSpec> {
     pub versioned_hashes: Vec<VersionedHash>,
     #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
     pub parent_beacon_block_root: Hash256,
-    #[superstruct(only(Electra, Fulu, Gloas))]
-    pub execution_requests: &'block ExecutionRequests<E>,
+    #[superstruct(
+        only(Electra, Fulu),
+        partial_getter(rename = "execution_requests_basic")
+    )]
+    pub execution_requests: &'block ExecutionRequestsElectra<E>,
+    // [Modified in Gloas:EIP7688]
+    #[superstruct(only(Gloas), partial_getter(rename = "execution_requests_gloas"))]
+    pub execution_requests: &'block ExecutionRequestsGloas<E>,
 }
 
 impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
@@ -82,6 +89,16 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
             Self::Electra(payload) => payload.execution_payload.block_number,
             Self::Fulu(payload) => payload.execution_payload.block_number,
             Self::Gloas(payload) => payload.execution_payload.block_number,
+        }
+    }
+
+    /// Return the EIP-7685 `requests_hash` for the execution requests, if any.
+    pub fn requests_hash(&self) -> Option<Hash256> {
+        match self {
+            Self::Bellatrix(_) | Self::Capella(_) | Self::Deneb(_) => None,
+            Self::Electra(request) => Some(request.execution_requests.requests_hash()),
+            Self::Fulu(request) => Some(request.execution_requests.requests_hash()),
+            Self::Gloas(request) => Some(request.execution_requests.requests_hash()),
         }
     }
 
@@ -140,11 +157,8 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
             return Err(Error::ZeroLengthTransaction);
         }
 
-        let (header_hash, rlp_transactions_root) = calculate_execution_block_hash(
-            payload,
-            parent_beacon_block_root,
-            self.execution_requests().ok().copied(),
-        );
+        let (header_hash, rlp_transactions_root) =
+            calculate_execution_block_hash(payload, parent_beacon_block_root, self.requests_hash());
 
         if header_hash != self.block_hash() {
             return Err(Error::BlockHashMismatch {

@@ -184,7 +184,7 @@ async fn prepare_payload_generic(
     // created with eth1 withdrawal credentials in the interop genesis builder.
     let consolidation_request = harness.make_switch_to_compounding_request(1);
 
-    let execution_requests = ExecutionRequests::<E> {
+    let execution_requests = ExecutionRequestsElectra::<E> {
         deposits: VariableList::empty(),
         withdrawals: VariableList::empty(),
         consolidations: VariableList::new(vec![consolidation_request]).unwrap(),

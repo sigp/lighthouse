@@ -7,7 +7,7 @@ use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
-use ssz_types::{BitList, BitVector, FixedVector, VariableList};
+use ssz_types::{BitList, BitVector, FixedVector, ProgressiveVariableList, VariableList};
 use superstruct::superstruct;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
@@ -25,8 +25,8 @@ use crate::{
     core::{ChainSpec, Domain, Epoch, EthSpec, Graffiti, Hash256, SignedRoot, Slot},
     deposit::{Deposit, DepositData},
     execution::{
-        AbstractExecPayload, BlindedPayload, Eth1Data, ExecutionPayload, ExecutionRequests,
-        FullPayload,
+        AbstractExecPayload, BlindedPayload, Eth1Data, ExecutionPayload, ExecutionRequestsElectra,
+        ExecutionRequestsGloas, FullPayload,
     },
     exit::{SignedVoluntaryExit, VoluntaryExit},
     fork::{Fork, ForkName, InconsistentFork, map_fork_name},
@@ -650,7 +650,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockElec
                 execution_payload: Payload::Electra::default(),
                 bls_to_execution_changes: VariableList::empty(),
                 blob_kzg_commitments: VariableList::empty(),
-                execution_requests: ExecutionRequests::default(),
+                execution_requests: ExecutionRequestsElectra::default(),
             },
         }
     }
@@ -684,7 +684,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockFulu
                 execution_payload: Payload::Fulu::default(),
                 bls_to_execution_changes: VariableList::empty(),
                 blob_kzg_commitments: VariableList::empty(),
-                execution_requests: ExecutionRequests::default(),
+                execution_requests: ExecutionRequestsElectra::default(),
             },
         }
     }
@@ -706,16 +706,16 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockGloa
                     deposit_count: 0,
                 },
                 graffiti: Graffiti::default(),
-                proposer_slashings: VariableList::empty(),
-                attester_slashings: VariableList::empty(),
-                attestations: VariableList::empty(),
-                deposits: VariableList::empty(),
-                voluntary_exits: VariableList::empty(),
+                proposer_slashings: ProgressiveVariableList::empty(),
+                attester_slashings: ProgressiveVariableList::empty(),
+                attestations: ProgressiveVariableList::empty(),
+                deposits: ProgressiveVariableList::empty(),
+                voluntary_exits: ProgressiveVariableList::empty(),
                 sync_aggregate: SyncAggregate::empty(),
-                bls_to_execution_changes: VariableList::empty(),
-                parent_execution_requests: ExecutionRequests::default(),
+                bls_to_execution_changes: ProgressiveVariableList::empty(),
+                parent_execution_requests: ExecutionRequestsGloas::default(),
                 signed_execution_payload_bid: SignedExecutionPayloadBid::empty(),
-                payload_attestations: VariableList::empty(),
+                payload_attestations: ProgressiveVariableList::empty(),
                 _phantom: PhantomData,
             },
         }

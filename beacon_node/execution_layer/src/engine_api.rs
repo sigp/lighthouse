@@ -25,7 +25,7 @@ pub use types::{
 };
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionRequests,
+    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionRequestsElectra,
     KzgProofs,
 };
 use types::{GRAFFITI_BYTES_LEN, Graffiti};
@@ -62,6 +62,7 @@ pub enum Error {
     ParentHashEqualsBlockHash(ExecutionBlockHash),
     PayloadIdUnavailable,
     SszError(ssz_types::Error),
+    PayloadConversion(json_structures::PayloadConversionError),
     DeserializeWithdrawals(ssz_types::Error),
     DeserializeDepositRequests(ssz_types::Error),
     DeserializeWithdrawalRequests(ssz_types::Error),
@@ -107,6 +108,12 @@ impl From<builder_client::Error> for Error {
 impl From<ssz_types::Error> for Error {
     fn from(e: ssz_types::Error) -> Self {
         Error::SszError(e)
+    }
+}
+
+impl From<json_structures::PayloadConversionError> for Error {
+    fn from(e: json_structures::PayloadConversionError) -> Self {
+        Error::PayloadConversion(e)
     }
 }
 
@@ -342,7 +349,7 @@ pub struct GetPayloadResponse<E: EthSpec> {
     #[superstruct(only(Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
     pub should_override_builder: bool,
     #[superstruct(only(Electra, Fulu, Gloas))]
-    pub requests: ExecutionRequests<E>,
+    pub requests: ExecutionRequestsElectra<E>,
 }
 
 impl<E: EthSpec> GetPayloadResponse<E> {
@@ -380,7 +387,7 @@ impl<E: EthSpec> From<GetPayloadResponse<E>>
         ExecutionPayload<E>,
         Uint256,
         Option<BlobsBundle<E>>,
-        Option<ExecutionRequests<E>>,
+        Option<ExecutionRequestsElectra<E>>,
     )
 {
     fn from(response: GetPayloadResponse<E>) -> Self {

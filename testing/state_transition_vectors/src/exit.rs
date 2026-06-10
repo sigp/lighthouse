@@ -127,7 +127,7 @@ vectors_and_tests!(
         block_modifier: Box::new(|_, block| {
             // Duplicate the exit
             let exit = block.body().voluntary_exits().first().unwrap().clone();
-            block.body_mut().voluntary_exits_mut().push(exit).unwrap();
+            block.body_mut().voluntary_exits_push(exit).unwrap();
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
             index: 1,
@@ -145,13 +145,9 @@ vectors_and_tests!(
     invalid_validator_unknown,
     ExitTest {
         block_modifier: Box::new(|_, block| {
-            block
-                .body_mut()
-                .voluntary_exits_mut()
-                .get_mut(0)
-                .unwrap()
-                .message
-                .validator_index = VALIDATOR_COUNT as u64;
+            block.body_mut().voluntary_exits_apply(|exit| {
+                exit.message.validator_index = VALIDATOR_COUNT as u64;
+            });
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
             index: 0,
@@ -309,13 +305,9 @@ vectors_and_tests!(
         block_modifier: Box::new(|_, block| {
             // Shift the validator index by 1 so that it's mismatched from the key that was
             // used to sign.
-            block
-                .body_mut()
-                .voluntary_exits_mut()
-                .get_mut(0)
-                .unwrap()
-                .message
-                .validator_index = VALIDATOR_INDEX + 1;
+            block.body_mut().voluntary_exits_apply(|exit| {
+                exit.message.validator_index = VALIDATOR_INDEX + 1;
+            });
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
             index: 0,

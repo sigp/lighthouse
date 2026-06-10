@@ -7,7 +7,7 @@ use keccak_hash::KECCAK_EMPTY_LIST_RLP;
 use triehash::ordered_trie_root;
 use types::{
     EncodableExecutionBlockHeader, EthSpec, ExecutionBlockHash, ExecutionBlockHeader,
-    ExecutionPayloadRef, ExecutionRequests, Hash256,
+    ExecutionPayloadRef, Hash256,
 };
 
 /// Calculate the block hash of an execution block.
@@ -17,14 +17,12 @@ use types::{
 pub fn calculate_execution_block_hash<E: EthSpec>(
     payload: ExecutionPayloadRef<E>,
     parent_beacon_block_root: Option<Hash256>,
-    execution_requests: Option<&ExecutionRequests<E>>,
+    requests_hash: Option<Hash256>,
 ) -> (ExecutionBlockHash, Hash256) {
     // Calculate the transactions root.
     // We're currently using a deprecated Parity library for this. We should move to a
     // better alternative when one appears, possibly following Reth.
-    let rlp_transactions_root = ordered_trie_root::<KeccakHasher, _>(
-        payload.transactions().iter().map(|txn_bytes| &**txn_bytes),
-    );
+    let rlp_transactions_root = ordered_trie_root::<KeccakHasher, _>(payload.transactions().iter());
 
     // Calculate withdrawals root (post-Capella).
     let rlp_withdrawals_root = if let Ok(withdrawals) = payload.withdrawals() {
@@ -39,7 +37,7 @@ pub fn calculate_execution_block_hash<E: EthSpec>(
 
     let rlp_blob_gas_used = payload.blob_gas_used().ok();
     let rlp_excess_blob_gas = payload.excess_blob_gas().ok();
-    let requests_root = execution_requests.map(|requests| requests.requests_hash());
+    let requests_root = requests_hash;
 
     // Construct the block header.
     let exec_block_header = ExecutionBlockHeader::from_payload(

@@ -35,7 +35,7 @@ use types::builder::{
 };
 use types::{
     Address, BeaconState, ChainSpec, Epoch, EthSpec, ExecPayload, ExecutionPayload,
-    ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionDecode, Hash256,
+    ExecutionPayloadHeaderRefMut, ExecutionRequestsElectra, ForkName, ForkVersionDecode, Hash256,
     SignedBlindedBeaconBlock, SignedRoot, SignedValidatorRegistrationData, Slot, Uint256,
 };
 use warp::reply::{self, Reply};
@@ -585,7 +585,7 @@ impl<E: EthSpec> MockBuilder<E> {
                     ExecutionPayload<E>,
                     Uint256,
                     Option<BlobsBundle<E>>,
-                    Option<ExecutionRequests<E>>,
+                    Option<ExecutionRequestsElectra<E>>,
                 ) = payload_response.into();
 
                 match fork {

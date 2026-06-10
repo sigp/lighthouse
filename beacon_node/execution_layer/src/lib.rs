@@ -48,7 +48,7 @@ use types::builder::BuilderBid;
 use types::execution::BlockProductionVersion;
 use types::kzg_ext::KzgCommitments;
 use types::{
-    AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequests, KzgProofs,
+    AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequestsElectra, KzgProofs,
     SignedBlindedBeaconBlock,
 };
 use types::{
@@ -206,7 +206,7 @@ pub struct BlockProposalContentsGloas<E: EthSpec> {
     pub payload_value: Uint256,
     pub blob_kzg_commitments: KzgCommitments<E>,
     pub blobs_and_proofs: (BlobsList<E>, KzgProofs<E>),
-    pub execution_requests: ExecutionRequests<E>,
+    pub execution_requests: ExecutionRequestsElectra<E>,
     pub should_override_builder: bool,
 }
 
@@ -236,7 +236,7 @@ pub enum BlockProposalContents<E: EthSpec, Payload: AbstractExecPayload<E>> {
         blobs_and_proofs: Option<(BlobsList<E>, KzgProofs<E>)>,
         // TODO(electra): this should probably be a separate variant/superstruct
         // See: https://github.com/sigp/lighthouse/issues/6981
-        requests: Option<ExecutionRequests<E>>,
+        requests: Option<ExecutionRequestsElectra<E>>,
     },
 }
 
@@ -311,7 +311,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BlockProposalContents<E, Paylo
         Payload,
         Option<KzgCommitments<E>>,
         Option<(BlobsList<E>, KzgProofs<E>)>,
-        Option<ExecutionRequests<E>>,
+        Option<ExecutionRequestsElectra<E>>,
         Uint256,
     ) {
         match self {

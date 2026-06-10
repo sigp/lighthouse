@@ -1,9 +1,10 @@
-use crate::kzg_ext::KzgCommitments;
+use crate::kzg_ext::ProgressiveKzgCommitments;
 use crate::{Address, EthSpec, ExecutionBlockHash, ForkName, Hash256, SignedRoot, Slot};
 use context_deserialize::context_deserialize;
 use educe::Educe;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use std::marker::PhantomData;
 use tree_hash_derive::TreeHash;
 
 #[derive(Default, Debug, Clone, Serialize, Encode, Decode, Deserialize, TreeHash, Educe)]
@@ -32,8 +33,14 @@ pub struct ExecutionPayloadBid<E: EthSpec> {
     pub value: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     pub execution_payment: u64,
-    pub blob_kzg_commitments: KzgCommitments<E>,
+    // [Modified in Gloas:EIP7688]
+    pub blob_kzg_commitments: ProgressiveKzgCommitments,
     pub execution_requests_root: Hash256,
+    #[ssz(skip_serializing, skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    #[serde(skip)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    pub _phantom: PhantomData<E>,
 }
 
 impl<E: EthSpec> SignedRoot for ExecutionPayloadBid<E> {}

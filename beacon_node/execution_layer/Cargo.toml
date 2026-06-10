@@ -28,6 +28,7 @@ lighthouse_version = { workspace = true }
 logging = { workspace = true }
 lru = { workspace = true }
 metrics = { workspace = true }
+milhouse = { workspace = true }
 parking_lot = { workspace = true }
 pretty_reqwest_error = { workspace = true }
 rand = { workspace = true }

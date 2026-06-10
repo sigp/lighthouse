@@ -7,12 +7,12 @@ use ssz::{Decode, Encode};
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
-    AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, DataColumnSidecar,
-    DataColumnSubnetId, EthSpec, ForkContext, ForkName, Hash256, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, PartialDataColumn, PartialDataColumnSidecar,
-    PayloadAttestationMessage, ProposerSlashing, SignedAggregateAndProof,
-    SignedAggregateAndProofBase, SignedAggregateAndProofElectra, SignedBeaconBlock,
-    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
+    AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, AttesterSlashingGloas,
+    DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkName, Hash256,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, PartialDataColumn,
+    PartialDataColumnSidecar, PayloadAttestationMessage, ProposerSlashing, SignedAggregateAndProof,
+    SignedAggregateAndProofBase, SignedAggregateAndProofElectra, SignedAggregateAndProofGloas,
+    SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
     SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
     SignedBeaconBlockFulu, SignedBeaconBlockGloas, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
@@ -185,7 +185,15 @@ impl<E: EthSpec> PubsubMessage<E> {
                             .get_fork_from_context_bytes(gossip_topic.fork_digest)
                         {
                             Some(&fork_name) => {
-                                if fork_name.electra_enabled() {
+                                // [Modified in Gloas:EIP7688] the Gloas and Electra containers
+                                // serialize identically but merkleize differently, so decoding
+                                // into the wrong variant produces invalid signing roots.
+                                if fork_name.gloas_enabled() {
+                                    SignedAggregateAndProof::Gloas(
+                                        SignedAggregateAndProofGloas::from_ssz_bytes(data)
+                                            .map_err(|e| format!("{:?}", e))?,
+                                    )
+                                } else if fork_name.electra_enabled() {
                                     SignedAggregateAndProof::Electra(
                                         SignedAggregateAndProofElectra::from_ssz_bytes(data)
                                             .map_err(|e| format!("{:?}", e))?,
@@ -294,7 +302,13 @@ impl<E: EthSpec> PubsubMessage<E> {
                             .get_fork_from_context_bytes(gossip_topic.fork_digest)
                         {
                             Some(&fork_name) => {
-                                if fork_name.electra_enabled() {
+                                // [Modified in Gloas:EIP7688] see `BeaconAggregateAndProof` above.
+                                if fork_name.gloas_enabled() {
+                                    AttesterSlashing::Gloas(
+                                        AttesterSlashingGloas::from_ssz_bytes(data)
+                                            .map_err(|e| format!("{:?}", e))?,
+                                    )
+                                } else if fork_name.electra_enabled() {
                                     AttesterSlashing::Electra(
                                         AttesterSlashingElectra::from_ssz_bytes(data)
                                             .map_err(|e| format!("{:?}", e))?,

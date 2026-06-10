@@ -11,6 +11,7 @@ use execution_layer::{
 };
 use operation_pool::CompactAttestationRef;
 use ssz::Encode;
+use ssz::ProgressiveBitList;
 use state_processing::common::{get_attesting_indices_from_state, get_indexed_payload_attestation};
 use state_processing::envelope_processing::verify_execution_payload_envelope;
 use state_processing::epoch_cache::initialize_epoch_cache;
@@ -28,14 +29,16 @@ use tracing::{Instrument, debug, debug_span, error, instrument, trace, warn};
 use tree_hash::TreeHash;
 use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::{
-    Address, Attestation, AttestationElectra, AttesterSlashing, AttesterSlashingElectra,
-    BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, BeaconState, BeaconStateError,
-    BuilderIndex, ChainSpec, Deposit, Eth1Data, EthSpec, ExecutionBlockHash, ExecutionPayloadBid,
-    ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequests, FullPayload, Graffiti,
-    Hash256, PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
+    Address, Attestation, AttestationGloas, AttesterSlashing, AttesterSlashingGloas, BeaconBlock,
+    BeaconBlockBodyGloas, BeaconBlockGloas, BeaconState, BeaconStateError, BuilderIndex, ChainSpec,
+    Deposit, Eth1Data, EthSpec, ExecutionBlockHash, ExecutionPayloadBid, ExecutionPayloadEnvelope,
+    ExecutionPayloadGloas, ExecutionRequestsGloas, FullPayload, Graffiti, Hash256,
+    IndexedAttestation, PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
     SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
     SignedVoluntaryExit, Slot, SyncAggregate, Withdrawal, Withdrawals,
 };
+
+use ssz_types::ProgressiveVariableList;
 
 use crate::pending_payload_envelopes::PendingEnvelopeData;
 use crate::{
@@ -61,8 +64,8 @@ pub struct PartialBeaconBlock<E: EthSpec> {
     eth1_data: Eth1Data,
     graffiti: Graffiti,
     proposer_slashings: Vec<ProposerSlashing>,
-    attester_slashings: Vec<AttesterSlashingElectra<E>>,
-    attestations: Vec<AttestationElectra<E>>,
+    attester_slashings: Vec<AttesterSlashingGloas<E>>,
+    attestations: Vec<AttestationGloas<E>>,
     payload_attestations: Vec<PayloadAttestation<E>>,
     deposits: Vec<Deposit>,
     voluntary_exits: Vec<SignedVoluntaryExit>,
@@ -74,7 +77,7 @@ pub struct PartialBeaconBlock<E: EthSpec> {
 /// The envelope requires the beacon_block_root which can only be computed after the block exists.
 pub struct ExecutionPayloadData<E: types::EthSpec> {
     pub payload: ExecutionPayloadGloas<E>,
-    pub execution_requests: ExecutionRequests<E>,
+    pub execution_requests: ExecutionRequestsGloas<E>,
     pub builder_index: BuilderIndex,
     pub slot: Slot,
     pub blobs_and_proofs: (types::BlobsList<E>, types::KzgProofs<E>),
@@ -175,7 +178,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map(|env| env.message.execution_requests.clone())
                 .ok_or(BlockProductionError::MissingParentExecutionPayload)?
         } else {
-            ExecutionRequests::default()
+            ExecutionRequestsGloas::default()
         };
 
         // Part 1/3 (blocking)
@@ -259,7 +262,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         produce_at_slot: Slot,
         randao_reveal: Signature,
         graffiti: Graffiti,
-        parent_execution_requests: &ExecutionRequests<T::EthSpec>,
+        parent_execution_requests: &ExecutionRequestsGloas<T::EthSpec>,
     ) -> Result<(PartialBeaconBlock<T::EthSpec>, BeaconState<T::EthSpec>), BlockProductionError>
     {
         // It is invalid to try to produce a block using a state from a future slot.
@@ -471,7 +474,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .into_iter()
             .filter_map(|a| match a {
                 AttesterSlashing::Base(_) => None,
-                AttesterSlashing::Electra(a) => Some(a),
+                // Re-type fork-boundary Electra slashings as Gloas: the serialized form is
+                // identical, only the merkleization differs [Modified in Gloas:EIP7688].
+                AttesterSlashing::Electra(a) => Some(AttesterSlashingGloas {
+                    attestation_1: IndexedAttestation::Electra(a.attestation_1).to_gloas(),
+                    attestation_2: IndexedAttestation::Electra(a.attestation_2).to_gloas(),
+                }),
+                AttesterSlashing::Gloas(a) => Some(a),
             })
             .collect::<Vec<_>>();
 
@@ -479,7 +488,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .into_iter()
             .filter_map(|a| match a {
                 Attestation::Base(_) => None,
-                Attestation::Electra(a) => Some(a),
+                // Re-type fork-boundary Electra attestations as Gloas: the serialized form is
+                // identical, only the merkleization differs [Modified in Gloas:EIP7688].
+                Attestation::Electra(a) => Some(AttestationGloas {
+                    aggregation_bits: ProgressiveBitList::from_bytes(
+                        a.aggregation_bits.into_bytes(),
+                    )
+                    .ok()?,
+                    data: a.data,
+                    signature: a.signature,
+                    committee_bits: a.committee_bits,
+                }),
+                Attestation::Gloas(a) => Some(a),
             })
             .collect::<Vec<_>>();
 
@@ -530,7 +550,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         partial_beacon_block: PartialBeaconBlock<T::EthSpec>,
         signed_execution_payload_bid: SignedExecutionPayloadBid<T::EthSpec>,
-        parent_execution_requests: ExecutionRequests<T::EthSpec>,
+        parent_execution_requests: ExecutionRequestsGloas<T::EthSpec>,
         payload_data: Option<ExecutionPayloadData<T::EthSpec>>,
         mut state: BeaconState<T::EthSpec>,
         verification: ProduceBlockVerification,
@@ -573,30 +593,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     randao_reveal,
                     eth1_data,
                     graffiti,
-                    proposer_slashings: proposer_slashings
-                        .try_into()
-                        .map_err(BlockProductionError::SszTypesError)?,
-                    attester_slashings: attester_slashings
-                        .try_into()
-                        .map_err(BlockProductionError::SszTypesError)?,
-                    attestations: attestations
-                        .try_into()
-                        .map_err(BlockProductionError::SszTypesError)?,
-                    deposits: deposits
-                        .try_into()
-                        .map_err(BlockProductionError::SszTypesError)?,
-                    voluntary_exits: voluntary_exits
-                        .try_into()
-                        .map_err(BlockProductionError::SszTypesError)?,
+                    // [Modified in Gloas:EIP7688] the operation lists are progressive. Their
+                    // lengths are bounded by the op pool packing limits above.
+                    proposer_slashings: ProgressiveVariableList::from_iter(proposer_slashings),
+                    attester_slashings: ProgressiveVariableList::from_iter(attester_slashings),
+                    attestations: ProgressiveVariableList::from_iter(attestations),
+                    deposits: ProgressiveVariableList::from_iter(deposits),
+                    voluntary_exits: ProgressiveVariableList::from_iter(voluntary_exits),
                     sync_aggregate,
-                    bls_to_execution_changes: bls_to_execution_changes
-                        .try_into()
-                        .map_err(BlockProductionError::SszTypesError)?,
+                    bls_to_execution_changes: ProgressiveVariableList::from_iter(
+                        bls_to_execution_changes,
+                    ),
                     parent_execution_requests,
                     signed_execution_payload_bid,
-                    payload_attestations: payload_attestations
-                        .try_into()
-                        .map_err(BlockProductionError::SszTypesError)?,
+                    payload_attestations: ProgressiveVariableList::from_iter(payload_attestations),
                     _phantom: PhantomData::<FullPayload<T::EthSpec>>,
                 },
             }),
@@ -809,6 +819,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             should_override_builder,
         } = block_proposal_contents;
 
+        // [Modified in Gloas:EIP7688] convert the EL-derived execution requests and blob
+        // commitments to their progressive representations. The bid's requests root commits to
+        // the progressive merkleization.
+        let execution_requests = ExecutionRequestsGloas::from(&execution_requests);
+        let blob_kzg_commitments =
+            ProgressiveVariableList::from_iter(blob_kzg_commitments.iter().cloned());
+
         // TODO(gloas) since we are defaulting to local building, execution payment is 0
         // execution payment should only be set to > 0 for trusted building.
         let bid = ExecutionPayloadBid::<T::EthSpec> {
@@ -824,6 +841,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             execution_payment: EXECUTION_PAYMENT_TRUSTLESS_BUILD,
             blob_kzg_commitments,
             execution_requests_root: execution_requests.tree_hash_root(),
+            _phantom: PhantomData,
         };
 
         // Store payload data for envelope construction after block is created
@@ -1109,7 +1127,7 @@ where
 /// `exit_epoch`. A voluntary exit for the same validator would then fail with `AlreadyExited`.
 fn filter_voluntary_exits_for_parent_execution_requests<E: EthSpec>(
     voluntary_exits: &mut Vec<SignedVoluntaryExit>,
-    parent_execution_requests: &ExecutionRequests<E>,
+    parent_execution_requests: &ExecutionRequestsGloas<E>,
     pubkey_at_index: impl Fn(u64) -> Option<PublicKeyBytes>,
     spec: &ChainSpec,
 ) {
@@ -1139,7 +1157,7 @@ fn filter_voluntary_exits_for_parent_execution_requests<E: EthSpec>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ssz_types::VariableList;
+    use ssz_types::{ProgressiveVariableList, VariableList};
     use types::{ConsolidationRequest, Epoch, MainnetEthSpec, VoluntaryExit, WithdrawalRequest};
 
     type TestSpec = MainnetEthSpec;
@@ -1161,17 +1179,18 @@ mod tests {
     fn requests(
         withdrawals: Vec<WithdrawalRequest>,
         consolidations: Vec<ConsolidationRequest>,
-    ) -> ExecutionRequests<TestSpec> {
-        ExecutionRequests {
-            deposits: VariableList::empty(),
-            withdrawals: VariableList::new(withdrawals).unwrap(),
-            consolidations: VariableList::new(consolidations).unwrap(),
+    ) -> ExecutionRequestsGloas<TestSpec> {
+        ExecutionRequestsGloas {
+            deposits: ProgressiveVariableList::empty(),
+            withdrawals: ProgressiveVariableList::new(withdrawals),
+            consolidations: ProgressiveVariableList::new(consolidations),
+            _phantom: PhantomData,
         }
     }
 
     fn run_filter(
         exits: &mut Vec<SignedVoluntaryExit>,
-        requests: &ExecutionRequests<TestSpec>,
+        requests: &ExecutionRequestsGloas<TestSpec>,
         validator_pubkeys: &[PublicKeyBytes],
         spec: &ChainSpec,
     ) {
@@ -1307,7 +1326,7 @@ mod tests {
         LocalBuildResult {
             payload_data: ExecutionPayloadData {
                 payload: types::ExecutionPayloadGloas::default(),
-                execution_requests: ExecutionRequests::default(),
+                execution_requests: ExecutionRequestsGloas::default(),
                 builder_index: BUILDER_INDEX_SELF_BUILD,
                 slot: Slot::new(0),
                 blobs_and_proofs: (VariableList::empty(), VariableList::empty()),
