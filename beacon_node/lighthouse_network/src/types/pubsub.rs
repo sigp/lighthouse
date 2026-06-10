@@ -1,7 +1,7 @@
 //! Handles the encoding and decoding of pubsub messages.
 
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
-use gossipsub::TopicHash;
+use libp2p::gossipsub::{DataTransform, Message, RawMessage, TopicHash};
 use snap::raw::{Decoder, Encoder, decompress_len};
 use ssz::{Decode, Encode};
 use std::io::{Error, ErrorKind};
@@ -73,12 +73,9 @@ impl SnappyTransform {
     }
 }
 
-impl gossipsub::DataTransform for SnappyTransform {
+impl DataTransform for SnappyTransform {
     // Provides the snappy decompression from RawGossipsubMessages
-    fn inbound_transform(
-        &self,
-        raw_message: gossipsub::RawMessage,
-    ) -> Result<gossipsub::Message, std::io::Error> {
+    fn inbound_transform(&self, raw_message: RawMessage) -> Result<Message, std::io::Error> {
         // first check the size of the compressed payload
         if raw_message.data.len() > self.max_compressed_len {
             return Err(Error::new(
@@ -99,7 +96,7 @@ impl gossipsub::DataTransform for SnappyTransform {
         let decompressed_data = decoder.decompress_vec(&raw_message.data)?;
 
         // Build the GossipsubMessage struct
-        Ok(gossipsub::Message {
+        Ok(Message {
             source: raw_message.source,
             data: decompressed_data,
             sequence_number: raw_message.sequence_number,

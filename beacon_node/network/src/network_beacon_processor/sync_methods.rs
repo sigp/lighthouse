@@ -28,7 +28,7 @@ use logging::crit;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, debug_span, error, info, instrument, warn};
-use types::{BlockImportSource, DataColumnSidecarList, Epoch, Hash256};
+use types::{BlockImportSource, DataColumnSidecarList, Epoch, ExecutionBlockHash, Hash256};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
 #[derive(Clone, Debug, PartialEq)]
@@ -367,7 +367,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     )
                     .await
             }
-            Err(e) => Err(e),
+            Err(e) => Err(e.into()),
         };
 
         // TODO(gloas): structured penalty classification arrives with the envelope lookup state
@@ -682,10 +682,26 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         downloaded_blocks: Vec<RangeSyncBlock<T::EthSpec>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let total_blocks = downloaded_blocks.len();
-        let available_blocks = downloaded_blocks
+        let available_blocks = match downloaded_blocks
             .into_iter()
-            .map(|block| block.into_available_block())
-            .collect::<Vec<_>>();
+            .map(|block| {
+                block
+                    .into_available_block()
+                    .map(|(available, _envelope)| available)
+            })
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(blocks) => blocks,
+            Err(e) => {
+                return (
+                    0,
+                    Err(ChainSegmentFailed {
+                        peer_action: Some(PeerAction::LowToleranceError),
+                        message: format!("Block failed availability construction: {:?}", e),
+                    }),
+                );
+            }
+        };
 
         // TODO(gloas) when implementing backfill sync for gloas
         // we need a batch verify kzg function in the new da checker
@@ -893,6 +909,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     peer_action: None,
                 })
             }
+            ref err @ BlockError::EnvelopeError(ref envelope_error) => {
+                debug!(error = ?err, "Invalid execution payload envelope");
+                Err(ChainSegmentFailed {
+                    message: format!("Invalid execution payload envelope: {err:?}"),
+                    peer_action: if envelope_error.penalize_peer() {
+                        Some(PeerAction::LowToleranceError)
+                    } else {
+                        None
+                    },
+                })
+            }
             ref err @ BlockError::ExecutionPayloadError(ref epe) => {
                 if !epe.penalize_peer() {
                     // These errors indicate an issue with the EL and not the `ChainSegment`.
@@ -962,13 +989,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
 /// The classified outcome of submitting a block / blob / column for processing, ready for the
 /// lookup state machine to act on without re-inspecting `BlockError`.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BlockProcessingResult {
     /// `fully_imported` is true if the lookup is complete; false if `MissingComponents` (the
     /// lookup must keep fetching). `info` is a stable label for logs / metrics.
     Imported(bool, &'static str),
     ParentUnknown {
         parent_root: Hash256,
+        parent_block_hash: Option<ExecutionBlockHash>,
     },
     /// Processing failed. `penalty` is `Some` when an attributable peer should be downscored;
     /// the third tuple element is the `report_peer` telemetry msg. `reason` is for logs only.
@@ -1000,9 +1028,13 @@ impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingR
                         return Self::Imported(true, "duplicate");
                     }
                     BlockError::GenesisBlock => return Self::Imported(true, "genesis"),
-                    BlockError::ParentUnknown { parent_root, .. } => {
+                    BlockError::ParentUnknown {
+                        parent_root,
+                        parent_block_hash,
+                    } => {
                         return Self::ParentUnknown {
                             parent_root: *parent_root,
+                            parent_block_hash: *parent_block_hash,
                         };
                     }
                     BlockError::BeaconChainError(_) | BlockError::InternalError(_) => None,
@@ -1021,6 +1053,17 @@ impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingR
                     BlockError::ExecutionPayloadError(epe) => {
                         if epe.penalize_peer() {
                             block_peer_penalty(epe)
+                        } else {
+                            None
+                        }
+                    }
+                    BlockError::EnvelopeError(epe) => {
+                        if epe.penalize_peer() {
+                            Some((
+                                PeerAction::MidToleranceError,
+                                WhichPeerToPenalize::BlockPeer,
+                                (&e).into(),
+                            ))
                         } else {
                             None
                         }
@@ -1044,8 +1087,6 @@ impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingR
                     | BlockError::ParentExecutionPayloadInvalid { .. }
                     | BlockError::KnownInvalidExecutionPayload(_)
                     | BlockError::Slashable
-                    | BlockError::EnvelopeBlockRootUnknown(_)
-                    | BlockError::OptimisticSyncNotSupported { .. }
                     | BlockError::InvalidBlobCount { .. }
                     | BlockError::BidParentRootMismatch { .. } => block_peer_penalty(&e),
                 };
