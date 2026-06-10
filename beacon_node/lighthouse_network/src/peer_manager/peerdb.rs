@@ -305,6 +305,7 @@ impl<E: EthSpec> PeerDB<E> {
     pub fn good_custody_subnet_peer(
         &self,
         subnet: DataColumnSubnetId,
+        slot: Slot,
     ) -> impl Iterator<Item = &PeerId> {
         self.peers
             .iter()
@@ -314,7 +315,7 @@ impl<E: EthSpec> PeerDB<E> {
                 info.is_connected()
                     && info.is_good_gossipsub_peer()
                     && is_custody_subnet_peer
-                    && info.is_synced_or_advanced()
+                    && info.is_synced_or_advanced_past_slot(slot)
             })
             .map(|(peer_id, _)| peer_id)
     }
@@ -330,14 +331,7 @@ impl<E: EthSpec> PeerDB<E> {
 
         let good_sync_peers_for_epoch = self.peers.values().filter(|&info| {
             info.is_connected()
-                && match info.sync_status() {
-                    SyncStatus::Synced { info } | SyncStatus::Advanced { info } => {
-                        info.has_slot(epoch.start_slot(E::slots_per_epoch()))
-                    }
-                    SyncStatus::IrrelevantPeer
-                    | SyncStatus::Behind { .. }
-                    | SyncStatus::Unknown => false,
-                }
+                && info.is_synced_or_advanced_past_slot(epoch.start_slot(E::slots_per_epoch()))
         });
 
         for info in good_sync_peers_for_epoch {
