@@ -798,6 +798,11 @@ mod tests {
 
     #[test]
     fn no_blobs_into_responses() {
+        // This exercises the pre-Gloas blobs/no-data coupling path. Gloas coupling is covered
+        // by the dedicated `setup_gloas_coupling` tests below.
+        if skip_under_gloas() {
+            return;
+        }
         let spec = Arc::new(test_spec::<E>());
 
         let mut u = types::test_utils::test_unstructured();

@@ -99,6 +99,18 @@ impl<E: EthSpec> RangeSyncBlock<E> {
             Self::Gloas { .. } => &AvailableBlockData::NoData,
         }
     }
+
+    /// Returns the data columns associated with this block. For Gloas blocks the columns are
+    /// carried by the payload envelope rather than `block_data`, so this unwraps that case.
+    pub fn data_columns(&self) -> Option<types::DataColumnSidecarList<E>> {
+        match self {
+            Self::Base(block) => block.data().data_columns(),
+            Self::Gloas { envelope, .. } => envelope
+                .as_ref()
+                .map(|envelope| envelope.columns.clone())
+                .filter(|columns| !columns.is_empty()),
+        }
+    }
 }
 
 impl<E: EthSpec> RangeSyncBlock<E> {
