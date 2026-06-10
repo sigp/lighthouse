@@ -5245,13 +5245,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Only attempt a re-org if we have a proposer registered for the re-org slot.
         let proposing_at_re_org_slot = {
-            // We know our re-org block is not on the epoch boundary, so it has the same proposer
-            // shuffling as the head (but not necessarily the parent which may lie in the previous
-            // epoch).
+            // Since Fulu, proposer shuffling is computed one epoch in advance, so the shuffling
+            // for the re-org block's epoch is always decided by an ancestor of the head, even
+            // when the re-org block lies in the epoch after the head (epoch boundary re-org).
+            let proposal_in_head_epoch = re_org_block_slot.epoch(T::EthSpec::slots_per_epoch())
+                == head_slot.epoch(T::EthSpec::slots_per_epoch());
             let shuffling_decision_root = if self
                 .spec
                 .fork_name_at_slot::<T::EthSpec>(re_org_block_slot)
                 .fulu_enabled()
+                && proposal_in_head_epoch
             {
                 info.head_node.current_epoch_shuffling_id()
             } else {
@@ -5259,18 +5262,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             .shuffling_decision_block;
             let proposer_index = self
-                .beacon_proposer_cache
-                .lock()
-                .get_slot::<T::EthSpec>(shuffling_decision_root, re_org_block_slot)
-                .ok_or_else(|| {
-                    debug!(
-                        slot = %re_org_block_slot,
-                        decision_root = ?shuffling_decision_root,
-                        "Fork choice override proposer shuffling miss"
-                    );
-                    Box::new(DoNotReOrg::NotProposing.into())
-                })?
-                .index as u64;
+                .with_proposer_cache::<u64, Error>(
+                    shuffling_decision_root,
+                    re_org_block_slot.epoch(T::EthSpec::slots_per_epoch()),
+                    |proposers| {
+                        proposers
+                            .get_slot::<T::EthSpec>(re_org_block_slot)
+                            .map(|proposer| proposer.index as u64)
+                    },
+                    || {
+                        debug!(
+                            slot = %re_org_block_slot,
+                            decision_root = ?shuffling_decision_root,
+                            "Fork choice override proposer shuffling miss"
+                        );
+                        let head = self.canonical_head.cached_head();
+                        Ok((head.head_state_root(), head.snapshot.beacon_state.clone()))
+                    },
+                )
+                .map_err(|e| match e {
+                    Error::ProposerCacheIncorrectState { .. } => {
+                        // The head changed while we were computing the proposer shuffling.
+                        // Decline the re-org rather than erroring out.
+                        warn!("Head changed during fork choice override check");
+                        Box::new(ProposerHeadError::from(DoNotReOrg::NotProposing))
+                    }
+                    e => Box::new(ProposerHeadError::Error(e)),
+                })?;
 
             self.execution_layer
                 .as_ref()
