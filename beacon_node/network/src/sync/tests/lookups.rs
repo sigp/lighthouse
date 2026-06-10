@@ -38,10 +38,14 @@ use tokio::sync::mpsc;
 use tracing::info;
 use types::{
     BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, DataColumnSubnetId,
-    ForkContext, ForkName, Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
+    ForkContext, ForkName, Hash256, MinimalEthSpec as E, SignedBeaconBlock,
+    SignedExecutionPayloadEnvelope, Slot,
 };
 
 const D: Duration = Duration::new(0, 0);
+
+/// Gloas genesis needs enough validators to populate `proposer_lookahead`.
+const TEST_RIG_VALIDATOR_COUNT: usize = 8;
 
 /// Configuration for how the test rig should respond to sync requests.
 ///
@@ -59,6 +63,10 @@ pub struct SimulateConfig {
     return_too_few_data_n_times: usize,
     return_no_columns_on_indices_n_times: usize,
     return_no_columns_on_indices: Vec<ColumnIndex>,
+    /// Only omit columns for this block root, if set.
+    return_no_columns_for_block: Option<Hash256>,
+    /// Leave matching envelope requests unanswered.
+    hold_envelope_for_block: Option<Hash256>,
     skip_by_range_routes: bool,
     // Use a callable fn because BlockProcessingResult does not implement Clone
     #[educe(Debug(ignore))]
@@ -129,6 +137,16 @@ impl SimulateConfig {
     fn return_no_columns_on_indices(mut self, indices: &[ColumnIndex], times: usize) -> Self {
         self.return_no_columns_on_indices_n_times = times;
         self.return_no_columns_on_indices = indices.to_vec();
+        self
+    }
+
+    fn return_no_columns_for_block(mut self, block_root: Hash256) -> Self {
+        self.return_no_columns_for_block = Some(block_root);
+        self
+    }
+
+    fn hold_envelope_for_block(mut self, block_root: Hash256) -> Self {
+        self.hold_envelope_for_block = Some(block_root);
         self
     }
 
@@ -211,6 +229,14 @@ pub(crate) struct TestRigConfig {
     node_custody_type_override: Option<NodeCustodyType>,
 }
 
+struct FullEmptyFork {
+    a: Hash256,
+    b: Hash256,
+    c: Hash256,
+    b_block: Arc<SignedBeaconBlock<E>>,
+    c_block: Arc<SignedBeaconBlock<E>>,
+}
+
 impl TestRig {
     pub(crate) fn new(test_rig_config: TestRigConfig) -> Self {
         // Use `fork_from_env` logic to set correct fork epochs
@@ -221,10 +247,10 @@ impl TestRig {
             Duration::from_secs(12),
         );
 
-        // Initialise a new beacon chain
+        // Gloas genesis needs enough validators for proposer lookahead.
         let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
             .spec(spec.clone())
-            .deterministic_keypairs(1)
+            .deterministic_keypairs(TEST_RIG_VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .testing_slot_clock(clock.clone())
@@ -304,6 +330,7 @@ impl TestRig {
             fork_name,
             network_blocks_by_root: <_>::default(),
             network_blocks_by_slot: <_>::default(),
+            network_envelopes_by_root: <_>::default(),
             penalties: <_>::default(),
             seen_lookups: <_>::default(),
             requests: <_>::default(),
@@ -428,9 +455,9 @@ impl TestRig {
                             process_fn.await
                         }
                     }
-                    Work::RpcBlobs { process_fn } | Work::RpcCustodyColumn(process_fn) => {
-                        process_fn.await
-                    }
+                    Work::RpcBlobs { process_fn }
+                    | Work::RpcCustodyColumn(process_fn)
+                    | Work::RpcEnvelope(process_fn) => process_fn.await,
                     Work::ChainSegment {
                         process_fn,
                         process_id: (chain_id, batch_epoch),
@@ -557,11 +584,14 @@ impl TestRig {
                 }
 
                 let will_omit_columns = req.data_column_ids.iter().any(|id| {
-                    id.columns.iter().any(|c| {
-                        self.complete_strategy
-                            .return_no_columns_on_indices
-                            .contains(c)
-                    })
+                    self.complete_strategy
+                        .return_no_columns_for_block
+                        .is_none_or(|root| id.block_root == root)
+                        && id.columns.iter().any(|c| {
+                            self.complete_strategy
+                                .return_no_columns_on_indices
+                                .contains(c)
+                        })
                 });
                 let columns_to_omit = if will_omit_columns
                     && self.complete_strategy.return_no_columns_on_indices_n_times > 0
@@ -615,13 +645,32 @@ impl TestRig {
                         .return_wrong_sidecar_for_block_n_times -= 1;
                     let first = columns.first_mut().expect("empty columns");
                     let column = Arc::make_mut(first);
-                    column
-                        .signed_block_header_mut()
-                        .expect("not fulu")
-                        .message
-                        .body_root = Hash256::ZERO;
+                    // Corrupt the claimed block root.
+                    match column {
+                        DataColumnSidecar::Fulu(col) => {
+                            col.signed_block_header.message.body_root = Hash256::ZERO;
+                        }
+                        DataColumnSidecar::Gloas(col) => {
+                            col.beacon_block_root = Hash256::ZERO;
+                        }
+                    }
                 }
                 self.send_rpc_columns_response(req_id, peer_id, &columns);
+            }
+
+            (RequestType::PayloadEnvelopesByRoot(req), AppRequestId::Sync(req_id)) => {
+                // Lookup sync requests one envelope root at a time.
+                let block_root = req
+                    .beacon_block_roots
+                    .as_slice()
+                    .first()
+                    .copied()
+                    .unwrap_or_else(|| panic!("empty envelope request: {req:?}"));
+                if self.complete_strategy.hold_envelope_for_block == Some(block_root) {
+                    return;
+                }
+                let envelope = self.network_envelopes_by_root.get(&block_root).cloned();
+                self.send_rpc_envelope_response(req_id, peer_id, envelope);
             }
 
             (RequestType::BlocksByRange(req), AppRequestId::Sync(req_id)) => {
@@ -883,16 +932,44 @@ impl TestRig {
         });
     }
 
+    fn send_rpc_envelope_response(
+        &mut self,
+        sync_request_id: SyncRequestId,
+        peer_id: PeerId,
+        envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+    ) {
+        self.log(&format!(
+            "Completing request {sync_request_id:?} to {peer_id} with envelope {:?}",
+            envelope.as_ref().map(|e| e.slot())
+        ));
+
+        self.push_sync_message(SyncMessage::RpcPayloadEnvelope {
+            sync_request_id,
+            peer_id,
+            envelope: envelope.clone(),
+            seen_timestamp: D,
+        });
+        // Stream termination
+        self.push_sync_message(SyncMessage::RpcPayloadEnvelope {
+            sync_request_id,
+            peer_id,
+            envelope: None,
+            seen_timestamp: D,
+        });
+    }
+
+    #[allow(dead_code)]
+    fn is_after_gloas(&self) -> bool {
+        self.fork_name.gloas_enabled()
+    }
+
     // Preparation steps
 
-    /// Returns the block root of the tip of the built chain
-    pub(super) async fn build_chain(&mut self, block_count: usize) -> Hash256 {
-        let mut blocks = vec![];
-
+    fn get_external_harness_with_genesis(&mut self) -> BeaconChainHarness<EphemeralHarnessType<E>> {
         // Initialise a new beacon chain
         let external_harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
             .spec(self.harness.spec.clone())
-            .deterministic_keypairs(1)
+            .deterministic_keypairs(TEST_RIG_VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .testing_slot_clock(self.harness.chain.slot_clock.clone())
@@ -912,7 +989,17 @@ impl TestRig {
         self.network_blocks_by_slot
             .insert(genesis_block.slot(), genesis_block);
 
-        for i in 0..block_count {
+        external_harness
+    }
+
+    /// Returns the block root of the tip of the built chain
+    pub(super) async fn build_chain(&mut self, block_count: usize) -> Hash256 {
+        let mut blocks = vec![];
+
+        // Initialise a new beacon chain
+        let external_harness = self.get_external_harness_with_genesis();
+
+        for _ in 0..block_count {
             external_harness.advance_slot();
             let block_root = external_harness
                 .extend_chain(
@@ -922,21 +1009,15 @@ impl TestRig {
                 )
                 .await;
             let block = external_harness.get_full_block(&block_root);
-            let block_root = block.canonical_root();
             let block_slot = block.slot();
-            self.network_blocks_by_root
-                .insert(block_root, block.clone());
-            self.network_blocks_by_slot.insert(block_slot, block);
-            self.log(&format!(
-                "Produced block {} index {i} in external harness",
-                block_slot,
-            ));
+            self.insert_external_block(
+                block,
+                external_harness
+                    .chain
+                    .get_payload_envelope(&block_root)
+                    .unwrap(),
+            );
             blocks.push((block_slot, block_root));
-        }
-
-        // Re-log to have a nice list of block roots at the end
-        for block in &blocks {
-            self.log(&format!("Build chain {block:?}"));
         }
 
         // Auto-update the clock on the main harness to accept the blocks
@@ -944,6 +1025,152 @@ impl TestRig {
             .set_current_slot(external_harness.get_current_slot());
 
         blocks.last().expect("empty blocks").1
+    }
+
+    /// Builds:
+    ///
+    /// ```text
+    /// G (full) -> A (full) -> B (FULL:  bid.parent_block_hash == A.block_hash)
+    ///             A        -> C (EMPTY: bid.parent_block_hash == G.block_hash)
+    /// ```
+    pub(super) async fn build_full_empty_fork(&mut self) -> (Hash256, Hash256, Hash256) {
+        // Initialise a new beacon chain (mirrors `build_chain`).
+        let external_harness = self.get_external_harness_with_genesis();
+
+        // G: full canonical block on genesis.
+        external_harness.advance_slot();
+        let g_root = external_harness
+            .extend_chain(
+                1,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
+        let g_block_hash = external_harness
+            .get_full_block(&g_root)
+            .as_block()
+            .payload_bid_block_hash()
+            .unwrap();
+
+        // A: full block on G, imported with its envelope so the FULL child below sees A as full.
+        external_harness.advance_slot();
+        let a_slot = external_harness.get_current_slot();
+        let (a_contents, a_envelope, a_state) = external_harness
+            .make_block_with_envelope(external_harness.get_current_state(), a_slot)
+            .await;
+        let a_block = a_contents.0.clone();
+        let a_root = a_block.canonical_root();
+        let a_block_hash = a_block.as_block().payload_bid_block_hash().unwrap();
+        external_harness
+            .process_block(a_slot, a_root, a_contents)
+            .await
+            .unwrap();
+
+        external_harness.advance_slot();
+        let child_slot = external_harness.get_current_slot();
+
+        // C: EMPTY child of A. Built before A's envelope is imported, so its bid points at G.
+        let (c_contents, c_envelope, c_state) = external_harness
+            .make_block_with_envelope(a_state.clone(), child_slot)
+            .await;
+        let c_block = c_contents.0.clone();
+        let c_root = c_block.canonical_root();
+
+        // Import A's envelope so the next child sees A as full.
+        let a_envelope = a_envelope.expect("A should have envelope");
+        external_harness
+            .process_envelope(a_root, a_envelope, &a_state, a_block.state_root())
+            .await;
+
+        // B: FULL child of A. Built after A's envelope is imported, so its bid points at A.
+        let (b_contents, b_envelope, b_state) = external_harness
+            .make_block_with_envelope(a_state.clone(), child_slot)
+            .await;
+        let b_block = b_contents.0.clone();
+        let b_root = b_block.canonical_root();
+
+        assert_eq!(
+            (
+                b_block.parent_root(),
+                c_block.parent_root(),
+                b_block.is_parent_block_full(a_block_hash),
+                c_block.is_parent_block_full(a_block_hash),
+                c_block.is_parent_block_full(g_block_hash),
+            ),
+            (a_root, a_root, true, false, true)
+        );
+
+        // Import both children (and their envelopes) so every block is served through the same
+        // `get_full_block` path as the rest of the chain.
+        external_harness
+            .process_block(child_slot, c_root, c_contents)
+            .await
+            .unwrap();
+        if let Some(c_envelope) = c_envelope {
+            external_harness
+                .process_envelope(c_root, c_envelope, &c_state, c_block.state_root())
+                .await;
+        }
+        external_harness
+            .process_block(child_slot, b_root, b_contents)
+            .await
+            .unwrap();
+        if let Some(b_envelope) = b_envelope {
+            external_harness
+                .process_envelope(b_root, b_envelope, &b_state, b_block.state_root())
+                .await;
+        }
+
+        // Cache every block through the single `get_full_block` + `insert_external_block2` path.
+        for root in [g_root, a_root, c_root, b_root] {
+            let block = external_harness.get_full_block(&root);
+            let envelope = external_harness.chain.get_payload_envelope(&root).unwrap();
+            self.insert_external_block(block, envelope);
+        }
+
+        self.harness.set_current_slot(child_slot);
+
+        (a_root, b_root, c_root)
+    }
+
+    async fn new_gloas_full_empty_fork() -> Option<(Self, FullEmptyFork)> {
+        let Some(mut r) = Self::new_fulu_peer_test(FuluTestType::WeSupernodeThemSupernode) else {
+            return None;
+        };
+        if !r.is_after_gloas() {
+            return None;
+        }
+
+        let (a, b, c) = r.build_full_empty_fork().await;
+        let fork = FullEmptyFork {
+            a,
+            b,
+            c,
+            b_block: r.network_blocks_by_root.get(&b).unwrap().block_cloned(),
+            c_block: r.network_blocks_by_root.get(&c).unwrap().block_cloned(),
+        };
+
+        Some((r, fork))
+    }
+
+    fn insert_external_block(
+        &mut self,
+        block: RangeSyncBlock<E>,
+        envelope: Option<SignedExecutionPayloadEnvelope<E>>,
+    ) {
+        let block_root = block.canonical_root();
+        let block_slot = block.slot();
+        self.network_blocks_by_root
+            .insert(block_root, block.clone());
+        self.network_blocks_by_slot.insert(block_slot, block);
+        // Cache Gloas envelopes for lookup RPCs.
+        if let Some(envelope) = envelope {
+            self.network_envelopes_by_root
+                .insert(block_root, envelope.into());
+        }
+        self.log(&format!(
+            "Produced block {block_root:?} slot {block_slot} in external harness",
+        ));
     }
 
     fn corrupt_last_block_signature(&mut self) {
@@ -978,7 +1205,16 @@ impl TestRig {
     }
 
     fn corrupt_last_column_kzg_proof(&mut self) {
-        let range_sync_block = self.get_last_block().clone();
+        let block_root = self.get_last_block().canonical_root();
+        self.corrupt_column_kzg_proof(block_root);
+    }
+
+    fn corrupt_column_kzg_proof(&mut self, block_root: Hash256) {
+        let range_sync_block = self
+            .network_blocks_by_root
+            .get(&block_root)
+            .unwrap_or_else(|| panic!("No block for root {block_root}"))
+            .clone();
         let block = range_sync_block.block_cloned();
         let blobs = range_sync_block.block_data().blobs();
         let mut columns = range_sync_block
@@ -989,7 +1225,7 @@ impl TestRig {
         let column = Arc::make_mut(first);
         let proof = column.kzg_proofs_mut().first_mut().expect("no kzg proofs");
         *proof = kzg::KzgProof::empty();
-        self.re_insert_block(block, blobs, Some(columns));
+        self.upsert_block(block, blobs, Some(columns));
     }
 
     fn get_last_block(&self) -> &RangeSyncBlock<E> {
@@ -1009,6 +1245,15 @@ impl TestRig {
     ) {
         self.network_blocks_by_slot.clear();
         self.network_blocks_by_root.clear();
+        self.upsert_block(block, blobs, columns);
+    }
+
+    fn upsert_block(
+        &mut self,
+        block: Arc<SignedBeaconBlock<E>>,
+        blobs: Option<types::BlobSidecarList<E>>,
+        columns: Option<types::DataColumnSidecarList<E>>,
+    ) {
         let block_root = block.canonical_root();
         let block_slot = block.slot();
         let block_data = if let Some(columns) = columns {
@@ -1133,6 +1378,10 @@ impl TestRig {
 
     pub(super) fn head_slot(&self) -> Slot {
         self.harness.chain.head().head_slot()
+    }
+
+    pub(super) fn head_root(&self) -> Hash256 {
+        self.harness.chain.head().head_block_root()
     }
 
     pub(super) fn assert_head_slot(&self, slot: u64) {
@@ -1341,6 +1590,40 @@ impl TestRig {
         self.fork_name.fulu_enabled()
     }
 
+    fn trigger_unknown_parent_blocks_from_all_peers(
+        &mut self,
+        blocks: &[Arc<SignedBeaconBlock<E>>],
+    ) {
+        for peer in self.new_connected_peers_for_peerdas() {
+            for block in blocks {
+                self.trigger_unknown_parent_block(peer, block.clone());
+            }
+        }
+    }
+
+    fn trigger_full_empty_fork(&mut self, fork: &FullEmptyFork) {
+        self.trigger_unknown_parent_blocks_from_all_peers(&[
+            fork.b_block.clone(),
+            fork.c_block.clone(),
+        ]);
+    }
+
+    async fn trigger_custody_lookup_from_all_peers(&mut self) -> Option<Hash256> {
+        if self.is_after_gloas() {
+            self.build_chain(2).await;
+            let child = self.get_last_block().block_cloned();
+            let parent_root = child.parent_root();
+            self.trigger_unknown_parent_blocks_from_all_peers(&[child]);
+            Some(parent_root)
+        } else {
+            let block_root = self.build_chain(1).await;
+            for peer in self.new_connected_peers_for_peerdas() {
+                self.trigger_unknown_block_from_attestation(block_root, peer);
+            }
+            None
+        }
+    }
+
     fn trigger_unknown_parent_block(&mut self, peer_id: PeerId, block: Arc<SignedBeaconBlock<E>>) {
         let block_root = block.canonical_root();
         self.send_sync_message(SyncMessage::UnknownParentBlock(peer_id, block, block_root))
@@ -1351,17 +1634,17 @@ impl TestRig {
         peer_id: PeerId,
         data_column: Arc<DataColumnSidecar<E>>,
     ) {
-        let block_root = data_column.block_root();
-        let slot = data_column.slot();
-        let parent_root = match data_column.as_ref() {
-            DataColumnSidecar::Fulu(column) => column.block_parent_root(),
-            DataColumnSidecar::Gloas(_) => panic!("Gloas data column not supported in this test"),
+        let DataColumnSidecar::Fulu(col) = data_column.as_ref() else {
+            self.log(&format!(
+                "trigger_unknown_parent_data_column noop for Gloas peer {peer_id:?}"
+            ));
+            return;
         };
         self.send_sync_message(SyncMessage::UnknownParentSidecarHeader {
             peer_id,
-            block_root,
-            parent_root,
-            slot,
+            block_root: col.block_root(),
+            parent_root: col.block_parent_root(),
+            slot: col.slot(),
         });
     }
 
@@ -1393,6 +1676,13 @@ impl TestRig {
 
     fn active_single_lookups(&self) -> Vec<BlockLookupSummary> {
         self.sync_manager.block_lookups().active_single_lookups()
+    }
+
+    fn active_lookup_roots(&self) -> Vec<Hash256> {
+        self.active_single_lookups()
+            .iter()
+            .map(|l| l.block_root)
+            .collect()
     }
 
     fn active_single_lookups_count(&self) -> usize {
@@ -1789,6 +2079,10 @@ async fn happy_path_unknown_data_parent(depth: usize) {
     let Some(mut r) = TestRig::new_after_fulu() else {
         return;
     };
+    // No unknown-parent data-column trigger post-Gloas.
+    if r.is_after_gloas() {
+        return;
+    }
     r.build_chain(depth).await;
     r.trigger_with_last_unknown_data_column_parent();
     r.simulate(SimulateConfig::happy_path()).await;
@@ -1806,7 +2100,9 @@ async fn happy_path_multiple_triggers(depth: usize) {
     r.trigger_with_last_block();
     r.trigger_with_last_unknown_block_parent();
     r.trigger_with_last_unknown_block_parent();
-    r.trigger_with_last_unknown_data_column_parent();
+    if !r.is_after_gloas() {
+        r.trigger_with_last_unknown_data_column_parent();
+    }
     r.simulate(SimulateConfig::happy_path()).await;
     assert_eq!(r.created_lookups(), depth + 1, "Don't create extra lookups");
     r.assert_successful_lookup_sync();
@@ -1838,7 +2134,10 @@ async fn bad_peer_empty_data_response(depth: usize) {
     r.simulate(SimulateConfig::new().return_no_data_once())
         .await;
     // We register a penalty, retry and complete sync successfully
-    r.assert_penalties(&["NotEnoughResponsesReturned"]);
+    if !r.is_after_gloas() {
+        // TODO(gloas): tip columns have no attributable FULL-child peer here.
+        r.assert_penalties(&["NotEnoughResponsesReturned"]);
+    }
     r.assert_successful_lookup_sync();
     // TODO(tree-sync) Assert that a single lookup is created (no drops)
 }
@@ -1853,7 +2152,10 @@ async fn bad_peer_too_few_data_response(depth: usize) {
     r.simulate(SimulateConfig::new().return_too_few_data_once())
         .await;
     // We register a penalty, retry and complete sync successfully
-    r.assert_penalties(&["NotEnoughResponsesReturned"]);
+    if !r.is_after_gloas() {
+        // TODO(gloas): tip columns have no attributable FULL-child peer here.
+        r.assert_penalties(&["NotEnoughResponsesReturned"]);
+    }
     r.assert_successful_lookup_sync();
     // TODO(tree-sync) Assert that a single lookup is created (no drops)
 }
@@ -1878,8 +2180,13 @@ async fn bad_peer_wrong_data_response(depth: usize) {
     r.build_chain_and_trigger_last_block(depth).await;
     r.simulate(SimulateConfig::new().return_wrong_sidecar_for_block_once())
         .await;
-    // We register a penalty, retry and complete sync successfully
-    r.assert_penalties(&["UnrequestedBlockRoot"]);
+    // We register a penalty, retry and complete sync successfully. Under Gloas the tip block
+    // (depth 1) has no attributable FULL-child peer so no custody request is made and no penalty
+    // is possible; at depth >= 2 the parent's columns are served by the tip (its FULL child), so
+    // the wrong-sidecar penalty is attributable.
+    if !r.is_after_gloas() || depth >= 2 {
+        r.assert_penalties(&["UnrequestedBlockRoot"]);
+    }
     r.assert_successful_lookup_sync();
     // TODO(tree-sync) Assert that a single lookup is created (no drops)
 }
@@ -1953,10 +2260,16 @@ async fn unknown_parent_does_not_add_peers_to_itself() {
     r.build_chain(2).await;
     r.trigger_with_last_unknown_block_parent();
     r.trigger_with_last_unknown_block_parent();
-    r.trigger_with_last_unknown_data_column_parent();
+    // No data-column parent trigger post-Gloas.
+    let parent_lookup_peers = if r.is_after_gloas() {
+        2
+    } else {
+        r.trigger_with_last_unknown_data_column_parent();
+        3
+    };
     r.simulate(SimulateConfig::happy_path()).await;
     r.assert_peers_at_lookup_of_slot(2, 0);
-    r.assert_peers_at_lookup_of_slot(1, 3);
+    r.assert_peers_at_lookup_of_slot(1, parent_lookup_peers);
     assert_eq!(r.created_lookups(), 2, "Don't create extra lookups");
     // All lookups should NOT complete on this test, however note the following for the tip lookup,
     // it's the lookup for the tip block which has 0 peers and a block cached:
@@ -1996,6 +2309,10 @@ async fn test_single_block_lookup_ignored_response() {
 /// Assert that if the beacon processor returns DuplicateFullyImported, the lookup completes successfully
 async fn test_single_block_lookup_duplicate_response() {
     let mut r = TestRig::default();
+    // The mock only covers block processing; Gloas also needs real envelope/column results.
+    if r.is_after_gloas() {
+        return;
+    }
     r.build_chain_and_trigger_last_block(1).await;
     // Send a DuplicateFullyImported response, the lookup should complete successfully
     r.simulate(
@@ -2060,6 +2377,10 @@ async fn lookups_form_chain() {
 /// Assert that if a lookup chain (by appending ancestors) is too long we drop it
 async fn test_parent_lookup_too_deep_grow_ancestor_one() {
     let mut r = TestRig::default();
+    // TODO(gloas): range sync does not fetch payload envelopes yet.
+    if r.is_after_gloas() {
+        return;
+    }
     r.build_chain(PARENT_DEPTH_TOLERANCE + 1).await;
     r.trigger_with_last_block();
     r.simulate(SimulateConfig::happy_path()).await;
@@ -2210,6 +2531,10 @@ async fn block_in_da_checker_skips_download() {
     let Some(mut r) = TestRig::new_after_fulu() else {
         return;
     };
+    // TODO(gloas): the helper does not populate the envelope missing-component path yet.
+    if r.is_after_gloas() {
+        return;
+    }
     // Add block to da_checker
     // Complete test with happy path
     // Assert that there were no requests for blocks
@@ -2279,14 +2604,13 @@ async fn custody_lookup_some_custody_failures(test_type: FuluTestType) {
     let Some(mut r) = TestRig::new_fulu_peer_test(test_type) else {
         return;
     };
-    let block_root = r.build_chain(1).await;
-    // Send the same trigger from all peers, so that the lookup has all peers
-    for peer in r.new_connected_peers_for_peerdas() {
-        r.trigger_unknown_block_from_attestation(block_root, peer);
-    }
+    let block_under_test = r.trigger_custody_lookup_from_all_peers().await;
     let custody_columns = r.custody_columns();
-    r.simulate(SimulateConfig::new().return_no_columns_on_indices(&custody_columns[..4], 3))
-        .await;
+    let mut config = SimulateConfig::new().return_no_columns_on_indices(&custody_columns[..4], 3);
+    if let Some(block_root) = block_under_test {
+        config = config.return_no_columns_for_block(block_root);
+    }
+    r.simulate(config).await;
     r.assert_penalties_of_type("NotEnoughResponsesReturned");
     r.assert_successful_lookup_sync();
 }
@@ -2295,20 +2619,15 @@ async fn custody_lookup_permanent_custody_failures(test_type: FuluTestType) {
     let Some(mut r) = TestRig::new_fulu_peer_test(test_type) else {
         return;
     };
-    let block_root = r.build_chain(1).await;
-
-    // Send the same trigger from all peers, so that the lookup has all peers
-    for peer in r.new_connected_peers_for_peerdas() {
-        r.trigger_unknown_block_from_attestation(block_root, peer);
-    }
+    let block_under_test = r.trigger_custody_lookup_from_all_peers().await;
 
     let custody_columns = r.custody_columns();
-    r.simulate(
-        SimulateConfig::new().return_no_columns_on_indices(&custody_columns[..2], usize::MAX),
-    )
-    .await;
-    // Every peer that does not return a column is part of the lookup because it claimed to have
-    // imported the lookup, so we will penalize.
+    let mut config =
+        SimulateConfig::new().return_no_columns_on_indices(&custody_columns[..2], usize::MAX);
+    if let Some(block_root) = block_under_test {
+        config = config.return_no_columns_for_block(block_root);
+    }
+    r.simulate(config).await;
     r.assert_penalties_of_type("NotEnoughResponsesReturned");
     r.assert_failed_lookup_sync();
 }
@@ -2346,6 +2665,10 @@ async fn crypto_on_fail_with_bad_column_proposer_signature() {
     let Some(mut r) = TestRig::new_fulu_peer_test(FuluTestType::WeSupernodeThemSupernode) else {
         return;
     };
+    // Gloas columns have no per-column proposer signature.
+    if r.is_after_gloas() {
+        return;
+    }
     r.build_chain(1).await;
     r.corrupt_last_column_proposer_signature();
     r.trigger_with_last_block();
@@ -2364,9 +2687,16 @@ async fn crypto_on_fail_with_bad_column_kzg_proof() {
     let Some(mut r) = TestRig::new_fulu_peer_test(FuluTestType::WeSupernodeThemSupernode) else {
         return;
     };
-    r.build_chain(1).await;
-    r.corrupt_last_column_kzg_proof();
-    r.trigger_with_last_block();
+    if r.is_after_gloas() {
+        r.build_chain(2).await;
+        let child = r.get_last_block().block_cloned();
+        r.corrupt_column_kzg_proof(child.parent_root());
+        r.trigger_unknown_parent_blocks_from_all_peers(&[child]);
+    } else {
+        r.build_chain(1).await;
+        r.corrupt_last_column_kzg_proof();
+        r.trigger_with_last_block();
+    }
     r.simulate(SimulateConfig::happy_path()).await;
     if cfg!(feature = "fake_crypto") {
         r.assert_successful_lookup_sync();
@@ -2375,4 +2705,37 @@ async fn crypto_on_fail_with_bad_column_kzg_proof() {
         r.assert_failed_lookup_sync();
         r.assert_penalties_of_type("AvailabilityCheck");
     }
+}
+
+#[tokio::test]
+async fn gloas_full_empty_children_retain_parent_for_payload() {
+    let Some((mut r, fork)) = TestRig::new_gloas_full_empty_fork().await else {
+        return;
+    };
+
+    r.trigger_full_empty_fork(&fork);
+
+    r.simulate(SimulateConfig::happy_path()).await;
+    r.assert_successful_lookup_sync();
+}
+
+#[tokio::test]
+async fn gloas_empty_child_continues_while_parent_payload_withheld() {
+    let Some((mut r, fork)) = TestRig::new_gloas_full_empty_fork().await else {
+        return;
+    };
+
+    r.trigger_full_empty_fork(&fork);
+
+    r.simulate(SimulateConfig::happy_path().hold_envelope_for_block(fork.a))
+        .await;
+
+    assert_eq!(r.head_root(), fork.c);
+    assert_eq!(r.created_lookups(), 4);
+    assert_eq!(r.completed_lookups(), 2);
+    assert_eq!(r.dropped_lookups(), 0);
+    assert_eq!(r.active_lookup_roots(), vec![fork.a, fork.b]);
+    r.assert_no_penalties();
+    r.assert_empty_network();
+    r.assert_empty_processor();
 }

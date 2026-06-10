@@ -310,11 +310,10 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     // and downscore if data_columns_by_root does not return the expected custody
                     // columns. For the rest of peers, don't downscore if columns are missing.
                     //
-                    // Post-Gloas, blocks and payload envelopes are decoupled. A peer may
-                    // have the block but not yet imported the envelope and data columns.
-                    // Don't enforce max_responses in this case.
-                    lookup_peers.contains(&peer_id)
-                        && !cx.fork_context.current_fork_name().gloas_enabled(),
+                    // Post-Gloas the lookup peer set is the `gloas_child_peers`: peers that imported
+                    // a FULL child, which requires the parent's columns. They provably custody the
+                    // columns, so withholding is penalizable just like pre-Gloas.
+                    lookup_peers.contains(&peer_id),
                 )
                 .map_err(Error::SendFailed)?;
 
