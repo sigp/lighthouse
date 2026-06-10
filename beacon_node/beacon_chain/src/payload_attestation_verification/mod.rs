@@ -61,8 +61,7 @@ pub enum Error {
     /// attestation is valid or not.
     UnknownHeadBlock { beacon_block_root: Hash256 },
     /// The block referenced by `data.beacon_block_root` is not at slot `data.slot`, i.e. the
-    /// PTC member's assigned slot was empty (the message references the last canonical block at
-    /// an earlier slot).
+    /// PTC member's assigned slot was likely empty.
     ///
     /// ## Peer scoring
     ///
