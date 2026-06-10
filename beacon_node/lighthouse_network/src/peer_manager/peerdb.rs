@@ -2195,6 +2195,89 @@ mod tests {
     }
 
     #[test]
+    fn test_good_custody_subnet_peer_respects_earliest_available_slot() {
+        let mut pdb = get_db();
+        let subnet = DataColumnSubnetId::new(0);
+        let request_slot = Slot::new(10);
+
+        fn sync_info(earliest_available_slot: Option<Slot>) -> SyncInfo {
+            SyncInfo {
+                head_slot: Slot::new(100),
+                head_root: Hash256::ZERO,
+                finalized_epoch: Epoch::new(0),
+                finalized_root: Hash256::ZERO,
+                earliest_available_slot,
+            }
+        }
+
+        let add_custody_peer = |pdb: &mut PeerDB<M>, sync_status: SyncStatus| {
+            let peer_id = PeerId::random();
+            pdb.connect_ingoing(&peer_id, "/ip4/0.0.0.0".parse().unwrap(), None);
+            pdb.__set_custody_subnets(&peer_id, HashSet::from([subnet]))
+                .unwrap();
+            pdb.update_sync_status(&peer_id, sync_status);
+            peer_id
+        };
+
+        let peer_with_data = add_custody_peer(
+            &mut pdb,
+            SyncStatus::Synced {
+                info: sync_info(Some(Slot::new(5))),
+            },
+        );
+        let peer_at_boundary = add_custody_peer(
+            &mut pdb,
+            SyncStatus::Synced {
+                info: sync_info(Some(request_slot)),
+            },
+        );
+        let peer_pruned = add_custody_peer(
+            &mut pdb,
+            SyncStatus::Synced {
+                info: sync_info(Some(Slot::new(11))),
+            },
+        );
+        let peer_no_eas = add_custody_peer(
+            &mut pdb,
+            SyncStatus::Synced {
+                info: sync_info(None),
+            },
+        );
+        let peer_behind = add_custody_peer(
+            &mut pdb,
+            SyncStatus::Behind {
+                info: sync_info(Some(Slot::new(0))),
+            },
+        );
+
+        let good_peers = pdb
+            .good_custody_subnet_peer(subnet, request_slot)
+            .copied()
+            .collect::<HashSet<_>>();
+
+        assert!(
+            good_peers.contains(&peer_with_data),
+            "peer with earliest_available_slot before the request slot should be returned"
+        );
+        assert!(
+            good_peers.contains(&peer_at_boundary),
+            "peer with earliest_available_slot equal to the request slot should be returned"
+        );
+        assert!(
+            !good_peers.contains(&peer_pruned),
+            "peer with earliest_available_slot after the request slot should be excluded"
+        );
+        assert!(
+            good_peers.contains(&peer_no_eas),
+            "peer without an advertised earliest_available_slot should be returned"
+        );
+        assert!(
+            !good_peers.contains(&peer_behind),
+            "behind peer should be excluded regardless of earliest_available_slot"
+        );
+    }
+
+    #[test]
     fn test_disable_peer_scoring() {
         let peer = PeerId::random();
         let mut pdb: PeerDB<M> = PeerDB::new(vec![], true);
