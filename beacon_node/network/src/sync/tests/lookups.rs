@@ -2140,19 +2140,15 @@ async fn happy_path_unknown_data_parent(depth: usize) {
     let Some(mut r) = TestRig::new_after_fulu() else {
         return;
     };
-    r.build_chain(depth).await;
+    // Fulu-only: the `UnknownDataColumnParent` trigger doesn't exist post-Gloas (columns ride in
+    // the payload envelope, not as standalone data columns).
     if r.is_after_gloas() {
-        // No unknown-parent data-column trigger post-Gloas (columns ride in the envelope), so the
-        // gloas-native equivalent is the unknown-block parent trigger. The tip block is cached and
-        // its columns are served from the global supernode pool, so the lookup completes fully.
-        r.trigger_with_last_unknown_block_parent();
-        r.simulate(SimulateConfig::happy_path()).await;
-        r.assert_successful_lookup_sync();
-    } else {
-        r.trigger_with_last_unknown_data_column_parent();
-        r.simulate(SimulateConfig::happy_path()).await;
-        r.assert_successful_lookup_sync_parent_trigger();
+        return;
     }
+    r.build_chain(depth).await;
+    r.trigger_with_last_unknown_data_column_parent();
+    r.simulate(SimulateConfig::happy_path()).await;
+    r.assert_successful_lookup_sync_parent_trigger();
 }
 
 /// Assert that multiple trigger types don't create extra lookups
@@ -2583,23 +2579,13 @@ async fn test_same_chain_race_condition() {
 }
 
 #[tokio::test]
-/// Assert that if the lookup's block is in the da_checker we don't download it again
-async fn block_in_da_checker_skips_download() {
-    // Only post-Fulu, as the block needs custody columns to remain in the da_checker
+/// Assert that if the lookup's block is in the da_checker we don't download it again (pre-Gloas).
+async fn block_in_da_checker_skips_download_fulu() {
+    // Only post-Fulu, as the block needs custody columns to remain in the da_checker.
     let Some(mut r) = TestRig::new_after_fulu() else {
         return;
     };
-    // Skip under gloas: this test relies on a block sitting in the da_checker as
-    // `MissingComponents` (awaiting inline columns) so the lookup's block request is short-circuited
-    // via `get_block_process_status`. Gloas blocks carry no inline DA — `process_block` skips
-    // `put_pre_execution_block` (beacon_chain.rs ~3730) and the block imports immediately
-    // (`AvailableBlock::new` requires no columns for gloas, da_checker.rs ~901), so it is never
-    // cached as `MissingComponents`. Concretely, unskipping panics at lookups.rs:2006
-    // ("block removed from da_checker, available") because `import_block_to_da_checker` returns
-    // `Imported(_)`; the log shows `block 1 data_columns 0/8` -> "Block and all data components are
-    // available" -> "Beacon block imported". The gloas missing-component path is keyed on a missing
-    // payload ENVELOPE, not on the block, and is exercised separately (network_context.rs
-    // `payload_lookup_request` / `envelope_is_known_to_fork_choice`).
+    // Pre-Gloas only; the Gloas equivalent is `block_in_da_checker_skips_download_gloas`.
     if r.is_after_gloas() {
         return;
     }
@@ -2610,6 +2596,37 @@ async fn block_in_da_checker_skips_download() {
     r.insert_block_to_da_chain_and_assert_missing_componens(r.block_at_slot(1))
         .await;
     r.trigger_with_block_at_slot(1);
+    r.simulate(SimulateConfig::happy_path()).await;
+    r.assert_successful_lookup_sync();
+    assert_eq!(
+        r.requests
+            .iter()
+            .filter(|(request, _)| matches!(request, RequestType::BlocksByRoot(_)))
+            .collect::<Vec<_>>(),
+        Vec::<&(RequestType<E>, AppRequestId)>::new(),
+        "There should be no block requests"
+    );
+}
+
+#[tokio::test]
+/// Assert that if the lookup's block is in the da_checker we don't download it again (Gloas).
+async fn block_in_da_checker_skips_download_gloas() {
+    let Some(mut r) = TestRig::new_after_fulu() else {
+        return;
+    };
+    if !r.is_after_gloas() {
+        return;
+    }
+    // A Gloas block carries no inline DA, so a lone block never sits in the da_checker awaiting
+    // components: only a FULL *child* proves the block published a payload and supplies the peers
+    // that serve its columns/envelope. Build a parent + FULL child, insert the PARENT into the
+    // da_checker, then trigger via the child (which is provided by the trigger, not downloaded).
+    // The parent lookup must then skip the parent's block download.
+    r.build_chain(2).await;
+    let parent = r.block_at_slot(1);
+    let child = r.block_at_slot(2);
+    r.import_block_to_da_checker(parent).await;
+    r.trigger_unknown_parent_blocks_from_all_peers(&[child]);
     r.simulate(SimulateConfig::happy_path()).await;
     r.assert_successful_lookup_sync();
     assert_eq!(
