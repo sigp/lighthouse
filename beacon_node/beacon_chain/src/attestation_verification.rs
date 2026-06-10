@@ -174,8 +174,8 @@ pub enum Error {
     /// The attestation points to a block we have not yet imported. It's unclear if the attestation
     /// is valid or not.
     UnknownHeadBlock { beacon_block_root: Hash256 },
-    /// A payload-present attestation (`index == 1`) references a block whose execution payload
-    /// envelope has not been seen yet.
+    /// An attestation indicating the presence of a payload (`index == 1`) references a block whose
+    /// execution payload envelope has not been seen yet.
     ///
     /// ## Peer scoring
     ///
@@ -618,6 +618,21 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
             return Err(Error::CommitteeIndexNonZero(
                 attestation.data().index as usize,
             ));
+        }
+
+        // [New in Gloas]: `index == 1` claims the block's execution payload is present. Ignore the
+        // attestation until we have seen the block's payload envelope, so it can be re-processed
+        // (and the envelope retrieved) once the payload is received.
+        if fork_name.gloas_enabled()
+            && attestation.data().index == 1
+            && !chain
+                .canonical_head
+                .fork_choice_read_lock()
+                .is_payload_received(&attestation.data().beacon_block_root)
+        {
+            return Err(Error::UnknownPayloadEnvelope {
+                beacon_block_root: attestation.data().beacon_block_root,
+            });
         }
 
         // Check the attestation target root is consistent with the head root.

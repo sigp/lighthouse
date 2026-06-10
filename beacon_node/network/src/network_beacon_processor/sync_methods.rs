@@ -371,6 +371,26 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let result: Result<AvailabilityProcessingStatus, BlockError> =
             result.map_err(|e| BlockError::InternalError(format!("envelope: {e}")));
 
+        // The payload envelope is imported; release any attestations awaiting this block's payload
+        // so they can be re-processed (parity with the gossip import path).
+        if let Ok(AvailabilityProcessingStatus::Imported(_, block_root)) = &result
+            && self
+                .beacon_processor_send
+                .try_send(WorkEvent {
+                    drop_during_sync: false,
+                    work: Work::Reprocess(ReprocessQueueMessage::PayloadEnvelopeImported {
+                        block_root: *block_root,
+                    }),
+                })
+                .is_err()
+        {
+            error!(
+                source = "rpc",
+                ?block_root,
+                "Failed to inform payload envelope import"
+            );
+        }
+
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type,
             result: result.into(),
