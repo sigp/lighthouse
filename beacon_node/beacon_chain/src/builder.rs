@@ -24,7 +24,7 @@ use crate::{
 use bls::Signature;
 use execution_layer::ExecutionLayer;
 use fixed_bytes::FixedBytesExtended;
-use fork_choice::{ForkChoice, PayloadStatus, ResetPayloadStatuses};
+use fork_choice::{ForkChoice, PayloadStatus, PayloadVerificationStatus, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
 use kzg::Kzg;
 use logging::crit;
@@ -47,8 +47,8 @@ use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
 use types::data::CustodyIndex;
 use types::{
-    BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList, EthSpec, Hash256,
-    SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Checkpoint, ColumnIndex,
+    DataColumnSidecarList, EthSpec, Hash256, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -1169,6 +1169,13 @@ where
 }
 
 #[cfg(any(test, feature = "ef_tests"))]
+#[derive(Clone, Copy)]
+enum TestingInitialBlock {
+    Finalized,
+    Unfinalized,
+}
+
+#[cfg(any(test, feature = "ef_tests"))]
 impl<E> BeaconChainBuilder<crate::test_utils::EphemeralHarnessType<E>>
 where
     E: EthSpec + 'static,
@@ -1183,10 +1190,46 @@ where
     /// epoch-aligned checkpoint view derived from it, so the production fork-choice alignment check
     /// remains intact.
     pub fn testing_initial_state(
+        self,
+        initial_state: BeaconState<E>,
+        initial_block: SignedBeaconBlock<E>,
+        finalized_checkpoint: Option<types::Checkpoint>,
+    ) -> Result<Self, String> {
+        self.testing_initial_state_with_mode(
+            initial_state,
+            initial_block,
+            finalized_checkpoint,
+            TestingInitialBlock::Finalized,
+        )
+    }
+
+    /// Start an ephemeral test chain from a known, non-finalized block and its post-state.
+    pub fn testing_initial_state_with_unfinalized_block(
+        self,
+        initial_state: BeaconState<E>,
+        initial_block: SignedBeaconBlock<E>,
+    ) -> Result<Self, String> {
+        let finalized_checkpoint = Checkpoint {
+            epoch: initial_block
+                .slot()
+                .saturating_sub(1u64)
+                .epoch(E::slots_per_epoch()),
+            root: initial_block.parent_root(),
+        };
+        self.testing_initial_state_with_mode(
+            initial_state,
+            initial_block,
+            Some(finalized_checkpoint),
+            TestingInitialBlock::Unfinalized,
+        )
+    }
+
+    fn testing_initial_state_with_mode(
         mut self,
         mut initial_state: BeaconState<E>,
         initial_block: SignedBeaconBlock<E>,
         finalized_checkpoint: Option<types::Checkpoint>,
+        testing_initial_block: TestingInitialBlock,
     ) -> Result<Self, String> {
         let store = self
             .store
@@ -1218,13 +1261,28 @@ where
             ));
         }
 
-        if let Some(checkpoint) = finalized_checkpoint
-            && checkpoint.root != initial_block_root
-        {
-            return Err(format!(
-                "testing_initial_state can only finalize the initial block, checkpoint root: {:?}, initial root: {:?}",
-                checkpoint.root, initial_block_root,
-            ));
+        match testing_initial_block {
+            TestingInitialBlock::Finalized => {
+                if let Some(checkpoint) = finalized_checkpoint
+                    && checkpoint.root != initial_block_root
+                {
+                    return Err(format!(
+                        "testing_initial_state can only finalize the initial block, checkpoint root: {:?}, initial root: {:?}",
+                        checkpoint.root, initial_block_root,
+                    ));
+                }
+            }
+            TestingInitialBlock::Unfinalized => {
+                let checkpoint = finalized_checkpoint
+                    .ok_or("unfinalized test initial state requires a finalized checkpoint")?;
+                if checkpoint.root != initial_block.parent_root() {
+                    return Err(format!(
+                        "unfinalized test initial state must anchor at the initial block parent, checkpoint root: {:?}, parent root: {:?}",
+                        checkpoint.root,
+                        initial_block.parent_root(),
+                    ));
+                }
+            }
         }
 
         let fork_choice_epoch = finalized_checkpoint
@@ -1259,6 +1317,22 @@ where
             .update_tree_hash_cache()
             .map_err(|e| format!("Error computing fork choice state root: {e:?}"))?;
         let fork_choice_slot = fork_choice_state.slot();
+        let anchor_block_root = match testing_initial_block {
+            TestingInitialBlock::Finalized => initial_block_root,
+            TestingInitialBlock::Unfinalized => {
+                finalized_checkpoint
+                    .ok_or("unfinalized test initial state requires a finalized checkpoint")?
+                    .root
+            }
+        };
+        let anchor_block = if anchor_block_root == initial_block_root {
+            initial_block.clone()
+        } else {
+            let mut block = BeaconBlock::empty(&self.spec);
+            *block.slot_mut() = fork_choice_slot;
+            *block.state_root_mut() = fork_choice_state_root;
+            SignedBeaconBlock::from_block(block, Signature::empty())
+        };
         let (split_slot, split_state_root) = if initial_state.slot() <= fork_choice_slot {
             (initial_state.slot(), initial_state_root)
         } else {
@@ -1332,6 +1406,11 @@ where
         store
             .put_block(&initial_block_root, initial_block.clone())
             .map_err(|e| format!("Failed to store initial block: {e:?}"))?;
+        if anchor_block_root != initial_block_root {
+            store
+                .put_block(&anchor_block_root, anchor_block.clone())
+                .map_err(|e| format!("Failed to store anchor block: {e:?}"))?;
+        }
         store
             .put_state(&initial_state_root, &initial_state)
             .map_err(|e| format!("Failed to store initial state: {e:?}"))?;
@@ -1360,9 +1439,9 @@ where
         }
 
         let snapshot = BeaconSnapshot {
-            beacon_block_root: initial_block_root,
+            beacon_block_root: anchor_block_root,
             execution_envelope: None,
-            beacon_block: Arc::new(initial_block),
+            beacon_block: Arc::new(anchor_block),
             beacon_state: fork_choice_state,
         };
 
@@ -1387,7 +1466,7 @@ where
             );
         }
 
-        let fork_choice = ForkChoice::from_anchor(
+        let mut fork_choice = ForkChoice::from_anchor(
             fc_store,
             snapshot.beacon_block_root,
             &snapshot.beacon_block,
@@ -1396,6 +1475,21 @@ where
             &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
+
+        if matches!(testing_initial_block, TestingInitialBlock::Unfinalized) {
+            fork_choice
+                .on_block(
+                    initial_state.slot(),
+                    initial_block.message(),
+                    initial_block_root,
+                    Duration::ZERO,
+                    &initial_state,
+                    PayloadVerificationStatus::Irrelevant,
+                    initial_block.message().proposer_index(),
+                    &self.spec,
+                )
+                .map_err(|e| format!("Unable to add unfinalized initial block: {e:?}"))?;
+        }
 
         self.fork_choice = Some(fork_choice);
 

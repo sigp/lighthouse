@@ -120,6 +120,38 @@ pub fn get_kzg(spec: &ChainSpec) -> Arc<Kzg> {
     }
 }
 
+#[cfg(feature = "ef_tests")]
+fn empty_anchor_block<E: EthSpec>(
+    mut state: BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<(BeaconState<E>, SignedBeaconBlock<E>), String> {
+    let state_slot = state.slot();
+    let proposer_index = state.latest_block_header().proposer_index;
+    let mut block = BeaconBlock::empty(spec);
+    *block.slot_mut() = state_slot;
+    *block.proposer_index_mut() = proposer_index;
+    *block.parent_root_mut() = Hash256::ZERO;
+
+    let body_root = block.body_root();
+    {
+        let header = state.latest_block_header_mut();
+        header.slot = state_slot;
+        header.proposer_index = proposer_index;
+        header.parent_root = Hash256::ZERO;
+        header.state_root = Hash256::ZERO;
+        header.body_root = body_root;
+    }
+    let state_root = state
+        .update_tree_hash_cache()
+        .map_err(|e| format!("unable to compute state root: {e:?}"))?;
+    *block.state_root_mut() = state_root;
+
+    Ok((
+        state,
+        SignedBeaconBlock::from_block(block, Signature::empty()),
+    ))
+}
+
 pub type BaseHarnessType<E, THotStore, TColdStore> =
     Witness<TestingSlotClock, E, THotStore, TColdStore>;
 
@@ -325,6 +357,29 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
             builder
                 .genesis_state(genesis_state)
                 .expect("should build state using recent genesis")
+        };
+        self.store = Some(store);
+        self.store_mutator(Box::new(mutator))
+    }
+
+    /// Create a new ephemeral store from a test state without a fixture block.
+    ///
+    /// Some EF networking vectors provide only `state.ssz_snappy`. This anchors that state with an
+    /// empty block so production validation can still load a head state.
+    #[cfg(feature = "ef_tests")]
+    pub fn testing_state_ephemeral_store(mut self, state: BeaconState<E>) -> Self {
+        let spec = self.spec.as_ref().expect("cannot build without spec");
+
+        let store = Arc::new(
+            HotColdDB::open_ephemeral(self.store_config.clone().unwrap_or_default(), spec.clone())
+                .unwrap(),
+        );
+        let mutator = move |builder: BeaconChainBuilder<_>| {
+            let (state, block) = empty_anchor_block(state, builder.get_spec())
+                .expect("should build empty anchor block");
+            builder
+                .testing_initial_state(state, block, None)
+                .expect("should build test initial state")
         };
         self.store = Some(store);
         self.store_mutator(Box::new(mutator))

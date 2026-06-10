@@ -55,7 +55,7 @@ use state_processing::{
         signed_aggregate_selection_proof_signature_set, signed_aggregate_signature_set,
     },
 };
-use std::borrow::Cow;
+use std::{borrow::Cow, time::Duration};
 use strum::AsRefStr;
 use tracing::{debug, error};
 use tree_hash::TreeHash;
@@ -1259,21 +1259,24 @@ pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
     }
 
     // Taking advantage of saturating subtraction on `Slot`.
-    let one_epoch_prior = slot_clock
-        .now_with_past_tolerance(spec.maximum_gossip_clock_disparity())
+    let earliest_slot = slot_clock
+        .now_with_past_tolerance(
+            spec.maximum_gossip_clock_disparity()
+                .saturating_add(Duration::from_millis(1)),
+        )
         .ok_or(BeaconChainError::UnableToReadSlot)?
-        - E::slots_per_epoch();
+        - spec.attestation_propagation_slot_range;
 
     let current_fork =
         spec.fork_name_at_slot::<E>(slot_clock.now().ok_or(BeaconChainError::UnableToReadSlot)?);
 
     let earliest_permissible_slot = if current_fork.deneb_enabled() {
         // EIP-7045
-        one_epoch_prior
+        earliest_slot
             .epoch(E::slots_per_epoch())
             .start_slot(E::slots_per_epoch())
     } else {
-        one_epoch_prior
+        earliest_slot
     };
 
     if attestation_slot < earliest_permissible_slot {

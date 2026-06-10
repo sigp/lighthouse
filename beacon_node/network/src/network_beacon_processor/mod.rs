@@ -94,7 +94,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.should_import,
                 true,
                 package.seen_timestamp,
-            )
+            );
         };
 
         // Define a closure for processing batches of attestations.
@@ -136,7 +136,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.aggregate,
                 true,
                 package.seen_timestamp,
-            )
+            );
         };
 
         // Define a closure for processing batches of attestations.
@@ -307,8 +307,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         voluntary_exit: Box<SignedVoluntaryExit>,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn =
-            move || processor.process_gossip_voluntary_exit(message_id, peer_id, *voluntary_exit);
+        let process_fn = move || {
+            processor.process_gossip_voluntary_exit(message_id, peer_id, *voluntary_exit);
+        };
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,

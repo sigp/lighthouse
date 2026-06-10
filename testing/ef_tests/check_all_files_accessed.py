@@ -81,13 +81,7 @@ excluded_paths = [
     "tests/.*/.*/networking/gossip_beacon_block/.*/gossip_beacon_block__ignore_parent_consensus_failed_execution_known/.*",
     "tests/.*/.*/networking/gossip_beacon_block/.*/gossip_beacon_block__reject_parent_consensus_failed_execution_not_verified/.*",
     "tests/.*/.*/networking/gossip_beacon_block/.*/gossip_beacon_block__reject_parent_failed_validation/.*",
-    # TODO: Remaining gossip validation topics not yet implemented
-    "tests/.*/.*/networking/gossip_beacon_attestation/.*",
-    "tests/.*/.*/networking/gossip_beacon_aggregate_and_proof/.*",
-    "tests/.*/.*/networking/gossip_voluntary_exit/.*",
-    "tests/.*/.*/networking/gossip_bls_to_execution_change/.*",
-    "tests/.*/.*/networking/gossip_sync_committee_message/.*",
-    "tests/.*/.*/networking/gossip_sync_committee_contribution_and_proof/.*",
+    # Blob sidecar gossip processing has been deprecated.
     "tests/.*/.*/networking/gossip_blob_sidecar/.*",
     # TODO: fast confirmation rule not merged yet
     "tests/.*/.*/fast_confirmation",
