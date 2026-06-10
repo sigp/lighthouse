@@ -331,7 +331,6 @@ enum QueuedAttestationId {
     Unaggregate(usize),
 }
 
-
 impl QueuedAggregate {
     pub fn beacon_block_root(&self) -> &Hash256 {
         &self.beacon_block_root
