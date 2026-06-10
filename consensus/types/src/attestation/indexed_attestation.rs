@@ -1,4 +1,7 @@
-use std::hash::{Hash, Hasher};
+use std::{
+    hash::{Hash, Hasher},
+    slice::Iter,
+};
 
 use bls::AggregateSignature;
 use context_deserialize::context_deserialize;
@@ -121,11 +124,11 @@ impl<E: EthSpec> IndexedAttestation<E> {
         }
     }
 
-    pub fn attesting_indices_iter(&self) -> Box<dyn Iterator<Item = &u64> + '_> {
+    pub fn attesting_indices_iter(&self) -> Iter<'_, u64> {
         match self {
-            IndexedAttestation::Base(att) => Box::new(att.attesting_indices.iter()),
-            IndexedAttestation::Electra(att) => Box::new(att.attesting_indices.iter()),
-            IndexedAttestation::Gloas(att) => Box::new(att.attesting_indices.iter()),
+            IndexedAttestation::Base(att) => att.attesting_indices.iter(),
+            IndexedAttestation::Electra(att) => att.attesting_indices.iter(),
+            IndexedAttestation::Gloas(att) => att.attesting_indices.iter(),
         }
     }
 
@@ -216,11 +219,11 @@ impl<E: EthSpec> IndexedAttestationRef<'_, E> {
         }
     }
 
-    pub fn attesting_indices_iter(&self) -> Box<dyn Iterator<Item = &u64> + '_> {
+    pub fn attesting_indices_iter(&self) -> Iter<'_, u64> {
         match self {
-            IndexedAttestationRef::Base(att) => Box::new(att.attesting_indices.iter()),
-            IndexedAttestationRef::Electra(att) => Box::new(att.attesting_indices.iter()),
-            IndexedAttestationRef::Gloas(att) => Box::new(att.attesting_indices.iter()),
+            IndexedAttestationRef::Base(att) => att.attesting_indices.iter(),
+            IndexedAttestationRef::Electra(att) => att.attesting_indices.iter(),
+            IndexedAttestationRef::Gloas(att) => att.attesting_indices.iter(),
         }
     }
 
