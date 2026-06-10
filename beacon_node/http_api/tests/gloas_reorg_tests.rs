@@ -197,6 +197,21 @@ pub async fn re_org_parent_is_full_marginal_win() {
     .await;
 }
 
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_parent_empty() {
+    proposer_boost_re_org_test(ReOrgTest {
+        percent_skip_empty_votes: 55,
+        percent_skip_full_votes: 30,
+        percent_head_votes: 15,
+        percent_parent_ptc_present_votes: 100,
+        percent_parent_ptc_absent_votes: 0,
+        head_parent_payload_status: PayloadStatus::Empty,
+        expected_parent_payload_status: PayloadStatus::Empty,
+        ..Default::default()
+    })
+    .await;
+}
 /// Run a proposer boost re-org test.
 ///
 /// - `head_slot`: the slot of the canonical head to be reorged
