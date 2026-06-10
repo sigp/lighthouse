@@ -3148,6 +3148,14 @@ async fn weak_subjectivity_sync_test(
             .store
             .put_payload_envelope(&wss_block_root, &envelope)
             .unwrap();
+
+        // `from_anchor` doesn't mark the anchor's payload received, so do it here; otherwise the
+        // first forward block (a FULL child of the anchor) would be rejected with `ParentUnknown`.
+        beacon_chain
+            .canonical_head
+            .fork_choice_write_lock()
+            .on_valid_payload_envelope_received(wss_block_root)
+            .unwrap();
     }
 
     // Apply blocks forward to reach head.
@@ -3296,7 +3304,8 @@ async fn weak_subjectivity_sync_test(
             let range_sync_block = harness
                 .build_range_sync_block_from_store_blobs(Some(block_root), Arc::new(full_block));
 
-            let fully_available_block = range_sync_block.into_available_block();
+            let (fully_available_block, _envelope) =
+                range_sync_block.into_available_block().unwrap();
             harness
                 .chain
                 .data_availability_checker

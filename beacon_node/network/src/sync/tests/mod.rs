@@ -21,7 +21,7 @@ use tokio::sync::mpsc;
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use types::{ForkName, Hash256, MinimalEthSpec as E, Slot};
+use types::{ForkName, Hash256, MinimalEthSpec as E, SignedExecutionPayloadEnvelope, Slot};
 
 mod lookups;
 mod range;
@@ -77,6 +77,10 @@ struct TestRig {
     /// Blocks that will be used in the test but may not be known to `harness` yet.
     network_blocks_by_root: HashMap<Hash256, RangeSyncBlock<E>>,
     network_blocks_by_slot: HashMap<Slot, RangeSyncBlock<E>>,
+    /// Gloas execution payload envelopes keyed by block root, populated during `build_chain`
+    /// from the external harness store. The rig serves these when a lookup issues a
+    /// `PayloadEnvelopesByRoot` request.
+    network_envelopes_by_root: HashMap<Hash256, Arc<SignedExecutionPayloadEnvelope<E>>>,
     penalties: Vec<ReportedPenalty>,
     /// All seen lookups through the test run
     seen_lookups: HashMap<Id, SeenLookup>,
