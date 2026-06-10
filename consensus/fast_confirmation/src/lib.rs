@@ -447,23 +447,28 @@ impl FastConfirmationRule {
             .saturating_add(1u64)
             < current_epoch;
         let confirmed_not_ancestor = !self.is_ancestor(head_root, confirmed_root, proto_array)?;
-        if confirmed_epoch_too_old
-            || confirmed_not_ancestor
-            || (is_epoch_start
-                && !self.is_confirmed_chain_safe::<E>(
+        // Only run the (expensive) chain-safety check when the cheap conditions above didn't
+        // already trigger a revert, and only at an epoch start. `Some(reason)` means the
+        // confirmed chain can no longer be re-confirmed (with the specific cause).
+        let chain_unsafe_reason =
+            if !confirmed_epoch_too_old && !confirmed_not_ancestor && is_epoch_start {
+                self.is_confirmed_chain_safe::<E>(
                     confirmed_root,
                     current_slot,
                     proto_array,
                     votes,
                     equivocating_indices,
-                )?)
-        {
+                )?
+            } else {
+                None
+            };
+        if confirmed_epoch_too_old || confirmed_not_ancestor || chain_unsafe_reason.is_some() {
             let reason = if confirmed_epoch_too_old {
                 "epoch_too_old"
             } else if confirmed_not_ancestor {
                 "not_ancestor"
             } else {
-                "chain_unsafe"
+                chain_unsafe_reason.unwrap_or("chain_unsafe")
             };
             debug!(
                 prev_confirmed = %confirmed_root,
@@ -473,7 +478,7 @@ impl FastConfirmationRule {
                 "FCR reverted to finalized"
             );
             confirmed_root = finalized_checkpoint.root;
-            metrics::inc_counter(&metrics::FCR_REVERT_TO_FINALIZED);
+            metrics::inc_counter_vec(&metrics::FCR_REVERT_TO_FINALIZED, &[reason]);
         }
 
         // At an epoch start, restart from the current-epoch observed justified checkpoint when
@@ -728,10 +733,12 @@ impl FastConfirmationRule {
         proto_array: &ProtoArray,
         votes: &[VoteTracker],
         equivocating_indices: &BTreeSet<u64>,
-    ) -> Result<bool, Error> {
+    ) -> Result<Option<&'static str>, Error> {
+        // `Ok(None)` = the confirmed chain is safe (re-confirmable). `Ok(Some(reason))` = it
+        // isn't, with `reason` naming which check failed (surfaced as the revert metric label).
         let observed_jcp = &self.current_epoch_observed_justified_checkpoint;
         if !self.is_ancestor(confirmed_root, observed_jcp.root, proto_array)? {
-            return Ok(false);
+            return Ok(Some("off_justified_chain"));
         }
 
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
@@ -749,7 +756,7 @@ impl FastConfirmationRule {
                 // The parent of the first block of the previous epoch.
                 match self.parent_root(ancestor, proto_array) {
                     Some(r) => r,
-                    None => return Ok(false),
+                    None => return Ok(Some("missing_parent")),
                 }
             } else {
                 // The last block of the epoch before the previous one.
@@ -781,10 +788,10 @@ impl FastConfirmationRule {
                 votes,
                 equivocating_indices,
             )? {
-                return Ok(false);
+                return Ok(Some("unconfirmed_block"));
             }
         }
-        Ok(true)
+        Ok(None)
     }
 
     // -----------------------------------------------------------------------

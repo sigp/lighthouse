@@ -35,10 +35,11 @@ pub static FCR_CONFIRMATION_DELAY_SLOTS: LazyLock<Result<IntGauge>> = LazyLock::
         "Confirmation delay: current head slot minus confirmed root slot",
     )
 });
-pub static FCR_REVERT_TO_FINALIZED: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
-    try_create_int_counter(
+pub static FCR_REVERT_TO_FINALIZED: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
         "beacon_fcr_revert_to_finalized_total",
-        "Count of FCR reverts of the confirmed root to the finalized block",
+        "Count of FCR reverts of the confirmed root to the finalized block, by reason",
+        &["reason"],
     )
 });
 pub static FCR_RESTART_FROM_JUSTIFIED: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
