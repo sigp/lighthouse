@@ -514,6 +514,7 @@ impl ProtoArrayForkChoice {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
             nodes: Vec::with_capacity(1),
             indices: HashMap::with_capacity(1),
+            children: Vec::with_capacity(1),
         };
 
         let block = Block {
