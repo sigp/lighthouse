@@ -1100,6 +1100,7 @@ async fn accept_processed_gossip_data_columns_without_import() {
     let spec = test_spec::<E>();
     // Pre-Gloas data-column path: a Gloas block carries its columns in the payload envelope, so the
     // harness produces no block-level data columns and this gossip flow doesn't apply.
+    // TODO(gloas): re-enable this test
     if spec.fulu_fork_epoch.is_none() || spec.gloas_fork_epoch.is_some() {
         return;
     };
