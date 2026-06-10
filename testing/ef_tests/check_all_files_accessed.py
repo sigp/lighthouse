@@ -75,8 +75,15 @@ excluded_paths = [
     "tests/.*/compute_challenge/.*",
     # We don't need these manifest files at the moment.
     "tests/.*/manifest.yaml",
-    # TODO: gossip condition tests not implemented yet
-    "tests/.*/.*/networking/.*",
+    # TODO: Remaining gossip validation topics not yet implemented
+    "tests/.*/.*/networking/gossip_beacon_block/.*",
+    "tests/.*/.*/networking/gossip_beacon_attestation/.*",
+    "tests/.*/.*/networking/gossip_beacon_aggregate_and_proof/.*",
+    "tests/.*/.*/networking/gossip_voluntary_exit/.*",
+    "tests/.*/.*/networking/gossip_bls_to_execution_change/.*",
+    "tests/.*/.*/networking/gossip_sync_committee_message/.*",
+    "tests/.*/.*/networking/gossip_sync_committee_contribution_and_proof/.*",
+    "tests/.*/.*/networking/gossip_blob_sidecar/.*",
     # TODO: fast confirmation rule not merged yet
     "tests/.*/.*/fast_confirmation",
 ]

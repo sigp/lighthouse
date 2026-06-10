@@ -12,6 +12,7 @@ mod beacon;
 mod block_id;
 mod build_block_contents;
 mod builder_states;
+mod caches;
 mod custody;
 mod database;
 mod light_client;
@@ -35,11 +36,16 @@ mod validator_inclusion;
 mod validators;
 mod version;
 
-use crate::beacon::execution_payload_envelope::{
-    get_beacon_execution_payload_envelope, post_beacon_execution_payload_envelope,
-    post_beacon_execution_payload_envelope_ssz,
+use crate::beacon::execution_payload_bids::{
+    post_beacon_execution_payload_bids, post_beacon_execution_payload_bids_ssz,
+};
+use crate::beacon::execution_payload_envelopes::{
+    get_beacon_execution_payload_envelopes, post_beacon_execution_payload_envelopes,
+    post_beacon_execution_payload_envelopes_ssz,
 };
 use crate::beacon::pool::*;
+use crate::caches::DEFAULT_HISTORICAL_COMMITTEE_CACHE_SIZE;
+pub use crate::caches::HistoricalCommitteeCache;
 use crate::light_client::{get_light_client_bootstrap, get_light_client_updates};
 use crate::utils::{AnyVersionFilter, EthV1Filter};
 use crate::validator::post_validator_liveness_epoch;
@@ -95,7 +101,7 @@ use types::{
     BeaconStateError, Checkpoint, ConfigAndPreset, Epoch, EthSpec, ForkName, Hash256,
     SignedBlindedBeaconBlock,
 };
-use validator::execution_payload_envelope::get_validator_execution_payload_envelope;
+use validator::execution_payload_envelopes::get_validator_execution_payload_envelopes;
 use version::{
     ResponseIncludesVersion, V1, V2, add_consensus_version_header, add_ssz_content_type_header,
     execution_optimistic_finalized_beacon_response, inconsistent_fork_rejection,
@@ -132,6 +138,7 @@ pub struct Context<T: BeaconChainTypes> {
     pub network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
     pub beacon_processor_send: Option<BeaconProcessorSend<T::EthSpec>>,
     pub sse_logging_components: Option<SSELoggingComponents>,
+    pub historical_committee_cache: Arc<HistoricalCommitteeCache>,
 }
 
 /// Configuration for the HTTP server.
@@ -148,6 +155,7 @@ pub struct Config {
     #[serde(with = "eth2::types::serde_status_code")]
     pub duplicate_block_status_code: StatusCode,
     pub target_peers: usize,
+    pub historical_committee_cache_size: usize,
 }
 
 impl Default for Config {
@@ -163,6 +171,7 @@ impl Default for Config {
             enable_beacon_processor: true,
             duplicate_block_status_code: StatusCode::ACCEPTED,
             target_peers: 100,
+            historical_committee_cache_size: DEFAULT_HISTORICAL_COMMITTEE_CACHE_SIZE,
         }
     }
 }
@@ -416,6 +425,11 @@ pub fn serve<T: BeaconChainTypes>(
         })
         .boxed();
 
+    let historical_committee_cache = ctx.historical_committee_cache.clone();
+    let beacon_states_committees_filter = warp::any()
+        .map(move || historical_committee_cache.clone())
+        .boxed();
+
     // Create a `warp` filter that provides access to the network sender channel.
     let network_tx = ctx
         .network_senders
@@ -628,8 +642,10 @@ pub fn serve<T: BeaconChainTypes>(
         states::get_beacon_state_validators_id(beacon_states_path.clone());
 
     // GET beacon/states/{state_id}/committees?slot,index,epoch
-    let get_beacon_state_committees =
-        states::get_beacon_state_committees(beacon_states_path.clone());
+    let get_beacon_state_committees = states::get_beacon_state_committees(
+        beacon_states_path.clone(),
+        beacon_states_committees_filter,
+    );
 
     // GET beacon/states/{state_id}/sync_committees?epoch
     let get_beacon_state_sync_committees =
@@ -1526,24 +1542,40 @@ pub fn serve<T: BeaconChainTypes>(
         network_tx_filter.clone(),
     );
 
-    // POST beacon/execution_payload_envelope
-    let post_beacon_execution_payload_envelope = post_beacon_execution_payload_envelope(
+    // POST beacon/execution_payload_envelopes
+    let post_beacon_execution_payload_envelopes = post_beacon_execution_payload_envelopes(
         eth_v1.clone(),
         task_spawner_filter.clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
     );
 
-    // POST beacon/execution_payload_envelope (SSZ)
-    let post_beacon_execution_payload_envelope_ssz = post_beacon_execution_payload_envelope_ssz(
+    // POST beacon/execution_payload_envelopes (SSZ)
+    let post_beacon_execution_payload_envelopes_ssz = post_beacon_execution_payload_envelopes_ssz(
         eth_v1.clone(),
         task_spawner_filter.clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
     );
 
-    // GET beacon/execution_payload_envelope/{block_id}
-    let get_beacon_execution_payload_envelope = get_beacon_execution_payload_envelope(
+    // POST beacon/execution_payload_bids
+    let post_beacon_execution_payload_bids = post_beacon_execution_payload_bids(
+        eth_v1.clone(),
+        task_spawner_filter.clone(),
+        chain_filter.clone(),
+        network_tx_filter.clone(),
+    );
+
+    // POST beacon/execution_payload_bids (SSZ)
+    let post_beacon_execution_payload_bids_ssz = post_beacon_execution_payload_bids_ssz(
+        eth_v1.clone(),
+        task_spawner_filter.clone(),
+        chain_filter.clone(),
+        network_tx_filter.clone(),
+    );
+
+    // GET beacon/execution_payload_envelopes/{block_id}
+    let get_beacon_execution_payload_envelopes = get_beacon_execution_payload_envelopes(
         eth_v1.clone(),
         block_id_or_err,
         task_spawner_filter.clone(),
@@ -2552,8 +2584,8 @@ pub fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
     );
 
-    // GET validator/execution_payload_envelope/{slot}/{builder_index}
-    let get_validator_execution_payload_envelope = get_validator_execution_payload_envelope(
+    // GET validator/execution_payload_envelopes/{slot}/{builder_index}
+    let get_validator_execution_payload_envelopes = get_validator_execution_payload_envelopes(
         eth_v1.clone(),
         chain_filter.clone(),
         not_while_syncing_filter.clone(),
@@ -3369,7 +3401,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_block_root)
                 .uor(get_blob_sidecars)
                 .uor(get_blobs)
-                .uor(get_beacon_execution_payload_envelope)
+                .uor(get_beacon_execution_payload_envelopes)
                 .uor(get_beacon_pool_attestations)
                 .uor(get_beacon_pool_attester_slashings)
                 .uor(get_beacon_pool_proposer_slashings)
@@ -3393,7 +3425,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_validator_duties_proposer)
                 .uor(get_validator_blocks)
                 .uor(get_validator_blinded_blocks)
-                .uor(get_validator_execution_payload_envelope)
+                .uor(get_validator_execution_payload_envelopes)
                 .uor(get_validator_attestation_data)
                 .uor(get_validator_payload_attestation_data)
                 .uor(get_validator_aggregate_attestation)
@@ -3431,7 +3463,8 @@ pub fn serve<T: BeaconChainTypes>(
                             .uor(post_beacon_blocks_v2_ssz)
                             .uor(post_beacon_blinded_blocks_ssz)
                             .uor(post_beacon_blinded_blocks_v2_ssz)
-                            .uor(post_beacon_execution_payload_envelope_ssz)
+                            .uor(post_beacon_execution_payload_envelopes_ssz)
+                            .uor(post_beacon_execution_payload_bids_ssz)
                             .uor(post_beacon_pool_payload_attestations_ssz)
                             .uor(post_validator_proposer_preferences_ssz),
                     )
@@ -3447,7 +3480,8 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_beacon_pool_payload_attestations)
                     .uor(post_beacon_pool_bls_to_execution_changes)
                     .uor(post_validator_proposer_preferences)
-                    .uor(post_beacon_execution_payload_envelope)
+                    .uor(post_beacon_execution_payload_envelopes)
+                    .uor(post_beacon_execution_payload_bids)
                     .uor(post_beacon_state_validators)
                     .uor(post_beacon_state_validator_balances)
                     .uor(post_beacon_state_validator_identities)

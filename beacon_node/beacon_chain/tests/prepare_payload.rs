@@ -34,7 +34,7 @@ type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 fn get_store(
     db_path: &TempDir,
     spec: Arc<ChainSpec>,
-) -> Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>> {
+) -> Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>> {
     let store_config = StoreConfig {
         prune_payloads: false,
         ..StoreConfig::default()
@@ -46,7 +46,7 @@ fn get_store_generic(
     db_path: &TempDir,
     config: StoreConfig,
     spec: Arc<ChainSpec>,
-) -> Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>> {
+) -> Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>> {
     create_test_tracing_subscriber();
     let hot_path = db_path.path().join("chain_db");
     let cold_path = db_path.path().join("freezer_db");
@@ -64,7 +64,7 @@ fn get_store_generic(
 }
 
 fn get_harness(
-    store: Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>,
+    store: Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>>,
     validator_count: usize,
 ) -> TestHarness {
     // Most tests expect to retain historic states, so we use this as the default.
@@ -81,7 +81,7 @@ fn get_harness(
 }
 
 fn get_harness_generic(
-    store: Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>,
+    store: Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>>,
     validator_count: usize,
     chain_config: ChainConfig,
     node_custody_type: NodeCustodyType,
