@@ -815,7 +815,7 @@ impl SingleAttestation {
     pub fn to_indexed<E: EthSpec>(
         &self,
         fork_name: ForkName,
-    ) -> Result<IndexedAttestation<E>, Error> {
+    ) -> Result<IndexedAttestation<E>, ssz_types::Error> {
         if fork_name.gloas_enabled() {
             Ok(IndexedAttestation::Gloas(IndexedAttestationGloas {
                 attesting_indices: ProgressiveVariableList::new(vec![self.attester_index]),
@@ -825,17 +825,13 @@ impl SingleAttestation {
             }))
         } else if fork_name.electra_enabled() {
             Ok(IndexedAttestation::Electra(IndexedAttestationElectra {
-                attesting_indices: vec![self.attester_index]
-                    .try_into()
-                    .map_err(Error::SszTypesError)?,
+                attesting_indices: vec![self.attester_index].try_into()?,
                 data: self.data.clone(),
                 signature: self.signature.clone(),
             }))
         } else {
             Ok(IndexedAttestation::Base(IndexedAttestationBase {
-                attesting_indices: vec![self.attester_index]
-                    .try_into()
-                    .map_err(Error::SszTypesError)?,
+                attesting_indices: vec![self.attester_index].try_into()?,
                 data: self.data.clone(),
                 signature: self.signature.clone(),
             }))

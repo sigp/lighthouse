@@ -283,12 +283,6 @@ pub enum Error {
     ///
     /// The peer has sent an invalid message.
     SszTypesError(ssz_types::Error),
-    /// A critical error occurred while converting a single attestation to its indexed form.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The peer has sent an invalid message.
-    AttestationError(types::AttestationError),
 }
 
 impl From<BeaconChainError> for Error {
@@ -479,7 +473,7 @@ fn process_slash_info<T: BeaconChainTypes>(
                             "Unable to construct VariableList from a single attestation. \
                              This indicates a serious bug in SSZ handling"
                         );
-                        return Error::AttestationError(e);
+                        return Error::SszTypesError(e);
                     }
                 };
                 (indexed_attestation, true, err)
@@ -1011,7 +1005,7 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
 
         let indexed_attestation = attestation
             .to_indexed(fork_name)
-            .map_err(|e| SignatureNotCheckedSingle(attestation, Error::AttestationError(e)))?;
+            .map_err(|e| SignatureNotCheckedSingle(attestation, Error::SszTypesError(e)))?;
 
         let validator_index = match Self::verify_middle_checks(attestation, chain) {
             Ok(t) => t,

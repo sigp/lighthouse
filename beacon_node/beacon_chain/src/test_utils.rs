@@ -50,7 +50,9 @@ use rand::seq::SliceRandom;
 use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
 use slot_clock::{SlotClock, TestingSlotClock};
-use ssz_types::{ProgressiveVariableList, RuntimeVariableList, VariableList};
+#[cfg(feature = "arbitrary")]
+use ssz_types::ProgressiveVariableList;
+use ssz_types::{RuntimeVariableList, VariableList};
 use state_processing::ConsensusContext;
 use state_processing::per_block_processing::compute_timestamp_at_slot;
 use state_processing::per_block_processing::{
