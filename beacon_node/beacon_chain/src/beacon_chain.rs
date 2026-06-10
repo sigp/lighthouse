@@ -5207,7 +5207,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 head_block_root,
                 re_org_head_threshold,
                 re_org_parent_threshold,
-                &self.config.re_org_disallowed_offsets,
                 re_org_max_epochs_since_finalization,
             )
             .map_err(|e| e.map_inner_error(Error::ProposerHeadForkChoiceError))?;
