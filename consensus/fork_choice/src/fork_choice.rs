@@ -554,10 +554,10 @@ where
             // Genesis block parent.
             return Ok(Some(Hash256::zero()));
         }
-        let dependent_slot = epoch
-            .saturating_sub(spec.min_seed_lookahead)
-            .start_slot(E::slots_per_epoch())
-            .saturating_sub(1_u64);
+        // Fork-aware decision slot: pre-Fulu it's the end of `epoch - 1`, post-Fulu it accounts
+        // for the proposer lookahead. Reuse `proposer_shuffling_decision_slot` so the proposer
+        // boost dependent root matches the proposer shuffling decision root.
+        let dependent_slot = spec.proposer_shuffling_decision_slot::<E>(epoch);
         self.get_ancestor(block_root, dependent_slot)
     }
 
