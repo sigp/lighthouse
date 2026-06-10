@@ -3130,7 +3130,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(db_failure)?;
 
         if anchor_block_root == Some(block_root) {
-            *anchor_envelope = Some((block_root, signed_block, available_envelope));
+            *anchor_envelope = Some((block_root, signed_block, Box::new(available_envelope)));
         }
 
         Ok(())
@@ -3186,7 +3186,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // retry/downscore.
         if let Some((block_root, block, envelope)) = anchor_envelope
             && let Err(e) = self
-                .process_range_sync_envelope(envelope, block_root, block)
+                .process_range_sync_envelope(*envelope, block_root, block)
                 .await
         {
             return ChainSegmentResult::Failed {
