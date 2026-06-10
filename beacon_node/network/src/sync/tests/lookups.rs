@@ -830,6 +830,25 @@ impl TestRig {
                 self.send_rpc_columns_response(req_id, peer_id, &columns);
             }
 
+            (RequestType::PayloadEnvelopesByRange(req), AppRequestId::Sync(req_id)) => {
+                if self.complete_strategy.skip_by_range_routes {
+                    return;
+                }
+
+                let envelopes = (req.start_slot..req.start_slot + req.count)
+                    .filter_map(|slot| self.network_blocks_by_slot.get(&Slot::new(slot)))
+                    .filter_map(|block| {
+                        let block_root = block.canonical_root();
+                        // Respect a withheld payload envelope.
+                        if self.complete_strategy.hold_envelope_for_block == Some(block_root) {
+                            return None;
+                        }
+                        self.network_envelopes_by_root.get(&block_root).cloned()
+                    })
+                    .collect::<Vec<_>>();
+                self.send_rpc_envelopes_response(req_id, peer_id, &envelopes);
+            }
+
             (RequestType::Status(_req), AppRequestId::Router) => {
                 // Ignore Status requests for now
             }
@@ -949,6 +968,34 @@ impl TestRig {
             envelope: envelope.clone(),
             seen_timestamp: D,
         });
+        // Stream termination
+        self.push_sync_message(SyncMessage::RpcPayloadEnvelope {
+            sync_request_id,
+            peer_id,
+            envelope: None,
+            seen_timestamp: D,
+        });
+    }
+
+    fn send_rpc_envelopes_response(
+        &mut self,
+        sync_request_id: SyncRequestId,
+        peer_id: PeerId,
+        envelopes: &[Arc<SignedExecutionPayloadEnvelope<E>>],
+    ) {
+        let slots = envelopes.iter().map(|e| e.slot()).collect::<Vec<_>>();
+        self.log(&format!(
+            "Completing request {sync_request_id:?} to {peer_id} with envelopes {slots:?}"
+        ));
+
+        for envelope in envelopes {
+            self.push_sync_message(SyncMessage::RpcPayloadEnvelope {
+                sync_request_id,
+                peer_id,
+                envelope: Some(envelope.clone()),
+                seen_timestamp: D,
+            });
+        }
         // Stream termination
         self.push_sync_message(SyncMessage::RpcPayloadEnvelope {
             sync_request_id,
