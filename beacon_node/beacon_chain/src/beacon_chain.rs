@@ -3108,6 +3108,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let mut blocks = filtered_chain_segment.split_off(last_index);
             std::mem::swap(&mut blocks, &mut filtered_chain_segment);
 
+            // Extract envelopes before passing blocks to signature verification.
+            let envelopes: Vec<_> = blocks
+                .iter()
+                .map(|(_, block)| match block {
+                    RangeSyncBlock::Gloas { envelope, .. } => envelope.clone(),
+                    RangeSyncBlock::Base(_) => None,
+                })
+                .collect();
+
             let chain = self.clone();
             let signature_verification_future = self.spawn_blocking_handle(
                 move || signature_verify_chain_segment(blocks, &chain),
@@ -3132,11 +3141,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
 
             // Import the blocks into the chain.
-            for signature_verified_block in signature_verified_blocks {
+            for (signature_verified_block, maybe_envelope) in
+                signature_verified_blocks.into_iter().zip(envelopes)
+            {
                 let block_slot = signature_verified_block.slot();
+                let block_root = signature_verified_block.block_root();
+                let block = signature_verified_block.block_cloned();
                 match self
                     .process_block(
-                        signature_verified_block.block_root(),
+                        block_root,
                         signature_verified_block,
                         notify_execution_layer,
                         BlockImportSource::RangeSync,
@@ -3166,11 +3179,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         }
                     }
                     Err(BlockError::DuplicateFullyImported(block_root)) => {
-                        debug!(
-                            ?block_root,
-                            "Ignoring already known blocks while processing chain segment"
-                        );
-                        continue;
+                        // Block was already imported, envelope might need re-import
+                        imported_blocks.push((block_root, block_slot));
                     }
                     Err(error) => {
                         return ChainSegmentResult::Failed {
@@ -3178,6 +3188,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             error,
                         };
                     }
+                }
+
+                // Process the envelope after the block has been imported.
+                if let Some(envelope) = maybe_envelope
+                    && let Err(e) = self
+                        .process_range_sync_envelope(envelope, block_root, block)
+                        .await
+                {
+                    return ChainSegmentResult::Failed {
+                        imported_blocks,
+                        error: BlockError::EnvelopeError(Box::new(e)),
+                    };
                 }
             }
         }
