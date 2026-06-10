@@ -5243,7 +5243,52 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(Box::new(DoNotReOrg::HeadDistance.into()));
         }
 
-        // Only attempt a re-org if we have a proposer registered for the re-org slot.
+        // TODO(gloas): reorg weight logic needs updating for Gloas. For now use
+        // total weight which is correct for pre-Gloas and conservative for post-Gloas.
+        let head_weight = info.head_node.weight();
+        let parent_weight = info.parent_node.weight();
+
+        let (head_weak, parent_strong) = if fork_choice_slot == re_org_block_slot {
+            (
+                head_weight < info.re_org_head_weight_threshold,
+                parent_weight > info.re_org_parent_weight_threshold,
+            )
+        } else {
+            (true, true)
+        };
+        if !head_weak {
+            return Err(Box::new(
+                DoNotReOrg::HeadNotWeak {
+                    head_weight,
+                    re_org_head_weight_threshold: info.re_org_head_weight_threshold,
+                }
+                .into(),
+            ));
+        }
+        if !parent_strong {
+            return Err(Box::new(
+                DoNotReOrg::ParentNotStrong {
+                    parent_weight,
+                    re_org_parent_weight_threshold: info.re_org_parent_weight_threshold,
+                }
+                .into(),
+            ));
+        }
+
+        // Check that the head block arrived late and is vulnerable to a re-org. This check is only
+        // a heuristic compared to the proper weight check in `get_state_for_re_org`, the reason
+        // being that we may have only *just* received the block and not yet processed any
+        // attestations for it. We also can't dequeue attestations for the block during the
+        // current slot, which would be necessary for determining its weight.
+        let head_block_late =
+            self.block_observed_after_attestation_deadline(head_block_root, head_slot);
+        if !head_block_late {
+            return Err(Box::new(DoNotReOrg::HeadNotLate.into()));
+        }
+
+        // Only attempt a re-org if we have a proposer registered for the re-org slot. This check
+        // runs after the cheaper checks above because it may compute (and cache) the proposer
+        // shuffling for the re-org slot's epoch on a cache miss.
         let proposing_at_re_org_slot = {
             // Since Fulu, proposer shuffling is computed one epoch in advance, so the shuffling
             // for the re-org block's epoch is always decided by an ancestor of the head, even
@@ -5297,49 +5342,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
         if !proposing_at_re_org_slot {
             return Err(Box::new(DoNotReOrg::NotProposing.into()));
-        }
-
-        // TODO(gloas): reorg weight logic needs updating for Gloas. For now use
-        // total weight which is correct for pre-Gloas and conservative for post-Gloas.
-        let head_weight = info.head_node.weight();
-        let parent_weight = info.parent_node.weight();
-
-        let (head_weak, parent_strong) = if fork_choice_slot == re_org_block_slot {
-            (
-                head_weight < info.re_org_head_weight_threshold,
-                parent_weight > info.re_org_parent_weight_threshold,
-            )
-        } else {
-            (true, true)
-        };
-        if !head_weak {
-            return Err(Box::new(
-                DoNotReOrg::HeadNotWeak {
-                    head_weight,
-                    re_org_head_weight_threshold: info.re_org_head_weight_threshold,
-                }
-                .into(),
-            ));
-        }
-        if !parent_strong {
-            return Err(Box::new(
-                DoNotReOrg::ParentNotStrong {
-                    parent_weight,
-                    re_org_parent_weight_threshold: info.re_org_parent_weight_threshold,
-                }
-                .into(),
-            ));
-        }
-
-        // Check that the head block arrived late and is vulnerable to a re-org. This check is only
-        // a heuristic compared to the proper weight check in `get_state_for_re_org`, the reason
-        // being that we may have only *just* received the block and not yet processed any
-        // attestations for it. We also can't dequeue attestations for the block during the
-        // current slot, which would be necessary for determining its weight.
-        let head_block_late =
-            self.block_observed_after_attestation_deadline(head_block_root, head_slot);
-        if !head_block_late {
-            return Err(Box::new(DoNotReOrg::HeadNotLate.into()));
         }
 
         // TODO(gloas): V29 nodes don't carry execution_status, so this returns
