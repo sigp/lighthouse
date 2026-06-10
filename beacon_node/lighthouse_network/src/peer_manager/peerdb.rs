@@ -257,17 +257,9 @@ impl<E: EthSpec> PeerDB<E> {
             .iter()
             .filter(move |(_, info)| {
                 info.is_connected()
-                    && match info.sync_status() {
-                        SyncStatus::Synced { info } => {
-                            info.has_slot(epoch.start_slot(E::slots_per_epoch()))
-                        }
-                        SyncStatus::Advanced { info } => {
-                            info.has_slot(epoch.start_slot(E::slots_per_epoch()))
-                        }
-                        SyncStatus::IrrelevantPeer
-                        | SyncStatus::Behind { .. }
-                        | SyncStatus::Unknown => false,
-                    }
+                    && info.is_synced_or_advanced_with_available_slot(
+                        epoch.start_slot(E::slots_per_epoch()),
+                    )
             })
             .map(|(peer_id, _)| peer_id)
     }
@@ -301,7 +293,7 @@ impl<E: EthSpec> PeerDB<E> {
     }
 
     /// Returns an iterator of all good gossipsub peers that are supposed to be custodying
-    /// the given subnet id.
+    /// the given subnet id, with data available at the given slot.
     pub fn good_custody_subnet_peer(
         &self,
         subnet: DataColumnSubnetId,
@@ -315,7 +307,7 @@ impl<E: EthSpec> PeerDB<E> {
                 info.is_connected()
                     && info.is_good_gossipsub_peer()
                     && is_custody_subnet_peer
-                    && info.is_synced_or_advanced_past_slot(slot)
+                    && info.is_synced_or_advanced_with_available_slot(slot)
             })
             .map(|(peer_id, _)| peer_id)
     }
@@ -331,7 +323,9 @@ impl<E: EthSpec> PeerDB<E> {
 
         let good_sync_peers_for_epoch = self.peers.values().filter(|&info| {
             info.is_connected()
-                && info.is_synced_or_advanced_past_slot(epoch.start_slot(E::slots_per_epoch()))
+                && info.is_synced_or_advanced_with_available_slot(
+                    epoch.start_slot(E::slots_per_epoch()),
+                )
         });
 
         for info in good_sync_peers_for_epoch {

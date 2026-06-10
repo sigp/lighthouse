@@ -196,7 +196,8 @@ impl<E: EthSpec> NetworkGlobals<E> {
     /// Returns a connected peer that:
     /// 1. is connected
     /// 2. assigned to custody the column based on it's `custody_subnet_count` from ENR or metadata
-    /// 3. has a good score
+    /// 3. has data available past the given slot
+    /// 4. has a good score
     pub fn custody_peers_for_column(
         &self,
         column_index: ColumnIndex,

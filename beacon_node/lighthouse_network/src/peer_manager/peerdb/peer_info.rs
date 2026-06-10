@@ -336,7 +336,8 @@ impl<E: EthSpec> PeerInfo<E> {
         )
     }
 
-    pub fn is_synced_or_advanced_past_slot(&self, slot: Slot) -> bool {
+    /// Checks if the peer is synced or advanced, and has data available for the given slot.
+    pub fn is_synced_or_advanced_with_available_slot(&self, slot: Slot) -> bool {
         match &self.sync_status {
             SyncStatus::Synced { info } | SyncStatus::Advanced { info } => info.has_slot(slot),
             SyncStatus::IrrelevantPeer | SyncStatus::Behind { .. } | SyncStatus::Unknown => false,
