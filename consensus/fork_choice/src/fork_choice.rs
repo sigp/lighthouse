@@ -550,14 +550,13 @@ where
         spec: &ChainSpec,
     ) -> Result<Option<Hash256>, Error<T::Error>> {
         let epoch = current_slot.epoch(E::slots_per_epoch());
+        
         if epoch <= spec.min_seed_lookahead {
-            // Genesis block parent.
             return Ok(Some(Hash256::zero()));
         }
-        let dependent_slot = epoch
-            .saturating_sub(spec.min_seed_lookahead)
-            .start_slot(E::slots_per_epoch())
-            .saturating_sub(1_u64);
+
+        let dependent_slot = spec.proposer_shuffling_decision_slot::<E>(epoch);
+       
         self.get_ancestor(block_root, dependent_slot)
     }
 
