@@ -12,6 +12,7 @@ use crate::sync::{
 };
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::custody_context::NodeCustodyType;
+use beacon_chain::payload_envelope_verification::AvailableEnvelope;
 use beacon_chain::{
     AvailabilityProcessingStatus, EngineState, NotifyExecutionLayer,
     block_verification_types::{AsBlock, AvailableBlockData},
@@ -613,7 +614,6 @@ impl TestRig {
                             .unwrap_or_else(|| {
                                 panic!("Test consumer requested unknown block: {id:?}")
                             })
-                            .block_data()
                             .data_columns()
                             .unwrap_or_else(|| panic!("Block id {id:?} has no columns"));
                         id.columns
@@ -763,7 +763,7 @@ impl TestRig {
                         .return_wrong_range_column_indices_n_times -= 1;
                     let wrong_columns = (req.start_slot..req.start_slot + req.count)
                         .filter_map(|slot| self.network_blocks_by_slot.get(&Slot::new(slot)))
-                        .filter_map(|block| block.block_data().data_columns())
+                        .filter_map(|block| block.data_columns())
                         .flat_map(|columns| {
                             columns
                                 .into_iter()
@@ -787,7 +787,7 @@ impl TestRig {
                     let wrong_columns = self
                         .network_blocks_by_slot
                         .get(&Slot::new(wrong_slot))
-                        .and_then(|block| block.block_data().data_columns())
+                        .and_then(|block| block.data_columns())
                         .into_iter()
                         .flat_map(|columns| {
                             columns
@@ -804,7 +804,7 @@ impl TestRig {
                     self.complete_strategy.return_partial_range_columns_n_times -= 1;
                     let columns = (req.start_slot..req.start_slot + req.count)
                         .filter_map(|slot| self.network_blocks_by_slot.get(&Slot::new(slot)))
-                        .filter_map(|block| block.block_data().data_columns())
+                        .filter_map(|block| block.data_columns())
                         .flat_map(|columns| {
                             columns
                                 .into_iter()
@@ -820,7 +820,7 @@ impl TestRig {
 
                 let columns = (req.start_slot..req.start_slot + req.count)
                     .filter_map(|slot| self.network_blocks_by_slot.get(&Slot::new(slot)))
-                    .filter_map(|block| block.block_data().data_columns())
+                    .filter_map(|block| block.data_columns())
                     .flat_map(|columns| {
                         columns
                             .into_iter()
@@ -828,6 +828,25 @@ impl TestRig {
                     })
                     .collect::<Vec<_>>();
                 self.send_rpc_columns_response(req_id, peer_id, &columns);
+            }
+
+            (RequestType::PayloadEnvelopesByRange(req), AppRequestId::Sync(req_id)) => {
+                if self.complete_strategy.skip_by_range_routes {
+                    return;
+                }
+
+                let envelopes = (req.start_slot..req.start_slot + req.count)
+                    .filter_map(|slot| self.network_blocks_by_slot.get(&Slot::new(slot)))
+                    .filter_map(|block| {
+                        let block_root = block.canonical_root();
+                        // Respect a withheld payload envelope.
+                        if self.complete_strategy.hold_envelope_for_block == Some(block_root) {
+                            return None;
+                        }
+                        self.network_envelopes_by_root.get(&block_root).cloned()
+                    })
+                    .collect::<Vec<_>>();
+                self.send_rpc_envelopes_response(req_id, peer_id, &envelopes);
             }
 
             (RequestType::Status(_req), AppRequestId::Router) => {
@@ -949,6 +968,34 @@ impl TestRig {
             envelope: envelope.clone(),
             seen_timestamp: D,
         });
+        // Stream termination
+        self.push_sync_message(SyncMessage::RpcPayloadEnvelope {
+            sync_request_id,
+            peer_id,
+            envelope: None,
+            seen_timestamp: D,
+        });
+    }
+
+    fn send_rpc_envelopes_response(
+        &mut self,
+        sync_request_id: SyncRequestId,
+        peer_id: PeerId,
+        envelopes: &[Arc<SignedExecutionPayloadEnvelope<E>>],
+    ) {
+        let slots = envelopes.iter().map(|e| e.slot()).collect::<Vec<_>>();
+        self.log(&format!(
+            "Completing request {sync_request_id:?} to {peer_id} with envelopes {slots:?}"
+        ));
+
+        for envelope in envelopes {
+            self.push_sync_message(SyncMessage::RpcPayloadEnvelope {
+                sync_request_id,
+                peer_id,
+                envelope: Some(envelope.clone()),
+                seen_timestamp: D,
+            });
+        }
         // Stream termination
         self.push_sync_message(SyncMessage::RpcPayloadEnvelope {
             sync_request_id,
@@ -1177,7 +1224,7 @@ impl TestRig {
         let range_sync_block = self.get_last_block().clone();
         let mut block = (*range_sync_block.block_cloned()).clone();
         let blobs = range_sync_block.block_data().blobs();
-        let columns = range_sync_block.block_data().data_columns();
+        let columns = range_sync_block.data_columns();
         *block.signature_mut() = self.valid_signature();
         self.re_insert_block(Arc::new(block), blobs, columns);
     }
@@ -1192,10 +1239,7 @@ impl TestRig {
         let range_sync_block = self.get_last_block().clone();
         let block = range_sync_block.block_cloned();
         let blobs = range_sync_block.block_data().blobs();
-        let mut columns = range_sync_block
-            .block_data()
-            .data_columns()
-            .expect("no columns");
+        let mut columns = range_sync_block.data_columns().expect("no columns");
         let first = columns.first_mut().expect("empty columns");
         Arc::make_mut(first)
             .signed_block_header_mut()
@@ -1217,10 +1261,7 @@ impl TestRig {
             .clone();
         let block = range_sync_block.block_cloned();
         let blobs = range_sync_block.block_data().blobs();
-        let mut columns = range_sync_block
-            .block_data()
-            .data_columns()
-            .expect("no columns");
+        let mut columns = range_sync_block.data_columns().expect("no columns");
         let first = columns.first_mut().expect("empty columns");
         let column = Arc::make_mut(first);
         let proof = column.kzg_proofs_mut().first_mut().expect("no kzg proofs");
@@ -1256,20 +1297,30 @@ impl TestRig {
     ) {
         let block_root = block.canonical_root();
         let block_slot = block.slot();
-        let block_data = if let Some(columns) = columns {
-            AvailableBlockData::new_with_data_columns(columns)
-        } else if let Some(blobs) = blobs {
-            AvailableBlockData::new_with_blobs(blobs)
+        let range_sync_block = if block.fork_name_unchecked().gloas_enabled() {
+            // Gloas carries data columns in the payload envelope, not in `block_data`.
+            let envelope = self
+                .network_envelopes_by_root
+                .get(&block_root)
+                .cloned()
+                .map(|envelope| AvailableEnvelope::new(envelope, columns.unwrap_or_default()));
+            RangeSyncBlock::new_gloas(block, envelope).unwrap()
         } else {
-            AvailableBlockData::NoData
+            let block_data = if let Some(columns) = columns {
+                AvailableBlockData::new_with_data_columns(columns)
+            } else if let Some(blobs) = blobs {
+                AvailableBlockData::new_with_blobs(blobs)
+            } else {
+                AvailableBlockData::NoData
+            };
+            RangeSyncBlock::new(
+                block,
+                block_data,
+                &self.harness.chain.data_availability_checker,
+                self.harness.chain.spec.clone(),
+            )
+            .unwrap()
         };
-        let range_sync_block = RangeSyncBlock::new(
-            block,
-            block_data,
-            &self.harness.chain.data_availability_checker,
-            self.harness.chain.spec.clone(),
-        )
-        .unwrap();
         self.network_blocks_by_slot
             .insert(block_slot, range_sync_block.clone());
         self.network_blocks_by_root
@@ -1367,7 +1418,6 @@ impl TestRig {
         let peer_id = self.new_connected_supernode_peer();
         let columns = self
             .get_last_block()
-            .block_data()
             .data_columns()
             .expect("No data columns");
         let column = columns.first().expect("empty columns");

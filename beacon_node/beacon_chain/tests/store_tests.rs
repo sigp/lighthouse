@@ -3304,7 +3304,8 @@ async fn weak_subjectivity_sync_test(
             let range_sync_block = harness
                 .build_range_sync_block_from_store_blobs(Some(block_root), Arc::new(full_block));
 
-            let fully_available_block = range_sync_block.into_available_block();
+            let (fully_available_block, _envelope) =
+                range_sync_block.into_available_block().unwrap();
             harness
                 .chain
                 .data_availability_checker
