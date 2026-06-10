@@ -228,7 +228,12 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
 
         if builder_index.is_none()
             && (!is_builder_withdrawal_credential(deposit.withdrawal_credentials, spec)
-                || is_pending_validator::<E>(&pending_deposits, &deposit.pubkey, spec))
+                || is_pending_validator::<E>(
+                    &pending_deposits,
+                    &deposit.pubkey,
+                    builder_onboarding_cache,
+                    spec,
+                ))
         {
             pending_deposits.push(deposit.clone())?;
             continue;

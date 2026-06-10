@@ -5,7 +5,7 @@ use tracing::{debug, instrument};
 use tree_hash::{Hash256, TreeHash};
 use types::{
     BeaconState, ChainSpec, DepositData, DepositRequest, EthSpec, PendingDeposit,
-    is_builder_withdrawal_credential, new_non_zero_usize,
+    new_non_zero_usize,
 };
 
 use std::num::NonZeroUsize;
@@ -23,7 +23,7 @@ use std::num::NonZeroUsize;
 const CACHE_SIZE: NonZeroUsize = new_non_zero_usize(262144);
 
 /// A simple cache that performs signature verification on `PendingDeposit` entries in the
-/// beacon state for 0x03 credentials and caches the result.
+/// beacon state and caches the result.
 ///
 /// The key is the hash_tree_root of the `Deposit` and the value is the verification result.
 /// In gloas, there are 2 places where we need to do bulk signature verification:
@@ -97,16 +97,12 @@ impl OnboardBuildersCache {
 
     /// Takes a list of pending deposits, signature verifies them and caches the result.
     fn cache_pending_deposits(&self, deposits: Vec<&PendingDeposit>, spec: &ChainSpec) {
-        let mut builder_deposits = Vec::new();
-        let mut builder_deposit_keys = Vec::new();
+        let mut deposits_to_verify = Vec::new();
+        let mut deposit_keys = Vec::new();
 
         {
             let mut cache = self.cache.lock();
             for deposit in deposits {
-                if !is_builder_withdrawal_credential(deposit.withdrawal_credentials, spec) {
-                    continue;
-                }
-
                 let deposit_data = DepositData {
                     amount: deposit.amount,
                     pubkey: deposit.pubkey,
@@ -118,41 +114,32 @@ impl OnboardBuildersCache {
                     continue;
                 }
 
-                builder_deposit_keys.push(key);
-                builder_deposits.push(deposit_data);
+                deposit_keys.push(key);
+                deposits_to_verify.push(deposit_data);
             }
         }
 
-        if builder_deposits.is_empty() {
+        if deposits_to_verify.is_empty() {
             return;
         }
 
-        debug!(
-            builder_deposits_count = builder_deposits.len(),
-            "Pre-verifying builder onboarding deposit signatures"
-        );
-
-        let verified = is_valid_deposit_signature_batch(builder_deposits, spec);
+        let verified = is_valid_deposit_signature_batch(deposits_to_verify, spec);
         let mut cache = self.cache.lock();
-        for (key, value) in builder_deposit_keys.into_iter().zip(verified) {
+        for (key, value) in deposit_keys.into_iter().zip(verified) {
             cache.push(key, value);
         }
     }
 
-    /// Pre-verifies builder deposit signatures from execution payload deposit requests
-    /// and caches the results for later use during `process_deposit_requests_post_gloas`.
+    /// Pre-verifies deposit signatures from execution payload deposit requests and caches the
+    /// results for later use during `process_deposit_requests_post_gloas`.
     #[instrument(skip_all)]
     pub fn cache_deposit_requests(&self, deposit_requests: &[DepositRequest], spec: &ChainSpec) {
-        let mut builder_deposits = Vec::new();
-        let mut builder_deposit_keys = Vec::new();
+        let mut deposits_to_verify = Vec::new();
+        let mut deposit_keys = Vec::new();
 
         {
             let mut cache = self.cache.lock();
             for request in deposit_requests {
-                if !is_builder_withdrawal_credential(request.withdrawal_credentials, spec) {
-                    continue;
-                }
-
                 let deposit_data = DepositData {
                     amount: request.amount,
                     pubkey: request.pubkey,
@@ -164,23 +151,18 @@ impl OnboardBuildersCache {
                     continue;
                 }
 
-                builder_deposit_keys.push(key);
-                builder_deposits.push(deposit_data);
+                deposit_keys.push(key);
+                deposits_to_verify.push(deposit_data);
             }
         }
 
-        if builder_deposits.is_empty() {
+        if deposits_to_verify.is_empty() {
             return;
         }
 
-        debug!(
-            builder_deposits_count = builder_deposits.len(),
-            "Pre-verifying builder deposit signatures from payload envelope"
-        );
-
-        let verified = is_valid_deposit_signature_batch(builder_deposits, spec);
+        let verified = is_valid_deposit_signature_batch(deposits_to_verify, spec);
         let mut cache = self.cache.lock();
-        for (key, value) in builder_deposit_keys.into_iter().zip(verified) {
+        for (key, value) in deposit_keys.into_iter().zip(verified) {
             cache.push(key, value);
         }
     }
@@ -311,6 +293,16 @@ mod tests {
         }
     }
 
+    fn make_invalid_non_builder_deposit(keypair: &Keypair) -> PendingDeposit {
+        PendingDeposit {
+            pubkey: keypair.pk.compress(),
+            withdrawal_credentials: non_builder_credentials(),
+            amount: 32_000_000_000,
+            signature: SignatureBytes::empty(),
+            slot: Slot::new(0),
+        }
+    }
+
     #[test]
     fn new_returns_none_when_gloas_not_scheduled() {
         let spec = non_gloas_spec();
@@ -355,18 +347,29 @@ mod tests {
     }
 
     #[test]
-    fn non_builder_deposits_filtered_out() {
+    fn non_builder_pending_deposits_are_cached() {
         let spec = gloas_spec();
         let cache = OnboardBuildersCache::new(&spec).unwrap();
         let non_builder = make_non_builder_deposit(&KEYPAIRS[0], &spec);
 
         cache.cache_pending_deposits(vec![&non_builder], &spec);
 
-        assert_eq!(cache.cached_is_valid_signature(&non_builder), None);
+        assert_eq!(cache.cached_is_valid_signature(&non_builder), Some(true));
     }
 
     #[test]
-    fn mixed_deposits_only_caches_builder() {
+    fn invalid_non_builder_pending_deposits_are_cached() {
+        let spec = gloas_spec();
+        let cache = OnboardBuildersCache::new(&spec).unwrap();
+        let non_builder = make_invalid_non_builder_deposit(&KEYPAIRS[0]);
+
+        cache.cache_pending_deposits(vec![&non_builder], &spec);
+
+        assert_eq!(cache.cached_is_valid_signature(&non_builder), Some(false));
+    }
+
+    #[test]
+    fn mixed_pending_deposits_are_cached() {
         let spec = gloas_spec();
         let cache = OnboardBuildersCache::new(&spec).unwrap();
         let builder_deposit = make_valid_builder_deposit(&KEYPAIRS[0], &spec);
@@ -378,7 +381,10 @@ mod tests {
             cache.cached_is_valid_signature(&builder_deposit),
             Some(true)
         );
-        assert_eq!(cache.cached_is_valid_signature(&non_builder_deposit), None);
+        assert_eq!(
+            cache.cached_is_valid_signature(&non_builder_deposit),
+            Some(true)
+        );
     }
 
     #[test]
@@ -440,7 +446,7 @@ mod tests {
     }
 
     #[test]
-    fn cache_deposit_requests_filters_non_builder() {
+    fn cache_deposit_requests_caches_non_builder() {
         let spec = gloas_spec();
         let cache = OnboardBuildersCache::new(&spec).unwrap();
 
@@ -462,7 +468,32 @@ mod tests {
 
         cache.cache_deposit_requests(&[request], &spec);
 
-        assert_eq!(cache.get(&deposit_data), None);
+        assert_eq!(cache.get(&deposit_data), Some(true));
+    }
+
+    #[test]
+    fn cache_deposit_requests_caches_invalid_non_builder() {
+        let spec = gloas_spec();
+        let cache = OnboardBuildersCache::new(&spec).unwrap();
+
+        let deposit_data = DepositData {
+            pubkey: KEYPAIRS[0].pk.compress(),
+            withdrawal_credentials: non_builder_credentials(),
+            amount: 32_000_000_000,
+            signature: SignatureBytes::empty(),
+        };
+
+        let request = DepositRequest {
+            pubkey: deposit_data.pubkey,
+            withdrawal_credentials: deposit_data.withdrawal_credentials,
+            amount: deposit_data.amount,
+            signature: deposit_data.signature.clone(),
+            index: 0,
+        };
+
+        cache.cache_deposit_requests(&[request], &spec);
+
+        assert_eq!(cache.get(&deposit_data), Some(false));
     }
 
     #[test]

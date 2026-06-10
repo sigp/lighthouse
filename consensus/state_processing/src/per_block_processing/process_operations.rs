@@ -907,25 +907,29 @@ pub fn process_deposit_requests_pre_gloas<E: EthSpec>(
 }
 
 /// Check if there is a pending deposit for a new validator with the given pubkey.
-// TODO(gloas): cache the deposit signature validation or remove this loop entirely if possible,
-// it is `O(n * m)` where `n` is max 8192 and `m` is max 128M.
+// TODO(gloas): remove this loop entirely if possible, it is `O(n * m)` where `n` is max 8192 and
+// `m` is max 128M.
 pub fn is_pending_validator<E: EthSpec>(
     deposits: &List<PendingDeposit, E::PendingDepositsLimit>,
     pubkey: &PublicKeyBytes,
+    onboarding_cache: Option<&OnboardBuildersCache>,
     spec: &ChainSpec,
 ) -> bool {
     for deposit in deposits.iter() {
         if deposit.pubkey == *pubkey
-            && is_valid_deposit_signature(
-                &DepositData {
-                    pubkey: deposit.pubkey,
-                    withdrawal_credentials: deposit.withdrawal_credentials,
-                    amount: deposit.amount,
-                    signature: deposit.signature.clone(),
-                },
-                spec,
-            )
-            .is_ok()
+            && match onboarding_cache.and_then(|cache| cache.cached_is_valid_signature(deposit)) {
+                Some(valid) => valid,
+                None => is_valid_deposit_signature(
+                    &DepositData {
+                        pubkey: deposit.pubkey,
+                        withdrawal_credentials: deposit.withdrawal_credentials,
+                        amount: deposit.amount,
+                        signature: deposit.signature.clone(),
+                    },
+                    spec,
+                )
+                .is_ok(),
+            }
         {
             return true;
         }
@@ -1045,6 +1049,7 @@ pub fn process_deposit_requests_post_gloas<E: EthSpec>(
                 && !is_pending_validator::<E>(
                     state.pending_deposits()?,
                     &deposit_request.pubkey,
+                    onboarding_cache,
                     spec,
                 ))
         {
