@@ -3085,13 +3085,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// If `block` is the checkpoint sync anchor block and its execution payload envelope is not yet
-    /// in the store, record it in `anchor_envelope` for a verified import via
+    /// in the store, set `anchor_envelope` so that it is imported in
     /// [`Self::process_range_sync_envelope`].
     ///
     /// The checkpoint server serves only the anchor block and state. so after checkpoint sync the
     /// anchor block sits in the store without an envelope. Range sync re-fetches the anchor
-    /// block (as `DuplicateFullyImported` / `WouldRevertFinalizedSlot`) carrying its envelope, and
-    /// we pick it up here.
+    /// block (as `DuplicateFullyImported` / `WouldRevertFinalizedSlot`) and its envelope.
     fn queue_anchor_envelope_import(
         &self,
         block_root: Hash256,
@@ -3104,6 +3103,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 error: BlockError::BeaconChainError(Box::new(e)),
             })
         };
+
+        // Ensure we only ever queue the anchor envelope for import.
+        let anchor_slot = self.store.get_anchor_info().anchor_slot;
+
+        // Ensure we only ever queue the anchor envelope for import.
+        if block.slot() > anchor_slot {
+            return Ok(());
+        }
 
         // If pre-gloas or no envelope there is no need to queue for import.
         let RangeSyncBlock::Gloas {
@@ -3123,8 +3130,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(());
         }
 
-        // Ensure we only ever queue the anchor envelope for import.
-        let anchor_slot = self.store.get_anchor_info().anchor_slot;
         let anchor_block_root = self
             .block_root_at_slot(anchor_slot, WhenSlotSkipped::Prev)
             .map_err(db_failure)?;
