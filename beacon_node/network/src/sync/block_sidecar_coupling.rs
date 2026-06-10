@@ -594,13 +594,90 @@ mod tests {
         }
     }
 
-    /// The custody-column coupling tests below build Fulu data-column sidecars directly, which is
-    /// incompatible with a Gloas genesis (Gloas columns have a different structure). Skip them when
-    /// `FORK_NAME` schedules Gloas at genesis. TODO(gloas): port the harness to build Gloas columns.
-    fn skip_under_gloas() -> bool {
+    /// Returns true when `FORK_NAME` schedules Gloas at genesis. Used to make the custody-column
+    /// coupling tests fork-aware: under Gloas the columns are coupled into the payload envelope, so
+    /// these tests build Gloas blocks/columns/envelopes and complete the payloads request.
+    fn is_gloas_env() -> bool {
         test_spec::<E>()
             .fork_name_at_epoch(Epoch::new(0))
             .gloas_enabled()
+    }
+
+    /// The fork to build blocks/columns for in the custody-column coupling tests. Under a Gloas
+    /// genesis we must build Gloas columns (and matching envelopes); otherwise we use Fulu.
+    fn custody_test_fork() -> ForkName {
+        if is_gloas_env() {
+            ForkName::Gloas
+        } else {
+            ForkName::Fulu
+        }
+    }
+
+    /// A spec with custody-column (PeerDAS) coupling enabled at genesis, matching the env fork.
+    /// Under a Gloas env this enables Gloas at genesis (so envelopes are coupled); otherwise it
+    /// enables Fulu at genesis.
+    fn custody_test_spec() -> ChainSpec {
+        let mut spec = test_spec::<E>();
+        spec.deneb_fork_epoch = Some(Epoch::new(0));
+        spec.fulu_fork_epoch = Some(Epoch::new(0));
+        if is_gloas_env() {
+            spec.gloas_fork_epoch = Some(Epoch::new(0));
+        }
+        spec
+    }
+
+    /// Builds `count` blocks with their data columns, plus a matching payload envelope under Gloas.
+    /// Under Fulu the envelope is `None`.
+    #[allow(clippy::type_complexity)]
+    fn make_blocks_and_columns(
+        count: usize,
+        spec: &ChainSpec,
+    ) -> Vec<(
+        Arc<SignedBeaconBlock<E>>,
+        DataColumnSidecarList<E>,
+        Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+    )> {
+        let fork = custody_test_fork();
+        let mut u = types::test_utils::test_unstructured();
+        (0..count)
+            .map(|_| {
+                let (block, data_columns) = generate_rand_block_and_data_columns::<E>(
+                    fork,
+                    NumBlobs::Number(1),
+                    &mut u,
+                    spec,
+                )
+                .unwrap();
+                let block = Arc::new(block);
+                let envelope = is_gloas_env().then(|| matching_envelope(&block));
+                (block, data_columns, envelope)
+            })
+            .collect()
+    }
+
+    /// Under Gloas, completes the payloads request with the envelopes from `blocks`. Under Fulu this
+    /// is a no-op (there is no payloads request). Pass the subset of blocks whose envelopes should
+    /// be supplied.
+    #[allow(clippy::type_complexity)]
+    fn add_envelopes_if_gloas(
+        info: &mut RangeBlockComponentsRequest<E>,
+        payloads_req_id: Option<PayloadEnvelopesByRangeRequestId>,
+        blocks: &[(
+            Arc<SignedBeaconBlock<E>>,
+            DataColumnSidecarList<E>,
+            Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+        )],
+    ) {
+        if let Some(payloads_req_id) = payloads_req_id {
+            info.add_payload_envelopes(
+                payloads_req_id,
+                blocks
+                    .iter()
+                    .filter_map(|(_, _, envelope)| envelope.clone())
+                    .collect(),
+            )
+            .unwrap();
+        }
     }
 
     fn blocks_id(parent_request_id: ComponentsByRangeRequestId) -> BlocksByRangeRequestId {
@@ -798,9 +875,65 @@ mod tests {
 
     #[test]
     fn no_blobs_into_responses() {
-        // This exercises the pre-Gloas blobs/no-data coupling path. Gloas coupling is covered
-        // by the dedicated `setup_gloas_coupling` tests below.
-        if skip_under_gloas() {
+        // Exercises coupling of blocks that carry no data. Under Fulu this is the no-data blobs
+        // path; under Gloas the block has no blobs but still couples via its payload envelope, so
+        // we drive the (empty) custody-column + payloads path.
+        if is_gloas_env() {
+            let spec = Arc::new(custody_test_spec());
+            let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
+
+            let fork = custody_test_fork();
+            let mut u = types::test_utils::test_unstructured();
+            let blocks = (0..4)
+                .map(|_| {
+                    let (block, _columns) = generate_rand_block_and_data_columns::<E>(
+                        fork,
+                        NumBlobs::None,
+                        &mut u,
+                        &spec,
+                    )
+                    .unwrap();
+                    let block = Arc::new(block);
+                    let envelope = matching_envelope(&block);
+                    (block, envelope)
+                })
+                .collect::<Vec<_>>();
+
+            let components_id = components_id();
+            let blocks_req_id = blocks_id(components_id);
+            let payloads_req_id = payloads_id(components_id);
+            // No custody columns are expected (the blocks carry no blobs), but the Gloas coupling
+            // still goes through the data-column branch so the envelope wrap is applied.
+            let mut info = RangeBlockComponentsRequest::<E>::new(
+                blocks_req_id,
+                None,
+                Some((vec![], vec![])),
+                Some(payloads_req_id),
+                Span::none(),
+            );
+
+            info.add_blocks(
+                blocks_req_id,
+                blocks.iter().map(|(block, _)| block.clone()).collect(),
+            )
+            .unwrap();
+            info.add_payload_envelopes(
+                payloads_req_id,
+                blocks.iter().map(|(_, env)| env.clone()).collect(),
+            )
+            .unwrap();
+
+            let responses = info.responses(da_checker, spec).unwrap().unwrap();
+            assert_eq!(responses.len(), blocks.len());
+            for response in responses {
+                match response {
+                    RangeSyncBlock::Gloas {
+                        envelope: Some(env),
+                        ..
+                    } => assert!(env.columns.is_empty()),
+                    other => panic!("expected Gloas block with envelope, got {other:?}"),
+                }
+            }
             return;
         }
         let spec = Arc::new(test_spec::<E>());
@@ -875,33 +1008,17 @@ mod tests {
 
     #[test]
     fn rpc_block_with_custody_columns() {
-        if skip_under_gloas() {
-            return;
-        }
-        let mut spec = test_spec::<E>();
-        spec.deneb_fork_epoch = Some(Epoch::new(0));
-        spec.fulu_fork_epoch = Some(Epoch::new(0));
-        let spec = Arc::new(spec);
+        let spec = Arc::new(custody_test_spec());
         let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
         let expects_custody_columns = da_checker
             .custody_context()
             .sampling_columns_for_epoch(Epoch::new(0), &spec)
             .to_vec();
-        let mut u = types::test_utils::test_unstructured();
-        let blocks = (0..4)
-            .map(|_| {
-                generate_rand_block_and_data_columns::<E>(
-                    ForkName::Fulu,
-                    NumBlobs::Number(1),
-                    &mut u,
-                    &spec,
-                )
-                .unwrap()
-            })
-            .collect::<Vec<_>>();
+        let blocks = make_blocks_and_columns(4, &spec);
 
         let components_id = components_id();
         let blocks_req_id = blocks_id(components_id);
+        let payloads_req_id = is_gloas_env().then(|| payloads_id(components_id));
         let columns_req_id = expects_custody_columns
             .iter()
             .enumerate()
@@ -919,13 +1036,13 @@ mod tests {
             blocks_req_id,
             None,
             Some((columns_req_id.clone(), expects_custody_columns.clone())),
-            None,
+            payloads_req_id,
             Span::none(),
         );
         // Send blocks and complete terminate response
         info.add_blocks(
             blocks_req_id,
-            blocks.iter().map(|b| b.0.clone().into()).collect(),
+            blocks.iter().map(|(block, _, _)| block.clone()).collect(),
         )
         .unwrap();
         // Assert response is not finished
@@ -938,7 +1055,12 @@ mod tests {
                 *req,
                 blocks
                     .iter()
-                    .flat_map(|b| b.1.iter().filter(|d| *d.index() == column_index).cloned())
+                    .flat_map(|(_, columns, _)| {
+                        columns
+                            .iter()
+                            .filter(|d| *d.index() == column_index)
+                            .cloned()
+                    })
                     .collect(),
             )
             .unwrap();
@@ -951,19 +1073,29 @@ mod tests {
             }
         }
 
+        // Under Gloas the columns are coupled into the payload envelope; supply the envelopes so
+        // the request can complete.
+        add_envelopes_if_gloas(&mut info, payloads_req_id, &blocks);
+
         // All completed construct response
-        info.responses(da_checker, spec).unwrap().unwrap();
+        let responses = info.responses(da_checker, spec).unwrap().unwrap();
+        assert_eq!(responses.len(), blocks.len());
+        if is_gloas_env() {
+            for response in responses {
+                match response {
+                    RangeSyncBlock::Gloas {
+                        envelope: Some(env),
+                        ..
+                    } => assert_eq!(env.columns.len(), expects_custody_columns.len()),
+                    other => panic!("expected Gloas block with envelope, got {other:?}"),
+                }
+            }
+        }
     }
 
     #[test]
     fn rpc_block_with_custody_columns_batched() {
-        if skip_under_gloas() {
-            return;
-        }
-        let mut spec = test_spec::<E>();
-        spec.deneb_fork_epoch = Some(Epoch::new(0));
-        spec.fulu_fork_epoch = Some(Epoch::new(0));
-        let spec = Arc::new(spec);
+        let spec = Arc::new(custody_test_spec());
         let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
         let expected_sampling_columns = da_checker
             .custody_context()
@@ -981,6 +1113,7 @@ mod tests {
 
         let components_id = components_id();
         let blocks_req_id = blocks_id(components_id);
+        let payloads_req_id = is_gloas_env().then(|| payloads_id(components_id));
         let columns_req_id = batched_column_requests
             .iter()
             .enumerate()
@@ -999,27 +1132,16 @@ mod tests {
             blocks_req_id,
             None,
             Some((columns_req_id.clone(), expected_sampling_columns.clone())),
-            None,
+            payloads_req_id,
             Span::none(),
         );
 
-        let mut u = types::test_utils::test_unstructured();
-        let blocks = (0..4)
-            .map(|_| {
-                generate_rand_block_and_data_columns::<E>(
-                    ForkName::Fulu,
-                    NumBlobs::Number(1),
-                    &mut u,
-                    &spec,
-                )
-                .unwrap()
-            })
-            .collect::<Vec<_>>();
+        let blocks = make_blocks_and_columns(4, &spec);
 
         // Send blocks and complete terminate response
         info.add_blocks(
             blocks_req_id,
-            blocks.iter().map(|b| b.0.clone().into()).collect(),
+            blocks.iter().map(|(block, _, _)| block.clone()).collect(),
         )
         .unwrap();
         // Assert response is not finished
@@ -1032,8 +1154,9 @@ mod tests {
                 *req,
                 blocks
                     .iter()
-                    .flat_map(|b| {
-                        b.1.iter()
+                    .flat_map(|(_, columns, _)| {
+                        columns
+                            .iter()
                             .filter(|d| column_indices.contains(d.index()))
                             .cloned()
                     })
@@ -1049,8 +1172,24 @@ mod tests {
             }
         }
 
+        // Under Gloas the columns are coupled into the payload envelope; supply the envelopes so
+        // the request can complete.
+        add_envelopes_if_gloas(&mut info, payloads_req_id, &blocks);
+
         // All completed construct response
-        info.responses(da_checker, spec).unwrap().unwrap();
+        let responses = info.responses(da_checker, spec).unwrap().unwrap();
+        assert_eq!(responses.len(), blocks.len());
+        if is_gloas_env() {
+            for response in responses {
+                match response {
+                    RangeSyncBlock::Gloas {
+                        envelope: Some(env),
+                        ..
+                    } => assert_eq!(env.columns.len(), expected_sampling_columns.len()),
+                    other => panic!("expected Gloas block with envelope, got {other:?}"),
+                }
+            }
+        }
     }
 
     #[test]
@@ -1164,31 +1303,18 @@ mod tests {
 
     #[test]
     fn missing_custody_columns_from_faulty_peers() {
-        if skip_under_gloas() {
-            return;
-        }
         // GIVEN: A request expecting sampling columns from multiple peers
-        let spec = Arc::new(test_spec::<E>());
+        let spec = Arc::new(custody_test_spec());
         let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
         let expected_sampling_columns = da_checker
             .custody_context()
             .sampling_columns_for_epoch(Epoch::new(0), &spec)
             .to_vec();
-        let mut u = types::test_utils::test_unstructured();
-        let blocks = (0..2)
-            .map(|_| {
-                generate_rand_block_and_data_columns::<E>(
-                    ForkName::Fulu,
-                    NumBlobs::Number(1),
-                    &mut u,
-                    &spec,
-                )
-                .unwrap()
-            })
-            .collect::<Vec<_>>();
+        let blocks = make_blocks_and_columns(2, &spec);
 
         let components_id = components_id();
         let blocks_req_id = blocks_id(components_id);
+        let payloads_req_id = is_gloas_env().then(|| payloads_id(components_id));
         let columns_req_id = expected_sampling_columns
             .iter()
             .enumerate()
@@ -1206,16 +1332,19 @@ mod tests {
             blocks_req_id,
             None,
             Some((columns_req_id.clone(), expected_sampling_columns.clone())),
-            None,
+            payloads_req_id,
             Span::none(),
         );
 
         // AND: All blocks are received successfully
         info.add_blocks(
             blocks_req_id,
-            blocks.iter().map(|b| b.0.clone().into()).collect(),
+            blocks.iter().map(|(block, _, _)| block.clone()).collect(),
         )
         .unwrap();
+        // Under Gloas the payloads request must be completed for `responses` to proceed; the
+        // faulty-peer detection happens before the envelope wrap and is fork-independent.
+        add_envelopes_if_gloas(&mut info, payloads_req_id, &blocks);
 
         // AND: Only the first 2 sampling columns are received successfully
         for (i, &column_index) in expected_sampling_columns.iter().take(2).enumerate() {
@@ -1224,7 +1353,12 @@ mod tests {
                 *req,
                 blocks
                     .iter()
-                    .flat_map(|b| b.1.iter().filter(|d| *d.index() == column_index).cloned())
+                    .flat_map(|(_, columns, _)| {
+                        columns
+                            .iter()
+                            .filter(|d| *d.index() == column_index)
+                            .cloned()
+                    })
                     .collect(),
             )
             .unwrap();
@@ -1263,34 +1397,18 @@ mod tests {
 
     #[test]
     fn retry_logic_after_peer_failures() {
-        if skip_under_gloas() {
-            return;
-        }
         // GIVEN: A request expecting sampling columns where some peers initially fail
-        let mut spec = test_spec::<E>();
-        spec.deneb_fork_epoch = Some(Epoch::new(0));
-        spec.fulu_fork_epoch = Some(Epoch::new(0));
-        let spec = Arc::new(spec);
+        let spec = Arc::new(custody_test_spec());
         let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
         let expected_sampling_columns = da_checker
             .custody_context()
             .sampling_columns_for_epoch(Epoch::new(0), &spec)
             .to_vec();
-        let mut u = types::test_utils::test_unstructured();
-        let blocks = (0..2)
-            .map(|_| {
-                generate_rand_block_and_data_columns::<E>(
-                    ForkName::Fulu,
-                    NumBlobs::Number(1),
-                    &mut u,
-                    &spec,
-                )
-                .unwrap()
-            })
-            .collect::<Vec<_>>();
+        let blocks = make_blocks_and_columns(2, &spec);
 
         let components_id = components_id();
         let blocks_req_id = blocks_id(components_id);
+        let payloads_req_id = is_gloas_env().then(|| payloads_id(components_id));
         let columns_req_id = expected_sampling_columns
             .iter()
             .enumerate()
@@ -1308,16 +1426,18 @@ mod tests {
             blocks_req_id,
             None,
             Some((columns_req_id.clone(), expected_sampling_columns.clone())),
-            None,
+            payloads_req_id,
             Span::none(),
         );
 
         // AND: All blocks are received
         info.add_blocks(
             blocks_req_id,
-            blocks.iter().map(|b| b.0.clone().into()).collect(),
+            blocks.iter().map(|(block, _, _)| block.clone()).collect(),
         )
         .unwrap();
+        // Under Gloas the payloads request must be completed for `responses` to proceed.
+        add_envelopes_if_gloas(&mut info, payloads_req_id, &blocks);
 
         // AND: Only partial sampling columns are received (first column but not others)
         let (req0, _) = columns_req_id.first().unwrap();
@@ -1325,8 +1445,9 @@ mod tests {
             *req0,
             blocks
                 .iter()
-                .flat_map(|b| {
-                    b.1.iter()
+                .flat_map(|(_, columns, _)| {
+                    columns
+                        .iter()
                         .filter(|d| *d.index() == expected_sampling_columns[0])
                         .cloned()
                 })
@@ -1363,8 +1484,9 @@ mod tests {
             new_columns_req_id,
             blocks
                 .iter()
-                .flat_map(|b| {
-                    b.1.iter()
+                .flat_map(|(_, columns, _)| {
+                    columns
+                        .iter()
                         .filter(|d| failed_column_indices.contains(d.index()))
                         .cloned()
                 })
@@ -1383,34 +1505,18 @@ mod tests {
 
     #[test]
     fn max_retries_exceeded_behavior() {
-        if skip_under_gloas() {
-            return;
-        }
         // GIVEN: A request where peers consistently fail to provide required columns
-        let mut spec = test_spec::<E>();
-        spec.deneb_fork_epoch = Some(Epoch::new(0));
-        spec.fulu_fork_epoch = Some(Epoch::new(0));
-        let spec = Arc::new(spec);
+        let spec = Arc::new(custody_test_spec());
         let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
         let expected_sampling_columns = da_checker
             .custody_context()
             .sampling_columns_for_epoch(Epoch::new(0), &spec)
             .to_vec();
-        let mut u = types::test_utils::test_unstructured();
-        let blocks = (0..1)
-            .map(|_| {
-                generate_rand_block_and_data_columns::<E>(
-                    ForkName::Fulu,
-                    NumBlobs::Number(1),
-                    &mut u,
-                    &spec,
-                )
-                .unwrap()
-            })
-            .collect::<Vec<_>>();
+        let blocks = make_blocks_and_columns(1, &spec);
 
         let components_id = components_id();
         let blocks_req_id = blocks_id(components_id);
+        let payloads_req_id = is_gloas_env().then(|| payloads_id(components_id));
         let columns_req_id = expected_sampling_columns
             .iter()
             .enumerate()
@@ -1428,16 +1534,18 @@ mod tests {
             blocks_req_id,
             None,
             Some((columns_req_id.clone(), expected_sampling_columns.clone())),
-            None,
+            payloads_req_id,
             Span::none(),
         );
 
         // AND: All blocks are received
         info.add_blocks(
             blocks_req_id,
-            blocks.iter().map(|b| b.0.clone().into()).collect(),
+            blocks.iter().map(|(block, _, _)| block.clone()).collect(),
         )
         .unwrap();
+        // Under Gloas the payloads request must be completed for `responses` to proceed.
+        add_envelopes_if_gloas(&mut info, payloads_req_id, &blocks);
 
         // AND: Only the first sampling column is provided successfully
         let (req0, _) = columns_req_id.first().unwrap();
@@ -1445,8 +1553,9 @@ mod tests {
             *req0,
             blocks
                 .iter()
-                .flat_map(|b| {
-                    b.1.iter()
+                .flat_map(|(_, columns, _)| {
+                    columns
+                        .iter()
                         .filter(|d| *d.index() == expected_sampling_columns[0])
                         .cloned()
                 })
