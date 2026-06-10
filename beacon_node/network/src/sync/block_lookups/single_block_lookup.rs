@@ -412,9 +412,10 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                     state.maybe_start_downloading(|| {
                         cx.custody_lookup_request(self.id, self.block_root, *slot, peers.clone())
                     })?;
-                    // Wait for the parent to be imported, data column processing result handle does
+                    // Wait for the current block and parent to be imported, data column processing result handle does
                     // not support `ParentUnknown`.
-                    if self.awaiting_parent.is_none()
+                    if self.block_request.state.is_processed()
+                        && self.awaiting_parent.is_none()
                         && let Some(data) = state.maybe_start_processing()
                     {
                         cx.send_custody_columns_for_processing(
