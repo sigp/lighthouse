@@ -267,7 +267,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 sync_signature,
                 subnet_id,
                 seen_timestamp,
-            )
+            );
         };
 
         self.try_send(BeaconWorkEvent {
@@ -291,7 +291,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 peer_id,
                 sync_contribution,
                 seen_timestamp,
-            )
+            );
         };
 
         self.try_send(BeaconWorkEvent {
@@ -416,7 +416,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 message_id,
                 peer_id,
                 *bls_to_execution_change,
-            )
+            );
         };
 
         self.try_send(BeaconWorkEvent {

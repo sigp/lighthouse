@@ -1225,3 +1225,23 @@ fn gossip_beacon_aggregate_and_proof() {
     GossipValidationHandler::<MinimalEthSpec>::new("gossip_beacon_aggregate_and_proof").run();
     GossipValidationHandler::<MainnetEthSpec>::new("gossip_beacon_aggregate_and_proof").run();
 }
+
+#[test]
+fn gossip_bls_to_execution_change() {
+    GossipValidationHandler::<MinimalEthSpec>::new("gossip_bls_to_execution_change").run();
+    GossipValidationHandler::<MainnetEthSpec>::new("gossip_bls_to_execution_change").run();
+}
+
+#[test]
+fn gossip_sync_committee_message() {
+    GossipValidationHandler::<MinimalEthSpec>::new("gossip_sync_committee_message").run();
+    GossipValidationHandler::<MainnetEthSpec>::new("gossip_sync_committee_message").run();
+}
+
+#[test]
+fn gossip_sync_committee_contribution_and_proof() {
+    GossipValidationHandler::<MinimalEthSpec>::new("gossip_sync_committee_contribution_and_proof")
+        .run();
+    GossipValidationHandler::<MainnetEthSpec>::new("gossip_sync_committee_contribution_and_proof")
+        .run();
+}

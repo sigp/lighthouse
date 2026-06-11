@@ -21,7 +21,8 @@ use types::{
     Attestation, AttesterSlashing, BeaconState, BlockImportSource, ChainSpec, Checkpoint, EthSpec,
     ExecPayload, ForkName, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedAggregateAndProofBase, SignedAggregateAndProofElectra, SignedBeaconBlock,
-    SignedVoluntaryExit, SingleAttestation, SubnetId,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation,
+    SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -107,6 +108,9 @@ enum Topic {
     VoluntaryExit,
     BeaconAttestation,
     BeaconAggregateAndProof,
+    BlsToExecutionChange,
+    SyncCommittee,
+    SyncCommitteeContributionAndProof,
 }
 
 #[derive(Debug)]
@@ -322,6 +326,13 @@ impl<E: EthSpec> GossipTester<E> {
             Topic::BeaconAggregateAndProof => {
                 self.validate_beacon_aggregate_and_proof(path, message_meta, fork_name)
             }
+            Topic::BlsToExecutionChange => {
+                self.validate_bls_to_execution_change(path, message_meta)
+            }
+            Topic::SyncCommittee => self.validate_sync_committee_message(path, message_meta),
+            Topic::SyncCommitteeContributionAndProof => {
+                self.validate_sync_committee_contribution_and_proof(path, message_meta)
+            }
         }
     }
 
@@ -468,6 +479,71 @@ impl<E: EthSpec> GossipTester<E> {
             .ok_or_else(|| Error::InternalError("aggregate validation deferred".into()))
     }
 
+    fn validate_bls_to_execution_change(
+        &self,
+        path: &Path,
+        message_meta: &MessageMeta,
+    ) -> Result<MessageAcceptance, Error> {
+        let bls_to_execution_change: SignedBlsToExecutionChange =
+            match ssz_decode_file(&path.join(format!("{}.ssz_snappy", message_meta.message))) {
+                Ok(message) => message,
+                Err(Error::InvalidBLSInput(_)) => return Ok(MessageAcceptance::Reject),
+                Err(e) => return Err(e),
+            };
+        self.message_seen_duration(message_meta)?;
+
+        Ok(self
+            .network_beacon_processor
+            .process_gossip_bls_to_execution_change(
+                MessageId::new(&[]),
+                PeerId::random(),
+                bls_to_execution_change,
+            ))
+    }
+
+    fn validate_sync_committee_message(
+        &self,
+        path: &Path,
+        message_meta: &MessageMeta,
+    ) -> Result<MessageAcceptance, Error> {
+        let sync_message: SyncCommitteeMessage =
+            ssz_decode_file(&path.join(format!("{}.ssz_snappy", message_meta.message)))?;
+        let subnet_id = SyncSubnetId::new(message_meta.subnet_id.ok_or_else(|| {
+            Error::FailedToParseTest("missing sync_committee_message subnet_id".into())
+        })?);
+        let seen_duration = self.message_seen_duration(message_meta)?;
+
+        Ok(self
+            .network_beacon_processor
+            .process_gossip_sync_committee_signature(
+                MessageId::new(&[]),
+                PeerId::random(),
+                sync_message,
+                subnet_id,
+                seen_duration,
+            ))
+    }
+
+    fn validate_sync_committee_contribution_and_proof(
+        &self,
+        path: &Path,
+        message_meta: &MessageMeta,
+    ) -> Result<MessageAcceptance, Error> {
+        let sync_contribution: SignedContributionAndProof<E> =
+            ssz_decode_file(&path.join(format!("{}.ssz_snappy", message_meta.message)))?;
+        let seen_duration = self.message_seen_duration(message_meta)?;
+
+        Ok(self
+            .network_beacon_processor
+            .process_sync_committee_contribution(
+                MessageId::new(&[]),
+                PeerId::random(),
+                sync_contribution,
+                seen_duration,
+            ))
+    }
+
+    #[allow(clippy::result_large_err)]
     fn legacy_attestation_to_single(
         &self,
         attestation: Attestation<E>,
@@ -676,6 +752,12 @@ impl<E: EthSpec> GossipValidation<E> {
                     || self.has_unstored_finalized_checkpoint()
                     || self.needs_unfinalized_slot_zero_block(case_name)
             }
+            Topic::BlsToExecutionChange => matches!(
+                case_name,
+                // Historical pre-Capella fixture. Mainnet is already post-Capella, so keep this
+                // out of scope instead of adding config-driven fork scheduling to the harness.
+                "gossip_bls_to_execution_change__ignore_pre_capella"
+            ),
             _ => false,
         }
     }
