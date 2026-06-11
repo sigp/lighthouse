@@ -949,19 +949,17 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .iter()
             .map(|peer| {
                 (
-                    (
-                        // Prefer peers that support `beacon_blocks_by_head`
-                        !self.peer_supports_blocks_by_head(peer),
-                        // Prefer peers with less overall requests
-                        active_request_count_by_peer.get(peer).copied().unwrap_or(0),
-                        // Random factor to break ties, otherwise the PeerID breaks ties
-                        rand::random::<u32>(),
-                    ),
-                    *peer,
+                    // Prefer peers that support `beacon_blocks_by_head`
+                    !self.peer_supports_blocks_by_head(peer),
+                    // Prefer peers with less overall requests
+                    active_request_count_by_peer.get(peer).copied().unwrap_or(0),
+                    // Random factor to break ties, otherwise the PeerID breaks ties
+                    rand::random::<u32>(),
+                    peer,
                 )
             })
-            .min_by_key(|(key, _)| *key)
-            .map(|(_, peer)| peer)
+            .min()
+            .map(|(_, _, _, peer)| *peer)
         else {
             // Allow lookup to not have any peers and do nothing. This is an optimization to not
             // lose progress of lookups created from a block with unknown parent before we receive
