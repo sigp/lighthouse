@@ -5,10 +5,10 @@ use slot_clock::{SlotClock};
 use std::ops::Deref;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use tokio::time::sleep;
+use tokio::time::{sleep, Duration};
 use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, error, info, warn};
-use types::{ChainSpec, EthSpec, Slot};
+use types::{ChainSpec, EthSpec, Slot, Hash256};
 use validator_store::ValidatorStore;
 
 pub struct Inner<S, T> {
@@ -105,10 +105,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
                     continue;
                 }
 
-                let _early_payload_event = if self.payload_available_rx.is_some() {
+                let beacon_node_data = if self.payload_available_rx.is_some() {
                     tokio::select! {
                         _ = sleep(duration_to_next_slot + payload_attestation_due) => None,
-                        event = self.poll_for_payload_available_event() => event,
+                        event = self.poll_for_payload_available_event() => event.map(|ev| (ev.beacon_node_index, ev.block_root)),
                     }
                 } else {
                     sleep(duration_to_next_slot + payload_attestation_due).await;
@@ -130,7 +130,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
                 let service = self.clone();
                 self.executor.spawn(
                     async move {
-                        service.produce_and_publish(attestation_slot).await;
+                        service.produce_and_publish(attestation_slot, beacon_node_data).await;
                     },
                     "payload_attestation_producer",
                 );
@@ -165,7 +165,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
         }
     }    
 
-    async fn produce_and_publish(&self, slot: types::Slot) {
+    async fn produce_and_publish(&self, slot: types::Slot, beacon_node_data: Option<(usize, Hash256)>) {
         let duties = self.duties_service.get_ptc_duties_for_slot(slot);
 
         if duties.is_empty() {
@@ -178,33 +178,82 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PayloadAttestationServ
             "Producing payload attestations"
         );
 
-        let attestation_data = match self
-            .beacon_nodes
-            .first_success(|beacon_node| async move {
-                beacon_node
-                    .get_validator_payload_attestation_data(slot)
-                    .await
-                    .map(|opt| opt.map(|resp| resp.into_data()))
-            })
-            .await
-        {
-            Ok(Some(data)) => data,
-            Ok(None) => {
-                // Per the consensus spec, validators should not submit a
-                // payload attestation when no block has been seen for the slot.
-                debug!(
-                    %slot,
-                    "No block received for slot, skipping payload attestation"
-                );
-                return;
+        let mut attestation_data_from_event = None;
+
+        if let Some((beacon_node_index, expected_block_root)) = beacon_node_data {
+            match self
+                .beacon_nodes
+                .run_on_candidate_index(beacon_node_index, |beacon_node| {
+                    let slot = slot;
+                    async move {
+                        let data = beacon_node
+                            .get_validator_payload_attestation_data(slot)
+                            .await
+                            .map_err(|e| format!("Failed to get payload attestation data: {e:?}"))?
+                            .map(|resp| resp.into_data())
+                            .ok_or_else(|| format!("No payload attestation data on node {beacon_node_index}"))?;
+
+                        if data.beacon_block_root != expected_block_root {
+                            return Err(format!(
+                                "Payload attestation block root mismatch: expected {expected_block_root:?}, got {:?}",
+                                data.beacon_block_root
+                            ));
+                        }
+                        Ok(data)
+                    }
+                })
+                .await
+            {
+                Ok(data) => {
+                    attestation_data_from_event = Some(data);
+                }
+                Err(e) => {
+                    warn!(error = ?e, %slot, "Failed to attest based on payload available event");
+                }
             }
-            Err(e) => {
-                error!(
-                    error = %e,
-                    %slot,
-                    "Failed to produce payload attestation data"
-                );
-                return;
+        }
+
+        // If the early attempt failed or wasn't triggered, wait for the deadline then try all BNs.
+        let attestation_data = if let Some(data) = attestation_data_from_event {
+            data
+        } else {
+            let duration_to_deadline = self
+                .slot_clock
+                .duration_to_slot(slot + 1)
+                .and_then(|d| d.checked_add(self.chain_spec.get_payload_attestation_due()))
+                .map(|d| d.saturating_sub(self.chain_spec.get_slot_duration()))
+                .unwrap_or(Duration::from_secs(0));
+            sleep(duration_to_deadline).await;
+
+            match self
+                .beacon_nodes
+                .first_success(|beacon_node| {
+                    let slot = slot; // capture slot for async move
+                    async move {
+                        beacon_node
+                            .get_validator_payload_attestation_data(slot)
+                            .await
+                            .map(|opt| opt.map(|resp| resp.into_data()))
+                    }
+                })
+                .await
+            {
+                Ok(Some(data)) => data,
+                Ok(None) => {
+                    debug!(
+                        %slot,
+                        "No block received for slot, skipping payload attestation"
+                    );
+                    return;
+                }
+                Err(e) => {
+                    error!(
+                        error = %e,
+                        %slot,
+                        "Failed to produce payload attestation data"
+                    );
+                    return;
+                }
             }
         };
 

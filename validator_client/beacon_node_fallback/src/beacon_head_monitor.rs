@@ -22,6 +22,7 @@ pub struct HeadEvent {
 // `PayloadAttestationService` for further processing.
 #[derive(Debug)]
 pub struct PayloadAvailableEvent {
+    pub beacon_node_index: usize,
     pub slot: types::Slot,
     pub block_root: Hash256,
 }
@@ -228,7 +229,7 @@ pub async fn poll_payload_available_event_from_beacon_nodes<E: EthSpec, T: SlotC
             }
         };
 
-        streams.push(payload_event_stream.map(|event| event))
+        streams.push(payload_event_stream.map(|event| (candidate.index, event)))
     }
 
     if streams.is_empty() {
@@ -237,11 +238,18 @@ pub async fn poll_payload_available_event_from_beacon_nodes<E: EthSpec, T: SlotC
 
     let mut combined = futures::stream::select_all(streams);
 
-    while let Some(event_result) = combined.next().await {
+    while let Some((candidate_index, event_result)) = combined.next().await {
         match event_result {
             Ok(EventKind::ExecutionPayloadAvailable(ev)) => {
+                debug!(
+                    candidate_index,
+                    block_root = ?ev.block_root,
+                    slot = %ev.slot,
+                    "New payload from beacon node"
+                );
                 if payload_available_send
                     .send(PayloadAvailableEvent {
+                        beacon_node_index: candidate_index,
                         slot: ev.slot,
                         block_root: ev.block_root,
                     })
