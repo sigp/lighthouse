@@ -260,6 +260,27 @@ impl TaskExecutor {
         rx.await
     }
 
+    /// Spawns a blocking computation on the global rayon thread pool and awaits the result.
+    pub async fn spawn_blocking_with_global_rayon_async<F, R>(
+        &self,
+        task: F,
+    ) -> Result<R, tokio::sync::oneshot::error::RecvError>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let span = Span::current();
+
+        rayon::spawn(move || {
+            let _guard = span.enter();
+            let result = task();
+            let _ = tx.send(result);
+        });
+
+        rx.await
+    }
+
     /// Spawn a future on the tokio runtime wrapped in an `async-channel::Receiver` returning an optional
     /// join handle to the future.
     /// The task is cancelled when the corresponding async-channel is dropped.
