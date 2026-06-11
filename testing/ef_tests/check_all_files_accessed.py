@@ -84,6 +84,8 @@ excluded_paths = [
     "tests/.*/.*/networking/gossip_beacon_attestation/.*/gossip_beacon_attestation__reject_block_failed_validation/.*",
     "tests/.*/.*/networking/gossip_beacon_attestation/.*/gossip_beacon_attestation__ignore_finalized_not_ancestor/.*",
     "tests/.*/.*/networking/gossip_beacon_attestation/.*/gossip_beacon_attestation__accepts_.*/.*",
+    # Current Lighthouse gossip uses SingleAttestation.
+    "tests/.*/(phase0|altair|bellatrix|capella|deneb)/networking/gossip_beacon_attestation/.*",
     "tests/.*/.*/networking/gossip_beacon_aggregate_and_proof/.*/gossip_beacon_aggregate_and_proof__reject_block_failed_validation/.*",
     "tests/.*/.*/networking/gossip_beacon_aggregate_and_proof/.*/gossip_beacon_aggregate_and_proof__ignore_finalized_not_ancestor/.*",
     "tests/.*/.*/networking/gossip_beacon_aggregate_and_proof/.*/gossip_beacon_aggregate_and_proof__accepts_.*/.*",

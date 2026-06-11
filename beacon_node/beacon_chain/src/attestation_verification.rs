@@ -1259,21 +1259,21 @@ pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
     }
 
     // Taking advantage of saturating subtraction on `Slot`.
-    let earliest_slot = slot_clock
+    let one_epoch_prior = slot_clock
         .now_with_past_tolerance(spec.maximum_gossip_clock_disparity())
         .ok_or(BeaconChainError::UnableToReadSlot)?
-        - spec.attestation_propagation_slot_range;
+        - E::slots_per_epoch();
 
     let current_fork =
         spec.fork_name_at_slot::<E>(slot_clock.now().ok_or(BeaconChainError::UnableToReadSlot)?);
 
     let earliest_permissible_slot = if current_fork.deneb_enabled() {
         // EIP-7045
-        earliest_slot
+        one_epoch_prior
             .epoch(E::slots_per_epoch())
             .start_slot(E::slots_per_epoch())
     } else {
-        earliest_slot
+        one_epoch_prior
     };
 
     if attestation_slot < earliest_permissible_slot {
