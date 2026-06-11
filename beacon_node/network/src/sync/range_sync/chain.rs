@@ -926,6 +926,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             if let RpcResponseError::BlockComponentCouplingError(coupling_error) = &err {
                 match coupling_error {
+                    CouplingError::DataColumnPeerFailure { error, .. } => {
+                        debug!(?batch_id, error, "Block components coupling error");
+                    }
                     CouplingError::BlobPeerFailure(msg) => {
                         debug!(?batch_id, msg, "Blob peer failure");
                     }
@@ -934,9 +937,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     }
                     CouplingError::InternalError(msg) => {
                         error!(?batch_id, msg, "Block components coupling internal error");
-                    }
-                    CouplingError::DataColumnPeerFailure { error, .. } => {
-                        debug!(?batch_id, error, "Data column peer failure");
                     }
                 }
             }

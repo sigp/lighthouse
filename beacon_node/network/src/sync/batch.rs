@@ -538,7 +538,7 @@ impl<D: Hash> BatchState<D> {
         match self {
             BatchState::Downloading(..) => 'D',
             BatchState::Processing(..) => 'P',
-            BatchState::AwaitingValidation(..) => 'v',
+            BatchState::AwaitingValidation(_) => 'v',
             BatchState::AwaitingDownload => 'd',
             BatchState::Failed => 'F',
             BatchState::AwaitingProcessing(..) => 'p',
