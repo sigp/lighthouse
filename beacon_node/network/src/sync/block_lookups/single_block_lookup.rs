@@ -416,8 +416,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                                 lookup_id: self.id,
                                 req_id,
                             }),
-                            self.block_root,
-                            *slot,
+                            &[(self.block_root, *slot)],
                             // single lookups consult the DA cache to skip gossip-imported columns
                             false,
                             peers.clone(),

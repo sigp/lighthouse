@@ -3,8 +3,7 @@
 
 use self::custody::{ActiveCustodyRequest, Error as CustodyRequestError};
 pub use self::requests::{
-    BlocksByRootSingleRequest, DataColumnsByRootSingleBlockRequest,
-    PayloadEnvelopesByRootSingleRequest,
+    BlocksByRootSingleRequest, DataColumnsByRootRequestParams, PayloadEnvelopesByRootSingleRequest,
 };
 use super::SyncMessage;
 use super::block_sidecar_coupling::RangeBlockComponentsRequest;
@@ -255,9 +254,9 @@ pub enum RangeBlockComponent<E: EthSpec> {
         BlobsByRangeRequestId,
         RpcResponseResult<Vec<Arc<BlobSidecar<E>>>>,
     ),
-    /// Custody-by-root result for a specific block root. Arrives after blocks and carries
-    /// the columns fetched via ActiveCustodyRequest.
-    CustodyResult(Hash256, CustodyByRootResult<E>, PeerGroup),
+    /// Custody-by-root result for a whole range batch. Arrives after blocks and carries the
+    /// custody columns of every data-bearing block, fetched via a single ActiveCustodyRequest.
+    CustodyResult(CustodyByRootResult<E>, PeerGroup),
     PayloadEnvelope(
         PayloadEnvelopesByRangeRequestId,
         RpcResponseResult<Vec<Arc<SignedExecutionPayloadEnvelope<E>>>>,
@@ -553,17 +552,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             None
         };
 
-        // For BlocksAndColumns, compute expected custody columns but don't send requests yet.
-        // Custody-by-root requests will be initiated after blocks arrive.
-        let expects_custody_columns = if matches!(
+        // For Fulu+ batches, custody columns are fetched via custody-by-root after blocks arrive.
+        let expects_custody_columns = matches!(
             batch_type,
             ByRangeRequestType::BlocksAndColumns | ByRangeRequestType::BlocksAndEnvelopesAndColumns
-        ) {
-            let epoch = Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch());
-            Some(self.chain.sampling_columns_for_epoch(epoch).to_vec())
-        } else {
-            None
-        };
+        );
 
         let payloads_req_id =
             if matches!(batch_type, ByRangeRequestType::BlocksAndEnvelopesAndColumns) {
@@ -685,17 +678,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     RpcResponseError::BlockComponentCouplingError(CouplingError::InternalError(e))
                 })
             }),
-            RangeBlockComponent::CustodyResult(block_root, resp, peer_group) => {
-                resp.and_then(|dl| {
-                    request
-                        .add_custody_columns(block_root, dl.value, peer_group)
-                        .map_err(|e| {
-                            RpcResponseError::BlockComponentCouplingError(
-                                CouplingError::InternalError(e),
-                            )
-                        })
-                })
-            }
+            RangeBlockComponent::CustodyResult(resp, peer_group) => resp.and_then(|dl| {
+                request
+                    .add_custody_columns(dl.value, peer_group)
+                    .map_err(|e| {
+                        RpcResponseError::BlockComponentCouplingError(CouplingError::InternalError(
+                            e,
+                        ))
+                    })
+            }),
             RangeBlockComponent::PayloadEnvelope(req_id, resp) => {
                 resp.and_then(|(envelopes, _)| {
                     request
@@ -920,12 +911,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         Ok(LookupRequestResult::RequestSent(id.req_id))
     }
-    /// Request to send a single `data_columns_by_root` request to the network.
+    /// Request to send a `data_columns_by_root` request to the network. The request may cover the
+    /// custody columns of one or more block roots.
     pub fn data_column_lookup_request(
         &mut self,
         requester: DataColumnsByRootRequester,
         peer_id: PeerId,
-        request: DataColumnsByRootSingleBlockRequest,
+        request: DataColumnsByRootRequestParams,
         expect_max_responses: bool,
     ) -> Result<LookupRequestResult<(), DataColumnsByRootRequestId>, &'static str> {
         let id = DataColumnsByRootRequestId {
@@ -946,7 +938,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         debug!(
             method = "DataColumnsByRoot",
-            block_root = ?request.block_root,
+            block_roots = ?request.block_roots,
             indices = ?request.indices,
             peer = %peer_id,
             %id,
@@ -966,15 +958,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         Ok(LookupRequestResult::RequestSent(id))
     }
 
-    /// Request to fetch all needed custody columns of a specific block. This function may not send
-    /// any request to the network if no columns have to be fetched based on the import state of the
-    /// node. A custody request is a "super request" that may trigger 0 or more `data_columns_by_root`
-    /// requests.
-    ///
-    /// The caller provides `custody_indexes_to_fetch` — the set of column indices needed. For
-    /// single lookups this should be derived from the current epoch minus already-imported columns.
-    /// For range sync this should use the batch epoch columns (already computed at request creation).
-    /// Initiate a custody-by-root request for the given block root.
+    /// Request to fetch all needed custody columns of one or more blocks via a single custody
+    /// request (which may fan out into multiple `data_columns_by_root` requests). This function may
+    /// not send any request to the network if no columns have to be fetched based on the import
+    /// state of the node.
     ///
     /// When `ignore_cache` is true, the DA checker cache is not consulted and all custody
     /// columns are fetched. This is used by range sync where blocks are historical and
@@ -982,8 +969,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn custody_lookup_request(
         &mut self,
         requester: CustodyRequester,
-        block_root: Hash256,
-        block_slot: Slot,
+        blocks: &[(Hash256, Slot)],
         ignore_cache: bool,
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
     ) -> Result<LookupRequestResult<DataColumnSidecarList<T::EthSpec>>, RpcRequestSendError> {
@@ -995,25 +981,29 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             return Ok(LookupRequestResult::Pending("no peers"));
         }
 
+        // All blocks in a single custody request share an epoch and (for range sync) ignore the
+        // cache, so they need the same custody column set. Compute it once; for single lookups the
+        // cache trims columns already imported via gossip.
+        let Some((first_root, first_slot)) = blocks.first() else {
+            return Ok(LookupRequestResult::NoRequestNeeded("no blocks", vec![]));
+        };
         let custody_indexes_imported = if ignore_cache {
             Default::default()
         } else {
             self.chain
-                .cached_data_column_indexes(&block_root, block_slot)
+                .cached_data_column_indexes(first_root, *first_slot)
                 .unwrap_or_default()
         };
-
-        // Include only the column indexes not yet imported (received through gossip)
-        let mut custody_indexes_to_fetch = self
+        let mut column_indices = self
             .chain
-            .sampling_columns_for_epoch(block_slot.epoch(T::EthSpec::slots_per_epoch()))
+            .sampling_columns_for_epoch(first_slot.epoch(T::EthSpec::slots_per_epoch()))
             .iter()
             .copied()
             .filter(|index| !custody_indexes_imported.contains(index))
             .collect::<Vec<_>>();
-        custody_indexes_to_fetch.sort_unstable();
+        column_indices.sort_unstable();
 
-        if custody_indexes_to_fetch.is_empty() {
+        if column_indices.is_empty() {
             // No indexes required, do not issue any request
             return Ok(LookupRequestResult::NoRequestNeeded(
                 "no indices to fetch",
@@ -1021,9 +1011,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             ));
         }
 
+        let block_roots = blocks.iter().map(|(root, _)| *root).collect::<Vec<_>>();
+
         debug!(
-            ?block_root,
-            indices = ?custody_indexes_to_fetch,
+            blocks = block_roots.len(),
+            indices = ?column_indices,
             %requester,
             "Starting custody columns request"
         );
@@ -1033,13 +1025,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // State::Downloading and later matches it against response req_ids.
         let caller_req_id = match &requester {
             CustodyRequester::SingleLookup(id) => id.req_id,
-            CustodyRequester::RangeSync(id) => id.id.id,
+            CustodyRequester::RangeSync(id) => id.id,
         };
 
         let mut request = ActiveCustodyRequest::new(
-            block_root,
+            block_roots,
             CustodyId { requester },
-            &custody_indexes_to_fetch,
+            &column_indices,
             lookup_peers,
         );
 

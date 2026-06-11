@@ -8,12 +8,12 @@ use types::{
 use super::{ActiveRequestItems, LookupVerifyError};
 
 #[derive(Debug, Clone)]
-pub struct DataColumnsByRootSingleBlockRequest {
-    pub block_root: Hash256,
+pub struct DataColumnsByRootRequestParams {
+    pub block_roots: Vec<Hash256>,
     pub indices: Vec<u64>,
 }
 
-impl DataColumnsByRootSingleBlockRequest {
+impl DataColumnsByRootRequestParams {
     pub fn try_into_request<E: EthSpec>(
         self,
         fork_name: ForkName,
@@ -21,23 +21,25 @@ impl DataColumnsByRootSingleBlockRequest {
     ) -> Result<DataColumnsByRootRequest<E>, &'static str> {
         let columns = VariableList::new(self.indices)
             .map_err(|_| "Number of indices exceeds total number of columns")?;
-        DataColumnsByRootRequest::new(
-            vec![DataColumnsByRootIdentifier {
-                block_root: self.block_root,
-                columns,
-            }],
-            spec.max_request_blocks(fork_name),
-        )
+        let data_column_ids = self
+            .block_roots
+            .into_iter()
+            .map(|block_root| DataColumnsByRootIdentifier {
+                block_root,
+                columns: columns.clone(),
+            })
+            .collect();
+        DataColumnsByRootRequest::new(data_column_ids, spec.max_request_blocks(fork_name))
     }
 }
 
 pub struct DataColumnsByRootRequestItems<E: EthSpec> {
-    request: DataColumnsByRootSingleBlockRequest,
+    request: DataColumnsByRootRequestParams,
     items: Vec<Arc<DataColumnSidecar<E>>>,
 }
 
 impl<E: EthSpec> DataColumnsByRootRequestItems<E> {
-    pub fn new(request: DataColumnsByRootSingleBlockRequest) -> Self {
+    pub fn new(request: DataColumnsByRootRequestParams) -> Self {
         Self {
             request,
             items: vec![],
@@ -53,7 +55,7 @@ impl<E: EthSpec> ActiveRequestItems for DataColumnsByRootRequestItems<E> {
     /// The active request SHOULD be dropped after `add_response` returns an error
     fn add(&mut self, data_column: Self::Item) -> Result<bool, LookupVerifyError> {
         let block_root = data_column.block_root();
-        if self.request.block_root != block_root {
+        if !self.request.block_roots.contains(&block_root) {
             return Err(LookupVerifyError::UnrequestedBlockRoot(block_root));
         }
 
@@ -69,7 +71,7 @@ impl<E: EthSpec> ActiveRequestItems for DataColumnsByRootRequestItems<E> {
         if self
             .items
             .iter()
-            .any(|d| *d.index() == *data_column.index())
+            .any(|d| d.block_root() == block_root && *d.index() == *data_column.index())
         {
             return Err(LookupVerifyError::DuplicatedData(
                 data_column.slot(),
@@ -79,7 +81,7 @@ impl<E: EthSpec> ActiveRequestItems for DataColumnsByRootRequestItems<E> {
 
         self.items.push(data_column);
 
-        Ok(self.items.len() >= self.request.indices.len())
+        Ok(self.items.len() >= self.request.block_roots.len() * self.request.indices.len())
     }
 
     fn consume(&mut self) -> Vec<Self::Item> {

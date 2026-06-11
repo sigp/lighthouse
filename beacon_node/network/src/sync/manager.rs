@@ -1321,7 +1321,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 self.block_lookups
                     .on_custody_download_response(id, response, &mut self.network);
             }
-            CustodyRequester::RangeSync(range_id) => {
+            CustodyRequester::RangeSync(components_by_range_id) => {
                 // Route custody-by-root results through the standard range components
                 // response path, reusing the same dispatch to range_sync / backfill.
                 let peer_group = response
@@ -1331,9 +1331,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     .unwrap_or_else(|| PeerGroup::from_set(Default::default()));
                 let peer_id = peer_group.all().next().copied();
                 self.on_range_components_response(
-                    range_id.id,
+                    components_by_range_id,
                     peer_id,
-                    RangeBlockComponent::CustodyResult(range_id.block_root, response, peer_group),
+                    RangeBlockComponent::CustodyResult(response, peer_group),
                 );
             }
         }

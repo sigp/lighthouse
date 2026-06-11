@@ -3,7 +3,7 @@ use libp2p::PeerId;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use types::{
-    BlobSidecar, DataColumnSidecar, Epoch, EthSpec, Hash256, LightClientBootstrap,
+    BlobSidecar, DataColumnSidecar, Epoch, EthSpec, LightClientBootstrap,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
     SignedExecutionPayloadEnvelope,
 };
@@ -137,17 +137,12 @@ pub struct CustodyId {
     pub requester: CustodyRequester,
 }
 
-/// Downstream components that perform custody by root requests.
+/// Downstream components that perform custody by root requests. A range sync request fetches the
+/// custody columns of an entire batch (identified by its `ComponentsByRangeRequestId`) in one go.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum CustodyRequester {
     SingleLookup(SingleLookupReqId),
-    RangeSync(RangeSyncCustodyId),
-}
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct RangeSyncCustodyId {
-    pub id: ComponentsByRangeRequestId,
-    pub block_root: Hash256,
+    RangeSync(ComponentsByRangeRequestId),
 }
 
 /// Application level requests sent to the network.
@@ -301,12 +296,6 @@ impl Display for CustodyRequester {
             Self::SingleLookup(id) => write!(f, "{id}"),
             Self::RangeSync(id) => write!(f, "RangeSync/{id}"),
         }
-    }
-}
-
-impl Display for RangeSyncCustodyId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}/{:?}", self.id, self.block_root)
     }
 }
 
