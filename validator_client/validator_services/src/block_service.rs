@@ -909,7 +909,6 @@ mod tests {
 
         let slot = Slot::new(1);
         let validator_pubkey = test_harness.harness.pubkeys[0];
-
         let block = BeaconBlock::empty(&test_harness.harness.spec);
         let envelope = ExecutionPayloadEnvelope::empty();
 
@@ -1009,6 +1008,37 @@ mod tests {
         // Block was never published since production failed
         mock_post_block.expect(0).assert();
         mock_post_envelope.expect(0).assert();
+    }
+
+    #[tokio::test]
+    async fn get_validator_block_ssz_fails_fallback_to_json() {
+        let mut test_harness = TestHarness::new_with_validators(1).await;
+
+        let slot = Slot::new(1);
+        let validator_pubkey = test_harness.harness.pubkeys[0];
+        let block = BeaconBlock::empty(&test_harness.harness.spec);
+
+        // mock_ssz returns 500 to simulate BN does not support SSZ, so that it fallbacks to mock_json
+        let mock_ssz = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_validator_blocks_v4_ssz_error(slot);
+        let mock_json = test_harness
+            .harness
+            .mock_beacon_node_2
+            .mock_get_validator_blocks_v4(&block, ForkName::Gloas, slot);
+
+        let _result = test_harness
+            .service
+            .clone()
+            .get_validator_block_and_publish_block(slot, validator_pubkey, None)
+            .await;
+
+        // first_success tries 2 passes on mock_ssz, both time failed
+        mock_ssz.expect(2).assert();
+
+        // When SSZ fails, it fallbacks to JSON and should succeed on first call on mock_json.
+        mock_json.expect(1).assert();
     }
 
     #[tokio::test]

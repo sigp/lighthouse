@@ -102,6 +102,34 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create();
     }
 
+    /// Mocks `GET /eth/v4/validator/blocks/{slot}`
+    pub fn mock_get_validator_blocks_v4(
+        &mut self,
+        block: &BeaconBlock<E>,
+        fork_name: ForkName,
+        slot: Slot,
+    ) -> Mock {
+        let path_pattern =
+            Regex::new(&format!(r"^/eth/v4/validator/blocks/{}", slot.as_u64())).unwrap();
+
+        let body = serde_json::json!({
+            "version": fork_name.to_string(),
+            "consensus_block_value": "0",
+            "execution_payload_included": false,
+            "data": block,
+        });
+
+        self.server
+            .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .match_header("accept", "application/json")
+            .with_status(200)
+            .with_header("Eth-Consensus-Version", &fork_name.to_string())
+            .with_header("Eth-Consensus-Block-Value", "0")
+            .with_header("Eth-Execution-Payload-Included", "false")
+            .with_body(serde_json::to_string(&body).unwrap())
+            .create()
+    }
+
     /// Mocks `GET /eth/v4/validator/blocks/{slot}` (SSZ)
     pub fn mock_get_validator_blocks_v4_ssz(
         &mut self,
