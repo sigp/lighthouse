@@ -236,6 +236,8 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
             )));
         }
 
+        let data_columns_by_root_per_peer =
+            ActiveRequestsPerPeer::new(&cx.data_columns_by_root_requests);
         let mut columns_to_request_by_peer = HashMap::<PeerId, Vec<ColumnIndex>>::new();
         let mut columns_without_peers = vec![];
         let lookup_peers = self.lookup_peers.read();
@@ -251,8 +253,14 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     return Err(Error::TooManyFailures);
                 }
 
-                let peer_to_request =
-                    self.select_column_peer(cx, &lookup_peers, *column_index, &random_state);
+                let peer_to_request = self.select_column_peer(
+                    cx,
+                    &data_columns_by_root_per_peer,
+                    &columns_to_request_by_peer,
+                    &lookup_peers,
+                    *column_index,
+                    &random_state,
+                );
 
                 if let Some(peer_id) = peer_to_request {
                     columns_to_request_by_peer
@@ -353,6 +361,8 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
     fn select_column_peer(
         &self,
         cx: &mut SyncNetworkContext<T>,
+        data_columns_by_root_per_peer: &ActiveRequestsPerPeer,
+        columns_to_request_by_peer: &HashMap<PeerId, Vec<ColumnIndex>>,
         lookup_peers: &HashSet<PeerId>,
         column_index: ColumnIndex,
         random_state: &RandomState,
@@ -360,8 +370,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         // We draw from the total set of peers, but prioritize those peers who we have
         // received an attestation or a block from (`lookup_peers`), as the `lookup_peers` may take
         // time to build up and we are likely to not find any column peers initially.
-        let data_columns_by_root_per_peer =
-            ActiveRequestsPerPeer::new(&cx.data_columns_by_root_requests);
         let custodial_peers = cx.get_custodial_peers(column_index);
         let mut prioritized_peers = custodial_peers
             .iter()
@@ -377,6 +385,10 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     if lookup_peers.contains(peer) { 0 } else { 1 },
                     // De-prioritize peers that we have already attempted to download from
                     self.peer_attempts.get(peer).copied().unwrap_or(0),
+                    // Spread columns within this round: the precomputed concurrency map is taken
+                    // once before the loop, so count a peer already assigned a column here as 1 to
+                    // prefer peers not yet picked.
+                    columns_to_request_by_peer.get(peer).map(|_| 1).unwrap_or(0),
                     // The hash ensures consistent peer ordering within this request
                     // to avoid fragmentation while varying selection across different requests.
                     random_state.hash_one(peer),
@@ -388,7 +400,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
 
         prioritized_peers
             .first()
-            .map(|(_, _, _, _, peer_id)| *peer_id)
+            .map(|(_, _, _, _, _, peer_id)| *peer_id)
     }
 }
 
