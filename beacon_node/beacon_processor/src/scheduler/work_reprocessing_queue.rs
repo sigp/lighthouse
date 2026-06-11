@@ -340,6 +340,20 @@ enum QueuedAttestationId {
     Unaggregate(usize),
 }
 
+/// An attestation queued for re-processing, of either aggregation kind.
+enum QueuedAttestation {
+    Aggregate(QueuedAggregate),
+    Unaggregate(QueuedUnaggregate),
+}
+
+/// The component an attestation is waiting on before it can be re-processed.
+enum AwaitingComponent {
+    /// The attestation's head block has not been seen.
+    Block,
+    /// The block's execution payload envelope has not been seen (`index == 1`, post-Gloas).
+    Payload,
+}
+
 impl QueuedAggregate {
     pub fn beacon_block_root(&self) -> &Hash256 {
         &self.beacon_block_root
@@ -522,6 +536,65 @@ impl<S: SlotClock> ReprocessQueue<S> {
         }
     }
 
+    /// Queue an attestation for re-processing once the component it is waiting on (`awaiting`) is
+    /// imported. Shared by the unknown-block and unknown-payload paths for both aggregate and
+    /// unaggregate attestations.
+    fn queue_awaiting_attestation(
+        &mut self,
+        attestation: QueuedAttestation,
+        awaiting: AwaitingComponent,
+    ) {
+        if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
+            if self.attestation_delay_debounce.elapsed() {
+                error!(
+                    queue_size = MAXIMUM_QUEUED_ATTESTATIONS,
+                    msg = "system resources may be saturated",
+                    "Attestation delay queue is full"
+                );
+            }
+            // Drop the attestation.
+            return;
+        }
+
+        let id = self.next_attestation;
+        let (att_id, beacon_block_root) = match &attestation {
+            QueuedAttestation::Aggregate(a) => {
+                (QueuedAttestationId::Aggregate(id), *a.beacon_block_root())
+            }
+            QueuedAttestation::Unaggregate(u) => {
+                (QueuedAttestationId::Unaggregate(id), *u.beacon_block_root())
+            }
+        };
+
+        // Register the delay.
+        let delay_key = self
+            .attestations_delay_queue
+            .insert(att_id, QUEUED_ATTESTATION_DELAY);
+
+        // Register this attestation against the component it awaits.
+        match awaiting {
+            AwaitingComponent::Block => &mut self.awaiting_attestations_per_root,
+            AwaitingComponent::Payload => &mut self.awaiting_attestations_per_payload,
+        }
+        .entry(beacon_block_root)
+        .or_default()
+        .push(att_id);
+
+        // Store the attestation and its info.
+        match attestation {
+            QueuedAttestation::Aggregate(queued_aggregate) => {
+                self.queued_aggregates
+                    .insert(id, (queued_aggregate, delay_key));
+            }
+            QueuedAttestation::Unaggregate(queued_unaggregate) => {
+                self.queued_unaggregates
+                    .insert(id, (queued_unaggregate, delay_key));
+            }
+        }
+
+        self.next_attestation += 1;
+    }
+
     fn handle_message(&mut self, msg: InboundEvent) {
         use ReprocessQueueMessage::*;
         match msg {
@@ -664,134 +737,26 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     error!("Failed to send rpc block to beacon processor");
                 }
             }
-            InboundEvent::Msg(UnknownBlockAggregate(queued_aggregate)) => {
-                if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
-                    if self.attestation_delay_debounce.elapsed() {
-                        error!(
-                            queue_size = MAXIMUM_QUEUED_ATTESTATIONS,
-                            msg = "system resources may be saturated",
-                            "Aggregate attestation delay queue is full"
-                        );
-                    }
-                    // Drop the attestation.
-                    return;
-                }
-
-                let att_id = QueuedAttestationId::Aggregate(self.next_attestation);
-
-                // Register the delay.
-                let delay_key = self
-                    .attestations_delay_queue
-                    .insert(att_id, QUEUED_ATTESTATION_DELAY);
-
-                // Register this attestation for the corresponding root.
-                self.awaiting_attestations_per_root
-                    .entry(*queued_aggregate.beacon_block_root())
-                    .or_default()
-                    .push(att_id);
-
-                // Store the attestation and its info.
-                self.queued_aggregates
-                    .insert(self.next_attestation, (queued_aggregate, delay_key));
-
-                self.next_attestation += 1;
-            }
-            InboundEvent::Msg(UnknownBlockUnaggregate(queued_unaggregate)) => {
-                if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
-                    if self.attestation_delay_debounce.elapsed() {
-                        error!(
-                            queue_size = MAXIMUM_QUEUED_ATTESTATIONS,
-                            msg = "system resources may be saturated",
-                            "Attestation delay queue is full"
-                        );
-                    }
-                    // Drop the attestation.
-                    return;
-                }
-
-                let att_id = QueuedAttestationId::Unaggregate(self.next_attestation);
-
-                // Register the delay.
-                let delay_key = self
-                    .attestations_delay_queue
-                    .insert(att_id, QUEUED_ATTESTATION_DELAY);
-
-                // Register this attestation for the corresponding root.
-                self.awaiting_attestations_per_root
-                    .entry(*queued_unaggregate.beacon_block_root())
-                    .or_default()
-                    .push(att_id);
-
-                // Store the attestation and its info.
-                self.queued_unaggregates
-                    .insert(self.next_attestation, (queued_unaggregate, delay_key));
-
-                self.next_attestation += 1;
-            }
-            InboundEvent::Msg(UnknownPayloadAggregate(queued_aggregate)) => {
-                if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
-                    if self.attestation_delay_debounce.elapsed() {
-                        error!(
-                            queue_size = MAXIMUM_QUEUED_ATTESTATIONS,
-                            msg = "system resources may be saturated",
-                            "Aggregate attestation delay queue is full"
-                        );
-                    }
-                    // Drop the attestation.
-                    return;
-                }
-
-                let att_id = QueuedAttestationId::Aggregate(self.next_attestation);
-
-                // Register the delay.
-                let delay_key = self
-                    .attestations_delay_queue
-                    .insert(att_id, QUEUED_ATTESTATION_DELAY);
-
-                // Register this attestation against the block whose payload envelope it awaits.
-                self.awaiting_attestations_per_payload
-                    .entry(*queued_aggregate.beacon_block_root())
-                    .or_default()
-                    .push(att_id);
-
-                // Store the attestation and its info.
-                self.queued_aggregates
-                    .insert(self.next_attestation, (queued_aggregate, delay_key));
-
-                self.next_attestation += 1;
-            }
-            InboundEvent::Msg(UnknownPayloadUnaggregate(queued_unaggregate)) => {
-                if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
-                    if self.attestation_delay_debounce.elapsed() {
-                        error!(
-                            queue_size = MAXIMUM_QUEUED_ATTESTATIONS,
-                            msg = "system resources may be saturated",
-                            "Attestation delay queue is full"
-                        );
-                    }
-                    // Drop the attestation.
-                    return;
-                }
-
-                let att_id = QueuedAttestationId::Unaggregate(self.next_attestation);
-
-                // Register the delay.
-                let delay_key = self
-                    .attestations_delay_queue
-                    .insert(att_id, QUEUED_ATTESTATION_DELAY);
-
-                // Register this attestation against the block whose payload envelope it awaits.
-                self.awaiting_attestations_per_payload
-                    .entry(*queued_unaggregate.beacon_block_root())
-                    .or_default()
-                    .push(att_id);
-
-                // Store the attestation and its info.
-                self.queued_unaggregates
-                    .insert(self.next_attestation, (queued_unaggregate, delay_key));
-
-                self.next_attestation += 1;
-            }
+            InboundEvent::Msg(UnknownBlockAggregate(queued_aggregate)) => self
+                .queue_awaiting_attestation(
+                    QueuedAttestation::Aggregate(queued_aggregate),
+                    AwaitingComponent::Block,
+                ),
+            InboundEvent::Msg(UnknownBlockUnaggregate(queued_unaggregate)) => self
+                .queue_awaiting_attestation(
+                    QueuedAttestation::Unaggregate(queued_unaggregate),
+                    AwaitingComponent::Block,
+                ),
+            InboundEvent::Msg(UnknownPayloadAggregate(queued_aggregate)) => self
+                .queue_awaiting_attestation(
+                    QueuedAttestation::Aggregate(queued_aggregate),
+                    AwaitingComponent::Payload,
+                ),
+            InboundEvent::Msg(UnknownPayloadUnaggregate(queued_unaggregate)) => self
+                .queue_awaiting_attestation(
+                    QueuedAttestation::Unaggregate(queued_unaggregate),
+                    AwaitingComponent::Payload,
+                ),
             InboundEvent::Msg(UnknownBlockDataColumn(queued_data_column)) => {
                 let block_root = queued_data_column.beacon_block_root;
 
@@ -1591,6 +1556,67 @@ mod tests {
         let beacon_block_root = Hash256::repeat_byte(0xaf);
 
         let att = ReprocessQueueMessage::UnknownPayloadUnaggregate(QueuedUnaggregate {
+            beacon_block_root,
+            process_fn: Box::new(|| {}),
+        });
+        queue.handle_message(InboundEvent::Msg(att));
+        assert_eq!(queue.awaiting_attestations_per_payload.len(), 1);
+
+        // Importing the payload envelope drains the awaiting attestations for that root.
+        queue.handle_message(InboundEvent::Msg(
+            ReprocessQueueMessage::PayloadEnvelopeImported {
+                block_root: beacon_block_root,
+            },
+        ));
+        assert!(queue.awaiting_attestations_per_payload.is_empty());
+    }
+
+    // As `prune_awaiting_attestations_per_payload`, but for an aggregated payload-present
+    // attestation (`UnknownPayloadAggregate`).
+    #[tokio::test]
+    async fn prune_awaiting_attestations_per_payload_aggregate() {
+        create_test_tracing_subscriber();
+
+        let mut queue = test_queue();
+        tokio::time::pause();
+
+        let beacon_block_root = Hash256::repeat_byte(0xaf);
+
+        let att = ReprocessQueueMessage::UnknownPayloadAggregate(QueuedAggregate {
+            beacon_block_root,
+            process_fn: Box::new(|| {}),
+        });
+        queue.handle_message(InboundEvent::Msg(att));
+
+        assert_eq!(queue.awaiting_attestations_per_payload.len(), 1);
+        assert!(
+            queue
+                .awaiting_attestations_per_payload
+                .contains_key(&beacon_block_root)
+        );
+
+        // Advance time to expire the attestation.
+        advance_time(&queue.slot_clock, 2 * QUEUED_ATTESTATION_DELAY).await;
+        let ready_msg = queue.next().await.unwrap();
+        assert!(matches!(ready_msg, InboundEvent::ReadyAttestation(_)));
+        queue.handle_message(ready_msg);
+
+        // The entry should be pruned on expiry.
+        assert!(queue.awaiting_attestations_per_payload.is_empty());
+    }
+
+    // As `release_awaiting_attestations_on_payload_envelope_imported`, but for an aggregated
+    // payload-present attestation (`UnknownPayloadAggregate`).
+    #[tokio::test]
+    async fn release_awaiting_aggregate_on_payload_envelope_imported() {
+        create_test_tracing_subscriber();
+
+        let mut queue = test_queue();
+        tokio::time::pause();
+
+        let beacon_block_root = Hash256::repeat_byte(0xaf);
+
+        let att = ReprocessQueueMessage::UnknownPayloadAggregate(QueuedAggregate {
             beacon_block_root,
             process_fn: Box::new(|| {}),
         });
