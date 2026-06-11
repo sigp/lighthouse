@@ -9,7 +9,6 @@ use crate::{
     sync::manager::BlockProcessType,
 };
 use beacon_chain::block_verification_types::LookupBlock;
-use beacon_chain::chain_config::ChainConfig;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::kzg_utils::blobs_to_data_column_sidecars;
@@ -101,7 +100,6 @@ impl TestRig {
             chain_length,
             BeaconProcessorConfig::default(),
             NodeCustodyType::Fullnode,
-            <_>::default(),
             spec,
         )
         .await
@@ -115,7 +113,6 @@ impl TestRig {
             chain_length,
             BeaconProcessorConfig::default(),
             NodeCustodyType::Supernode,
-            <_>::default(),
             spec,
         )
         .await
@@ -158,7 +155,6 @@ impl TestRig {
         chain_length: u64,
         beacon_processor_config: BeaconProcessorConfig,
         node_custody_type: NodeCustodyType,
-        chain_config: ChainConfig,
         spec: ChainSpec,
     ) -> Self {
         let spec = Arc::new(spec);
@@ -168,7 +164,7 @@ impl TestRig {
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .node_custody_type(node_custody_type)
-            .chain_config(chain_config)
+            .chain_config(<_>::default())
             .build();
 
         harness.advance_slot();
@@ -1589,7 +1585,6 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
         SMALL_CHAIN,
         beacon_processor_config,
         NodeCustodyType::Fullnode,
-        <_>::default(),
         test_spec::<E>(),
     )
     .await;
@@ -1676,7 +1671,6 @@ async fn test_blobs_by_range_spans_fulu_fork() {
         62,
         BeaconProcessorConfig::default(),
         NodeCustodyType::Fullnode,
-        <_>::default(),
         spec,
     )
     .await;

@@ -657,7 +657,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             &metrics::BEACON_DATA_COLUMN_GOSSIP_SLOT_START_DELAY_TIME,
             delay,
         );
-        let Ok(verification_result) = self
+        let verification_result = match self
             .executor
             .spawn_blocking_with_global_rayon_async({
                 let chain = self.chain.clone();
@@ -665,9 +665,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 move || chain.verify_data_column_sidecar_for_gossip(column_sidecar, subnet_id)
             })
             .await
-        else {
-            warn!(%slot, %block_root, %index, "Gossip data column verification task failed");
-            return;
+        {
+            Ok(result) => result,
+            Err(error) => {
+                warn!(%slot, %block_root, %index, ?error, "Gossip data column verification task failed");
+                return;
+            }
         };
         match verification_result {
             Ok(gossip_verified_data_column) => {
@@ -983,16 +986,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let block_root = column.block_root;
         let index = column.index;
 
-        let Ok(result) = self
+        let result = match self
             .executor
             .spawn_blocking_with_global_rayon_async({
                 let chain = self.chain.clone();
                 move || chain.verify_partial_data_column_sidecar_for_gossip(column, seen_duration)
             })
             .await
-        else {
-            warn!(%block_root, %index, "Gossip partial data column verification task failed");
-            return;
+        {
+            Ok(result) => result,
+            Err(error) => {
+                warn!(%block_root, %index, ?error, "Gossip partial data column verification task failed");
+                return;
+            }
         };
 
         let header = match result {
