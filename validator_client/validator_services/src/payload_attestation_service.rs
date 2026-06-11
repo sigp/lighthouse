@@ -291,7 +291,7 @@ mod tests {
                     .validator_store(harness.validator_store.clone())
                     .slot_clock(harness.slot_clock.clone())
                     .beacon_nodes(harness.beacon_nodes.clone())
-                    .executor(harness.executor())
+                    .executor(harness.test_runtime.task_executor.clone())
                     .spec(harness.spec.clone())
                     .build()
                     .unwrap(),
@@ -302,7 +302,7 @@ mod tests {
                 harness.validator_store.clone(),
                 harness.slot_clock.clone(),
                 harness.beacon_nodes.clone(),
-                harness.executor(),
+                harness.test_runtime.task_executor.clone(),
                 harness.spec.clone(),
             );
 

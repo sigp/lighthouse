@@ -15,8 +15,8 @@ use validator_store::ValidatorStore;
 
 use crate::mock_beacon_node::MockBeaconNode;
 
-pub type E = MainnetEthSpec;
 pub type S = LighthouseValidatorStore<ManualSlotClock, E>;
+type E = MainnetEthSpec;
 
 pub struct ValidatorClientHarness {
     pub mock_beacon_node_1: MockBeaconNode<E>,
@@ -77,9 +77,6 @@ impl ValidatorClientHarness {
         }
     }
 
-    pub fn executor(&self) -> task_executor::TaskExecutor {
-        self.test_runtime.task_executor.clone()
-    }
 }
 
 pub async fn create_validator_store(

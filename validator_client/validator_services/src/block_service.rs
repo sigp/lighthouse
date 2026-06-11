@@ -817,12 +817,8 @@ mod tests {
     use super::*;
     use slot_clock::ManualSlotClock;
     use std::time::Duration;
-    use types::{BeaconBlock, ExecutionPayloadEnvelope, ForkName, Hash256, Slot};
-    use validator_test_rig::validator_client_harness::{E, S, ValidatorClientHarness};
-
-    fn test_block_root() -> Hash256 {
-        Hash256::repeat_byte(42)
-    }
+    use types::{BeaconBlock, ExecutionPayloadEnvelope, ForkName, Slot};
+    use validator_test_rig::validator_client_harness::{S, ValidatorClientHarness};
 
     struct TestHarness {
         harness: ValidatorClientHarness,
@@ -842,28 +838,12 @@ mod tests {
                 .validator_store(harness.validator_store.clone())
                 .slot_clock(harness.slot_clock.clone())
                 .beacon_nodes(harness.beacon_nodes.clone())
-                .executor(harness.executor())
+                .executor(harness.test_runtime.task_executor.clone())
                 .chain_spec(harness.spec.clone())
                 .build()
                 .unwrap();
 
             Self { harness, service }
-        }
-
-        fn gloas_block(&self, slot: Slot, proposer_index: u64) -> BeaconBlock<E> {
-            let mut block = BeaconBlock::empty(&self.harness.spec);
-            *block.slot_mut() = slot;
-            *block.proposer_index_mut() = proposer_index;
-            block
-        }
-
-        fn execution_payload_envelope(
-            &self,
-            beacon_block_root: Hash256,
-        ) -> ExecutionPayloadEnvelope<E> {
-            let mut envelope = ExecutionPayloadEnvelope::empty();
-            envelope.beacon_block_root = beacon_block_root;
-            envelope
         }
     }
 
@@ -872,12 +852,11 @@ mod tests {
         let mut test_harness = TestHarness::new_with_validators(1).await;
 
         let validator_pubkey = test_harness.harness.pubkeys[0];
-        let proposer_index = 0;
 
         // Simulate a scenario where the slot is different form the notification slot
         // slot_clock is at Slot 1 (defined in TestHarness), but the notification slot is at Slot 2
         let different_notification_slot = Slot::new(2);
-        let block = test_harness.gloas_block(different_notification_slot, proposer_index);
+        let block = BeaconBlock::empty(&test_harness.harness.spec);
 
         let different_notification = BlockServiceNotification {
             slot: different_notification_slot,
@@ -929,12 +908,10 @@ mod tests {
         let mut test_harness = TestHarness::new_with_validators(1).await;
 
         let slot = Slot::new(1);
-        let proposer_index = 0;
         let validator_pubkey = test_harness.harness.pubkeys[0];
 
-        let block = test_harness.gloas_block(slot, proposer_index);
-        let beacon_block_root = test_block_root();
-        let envelope = test_harness.execution_payload_envelope(beacon_block_root);
+        let block = BeaconBlock::empty(&test_harness.harness.spec);
+        let envelope = ExecutionPayloadEnvelope::empty();
 
         test_harness
             .harness
@@ -984,11 +961,6 @@ mod tests {
             .lock()
             .unwrap();
         assert_eq!(received_envelopes.len(), 1, "Expected one envelope");
-
-        assert_eq!(
-            received_envelopes[0].message.beacon_block_root,
-            beacon_block_root
-        );
     }
 
     #[tokio::test]
@@ -1087,8 +1059,7 @@ mod tests {
 
         let slot = Slot::new(1);
         let validator_pubkey = test_harness.harness.pubkeys[0];
-        let beacon_block_root = test_block_root();
-        let envelope = test_harness.execution_payload_envelope(beacon_block_root);
+        let envelope = ExecutionPayloadEnvelope::empty();
 
         test_harness
             .harness
