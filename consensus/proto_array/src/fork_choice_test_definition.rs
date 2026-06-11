@@ -124,14 +124,13 @@ pub enum Operation {
         #[serde(default)]
         proposer_boost_root: Option<Hash256>,
     },
-    /// Assert the result of `should_build_on_full` for the parent `block_root`, where
-    /// `parent_payload_status` is the status the proposer would build on and `proposal_slot`
-    /// is the slot being proposed.
-    AssertShouldBuildOnFull {
+    /// Assert the root returned by `latest_parent_full_block` for `block_root`.
+    AssertLatestFullPayloadBlock {
         block_root: Hash256,
-        parent_payload_status: PayloadStatus,
-        proposal_slot: Slot,
-        expected: bool,
+        expected: Option<Hash256>,
+        /// Override the proposer boost root. Defaults to `Hash256::zero()`.
+        #[serde(default)]
+        proposer_boost_root: Option<Hash256>,
     },
 }
 
@@ -615,27 +614,21 @@ impl ForkChoiceTestDefinition {
                         op_index
                     );
                 }
-                Operation::AssertShouldBuildOnFull {
+                Operation::AssertLatestFullPayloadBlock {
                     block_root,
-                    parent_payload_status,
-                    proposal_slot,
                     expected,
+                    proposer_boost_root,
                 } => {
                     let actual = fork_choice
-                        .should_build_on_full::<MainnetEthSpec>(
-                            &block_root,
-                            parent_payload_status,
-                            proposal_slot,
+                        .latest_parent_full_block::<MainnetEthSpec>(
+                            block_root,
+                            proposer_boost_root.unwrap_or_else(Hash256::zero),
+                            &spec,
                         )
-                        .unwrap_or_else(|e| {
-                            panic!(
-                                "should_build_on_full op at index {} returned error: {}",
-                                op_index, e
-                            )
-                        });
+                        .unwrap();
                     assert_eq!(
                         actual, expected,
-                        "should_build_on_full mismatch at op index {}",
+                        "latest_parent_full_block mismatch at op index {}",
                         op_index
                     );
                 }

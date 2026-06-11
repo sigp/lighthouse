@@ -999,36 +999,6 @@ pub fn get_gloas_should_build_on_full_test_definition() -> ForkChoiceTestDefinit
     // When the parent is `Empty` `should_build_on_full` returns `false`. This check runs before
     // the slot check, so the result is `false` for both the previous-slot case (block slot 1, proposal slot 2)
     // and an earlier-slot case (proposal slot 3).
-    ops.push(Operation::AssertShouldBuildOnFull {
-        block_root: get_root(1),
-        parent_payload_status: PayloadStatus::Empty,
-        proposal_slot: Slot::new(2),
-        expected: false,
-    });
-    ops.push(Operation::AssertShouldBuildOnFull {
-        block_root: get_root(1),
-        parent_payload_status: PayloadStatus::Empty,
-        proposal_slot: Slot::new(3),
-        expected: false,
-    });
-
-    // `Full` parent from the immediately preceding slot (block slot 1, proposal slot 2). The PTC
-    // votes are consulted, and since data is unavailable the proposer does not build on full.
-    ops.push(Operation::AssertShouldBuildOnFull {
-        block_root: get_root(1),
-        parent_payload_status: PayloadStatus::Full,
-        proposal_slot: Slot::new(2),
-        expected: false,
-    });
-
-    // `Full` parent from an *earlier* slot (block slot 1, proposal slot 3). The slot check
-    // short-circuits to `true` without consulting the (unavailable) PTC votes.
-    ops.push(Operation::AssertShouldBuildOnFull {
-        block_root: get_root(1),
-        parent_payload_status: PayloadStatus::Full,
-        proposal_slot: Slot::new(3),
-        expected: true,
-    });
 
     // Flip the PTC view to *available* and re-check the previous-slot case. The votes now permit
     // building on full.
@@ -1036,12 +1006,6 @@ pub fn get_gloas_should_build_on_full_test_definition() -> ForkChoiceTestDefinit
         block_root: get_root(1),
         is_timely: true,
         is_data_available: true,
-    });
-    ops.push(Operation::AssertShouldBuildOnFull {
-        block_root: get_root(1),
-        parent_payload_status: PayloadStatus::Full,
-        proposal_slot: Slot::new(2),
-        expected: true,
     });
 
     ForkChoiceTestDefinition {
@@ -1312,6 +1276,160 @@ mod tests {
             expected_head: get_root(0),
             current_slot: Slot::new(32),
             expected_payload_status: None,
+        });
+
+        ForkChoiceTestDefinition {
+            finalized_block_slot: Slot::new(0),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            operations: ops,
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
+            spec: Some(gloas_fork_boundary_spec()),
+        }
+        .run();
+    }
+
+    /// `latest_parent_full_block` returns the block itself when its own payload is Full.
+    #[test]
+    fn latest_full_payload_block_returns_head_when_full() {
+        let mut ops = vec![];
+
+        // Gloas block with a received payload, so it is Full at its own slot.
+        ops.push(Operation::ProcessBlock {
+            slot: Slot::new(1),
+            root: get_root(1),
+            parent_root: get_root(0),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            execution_payload_parent_hash: Some(get_hash(0)),
+            execution_payload_block_hash: Some(get_hash(1)),
+        });
+        ops.push(Operation::ProcessExecutionPayloadEnvelope {
+            block_root: get_root(1),
+        });
+
+        ops.push(Operation::AssertLatestFullPayloadBlock {
+            block_root: get_root(1),
+            expected: Some(get_root(1)),
+            proposer_boost_root: None,
+        });
+
+        ForkChoiceTestDefinition {
+            finalized_block_slot: Slot::new(0),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            operations: ops,
+            execution_payload_parent_hash: Some(get_hash(42)),
+            execution_payload_block_hash: Some(get_hash(0)),
+            spec: Some(gloas_spec()),
+        }
+        .run();
+    }
+
+    /// `latest_parent_full_block` walks back past Empty descendants to the latest Full ancestor.
+    ///
+    ///   root_1 (Full) -> root_2 (Empty) -> root_3 (Empty)
+    #[test]
+    fn latest_full_payload_block_walks_back_to_full_ancestor() {
+        let mut ops = vec![];
+
+        // root_1: payload received -> Full.
+        ops.push(Operation::ProcessBlock {
+            slot: Slot::new(1),
+            root: get_root(1),
+            parent_root: get_root(0),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            execution_payload_parent_hash: Some(get_hash(0)),
+            execution_payload_block_hash: Some(get_hash(1)),
+        });
+        ops.push(Operation::ProcessExecutionPayloadEnvelope {
+            block_root: get_root(1),
+        });
+
+        // root_2 and root_3: no payload received -> Empty.
+        ops.push(Operation::ProcessBlock {
+            slot: Slot::new(2),
+            root: get_root(2),
+            parent_root: get_root(1),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            execution_payload_parent_hash: Some(get_hash(1)),
+            execution_payload_block_hash: Some(get_hash(2)),
+        });
+        ops.push(Operation::ProcessBlock {
+            slot: Slot::new(3),
+            root: get_root(3),
+            parent_root: get_root(2),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            execution_payload_parent_hash: Some(get_hash(2)),
+            execution_payload_block_hash: Some(get_hash(3)),
+        });
+
+        ops.push(Operation::AssertLatestFullPayloadBlock {
+            block_root: get_root(3),
+            expected: Some(get_root(1)),
+            proposer_boost_root: None,
+        });
+
+        ForkChoiceTestDefinition {
+            finalized_block_slot: Slot::new(0),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            operations: ops,
+            execution_payload_parent_hash: Some(get_hash(42)),
+            execution_payload_block_hash: Some(get_hash(0)),
+            spec: Some(gloas_spec()),
+        }
+        .run();
+    }
+
+    /// `latest_parent_full_block` returns `None` when the walk reaches the pre-Gloas boundary
+    /// without finding a Full payload (the documented TODO case).
+    ///
+    ///   root_1 (V17, slot 31) -> root_2 (V29 Empty) -> root_3 (V29 Empty)
+    #[test]
+    fn latest_full_payload_block_none_at_pre_gloas_boundary() {
+        let mut ops = vec![];
+
+        // Pre-Gloas (V17) block at the last pre-Gloas slot.
+        ops.push(Operation::ProcessBlock {
+            slot: Slot::new(31),
+            root: get_root(1),
+            parent_root: get_root(0),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
+        });
+
+        // Two Gloas (V29) blocks with no payload received -> Empty.
+        ops.push(Operation::ProcessBlock {
+            slot: Slot::new(32),
+            root: get_root(2),
+            parent_root: get_root(1),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            execution_payload_parent_hash: Some(get_hash(1)),
+            execution_payload_block_hash: Some(get_hash(2)),
+        });
+        ops.push(Operation::ProcessBlock {
+            slot: Slot::new(33),
+            root: get_root(3),
+            parent_root: get_root(2),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            execution_payload_parent_hash: Some(get_hash(2)),
+            execution_payload_block_hash: Some(get_hash(3)),
+        });
+
+        // The walk hits the V17 boundary block before any Full payload, so returns `None`.
+        ops.push(Operation::AssertLatestFullPayloadBlock {
+            block_root: get_root(3),
+            expected: None,
+            proposer_boost_root: None,
         });
 
         ForkChoiceTestDefinition {

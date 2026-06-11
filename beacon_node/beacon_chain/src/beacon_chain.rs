@@ -5105,16 +5105,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(None);
         };
 
-        // TODO(gloas) not sure what to do here see this issue
-        // https://github.com/sigp/lighthouse/issues/8817
         let (prev_randao, parent_block_number) = if self
             .spec
             .fork_name_at_slot::<T::EthSpec>(proposal_slot)
             .gloas_enabled()
         {
-            (cached_head.head_random()?, None)
+            (
+                cached_head.head_random()?,
+                cached_head.head_block_number_gloas(),
+            )
         } else {
-            // Get the `prev_randao` and parent block number.
             let head_block_number = cached_head.head_block_number()?;
             if proposer_head == head_parent_block_root {
                 (

@@ -178,13 +178,33 @@ impl<E: EthSpec> CachedHead<E> {
 
     /// Returns the execution block number of the block at the head of the chain.
     ///
-    /// Returns an error if the chain is prior to Bellatrix.
+    /// Returns an error if the chain is prior to Bellatrix or post-Gloas
     pub fn head_block_number(&self) -> Result<u64, BeaconStateError> {
         self.snapshot
             .beacon_block
             .message()
             .execution_payload()
             .map(|payload| payload.block_number())
+    }
+
+    /// Returns the execution block number of the block at the head of the chain.
+    ///
+    /// Returns `None` if the chain is prior to Gloas.
+    pub fn head_block_number_gloas(&self) -> Option<u64> {
+        if let Some(head_block_number) = self
+            .snapshot
+            .execution_envelope
+            .as_ref()
+            .map(|envelope| envelope.message.payload.block_number)
+        {
+            Some(head_block_number)
+        } else {
+            // This fallback is strictly for the fork boundary case when self.snapshot.execution_envelope is `None`.
+            // TODO(gloas) If there is a missed/orphaned envelope at the fork boundary we wont be able to get the block number using this fallback.
+            // We might want to try handling that edge case. Returning `None` here means that we don't emit a payload attributes SSE event which
+            // might be important for upstream consumers (i.e. the builder client).
+            self.head_block_number().ok()
+        }
     }
 
     /// Returns the active validator count for the current epoch of the head state.
@@ -324,6 +344,21 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             store
                 .get_payload_envelope(&beacon_block_root)?
                 .map(Arc::new)
+        } else if spec
+            .fork_name_at_slot::<T::EthSpec>(beacon_block.slot())
+            .gloas_enabled()
+        {
+            let latest_full_block_root_opt =
+                fork_choice.latest_parent_full_block(beacon_block_root, spec)?;
+
+            if let Some(latest_full_block_root) = latest_full_block_root_opt {
+                store
+                    .get_payload_envelope(&latest_full_block_root)?
+                    .map(Arc::new)
+            } else {
+                // TODO(gloas) handle the case where the non-finalized portion of the chain has no canonical payload envelopes.
+                None
+            }
         } else {
             None
         };
@@ -723,9 +758,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         ))?;
 
                     Some(envelope)
+                } else if self
+                    .spec
+                    .fork_name_at_slot::<T::EthSpec>(beacon_block.slot())
+                    .gloas_enabled()
+                {
+                    let fork_choice = self.canonical_head.fork_choice_read_lock();
+                    let latest_full_block_root_opt = fork_choice
+                        .latest_parent_full_block(new_view.head_block_root, &self.spec)?;
+                    drop(fork_choice);
+
+                    if let Some(latest_full_block_root) = latest_full_block_root_opt {
+                        let envelope = self
+                            .store
+                            .get_payload_envelope(&latest_full_block_root)?
+                            .map(Arc::new)
+                            .ok_or(Error::MissingExecutionPayloadEnvelope(
+                                latest_full_block_root,
+                            ))?;
+                        Some(envelope)
+                    } else {
+                        // TODO(gloas) handle the case where the non-finalized portion of the chain has no canonical payload envelopes.
+                        None
+                    }
                 } else {
                     None
                 };
+
                 let (_, beacon_state) = self
                     .store
                     .get_advanced_hot_state(new_view.head_block_root, current_slot, state_root)?

@@ -1085,6 +1085,21 @@ impl ProtoArrayForkChoice {
             .unwrap_or(false)
     }
 
+    /// Returns the latest ancestor of `block_root` whose `PayloadStatus` is `Full`.
+    pub fn latest_parent_full_block<E: EthSpec>(
+        &self,
+        block_root: Hash256,
+        proposer_boost_root: Hash256,
+        spec: &ChainSpec,
+    ) -> Result<Option<Hash256>, Error> {
+        self.proto_array.latest_parent_full_block::<E>(
+            block_root,
+            proposer_boost_root,
+            &self.balances,
+            spec,
+        )
+    }
+
     /// Returns the canonical payload status of a block, matching the decision
     /// `get_head` would make between `(root, FULL)` and `(root, EMPTY)`.
     pub fn get_canonical_payload_status<E: EthSpec>(
