@@ -1048,7 +1048,7 @@ mod tests {
         let slot = Slot::new(1);
         let validator_pubkey = test_harness.harness.pubkeys[0];
 
-        // Both beacon nodes return error for envelope fetch
+        // Both beacon nodes return error for get_validator_execution_payload_envelope_ssz
         test_harness
             .harness
             .mock_beacon_node_1
@@ -1096,7 +1096,7 @@ mod tests {
             .mock_beacon_node_1
             .mock_get_validator_execution_payload_envelope_ssz(&envelope, slot);
 
-        // Both beacon nodes return error for envelope publish
+        // Both beacon nodes return error for post_beacon_execution_payload_envelope_ssz
         let mock_post_envelope_1 = test_harness
             .harness
             .mock_beacon_node_1
