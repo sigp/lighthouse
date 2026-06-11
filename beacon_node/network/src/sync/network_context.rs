@@ -1029,13 +1029,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         // If the peer supports `beacon_blocks_by_head`, fetch the block and a run of its ancestors
         // in a single request; otherwise fall back to `beacon_blocks_by_root` for the single block.
-        let req_id = if self.peer_supports_blocks_by_head(&peer_id) {
-            self.send_blocks_by_head(peer_id, lookup_id, block_root)?
-        } else {
-            self.send_block_by_root_request(peer_id, lookup_id, block_root)?
-        };
-
-        Ok(LookupRequestResult::RequestSent(req_id))
+        Ok(LookupRequestResult::RequestSent(
+            if self.peer_supports_blocks_by_head(&peer_id) {
+                self.send_blocks_by_head(peer_id, lookup_id, block_root)?
+            } else {
+                self.send_block_by_root_request(peer_id, lookup_id, block_root)?
+            },
+        ))
     }
 
     /// Sends a `beacon_blocks_by_root` request to `peer_id` for the single block `block_root`.
@@ -1049,13 +1049,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             lookup_id,
             req_id: self.next_id(),
         };
+
+        let request = BlocksByRootSingleRequest(block_root);
+
         // Lookup sync event safety: If network_send.send() returns Ok(_) we are guaranteed that
-        // eventually at least one of these 3 events will be received:
+        // eventually at least one this 3 events will be received:
         // - StreamTermination(request_id): handled by `Self::on_single_block_response`
         // - RPCError(request_id): handled by `Self::on_single_block_response`
-        // - Disconnect(peer_id) handled by `Self::peer_disconnected` which converts it to a
-        // `RPCError(request_id)` event handled by the above method
-        let request = BlocksByRootSingleRequest(block_root);
+        // - Disconnect(peer_id) handled by `Self::peer_disconnected``which converts it to a
+        // ` RPCError(request_id)`event handled by the above method
         let network_request = RequestType::BlocksByRoot(
             request
                 .into_request(&self.fork_context)
@@ -1085,8 +1087,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.blocks_by_root_requests.insert(
             id,
             peer_id,
-            // true = enforce max_requests as returned for blocks_by_root. We always request a
-            // single block and the peer must have it.
+            // true = enforce max_requests as returned for blocks_by_root. We always request a single
+            // block and the peer must have it.
             true,
             BlocksByRootRequestItems::new(request),
             request_span,
