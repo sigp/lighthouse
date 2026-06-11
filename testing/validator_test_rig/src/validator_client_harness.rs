@@ -76,7 +76,6 @@ impl ValidatorClientHarness {
             _validator_dir: validator_dir,
         }
     }
-
 }
 
 pub async fn create_validator_store(
