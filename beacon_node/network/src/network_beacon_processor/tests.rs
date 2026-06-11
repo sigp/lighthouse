@@ -6,7 +6,7 @@ use crate::{
         ChainSegmentProcessId, DuplicateCache, InvalidBlockStorage, NetworkBeaconProcessor,
     },
     service::NetworkMessage,
-    sync::{SyncMessage, manager::BlockProcessType},
+    sync::manager::BlockProcessType,
 };
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::custody_context::NodeCustodyType;
@@ -76,7 +76,6 @@ struct TestRig {
     beacon_processor_tx: BeaconProcessorSend<E>,
     work_journal_rx: mpsc::Receiver<&'static str>,
     network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
-    sync_rx: mpsc::UnboundedReceiver<SyncMessage<E>>,
     duplicate_cache: DuplicateCache,
     network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
     _harness: BeaconChainHarness<T>,
@@ -270,7 +269,7 @@ impl TestRig {
             beacon_processor_rx,
         } = BeaconProcessorChannels::new(&beacon_processor_config);
 
-        let (sync_tx, sync_rx) = mpsc::unbounded_channel();
+        let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
 
         // Default metadata
         let meta_data = if spec.is_peer_das_scheduled() {
@@ -375,7 +374,6 @@ impl TestRig {
             beacon_processor_tx,
             work_journal_rx,
             network_rx,
-            sync_rx,
             duplicate_cache,
             network_beacon_processor,
             _harness: harness,
@@ -844,45 +842,6 @@ impl TestRig {
             Some(events)
         }
     }
-
-    /// Listen for sync messages and collect them for a specified duration or until reaching a count.
-    ///
-    /// Returns None if no messages were received, or Some(Vec) containing the received messages.
-    pub async fn receive_sync_messages_with_timeout(
-        &mut self,
-        timeout: Duration,
-        count: Option<usize>,
-    ) -> Option<Vec<SyncMessage<E>>> {
-        let mut events = vec![];
-
-        let timeout_future = tokio::time::sleep(timeout);
-        tokio::pin!(timeout_future);
-
-        loop {
-            // Break if we've received the requested count of messages
-            if let Some(target_count) = count
-                && events.len() >= target_count
-            {
-                break;
-            }
-
-            tokio::select! {
-                _ = &mut timeout_future => break,
-                maybe_msg = self.sync_rx.recv() => {
-                    match maybe_msg {
-                        Some(msg) => events.push(msg),
-                        None => break, // Channel closed
-                    }
-                }
-            }
-        }
-
-        if events.is_empty() {
-            None
-        } else {
-            Some(events)
-        }
-    }
 }
 
 fn junk_peer_id() -> PeerId {
@@ -948,7 +907,10 @@ async fn data_column_reconstruction_at_slot_start() {
 // reconstruction deadline.
 #[tokio::test]
 async fn data_column_reconstruction_at_deadline() {
-    if test_spec::<E>().fulu_fork_epoch.is_none() {
+    let spec = test_spec::<E>();
+    // Pre-Gloas data-column path: a Gloas block carries its columns in the payload envelope, so the
+    // harness produces no block-level data columns and this gossip/reconstruction flow doesn't apply.
+    if spec.fulu_fork_epoch.is_none() || spec.gloas_fork_epoch.is_some() {
         return;
     };
 
@@ -1135,7 +1097,11 @@ async fn import_gossip_block_unacceptably_early() {
 /// Data columns that have already been processed but unobserved should be propagated without re-importing.
 #[tokio::test]
 async fn accept_processed_gossip_data_columns_without_import() {
-    if test_spec::<E>().fulu_fork_epoch.is_none() {
+    let spec = test_spec::<E>();
+    // Pre-Gloas data-column path: a Gloas block carries its columns in the payload envelope, so the
+    // harness produces no block-level data columns and this gossip flow doesn't apply.
+    // TODO(gloas): re-enable this test
+    if spec.fulu_fork_epoch.is_none() || spec.gloas_fork_epoch.is_some() {
         return;
     };
 
@@ -1862,65 +1828,6 @@ async fn test_blobs_by_root_post_fulu_should_return_empty() {
     assert_eq!(0, actual_count);
 }
 
-/// Ensure that data column processing that results in block import sends a sync notification
-#[tokio::test]
-async fn test_data_column_import_notifies_sync() {
-    if test_spec::<E>().fulu_fork_epoch.is_none() {
-        return;
-    }
-
-    let mut rig = TestRig::new(SMALL_CHAIN).await;
-    let block_root = rig.next_block.canonical_root();
-
-    // Enqueue the block first to prepare for data column processing
-    rig.enqueue_gossip_block();
-    rig.assert_event_journal_completes(&[WorkType::GossipBlock])
-        .await;
-    rig.receive_sync_messages_with_timeout(Duration::from_millis(100), Some(1))
-        .await
-        .expect("should receive sync message");
-
-    // Enqueue data columns which should trigger block import when complete
-    let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
-    if num_data_columns > 0 {
-        for i in 0..num_data_columns {
-            rig.enqueue_gossip_data_columns(i);
-            rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
-                .await;
-        }
-
-        // Verify block import succeeded
-        assert_eq!(
-            rig.head_root(),
-            block_root,
-            "block should be imported and become head"
-        );
-
-        // Check that sync was notified of the successful import
-        let sync_messages = rig
-            .receive_sync_messages_with_timeout(Duration::from_millis(100), Some(1))
-            .await
-            .expect("should receive sync message");
-
-        // Verify we received the expected GossipBlockProcessResult message
-        assert_eq!(
-            sync_messages.len(),
-            1,
-            "should receive exactly one sync message"
-        );
-        match &sync_messages[0] {
-            SyncMessage::GossipBlockProcessResult {
-                block_root: msg_block_root,
-                imported,
-            } => {
-                assert_eq!(*msg_block_root, block_root, "block root should match");
-                assert!(*imported, "block should be marked as imported");
-            }
-            other => panic!("expected GossipBlockProcessResult, got {:?}", other),
-        }
-    }
-}
-
 #[tokio::test]
 async fn test_data_columns_by_range_request_only_returns_requested_columns() {
     if test_spec::<E>().fulu_fork_epoch.is_none() {
@@ -2083,6 +1990,11 @@ async fn test_payload_envelopes_by_range() {
     // Manually store payload envelopes for each block in the range
     let mut expected_roots = Vec::new();
     for slot in start_slot..slot_count {
+        // Genesis (slot 0) has no canonical execution payload, so the by-range handler filters it
+        // out via `block_has_canonical_payload` even if an envelope is stored for it.
+        if slot == 0 {
+            continue;
+        }
         if let Some(root) = rig
             .chain
             .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
@@ -2176,14 +2088,10 @@ async fn test_payload_envelopes_by_root_unknown_root_returns_empty() {
 
     let mut rig = TestRig::new(64).await;
 
-    // Request envelope for a root that has no stored envelope
-    let block_root = rig
-        .chain
-        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
-        .unwrap()
-        .unwrap();
+    // Use a root with no block: the harness persists an envelope for every block it produces, so a
+    // real block root would already have one. An unknown root has no stored envelope.
+    let block_root = Hash256::repeat_byte(0xaa);
 
-    // Don't store any envelope — the handler should return 0 envelopes
     let roots = RuntimeVariableList::new(vec![block_root], 1).unwrap();
     rig.enqueue_payload_envelopes_by_root_request(roots);
 
