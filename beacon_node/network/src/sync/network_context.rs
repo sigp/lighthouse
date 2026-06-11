@@ -477,15 +477,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         active_request_count_by_peer
     }
 
-    /// A blocks by range request sent by the range sync algorithm.
-    /// For Fulu+ epochs (BlocksAndColumns), only sends BlocksByRange upfront.
-    /// Custody-by-root requests for columns are initiated after blocks arrive.
+    /// A blocks by range request sent by the range sync algorithm
     pub fn block_components_by_range_request(
         &mut self,
         batch_type: ByRangeRequestType,
         request: BlocksByRangeRequest,
         requester: RangeRequestId,
         block_peers: &HashSet<PeerId>,
+        peers_to_deprioritize: &HashSet<PeerId>,
     ) -> Result<Id, RpcRequestSendError> {
         let range_request_span = debug_span!(
             parent: None,
@@ -500,6 +499,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .iter()
             .map(|peer| {
                 (
+                    // If contains -> 1 (order after), not contains -> 0 (order first)
+                    peers_to_deprioritize.contains(peer),
                     // Prefer peers with less overall requests
                     active_request_count_by_peer.get(peer).copied().unwrap_or(0),
                     // Random factor to break ties, otherwise the PeerID breaks ties
@@ -508,7 +509,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 )
             })
             .min()
-            .map(|(_, _, peer)| *peer)
+            .map(|(_, _, _, peer)| *peer)
         else {
             // Backfill and forward sync handle this condition gracefully.
             // - Backfill sync: will pause waiting for more peers to join
@@ -579,12 +580,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 None
             };
 
-        let info = RangeBlockComponentsRequest::new(
+        let mut info = RangeBlockComponentsRequest::new(
             blocks_req_id,
             blobs_req_id,
             expects_custody_columns,
             payloads_req_id,
         );
+        info.request_span = range_request_span;
         self.components_by_range_requests.insert(id, info);
 
         Ok(id.id)
@@ -974,10 +976,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     ) -> Result<LookupRequestResult<DataColumnSidecarList<T::EthSpec>>, RpcRequestSendError> {
         // Code below will issue column requests even if `lookup_peers` is empty. This is not okay,
         // as we want to have at least one signal that some of our peers has already seen the
-        // block's data. Range sync passes empty `lookup_peers` and relies on the global custody
-        // peer set, so only apply this check to single lookups.
-        if matches!(requester, CustodyRequester::SingleLookup(_)) && lookup_peers.read().is_empty()
-        {
+        // block's data.
+        if lookup_peers.read().is_empty() {
             return Ok(LookupRequestResult::Pending("no peers"));
         }
 

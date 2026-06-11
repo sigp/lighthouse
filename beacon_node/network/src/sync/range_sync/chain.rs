@@ -1032,6 +1032,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let batch_state = self.visualize_batch_state();
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             let (request, batch_type) = batch.to_blocks_by_range_request();
+            let failed_peers = batch.failed_peers();
 
             match network.block_components_by_range_request(
                 batch_type,
@@ -1042,6 +1043,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 },
                 // Request blocks only from peers of this specific chain
                 &self.peers,
+                &failed_peers,
             ) {
                 Ok(request_id) => {
                     // inform the batch about the new request

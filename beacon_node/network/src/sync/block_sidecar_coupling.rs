@@ -16,7 +16,7 @@ use parking_lot::RwLock;
 use ssz_types::RuntimeVariableList;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tracing::{debug, warn};
+use tracing::{Span, debug, warn};
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
     Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
@@ -37,6 +37,7 @@ use crate::sync::network_context::{LookupRequestResult, PeerGroup, SyncNetworkCo
 /// them together and returns complete `RangeSyncBlock`s ready for processing.
 pub struct RangeBlockComponentsRequest<E: EthSpec> {
     /// Blocks we have received awaiting for their corresponding sidecar.
+    #[allow(clippy::type_complexity)]
     blocks_request:
         ByRangeRequest<BlocksByRangeRequestId, (Vec<Arc<SignedBeaconBlock<E>>>, PeerId)>,
     /// Sidecars we have received awaiting for their corresponding block.
@@ -48,6 +49,8 @@ pub struct RangeBlockComponentsRequest<E: EthSpec> {
             Vec<Arc<SignedExecutionPayloadEnvelope<E>>>,
         >,
     >,
+    /// Span to track the range request and all children range requests.
+    pub(crate) request_span: Span,
 }
 
 pub enum ByRangeRequest<I: PartialEq + std::fmt::Display, T> {
@@ -110,6 +113,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             blocks_request: ByRangeRequest::Active(blocks_req_id),
             block_data_request,
             payloads_request: payloads_req_id.map(ByRangeRequest::Active),
+            request_span: Span::none(),
         }
     }
 
@@ -190,7 +194,8 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         id: ComponentsByRangeRequestId,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<(), String> {
-        let Some((blocks, _)) = self.blocks_request.to_finished() else {
+        let _guard = self.request_span.clone().entered();
+        let Some((blocks, block_peer)) = self.blocks_request.to_finished() else {
             return Ok(());
         };
         let RangeBlockDataRequest::DataColumns(state @ DataColumnsRequest::NotStarted) =
@@ -220,7 +225,8 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             block_epoch,
             // ignore_cache: range blocks are historical and won't have gossip-imported columns
             true,
-            Arc::new(RwLock::new(HashSet::new())),
+            // The peer that provided the blocks is a signal that some peer has the block's data.
+            Arc::new(RwLock::new(HashSet::from([*block_peer]))),
         ) {
             Ok(LookupRequestResult::RequestSent(_)) => {
                 *state = DataColumnsRequest::Requesting;
@@ -251,6 +257,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     /// Returns `None` if not all expected requests have completed.
     /// Returns `Some(Ok(_))` with valid RPC blocks if all data is present and valid.
     /// Returns `Some(Err(_))` if there are issues coupling blocks with their data.
+    #[allow(clippy::type_complexity)]
     pub fn responses<T>(
         &mut self,
         da_checker: Arc<DataAvailabilityChecker<T>>,
@@ -489,6 +496,7 @@ mod tests {
         generate_rand_block_and_data_columns, test_da_checker, test_spec,
     };
     use bls::Signature;
+    use lighthouse_network::PeerId;
     use lighthouse_network::service::api_types::{
         BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
         PayloadEnvelopesByRangeRequestId, RangeRequestId,
@@ -589,12 +597,13 @@ mod tests {
         let mut info = RangeBlockComponentsRequest::<E>::new(blocks_req_id, None, false, None);
 
         // Send blocks and complete terminate response
-        info.add_blocks(blocks_req_id, blocks).unwrap();
+        info.add_blocks(blocks_req_id, blocks, PeerId::random())
+            .unwrap();
 
         let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
 
         // Assert response is finished and blocks can be constructed
-        info.responses(da_checker, spec).unwrap().unwrap();
+        info.responses(da_checker, spec).unwrap().0.unwrap();
     }
 
     #[test]
@@ -617,7 +626,8 @@ mod tests {
             RangeBlockComponentsRequest::<E>::new(blocks_req_id, Some(blobs_req_id), false, None);
 
         // Send blocks and complete terminate response
-        info.add_blocks(blocks_req_id, blocks).unwrap();
+        info.add_blocks(blocks_req_id, blocks, PeerId::random())
+            .unwrap();
         // Expect no blobs returned
         info.add_blobs(blobs_req_id, vec![]).unwrap();
 
@@ -630,7 +640,7 @@ mod tests {
         let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
         // Blobs are no longer required for availability, so the response succeeds without them.
         let result = info.responses(da_checker, spec).unwrap();
-        assert!(result.is_ok())
+        assert!(result.0.is_ok())
     }
 
     #[test]
@@ -669,6 +679,7 @@ mod tests {
         info.add_blocks(
             blocks_req_id,
             blocks.iter().map(|(b, _)| b.clone()).collect(),
+            PeerId::random(),
         )
         .unwrap();
         // Assert response is not finished while custody-by-root is outstanding.
@@ -683,7 +694,7 @@ mod tests {
         complete_custody_by_root(&mut info, &blocks_and_columns, &expects_custody_columns);
 
         // All completed construct response
-        info.responses(da_checker, spec).unwrap().unwrap();
+        info.responses(da_checker, spec).unwrap().0.unwrap();
     }
 
     #[test]
@@ -729,7 +740,8 @@ mod tests {
         let blocks_req_id = blocks_id(components_id());
         let mut info = RangeBlockComponentsRequest::<E>::new(blocks_req_id, None, true, None);
 
-        info.add_blocks(blocks_req_id, vec![block.into()]).unwrap();
+        info.add_blocks(blocks_req_id, vec![block.into()], PeerId::random())
+            .unwrap();
         info.set_custody_requesting();
 
         // Still requesting — responses should return None
@@ -774,6 +786,7 @@ mod tests {
         info.add_blocks(
             blocks_req_id,
             vec![block_with_data.into(), block_no_data.into()],
+            PeerId::random(),
         )
         .unwrap();
 
@@ -788,7 +801,7 @@ mod tests {
             .unwrap();
 
         // Both blocks should resolve — one with columns, one with NoData
-        info.responses(da_checker, spec).unwrap().unwrap();
+        info.responses(da_checker, spec).unwrap().0.unwrap();
     }
 
     #[test]
@@ -823,6 +836,7 @@ mod tests {
         info.add_blocks(
             blocks_req_id,
             blocks.iter().map(|b| b.0.clone().into()).collect(),
+            PeerId::random(),
         )
         .unwrap();
 
@@ -833,7 +847,7 @@ mod tests {
             .unwrap();
 
         // Response should be ready (no blocks need custody columns)
-        info.responses(da_checker, spec).unwrap().unwrap();
+        info.responses(da_checker, spec).unwrap().0.unwrap();
     }
 
     // ===== Gloas payload-envelope coupling tests =====
@@ -925,6 +939,7 @@ mod tests {
         info.add_blocks(
             blocks_req_id,
             blocks.iter().map(|(block, _, _)| block.clone()).collect(),
+            PeerId::random(),
         )
         .unwrap();
 
@@ -979,7 +994,7 @@ mod tests {
         )
         .unwrap();
 
-        let responses = info.responses(da_checker, spec).unwrap().unwrap();
+        let responses = info.responses(da_checker, spec).unwrap().0.unwrap();
         assert_eq!(responses.len(), blocks.len());
         for response in responses {
             match response {
@@ -1013,7 +1028,7 @@ mod tests {
         info.add_payload_envelopes(payloads_req_id, vec![blocks[0].2.clone()])
             .unwrap();
 
-        let responses = info.responses(da_checker, spec).unwrap().unwrap();
+        let responses = info.responses(da_checker, spec).unwrap().0.unwrap();
         let count_with = |with_envelope: bool| {
             responses
                 .iter()
@@ -1045,7 +1060,7 @@ mod tests {
         let result = info.responses(da_checker, spec).unwrap();
         assert!(
             matches!(
-                result,
+                result.0,
                 Err(super::CouplingError::EnvelopePeerFailure(ref error))
                     if error.contains("SlotMismatch")
             ),

@@ -882,11 +882,13 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 .collect::<HashSet<_>>();
 
             let (request, is_blob_batch) = batch.to_blocks_by_range_request();
+            let failed_peers = batch.failed_peers();
             match network.block_components_by_range_request(
                 is_blob_batch,
                 request,
                 RangeRequestId::BackfillSync { batch_id },
                 &synced_peers,
+                &failed_peers,
             ) {
                 Ok(request_id) => {
                     // inform the batch about the new request
