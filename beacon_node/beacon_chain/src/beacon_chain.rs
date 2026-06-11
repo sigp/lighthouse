@@ -3561,7 +3561,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let pending_payload_cache = self.pending_payload_cache.clone();
             let result = self
                 .task_executor
-                .spawn_blocking_with_rayon_async(Some(RayonPoolType::HighPriority), move || {
+                .spawn_blocking_with_rayon_async(RayonPoolType::HighPriority, move || {
                     pending_payload_cache.reconstruct_data_columns(&block_root)
                 })
                 .await
@@ -3595,7 +3595,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let data_availability_checker = self.data_availability_checker.clone();
             let result = self
                 .task_executor
-                .spawn_blocking_with_rayon_async(Some(RayonPoolType::HighPriority), move || {
+                .spawn_blocking_with_rayon_async(RayonPoolType::HighPriority, move || {
                     data_availability_checker.reconstruct_data_columns(&block_root)
                 })
                 .await

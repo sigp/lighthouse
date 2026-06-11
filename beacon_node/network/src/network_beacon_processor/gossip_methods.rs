@@ -45,6 +45,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
+use task_executor::RayonPoolType;
 use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
 use types::{
     Attestation, AttestationData, AttestationRef, AttesterSlashing, ColumnIndex, DataColumnSidecar,
@@ -670,14 +671,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
         let Ok(verification_result) = self
             .executor
-            .spawn_blocking_with_rayon_async(None, {
+            .spawn_blocking_with_rayon_async(RayonPoolType::HighPriority, {
                 let chain = self.chain.clone();
                 let column_sidecar = column_sidecar.clone();
                 move || chain.verify_data_column_sidecar_for_gossip(column_sidecar, subnet_id)
             })
             .await
         else {
-            warn!(%slot, %block_root, %index, "KZG verification task failed");
+            warn!(%slot, %block_root, %index, "Gossip data column verification task failed");
             return;
         };
         match verification_result {
@@ -997,13 +998,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let Ok(result) = self
             .executor
-            .spawn_blocking_with_rayon_async(None, {
+            .spawn_blocking_with_rayon_async(RayonPoolType::HighPriority, {
                 let chain = self.chain.clone();
                 move || chain.verify_partial_data_column_sidecar_for_gossip(column, seen_duration)
             })
             .await
         else {
-            warn!(%block_root, %index, "KZG verification task failed");
+            warn!(%block_root, %index, "Gossip partial data column verification task failed");
             return;
         };
 
