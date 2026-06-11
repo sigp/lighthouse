@@ -191,6 +191,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             &PeerType::new(parent_block_hash),
             block_root,
             &[peer_id],
+            None,
             cx,
         );
         // Only create the child lookup if the parent exists
@@ -205,6 +206,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // peers to house the block components.
                 &[],
                 &PeerType::Block,
+                None,
                 cx,
             )
         } else {
@@ -222,7 +224,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         peer_source: &[PeerId],
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
-        self.new_current_lookup(block_root, None, None, peer_source, &PeerType::Block, cx)
+        self.new_current_lookup(
+            block_root,
+            None,
+            None,
+            peer_source,
+            &PeerType::Block,
+            None,
+            cx,
+        )
     }
 
     /// A block or blob triggers the search of a parent.
@@ -232,6 +242,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     ///
     /// Returns true if the lookup is created or already exists
     #[must_use = "only reference the new lookup if returns true"]
+    #[allow(clippy::too_many_arguments)]
     pub fn search_parent_of_child(
         &mut self,
         block_root_to_search: Hash256,
@@ -239,6 +250,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         peer_type: &PeerType,
         child_block_root_trigger: Hash256,
         peers: &[PeerId],
+        known_blocks: Option<KnownParents<T::EthSpec>>,
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
         let parent_chains = self.active_parent_lookups();
@@ -335,6 +347,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             None,
             peers,
             peer_type,
+            known_blocks,
             cx,
         )
     }
@@ -343,6 +356,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// constructed.
     /// Returns true if the lookup is created or already exists
     #[must_use = "only reference the new lookup if returns true"]
+    #[allow(clippy::too_many_arguments)]
     fn new_current_lookup(
         &mut self,
         block_root: Hash256,
@@ -350,6 +364,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         awaiting_parent: Option<AwaitingParent>,
         peers: &[PeerId],
         peer_type: &PeerType,
+        known_blocks: Option<KnownParents<T::EthSpec>>,
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
         // If this block or it's parent is part of a known ignored chain, ignore it.
@@ -429,7 +444,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         self.metrics.created_lookups += 1;
 
         let result = lookup.continue_requests(cx);
-        if self.on_lookup_result(id, result, None, "new_current_lookup", cx) {
+        if self.on_lookup_result(id, result, known_blocks, "new_current_lookup", cx) {
             self.update_metrics();
             true
         } else {
@@ -669,15 +684,17 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 block_root,
                 peers,
             }) => {
+                let block_component = known_blocks.as_ref().and_then(|p| {
+                    p.get(&parent_root)
+                        .map(|b| BlockComponent::Block(b.clone()))
+                });
                 if self.search_parent_of_child(
                     parent_root,
-                    known_blocks.and_then(|p| {
-                        p.get(&parent_root)
-                            .map(|b| BlockComponent::Block(b.clone()))
-                    }),
+                    block_component,
                     &PeerType::new(parent_block_hash),
                     block_root,
                     &peers,
+                    known_blocks,
                     cx,
                 ) {
                     true
