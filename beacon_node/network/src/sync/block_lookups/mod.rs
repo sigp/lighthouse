@@ -23,8 +23,10 @@
 use self::parent_chain::{NodeChain, compute_parent_chains};
 pub use self::single_block_lookup::DownloadResult;
 use self::single_block_lookup::{LookupRequestError, PeerType, SingleBlockLookup};
-use super::manager::{BlockProcessType, SLOT_IMPORT_TOLERANCE};
-use super::network_context::{AncestorBlocks, RpcResponseError, SyncNetworkContext};
+use super::manager::BlockProcessType;
+use super::network_context::{
+    AncestorBlocks, BLOCKS_BY_HEAD_REQUEST_COUNT, RpcResponseError, SyncNetworkContext,
+};
 use crate::metrics;
 use crate::network_beacon_processor::BlockProcessingResult;
 use crate::sync::SyncMessage;
@@ -51,13 +53,12 @@ use types::{
 pub mod parent_chain;
 mod single_block_lookup;
 
-/// The maximum depth we will search for a parent block. In principle we should have sync'd any
-/// canonical chain to its head once the peer connects. A chain should not appear where it's depth
-/// is further back than the most recent head slot.
+/// The maximum depth we will search for a parent block. Once a lookup chain reaches this depth it
+/// is dropped and the head is force-transitioned to range sync.
 ///
-/// Have the same value as range's sync tolerance to consider a peer synced. Once sync lookup
-/// reaches the maximum depth it will force trigger range sync.
-pub(crate) const PARENT_DEPTH_TOLERANCE: usize = SLOT_IMPORT_TOLERANCE;
+/// Allow one full `beacon_blocks_by_head` batch (plus its triggering child) so a single response
+/// can always seed an entire ancestor chain without tripping the limit.
+pub(crate) const PARENT_DEPTH_TOLERANCE: usize = BLOCKS_BY_HEAD_REQUEST_COUNT as usize + 1;
 
 const IGNORED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 pub const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 4;

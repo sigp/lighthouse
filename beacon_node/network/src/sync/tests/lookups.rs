@@ -6,6 +6,7 @@ use crate::network_beacon_processor::{
     ChainSegmentProcessId, InvalidBlockStorage, NetworkBeaconProcessor,
 };
 use crate::sync::block_lookups::{BlockLookupSummary, PARENT_DEPTH_TOLERANCE};
+use crate::sync::network_context::BLOCKS_BY_HEAD_REQUEST_COUNT;
 use crate::sync::{
     SyncMessage,
     manager::{BatchProcessResult, BlockProcessType, SyncManager},
@@ -27,7 +28,7 @@ use itertools::Itertools;
 use lighthouse_network::discovery::CombinedKey;
 use lighthouse_network::{
     NetworkConfig, NetworkGlobals, PeerAction, PeerId,
-    rpc::{RPCError, RequestType},
+    rpc::{Protocol, RPCError, RequestType},
     service::api_types::{AppRequestId, SyncRequestId},
     types::SyncState,
 };
@@ -847,6 +848,22 @@ impl TestRig {
                     })
                     .collect::<Vec<_>>();
                 self.send_rpc_envelopes_response(req_id, peer_id, &envelopes);
+            }
+
+            (RequestType::BlocksByHead(req), AppRequestId::Sync(req_id)) => {
+                // Walk the parent chain from `beacon_root`, returning up to `count` blocks in
+                // descending slot order (the same shape the responder produces).
+                let mut blocks = vec![];
+                let mut block_root = req.beacon_root;
+                while (blocks.len() as u64) < req.count {
+                    let Some(block) = self.network_blocks_by_root.get(&block_root) else {
+                        break;
+                    };
+                    let block = block.block_cloned();
+                    block_root = block.parent_root();
+                    blocks.push(block);
+                }
+                self.send_rpc_blocks_response(req_id, peer_id, &blocks);
             }
 
             (RequestType::Status(_req), AppRequestId::Router) => {
@@ -1805,6 +1822,15 @@ impl TestRig {
         peer_id
     }
 
+    /// Mark a peer as advertising the `beacon_blocks_by_head` protocol so block lookups will use it.
+    fn set_peer_supports_by_head(&mut self, peer_id: PeerId) {
+        self.network_globals
+            .peers
+            .write()
+            .__set_supported_protocols(&peer_id, HashSet::from([Protocol::BlocksByHead]))
+            .unwrap();
+    }
+
     pub fn new_connected_supernode_peer(&mut self) -> PeerId {
         let key = self.determinstic_key();
         let peer_id = self
@@ -2098,6 +2124,28 @@ macro_rules! run_lookups_tests_for_depths {
 }
 
 run_lookups_tests_for_depths!(1, 2);
+
+/// A peer that supports `beacon_blocks_by_head` should fetch a whole unknown ancestor chain with a
+/// single request, caching every block, so no `beacon_blocks_by_root` requests are needed.
+#[tokio::test]
+async fn blocks_by_head_fetches_whole_chain_in_one_request() {
+    let mut r = TestRig::default();
+    // A chain that fits in a single by-head response and stays under `PARENT_DEPTH_TOLERANCE`.
+    r.build_chain(BLOCKS_BY_HEAD_REQUEST_COUNT as usize).await;
+    // A peer that advertises `beacon_blocks_by_head`.
+    let peer_id = r.new_connected_supernode_peer();
+    r.set_peer_supports_by_head(peer_id);
+    // Trigger an unknown-parent lookup for the chain tip from that peer.
+    let tip = r.get_last_block().block_cloned();
+    r.trigger_unknown_parent_block(peer_id, tip);
+    r.simulate(SimulateConfig::happy_path()).await;
+
+    r.assert_successful_lookup_sync();
+    // One by-head request fetched and cached the whole ancestor chain, so no by-root was needed.
+    let counts = r.requests_count();
+    assert_eq!(counts.get("BlocksByHead").copied().unwrap_or(0), 1);
+    assert_eq!(counts.get("BlocksByRoot").copied().unwrap_or(0), 0);
+}
 
 /// Assert that lookup sync succeeds with the happy case
 async fn happy_path_unknown_attestation(depth: usize) {
