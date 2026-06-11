@@ -229,7 +229,7 @@ impl<E: EthSpec> GossipTester<E> {
                 spec.get_slot_duration(),
             );
             slot_clock.set_current_time(initial_time);
-            if slot_clock.now().map_or(true, |slot| slot < state_slot) {
+            if slot_clock.now().is_none_or(|slot| slot < state_slot) {
                 slot_clock.set_slot(state_slot.as_u64());
             }
             BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())

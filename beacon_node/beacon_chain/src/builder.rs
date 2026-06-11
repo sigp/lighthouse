@@ -24,7 +24,7 @@ use crate::{
 use bls::Signature;
 use execution_layer::ExecutionLayer;
 use fixed_bytes::FixedBytesExtended;
-use fork_choice::{ForkChoice, PayloadStatus, PayloadVerificationStatus, ResetPayloadStatuses};
+use fork_choice::{ForkChoice, PayloadStatus, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
 use kzg::Kzg;
 use logging::crit;
@@ -47,8 +47,8 @@ use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
 use types::data::CustodyIndex;
 use types::{
-    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Checkpoint, ColumnIndex,
-    DataColumnSidecarList, EthSpec, Hash256, SignedBeaconBlock, Slot,
+    BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList, EthSpec, Hash256,
+    SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -1209,7 +1209,7 @@ where
         initial_state: BeaconState<E>,
         initial_block: SignedBeaconBlock<E>,
     ) -> Result<Self, String> {
-        let finalized_checkpoint = Checkpoint {
+        let finalized_checkpoint = types::Checkpoint {
             epoch: initial_block
                 .slot()
                 .saturating_sub(1u64)
@@ -1328,7 +1328,7 @@ where
         let anchor_block = if anchor_block_root == initial_block_root {
             initial_block.clone()
         } else {
-            let mut block = BeaconBlock::empty(&self.spec);
+            let mut block = types::BeaconBlock::empty(&self.spec);
             *block.slot_mut() = fork_choice_slot;
             *block.state_root_mut() = fork_choice_state_root;
             SignedBeaconBlock::from_block(block, Signature::empty())
@@ -1484,7 +1484,7 @@ where
                     initial_block_root,
                     Duration::ZERO,
                     &initial_state,
-                    PayloadVerificationStatus::Irrelevant,
+                    fork_choice::PayloadVerificationStatus::Irrelevant,
                     initial_block.message().proposer_index(),
                     &self.spec,
                 )

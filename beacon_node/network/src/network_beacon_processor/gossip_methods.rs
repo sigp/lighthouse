@@ -171,6 +171,14 @@ impl<E: EthSpec> FailedAtt<E> {
     }
 }
 
+fn clone_message_acceptance(acceptance: &MessageAcceptance) -> MessageAcceptance {
+    match acceptance {
+        MessageAcceptance::Accept => MessageAcceptance::Accept,
+        MessageAcceptance::Reject => MessageAcceptance::Reject,
+        MessageAcceptance::Ignore => MessageAcceptance::Ignore,
+    }
+}
+
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /* Auxiliary functions */
 
@@ -1644,7 +1652,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             // envelope import pipeline.
             Err(e @ BlockError::EnvelopeError(_)) => {
                 crit!(error = %e, "Internal block gossip validation error. Envelope error during gossip validation");
-                return None;
+                (None, MessageAcceptance::Ignore)
             }
             Err(e @ BlockError::InternalError(_)) => {
                 error!(error = %e, "Internal block gossip validation error");
