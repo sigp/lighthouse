@@ -76,6 +76,9 @@ impl<T: BeaconChainTypes> VerifiedPayloadAttestationMessage<T> {
             .get_block(&beacon_block_root)
             .is_none()
         {
+            // TODO(gloas): add to reporcessing queue -
+            // re-process the attestation message once we have the
+            // actual block data (until the slot end)
             return Err(Error::UnknownHeadBlock { beacon_block_root });
         }
 

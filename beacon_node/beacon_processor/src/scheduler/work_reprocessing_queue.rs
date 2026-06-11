@@ -8,8 +8,9 @@
 //! There is the edge-case where the slot arrives before this queue manages to process it. In that
 //! case, the block will be sent off for immediate processing (skipping the `DelayQueue`).
 //!
-//! Aggregated and unaggregated attestations that failed verification due to referencing an unknown
-//! block will be re-queued until their block is imported, or until they expire.
+//! Aggregated and unaggregated attestations, as well as payload attestation messages, that failed
+//! verification due to referencing an unknown block will be re-queued until their block is
+//! imported, or until they expire.
 use crate::metrics;
 use crate::{AsyncFn, BlockingFn, Work, WorkEvent};
 use fnv::FnvHashMap;
@@ -46,7 +47,8 @@ const LIGHT_CLIENT_UPDATES_PER_PARENT_ROOT: &str = "lc_updates_per_parent_root";
 /// This is to account for any slight drift in the system clock.
 pub const ADDITIONAL_QUEUED_BLOCK_DELAY: Duration = Duration::from_millis(5);
 
-/// For how long to queue aggregated and unaggregated attestations for re-processing.
+/// For how long to queue aggregated and unaggregated attestations, as well as payload attestation
+/// messages, for re-processing.
 pub const QUEUED_ATTESTATION_DELAY: Duration = Duration::from_secs(12);
 
 /// For how long to queue light client updates for re-processing.
@@ -126,6 +128,8 @@ pub enum ReprocessQueueMessage {
     UnknownBlockUnaggregate(QueuedUnaggregate),
     /// An aggregated attestation that references an unknown block.
     UnknownBlockAggregate(QueuedAggregate),
+    /// A payload attestation message that references an unknown block.
+    UnknownBlockPayloadAttestation(QueuedPayloadAttestation),
     /// A light client optimistic update that references a parent root that has not been seen as a parent.
     UnknownLightClientOptimisticUpdate(QueuedLightClientUpdate),
     /// A new backfill batch that needs to be scheduled for processing.
@@ -144,6 +148,7 @@ pub enum ReadyWork {
     IgnoredRpcBlock(IgnoredRpcBlock),
     Unaggregate(QueuedUnaggregate),
     Aggregate(QueuedAggregate),
+    PayloadAttestation(QueuedPayloadAttestation),
     LightClientUpdate(QueuedLightClientUpdate),
     BackfillSync(QueuedBackfillBatch),
     ColumnReconstruction(QueuedColumnReconstruction),
@@ -160,6 +165,13 @@ pub struct QueuedUnaggregate {
 /// An aggregated attestation for which the corresponding block was not seen while processing, queued for
 /// later.
 pub struct QueuedAggregate {
+    pub beacon_block_root: Hash256,
+    pub process_fn: BlockingFn,
+}
+
+/// A payload attestation message for which the corresponding block was not seen while processing,
+/// queued for later.
+pub struct QueuedPayloadAttestation {
     pub beacon_block_root: Hash256,
     pub process_fn: BlockingFn,
 }
@@ -294,7 +306,9 @@ struct ReprocessQueue<S> {
     queued_aggregates: FnvHashMap<usize, (QueuedAggregate, DelayKey)>,
     /// Queued attestations.
     queued_unaggregates: FnvHashMap<usize, (QueuedUnaggregate, DelayKey)>,
-    /// Attestations (aggregated and unaggregated) per root.
+    /// Queued payload attestation messages.
+    queued_payload_attestations: FnvHashMap<usize, (QueuedPayloadAttestation, DelayKey)>,
+    /// Attestations (aggregated, unaggregated and payload attestation messages) per root.
     awaiting_attestations_per_root: HashMap<Hash256, Vec<QueuedAttestationId>>,
     /// Queued Light Client Updates.
     queued_lc_updates: FnvHashMap<usize, (QueuedLightClientUpdate, DelayKey)>,
@@ -329,6 +343,7 @@ pub type QueuedLightClientUpdateId = usize;
 enum QueuedAttestationId {
     Aggregate(usize),
     Unaggregate(usize),
+    PayloadAttestation(usize),
 }
 
 impl QueuedAggregate {
@@ -338,6 +353,12 @@ impl QueuedAggregate {
 }
 
 impl QueuedUnaggregate {
+    pub fn beacon_block_root(&self) -> &Hash256 {
+        &self.beacon_block_root
+    }
+}
+
+impl QueuedPayloadAttestation {
     pub fn beacon_block_root(&self) -> &Hash256 {
         &self.beacon_block_root
     }
@@ -493,6 +514,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
             queued_lc_updates: FnvHashMap::default(),
             queued_aggregates: FnvHashMap::default(),
             queued_unaggregates: FnvHashMap::default(),
+            queued_payload_attestations: FnvHashMap::default(),
             awaiting_attestations_per_root: HashMap::new(),
             awaiting_lc_updates_per_parent_root: HashMap::new(),
             queued_backfill_batches: Vec::new(),
@@ -718,6 +740,40 @@ impl<S: SlotClock> ReprocessQueue<S> {
 
                 self.next_attestation += 1;
             }
+            InboundEvent::Msg(UnknownBlockPayloadAttestation(queued_payload_attestation)) => {
+                if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
+                    if self.attestation_delay_debounce.elapsed() {
+                        error!(
+                            queue_size = MAXIMUM_QUEUED_ATTESTATIONS,
+                            msg = "system resources may be saturated",
+                            "Payload attestation delay queue is full"
+                        );
+                    }
+                    // Drop the payload attestation.
+                    return;
+                }
+
+                let att_id = QueuedAttestationId::PayloadAttestation(self.next_attestation);
+
+                // Register the delay.
+                let delay_key = self
+                    .attestations_delay_queue
+                    .insert(att_id, QUEUED_ATTESTATION_DELAY);
+
+                // Register this payload attestation for the corresponding root.
+                self.awaiting_attestations_per_root
+                    .entry(*queued_payload_attestation.beacon_block_root())
+                    .or_default()
+                    .push(att_id);
+
+                // Store the payload attestation and its info.
+                self.queued_payload_attestations.insert(
+                    self.next_attestation,
+                    (queued_payload_attestation, delay_key),
+                );
+
+                self.next_attestation += 1;
+            }
             InboundEvent::Msg(UnknownBlockDataColumn(queued_data_column)) => {
                 let block_root = queued_data_column.beacon_block_root;
 
@@ -828,6 +884,15 @@ impl<S: SlotClock> ReprocessQueue<S> {
                                 .remove(&id)
                                 .map(|(unaggregate, delay_key)| {
                                     (ReadyWork::Unaggregate(unaggregate), delay_key)
+                                }),
+                            QueuedAttestationId::PayloadAttestation(id) => self
+                                .queued_payload_attestations
+                                .remove(&id)
+                                .map(|(payload_attestation, delay_key)| {
+                                    (
+                                        ReadyWork::PayloadAttestation(payload_attestation),
+                                        delay_key,
+                                    )
                                 }),
                         } {
                             // Remove the delay.
@@ -1022,6 +1087,15 @@ impl<S: SlotClock> ReprocessQueue<S> {
                             (
                                 *unaggregate.beacon_block_root(),
                                 ReadyWork::Unaggregate(unaggregate),
+                            )
+                        }),
+                    QueuedAttestationId::PayloadAttestation(id) => self
+                        .queued_payload_attestations
+                        .remove(&id)
+                        .map(|(payload_attestation, _delay_key)| {
+                            (
+                                *payload_attestation.beacon_block_root(),
+                                ReadyWork::PayloadAttestation(payload_attestation),
                             )
                         }),
                 } {
@@ -1409,6 +1483,91 @@ mod tests {
         queue.handle_message(ready_msg);
 
         // The entry for the block root should be gone.
+        assert!(queue.awaiting_attestations_per_root.is_empty());
+    }
+
+    /// Tests that a queued payload attestation message is released when its block is imported.
+    #[tokio::test]
+    async fn payload_attestation_released_on_block_imported() {
+        create_test_tracing_subscriber();
+
+        let mut queue = test_queue();
+
+        // Pause time so it only advances manually
+        tokio::time::pause();
+
+        let beacon_block_root = Hash256::repeat_byte(0xaf);
+        let parent_root = Hash256::repeat_byte(0xab);
+
+        // Insert a payload attestation.
+        let msg = ReprocessQueueMessage::UnknownBlockPayloadAttestation(QueuedPayloadAttestation {
+            beacon_block_root,
+            process_fn: Box::new(|| {}),
+        });
+
+        // Process the event to enter it into the delay queue.
+        queue.handle_message(InboundEvent::Msg(msg));
+
+        // Check that it is queued.
+        assert_eq!(queue.queued_payload_attestations.len(), 1);
+        assert!(
+            queue
+                .awaiting_attestations_per_root
+                .contains_key(&beacon_block_root)
+        );
+
+        // Simulate block import.
+        let imported = ReprocessQueueMessage::BlockImported {
+            block_root: beacon_block_root,
+            parent_root,
+        };
+        queue.handle_message(InboundEvent::Msg(imported));
+
+        // The entry for the block root should be gone.
+        assert!(queue.queued_payload_attestations.is_empty());
+        assert!(queue.awaiting_attestations_per_root.is_empty());
+        // Delay queue entry should also be cancelled.
+        assert_eq!(queue.attestations_delay_queue.len(), 0);
+    }
+
+    /// Tests that an expired payload attestation message is pruned from
+    /// `awaiting_attestations_per_root`.
+    #[tokio::test]
+    async fn prune_awaiting_payload_attestations_per_root() {
+        create_test_tracing_subscriber();
+
+        let mut queue = test_queue();
+
+        // Pause time so it only advances manually
+        tokio::time::pause();
+
+        let beacon_block_root = Hash256::repeat_byte(0xaf);
+
+        // Insert a payload attestation.
+        let msg = ReprocessQueueMessage::UnknownBlockPayloadAttestation(QueuedPayloadAttestation {
+            beacon_block_root,
+            process_fn: Box::new(|| {}),
+        });
+
+        // Process the event to enter it into the delay queue.
+        queue.handle_message(InboundEvent::Msg(msg));
+
+        // Check that it is queued.
+        assert_eq!(queue.awaiting_attestations_per_root.len(), 1);
+        assert!(
+            queue
+                .awaiting_attestations_per_root
+                .contains_key(&beacon_block_root)
+        );
+
+        // Advance time to expire the payload attestation.
+        advance_time(&queue.slot_clock, 2 * QUEUED_ATTESTATION_DELAY).await;
+        let ready_msg = queue.next().await.unwrap();
+        assert!(matches!(ready_msg, InboundEvent::ReadyAttestation(_)));
+        queue.handle_message(ready_msg);
+
+        // The entry for the block root should be gone.
+        assert!(queue.queued_payload_attestations.is_empty());
         assert!(queue.awaiting_attestations_per_root.is_empty());
     }
 

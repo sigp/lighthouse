@@ -68,8 +68,8 @@ use tracing::{debug, error, trace, warn};
 use types::{EthSpec, Hash256, SignedAggregateAndProof, SingleAttestation, Slot, SubnetId};
 use work_reprocessing_queue::IgnoredRpcBlock;
 use work_reprocessing_queue::{
-    QueuedAggregate, QueuedLightClientUpdate, QueuedRpcBlock, QueuedUnaggregate, ReadyWork,
-    spawn_reprocess_scheduler,
+    QueuedAggregate, QueuedLightClientUpdate, QueuedPayloadAttestation, QueuedRpcBlock,
+    QueuedUnaggregate, ReadyWork, spawn_reprocess_scheduler,
 };
 
 mod metrics;
@@ -284,6 +284,13 @@ impl<E: EthSpec> From<ReadyWork> for WorkEvent<E> {
                 drop_during_sync: true,
                 work: Work::UnknownBlockAggregate { process_fn },
             },
+            ReadyWork::PayloadAttestation(QueuedPayloadAttestation {
+                beacon_block_root: _,
+                process_fn,
+            }) => Self {
+                drop_during_sync: true,
+                work: Work::UnknownBlockPayloadAttestation { process_fn },
+            },
             ReadyWork::LightClientUpdate(QueuedLightClientUpdate {
                 parent_root,
                 process_fn,
@@ -388,6 +395,9 @@ pub enum Work<E: EthSpec> {
     UnknownBlockAggregate {
         process_fn: BlockingFn,
     },
+    UnknownBlockPayloadAttestation {
+        process_fn: BlockingFn,
+    },
     UnknownLightClientOptimisticUpdate {
         parent_root: Hash256,
         process_fn: BlockingFn,
@@ -475,6 +485,7 @@ pub enum WorkType {
     GossipAttestationBatch,
     GossipAggregate,
     UnknownBlockAggregate,
+    UnknownBlockPayloadAttestation,
     UnknownLightClientOptimisticUpdate,
     GossipAggregateBatch,
     GossipBlock,
@@ -579,6 +590,7 @@ impl<E: EthSpec> Work<E> {
             Work::UnknownBlockAttestation { .. } => WorkType::UnknownBlockAttestation,
             Work::UnknownBlockDataColumn { .. } => WorkType::UnknownBlockDataColumn,
             Work::UnknownBlockAggregate { .. } => WorkType::UnknownBlockAggregate,
+            Work::UnknownBlockPayloadAttestation { .. } => WorkType::UnknownBlockPayloadAttestation,
             Work::UnknownLightClientOptimisticUpdate { .. } => {
                 WorkType::UnknownLightClientOptimisticUpdate
             }
@@ -995,6 +1007,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         } else if let Some(item) = work_queues.unknown_block_attestation_queue.pop()
                         {
                             Some(item)
+                        } else if let Some(item) =
+                            work_queues.unknown_block_payload_attestation_queue.pop()
+                        {
+                            Some(item)
                         // Check execution payload bids. Most proposers will request bids directly from builders
                         // instead of receiving them over gossip.
                         } else if let Some(item) =
@@ -1256,6 +1272,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::UnknownBlockAggregate { .. } => {
                                 work_queues.unknown_block_aggregate_queue.push(work)
                             }
+                            Work::UnknownBlockPayloadAttestation { .. } => work_queues
+                                .unknown_block_payload_attestation_queue
+                                .push(work),
                             Work::GossipBlsToExecutionChange { .. } => work_queues
                                 .gossip_bls_to_execution_change_queue
                                 .push(work, work_id),
@@ -1310,6 +1329,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::GossipAggregate => work_queues.aggregate_queue.len(),
                         WorkType::UnknownBlockAggregate => {
                             work_queues.unknown_block_aggregate_queue.len()
+                        }
+                        WorkType::UnknownBlockPayloadAttestation => {
+                            work_queues.unknown_block_payload_attestation_queue.len()
                         }
                         WorkType::UnknownLightClientOptimisticUpdate => {
                             work_queues.unknown_light_client_update_queue.len()
@@ -1522,6 +1544,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             }),
             Work::UnknownBlockAttestation { process_fn }
             | Work::UnknownBlockAggregate { process_fn }
+            | Work::UnknownBlockPayloadAttestation { process_fn }
             | Work::UnknownBlockDataColumn { process_fn }
             | Work::UnknownLightClientOptimisticUpdate { process_fn, .. } => {
                 task_spawner.spawn_blocking(process_fn)
