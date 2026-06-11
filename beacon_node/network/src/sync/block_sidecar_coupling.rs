@@ -47,6 +47,8 @@ pub struct RangeBlockComponentsRequest<E: EthSpec> {
             Vec<Arc<SignedExecutionPayloadEnvelope<E>>>,
         >,
     >,
+    /// The peer that provided this batch's blocks; the batch is attributed to it on completion.
+    pub(crate) block_peer: Option<PeerId>,
 }
 
 pub enum ByRangeRequest<I: PartialEq + std::fmt::Display, T> {
@@ -109,6 +111,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             blocks_request: ByRangeRequest::Active(blocks_req_id),
             block_data_request,
             payloads_request: payloads_req_id.map(ByRangeRequest::Active),
+            block_peer: None,
         }
     }
 

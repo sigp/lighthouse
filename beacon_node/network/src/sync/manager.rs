@@ -1347,14 +1347,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: Option<PeerId>,
         range_block_component: RangeBlockComponent<T::EthSpec>,
     ) {
-        if let Some(resp) = self
-            .network
-            .range_block_component_response(range_request_id, range_block_component)
-        {
+        if let Some(resp) = self.network.range_block_component_response(
+            range_request_id,
+            peer_id,
+            range_block_component,
+        ) {
             match resp {
-                Ok(blocks) => {
-                    // Success path: peer_id should always be available
-                    let peer_id = peer_id.unwrap_or(PeerId::random());
+                // On success the batch is attributed to the peer that provided its blocks.
+                Ok((peer_id, blocks)) => {
                     match range_request_id.requester {
                         RangeRequestId::RangeSync { chain_id, batch_id } => {
                             self.range_sync.blocks_by_range_response(

@@ -647,11 +647,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     /// Received a blocks by range, blobs by range, or custody-by-root response for a request
     /// that couples blocks with their data. The coupling struct handles initiating custody-by-root
     /// requests when blocks arrive.
+    #[allow(clippy::type_complexity)]
     pub fn range_block_component_response(
         &mut self,
         id: ComponentsByRangeRequestId,
+        peer_id: Option<PeerId>,
         range_block_component: RangeBlockComponent<T::EthSpec>,
-    ) -> Option<Result<Vec<RangeSyncBlock<T::EthSpec>>, RpcResponseError>> {
+    ) -> Option<Result<(PeerId, Vec<RangeSyncBlock<T::EthSpec>>), RpcResponseError>> {
         // Remove from map to allow passing &mut self to continue_requests
         let mut request = self.components_by_range_requests.remove(&id)?;
 
@@ -660,7 +662,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             RangeBlockComponent::Block(req_id, resp) => resp.and_then(|(blocks, _)| {
                 request.add_blocks(req_id, blocks).map_err(|e| {
                     RpcResponseError::BlockComponentCouplingError(CouplingError::InternalError(e))
-                })
+                })?;
+                // Record the peer that provided the blocks for batch attribution.
+                request.block_peer = peer_id;
+                Ok(())
             }),
             RangeBlockComponent::Blob(req_id, resp) => resp.and_then(|(blobs, _)| {
                 request.add_blobs(req_id, blobs).map_err(|e| {
@@ -704,7 +709,17 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.chain.data_availability_checker.clone(),
             self.chain.spec.clone(),
         ) {
-            Some(blocks_result.map_err(RpcResponseError::BlockComponentCouplingError))
+            // The blocks have been received for `responses` to return `Some`, so `block_peer` is
+            // set; attribute the batch to it.
+            let Some(block_peer) = request.block_peer else {
+                self.components_by_range_requests.insert(id, request);
+                return None;
+            };
+            Some(
+                blocks_result
+                    .map(|blocks| (block_peer, blocks))
+                    .map_err(RpcResponseError::BlockComponentCouplingError),
+            )
         } else {
             // Re-insert — still waiting for more components
             self.components_by_range_requests.insert(id, request);
