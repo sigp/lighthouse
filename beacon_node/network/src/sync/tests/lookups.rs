@@ -229,6 +229,8 @@ pub(crate) struct TestRigConfig {
     fulu_test_type: FuluTestType,
     /// Override the node custody type derived from `fulu_test_type`
     node_custody_type_override: Option<NodeCustodyType>,
+    /// Which block-request protocol the rig's peers advertise.
+    peer_support: PeerSupport,
 }
 
 struct FullEmptyFork {
@@ -339,14 +341,16 @@ impl TestRig {
             complete_strategy: <_>::default(),
             initial_block_lookups_metrics: <_>::default(),
             fulu_test_type: test_rig_config.fulu_test_type,
+            peer_support: test_rig_config.peer_support,
         }
     }
 
-    pub fn default() -> Self {
+    pub fn default(peer_support: PeerSupport) -> Self {
         // Before Fulu, FuluTestType is irrelevant
         Self::new(TestRigConfig {
             fulu_test_type: FuluTestType::WeFullnodeThemSupernode,
             node_custody_type_override: None,
+            peer_support,
         })
     }
 
@@ -355,6 +359,7 @@ impl TestRig {
         Self::new(TestRigConfig {
             fulu_test_type: FuluTestType::WeFullnodeThemSupernode,
             node_custody_type_override: Some(node_custody_type),
+            peer_support: PeerSupport::default(),
         })
     }
 
@@ -851,18 +856,27 @@ impl TestRig {
             }
 
             (RequestType::BlocksByHead(req), AppRequestId::Sync(req_id)) => {
-                // Walk the parent chain from `beacon_root`, returning up to `count` blocks in
-                // descending slot order (the same shape the responder produces).
-                let mut blocks = vec![];
-                let mut block_root = req.beacon_root;
-                while (blocks.len() as u64) < req.count {
-                    let Some(block) = self.network_blocks_by_root.get(&block_root) else {
-                        break;
-                    };
-                    let block = block.block_cloned();
-                    block_root = block.parent_root();
-                    blocks.push(block);
-                }
+                let blocks = if self.complete_strategy.return_no_blocks_n_times > 0 {
+                    self.complete_strategy.return_no_blocks_n_times -= 1;
+                    vec![]
+                } else if self.complete_strategy.return_wrong_blocks_n_times > 0 {
+                    self.complete_strategy.return_wrong_blocks_n_times -= 1;
+                    vec![Arc::new(self.rand_block())]
+                } else {
+                    // Walk the parent chain from `beacon_root`, returning up to `count` blocks in
+                    // descending slot order (the same shape the responder produces).
+                    let mut blocks = vec![];
+                    let mut block_root = req.beacon_root;
+                    while (blocks.len() as u64) < req.count {
+                        let Some(block) = self.network_blocks_by_root.get(&block_root) else {
+                            break;
+                        };
+                        let block = block.block_cloned();
+                        block_root = block.parent_root();
+                        blocks.push(block);
+                    }
+                    blocks
+                };
                 self.send_rpc_blocks_response(req_id, peer_id, &blocks);
             }
 
@@ -1636,8 +1650,10 @@ impl TestRig {
 
     // Test setup
 
-    fn new_after_fulu() -> Option<Self> {
-        genesis_fork().fulu_enabled().then(Self::default)
+    fn new_after_fulu(peer_support: PeerSupport) -> Option<Self> {
+        genesis_fork()
+            .fulu_enabled()
+            .then(|| Self::default(peer_support))
     }
 
     pub fn new_fulu_peer_test(fulu_test_type: FuluTestType) -> Option<Self> {
@@ -1645,6 +1661,7 @@ impl TestRig {
             Self::new(TestRigConfig {
                 fulu_test_type,
                 node_custody_type_override: None,
+                peer_support: PeerSupport::default(),
             })
         })
     }
@@ -1819,6 +1836,9 @@ impl TestRig {
         self.log(&format!(
             "Added new peer for testing {peer_id:?}, custody: {peer_custody_str}"
         ));
+        if self.peer_support == PeerSupport::SupportsByHead {
+            self.set_peer_supports_by_head(peer_id);
+        }
         peer_id
     }
 
@@ -1841,6 +1861,9 @@ impl TestRig {
         self.log(&format!(
             "Added new peer for testing {peer_id:?}, custody: supernode"
         ));
+        if self.peer_support == PeerSupport::SupportsByHead {
+            self.set_peer_supports_by_head(peer_id);
+        }
         peer_id
     }
 
@@ -1849,10 +1872,15 @@ impl TestRig {
     ///  a connection is established.
     pub fn new_connected_supernode_peer_no_metadata_custody_subnet(&mut self) -> PeerId {
         let key = self.determinstic_key();
-        self.network_globals
-            .peers
-            .write()
-            .__add_connected_peer(true, key, &self.harness.spec)
+        let peer_id =
+            self.network_globals
+                .peers
+                .write()
+                .__add_connected_peer(true, key, &self.harness.spec);
+        if self.peer_support == PeerSupport::SupportsByHead {
+            self.set_peer_supports_by_head(peer_id);
+        }
+        peer_id
     }
 
     /// Update the peer's custody subnet in PeerDB and send a `UpdatedPeerCgc` message to sync.
@@ -2050,91 +2078,110 @@ fn stable_arbitrary() {
     );
 }
 
+/// Generates the whole lookup test suite for a single peer kind across the given depths.
 macro_rules! run_lookups_tests_for_depths {
-    ($($depth:literal),+ $(,)?) => {
+    ($peer_kind:ident, $protocol:expr, depths: [$($depth:literal),+ $(,)?]) => {
         paste::paste! {
             $(
                 #[tokio::test]
-                async fn [<happy_path_unknown_attestation_depth_ $depth>]() {
-                    happy_path_unknown_attestation($depth).await;
+                async fn [<happy_path_unknown_attestation_ $peer_kind _depth_ $depth>]() {
+                    happy_path_unknown_attestation($depth, $protocol).await;
                 }
 
                 #[tokio::test]
-                async fn [<happy_path_unknown_block_parent_depth_ $depth>]() {
-                    happy_path_unknown_block_parent($depth).await;
+                async fn [<happy_path_unknown_block_parent_ $peer_kind _depth_ $depth>]() {
+                    happy_path_unknown_block_parent($depth, $protocol).await;
                 }
 
                 #[tokio::test]
-                async fn [<happy_path_unknown_data_parent_depth_ $depth>]() {
-                    happy_path_unknown_data_parent($depth).await;
+                async fn [<happy_path_unknown_data_parent_ $peer_kind _depth_ $depth>]() {
+                    happy_path_unknown_data_parent($depth, $protocol).await;
                 }
 
                 #[tokio::test]
-                async fn [<happy_path_multiple_triggers_depth_ $depth>]() {
-                    happy_path_multiple_triggers($depth).await;
+                async fn [<happy_path_multiple_triggers_ $peer_kind _depth_ $depth>]() {
+                    happy_path_multiple_triggers($depth, $protocol).await;
                 }
 
                 #[tokio::test]
-                async fn [<bad_peer_empty_block_response_depth_ $depth>]() {
-                    bad_peer_empty_block_response($depth).await;
+                async fn [<bad_peer_empty_block_response_ $peer_kind _depth_ $depth>]() {
+                    bad_peer_empty_block_response($depth, $protocol).await;
                 }
 
                 #[tokio::test]
-                async fn [<bad_peer_empty_data_response_depth_ $depth>]() {
-                    bad_peer_empty_data_response($depth).await;
+                async fn [<bad_peer_empty_data_response_ $peer_kind _depth_ $depth>]() {
+                    bad_peer_empty_data_response($depth, $protocol).await;
                 }
 
                 #[tokio::test]
-                async fn [<bad_peer_too_few_data_response_depth_ $depth>]() {
-                    bad_peer_too_few_data_response($depth).await;
+                async fn [<bad_peer_too_few_data_response_ $peer_kind _depth_ $depth>]() {
+                    bad_peer_too_few_data_response($depth, $protocol).await;
                 }
 
                 #[tokio::test]
-                async fn [<bad_peer_wrong_block_response_depth_ $depth>]() {
-                    bad_peer_wrong_block_response($depth).await;
+                async fn [<bad_peer_wrong_block_response_ $peer_kind _depth_ $depth>]() {
+                    bad_peer_wrong_block_response($depth, $protocol).await;
                 }
 
                 #[tokio::test]
-                async fn [<bad_peer_wrong_data_response_depth_ $depth>]() {
-                    bad_peer_wrong_data_response($depth).await;
+                async fn [<bad_peer_wrong_data_response_ $peer_kind _depth_ $depth>]() {
+                    bad_peer_wrong_data_response($depth, $protocol).await;
                 }
 
                 #[tokio::test]
-                async fn [<bad_peer_rpc_failure_depth_ $depth>]() {
-                    bad_peer_rpc_failure($depth).await;
+                async fn [<bad_peer_rpc_failure_ $peer_kind _depth_ $depth>]() {
+                    bad_peer_rpc_failure($depth, $protocol).await;
                 }
 
                 #[tokio::test]
-                async fn [<too_many_download_failures_depth_ $depth>]() {
-                    too_many_download_failures($depth).await;
+                async fn [<too_many_download_failures_ $peer_kind _depth_ $depth>]() {
+                    too_many_download_failures($depth, $protocol).await;
                 }
 
                 #[tokio::test]
-                async fn [<too_many_processing_failures_depth_ $depth>]() {
-                    too_many_processing_failures($depth).await;
+                async fn [<too_many_processing_failures_ $peer_kind _depth_ $depth>]() {
+                    too_many_processing_failures($depth, $protocol).await;
                 }
 
                 #[tokio::test]
-                async fn [<peer_disconnected_then_rpc_error_depth_ $depth>]() {
-                    peer_disconnected_then_rpc_error($depth).await;
+                async fn [<peer_disconnected_then_rpc_error_ $peer_kind _depth_ $depth>]() {
+                    peer_disconnected_then_rpc_error($depth, $protocol).await;
                 }
             )+
         }
     };
 }
 
-run_lookups_tests_for_depths!(1, 2);
+/// Runs the whole lookup suite against each peer kind (by-root only vs. by-head capable) for all
+/// depths, by invoking [`run_lookups_tests_for_depths`] once per peer kind.
+macro_rules! run_lookups_tests {
+    (
+        peers: [$($peer_kind:ident => $protocol:expr),+ $(,)?],
+        depths: $depths:tt $(,)?
+    ) => {
+        $(
+            run_lookups_tests_for_depths!($peer_kind, $protocol, depths: $depths);
+        )+
+    };
+}
+
+run_lookups_tests!(
+    peers: [
+        by_root => PeerSupport::DoesNotSupport,
+        by_head => PeerSupport::SupportsByHead,
+    ],
+    depths: [1, 2],
+);
 
 /// A peer that supports `beacon_blocks_by_head` should fetch a whole unknown ancestor chain with a
 /// single request, caching every block, so no `beacon_blocks_by_root` requests are needed.
 #[tokio::test]
 async fn blocks_by_head_fetches_whole_chain_in_one_request() {
-    let mut r = TestRig::default();
+    // Peers advertise `beacon_blocks_by_head`, so lookups fetch via it.
+    let mut r = TestRig::default(PeerSupport::SupportsByHead);
     // A chain that fits in a single by-head response and stays under `PARENT_DEPTH_TOLERANCE`.
     r.build_chain(BLOCKS_BY_HEAD_REQUEST_COUNT as usize).await;
-    // A peer that advertises `beacon_blocks_by_head`.
     let peer_id = r.new_connected_supernode_peer();
-    r.set_peer_supports_by_head(peer_id);
     // Trigger an unknown-parent lookup for the chain tip from that peer.
     let tip = r.get_last_block().block_cloned();
     r.trigger_unknown_parent_block(peer_id, tip);
@@ -2148,8 +2195,8 @@ async fn blocks_by_head_fetches_whole_chain_in_one_request() {
 }
 
 /// Assert that lookup sync succeeds with the happy case
-async fn happy_path_unknown_attestation(depth: usize) {
-    let mut r = TestRig::default();
+async fn happy_path_unknown_attestation(depth: usize, peer_support: PeerSupport) {
+    let mut r = TestRig::default(peer_support);
     // We get attestation for a block descendant (depth) blocks of current head
     r.build_chain_and_trigger_last_block(depth).await;
     // Complete the request with good peer behaviour
@@ -2157,8 +2204,8 @@ async fn happy_path_unknown_attestation(depth: usize) {
     r.assert_successful_lookup_sync();
 }
 
-async fn happy_path_unknown_block_parent(depth: usize) {
-    let mut r = TestRig::default();
+async fn happy_path_unknown_block_parent(depth: usize, peer_support: PeerSupport) {
+    let mut r = TestRig::default(peer_support);
     r.build_chain(depth).await;
     r.trigger_with_last_unknown_block_parent();
     r.simulate(SimulateConfig::happy_path()).await;
@@ -2173,8 +2220,8 @@ async fn happy_path_unknown_block_parent(depth: usize) {
 }
 
 /// Assert that sync completes from an UnknownDataColumnParent
-async fn happy_path_unknown_data_parent(depth: usize) {
-    let Some(mut r) = TestRig::new_after_fulu() else {
+async fn happy_path_unknown_data_parent(depth: usize, peer_support: PeerSupport) {
+    let Some(mut r) = TestRig::new_after_fulu(peer_support) else {
         return;
     };
     // No unknown-parent data-column trigger post-Gloas.
@@ -2188,8 +2235,8 @@ async fn happy_path_unknown_data_parent(depth: usize) {
 }
 
 /// Assert that multiple trigger types don't create extra lookups
-async fn happy_path_multiple_triggers(depth: usize) {
-    let Some(mut r) = TestRig::new_after_fulu() else {
+async fn happy_path_multiple_triggers(depth: usize, peer_support: PeerSupport) {
+    let Some(mut r) = TestRig::new_after_fulu(peer_support) else {
         return;
     };
     // + 1, because the unknown parent trigger needs two new blocks
@@ -2209,8 +2256,8 @@ async fn happy_path_multiple_triggers(depth: usize) {
 // Test bad behaviour of peers
 
 /// Assert that if peer responds with no blocks, we downscore, and retry the same lookup
-async fn bad_peer_empty_block_response(depth: usize) {
-    let mut r = TestRig::default();
+async fn bad_peer_empty_block_response(depth: usize, peer_support: PeerSupport) {
+    let mut r = TestRig::default(peer_support);
     r.build_chain_and_trigger_last_block(depth).await;
     // Simulate that peer returns empty response once, then good behaviour
     r.simulate(SimulateConfig::new().return_no_blocks_once())
@@ -2224,8 +2271,8 @@ async fn bad_peer_empty_block_response(depth: usize) {
 }
 
 /// Assert that if peer responds with no columns, we downscore, and retry the same lookup.
-async fn bad_peer_empty_data_response(depth: usize) {
-    let Some(mut r) = TestRig::new_after_fulu() else {
+async fn bad_peer_empty_data_response(depth: usize, peer_support: PeerSupport) {
+    let Some(mut r) = TestRig::new_after_fulu(peer_support) else {
         return;
     };
     r.build_chain_and_trigger_last_block(depth).await;
@@ -2242,8 +2289,8 @@ async fn bad_peer_empty_data_response(depth: usize) {
 
 /// Assert that if peer responds with not enough columns, we downscore, and retry the same
 /// lookup.
-async fn bad_peer_too_few_data_response(depth: usize) {
-    let Some(mut r) = TestRig::new_after_fulu() else {
+async fn bad_peer_too_few_data_response(depth: usize, peer_support: PeerSupport) {
+    let Some(mut r) = TestRig::new_after_fulu(peer_support) else {
         return;
     };
     r.build_chain_and_trigger_last_block(depth).await;
@@ -2259,8 +2306,8 @@ async fn bad_peer_too_few_data_response(depth: usize) {
 }
 
 /// Assert that if peer responds with bad blocks, we downscore, and retry the same lookup
-async fn bad_peer_wrong_block_response(depth: usize) {
-    let mut r = TestRig::default();
+async fn bad_peer_wrong_block_response(depth: usize, peer_support: PeerSupport) {
+    let mut r = TestRig::default(peer_support);
     r.build_chain_and_trigger_last_block(depth).await;
     r.simulate(SimulateConfig::new().return_wrong_blocks_once())
         .await;
@@ -2271,8 +2318,8 @@ async fn bad_peer_wrong_block_response(depth: usize) {
 }
 
 /// Assert that if peer responds with bad columns, we downscore, and retry the same lookup.
-async fn bad_peer_wrong_data_response(depth: usize) {
-    let Some(mut r) = TestRig::new_after_fulu() else {
+async fn bad_peer_wrong_data_response(depth: usize, peer_support: PeerSupport) {
+    let Some(mut r) = TestRig::new_after_fulu(peer_support) else {
         return;
     };
     r.build_chain_and_trigger_last_block(depth).await;
@@ -2290,8 +2337,8 @@ async fn bad_peer_wrong_data_response(depth: usize) {
 }
 
 /// Assert that on network error, we DON'T downscore, and retry the same lookup
-async fn bad_peer_rpc_failure(depth: usize) {
-    let mut r = TestRig::default();
+async fn bad_peer_rpc_failure(depth: usize, peer_support: PeerSupport) {
+    let mut r = TestRig::default(peer_support);
     r.build_chain_and_trigger_last_block(depth).await;
     r.simulate(SimulateConfig::new().return_rpc_error(RPCError::UnsupportedProtocol))
         .await;
@@ -2302,8 +2349,8 @@ async fn bad_peer_rpc_failure(depth: usize) {
 // Test retry logic
 
 /// Assert that on too many download failures the lookup fails, but we can still sync
-async fn too_many_download_failures(depth: usize) {
-    let mut r = TestRig::default();
+async fn too_many_download_failures(depth: usize, peer_support: PeerSupport) {
+    let mut r = TestRig::default(peer_support);
     r.build_chain_and_trigger_last_block(depth).await;
     // Simulate that a peer always returns empty
     r.simulate(SimulateConfig::new().return_no_blocks_always())
@@ -2321,8 +2368,8 @@ async fn too_many_download_failures(depth: usize) {
 }
 
 /// Assert that on too many processing failures the lookup fails, but we can still sync
-async fn too_many_processing_failures(depth: usize) {
-    let mut r = TestRig::default();
+async fn too_many_processing_failures(depth: usize, peer_support: PeerSupport) {
+    let mut r = TestRig::default(peer_support);
     r.build_chain_and_trigger_last_block(depth).await;
     // Simulate that a peer always returns empty
     r.simulate(
@@ -2351,7 +2398,7 @@ async fn too_many_processing_failures(depth: usize) {
 #[tokio::test]
 /// Assert that multiple trigger types don't create extra lookups
 async fn unknown_parent_does_not_add_peers_to_itself() {
-    let Some(mut r) = TestRig::new_after_fulu() else {
+    let Some(mut r) = TestRig::new_after_fulu(PeerSupport::DoesNotSupport) else {
         return;
     };
     // 2, because the unknown parent trigger needs two new blocks
@@ -2386,7 +2433,7 @@ async fn unknown_parent_does_not_add_peers_to_itself() {
 /// Assert that a non-attributable processing error (e.g. processor overloaded) is retried up to
 /// `SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS`, no peer is penalized, and the lookup is then dropped.
 async fn test_single_block_lookup_ignored_response() {
-    let mut r = TestRig::default();
+    let mut r = TestRig::default(PeerSupport::DoesNotSupport);
     r.build_chain_and_trigger_last_block(1).await;
     r.simulate(
         SimulateConfig::new().with_process_result(|| BlockProcessingResult::Error {
@@ -2406,7 +2453,7 @@ async fn test_single_block_lookup_ignored_response() {
 #[tokio::test]
 /// Assert that if the beacon processor returns DuplicateFullyImported, the lookup completes successfully
 async fn test_single_block_lookup_duplicate_response() {
-    let mut r = TestRig::default();
+    let mut r = TestRig::default(PeerSupport::DoesNotSupport);
     // The mock only covers block processing; Gloas also needs real envelope/column results.
     if r.is_after_gloas() {
         return;
@@ -2424,8 +2471,8 @@ async fn test_single_block_lookup_duplicate_response() {
 }
 
 /// Assert that when peers disconnect the lookups are not dropped (kept with zero peers)
-async fn peer_disconnected_then_rpc_error(depth: usize) {
-    let mut r = TestRig::default();
+async fn peer_disconnected_then_rpc_error(depth: usize, peer_support: PeerSupport) {
+    let mut r = TestRig::default(peer_support);
     r.build_chain_and_trigger_last_block(depth).await;
     r.assert_single_lookups_count(1);
     // The peer disconnect event reaches sync before the rpc error.
@@ -2449,7 +2496,7 @@ async fn peer_disconnected_then_rpc_error(depth: usize) {
 /// peers recursively from child to parent.
 async fn lookups_form_chain() {
     let depth = 5;
-    let mut r = TestRig::default();
+    let mut r = TestRig::default(PeerSupport::DoesNotSupport);
     r.build_chain(depth).await;
     for slot in (1..=depth).rev() {
         r.trigger_with_block_at_slot(slot as u64);
@@ -2474,7 +2521,7 @@ async fn lookups_form_chain() {
 #[tokio::test]
 /// Assert that if a lookup chain (by appending ancestors) is too long we drop it
 async fn test_parent_lookup_too_deep_grow_ancestor_one() {
-    let mut r = TestRig::default();
+    let mut r = TestRig::default(PeerSupport::DoesNotSupport);
     // TODO(gloas): range sync does not fetch payload envelopes yet.
     if r.is_after_gloas() {
         return;
@@ -2505,7 +2552,7 @@ async fn test_parent_lookup_too_deep_grow_ancestor_one() {
 
 #[tokio::test]
 async fn test_parent_lookup_too_deep_grow_ancestor_zero() {
-    let mut r = TestRig::default();
+    let mut r = TestRig::default(PeerSupport::DoesNotSupport);
     r.build_chain(PARENT_DEPTH_TOLERANCE).await;
     r.trigger_with_last_block();
     r.simulate(SimulateConfig::happy_path()).await;
@@ -2525,7 +2572,7 @@ async fn test_parent_lookup_too_deep_grow_ancestor_zero() {
 // ignored chains cache. The regression test still applies as the child lookup is not created
 #[tokio::test]
 async fn test_child_lookup_not_created_for_ignored_chain_parent_after_processing() {
-    let mut r = TestRig::default();
+    let mut r = TestRig::default(PeerSupport::DoesNotSupport);
     let depth = PARENT_DEPTH_TOLERANCE + 1;
     r.build_chain(depth + 1).await;
     r.trigger_with_block_at_slot(depth as u64);
@@ -2553,7 +2600,7 @@ async fn test_child_lookup_not_created_for_ignored_chain_parent_after_processing
 /// Assert that if a lookup chain (by appending tips) is too long we drop it
 async fn test_parent_lookup_too_deep_grow_tip() {
     let depth = PARENT_DEPTH_TOLERANCE + 1;
-    let mut r = TestRig::default();
+    let mut r = TestRig::default(PeerSupport::DoesNotSupport);
     r.build_chain(depth).await;
     for slot in (1..=depth).rev() {
         r.trigger_with_block_at_slot(slot as u64);
@@ -2577,7 +2624,7 @@ async fn test_parent_lookup_too_deep_grow_tip() {
 
 #[tokio::test]
 async fn test_skip_creating_ignored_parent_lookup() {
-    let mut r = TestRig::default();
+    let mut r = TestRig::default(PeerSupport::DoesNotSupport);
     r.build_chain(2).await;
     r.insert_ignored_chain(r.block_root_at_slot(1));
     r.trigger_with_last_block();
@@ -2600,7 +2647,7 @@ async fn test_skip_creating_ignored_parent_lookup() {
 /// - Block 2: Import ok (parent block 1 is available)
 /// - Block 3: Import ok (parent block 2 is available)
 async fn test_same_chain_race_condition() {
-    let mut r = TestRig::default();
+    let mut r = TestRig::default(PeerSupport::DoesNotSupport);
     r.build_chain(3).await;
 
     let block_1_root = r.block_root_at_slot(1);
@@ -2626,7 +2673,7 @@ async fn test_same_chain_race_condition() {
 /// Assert that if the lookup's block is in the da_checker we don't download it again
 async fn block_in_da_checker_skips_download() {
     // Only post-Fulu, as the block needs custody columns to remain in the da_checker
-    let Some(mut r) = TestRig::new_after_fulu() else {
+    let Some(mut r) = TestRig::new_after_fulu(PeerSupport::DoesNotSupport) else {
         return;
     };
     // TODO(gloas): the helper does not populate the envelope missing-component path yet.
@@ -2744,7 +2791,7 @@ async fn custody_lookup_permanent_custody_failures(test_type: FuluTestType) {
 // assert that signatures and kzg proofs are checked
 #[tokio::test]
 async fn crypto_on_fail_with_invalid_block_signature() {
-    let mut r = TestRig::default();
+    let mut r = TestRig::default(PeerSupport::DoesNotSupport);
     r.build_chain(1).await;
     r.corrupt_last_block_signature();
     r.trigger_with_last_block();
