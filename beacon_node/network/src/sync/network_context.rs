@@ -43,9 +43,10 @@ use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSourc
 use parking_lot::RwLock;
 pub use requests::LookupVerifyError;
 use requests::{
-    ActiveRequests, BlobsByRangeRequestItems, BlocksByHeadRequestItems, BlocksByRangeRequestItems,
-    BlocksByRootRequestItems, DataColumnsByRangeRequestItems, DataColumnsByRootRequestItems,
-    PayloadEnvelopesByRangeRequestItems, PayloadEnvelopesByRootRequestItems,
+    ActiveRequestItems, ActiveRequests, BlobsByRangeRequestItems, BlocksByHeadRequestItems,
+    BlocksByRangeRequestItems, BlocksByRootRequestItems, DataColumnsByRangeRequestItems,
+    DataColumnsByRootRequestItems, PayloadEnvelopesByRangeRequestItems,
+    PayloadEnvelopesByRootRequestItems,
 };
 #[cfg(test)]
 use slot_clock::SlotClock;
@@ -117,27 +118,49 @@ pub struct AncestorBlocks<E: EthSpec> {
     pub ancestor_blocks: Vec<Arc<SignedBeaconBlock<E>>>,
 }
 
-/// Converts a block download response into [`AncestorBlocks`]: the requested root first (becoming
-/// `first_block`), then its ancestors in descending slot order. Errors on an empty run so block
-/// lookups always receive at least the requested block.
-fn into_ancestor_blocks<E: EthSpec>(
-    resp: Option<RpcResponseResult<Vec<Arc<SignedBeaconBlock<E>>>>>,
-) -> Option<RpcResponseResult<AncestorBlocks<E>>> {
-    resp.map(|res| {
-        res.and_then(|(blocks, seen_timestamp)| {
-            let mut blocks = blocks.into_iter();
-            let first_block = blocks.next().ok_or_else(|| {
-                RpcResponseError::from(LookupVerifyError::NotEnoughResponsesReturned { actual: 0 })
-            })?;
-            Ok((
-                AncestorBlocks {
-                    first_block,
-                    ancestor_blocks: blocks.collect(),
-                },
-                seen_timestamp,
-            ))
+impl<E: EthSpec> AncestorBlocks<E> {
+    /// A single block with no ancestors.
+    pub fn from_single(block: Arc<SignedBeaconBlock<E>>) -> Self {
+        Self {
+            first_block: block,
+            ancestor_blocks: vec![],
+        }
+    }
+
+    /// The requested root first (becoming `first_block`), then its ancestors in descending slot
+    /// order. Returns `None` for an empty run.
+    pub fn from_vec(blocks: Vec<Arc<SignedBeaconBlock<E>>>) -> Option<Self> {
+        let mut blocks = blocks.into_iter();
+        let first_block = blocks.next()?;
+        Some(Self {
+            first_block,
+            ancestor_blocks: blocks.collect(),
         })
-    })
+    }
+}
+
+/// Per-peer count of active requests for a single protocol, to keep peer selection within
+/// `MAX_CONCURRENT_REQUESTS` concurrent requests per protocol ID.
+struct ActiveRequestsPerPeer {
+    count_by_peer: HashMap<PeerId, usize>,
+}
+
+impl ActiveRequestsPerPeer {
+    fn new<K, T>(requests: &ActiveRequests<K, T>) -> Self
+    where
+        K: Copy + Eq + std::hash::Hash + std::fmt::Display,
+        T: ActiveRequestItems,
+    {
+        let mut count_by_peer = HashMap::<PeerId, usize>::new();
+        for peer_id in requests.iter_request_peers() {
+            *count_by_peer.entry(peer_id).or_default() += 1;
+        }
+        Self { count_by_peer }
+    }
+
+    fn at_concurrency_limit(&self, peer_id: &PeerId) -> bool {
+        self.count_by_peer.get(peer_id).copied().unwrap_or(0) >= MAX_CONCURRENT_REQUESTS
+    }
 }
 
 #[derive(Debug)]
@@ -543,24 +566,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         active_request_count_by_peer
     }
 
-    /// Number of active `blocks_by_root` requests per peer.
-    fn active_blocks_by_root_requests_by_peer(&self) -> HashMap<PeerId, usize> {
-        let mut count_by_peer = HashMap::new();
-        for peer_id in self.blocks_by_root_requests.iter_request_peers() {
-            *count_by_peer.entry(peer_id).or_default() += 1;
-        }
-        count_by_peer
-    }
-
-    /// Number of active `blocks_by_head` requests per peer.
-    fn active_blocks_by_head_requests_by_peer(&self) -> HashMap<PeerId, usize> {
-        let mut count_by_peer = HashMap::new();
-        for peer_id in self.blocks_by_head_requests.iter_request_peers() {
-            *count_by_peer.entry(peer_id).or_default() += 1;
-        }
-        count_by_peer
-    }
-
     /// Retries only the specified failed columns by requesting them again.
     ///
     /// Note: This function doesn't retry the whole batch, but retries specific requests within
@@ -962,26 +967,20 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         block_root: Hash256,
     ) -> Result<LookupRequestResult<Arc<SignedBeaconBlock<T::EthSpec>>>, RpcRequestSendError> {
         let active_request_count_by_peer = self.active_request_count_by_peer();
-        let active_blocks_by_root_requests = self.active_blocks_by_root_requests_by_peer();
-        let active_blocks_by_head_requests = self.active_blocks_by_head_requests_by_peer();
+        let blocks_by_root_per_peer = ActiveRequestsPerPeer::new(&self.blocks_by_root_requests);
+        let blocks_by_head_per_peer = ActiveRequestsPerPeer::new(&self.blocks_by_head_requests);
         let Some(peer_id) = lookup_peers
             .read()
             .iter()
             .map(|peer| {
                 let supports_blocks_by_head = self.peer_supports_blocks_by_head(peer);
-                // The spec limits concurrent requests per protocol ID, so gate on the in-flight
-                // count for the protocol we would actually use.
-                let at_concurrency_limit = (if supports_blocks_by_head {
-                    active_blocks_by_head_requests
-                        .get(peer)
-                        .copied()
-                        .unwrap_or(0)
+                // The spec limits concurrent requests per protocol ID, so gate on the protocol we
+                // would actually use.
+                let at_concurrency_limit = if supports_blocks_by_head {
+                    blocks_by_head_per_peer.at_concurrency_limit(peer)
                 } else {
-                    active_blocks_by_root_requests
-                        .get(peer)
-                        .copied()
-                        .unwrap_or(0)
-                }) >= MAX_CONCURRENT_REQUESTS;
+                    blocks_by_root_per_peer.at_concurrency_limit(peer)
+                };
                 (
                     // Strictly de-prioritize peers already at the concurrent-request limit
                     at_concurrency_limit,
@@ -1028,29 +1027,28 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             }
         }
 
-        let id = SingleLookupReqId {
-            lookup_id,
-            req_id: self.next_id(),
-        };
-
         // If the peer supports `beacon_blocks_by_head`, fetch the block and a run of its ancestors
         // in a single request; otherwise fall back to `beacon_blocks_by_root` for the single block.
-        if self.peer_supports_blocks_by_head(&peer_id) {
-            self.send_blocks_by_head(peer_id, id, block_root)?;
+        let req_id = if self.peer_supports_blocks_by_head(&peer_id) {
+            self.send_blocks_by_head(peer_id, lookup_id, block_root)?
         } else {
-            self.send_block_by_root_request(peer_id, id, block_root)?;
-        }
+            self.send_block_by_root_request(peer_id, lookup_id, block_root)?
+        };
 
-        Ok(LookupRequestResult::RequestSent(id.req_id))
+        Ok(LookupRequestResult::RequestSent(req_id))
     }
 
     /// Sends a `beacon_blocks_by_root` request to `peer_id` for the single block `block_root`.
     fn send_block_by_root_request(
         &mut self,
         peer_id: PeerId,
-        id: SingleLookupReqId,
+        lookup_id: SingleLookupId,
         block_root: Hash256,
-    ) -> Result<(), RpcRequestSendError> {
+    ) -> Result<Id, RpcRequestSendError> {
+        let id = SingleLookupReqId {
+            lookup_id,
+            req_id: self.next_id(),
+        };
         // Lookup sync event safety: If network_send.send() returns Ok(_) we are guaranteed that
         // eventually at least one of these 3 events will be received:
         // - StreamTermination(request_id): handled by `Self::on_single_block_response`
@@ -1094,7 +1092,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             request_span,
         );
 
-        Ok(())
+        Ok(id.req_id)
     }
 
     /// Sends a `beacon_blocks_by_head` request to `peer_id`, fetching `block_root` and a run of its
@@ -1102,9 +1100,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     fn send_blocks_by_head(
         &mut self,
         peer_id: PeerId,
-        id: SingleLookupReqId,
+        lookup_id: SingleLookupId,
         block_root: Hash256,
-    ) -> Result<(), RpcRequestSendError> {
+    ) -> Result<Id, RpcRequestSendError> {
+        let id = SingleLookupReqId {
+            lookup_id,
+            req_id: self.next_id(),
+        };
         // Lookup sync event safety: see `send_block_by_root_request`. The same guarantees apply,
         // with the events handled by `Self::on_blocks_by_head_response`.
         let request = BlocksByHeadRequest {
@@ -1142,7 +1144,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             request_span,
         );
 
-        Ok(())
+        Ok(id.req_id)
     }
 
     /// Request a payload envelope for a block root via PayloadEnvelopesByRoot RPC.
@@ -1662,7 +1664,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     ) -> Option<RpcResponseResult<AncestorBlocks<T::EthSpec>>> {
         // `blocks_by_root_requests` enforces that exactly one chunk = one block is returned, so the
         // `AncestorBlocks` always has a single block and no ancestors.
-        let resp = into_ancestor_blocks(self.blocks_by_root_requests.on_response(id, rpc_event));
+        let resp = self.blocks_by_root_requests.on_response(id, rpc_event);
+        let resp = resp.map(|res| {
+            res.and_then(|(mut blocks, seen_timestamp)| {
+                let block = blocks.pop().ok_or(RpcResponseError::from(
+                    LookupVerifyError::NotEnoughResponsesReturned { actual: 0 },
+                ))?;
+                Ok((AncestorBlocks::from_single(block), seen_timestamp))
+            })
+        });
         self.on_rpc_response_result(resp, peer_id)
     }
 
@@ -1674,7 +1684,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     ) -> Option<RpcResponseResult<AncestorBlocks<T::EthSpec>>> {
         // The response has the requested `beacon_root` first (the chain tip, becoming `first_block`)
         // followed by its ancestors in descending slot order.
-        let resp = into_ancestor_blocks(self.blocks_by_head_requests.on_response(id, rpc_event));
+        let resp = self.blocks_by_head_requests.on_response(id, rpc_event);
+        let resp = resp.map(|res| {
+            res.and_then(|(blocks, seen_timestamp)| {
+                let value = AncestorBlocks::from_vec(blocks).ok_or(RpcResponseError::from(
+                    LookupVerifyError::NotEnoughResponsesReturned { actual: 0 },
+                ))?;
+                Ok((value, seen_timestamp))
+            })
+        });
         self.on_rpc_response_result(resp, peer_id)
     }
 
