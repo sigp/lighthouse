@@ -46,8 +46,8 @@ pub enum Error {
     /// There should only exist a single request at a time. Having multiple requests is a bug and
     /// can result in undefined state, so it's treated as a hard error and the lookup is dropped.
     UnexpectedRequestId {
-        expected_req_id: DataColumnsByRootRequestId,
-        req_id: DataColumnsByRootRequestId,
+        expected_req_id: Box<DataColumnsByRootRequestId>,
+        req_id: Box<DataColumnsByRootRequestId>,
     },
 }
 
@@ -452,8 +452,8 @@ impl<E: EthSpec> ColumnRequest<E> {
             Status::Downloading(expected_req_id) => {
                 if req_id != *expected_req_id {
                     return Err(Error::UnexpectedRequestId {
-                        expected_req_id: *expected_req_id,
-                        req_id,
+                        expected_req_id: Box::new(*expected_req_id),
+                        req_id: Box::new(req_id),
                     });
                 }
                 self.status = Status::NotStarted(Instant::now());
@@ -485,8 +485,8 @@ impl<E: EthSpec> ColumnRequest<E> {
             Status::Downloading(expected_req_id) => {
                 if req_id != *expected_req_id {
                     return Err(Error::UnexpectedRequestId {
-                        expected_req_id: *expected_req_id,
-                        req_id,
+                        expected_req_id: Box::new(*expected_req_id),
+                        req_id: Box::new(req_id),
                     });
                 }
                 self.status = Status::Downloaded(peer_id, data_column, seen_timestamp);

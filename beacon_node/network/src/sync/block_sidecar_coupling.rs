@@ -9,19 +9,21 @@ use beacon_chain::{
 use lighthouse_network::{
     PeerId,
     service::api_types::{
-        BlobsByRangeRequestId, BlocksByRangeRequestId, DataColumnsByRangeRequestId,
-        PayloadEnvelopesByRangeRequestId,
+        BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
+        CustodyRequester, PayloadEnvelopesByRangeRequestId, RangeSyncCustodyId,
     },
 };
+use parking_lot::RwLock;
 use ssz_types::RuntimeVariableList;
-use std::{collections::HashMap, sync::Arc};
-use tracing::{Span, debug, warn};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use tracing::{debug, warn};
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
     Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
 };
 
-use crate::sync::network_context::MAX_COLUMN_RETRIES;
+use crate::sync::network_context::{LookupRequestResult, PeerGroup, SyncNetworkContext};
 
 /// Accumulates and couples beacon blocks with their associated data (blobs or data columns)
 /// from range sync network responses.
@@ -29,11 +31,11 @@ use crate::sync::network_context::MAX_COLUMN_RETRIES;
 /// This struct acts as temporary storage while multiple network responses arrive:
 /// - Blocks themselves (always required)
 /// - Blob sidecars (pre-Fulu fork)
-/// - Data columns (Fulu fork and later)
+/// - Data columns (Fulu fork and later, via custody-by-root)
+/// - Payload envelopes (Gloas fork and later)
 ///
 /// It accumulates responses until all expected components are received, then couples
-/// them together and returns complete `RpcBlock`s ready for processing. Handles validation
-/// and peer failure detection during the coupling process.
+/// them together and returns complete `RangeSyncBlock`s ready for processing.
 pub struct RangeBlockComponentsRequest<E: EthSpec> {
     /// Blocks we have received awaiting for their corresponding sidecar.
     blocks_request: ByRangeRequest<BlocksByRangeRequestId, Vec<Arc<SignedBeaconBlock<E>>>>,
@@ -46,8 +48,6 @@ pub struct RangeBlockComponentsRequest<E: EthSpec> {
             Vec<Arc<SignedExecutionPayloadEnvelope<E>>>,
         >,
     >,
-    /// Span to track the range request and all children range requests.
-    pub(crate) request_span: Span,
 }
 
 pub enum ByRangeRequest<I: PartialEq + std::fmt::Display, T> {
@@ -59,15 +59,18 @@ enum RangeBlockDataRequest<E: EthSpec> {
     NoData,
     Blobs(ByRangeRequest<BlobsByRangeRequestId, Vec<Arc<BlobSidecar<E>>>>),
     DataColumns {
-        requests: HashMap<
-            DataColumnsByRangeRequestId,
-            ByRangeRequest<DataColumnsByRangeRequestId, DataColumnSidecarList<E>>,
-        >,
-        /// The column indices corresponding to the request
-        column_peers: HashMap<DataColumnsByRangeRequestId, Vec<ColumnIndex>>,
+        /// Per-block-root custody-by-root state. Populated by `continue_requests` once blocks
+        /// arrive and completed by `add_custody_columns` as each custody-by-root request resolves.
+        custody_columns_by_root: HashMap<Hash256, DataColumnsState<E>>,
+        /// The custody columns we expect for each block with data in this batch.
         expected_custody_columns: Vec<ColumnIndex>,
-        attempt: usize,
     },
+}
+
+#[derive(Clone)]
+enum DataColumnsState<E: EthSpec> {
+    Requesting,
+    Complete(DataColumnSidecarList<E>, PeerGroup),
 }
 
 #[derive(Debug)]
@@ -77,7 +80,6 @@ pub enum CouplingError {
     DataColumnPeerFailure {
         error: String,
         faulty_peers: Vec<(ColumnIndex, PeerId)>,
-        exceeded_retries: bool,
     },
     BlobPeerFailure(String),
     EnvelopePeerFailure(String),
@@ -89,30 +91,20 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     /// # Arguments
     /// * `blocks_req_id` - Request ID for the blocks
     /// * `blobs_req_id` - Optional request ID for blobs (pre-Fulu fork)
-    /// * `data_columns` - Optional tuple of (request_id->column_indices pairs, expected_custody_columns) for Fulu fork
-    #[allow(clippy::type_complexity)]
+    /// * `expects_custody_columns` - If Some, custody-by-root will be used after blocks arrive
+    /// * `payloads_req_id` - Optional request ID for payload envelopes (Gloas fork)
     pub fn new(
         blocks_req_id: BlocksByRangeRequestId,
         blobs_req_id: Option<BlobsByRangeRequestId>,
-        data_columns: Option<(
-            Vec<(DataColumnsByRangeRequestId, Vec<ColumnIndex>)>,
-            Vec<ColumnIndex>,
-        )>,
+        expects_custody_columns: Option<Vec<ColumnIndex>>,
         payloads_req_id: Option<PayloadEnvelopesByRangeRequestId>,
-        request_span: Span,
     ) -> Self {
         let block_data_request = if let Some(blobs_req_id) = blobs_req_id {
             RangeBlockDataRequest::Blobs(ByRangeRequest::Active(blobs_req_id))
-        } else if let Some((requests, expected_custody_columns)) = data_columns {
-            let column_peers: HashMap<_, _> = requests.into_iter().collect();
+        } else if let Some(expected_custody_columns) = expects_custody_columns {
             RangeBlockDataRequest::DataColumns {
-                requests: column_peers
-                    .keys()
-                    .map(|id| (*id, ByRangeRequest::Active(*id)))
-                    .collect(),
-                column_peers,
+                custody_columns_by_root: HashMap::new(),
                 expected_custody_columns,
-                attempt: 0,
             }
         } else {
             RangeBlockDataRequest::NoData
@@ -122,31 +114,12 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             blocks_request: ByRangeRequest::Active(blocks_req_id),
             block_data_request,
             payloads_request: payloads_req_id.map(ByRangeRequest::Active),
-            request_span,
         }
     }
 
-    /// Modifies `self` by inserting a new `DataColumnsByRangeRequestId` for a formerly failed
-    /// request for some columns.
-    pub fn reinsert_failed_column_requests(
-        &mut self,
-        failed_column_requests: Vec<(DataColumnsByRangeRequestId, Vec<u64>)>,
-    ) -> Result<(), String> {
-        match &mut self.block_data_request {
-            RangeBlockDataRequest::DataColumns {
-                requests,
-                expected_custody_columns: _,
-                column_peers,
-                attempt: _,
-            } => {
-                for (request, columns) in failed_column_requests.into_iter() {
-                    requests.insert(request, ByRangeRequest::Active(request));
-                    column_peers.insert(request, columns);
-                }
-                Ok(())
-            }
-            _ => Err("not a column request".to_string()),
-        }
+    /// Returns true if the blocks component of this request has been received.
+    pub fn blocks_received(&self) -> bool {
+        self.blocks_request.to_finished().is_some()
     }
 
     /// Adds received blocks to the request.
@@ -178,27 +151,34 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         }
     }
 
-    /// Adds received custody columns to the request.
+    /// Adds received custody columns for a specific block root.
     ///
-    /// Returns an error if this request expects blobs instead of data columns,
-    /// or if the request ID is unknown.
+    /// Returns an error if not in DataColumns mode, or if columns for this root
+    /// were already completed or never registered.
     pub fn add_custody_columns(
         &mut self,
-        req_id: DataColumnsByRangeRequestId,
-        columns: Vec<Arc<DataColumnSidecar<E>>>,
+        block_root: Hash256,
+        columns: DataColumnSidecarList<E>,
+        peer_group: PeerGroup,
     ) -> Result<(), String> {
-        match &mut self.block_data_request {
-            RangeBlockDataRequest::NoData => {
-                Err("received data columns but expected no data".to_owned())
-            }
-            RangeBlockDataRequest::Blobs(_) => {
-                Err("received data columns but expected blobs".to_owned())
-            }
-            RangeBlockDataRequest::DataColumns { requests, .. } => {
-                let req = requests
-                    .get_mut(&req_id)
-                    .ok_or(format!("unknown data columns by range req_id {req_id}"))?;
-                req.finish(req_id, columns)
+        let RangeBlockDataRequest::DataColumns {
+            custody_columns_by_root,
+            ..
+        } = &mut self.block_data_request
+        else {
+            return Err("received custody columns but not in DataColumns mode".to_owned());
+        };
+        match custody_columns_by_root.get(&block_root) {
+            Some(DataColumnsState::Complete(..)) => Err(format!(
+                "duplicate custody columns for block root {block_root:?}"
+            )),
+            None => Err(format!(
+                "received custody columns for unregistered block root {block_root:?}"
+            )),
+            Some(DataColumnsState::Requesting) => {
+                custody_columns_by_root
+                    .insert(block_root, DataColumnsState::Complete(columns, peer_group));
+                Ok(())
             }
         }
     }
@@ -211,6 +191,91 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         match &mut self.payloads_request {
             Some(req) => req.finish(req_id, envelopes),
             None => Err("received payload envelopes but none were expected".to_owned()),
+        }
+    }
+
+    /// After blocks arrive, initiates custody-by-root requests for blocks that need data columns.
+    ///
+    /// Only does work when blocks have arrived and we're in DataColumns mode. For each block
+    /// with data, inserts a `Requesting` entry and fires a custody request via the network context.
+    pub fn continue_requests<T: BeaconChainTypes<EthSpec = E>>(
+        &mut self,
+        id: ComponentsByRangeRequestId,
+        cx: &mut SyncNetworkContext<T>,
+    ) -> Result<(), String> {
+        let Some(blocks) = self.blocks_request.to_finished() else {
+            return Ok(());
+        };
+        let RangeBlockDataRequest::DataColumns {
+            custody_columns_by_root,
+            ..
+        } = &mut self.block_data_request
+        else {
+            return Ok(());
+        };
+
+        let mut errors = vec![];
+
+        for block in blocks {
+            if block.num_expected_blobs() == 0 {
+                continue;
+            }
+            let block_root = get_block_root(block);
+            if custody_columns_by_root.contains_key(&block_root) {
+                continue;
+            }
+
+            let requester = CustodyRequester::RangeSync(RangeSyncCustodyId { id, block_root });
+            match cx.custody_lookup_request(
+                requester,
+                block_root,
+                block.slot(),
+                // ignore_cache: range blocks are historical and won't have gossip-imported columns
+                true,
+                Arc::new(RwLock::new(HashSet::new())),
+            ) {
+                Ok(LookupRequestResult::RequestSent(_)) => {
+                    custody_columns_by_root.insert(block_root, DataColumnsState::Requesting);
+                    debug!(?block_root, %id, "Initiated custody-by-root for range block");
+                }
+                Ok(LookupRequestResult::NoRequestNeeded(reason, _)) => {
+                    // All columns already available (e.g. arrived via gossip). Mark as complete.
+                    debug!(?block_root, %id, %reason, "Custody-by-root not needed for range block");
+                    custody_columns_by_root.insert(
+                        block_root,
+                        DataColumnsState::Complete(vec![], PeerGroup::from_set(Default::default())),
+                    );
+                }
+                Ok(LookupRequestResult::Pending(reason)) => {
+                    errors.push(format!(
+                        "Custody request for {block_root:?} pending: {reason}"
+                    ));
+                }
+                Err(e) => {
+                    errors.push(format!(
+                        "Failed to initiate custody for {block_root:?}: {e:?}"
+                    ));
+                }
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.join("; "))
+        }
+    }
+
+    /// Registers a block root as awaiting custody columns. Used in tests to simulate
+    /// the effect of `continue_requests` without requiring a full network context.
+    #[cfg(test)]
+    pub fn register_custody_block(&mut self, block_root: Hash256) {
+        if let RangeBlockDataRequest::DataColumns {
+            custody_columns_by_root,
+            ..
+        } = &mut self.block_data_request
+        {
+            custody_columns_by_root.insert(block_root, DataColumnsState::Requesting);
         }
     }
 
@@ -236,8 +301,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             return None;
         }
 
-        // Increment the attempt once this function returns the response or errors
-        match &mut self.block_data_request {
+        match &self.block_data_request {
             RangeBlockDataRequest::NoData => Some(Self::responses_with_blobs(
                 blocks.to_vec(),
                 vec![],
@@ -256,30 +320,15 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 ))
             }
             RangeBlockDataRequest::DataColumns {
-                requests,
+                custody_columns_by_root,
                 expected_custody_columns,
-                column_peers,
-                attempt,
             } => {
-                let mut data_columns = vec![];
-                let mut column_to_peer_id: HashMap<u64, PeerId> = HashMap::new();
-                for req in requests.values() {
-                    let Some(data) = req.to_finished() else {
-                        return None;
-                    };
-                    data_columns.extend(data.clone())
-                }
-
-                // An "attempt" is complete here after we have received a response for all the
-                // requests we made. i.e. `req.to_finished()` returns Some for all requests.
-                *attempt += 1;
-
-                // Note: this assumes that only 1 peer is responsible for a column
-                // with a batch.
-                for (id, columns) in column_peers {
-                    for column in columns {
-                        column_to_peer_id.insert(*column, id.peer);
-                    }
+                // Wait until every registered custody-by-root request has resolved.
+                if custody_columns_by_root
+                    .values()
+                    .any(|s| matches!(s, DataColumnsState::Requesting))
+                {
+                    return None;
                 }
 
                 let payload_envelopes = self.payloads_request.as_ref().and_then(|request| {
@@ -288,32 +337,14 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                         .map(|payload_envelopes| payload_envelopes.to_vec())
                 });
 
-                let resp = Self::responses_with_custody_columns(
+                Some(Self::responses_with_custody_columns(
                     blocks.to_vec(),
-                    data_columns,
-                    column_to_peer_id,
+                    custody_columns_by_root.clone(),
                     expected_custody_columns,
-                    *attempt,
                     da_checker,
                     spec,
                     payload_envelopes,
-                );
-
-                if let Err(CouplingError::DataColumnPeerFailure {
-                    error: _,
-                    faulty_peers,
-                    exceeded_retries: _,
-                }) = &resp
-                {
-                    for (_, peer) in faulty_peers.iter() {
-                        // find the req id associated with the peer and
-                        // delete it from the entries as we are going to make
-                        // a separate attempt for those components.
-                        requests.retain(|&k, _| k.peer != *peer);
-                    }
-                }
-
-                Some(resp)
+                ))
             }
         }
     }
@@ -390,10 +421,8 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     #[allow(clippy::too_many_arguments)]
     fn responses_with_custody_columns<T>(
         blocks: Vec<Arc<SignedBeaconBlock<E>>>,
-        data_columns: DataColumnSidecarList<E>,
-        column_to_peer: HashMap<u64, PeerId>,
+        custody_columns_by_root: HashMap<Hash256, DataColumnsState<E>>,
         expects_custody_columns: &[ColumnIndex],
-        attempt: usize,
         da_checker: Arc<DataAvailabilityChecker<T>>,
         spec: Arc<ChainSpec>,
         payload_envelopes: Option<Vec<Arc<SignedExecutionPayloadEnvelope<E>>>>,
@@ -409,78 +438,45 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 .collect::<HashMap<_, _>>()
         });
 
-        // Group data columns by block_root and index
-        let mut data_columns_by_block =
-            HashMap::<Hash256, HashMap<ColumnIndex, Arc<DataColumnSidecar<E>>>>::new();
-
-        for column in data_columns {
-            let block_root = column.block_root();
-            let index = *column.index();
-            if data_columns_by_block
-                .entry(block_root)
-                .or_default()
-                .insert(index, column)
-                .is_some()
-            {
-                // `DataColumnsByRangeRequestItems` ensures that we do not request any duplicated indices across all peers
-                // we request the data from.
-                // If there are duplicated indices, its likely a peer sending us the same index multiple times.
-                // However we can still proceed even if there are extra columns, just log an error.
-                debug!(?block_root, ?index, "Repeated column for block_root");
-                continue;
-            }
-        }
-
-        // Now iterate all blocks ensuring that the block roots of each block and data column match,
-        // plus we have columns for our custody requirements
+        let mut custody_columns_by_root = custody_columns_by_root;
         let mut range_sync_blocks = Vec::with_capacity(blocks.len());
 
-        let exceeded_retries = attempt >= MAX_COLUMN_RETRIES;
         for block in blocks {
             let block_root = get_block_root(&block);
             let custody_columns = if block.num_expected_blobs() > 0 {
-                let Some(mut data_columns_by_index) = data_columns_by_block.remove(&block_root)
+                let Some(DataColumnsState::Complete(data_columns, _peer_group)) =
+                    custody_columns_by_root.remove(&block_root)
                 else {
-                    let responsible_peers = column_to_peer.iter().map(|c| (*c.0, *c.1)).collect();
-                    return Err(CouplingError::DataColumnPeerFailure {
-                        error: format!("No columns for block {block_root:?} with data"),
-                        faulty_peers: responsible_peers,
-                        exceeded_retries,
-                    });
+                    return Err(CouplingError::InternalError(format!(
+                        "No columns for block {block_root:?} with data"
+                    )));
                 };
 
+                let mut data_columns_by_index =
+                    HashMap::<ColumnIndex, Arc<DataColumnSidecar<E>>>::new();
+                for column in data_columns {
+                    let index = *column.index();
+                    if data_columns_by_index.insert(index, column).is_some() {
+                        debug!(?block_root, ?index, "Repeated column for block_root");
+                    }
+                }
+
                 let mut custody_columns = vec![];
-                let mut naughty_peers = vec![];
                 for index in expects_custody_columns {
-                    // Safe to convert to `CustodyDataColumn`: we have asserted that the index of
-                    // this column is in the set of `expects_custody_columns` and with the expected
-                    // block root, so for the expected epoch of this batch.
+                    // Safe to convert to `CustodyDataColumn`: the custody-by-root request only
+                    // returns columns for the expected block root and custody indices.
                     if let Some(data_column) = data_columns_by_index.remove(index) {
                         custody_columns.push(CustodyDataColumn::from_asserted_custody(data_column));
                     } else {
-                        let Some(responsible_peer) = column_to_peer.get(index) else {
-                            return Err(CouplingError::InternalError(format!(
-                                "Internal error, no request made for column {}",
-                                index
-                            )));
-                        };
-                        naughty_peers.push((*index, *responsible_peer));
+                        return Err(CouplingError::InternalError(format!(
+                            "Missing custody column {index} for block {block_root:?}"
+                        )));
                     }
-                }
-                if !naughty_peers.is_empty() {
-                    return Err(CouplingError::DataColumnPeerFailure {
-                        error: format!(
-                            "Peers did not return column for block_root {block_root:?} {naughty_peers:?}"
-                        ),
-                        faulty_peers: naughty_peers,
-                        exceeded_retries,
-                    });
                 }
 
                 // Assert that there are no columns left
                 if !data_columns_by_index.is_empty() {
                     let remaining_indices = data_columns_by_index.keys().collect::<Vec<_>>();
-                    // log the error but don't return an error, we can still progress with extra columns.
                     debug!(
                         ?block_root,
                         ?remaining_indices,
@@ -495,6 +491,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             } else {
                 vec![]
             };
+
             let range_sync_block = if let Some(envelopes_by_block_root) =
                 envelopes_by_block_root.as_mut()
             {
@@ -516,10 +513,9 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         }
 
         // Assert that there are no columns left for other blocks
-        if !data_columns_by_block.is_empty() {
-            let remaining_roots = data_columns_by_block.keys().collect::<Vec<_>>();
+        if !custody_columns_by_root.is_empty() {
+            let remaining_roots = custody_columns_by_root.keys().collect::<Vec<_>>();
             // log the error but don't return an error, we can still progress with responses.
-            // this is most likely an internal error with overrequesting or a client bug.
             debug!(?remaining_roots, "Not all columns consumed for block");
         }
 
@@ -558,9 +554,8 @@ impl<I: PartialEq + std::fmt::Display, T> ByRangeRequest<I, T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::sync::network_context::MAX_COLUMN_RETRIES;
-
     use super::RangeBlockComponentsRequest;
+    use crate::sync::network_context::PeerGroup;
     use beacon_chain::block_verification_types::RangeSyncBlock;
     use beacon_chain::custody_context::NodeCustodyType;
     use beacon_chain::data_availability_checker::DataAvailabilityChecker;
@@ -569,19 +564,14 @@ mod tests {
         generate_rand_block_and_data_columns, test_da_checker, test_spec,
     };
     use bls::Signature;
-    use lighthouse_network::{
-        PeerId,
-        service::api_types::{
-            BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
-            DataColumnsByRangeRequestId, DataColumnsByRangeRequester, Id,
-            PayloadEnvelopesByRangeRequestId, RangeRequestId,
-        },
+    use lighthouse_network::service::api_types::{
+        BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
+        PayloadEnvelopesByRangeRequestId, RangeRequestId,
     };
-    use std::{collections::HashMap, sync::Arc};
-    use tracing::Span;
+    use std::sync::Arc;
     use types::{
-        ChainSpec, DataColumnSidecarList, Epoch, ExecutionPayloadEnvelope, ForkName,
-        MinimalEthSpec as E, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+        ChainSpec, ColumnIndex, DataColumnSidecarList, Epoch, ExecutionPayloadEnvelope, ForkName,
+        Hash256, MinimalEthSpec as E, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
     };
 
     fn components_id() -> ComponentsByRangeRequestId {
@@ -592,15 +582,6 @@ mod tests {
                 batch_id: Epoch::new(0),
             },
         }
-    }
-
-    /// The custody-column coupling tests below build Fulu data-column sidecars directly, which is
-    /// incompatible with a Gloas genesis (Gloas columns have a different structure). Skip them when
-    /// `FORK_NAME` schedules Gloas at genesis. TODO(gloas): port the harness to build Gloas columns.
-    fn skip_under_gloas() -> bool {
-        test_spec::<E>()
-            .fork_name_at_epoch(Epoch::new(0))
-            .gloas_enabled()
     }
 
     fn blocks_id(parent_request_id: ComponentsByRangeRequestId) -> BlocksByRangeRequestId {
@@ -626,22 +607,406 @@ mod tests {
         }
     }
 
-    fn columns_id(
-        id: Id,
-        parent_request_id: DataColumnsByRangeRequester,
-    ) -> DataColumnsByRangeRequestId {
-        DataColumnsByRangeRequestId {
-            id,
-            parent_request_id,
-            peer: PeerId::random(),
+    /// The custody-column coupling tests below build Fulu data-column sidecars directly, which is
+    /// incompatible with a Gloas genesis (Gloas columns have a different structure). Skip them when
+    /// `FORK_NAME` schedules Gloas at genesis.
+    fn skip_under_gloas() -> bool {
+        test_spec::<E>()
+            .fork_name_at_epoch(Epoch::new(0))
+            .gloas_enabled()
+    }
+
+    /// Registers each data-bearing block root as awaiting custody, then completes its custody-by-root
+    /// request with the columns the node is expected to custody.
+    fn complete_custody_by_root(
+        info: &mut RangeBlockComponentsRequest<E>,
+        blocks_and_columns: &[(Arc<SignedBeaconBlock<E>>, DataColumnSidecarList<E>)],
+        expected_custody_columns: &[ColumnIndex],
+    ) {
+        for (block, _) in blocks_and_columns {
+            if block.num_expected_blobs() == 0 {
+                continue;
+            }
+            let block_root = beacon_chain::get_block_root(block);
+            info.register_custody_block(block_root);
+        }
+        for (block, data_columns) in blocks_and_columns {
+            if block.num_expected_blobs() == 0 {
+                continue;
+            }
+            let block_root = beacon_chain::get_block_root(block);
+            let custody_columns: DataColumnSidecarList<E> = data_columns
+                .iter()
+                .filter(|d| expected_custody_columns.contains(d.index()))
+                .cloned()
+                .collect();
+            info.add_custody_columns(
+                block_root,
+                custody_columns,
+                PeerGroup::from_set(Default::default()),
+            )
+            .unwrap();
         }
     }
 
-    fn is_finished(info: &mut RangeBlockComponentsRequest<E>) -> bool {
+    #[test]
+    fn no_blobs_into_responses() {
+        // This exercises the pre-Gloas blobs/no-data coupling path.
+        if skip_under_gloas() {
+            return;
+        }
         let spec = Arc::new(test_spec::<E>());
+
+        let mut u = types::test_utils::test_unstructured();
+        let blocks = (0..4)
+            .map(|_| {
+                generate_rand_block_and_blobs::<E>(
+                    spec.fork_name_at_epoch(Epoch::new(0)),
+                    NumBlobs::None,
+                    &mut u,
+                )
+                .unwrap()
+                .0
+                .into()
+            })
+            .collect::<Vec<Arc<SignedBeaconBlock<E>>>>();
+
+        let blocks_req_id = blocks_id(components_id());
+        let mut info = RangeBlockComponentsRequest::<E>::new(blocks_req_id, None, None, None);
+
+        // Send blocks and complete terminate response
+        info.add_blocks(blocks_req_id, blocks).unwrap();
+
         let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        info.responses(da_checker, spec).is_some()
+
+        // Assert response is finished and blocks can be constructed
+        info.responses(da_checker, spec).unwrap().unwrap();
     }
+
+    #[test]
+    fn empty_blobs_into_responses() {
+        let mut u = types::test_utils::test_unstructured();
+        let blocks = (0..4)
+            .map(|_| {
+                // Always generate some blobs.
+                generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Number(3), &mut u)
+                    .unwrap()
+                    .0
+                    .into()
+            })
+            .collect::<Vec<Arc<SignedBeaconBlock<E>>>>();
+
+        let components_id = components_id();
+        let blocks_req_id = blocks_id(components_id);
+        let blobs_req_id = blobs_id(components_id);
+        let mut info =
+            RangeBlockComponentsRequest::<E>::new(blocks_req_id, Some(blobs_req_id), None, None);
+
+        // Send blocks and complete terminate response
+        info.add_blocks(blocks_req_id, blocks).unwrap();
+        // Expect no blobs returned
+        info.add_blobs(blobs_req_id, vec![]).unwrap();
+
+        let mut spec = test_spec::<E>();
+        spec.deneb_fork_epoch = Some(Epoch::new(0));
+        // Pin to pre-PeerDAS so this exercises the blob (not custody-column) path under any
+        // FORK_NAME.
+        spec.fulu_fork_epoch = None;
+        let spec = Arc::new(spec);
+        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
+        // Blobs are no longer required for availability, so the response succeeds without them.
+        let result = info.responses(da_checker, spec).unwrap();
+        assert!(result.is_ok())
+    }
+
+    #[test]
+    fn rpc_block_with_custody_columns() {
+        if skip_under_gloas() {
+            return;
+        }
+        let mut spec = test_spec::<E>();
+        spec.deneb_fork_epoch = Some(Epoch::new(0));
+        spec.fulu_fork_epoch = Some(Epoch::new(0));
+        let spec = Arc::new(spec);
+        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
+        let expects_custody_columns = da_checker
+            .custody_context()
+            .sampling_columns_for_epoch(Epoch::new(0), &spec)
+            .to_vec();
+        let mut u = types::test_utils::test_unstructured();
+        let blocks = (0..4)
+            .map(|_| {
+                generate_rand_block_and_data_columns::<E>(
+                    ForkName::Fulu,
+                    NumBlobs::Number(1),
+                    &mut u,
+                    &spec,
+                )
+                .unwrap()
+            })
+            .map(|(block, columns)| (Arc::new(block), columns))
+            .collect::<Vec<_>>();
+
+        let components_id = components_id();
+        let blocks_req_id = blocks_id(components_id);
+        let mut info = RangeBlockComponentsRequest::<E>::new(
+            blocks_req_id,
+            None,
+            Some(expects_custody_columns.clone()),
+            None,
+        );
+
+        // Send blocks
+        info.add_blocks(
+            blocks_req_id,
+            blocks.iter().map(|(b, _)| b.clone()).collect(),
+        )
+        .unwrap();
+        // Assert response is not finished while custody-by-root is outstanding.
+        for (block, _) in &blocks {
+            info.register_custody_block(beacon_chain::get_block_root(block));
+        }
+        assert!(info.responses(da_checker.clone(), spec.clone()).is_none());
+
+        // Complete each custody-by-root request.
+        for (block, data_columns) in &blocks {
+            let block_root = beacon_chain::get_block_root(block);
+            let custody_columns: DataColumnSidecarList<E> = data_columns
+                .iter()
+                .filter(|d| expects_custody_columns.contains(d.index()))
+                .cloned()
+                .collect();
+            info.add_custody_columns(
+                block_root,
+                custody_columns,
+                PeerGroup::from_set(Default::default()),
+            )
+            .unwrap();
+        }
+
+        // All completed construct response
+        info.responses(da_checker, spec).unwrap().unwrap();
+    }
+
+    #[test]
+    fn add_custody_columns_rejects_unregistered_root() {
+        let blocks_req_id = blocks_id(components_id());
+        let mut info =
+            RangeBlockComponentsRequest::<E>::new(blocks_req_id, None, Some(vec![0, 1]), None);
+        let root = Hash256::random();
+        let result =
+            info.add_custody_columns(root, vec![], PeerGroup::from_set(Default::default()));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("unregistered"));
+    }
+
+    #[test]
+    fn add_custody_columns_rejects_duplicate() {
+        let blocks_req_id = blocks_id(components_id());
+        let mut info =
+            RangeBlockComponentsRequest::<E>::new(blocks_req_id, None, Some(vec![0, 1]), None);
+        let root = Hash256::random();
+        info.register_custody_block(root);
+        info.add_custody_columns(root, vec![], PeerGroup::from_set(Default::default()))
+            .unwrap();
+        let result =
+            info.add_custody_columns(root, vec![], PeerGroup::from_set(Default::default()));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("duplicate"));
+    }
+
+    #[test]
+    fn responses_returns_none_while_custody_requesting() {
+        if skip_under_gloas() {
+            return;
+        }
+        let mut spec = test_spec::<E>();
+        spec.deneb_fork_epoch = Some(Epoch::new(0));
+        spec.fulu_fork_epoch = Some(Epoch::new(0));
+        let spec = Arc::new(spec);
+        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
+        let expects_custody_columns = da_checker
+            .custody_context()
+            .sampling_columns_for_epoch(Epoch::new(0), &spec)
+            .to_vec();
+        let mut u = types::test_utils::test_unstructured();
+        let (block, _data_columns) = generate_rand_block_and_data_columns::<E>(
+            ForkName::Fulu,
+            NumBlobs::Number(1),
+            &mut u,
+            &spec,
+        )
+        .unwrap();
+
+        let blocks_req_id = blocks_id(components_id());
+        let mut info = RangeBlockComponentsRequest::<E>::new(
+            blocks_req_id,
+            None,
+            Some(expects_custody_columns),
+            None,
+        );
+
+        info.add_blocks(blocks_req_id, vec![block.into()]).unwrap();
+        let block_root = Hash256::random();
+        info.register_custody_block(block_root);
+
+        // Still requesting — responses should return None
+        assert!(info.responses(da_checker, spec).is_none());
+    }
+
+    #[test]
+    fn responses_error_on_missing_custody_columns() {
+        if skip_under_gloas() {
+            return;
+        }
+        // Block with data but no custody columns registered → error
+        let mut spec = test_spec::<E>();
+        spec.deneb_fork_epoch = Some(Epoch::new(0));
+        spec.fulu_fork_epoch = Some(Epoch::new(0));
+        let spec = Arc::new(spec);
+        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
+        let expects_custody_columns = da_checker
+            .custody_context()
+            .sampling_columns_for_epoch(Epoch::new(0), &spec)
+            .to_vec();
+        let mut u = types::test_utils::test_unstructured();
+        let (block, _data_columns) = generate_rand_block_and_data_columns::<E>(
+            ForkName::Fulu,
+            NumBlobs::Number(1),
+            &mut u,
+            &spec,
+        )
+        .unwrap();
+
+        let blocks_req_id = blocks_id(components_id());
+        let mut info = RangeBlockComponentsRequest::<E>::new(
+            blocks_req_id,
+            None,
+            Some(expects_custody_columns),
+            None,
+        );
+
+        info.add_blocks(blocks_req_id, vec![block.into()]).unwrap();
+
+        // No custody columns registered or completed — block has data so this should error
+        let result = info.responses(da_checker, spec).unwrap();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn mixed_blocks_with_and_without_data() {
+        if skip_under_gloas() {
+            return;
+        }
+        // Mix of blocks: some with blobs (need custody), some without
+        let mut spec = test_spec::<E>();
+        spec.deneb_fork_epoch = Some(Epoch::new(0));
+        spec.fulu_fork_epoch = Some(Epoch::new(0));
+        let spec = Arc::new(spec);
+        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
+        let expects_custody_columns = da_checker
+            .custody_context()
+            .sampling_columns_for_epoch(Epoch::new(0), &spec)
+            .to_vec();
+        let mut u = types::test_utils::test_unstructured();
+
+        let (block_with_data, data_columns) = generate_rand_block_and_data_columns::<E>(
+            ForkName::Fulu,
+            NumBlobs::Number(1),
+            &mut u,
+            &spec,
+        )
+        .unwrap();
+        let (block_no_data, _) = generate_rand_block_and_data_columns::<E>(
+            ForkName::Fulu,
+            NumBlobs::None,
+            &mut u,
+            &spec,
+        )
+        .unwrap();
+
+        let blocks_req_id = blocks_id(components_id());
+        let mut info = RangeBlockComponentsRequest::<E>::new(
+            blocks_req_id,
+            None,
+            Some(expects_custody_columns.clone()),
+            None,
+        );
+
+        let block_root_with_data = beacon_chain::get_block_root(&block_with_data);
+        info.add_blocks(
+            blocks_req_id,
+            vec![block_with_data.into(), block_no_data.into()],
+        )
+        .unwrap();
+
+        // Only register and complete custody for the block with data
+        info.register_custody_block(block_root_with_data);
+        let custody_columns: DataColumnSidecarList<E> = data_columns
+            .iter()
+            .filter(|d| expects_custody_columns.contains(d.index()))
+            .cloned()
+            .collect();
+        info.add_custody_columns(
+            block_root_with_data,
+            custody_columns,
+            PeerGroup::from_set(Default::default()),
+        )
+        .unwrap();
+
+        // Both blocks should resolve — one with columns, one with NoData
+        info.responses(da_checker, spec).unwrap().unwrap();
+    }
+
+    #[test]
+    fn rpc_block_with_custody_columns_no_data_blocks() {
+        if skip_under_gloas() {
+            return;
+        }
+        // Test blocks that don't have blob commitments don't need custody
+        let mut spec = test_spec::<E>();
+        spec.deneb_fork_epoch = Some(Epoch::new(0));
+        spec.fulu_fork_epoch = Some(Epoch::new(0));
+        let spec = Arc::new(spec);
+        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
+        let expects_custody_columns = da_checker
+            .custody_context()
+            .sampling_columns_for_epoch(Epoch::new(0), &spec)
+            .to_vec();
+        let mut u = types::test_utils::test_unstructured();
+        // Generate blocks with NO blobs
+        let blocks = (0..4)
+            .map(|_| {
+                generate_rand_block_and_data_columns::<E>(
+                    ForkName::Fulu,
+                    NumBlobs::None,
+                    &mut u,
+                    &spec,
+                )
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        let blocks_req_id = blocks_id(components_id());
+        let mut info = RangeBlockComponentsRequest::<E>::new(
+            blocks_req_id,
+            None,
+            Some(expects_custody_columns),
+            None,
+        );
+
+        // Send blocks
+        info.add_blocks(
+            blocks_req_id,
+            blocks.iter().map(|b| b.0.clone().into()).collect(),
+        )
+        .unwrap();
+
+        // Response should be ready immediately (no blocks need custody columns)
+        info.responses(da_checker, spec).unwrap().unwrap();
+    }
+
+    // ===== Gloas payload-envelope coupling tests =====
 
     fn gloas_spec() -> ChainSpec {
         let mut spec = test_spec::<E>();
@@ -697,35 +1062,6 @@ mod tests {
     }
 
     #[allow(clippy::type_complexity)]
-    fn add_all_columns(
-        info: &mut RangeBlockComponentsRequest<E>,
-        blocks: &[(
-            Arc<SignedBeaconBlock<E>>,
-            DataColumnSidecarList<E>,
-            Arc<SignedExecutionPayloadEnvelope<E>>,
-        )],
-        columns_req_id: &[(DataColumnsByRangeRequestId, Vec<u64>)],
-        expected_custody_columns: &[u64],
-    ) {
-        for (i, &column_index) in expected_custody_columns.iter().enumerate() {
-            let (req, _columns) = columns_req_id.get(i).unwrap();
-            info.add_custody_columns(
-                *req,
-                blocks
-                    .iter()
-                    .flat_map(|(_, columns, _)| {
-                        columns
-                            .iter()
-                            .filter(|column| *column.index() == column_index)
-                            .cloned()
-                    })
-                    .collect(),
-            )
-            .unwrap();
-        }
-    }
-
-    #[allow(clippy::type_complexity)]
     struct GloasSetup {
         info: RangeBlockComponentsRequest<E>,
         da_checker: Arc<DataAvailabilityChecker<EphemeralHarnessType<E>>>,
@@ -736,7 +1072,7 @@ mod tests {
             Arc<SignedExecutionPayloadEnvelope<E>>,
         )>,
         payloads_req_id: PayloadEnvelopesByRangeRequestId,
-        expected_custody_columns: Vec<u64>,
+        expected_custody_columns: Vec<ColumnIndex>,
     }
 
     /// Builds a Gloas coupling request with `count` blocks and all custody columns added,
@@ -753,25 +1089,11 @@ mod tests {
         let components_id = components_id();
         let blocks_req_id = blocks_id(components_id);
         let payloads_req_id = payloads_id(components_id);
-        let columns_req_id = expected_custody_columns
-            .iter()
-            .enumerate()
-            .map(|(i, column)| {
-                (
-                    columns_id(
-                        i as Id,
-                        DataColumnsByRangeRequester::ComponentsByRange(components_id),
-                    ),
-                    vec![*column],
-                )
-            })
-            .collect::<Vec<_>>();
         let mut info = RangeBlockComponentsRequest::<E>::new(
             blocks_req_id,
             None,
-            Some((columns_req_id.clone(), expected_custody_columns.clone())),
+            Some(expected_custody_columns.clone()),
             Some(payloads_req_id),
-            Span::none(),
         );
 
         info.add_blocks(
@@ -779,12 +1101,12 @@ mod tests {
             blocks.iter().map(|(block, _, _)| block.clone()).collect(),
         )
         .unwrap();
-        add_all_columns(
-            &mut info,
-            &blocks,
-            &columns_req_id,
-            &expected_custody_columns,
-        );
+
+        let blocks_and_columns = blocks
+            .iter()
+            .map(|(block, columns, _)| (block.clone(), columns.clone()))
+            .collect::<Vec<_>>();
+        complete_custody_by_root(&mut info, &blocks_and_columns, &expected_custody_columns);
 
         GloasSetup {
             info,
@@ -794,263 +1116,6 @@ mod tests {
             payloads_req_id,
             expected_custody_columns,
         }
-    }
-
-    #[test]
-    fn no_blobs_into_responses() {
-        // This exercises the pre-Gloas blobs/no-data coupling path. Gloas coupling is covered
-        // by the dedicated `setup_gloas_coupling` tests below.
-        if skip_under_gloas() {
-            return;
-        }
-        let spec = Arc::new(test_spec::<E>());
-
-        let mut u = types::test_utils::test_unstructured();
-        let blocks = (0..4)
-            .map(|_| {
-                generate_rand_block_and_blobs::<E>(
-                    spec.fork_name_at_epoch(Epoch::new(0)),
-                    NumBlobs::None,
-                    &mut u,
-                )
-                .unwrap()
-                .0
-                .into()
-            })
-            .collect::<Vec<Arc<SignedBeaconBlock<E>>>>();
-
-        let blocks_req_id = blocks_id(components_id());
-        let mut info =
-            RangeBlockComponentsRequest::<E>::new(blocks_req_id, None, None, None, Span::none());
-
-        // Send blocks and complete terminate response
-        info.add_blocks(blocks_req_id, blocks).unwrap();
-
-        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-
-        // Assert response is finished and RpcBlocks can be constructed
-        info.responses(da_checker, spec).unwrap().unwrap();
-    }
-
-    #[test]
-    fn empty_blobs_into_responses() {
-        let mut u = types::test_utils::test_unstructured();
-        let blocks = (0..4)
-            .map(|_| {
-                // Always generate some blobs.
-                generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Number(3), &mut u)
-                    .unwrap()
-                    .0
-                    .into()
-            })
-            .collect::<Vec<Arc<SignedBeaconBlock<E>>>>();
-
-        let components_id = components_id();
-        let blocks_req_id = blocks_id(components_id);
-        let blobs_req_id = blobs_id(components_id);
-        let mut info = RangeBlockComponentsRequest::<E>::new(
-            blocks_req_id,
-            Some(blobs_req_id),
-            None,
-            None,
-            Span::none(),
-        );
-
-        // Send blocks and complete terminate response
-        info.add_blocks(blocks_req_id, blocks).unwrap();
-        // Expect no blobs returned
-        info.add_blobs(blobs_req_id, vec![]).unwrap();
-
-        let mut spec = test_spec::<E>();
-        spec.deneb_fork_epoch = Some(Epoch::new(0));
-        // Pin to pre-PeerDAS so this exercises the blob (not custody-column) path under any
-        // FORK_NAME.
-        spec.fulu_fork_epoch = None;
-        let spec = Arc::new(spec);
-        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        // Blobs are no longer required for availability, so the response succeeds without them.
-        let result = info.responses(da_checker, spec).unwrap();
-        assert!(result.is_ok())
-    }
-
-    #[test]
-    fn rpc_block_with_custody_columns() {
-        if skip_under_gloas() {
-            return;
-        }
-        let mut spec = test_spec::<E>();
-        spec.deneb_fork_epoch = Some(Epoch::new(0));
-        spec.fulu_fork_epoch = Some(Epoch::new(0));
-        let spec = Arc::new(spec);
-        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        let expects_custody_columns = da_checker
-            .custody_context()
-            .sampling_columns_for_epoch(Epoch::new(0), &spec)
-            .to_vec();
-        let mut u = types::test_utils::test_unstructured();
-        let blocks = (0..4)
-            .map(|_| {
-                generate_rand_block_and_data_columns::<E>(
-                    ForkName::Fulu,
-                    NumBlobs::Number(1),
-                    &mut u,
-                    &spec,
-                )
-                .unwrap()
-            })
-            .collect::<Vec<_>>();
-
-        let components_id = components_id();
-        let blocks_req_id = blocks_id(components_id);
-        let columns_req_id = expects_custody_columns
-            .iter()
-            .enumerate()
-            .map(|(i, column)| {
-                (
-                    columns_id(
-                        i as Id,
-                        DataColumnsByRangeRequester::ComponentsByRange(components_id),
-                    ),
-                    vec![*column],
-                )
-            })
-            .collect::<Vec<_>>();
-        let mut info = RangeBlockComponentsRequest::<E>::new(
-            blocks_req_id,
-            None,
-            Some((columns_req_id.clone(), expects_custody_columns.clone())),
-            None,
-            Span::none(),
-        );
-        // Send blocks and complete terminate response
-        info.add_blocks(
-            blocks_req_id,
-            blocks.iter().map(|b| b.0.clone().into()).collect(),
-        )
-        .unwrap();
-        // Assert response is not finished
-        assert!(!is_finished(&mut info));
-
-        // Send data columns
-        for (i, &column_index) in expects_custody_columns.iter().enumerate() {
-            let (req, _columns) = columns_req_id.get(i).unwrap();
-            info.add_custody_columns(
-                *req,
-                blocks
-                    .iter()
-                    .flat_map(|b| b.1.iter().filter(|d| *d.index() == column_index).cloned())
-                    .collect(),
-            )
-            .unwrap();
-
-            if i < expects_custody_columns.len() - 1 {
-                assert!(
-                    !is_finished(&mut info),
-                    "requested should not be finished at loop {i}"
-                );
-            }
-        }
-
-        // All completed construct response
-        info.responses(da_checker, spec).unwrap().unwrap();
-    }
-
-    #[test]
-    fn rpc_block_with_custody_columns_batched() {
-        if skip_under_gloas() {
-            return;
-        }
-        let mut spec = test_spec::<E>();
-        spec.deneb_fork_epoch = Some(Epoch::new(0));
-        spec.fulu_fork_epoch = Some(Epoch::new(0));
-        let spec = Arc::new(spec);
-        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        let expected_sampling_columns = da_checker
-            .custody_context()
-            .sampling_columns_for_epoch(Epoch::new(0), &spec)
-            .to_vec();
-        // Split sampling columns into two batches
-        let mid = expected_sampling_columns.len() / 2;
-        let batched_column_requests = [
-            expected_sampling_columns[..mid].to_vec(),
-            expected_sampling_columns[mid..].to_vec(),
-        ];
-        let custody_column_request_ids =
-            (0..batched_column_requests.len() as u32).collect::<Vec<_>>();
-        let num_of_data_column_requests = custody_column_request_ids.len();
-
-        let components_id = components_id();
-        let blocks_req_id = blocks_id(components_id);
-        let columns_req_id = batched_column_requests
-            .iter()
-            .enumerate()
-            .map(|(i, columns)| {
-                (
-                    columns_id(
-                        i as Id,
-                        DataColumnsByRangeRequester::ComponentsByRange(components_id),
-                    ),
-                    columns.clone(),
-                )
-            })
-            .collect::<Vec<_>>();
-
-        let mut info = RangeBlockComponentsRequest::<E>::new(
-            blocks_req_id,
-            None,
-            Some((columns_req_id.clone(), expected_sampling_columns.clone())),
-            None,
-            Span::none(),
-        );
-
-        let mut u = types::test_utils::test_unstructured();
-        let blocks = (0..4)
-            .map(|_| {
-                generate_rand_block_and_data_columns::<E>(
-                    ForkName::Fulu,
-                    NumBlobs::Number(1),
-                    &mut u,
-                    &spec,
-                )
-                .unwrap()
-            })
-            .collect::<Vec<_>>();
-
-        // Send blocks and complete terminate response
-        info.add_blocks(
-            blocks_req_id,
-            blocks.iter().map(|b| b.0.clone().into()).collect(),
-        )
-        .unwrap();
-        // Assert response is not finished
-        assert!(!is_finished(&mut info));
-
-        for (i, column_indices) in batched_column_requests.iter().enumerate() {
-            let (req, _columns) = columns_req_id.get(i).unwrap();
-            // Send the set of columns in the same batch request
-            info.add_custody_columns(
-                *req,
-                blocks
-                    .iter()
-                    .flat_map(|b| {
-                        b.1.iter()
-                            .filter(|d| column_indices.contains(d.index()))
-                            .cloned()
-                    })
-                    .collect::<Vec<_>>(),
-            )
-            .unwrap();
-
-            if i < num_of_data_column_requests - 1 {
-                assert!(
-                    !is_finished(&mut info),
-                    "requested should not be finished at loop {i}"
-                );
-            }
-        }
-
-        // All completed construct response
-        info.responses(da_checker, spec).unwrap().unwrap();
     }
 
     #[test]
@@ -1160,344 +1225,5 @@ mod tests {
             ),
             "expected envelope slot mismatch, got {result:?}"
         );
-    }
-
-    #[test]
-    fn missing_custody_columns_from_faulty_peers() {
-        if skip_under_gloas() {
-            return;
-        }
-        // GIVEN: A request expecting sampling columns from multiple peers
-        let spec = Arc::new(test_spec::<E>());
-        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        let expected_sampling_columns = da_checker
-            .custody_context()
-            .sampling_columns_for_epoch(Epoch::new(0), &spec)
-            .to_vec();
-        let mut u = types::test_utils::test_unstructured();
-        let blocks = (0..2)
-            .map(|_| {
-                generate_rand_block_and_data_columns::<E>(
-                    ForkName::Fulu,
-                    NumBlobs::Number(1),
-                    &mut u,
-                    &spec,
-                )
-                .unwrap()
-            })
-            .collect::<Vec<_>>();
-
-        let components_id = components_id();
-        let blocks_req_id = blocks_id(components_id);
-        let columns_req_id = expected_sampling_columns
-            .iter()
-            .enumerate()
-            .map(|(i, column)| {
-                (
-                    columns_id(
-                        i as Id,
-                        DataColumnsByRangeRequester::ComponentsByRange(components_id),
-                    ),
-                    vec![*column],
-                )
-            })
-            .collect::<Vec<_>>();
-        let mut info = RangeBlockComponentsRequest::<E>::new(
-            blocks_req_id,
-            None,
-            Some((columns_req_id.clone(), expected_sampling_columns.clone())),
-            None,
-            Span::none(),
-        );
-
-        // AND: All blocks are received successfully
-        info.add_blocks(
-            blocks_req_id,
-            blocks.iter().map(|b| b.0.clone().into()).collect(),
-        )
-        .unwrap();
-
-        // AND: Only the first 2 sampling columns are received successfully
-        for (i, &column_index) in expected_sampling_columns.iter().take(2).enumerate() {
-            let (req, _columns) = columns_req_id.get(i).unwrap();
-            info.add_custody_columns(
-                *req,
-                blocks
-                    .iter()
-                    .flat_map(|b| b.1.iter().filter(|d| *d.index() == column_index).cloned())
-                    .collect(),
-            )
-            .unwrap();
-        }
-
-        // AND: Remaining column requests are completed with empty data (simulating faulty peers)
-        for i in 2..expected_sampling_columns.len() {
-            let (req, _columns) = columns_req_id.get(i).unwrap();
-            info.add_custody_columns(*req, vec![]).unwrap();
-        }
-
-        // WHEN: Attempting to construct RPC blocks
-        let result = info.responses(da_checker, spec).unwrap();
-
-        // THEN: Should fail with PeerFailure identifying the faulty peers
-        assert!(result.is_err());
-        if let Err(super::CouplingError::DataColumnPeerFailure {
-            error,
-            faulty_peers,
-            exceeded_retries,
-        }) = result
-        {
-            assert!(error.contains("Peers did not return column"));
-            // All columns after the first 2 should be reported as faulty
-            let expected_faulty_count = expected_sampling_columns.len() - 2;
-            assert_eq!(faulty_peers.len(), expected_faulty_count);
-            // Verify the faulty column indices match
-            for (i, (column_index, _peer)) in faulty_peers.iter().enumerate() {
-                assert_eq!(*column_index, expected_sampling_columns[i + 2]);
-            }
-            assert!(!exceeded_retries); // First attempt, should be false
-        } else {
-            panic!("Expected PeerFailure error");
-        }
-    }
-
-    #[test]
-    fn retry_logic_after_peer_failures() {
-        if skip_under_gloas() {
-            return;
-        }
-        // GIVEN: A request expecting sampling columns where some peers initially fail
-        let mut spec = test_spec::<E>();
-        spec.deneb_fork_epoch = Some(Epoch::new(0));
-        spec.fulu_fork_epoch = Some(Epoch::new(0));
-        let spec = Arc::new(spec);
-        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        let expected_sampling_columns = da_checker
-            .custody_context()
-            .sampling_columns_for_epoch(Epoch::new(0), &spec)
-            .to_vec();
-        let mut u = types::test_utils::test_unstructured();
-        let blocks = (0..2)
-            .map(|_| {
-                generate_rand_block_and_data_columns::<E>(
-                    ForkName::Fulu,
-                    NumBlobs::Number(1),
-                    &mut u,
-                    &spec,
-                )
-                .unwrap()
-            })
-            .collect::<Vec<_>>();
-
-        let components_id = components_id();
-        let blocks_req_id = blocks_id(components_id);
-        let columns_req_id = expected_sampling_columns
-            .iter()
-            .enumerate()
-            .map(|(i, column)| {
-                (
-                    columns_id(
-                        i as Id,
-                        DataColumnsByRangeRequester::ComponentsByRange(components_id),
-                    ),
-                    vec![*column],
-                )
-            })
-            .collect::<Vec<_>>();
-        let mut info = RangeBlockComponentsRequest::<E>::new(
-            blocks_req_id,
-            None,
-            Some((columns_req_id.clone(), expected_sampling_columns.clone())),
-            None,
-            Span::none(),
-        );
-
-        // AND: All blocks are received
-        info.add_blocks(
-            blocks_req_id,
-            blocks.iter().map(|b| b.0.clone().into()).collect(),
-        )
-        .unwrap();
-
-        // AND: Only partial sampling columns are received (first column but not others)
-        let (req0, _) = columns_req_id.first().unwrap();
-        info.add_custody_columns(
-            *req0,
-            blocks
-                .iter()
-                .flat_map(|b| {
-                    b.1.iter()
-                        .filter(|d| *d.index() == expected_sampling_columns[0])
-                        .cloned()
-                })
-                .collect(),
-        )
-        .unwrap();
-
-        // AND: The remaining column requests are completed with empty data (peer failure)
-        for i in 1..expected_sampling_columns.len() {
-            let (req, _) = columns_req_id.get(i).unwrap();
-            info.add_custody_columns(*req, vec![]).unwrap();
-        }
-
-        let result: Result<
-            Vec<beacon_chain::block_verification_types::RangeSyncBlock<E>>,
-            crate::sync::block_sidecar_coupling::CouplingError,
-        > = info.responses(da_checker.clone(), spec.clone()).unwrap();
-        assert!(result.is_err());
-
-        // AND: We retry with a new peer for the failed columns
-        let new_columns_req_id = columns_id(
-            10 as Id,
-            DataColumnsByRangeRequester::ComponentsByRange(components_id),
-        );
-        for column in &expected_sampling_columns[1..] {
-            let failed_column_requests = vec![(new_columns_req_id, vec![*column])];
-            info.reinsert_failed_column_requests(failed_column_requests)
-                .unwrap();
-        }
-
-        // AND: The new peer provides the missing column data
-        let failed_column_indices: Vec<_> = expected_sampling_columns[1..].to_vec();
-        info.add_custody_columns(
-            new_columns_req_id,
-            blocks
-                .iter()
-                .flat_map(|b| {
-                    b.1.iter()
-                        .filter(|d| failed_column_indices.contains(d.index()))
-                        .cloned()
-                })
-                .collect(),
-        )
-        .unwrap();
-
-        // WHEN: Attempting to get responses again
-        let result = info.responses(da_checker, spec).unwrap();
-
-        // THEN: Should succeed with complete RangeSync blocks
-        assert!(result.is_ok());
-        let range_sync_blocks = result.unwrap();
-        assert_eq!(range_sync_blocks.len(), 2);
-    }
-
-    #[test]
-    fn max_retries_exceeded_behavior() {
-        if skip_under_gloas() {
-            return;
-        }
-        // GIVEN: A request where peers consistently fail to provide required columns
-        let mut spec = test_spec::<E>();
-        spec.deneb_fork_epoch = Some(Epoch::new(0));
-        spec.fulu_fork_epoch = Some(Epoch::new(0));
-        let spec = Arc::new(spec);
-        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        let expected_sampling_columns = da_checker
-            .custody_context()
-            .sampling_columns_for_epoch(Epoch::new(0), &spec)
-            .to_vec();
-        let mut u = types::test_utils::test_unstructured();
-        let blocks = (0..1)
-            .map(|_| {
-                generate_rand_block_and_data_columns::<E>(
-                    ForkName::Fulu,
-                    NumBlobs::Number(1),
-                    &mut u,
-                    &spec,
-                )
-                .unwrap()
-            })
-            .collect::<Vec<_>>();
-
-        let components_id = components_id();
-        let blocks_req_id = blocks_id(components_id);
-        let columns_req_id = expected_sampling_columns
-            .iter()
-            .enumerate()
-            .map(|(i, column)| {
-                (
-                    columns_id(
-                        i as Id,
-                        DataColumnsByRangeRequester::ComponentsByRange(components_id),
-                    ),
-                    vec![*column],
-                )
-            })
-            .collect::<Vec<_>>();
-        let mut info = RangeBlockComponentsRequest::<E>::new(
-            blocks_req_id,
-            None,
-            Some((columns_req_id.clone(), expected_sampling_columns.clone())),
-            None,
-            Span::none(),
-        );
-
-        // AND: All blocks are received
-        info.add_blocks(
-            blocks_req_id,
-            blocks.iter().map(|b| b.0.clone().into()).collect(),
-        )
-        .unwrap();
-
-        // AND: Only the first sampling column is provided successfully
-        let (req0, _) = columns_req_id.first().unwrap();
-        info.add_custody_columns(
-            *req0,
-            blocks
-                .iter()
-                .flat_map(|b| {
-                    b.1.iter()
-                        .filter(|d| *d.index() == expected_sampling_columns[0])
-                        .cloned()
-                })
-                .collect(),
-        )
-        .unwrap();
-
-        // AND: All other column requests complete with empty data (persistent peer failure)
-        for i in 1..expected_sampling_columns.len() {
-            let (req, _) = columns_req_id.get(i).unwrap();
-            info.add_custody_columns(*req, vec![]).unwrap();
-        }
-
-        // WHEN: Multiple retry attempts are made (up to max retries)
-        for _ in 0..MAX_COLUMN_RETRIES {
-            let result = info.responses(da_checker.clone(), spec.clone()).unwrap();
-            assert!(result.is_err());
-
-            if let Err(super::CouplingError::DataColumnPeerFailure {
-                exceeded_retries, ..
-            }) = &result
-                && *exceeded_retries
-            {
-                break;
-            }
-        }
-
-        // AND: One final attempt after exceeding max retries
-        let result = info.responses(da_checker, spec).unwrap();
-
-        // THEN: Should fail with exceeded_retries = true
-        assert!(result.is_err());
-        if let Err(super::CouplingError::DataColumnPeerFailure {
-            error: _,
-            faulty_peers,
-            exceeded_retries,
-        }) = result
-        {
-            // All columns except the first one should be faulty
-            let expected_faulty_count = expected_sampling_columns.len() - 1;
-            assert_eq!(faulty_peers.len(), expected_faulty_count);
-
-            let mut faulty_peers = faulty_peers.into_iter().collect::<HashMap<u64, PeerId>>();
-            // Only the columns that failed (indices 1..N) should be in faulty_peers
-            for column in &expected_sampling_columns[1..] {
-                faulty_peers.remove(column);
-            }
-            assert!(faulty_peers.is_empty());
-            assert!(exceeded_retries); // Should be true after max retries
-        } else {
-            panic!("Expected PeerFailure error with exceeded_retries=true");
-        }
     }
 }

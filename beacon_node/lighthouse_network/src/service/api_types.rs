@@ -3,7 +3,7 @@ use libp2p::PeerId;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use types::{
-    BlobSidecar, DataColumnSidecar, Epoch, EthSpec, LightClientBootstrap,
+    BlobSidecar, DataColumnSidecar, Epoch, EthSpec, Hash256, LightClientBootstrap,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
     SignedExecutionPayloadEnvelope,
 };
@@ -80,7 +80,6 @@ pub struct DataColumnsByRangeRequestId {
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum DataColumnsByRangeRequester {
-    ComponentsByRange(ComponentsByRangeRequestId),
     CustodyBackfillSync(CustodyBackFillBatchRequestId),
 }
 
@@ -139,9 +138,17 @@ pub struct CustodyId {
 }
 
 /// Downstream components that perform custody by root requests.
-/// Currently, it's only single block lookups, so not using an enum
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct CustodyRequester(pub SingleLookupReqId);
+pub enum CustodyRequester {
+    SingleLookup(SingleLookupReqId),
+    RangeSync(RangeSyncCustodyId),
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct RangeSyncCustodyId {
+    pub id: ComponentsByRangeRequestId,
+    pub block_root: Hash256,
+}
 
 /// Application level requests sent to the network.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -290,7 +297,16 @@ impl Display for DataColumnsByRootRequester {
 
 impl Display for CustodyRequester {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        match self {
+            Self::SingleLookup(id) => write!(f, "{id}"),
+            Self::RangeSync(id) => write!(f, "RangeSync/{id}"),
+        }
+    }
+}
+
+impl Display for RangeSyncCustodyId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{:?}", self.id, self.block_root)
     }
 }
 
@@ -306,7 +322,6 @@ impl Display for RangeRequestId {
 impl Display for DataColumnsByRangeRequester {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ComponentsByRange(id) => write!(f, "ByRange/{id}"),
             Self::CustodyBackfillSync(id) => write!(f, "CustodyBackfill/{id}"),
         }
     }
@@ -321,7 +336,7 @@ mod tests {
         let id = DataColumnsByRootRequestId {
             id: 123,
             requester: DataColumnsByRootRequester::Custody(CustodyId {
-                requester: CustodyRequester(SingleLookupReqId {
+                requester: CustodyRequester::SingleLookup(SingleLookupReqId {
                     req_id: 121,
                     lookup_id: 101,
                 }),
@@ -334,17 +349,17 @@ mod tests {
     fn display_id_data_columns_by_range() {
         let id = DataColumnsByRangeRequestId {
             id: 123,
-            parent_request_id: DataColumnsByRangeRequester::ComponentsByRange(
-                ComponentsByRangeRequestId {
+            parent_request_id: DataColumnsByRangeRequester::CustodyBackfillSync(
+                CustodyBackFillBatchRequestId {
                     id: 122,
-                    requester: RangeRequestId::RangeSync {
-                        chain_id: 54,
-                        batch_id: Epoch::new(0),
+                    batch_id: CustodyBackfillBatchId {
+                        epoch: Epoch::new(0),
+                        run_id: 54,
                     },
                 },
             ),
             peer: PeerId::random(),
         };
-        assert_eq!(format!("{id}"), "123/ByRange/122/RangeSync/0/54");
+        assert_eq!(format!("{id}"), "123/CustodyBackfill/122/0/54");
     }
 }

@@ -598,7 +598,6 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                     && let CouplingError::DataColumnPeerFailure {
                         error,
                         faulty_peers,
-                        exceeded_retries: _,
                     } = coupling_error
                 {
                     let mut failed_peers = HashSet::new();
@@ -862,7 +861,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                     // The batch is validated
                 }
                 BatchState::Poisoned => unreachable!("Poisoned batch"),
-                BatchState::Failed | BatchState::Processing(_) => {
+                BatchState::Failed | BatchState::Processing(..) => {
                     // these are all inconsistent states:
                     // - Failed -> non recoverable batch. Columns should have been removed
                     // - AwaitingDownload -> A recoverable failed batch should have been
@@ -912,7 +911,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                     crit!("Batch indicates inconsistent data columns while advancing custody sync")
                 }
                 BatchState::AwaitingProcessing(..) => {}
-                BatchState::Processing(_) => {
+                BatchState::Processing(..) => {
                     debug!(batch = %id, %batch, "Advancing custody sync while processing a batch");
                     if let Some(processing_id) = self.current_processing_batch
                         && id >= processing_id

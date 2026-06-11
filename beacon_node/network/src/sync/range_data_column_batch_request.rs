@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::sync::block_sidecar_coupling::{ByRangeRequest, CouplingError};
-use crate::sync::network_context::MAX_COLUMN_RETRIES;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use itertools::Itertools;
 use lighthouse_network::PeerId;
@@ -105,7 +104,6 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
         if let Err(CouplingError::DataColumnPeerFailure {
             error: _,
             faulty_peers,
-            exceeded_retries: _,
         }) = &resp
         {
             for (_, peer) in faulty_peers.iter() {
@@ -123,7 +121,7 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
         mut received_columns_for_slot: HashMap<Slot, DataColumnSidecarList<T::EthSpec>>,
         column_to_peer: HashMap<ColumnIndex, PeerId>,
         expected_custody_columns: &HashSet<ColumnIndex>,
-        attempt: usize,
+        _attempt: usize,
     ) -> Result<DataColumnSidecarList<T::EthSpec>, CouplingError> {
         let mut naughty_peers = vec![];
         let mut result: DataColumnSidecarList<T::EthSpec> = vec![];
@@ -297,7 +295,6 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
             return Err(CouplingError::DataColumnPeerFailure {
                 error: "Bad or missing columns for some slots".to_string(),
                 faulty_peers: naughty_peers,
-                exceeded_retries: attempt >= MAX_COLUMN_RETRIES,
             });
         }
 

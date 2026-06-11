@@ -11,7 +11,7 @@ use crate::sync::network_context::{
 use beacon_chain::BeaconChainTypes;
 use beacon_chain::block_verification_types::AsBlock;
 use educe::Educe;
-use lighthouse_network::service::api_types::Id;
+use lighthouse_network::service::api_types::{CustodyRequester, Id, SingleLookupReqId};
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -410,7 +410,18 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 }
                 DataRequest::Request { slot, peers, state } => {
                     state.maybe_start_downloading(|| {
-                        cx.custody_lookup_request(self.id, self.block_root, *slot, peers.clone())
+                        let req_id = cx.next_id();
+                        cx.custody_lookup_request(
+                            CustodyRequester::SingleLookup(SingleLookupReqId {
+                                lookup_id: self.id,
+                                req_id,
+                            }),
+                            self.block_root,
+                            *slot,
+                            // single lookups consult the DA cache to skip gossip-imported columns
+                            false,
+                            peers.clone(),
+                        )
                     })?;
                     // Wait for the current block and parent to be imported, data column processing result handle does
                     // not support `ParentUnknown`.
