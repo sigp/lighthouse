@@ -9,6 +9,7 @@ use crate::{
     sync::manager::BlockProcessType,
 };
 use beacon_chain::block_verification_types::LookupBlock;
+use beacon_chain::chain_config::ChainConfig;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::kzg_utils::blobs_to_data_column_sidecars;
@@ -105,6 +106,20 @@ impl TestRig {
         .await
     }
 
+    pub async fn new_with_chain_config(chain_length: u64, chain_config: ChainConfig) -> Self {
+        // This allows for testing voluntary exits without building out a massive chain.
+        let mut spec = test_spec::<E>();
+        spec.shard_committee_period = 2;
+        Self::new_parametric_with_chain_config(
+            chain_length,
+            BeaconProcessorConfig::default(),
+            NodeCustodyType::Fullnode,
+            chain_config,
+            spec,
+        )
+        .await
+    }
+
     pub async fn new_supernode(chain_length: u64) -> Self {
         // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = test_spec::<E>();
@@ -157,6 +172,23 @@ impl TestRig {
         node_custody_type: NodeCustodyType,
         spec: ChainSpec,
     ) -> Self {
+        Self::new_parametric_with_chain_config(
+            chain_length,
+            beacon_processor_config,
+            node_custody_type,
+            <_>::default(),
+            spec,
+        )
+        .await
+    }
+
+    pub async fn new_parametric_with_chain_config(
+        chain_length: u64,
+        beacon_processor_config: BeaconProcessorConfig,
+        node_custody_type: NodeCustodyType,
+        chain_config: ChainConfig,
+        spec: ChainSpec,
+    ) -> Self {
         let spec = Arc::new(spec);
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec.clone())
@@ -164,7 +196,7 @@ impl TestRig {
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .node_custody_type(node_custody_type)
-            .chain_config(<_>::default())
+            .chain_config(chain_config)
             .build();
 
         harness.advance_slot();
@@ -1206,7 +1238,14 @@ enum BlockImportMethod {
 /// Ensure that attestations that reference an unknown block get properly re-queued and
 /// re-processed upon importing the block.
 async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod) {
-    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let mut rig = TestRig::new_with_chain_config(
+        SMALL_CHAIN,
+        ChainConfig {
+            disable_get_blobs: true,
+            ..Default::default()
+        },
+    )
+    .await;
 
     // Send the attestation but not the block, and check that it was not imported.
 
@@ -1279,7 +1318,14 @@ async fn attestation_to_unknown_block_processed_after_rpc_block() {
 /// Ensure that attestations that reference an unknown block get properly re-queued and
 /// re-processed upon importing the block.
 async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod) {
-    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let mut rig = TestRig::new_with_chain_config(
+        SMALL_CHAIN,
+        ChainConfig {
+            disable_get_blobs: true,
+            ..Default::default()
+        },
+    )
+    .await;
 
     // Empty the op pool.
     rig.chain.op_pool.prune_attestations(u64::MAX.into());
