@@ -228,14 +228,11 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 Ok(())
             }
             Ok(LookupRequestResult::NoRequestNeeded(..)) => {
-                // All columns already available (e.g. arrived via gossip).
-                *state =
-                    DataColumnsRequest::Complete(vec![], PeerGroup::from_set(Default::default()));
-                Ok(())
+                Err("Unexpected custody_lookup_request returned NoRequestNeeded".to_owned())
             }
-            Ok(LookupRequestResult::Pending(reason)) => {
-                Err(format!("Custody request for batch {id} pending: {reason}"))
-            }
+            Ok(LookupRequestResult::Pending(reason)) => Err(format!(
+                "Unexpected custody_lookup_request returned Pending({reason})"
+            )),
             Err(e) => Err(format!("Failed to initiate custody for batch {id}: {e:?}")),
         }
     }
@@ -243,7 +240,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     /// Marks the custody-by-root request as in flight. Used in tests to simulate the effect of
     /// `continue_requests` without requiring a full network context.
     #[cfg(test)]
-    pub fn set_custody_requesting(&mut self) {
+    fn set_custody_requesting(&mut self) {
         if let RangeBlockDataRequest::DataColumns(state) = &mut self.block_data_request {
             *state = DataColumnsRequest::Requesting;
         }
