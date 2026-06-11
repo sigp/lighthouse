@@ -29,7 +29,7 @@ use lighthouse_network::rpc::methods::{
     PayloadEnvelopesByRangeRequest,
 };
 use lighthouse_network::rpc::{
-    BlocksByRangeRequest, GoodbyeReason, Protocol, RPCError, RequestType,
+    BlocksByRangeRequest, GoodbyeReason, MAX_CONCURRENT_REQUESTS, Protocol, RPCError, RequestType,
 };
 pub use lighthouse_network::service::api_types::RangeRequestId;
 use lighthouse_network::service::api_types::{
@@ -943,23 +943,35 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
         block_root: Hash256,
     ) -> Result<LookupRequestResult<Arc<SignedBeaconBlock<T::EthSpec>>>, RpcRequestSendError> {
-        let active_request_count_by_peer = self.active_request_count_by_peer();
         let Some(peer_id) = lookup_peers
             .read()
             .iter()
             .map(|peer| {
+                let supports_blocks_by_head = self.peer_supports_blocks_by_head(peer);
+                // Count concurrent requests to this peer on the protocol we would use. The spec
+                // limits concurrent requests per protocol ID, so only the relevant protocol counts.
+                let active_request_count = if supports_blocks_by_head {
+                    self.blocks_by_head_requests
+                        .active_request_count_of_peer(peer)
+                } else {
+                    self.blocks_by_root_requests
+                        .active_request_count_of_peer(peer)
+                };
                 (
+                    // Strictly de-prioritize peers already at the concurrent-request limit, so we
+                    // don't exceed `MAX_CONCURRENT_REQUESTS` per protocol ID.
+                    active_request_count >= MAX_CONCURRENT_REQUESTS,
                     // Prefer peers that support `beacon_blocks_by_head`
-                    !self.peer_supports_blocks_by_head(peer),
-                    // Prefer peers with less overall requests
-                    active_request_count_by_peer.get(peer).copied().unwrap_or(0),
+                    !supports_blocks_by_head,
+                    // Prefer peers with fewer concurrent requests on that protocol
+                    active_request_count,
                     // Random factor to break ties, otherwise the PeerID breaks ties
                     rand::random::<u32>(),
                     peer,
                 )
             })
             .min()
-            .map(|(_, _, _, peer)| *peer)
+            .map(|(_, _, _, _, peer)| *peer)
         else {
             // Allow lookup to not have any peers and do nothing. This is an optimization to not
             // lose progress of lookups created from a block with unknown parent before we receive
