@@ -489,6 +489,19 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .unwrap_or(false)
     }
 
+    /// Returns `Some(reason)` if `block` is at or below finalization but off the finalized chain.
+    pub fn conflicts_with_finality(&self, block: &SignedBeaconBlock<T::EthSpec>) -> Option<String> {
+        let finalized_slot = self.chain.head().finalized_slot();
+        if block.slot() > finalized_slot {
+            None
+        } else {
+            Some(format!(
+                "block slot {} <= finalized slot {finalized_slot}",
+                block.slot()
+            ))
+        }
+    }
+
     /// Returns the Client type of the peer if known
     pub fn client_type(&self, peer_id: &PeerId) -> Client {
         self.network_globals()

@@ -1575,6 +1575,10 @@ where
             } else {
                 ParentImportStatus::Imported(parent_block)
             }
+        } else if let Some(block) = self.get_block(&block.canonical_root()) {
+            // The block is itself imported (e.g. genesis, or a finalized block whose parent has been
+            // pruned), so its parent was imported too.
+            ParentImportStatus::Imported(block)
         } else {
             ParentImportStatus::UnknownBlock
         }

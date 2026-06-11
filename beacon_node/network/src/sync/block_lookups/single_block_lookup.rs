@@ -44,8 +44,8 @@ pub enum LookupResult {
 pub enum LookupRequestError {
     /// Too many failed attempts
     TooManyAttempts,
-    /// This block is not descendant of finalized checkpoint
-    ConflictsWithFinality(Slot, Slot),
+    /// This block is not a descendant of the finalized checkpoint
+    ConflictsWithFinality(String),
     /// Error sending event to network
     SendFailedNetwork(RpcRequestSendError),
     /// Error sending event to processor
@@ -395,7 +395,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 seen_timestamp,
                 ..
             } = data;
-            let finalized_slot = cx.chain.head().finalized_slot();
             // Eagerly check if we can import without having to send the block for processing. This
             // allows us to check many lookups in the same sync execution / loop.
             if cx.chain.is_parent_imported(block) {
@@ -407,11 +406,8 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 )
                 .map_err(LookupRequestError::SendFailedProcessor)?;
                 self.block_request.state.start_processing()?;
-            } else if block.slot() <= finalized_slot {
-                return Err(LookupRequestError::ConflictsWithFinality(
-                    block.slot(),
-                    finalized_slot,
-                ));
+            } else if let Some(reason) = cx.conflicts_with_finality(block) {
+                return Err(LookupRequestError::ConflictsWithFinality(reason));
             } else {
                 self.awaiting_parent = Some(AwaitingParent::from_block(block));
                 return Ok(LookupResult::ParentUnknown {
