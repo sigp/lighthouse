@@ -100,6 +100,21 @@ pub type RpcResponseResult<T> = Result<(T, Duration), RpcResponseError>;
 pub type CustodyByRootResult<T> =
     Result<DownloadResult<DataColumnSidecarList<T>>, RpcResponseError>;
 
+#[derive(Clone)]
+pub struct AncestorBlocks<E: EthSpec> {
+    pub first_block: Arc<SignedBeaconBlock<E>>,
+    pub ancestor_blocks: Vec<Arc<SignedBeaconBlock<E>>>,
+}
+
+impl<E: EthSpec> AncestorBlocks<E> {
+    pub fn from_single(block: Arc<SignedBeaconBlock<E>>) -> Self {
+        Self {
+            first_block: block,
+            ancestor_blocks: vec![],
+        }
+    }
+}
+
 #[derive(Debug)]
 #[allow(private_interfaces)]
 pub enum RpcResponseError {

@@ -47,7 +47,7 @@ use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::{BlockComponent, DownloadResult};
 use crate::sync::custody_backfill_sync::CustodyBackFillSync;
-use crate::sync::network_context::{PeerGroup, RpcResponseResult};
+use crate::sync::network_context::{AncestorBlocks, PeerGroup, RpcResponseResult};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
 use futures::StreamExt;
@@ -1123,7 +1123,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.block_lookups.on_block_download_response(
                 id,
                 resp.map(|(value, seen_timestamp)| {
-                    DownloadResult::new(value, PeerGroup::from_single(peer_id), seen_timestamp)
+                    DownloadResult::new(
+                        AncestorBlocks::from_single(value),
+                        PeerGroup::from_single(peer_id),
+                        seen_timestamp,
+                    )
                 }),
                 &mut self.network,
             )

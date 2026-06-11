@@ -24,7 +24,7 @@ use self::parent_chain::{NodeChain, compute_parent_chains};
 pub use self::single_block_lookup::DownloadResult;
 use self::single_block_lookup::{LookupRequestError, PeerType, SingleBlockLookup};
 use super::manager::{BlockProcessType, SLOT_IMPORT_TOLERANCE};
-use super::network_context::{RpcResponseError, SyncNetworkContext};
+use super::network_context::{AncestorBlocks, RpcResponseError, SyncNetworkContext};
 use crate::metrics;
 use crate::network_beacon_processor::BlockProcessingResult;
 use crate::sync::SyncMessage;
@@ -37,6 +37,7 @@ use fnv::FnvHashMap;
 use lighthouse_network::PeerId;
 use lighthouse_network::service::api_types::SingleLookupReqId;
 use lru_cache::LRUTimeCache;
+use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use std::time::Duration;
@@ -77,6 +78,7 @@ const LOOKUP_MAX_DURATION_NO_PEERS_SECS: u64 = 10;
 const MAX_LOOKUPS: usize = 200;
 
 type BlockDownloadResponse<E> = Result<DownloadResult<Arc<SignedBeaconBlock<E>>>, RpcResponseError>;
+type BlocksDownloadResponse<E> = Result<DownloadResult<AncestorBlocks<E>>, RpcResponseError>;
 type CustodyDownloadResponse<E> =
     Result<DownloadResult<DataColumnSidecarList<E>>, RpcResponseError>;
 type PayloadDownloadResponse<E> =
@@ -86,6 +88,8 @@ pub enum BlockComponent<E: EthSpec> {
     Block(DownloadResult<Arc<SignedBeaconBlock<E>>>),
     Sidecar,
 }
+
+type KnownParents<E> = HashMap<Hash256, DownloadResult<Arc<SignedBeaconBlock<E>>>>;
 
 pub type SingleLookupId = u32;
 
@@ -183,6 +187,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     ) -> bool {
         let parent_lookup_exists = self.search_parent_of_child(
             parent_root,
+            None,
             &PeerType::new(parent_block_hash),
             block_root,
             &[peer_id],
@@ -230,6 +235,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn search_parent_of_child(
         &mut self,
         block_root_to_search: Hash256,
+        block_component: Option<BlockComponent<T::EthSpec>>,
         peer_type: &PeerType,
         child_block_root_trigger: Hash256,
         peers: &[PeerId],
@@ -323,7 +329,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
 
         // `block_root_to_search` is a failed chain check happens inside new_current_lookup
-        self.new_current_lookup(block_root_to_search, None, None, peers, peer_type, cx)
+        self.new_current_lookup(
+            block_root_to_search,
+            block_component,
+            None,
+            peers,
+            peer_type,
+            cx,
+        )
     }
 
     /// Searches for a single block hash. If the blocks parent is unknown, a chain of blocks is
@@ -416,7 +429,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         self.metrics.created_lookups += 1;
 
         let result = lookup.continue_requests(cx);
-        if self.on_lookup_result(id, result, "new_current_lookup", cx) {
+        if self.on_lookup_result(id, result, None, "new_current_lookup", cx) {
             self.update_metrics();
             true
         } else {
@@ -430,15 +443,49 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn on_block_download_response(
         &mut self,
         id: SingleLookupReqId,
-        response: BlockDownloadResponse<T::EthSpec>,
+        response: BlocksDownloadResponse<T::EthSpec>,
         cx: &mut SyncNetworkContext<T>,
     ) {
         let Some(lookup) = self.single_block_lookups.get_mut(&id.lookup_id) else {
             debug!(?id, "Block returned for single block lookup not present");
             return;
         };
-        let result = lookup.on_block_download_response(id.req_id, response, cx);
-        self.on_lookup_result(id.lookup_id, result, "block_download_response", cx);
+        // If response is successful, `on_block_download_response` will advance the block request
+        // state to `AwaitingProcess` then `continue_requests` will check if the block can be
+        // processed:
+        // - If yes: sends block for processing
+        // - If not: marks the lookup as awaiting parent
+        let known_ancestors = response.as_ref().ok().map(|d| {
+            let mut known_ancestors = HashMap::new();
+            for block in &d.value.ancestor_blocks {
+                known_ancestors.insert(
+                    block.canonical_root(),
+                    DownloadResult {
+                        value: block.clone(),
+                        seen_timestamp: d.seen_timestamp,
+                        peer_group: d.peer_group.clone(),
+                    },
+                );
+            }
+            known_ancestors
+        });
+
+        let result = lookup.on_block_download_response(
+            id.req_id,
+            response.map(|d| DownloadResult {
+                value: d.value.first_block,
+                seen_timestamp: d.seen_timestamp,
+                peer_group: d.peer_group,
+            }),
+            cx,
+        );
+        self.on_lookup_result(
+            id.lookup_id,
+            result,
+            known_ancestors,
+            "block_download_response",
+            cx,
+        );
     }
 
     pub fn on_custody_download_response(
@@ -452,7 +499,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             return;
         };
         let result = lookup.on_custody_download_response(id.req_id, response, cx);
-        self.on_lookup_result(id.lookup_id, result, "custody_download_response", cx);
+        self.on_lookup_result(id.lookup_id, result, None, "custody_download_response", cx);
     }
 
     pub fn on_payload_download_response(
@@ -469,7 +516,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             return;
         };
         let result = lookup.on_payload_download_response(id.req_id, response, cx);
-        self.on_lookup_result(id.lookup_id, result, "payload_download_response", cx);
+        self.on_lookup_result(id.lookup_id, result, None, "payload_download_response", cx);
     }
 
     /* Error responses */
@@ -539,7 +586,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 lookup.on_payload_processing_result(result, cx)
             }
         };
-        self.on_lookup_result(lookup_id, lookup_result, "processing_result", cx);
+        self.on_lookup_result(lookup_id, lookup_result, None, "processing_result", cx);
     }
 
     pub fn has_any_awaiting_children(&self, block_root: Hash256) -> bool {
@@ -572,7 +619,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
 
         for (id, result) in lookup_results {
-            self.on_lookup_result(id, result, "continue_child_lookups", cx);
+            self.on_lookup_result(id, result, None, "continue_child_lookups", cx);
         }
     }
 
@@ -610,6 +657,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         id: SingleLookupId,
         result: Result<LookupResult, LookupRequestError>,
+        known_blocks: Option<KnownParents<T::EthSpec>>,
         source: &str,
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
@@ -623,6 +671,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }) => {
                 if self.search_parent_of_child(
                     parent_root,
+                    known_blocks.and_then(|p| {
+                        p.get(&parent_root)
+                            .map(|b| BlockComponent::Block(b.clone()))
+                    }),
                     &PeerType::new(parent_block_hash),
                     block_root,
                     &peers,
@@ -851,7 +903,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             // pruned with `drop_lookups_without_peers` because it has peers. This is rare corner
             // case, but it can result in stuck lookups.
             let result = lookup.continue_requests(cx);
-            self.on_lookup_result(lookup_id, result, "add_peers", cx);
+            self.on_lookup_result(lookup_id, result, None, "add_peers", cx);
             Ok(())
         } else {
             Ok(())

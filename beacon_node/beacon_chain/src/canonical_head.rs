@@ -210,6 +210,13 @@ impl<E: EthSpec> CachedHead<E> {
         self.finalized_checkpoint
     }
 
+    /// Returns the finalized slot from the fork choice finalized checkpoint
+    pub fn finalized_slot(&self) -> Slot {
+        self.finalized_checkpoint
+            .epoch
+            .start_slot(E::slots_per_epoch())
+    }
+
     /// Returns the justified checkpoint, as determined by fork choice.
     ///
     /// ## Note

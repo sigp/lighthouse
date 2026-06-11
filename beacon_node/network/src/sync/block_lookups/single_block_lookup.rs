@@ -44,6 +44,8 @@ pub enum LookupResult {
 pub enum LookupRequestError {
     /// Too many failed attempts
     TooManyAttempts,
+    /// This block is not descendant of finalized checkpoint
+    ConflictsWithFinality(Slot, Slot),
     /// Error sending event to network
     SendFailedNetwork(RpcRequestSendError),
     /// Error sending event to processor
@@ -77,6 +79,13 @@ impl AwaitingParent {
 
     pub fn parent_root(&self) -> Hash256 {
         self.parent_root
+    }
+
+    pub fn from_block<E: EthSpec>(block: &SignedBeaconBlock<E>) -> Self {
+        Self::new(
+            block.parent_root(),
+            block.payload_bid_parent_block_hash().ok(),
+        )
     }
 
     pub fn into_peer_type(self) -> PeerType {
@@ -379,10 +388,39 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             cx.block_lookup_request(self.id, self.peers.clone(), self.block_root)
         })?;
         if self.awaiting_parent.is_none()
-            && let Some(data) = self.block_request.state.maybe_start_processing()
+            && let Some(data) = self.block_request.state.is_awaiting_process()
         {
-            cx.send_block_for_processing(self.id, self.block_root, data.value, data.seen_timestamp)
+            let DownloadResult {
+                value: block,
+                seen_timestamp,
+                ..
+            } = data;
+            let finalized_slot = cx.chain.head().finalized_slot();
+            // Eagerly check if we can import without having to send the block for processing. This
+            // allows us to check many lookups in the same sync execution / loop.
+            if cx.chain.is_parent_imported(block) {
+                cx.send_block_for_processing(
+                    self.id,
+                    self.block_root,
+                    block.clone(),
+                    *seen_timestamp,
+                )
                 .map_err(LookupRequestError::SendFailedProcessor)?;
+                self.block_request.state.start_processing()?;
+            } else if block.slot() <= finalized_slot {
+                return Err(LookupRequestError::ConflictsWithFinality(
+                    block.slot(),
+                    finalized_slot,
+                ));
+            } else {
+                self.awaiting_parent = Some(AwaitingParent::from_block(block));
+                return Ok(LookupResult::ParentUnknown {
+                    parent_root: block.parent_root(),
+                    parent_block_hash: block.payload_bid_parent_block_hash().ok(),
+                    block_root: self.block_root,
+                    peers: self.all_peers(),
+                });
+            }
         }
 
         // === Data request ===
@@ -804,6 +842,16 @@ impl<T: Clone> SingleLookupRequestState<T> {
         }
     }
 
+    fn is_awaiting_process(&self) -> Option<&DownloadResult<T>> {
+        match &self.state {
+            State::AwaitingDownload { .. } => None,
+            State::Downloading { .. } => None,
+            State::AwaitingProcess(result) => Some(result),
+            State::Processing(_) => None,
+            State::Processed(..) => None,
+        }
+    }
+
     /// Drive download: check max attempts, issue request, handle result.
     fn maybe_start_downloading(
         &mut self,
@@ -923,6 +971,21 @@ impl<T: Clone> SingleLookupRequestState<T> {
                 Some(result)
             }
             _ => None,
+        }
+    }
+
+    /// Switch to `Processing` if the request is in `AwaitingProcess` state, otherwise returns None.
+    pub fn start_processing(&mut self) -> Result<(), LookupRequestError> {
+        // For 2 lines replace state with placeholder to gain ownership of `result`
+        match &self.state {
+            State::AwaitingProcess(result) => {
+                let result = result.clone();
+                self.state = State::Processing(result.clone());
+                Ok(())
+            }
+            other => Err(LookupRequestError::BadState(format!(
+                "Bad state start_processing expected AwaitingProcess got {other}"
+            ))),
         }
     }
 

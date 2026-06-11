@@ -6294,6 +6294,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
+    pub fn is_parent_imported(&self, block: &SignedBeaconBlock<T::EthSpec>) -> bool {
+        self.canonical_head
+            .fork_choice_read_lock()
+            .is_parent_imported(block)
+    }
+
     pub fn block_is_known_to_fork_choice(&self, root: &Hash256) -> bool {
         self.canonical_head
             .fork_choice_read_lock()
