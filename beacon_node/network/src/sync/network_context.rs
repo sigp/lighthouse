@@ -55,7 +55,7 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tracing::{Span, debug, debug_span, error, warn};
 use types::{
-    BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
+    BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec,
     ForkContext, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
 };
 
@@ -958,52 +958,55 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         Ok(LookupRequestResult::RequestSent(id))
     }
 
-    /// Request to fetch all needed custody columns of one or more blocks via a single custody
-    /// request (which may fan out into multiple `data_columns_by_root` requests). This function may
-    /// not send any request to the network if no columns have to be fetched based on the import
-    /// state of the node.
+    /// Request to fetch all needed custody columns of a specific block. This function may not send
+    /// any request to the network if no columns have to be fetched based on the import state of the
+    /// node. A custody request is a "super request" that may trigger 0 or more `data_columns_by_root`
+    /// requests.
     ///
-    /// When `ignore_cache` is true, the DA checker cache is not consulted and all custody
-    /// columns are fetched. This is used by range sync where blocks are historical and
+    /// A single request may span multiple `block_roots`; callers must ensure all of them are within
+    /// `block_epoch`. When `ignore_cache` is true, the DA checker cache is not consulted and all
+    /// custody columns are fetched. This is used by range sync where blocks are historical and
     /// won't have gossip-imported columns in the cache.
     pub fn custody_lookup_request(
         &mut self,
         requester: CustodyRequester,
-        blocks: &[(Hash256, Slot)],
+        block_roots: &[Hash256],
+        block_epoch: Epoch,
         ignore_cache: bool,
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
     ) -> Result<LookupRequestResult<DataColumnSidecarList<T::EthSpec>>, RpcRequestSendError> {
-        // For single lookups we want at least one signal that some peer has seen the block's data
-        // before issuing column requests. Range sync legitimately passes empty `lookup_peers` and
-        // relies on the global custody peer set, so only apply this check to single lookups.
+        // Code below will issue column requests even if `lookup_peers` is empty. This is not okay,
+        // as we want to have at least one signal that some of our peers has already seen the
+        // block's data. Range sync passes empty `lookup_peers` and relies on the global custody
+        // peer set, so only apply this check to single lookups.
         if matches!(requester, CustodyRequester::SingleLookup(_)) && lookup_peers.read().is_empty()
         {
             return Ok(LookupRequestResult::Pending("no peers"));
         }
 
-        // All blocks in a single custody request share an epoch and (for range sync) ignore the
-        // cache, so they need the same custody column set. Compute it once; for single lookups the
-        // cache trims columns already imported via gossip.
-        let Some((first_root, first_slot)) = blocks.first() else {
-            return Ok(LookupRequestResult::NoRequestNeeded("no blocks", vec![]));
-        };
         let custody_indexes_imported = if ignore_cache {
             Default::default()
         } else {
-            self.chain
-                .cached_data_column_indexes(first_root, *first_slot)
+            block_roots
+                .first()
+                .and_then(|block_root| {
+                    self.chain
+                        .cached_data_column_indexes(block_root, block_epoch)
+                })
                 .unwrap_or_default()
         };
-        let mut column_indices = self
+
+        // Include only the column indexes not yet imported (received through gossip)
+        let mut custody_indexes_to_fetch = self
             .chain
-            .sampling_columns_for_epoch(first_slot.epoch(T::EthSpec::slots_per_epoch()))
+            .sampling_columns_for_epoch(block_epoch)
             .iter()
             .copied()
             .filter(|index| !custody_indexes_imported.contains(index))
             .collect::<Vec<_>>();
-        column_indices.sort_unstable();
+        custody_indexes_to_fetch.sort_unstable();
 
-        if column_indices.is_empty() {
+        if block_roots.is_empty() || custody_indexes_to_fetch.is_empty() {
             // No indexes required, do not issue any request
             return Ok(LookupRequestResult::NoRequestNeeded(
                 "no indices to fetch",
@@ -1011,11 +1014,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             ));
         }
 
-        let block_roots = blocks.iter().map(|(root, _)| *root).collect::<Vec<_>>();
-
         debug!(
             blocks = block_roots.len(),
-            indices = ?column_indices,
+            indices = ?custody_indexes_to_fetch,
             %requester,
             "Starting custody columns request"
         );
@@ -1029,9 +1030,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         };
 
         let mut request = ActiveCustodyRequest::new(
-            block_roots,
+            block_roots.to_vec(),
             CustodyId { requester },
-            &column_indices,
+            &custody_indexes_to_fetch,
             lookup_peers,
         );
 

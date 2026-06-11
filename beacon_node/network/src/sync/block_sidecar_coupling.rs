@@ -202,29 +202,32 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             return Ok(());
         };
 
-        // Collect the data-bearing blocks that need custody columns.
-        let data_blocks = blocks
+        // Collect the data-bearing block roots that need custody columns. All blocks in a range
+        // batch share an epoch (EPOCHS_PER_BATCH == 1).
+        let block_roots = blocks
             .iter()
             .filter(|block| block.num_expected_blobs() > 0)
-            .map(|block| (get_block_root(block), block.slot()))
+            .map(|block| get_block_root(block))
             .collect::<Vec<_>>();
 
-        if data_blocks.is_empty() {
+        if block_roots.is_empty() {
             // No block in this batch has data; nothing to fetch.
             *state = DataColumnsRequest::Complete(vec![], PeerGroup::from_set(Default::default()));
             return Ok(());
         }
+        let block_epoch = blocks[0].slot().epoch(E::slots_per_epoch());
 
         match cx.custody_lookup_request(
             CustodyRequester::RangeSync(id),
-            &data_blocks,
+            &block_roots,
+            block_epoch,
             // ignore_cache: range blocks are historical and won't have gossip-imported columns
             true,
             Arc::new(RwLock::new(HashSet::new())),
         ) {
             Ok(LookupRequestResult::RequestSent(_)) => {
                 *state = DataColumnsRequest::Requesting;
-                debug!(%id, blocks = data_blocks.len(), "Initiated custody-by-root for range batch");
+                debug!(%id, blocks = block_roots.len(), "Initiated custody-by-root for range batch");
                 Ok(())
             }
             Ok(LookupRequestResult::NoRequestNeeded(..)) => {
