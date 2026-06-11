@@ -1116,10 +1116,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     /// Attempts to request the next required batches from the peer pool if the chain is syncing. It will exhaust the peer
     /// pool and left over batches until the batch buffer is reached or all peers are exhausted.
-    pub(super) fn request_batches(
-        &mut self,
-        network: &mut SyncNetworkContext<T>,
-    ) -> ProcessingResult {
+    fn request_batches(&mut self, network: &mut SyncNetworkContext<T>) -> ProcessingResult {
         if !matches!(self.state, ChainSyncingState::Syncing) {
             return Ok(KeepChain);
         }
@@ -1209,13 +1206,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             .count()
             >= BATCH_BUFFER_SIZE as usize
         {
-            return None;
-        }
-
-        // Don't start downloading the next batch until the previous batch's blocks have
-        // arrived. This serializes the block download phase while allowing custody-by-root
-        // requests to run in parallel across batches.
-        if network.has_pending_block_range_download(self.id) {
             return None;
         }
 

@@ -112,11 +112,6 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         }
     }
 
-    /// Returns true if the blocks component of this request has been received.
-    pub fn blocks_received(&self) -> bool {
-        self.blocks_request.to_finished().is_some()
-    }
-
     /// Adds received blocks to the request.
     ///
     /// Returns an error if the request ID doesn't match the expected blocks request.

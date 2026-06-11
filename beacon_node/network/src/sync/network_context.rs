@@ -589,17 +589,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         Ok(id.id)
     }
 
-    /// Returns true if there is a pending range sync request for the given chain where
-    /// blocks have not yet been received. Used to serialize block downloads for PeerDAS.
-    pub fn has_pending_block_range_download(&self, chain_id: Id) -> bool {
-        self.components_by_range_requests.iter().any(|(id, req)| {
-            matches!(
-                id.requester,
-                RangeRequestId::RangeSync { chain_id: cid, .. } if cid == chain_id
-            ) && !req.blocks_received()
-        })
-    }
-
     fn select_columns_by_range_peers_to_request(
         &self,
         custody_indexes: &HashSet<ColumnIndex>,

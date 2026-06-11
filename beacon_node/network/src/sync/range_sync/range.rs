@@ -380,33 +380,6 @@ where
         self.chains.register_metrics();
     }
 
-    /// Notifies the chain that a block download has completed (blocks received, columns may still
-    /// be pending). This allows the chain to start downloading the next batch immediately.
-    pub fn trigger_batch_downloads(
-        &mut self,
-        network: &mut SyncNetworkContext<T>,
-        chain_id: ChainId,
-    ) {
-        match self
-            .chains
-            .call_by_id(chain_id, |chain| chain.request_batches(network))
-        {
-            Ok((None, _)) => {}
-            Ok((Some((removed_chain, remove_reason)), sync_type)) => {
-                self.on_chain_removed(
-                    removed_chain,
-                    sync_type,
-                    remove_reason,
-                    network,
-                    "trigger_batch_downloads",
-                );
-            }
-            Err(_) => {
-                debug!(%chain_id, "trigger_batch_downloads for removed chain");
-            }
-        }
-    }
-
     /// Kickstarts sync.
     pub fn resume(&mut self, network: &mut SyncNetworkContext<T>) {
         for (removed_chain, sync_type, remove_reason) in
