@@ -6,7 +6,7 @@ use ssz::{Decode, Encode};
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::Arc;
-use tracing::{debug, error};
+use tracing::{error, trace};
 use types::core::{EthSpec, Hash256};
 use types::data::{
     PartialDataColumn, PartialDataColumnHeader, PartialDataColumnPartsMetadata,
@@ -168,7 +168,7 @@ impl<E: EthSpec> Partial for OutgoingPartialColumn<E> {
                         Box::new(MaybeKnownMetadata::<E>::Unknown) as Box<dyn Metadata>,
                     )
                 });
-                debug!(
+                trace!(
                     peer=%peer_id,
                     group_id=%self.partial_column.block_root,
                     column_index=self.partial_column.index,
@@ -209,7 +209,7 @@ impl<E: EthSpec> Partial for OutgoingPartialColumn<E> {
                         PartialError::InvalidFormat
                     })?
                     .map(|sidecar| {
-                        debug!(
+                        trace!(
                             peer=%peer_id,
                             group_id=%self.partial_column.block_root,
                             column_index=self.partial_column.index,
@@ -233,7 +233,7 @@ impl<E: EthSpec> Partial for OutgoingPartialColumn<E> {
                     });
 
                 if send.is_none() {
-                    debug!(
+                    trace!(
                         peer=%peer_id,
                         group_id=%self.partial_column.block_root,
                         column_index=self.partial_column.index,

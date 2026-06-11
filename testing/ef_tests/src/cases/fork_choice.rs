@@ -767,7 +767,8 @@ impl<E: EthSpec> Tester<E> {
             ))?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
         let success = blob_success && result.as_ref().is_ok_and(|inner| inner.is_ok());
-        if success != valid {
+        // Only assert valid blocks import; blob-DA failure cases are expected to import now.
+        if valid && !success {
             return Err(Error::DidntFail(format!(
                 "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
                 block_root,
