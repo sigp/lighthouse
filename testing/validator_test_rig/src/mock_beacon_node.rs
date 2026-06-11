@@ -20,7 +20,7 @@ pub struct MockBeaconNode<E: EthSpec> {
     server: ServerGuard,
     pub beacon_api_client: BeaconNodeHttpClient,
     _phantom: PhantomData<E>,
-    pub received_blocks: Arc<Mutex<Vec<SignedBlindedBeaconBlock<E>>>>,
+    pub received_blinded_blocks: Arc<Mutex<Vec<SignedBlindedBeaconBlock<E>>>>,
     pub received_full_blocks: Arc<Mutex<Vec<PublishBlockRequest<E>>>>,
     pub received_envelopes: Arc<Mutex<Vec<SignedExecutionPayloadEnvelope<E>>>>,
     pub payload_attestation_message: Arc<Mutex<Vec<PayloadAttestationMessage>>>,
@@ -38,7 +38,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
             server,
             beacon_api_client,
             _phantom: PhantomData,
-            received_blocks: Arc::new(Mutex::new(Vec::new())),
+            received_blinded_blocks: Arc::new(Mutex::new(Vec::new())),
             received_full_blocks: Arc::new(Mutex::new(Vec::new())),
             received_envelopes: Arc::new(Mutex::new(Vec::new())),
             payload_attestation_message: Arc::new(Mutex::new(Vec::new())),
@@ -79,7 +79,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
         let path_pattern = Regex::new(r"^/eth/v2/beacon/blinded_blocks$").unwrap();
         let url = self.server.url();
 
-        let received_blocks = Arc::clone(&self.received_blocks);
+        let received_blinded_blocks = Arc::clone(&self.received_blinded_blocks);
 
         self.server
             .mock("POST", Matcher::Regex(path_pattern.to_string()))
@@ -100,7 +100,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
                     SignedBlindedBeaconBlock::any_from_ssz_bytes(body)
                         .expect("Failed to deserialize body as SignedBlindedBeaconBlock");
 
-                received_blocks.lock().unwrap().push(block);
+                received_blinded_blocks.lock().unwrap().push(block);
 
                 std::thread::sleep(delay);
                 vec![]
