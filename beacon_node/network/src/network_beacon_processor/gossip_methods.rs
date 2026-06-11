@@ -1635,7 +1635,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             // envelope import pipeline.
             Err(e @ BlockError::EnvelopeError(_)) => {
                 crit!(error = %e, "Internal block gossip validation error. Envelope error during gossip validation");
-                return None;
+                (None, MessageAcceptance::Ignore)
             }
             Err(e @ BlockError::InternalError(_)) => {
                 error!(error = %e, "Internal block gossip validation error");
@@ -1643,11 +1643,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         };
 
-        self.propagate_validation_result(
-            message_id,
-            peer_id,
-            clone_message_acceptance(&message_acceptance),
-        );
+        self.propagate_validation_result(message_id, peer_id, message_acceptance);
 
         if let Some(verified_block) = verified_block_opt {
             metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_VERIFIED_TOTAL);
