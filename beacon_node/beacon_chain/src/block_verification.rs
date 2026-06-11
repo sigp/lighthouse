@@ -52,6 +52,7 @@ use crate::beacon_snapshot::PreProcessingSnapshot;
 use crate::block_verification_types::{AsBlock, BlockImportData, LookupBlock, RangeSyncBlock};
 use crate::data_availability_checker::{
     AvailabilityCheckError, AvailableBlock, AvailableBlockData, MaybeAvailableBlock,
+    verify_columns_against_block,
 };
 use crate::data_column_verification::GossipDataColumnError;
 use crate::execution_payload::{
@@ -59,6 +60,7 @@ use crate::execution_payload::{
 };
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_block_producers::SeenBlock;
+use crate::payload_envelope_verification::EnvelopeError;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
@@ -95,6 +97,7 @@ use store::{Error as DBError, KeyValueStore};
 use strum::{AsRefStr, IntoStaticStr};
 use task_executor::JoinHandle;
 use tracing::{Instrument, Span, debug, debug_span, error, info_span, instrument};
+use types::ExecutionBlockHash;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSidecarList,
     Epoch, EthSpec, FullPayload, Hash256, InconsistentFork, KzgProofs, RelativeEpoch,
@@ -122,7 +125,10 @@ pub enum BlockError {
     ///
     /// It's unclear if this block is valid, but it cannot be processed without already knowing
     /// its parent.
-    ParentUnknown { parent_root: Hash256 },
+    ParentUnknown {
+        parent_root: Hash256,
+        parent_block_hash: Option<ExecutionBlockHash>,
+    },
     /// The block slot is greater than the present slot.
     ///
     /// ## Peer scoring
@@ -137,7 +143,10 @@ pub enum BlockError {
     /// ## Peer scoring
     ///
     /// The peer has incompatible state transition logic and is faulty.
-    StateRootMismatch { block: Hash256, local: Hash256 },
+    StateRootMismatch {
+        block: Hash256,
+        local: Hash256,
+    },
     /// The block was a genesis block, these blocks cannot be re-imported.
     GenesisBlock,
     /// The slot is finalized, no need to import.
@@ -156,7 +165,9 @@ pub enum BlockError {
     ///
     /// It's unclear if this block is valid, but it conflicts with finality and shouldn't be
     /// imported.
-    NotFinalizedDescendant { block_parent_root: Hash256 },
+    NotFinalizedDescendant {
+        block_parent_root: Hash256,
+    },
     /// Block is already known and valid, no need to re-import.
     ///
     /// ## Peer scoring
@@ -183,7 +194,10 @@ pub enum BlockError {
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty.
-    IncorrectBlockProposer { block: u64, local_shuffling: u64 },
+    IncorrectBlockProposer {
+        block: u64,
+        local_shuffling: u64,
+    },
     /// The `block.proposal_index` is not known.
     ///
     /// ## Peer scoring
@@ -201,7 +215,10 @@ pub enum BlockError {
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty.
-    BlockIsNotLaterThanParent { block_slot: Slot, parent_slot: Slot },
+    BlockIsNotLaterThanParent {
+        block_slot: Slot,
+        parent_slot: Slot,
+    },
     /// At least one block in the chain segment did not have it's parent root set to the root of
     /// the prior block.
     ///
@@ -257,7 +274,9 @@ pub enum BlockError {
     /// If it's actually our fault (e.g. our execution node database is corrupt) we have bigger
     /// problems to worry about than losing peers, and we're doing the network a favour by
     /// disconnecting.
-    ParentExecutionPayloadInvalid { parent_root: Hash256 },
+    ParentExecutionPayloadInvalid {
+        parent_root: Hash256,
+    },
     /// This is a known invalid block that was listed in Lighthouses configuration.
     /// At the moment this error is only relevant as part of the Holesky network recovery efforts.
     KnownInvalidExecutionPayload(Hash256),
@@ -285,10 +304,6 @@ pub enum BlockError {
     /// TODO: We may need to penalize the peer that gave us a potentially invalid rpc blob.
     /// https://github.com/sigp/lighthouse/issues/4546
     AvailabilityCheck(AvailabilityCheckError),
-    /// The payload envelope's block root is unknown.
-    EnvelopeBlockRootUnknown(Hash256),
-    /// Optimistic sync is not supported for Gloas payload envelopes.
-    OptimisticSyncNotSupported { block_root: Hash256 },
     /// An internal error has occurred when processing the block or sidecars.
     ///
     /// ## Peer scoring
@@ -315,6 +330,7 @@ pub enum BlockError {
         bid_parent_root: Hash256,
         block_parent_root: Hash256,
     },
+    EnvelopeError(Box<EnvelopeError>),
 }
 
 /// Which specific signature(s) are invalid in a SignedBeaconBlock
@@ -487,6 +503,50 @@ pub struct PayloadVerificationOutcome {
     pub payload_verification_status: PayloadVerificationStatus,
 }
 
+/// The set of errors that can occur while notifying the execution layer of a new payload.
+///
+/// This is deliberately narrow: notifying the EL can only fail in these two ways. The type is
+/// shared by both the pre-Gloas block import path and the Gloas payload envelope path so that
+/// neither pipeline has to borrow the other's error enum. It converts cleanly into both
+/// [`BlockError`] and [`EnvelopeError`](crate::payload_envelope_verification::EnvelopeError) at the
+/// point where the verification handle is consumed.
+#[derive(Debug)]
+pub enum PayloadVerificationError {
+    /// The execution payload was rejected by, or could not be sent to, the execution engine.
+    ExecutionPayloadError(ExecutionPayloadError),
+    /// An internal error occurred while notifying the execution layer.
+    BeaconChainError(Box<BeaconChainError>),
+}
+
+impl From<ExecutionPayloadError> for PayloadVerificationError {
+    fn from(e: ExecutionPayloadError) -> Self {
+        PayloadVerificationError::ExecutionPayloadError(e)
+    }
+}
+
+impl From<BeaconChainError> for PayloadVerificationError {
+    fn from(e: BeaconChainError) -> Self {
+        PayloadVerificationError::BeaconChainError(Box::new(e))
+    }
+}
+
+impl From<BeaconStateError> for PayloadVerificationError {
+    fn from(e: BeaconStateError) -> Self {
+        PayloadVerificationError::BeaconChainError(Box::new(BeaconChainError::BeaconStateError(e)))
+    }
+}
+
+impl From<PayloadVerificationError> for BlockError {
+    fn from(e: PayloadVerificationError) -> Self {
+        match e {
+            PayloadVerificationError::ExecutionPayloadError(e) => {
+                BlockError::ExecutionPayloadError(e)
+            }
+            PayloadVerificationError::BeaconChainError(e) => BlockError::BeaconChainError(e),
+        }
+    }
+}
+
 /// Information about invalid blocks which might still be slashable despite being invalid.
 #[allow(clippy::enum_variant_names)]
 pub enum BlockSlashInfo<TErr> {
@@ -593,14 +653,16 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     )?;
 
     let mut available_blocks = Vec::with_capacity(chain_segment.len());
+    let mut envelopes = Vec::with_capacity(chain_segment.len());
     let mut signature_verified_blocks = Vec::with_capacity(chain_segment.len());
 
     for (block_root, block) in chain_segment {
         let consensus_context =
             ConsensusContext::new(block.slot()).set_current_block_root(block_root);
 
-        let available_block = block.into_available_block();
+        let (available_block, envelope) = block.into_available_block()?;
         available_blocks.push(available_block.clone());
+        envelopes.push(envelope);
         signature_verified_blocks.push(SignatureVerifiedBlock {
             block: MaybeAvailableBlock::Available(available_block),
             block_root,
@@ -608,11 +670,16 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
             consensus_context,
         });
     }
-    // TODO(gloas) When implementing range and backfill sync for gloas
-    // we need a batch verify kzg function in the new da checker as well.
+
     chain
         .data_availability_checker
         .batch_verify_kzg_for_available_blocks(&available_blocks)?;
+
+    for (available_block, maybe_envelope) in available_blocks.iter().zip(envelopes.iter()) {
+        if let Some(envelope) = maybe_envelope {
+            verify_columns_against_block(&chain.kzg, available_block.block(), &envelope.columns)?;
+        }
+    }
 
     // verify signatures
     let pubkey_cache = get_validator_pubkey_cache(chain)?;
@@ -657,7 +724,7 @@ pub struct SignatureVerifiedBlock<T: BeaconChainTypes> {
 
 /// Used to await the result of executing payload with an EE.
 pub type PayloadVerificationHandle =
-    JoinHandle<Option<Result<PayloadVerificationOutcome, BlockError>>>;
+    JoinHandle<Option<Result<PayloadVerificationOutcome, PayloadVerificationError>>>;
 
 /// A wrapper around a `SignedBeaconBlock` that indicates that this block is fully verified and
 /// ready to import into the `BeaconChain`. The validation includes:
@@ -1282,10 +1349,13 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RangeSyncBlock<T::Eth
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<ExecutionPendingBlock<T>, BlockSlashInfo<BlockError>> {
         // Perform an early check to prevent wasting time on irrelevant blocks.
+        let header = self.signed_block_header();
         let block_root = check_block_relevancy(self.as_block(), block_root, chain)
-            .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
+            .map_err(|e| BlockSlashInfo::SignatureNotChecked(header.clone(), e))?;
 
-        let available_block = self.into_available_block();
+        let (available_block, _envelope) = self.into_available_block().map_err(|e| {
+            BlockSlashInfo::SignatureNotChecked(header.clone(), BlockError::AvailabilityCheck(e))
+        })?;
         chain
             .data_availability_checker
             .verify_kzg_for_available_block(&available_block)
@@ -1389,6 +1459,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             ParentImportStatus::UnknownBlock | ParentImportStatus::UnknownPayload => {
                 return Err(BlockError::ParentUnknown {
                     parent_root: block.parent_root(),
+                    parent_block_hash: block.as_block().payload_bid_parent_block_hash().ok(),
                 });
             }
         }
@@ -1764,6 +1835,7 @@ pub fn check_block_is_finalized_checkpoint_or_descendant<
         } else {
             Err(BlockError::ParentUnknown {
                 parent_root: block.parent_root(),
+                parent_block_hash: block.as_block().payload_bid_parent_block_hash().ok(),
             })
         }
     }
@@ -1858,6 +1930,7 @@ fn verify_parent_block_and_envelope_are_known<T: BeaconChainTypes>(
         ParentImportStatus::UnknownBlock | ParentImportStatus::UnknownPayload => {
             Err(BlockError::ParentUnknown {
                 parent_root: block.parent_root(),
+                parent_block_hash: block.payload_bid_parent_block_hash().ok(),
             })
         }
     }
@@ -1890,6 +1963,7 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
     {
         return Err(BlockError::ParentUnknown {
             parent_root: block.parent_root(),
+            parent_block_hash: block.as_block().payload_bid_parent_block_hash().ok(),
         });
     }
 
