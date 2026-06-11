@@ -98,7 +98,6 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
             received_columns_for_slot,
             column_to_peer_id,
             &self.expected_custody_columns,
-            self.attempt,
         );
 
         if let Err(CouplingError::DataColumnPeerFailure {
@@ -121,7 +120,6 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
         mut received_columns_for_slot: HashMap<Slot, DataColumnSidecarList<T::EthSpec>>,
         column_to_peer: HashMap<ColumnIndex, PeerId>,
         expected_custody_columns: &HashSet<ColumnIndex>,
-        _attempt: usize,
     ) -> Result<DataColumnSidecarList<T::EthSpec>, CouplingError> {
         let mut naughty_peers = vec![];
         let mut result: DataColumnSidecarList<T::EthSpec> = vec![];
