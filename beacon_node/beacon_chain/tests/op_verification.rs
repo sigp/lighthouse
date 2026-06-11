@@ -27,7 +27,7 @@ static KEYPAIRS: LazyLock<Vec<Keypair>> =
 
 type E = MinimalEthSpec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
-type HotColdDB = store::HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>;
+type HotColdDB = store::HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>;
 
 fn get_store(db_path: &TempDir) -> Arc<HotColdDB> {
     let spec = Arc::new(test_spec::<E>());

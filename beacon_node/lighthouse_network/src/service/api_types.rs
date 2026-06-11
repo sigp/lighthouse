@@ -21,8 +21,8 @@ pub struct SingleLookupReqId {
 pub enum SyncRequestId {
     /// Request searching for a block given a hash.
     SingleBlock { id: SingleLookupReqId },
-    /// Request searching for a set of blobs given a hash.
-    SingleBlob { id: SingleLookupReqId },
+    /// Request searching for a payload envelope given a hash.
+    SinglePayloadEnvelope { id: SingleLookupReqId },
     /// Request searching for a set of data columns given a hash and list of column indices.
     DataColumnsByRoot(DataColumnsByRootRequestId),
     /// Blocks by range request
@@ -31,6 +31,8 @@ pub enum SyncRequestId {
     BlobsByRange(BlobsByRangeRequestId),
     /// Data columns by range request
     DataColumnsByRange(DataColumnsByRangeRequestId),
+    /// Payload envelopes by range request
+    PayloadEnvelopesByRange(PayloadEnvelopesByRangeRequestId),
 }
 
 /// Request ID for data_columns_by_root requests. Block lookups do not issue this request directly.
@@ -54,6 +56,12 @@ pub struct BlobsByRangeRequestId {
     /// Id to identify this attempt at a blobs_by_range request for `parent_request_id`
     pub id: Id,
     /// The Id of the overall By Range request for block components.
+    pub parent_request_id: ComponentsByRangeRequestId,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct PayloadEnvelopesByRangeRequestId {
+    pub id: Id,
     pub parent_request_id: ComponentsByRangeRequestId,
 }
 
@@ -259,6 +267,12 @@ macro_rules! impl_display {
 impl_display!(BlocksByRangeRequestId, "{}/{}", id, parent_request_id);
 impl_display!(BlobsByRangeRequestId, "{}/{}", id, parent_request_id);
 impl_display!(DataColumnsByRangeRequestId, "{}/{}", id, parent_request_id);
+impl_display!(
+    PayloadEnvelopesByRangeRequestId,
+    "{}/{}",
+    id,
+    parent_request_id
+);
 impl_display!(ComponentsByRangeRequestId, "{}/{}", id, requester);
 impl_display!(DataColumnsByRootRequestId, "{}/{}", id, requester);
 impl_display!(SingleLookupReqId, "{}/Lookup/{}", req_id, lookup_id);

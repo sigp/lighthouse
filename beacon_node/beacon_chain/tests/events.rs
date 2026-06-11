@@ -1,12 +1,9 @@
 use arbitrary::Arbitrary;
-use beacon_chain::blob_verification::GossipVerifiedBlob;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::test_utils::{
     BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
 };
 use eth2::types::{EventKind, SseBlobSidecar, SseDataColumnSidecar};
-use rand::SeedableRng;
-use rand::rngs::StdRng;
 use std::sync::Arc;
 use types::data::FixedBlobSidecarList;
 use types::{
@@ -16,44 +13,6 @@ use types::{
 };
 
 type E = MinimalEthSpec;
-
-/// Verifies that a blob event is emitted when a gossip verified blob is received via gossip or the publish block API.
-#[tokio::test]
-async fn blob_sidecar_event_on_process_gossip_blob() {
-    if fork_name_from_env().is_some_and(|f| !f.deneb_enabled() || f.fulu_enabled()) {
-        return;
-    };
-
-    let spec = Arc::new(test_spec::<E>());
-    let harness = BeaconChainHarness::builder(E::default())
-        .spec(spec)
-        .deterministic_keypairs(8)
-        .fresh_ephemeral_store()
-        .mock_execution_layer()
-        .build();
-
-    // subscribe to blob sidecar events
-    let event_handler = harness.chain.event_handler.as_ref().unwrap();
-    let mut blob_event_receiver = event_handler.subscribe_blob_sidecar();
-
-    // build and process a gossip verified blob
-    let kzg = harness.chain.kzg.as_ref();
-    let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
-    let sidecar = BlobSidecar::random_valid(&mut rng, kzg)
-        .map(Arc::new)
-        .unwrap();
-    let gossip_verified_blob = GossipVerifiedBlob::__assumed_valid(sidecar);
-    let expected_sse_blobs = SseBlobSidecar::from_blob_sidecar(gossip_verified_blob.as_blob());
-
-    let _ = harness
-        .chain
-        .process_gossip_blob(gossip_verified_blob)
-        .await
-        .unwrap();
-
-    let sidecar_event = blob_event_receiver.try_recv().unwrap();
-    assert_eq!(sidecar_event, EventKind::BlobSidecar(expected_sse_blobs));
-}
 
 /// Verifies that a data column event is emitted when a gossip verified data column is received via gossip or the publish block API.
 #[tokio::test]

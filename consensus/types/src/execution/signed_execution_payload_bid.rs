@@ -1,4 +1,5 @@
 use crate::execution::{ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef};
+use crate::fork::ForkVersionDecode;
 use crate::state::BeaconStateError;
 use crate::{Epoch, EthSpec, ForkName};
 use bls::Signature;
@@ -119,6 +120,24 @@ impl<E: EthSpec> SignedExecutionPayloadBidHeze<E> {
         Self {
             message: ExecutionPayloadBidHeze::default(),
             signature: Signature::empty(),
+        }
+    }
+}
+
+impl<E: EthSpec> ForkVersionDecode for SignedExecutionPayloadBid<E> {
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+        match fork_name {
+            ForkName::Gloas => {
+                <SignedExecutionPayloadBidGloas<E> as ssz::Decode>::from_ssz_bytes(bytes)
+                    .map(Self::Gloas)
+            }
+            ForkName::Heze => {
+                <SignedExecutionPayloadBidHeze<E> as ssz::Decode>::from_ssz_bytes(bytes)
+                    .map(Self::Heze)
+            }
+            _ => Err(ssz::DecodeError::BytesInvalid(format!(
+                "unsupported fork for SignedExecutionPayloadBid: {fork_name}",
+            ))),
         }
     }
 }

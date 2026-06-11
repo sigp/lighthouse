@@ -1,13 +1,12 @@
 use crate::engines::ForkchoiceState;
 use crate::http::{
     ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3,
-    ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_FORKCHOICE_UPDATED_V5, ENGINE_GET_BLOBS_V1,
-    ENGINE_GET_BLOBS_V2, ENGINE_GET_BLOBS_V3, ENGINE_GET_CLIENT_VERSION_V1,
-    ENGINE_GET_INCLUSION_LIST_V1, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
-    ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
-    ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6,
-    ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4,
-    ENGINE_NEW_PAYLOAD_V5, ENGINE_NEW_PAYLOAD_V6,
+    ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_FORKCHOICE_UPDATED_V5, ENGINE_GET_BLOBS_V2,
+    ENGINE_GET_BLOBS_V3, ENGINE_GET_CLIENT_VERSION_V1, ENGINE_GET_INCLUSION_LIST_V1,
+    ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1, ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
+    ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2, ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4,
+    ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2,
+    ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V5, ENGINE_NEW_PAYLOAD_V6,
 };
 use eth2::types::{
     BlobsBundle, SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2,
@@ -179,11 +178,14 @@ pub struct PayloadAttributes {
     pub parent_beacon_block_root: Hash256,
     #[superstruct(only(V4, V5), partial_getter(copy))]
     pub slot_number: u64,
+    #[superstruct(only(V4, V5), partial_getter(copy))]
+    pub target_gas_limit: u64,
     #[superstruct(only(V5))]
     pub inclusion_list_transactions: Vec<Vec<u8>>,
 }
 
 impl PayloadAttributes {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         timestamp: u64,
         prev_randao: Hash256,
@@ -191,18 +193,21 @@ impl PayloadAttributes {
         withdrawals: Option<Vec<Withdrawal>>,
         parent_beacon_block_root: Option<Hash256>,
         slot_number: Option<u64>,
+        target_gas_limit: Option<u64>,
         inclusion_list_transactions: Option<Vec<Vec<u8>>>,
     ) -> Self {
         match (
             withdrawals,
             parent_beacon_block_root,
             slot_number,
+            target_gas_limit,
             inclusion_list_transactions,
         ) {
             (
                 Some(withdrawals),
                 Some(parent_beacon_block_root),
                 Some(slot_number),
+                Some(target_gas_limit),
                 Some(inclusion_list_transactions),
             ) => PayloadAttributes::V5(PayloadAttributesV5 {
                 timestamp,
@@ -211,19 +216,25 @@ impl PayloadAttributes {
                 withdrawals,
                 parent_beacon_block_root,
                 slot_number,
+                target_gas_limit,
                 inclusion_list_transactions,
             }),
-            (Some(withdrawals), Some(parent_beacon_block_root), Some(slot_number), None) => {
-                PayloadAttributes::V4(PayloadAttributesV4 {
-                    timestamp,
-                    prev_randao,
-                    suggested_fee_recipient,
-                    withdrawals,
-                    parent_beacon_block_root,
-                    slot_number,
-                })
-            }
-            (Some(withdrawals), Some(parent_beacon_block_root), None, _) => {
+            (
+                Some(withdrawals),
+                Some(parent_beacon_block_root),
+                Some(slot_number),
+                Some(target_gas_limit),
+                None,
+            ) => PayloadAttributes::V4(PayloadAttributesV4 {
+                timestamp,
+                prev_randao,
+                suggested_fee_recipient,
+                withdrawals,
+                parent_beacon_block_root,
+                slot_number,
+                target_gas_limit,
+            }),
+            (Some(withdrawals), Some(parent_beacon_block_root), _, _, _) => {
                 PayloadAttributes::V3(PayloadAttributesV3 {
                     timestamp,
                     prev_randao,
@@ -232,13 +243,13 @@ impl PayloadAttributes {
                     parent_beacon_block_root,
                 })
             }
-            (Some(withdrawals), None, _, _) => PayloadAttributes::V2(PayloadAttributesV2 {
+            (Some(withdrawals), None, _, _, _) => PayloadAttributes::V2(PayloadAttributesV2 {
                 timestamp,
                 prev_randao,
                 suggested_fee_recipient,
                 withdrawals,
             }),
-            (None, _, _, _) => PayloadAttributes::V1(PayloadAttributesV1 {
+            (None, _, _, _, _) => PayloadAttributes::V1(PayloadAttributesV1 {
                 timestamp,
                 prev_randao,
                 suggested_fee_recipient,
@@ -283,7 +294,7 @@ impl From<PayloadAttributes> for SsePayloadAttributes {
                 withdrawals,
                 parent_beacon_block_root,
             }),
-            // V4 maps to V3 for SSE (slot_number is not part of the SSE spec)
+            // V4 maps to V3 for SSE (slot_number/target_gas_limit are not part of the SSE spec)
             PayloadAttributes::V4(PayloadAttributesV4 {
                 timestamp,
                 prev_randao,
@@ -291,6 +302,7 @@ impl From<PayloadAttributes> for SsePayloadAttributes {
                 withdrawals,
                 parent_beacon_block_root,
                 slot_number: _,
+                target_gas_limit: _,
             }) => Self::V3(SsePayloadAttributesV3 {
                 timestamp,
                 prev_randao,
@@ -306,6 +318,7 @@ impl From<PayloadAttributes> for SsePayloadAttributes {
                 withdrawals,
                 parent_beacon_block_root,
                 slot_number: _,
+                target_gas_limit: _,
                 inclusion_list_transactions: _,
             }) => Self::V3(SsePayloadAttributesV3 {
                 timestamp,
@@ -642,7 +655,6 @@ pub struct EngineCapabilities {
     pub get_payload_v5: bool,
     pub get_payload_v6: bool,
     pub get_client_version_v1: bool,
-    pub get_blobs_v1: bool,
     pub get_blobs_v2: bool,
     pub get_inclusion_list_v1: bool,
     pub get_blobs_v3: bool,
@@ -708,9 +720,6 @@ impl EngineCapabilities {
         }
         if self.get_client_version_v1 {
             response.push(ENGINE_GET_CLIENT_VERSION_V1);
-        }
-        if self.get_blobs_v1 {
-            response.push(ENGINE_GET_BLOBS_V1);
         }
         if self.get_blobs_v2 {
             response.push(ENGINE_GET_BLOBS_V2);

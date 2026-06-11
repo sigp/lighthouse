@@ -850,6 +850,9 @@ pub struct JsonPayloadAttributes {
     #[superstruct(only(V4, V5))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub slot_number: u64,
+    #[superstruct(only(V4, V5))]
+    #[serde(with = "serde_utils::u64_hex_be")]
+    pub target_gas_limit: u64,
     #[superstruct(only(V5))]
     pub inclusion_list_transactions: Vec<String>,
 }
@@ -882,6 +885,7 @@ impl From<PayloadAttributes> for JsonPayloadAttributes {
                 withdrawals: pa.withdrawals.into_iter().map(Into::into).collect(),
                 parent_beacon_block_root: pa.parent_beacon_block_root,
                 slot_number: pa.slot_number,
+                target_gas_limit: pa.target_gas_limit,
             }),
             PayloadAttributes::V5(pa) => Self::V5(JsonPayloadAttributesV5 {
                 timestamp: pa.timestamp,
@@ -890,6 +894,7 @@ impl From<PayloadAttributes> for JsonPayloadAttributes {
                 withdrawals: pa.withdrawals.into_iter().map(Into::into).collect(),
                 parent_beacon_block_root: pa.parent_beacon_block_root,
                 slot_number: pa.slot_number,
+                target_gas_limit: pa.target_gas_limit,
                 inclusion_list_transactions: pa
                     .inclusion_list_transactions
                     .into_iter()
@@ -928,6 +933,7 @@ impl From<JsonPayloadAttributes> for PayloadAttributes {
                 withdrawals: jpa.withdrawals.into_iter().map(Into::into).collect(),
                 parent_beacon_block_root: jpa.parent_beacon_block_root,
                 slot_number: jpa.slot_number,
+                target_gas_limit: jpa.target_gas_limit,
             }),
             JsonPayloadAttributes::V5(jpa) => Self::V5(PayloadAttributesV5 {
                 timestamp: jpa.timestamp,
@@ -936,6 +942,7 @@ impl From<JsonPayloadAttributes> for PayloadAttributes {
                 withdrawals: jpa.withdrawals.into_iter().map(Into::into).collect(),
                 parent_beacon_block_root: jpa.parent_beacon_block_root,
                 slot_number: jpa.slot_number,
+                target_gas_limit: jpa.target_gas_limit,
                 inclusion_list_transactions: jpa
                     .inclusion_list_transactions
                     .into_iter()

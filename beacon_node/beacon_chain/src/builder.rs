@@ -30,7 +30,7 @@ use kzg::Kzg;
 use logging::crit;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
-use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
+use proto_array::DisallowedReOrgOffsets;
 use rand::RngCore;
 use rayon::prelude::*;
 use slasher::Slasher;
@@ -48,7 +48,7 @@ use tree_hash::TreeHash;
 use types::data::CustodyIndex;
 use types::{
     BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList,
-    Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
+    EthSpec, Hash256, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -60,8 +60,8 @@ pub struct Witness<TSlotClock, E, THotStore, TColdStore>(
 impl<TSlotClock, E, THotStore, TColdStore> BeaconChainTypes
     for Witness<TSlotClock, E, THotStore, TColdStore>
 where
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
+    THotStore: ItemStore + 'static,
+    TColdStore: ItemStore + 'static,
     TSlotClock: SlotClock + 'static,
     E: EthSpec + 'static,
 {
@@ -115,8 +115,8 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
 impl<TSlotClock, E, THotStore, TColdStore>
     BeaconChainBuilder<Witness<TSlotClock, E, THotStore, TColdStore>>
 where
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
+    THotStore: ItemStore + 'static,
+    TColdStore: ItemStore + 'static,
     TSlotClock: SlotClock + 'static,
     E: EthSpec + 'static,
 {
@@ -173,21 +173,6 @@ where
     /// Set to `None` for no limit.
     pub fn import_max_skip_slots(mut self, n: Option<u64>) -> Self {
         self.chain_config.import_max_skip_slots = n;
-        self
-    }
-
-    /// Sets the proposer re-org threshold.
-    pub fn proposer_re_org_head_threshold(mut self, threshold: Option<ReOrgThreshold>) -> Self {
-        self.chain_config.re_org_head_threshold = threshold;
-        self
-    }
-
-    /// Sets the proposer re-org max epochs since finalization.
-    pub fn proposer_re_org_max_epochs_since_finalization(
-        mut self,
-        epochs_since_finalization: Epoch,
-    ) -> Self {
-        self.chain_config.re_org_max_epochs_since_finalization = epochs_since_finalization;
         self
     }
 
@@ -1022,7 +1007,6 @@ where
             // TODO: allow for persisting and loading the pool from disk.
             observed_block_producers: <_>::default(),
             observed_column_sidecars: RwLock::new(ObservedDataSidecars::new(self.spec.clone())),
-            observed_blob_sidecars: RwLock::new(ObservedDataSidecars::new(self.spec.clone())),
             observed_slashable: <_>::default(),
             pending_payload_envelopes: <_>::default(),
             observed_voluntary_exits: <_>::default(),
@@ -1163,8 +1147,8 @@ where
 impl<E, THotStore, TColdStore>
     BeaconChainBuilder<Witness<TestingSlotClock, E, THotStore, TColdStore>>
 where
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
+    THotStore: ItemStore + 'static,
+    TColdStore: ItemStore + 'static,
     E: EthSpec + 'static,
 {
     /// Sets the `BeaconChain` slot clock to `TestingSlotClock`.
@@ -1314,11 +1298,8 @@ mod test {
         let validator_count = 1;
         let genesis_time = 13_371_337;
 
-        let store: HotColdDB<
-            MinimalEthSpec,
-            MemoryStore<MinimalEthSpec>,
-            MemoryStore<MinimalEthSpec>,
-        > = HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal().into()).unwrap();
+        let store: HotColdDB<MinimalEthSpec, MemoryStore, MemoryStore> =
+            HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal().into()).unwrap();
         let spec = MinimalEthSpec::default_spec();
 
         let genesis_state = interop_genesis_state(

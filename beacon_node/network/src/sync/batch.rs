@@ -34,6 +34,7 @@ pub type BatchId = Epoch;
 pub enum ByRangeRequestType {
     BlocksAndColumns,
     BlocksAndBlobs,
+    BlocksAndEnvelopesAndColumns,
     Blocks,
     Columns(HashSet<u64>),
 }

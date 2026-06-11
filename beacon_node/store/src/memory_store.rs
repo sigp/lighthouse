@@ -4,28 +4,24 @@ use crate::{
 };
 use parking_lot::RwLock;
 use std::collections::{BTreeMap, HashSet};
-use std::marker::PhantomData;
-use types::*;
 
 type DBMap = BTreeMap<BytesKey, Vec<u8>>;
 
 /// A thread-safe `BTreeMap` wrapper.
-pub struct MemoryStore<E: EthSpec> {
+pub struct MemoryStore {
     db: RwLock<DBMap>,
-    _phantom: PhantomData<E>,
 }
 
-impl<E: EthSpec> MemoryStore<E> {
+impl MemoryStore {
     /// Create a new, empty database.
     pub fn open() -> Self {
         Self {
             db: RwLock::new(BTreeMap::new()),
-            _phantom: PhantomData,
         }
     }
 }
 
-impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
+impl KeyValueStore for MemoryStore {
     /// Get the value of some key from the database. Returns `None` if the key does not exist.
     fn get_bytes(&self, col: DBColumn, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         let column_key = BytesKey::from_vec(get_key_for_col(col, key));
@@ -148,4 +144,4 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
     }
 }
 
-impl<E: EthSpec> ItemStore<E> for MemoryStore<E> {}
+impl ItemStore for MemoryStore {}

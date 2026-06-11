@@ -207,6 +207,18 @@ pub enum InvalidPayloadAttestation {
     },
 }
 
+/// The import status of a block's parent, as seen by fork choice.
+#[allow(clippy::large_enum_variant)]
+pub enum ParentImportStatus {
+    /// The parent block is imported and the child's bid commits to a parent payload known to fork
+    /// choice.
+    Imported(ProtoBlock),
+    /// The parent block is not known to fork choice.
+    UnknownBlock,
+    /// The parent block is known, but the child's bid commits to a payload not known to fork choice.
+    UnknownPayload,
+}
+
 impl<T> From<String> for Error<T> {
     fn from(e: String) -> Self {
         Error::ProtoArrayStringError(e)
@@ -1241,7 +1253,6 @@ where
     fn validate_on_payload_attestation(
         &self,
         indexed_payload_attestation: &IndexedPayloadAttestation<E>,
-        is_from_block: AttestationFromBlock,
     ) -> Result<(), InvalidPayloadAttestation> {
         // This check is from `is_valid_indexed_payload_attestation`, but we do it immediately to
         // avoid wasting time on junk attestations.
@@ -1265,25 +1276,6 @@ where
                 block: block.slot,
                 attestation: indexed_payload_attestation.data.slot,
             });
-        }
-
-        // PTC votes can only change the vote for their assigned beacon block, return early otherwise
-        if block.slot != indexed_payload_attestation.data.slot {
-            return Ok(());
-        }
-
-        // Gossip payload attestations must be for the current slot.
-        // NOTE: signature is assumed to have been verified by caller.
-        // https://github.com/ethereum/consensus-specs/blob/master/specs/gloas/fork-choice.md
-        if matches!(is_from_block, AttestationFromBlock::False)
-            && indexed_payload_attestation.data.slot != self.fc_store.get_current_slot()
-        {
-            return Err(
-                InvalidPayloadAttestation::PayloadAttestationNotCurrentSlot {
-                    attestation_slot: indexed_payload_attestation.data.slot,
-                    current_slot: self.fc_store.get_current_slot(),
-                },
-            );
         }
 
         Ok(())
@@ -1373,34 +1365,69 @@ where
     pub fn on_payload_attestation(
         &mut self,
         system_time_current_slot: Slot,
-        attestation: &IndexedPayloadAttestation<E>,
+        payload_attestation: &IndexedPayloadAttestation<E>,
         is_from_block: AttestationFromBlock,
         ptc: &[usize],
     ) -> Result<(), Error<T::Error>> {
         self.update_time(system_time_current_slot)?;
 
-        if attestation.data.beacon_block_root.is_zero() {
+        if payload_attestation.data.beacon_block_root.is_zero() {
             return Ok(());
         }
 
         // TODO(gloas): Should ignore wrong-slot payload attestations at the caller, they could
         // have been processed at the correct slot when received on gossip, but then have the
         // wrong-slot by the time they make it to here (TOCTOU).
-        self.validate_on_payload_attestation(attestation, is_from_block)?;
+        // TODO(gloas): Consider inlining validate_on_payload_attestation here to look more like the spec.
+        self.validate_on_payload_attestation(payload_attestation)?;
 
-        // Resolve validator indices to PTC committee positions.
-        let ptc_indices: Vec<usize> = attestation
-            .attesting_indices
-            .iter()
-            .filter_map(|validator_index| ptc.iter().position(|&p| p == *validator_index as usize))
-            .collect();
+        // PTC votes can only change the vote for their assigned beacon block, return early otherwise.
+        let block = self
+            .proto_array
+            .get_block(&payload_attestation.data.beacon_block_root)
+            .ok_or(InvalidPayloadAttestation::UnknownHeadBlock {
+                beacon_block_root: payload_attestation.data.beacon_block_root,
+            })?;
+        if block.slot != payload_attestation.data.slot {
+            return Ok(());
+        }
+
+        // Gossip payload attestations must be for the current slot.
+        if matches!(is_from_block, AttestationFromBlock::False)
+            && payload_attestation.data.slot != self.fc_store.get_current_slot()
+        {
+            return Err(
+                InvalidPayloadAttestation::PayloadAttestationNotCurrentSlot {
+                    attestation_slot: payload_attestation.data.slot,
+                    current_slot: self.fc_store.get_current_slot(),
+                }
+                .into(),
+            );
+        }
+
+        // Resolve validator indices to all PTC committee positions. A validator may
+        // appear multiple times in the PTC committee.
+        let mut ptc_indices = vec![];
+        let mut validators_found = 0;
+        for validator_index in payload_attestation.attesting_indices.iter() {
+            let mut found = false;
+            for (ptc_index, &ptc_validator_index) in ptc.iter().enumerate() {
+                if ptc_validator_index == *validator_index as usize {
+                    ptc_indices.push(ptc_index);
+                    found = true;
+                }
+            }
+            if found {
+                validators_found += 1;
+            }
+        }
 
         // Check that all the attesters are in the PTC
-        if ptc_indices.len() != attestation.attesting_indices.len() {
+        if validators_found != payload_attestation.attesting_indices.len() {
             return Err(
                 InvalidPayloadAttestation::PayloadAttestationAttestersNotInPtc {
-                    attesting_indices_len: attestation.attesting_indices.len(),
-                    attesting_indices_in_ptc: ptc_indices.len(),
+                    attesting_indices_len: payload_attestation.attesting_indices.len(),
+                    attesting_indices_in_ptc: validators_found,
                 }
                 .into(),
             );
@@ -1408,10 +1435,10 @@ where
 
         for &ptc_index in &ptc_indices {
             self.proto_array.process_payload_attestation(
-                attestation.data.beacon_block_root,
+                payload_attestation.data.beacon_block_root,
                 ptc_index,
-                attestation.data.payload_present,
-                attestation.data.blob_data_available,
+                payload_attestation.data.payload_present,
+                payload_attestation.data.blob_data_available,
             )?;
         }
 
@@ -1554,6 +1581,48 @@ where
     pub fn is_payload_received(&self, block_root: &Hash256) -> bool {
         self.proto_array.is_payload_received(block_root)
             && self.is_finalized_checkpoint_or_descendant(*block_root)
+    }
+
+    /// Returns `true` if the block's parent is imported (and, for a post-Gloas FULL child, its
+    /// parent's payload is imported too). See [`Self::get_parent_import_status`].
+    pub fn is_parent_imported(&self, block: &SignedBeaconBlock<E>) -> bool {
+        matches!(
+            self.get_parent_import_status(block),
+            ParentImportStatus::Imported(_)
+        )
+    }
+
+    /// Returns the import status of the parent of `block`.
+    ///
+    /// A post-Gloas FULL child also requires the parent's payload (committed to by the child's bid)
+    /// to have been received by fork choice.
+    pub fn get_parent_import_status(&self, block: &SignedBeaconBlock<E>) -> ParentImportStatus {
+        if let Some(parent_block) = self.get_block(&block.parent_root()) {
+            let Some(parent_block_hash) = parent_block.execution_payload_block_hash else {
+                // Pre-Gloas parent: payload is embedded in the block, so treat as imported.
+                return ParentImportStatus::Imported(parent_block);
+            };
+            if block.is_parent_block_full(parent_block_hash)
+                && !self.is_payload_received(&block.parent_root())
+            {
+                ParentImportStatus::UnknownPayload
+            } else {
+                ParentImportStatus::Imported(parent_block)
+            }
+        } else {
+            ParentImportStatus::UnknownBlock
+        }
+    }
+
+    /// Called by the proposer to decide whether to build on the full or empty parent.
+    pub fn should_build_on_full(
+        &self,
+        block_root: &Hash256,
+        parent_payload_status: PayloadStatus,
+    ) -> Result<bool, Error<T::Error>> {
+        self.proto_array
+            .should_build_on_full::<E>(block_root, parent_payload_status)
+            .map_err(Error::ProtoArrayStringError)
     }
 
     /// Returns whether the proposer should extend the execution payload chain of the given block.

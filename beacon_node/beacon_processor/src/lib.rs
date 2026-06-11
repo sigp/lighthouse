@@ -41,8 +41,8 @@
 pub use crate::scheduler::BeaconProcessorQueueLengths;
 use crate::scheduler::work_queue::WorkQueues;
 use crate::work_reprocessing_queue::{
-    QueuedBackfillBatch, QueuedColumnReconstruction, QueuedGossipBlock, QueuedGossipEnvelope,
-    ReprocessQueueMessage,
+    QueuedBackfillBatch, QueuedColumnReconstruction, QueuedGossipBlock, QueuedGossipDataColumn,
+    QueuedGossipEnvelope, ReprocessQueueMessage,
 };
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
@@ -304,6 +304,10 @@ impl<E: EthSpec> From<ReadyWork> for WorkEvent<E> {
                     work: Work::ColumnReconstruction(process_fn),
                 }
             }
+            ReadyWork::DataColumn(QueuedGossipDataColumn { process_fn, .. }) => Self {
+                drop_during_sync: true,
+                work: Work::UnknownBlockDataColumn { process_fn },
+            },
         }
     }
 }
@@ -369,6 +373,9 @@ pub enum Work<E: EthSpec> {
     UnknownBlockAttestation {
         process_fn: BlockingFn,
     },
+    UnknownBlockDataColumn {
+        process_fn: BlockingFn,
+    },
     GossipAttestationBatch {
         attestations: GossipAttestationBatch,
         process_batch: Box<dyn FnOnce(GossipAttestationBatch) + Send + Sync>,
@@ -390,7 +397,6 @@ pub enum Work<E: EthSpec> {
         process_batch: Box<dyn FnOnce(Vec<GossipAggregatePackage<E>>) + Send + Sync>,
     },
     GossipBlock(AsyncFn),
-    GossipBlobSidecar(AsyncFn),
     GossipDataColumnSidecar(AsyncFn),
     GossipPartialDataColumnSidecar(AsyncFn),
     DelayedImportBlock {
@@ -418,6 +424,7 @@ pub enum Work<E: EthSpec> {
         process_fn: AsyncFn,
     },
     RpcCustodyColumn(AsyncFn),
+    RpcEnvelope(AsyncFn),
     ColumnReconstruction(AsyncFn),
     IgnoredRpcBlock {
         process_fn: BlockingFn,
@@ -465,13 +472,13 @@ pub enum WorkType {
     GossipAttestation,
     GossipAttestationToConvert,
     UnknownBlockAttestation,
+    UnknownBlockDataColumn,
     GossipAttestationBatch,
     GossipAggregate,
     UnknownBlockAggregate,
     UnknownLightClientOptimisticUpdate,
     GossipAggregateBatch,
     GossipBlock,
-    GossipBlobSidecar,
     GossipDataColumnSidecar,
     GossipPartialDataColumnSidecar,
     DelayedImportBlock,
@@ -486,6 +493,7 @@ pub enum WorkType {
     RpcBlock,
     RpcBlobs,
     RpcCustodyColumn,
+    RpcEnvelope,
     ColumnReconstruction,
     IgnoredRpcBlock,
     ChainSegment,
@@ -528,7 +536,6 @@ impl<E: EthSpec> Work<E> {
             Work::GossipAggregate { .. } => WorkType::GossipAggregate,
             Work::GossipAggregateBatch { .. } => WorkType::GossipAggregateBatch,
             Work::GossipBlock(_) => WorkType::GossipBlock,
-            Work::GossipBlobSidecar(_) => WorkType::GossipBlobSidecar,
             Work::GossipDataColumnSidecar(_) => WorkType::GossipDataColumnSidecar,
             Work::GossipPartialDataColumnSidecar(_) => WorkType::GossipPartialDataColumnSidecar,
             Work::DelayedImportBlock { .. } => WorkType::DelayedImportBlock,
@@ -550,6 +557,7 @@ impl<E: EthSpec> Work<E> {
             Work::RpcBlock { .. } => WorkType::RpcBlock,
             Work::RpcBlobs { .. } => WorkType::RpcBlobs,
             Work::RpcCustodyColumn { .. } => WorkType::RpcCustodyColumn,
+            Work::RpcEnvelope(_) => WorkType::RpcEnvelope,
             Work::ColumnReconstruction(_) => WorkType::ColumnReconstruction,
             Work::IgnoredRpcBlock { .. } => WorkType::IgnoredRpcBlock,
             Work::ChainSegment { .. } => WorkType::ChainSegment,
@@ -571,6 +579,7 @@ impl<E: EthSpec> Work<E> {
             Work::LightClientFinalityUpdateRequest(_) => WorkType::LightClientFinalityUpdateRequest,
             Work::LightClientUpdatesByRangeRequest(_) => WorkType::LightClientUpdatesByRangeRequest,
             Work::UnknownBlockAttestation { .. } => WorkType::UnknownBlockAttestation,
+            Work::UnknownBlockDataColumn { .. } => WorkType::UnknownBlockDataColumn,
             Work::UnknownBlockAggregate { .. } => WorkType::UnknownBlockAggregate,
             Work::UnknownLightClientOptimisticUpdate { .. } => {
                 WorkType::UnknownLightClientOptimisticUpdate
@@ -828,6 +837,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Some(item)
                         } else if let Some(item) = work_queues.rpc_custody_column_queue.pop() {
                             Some(item)
+                        } else if let Some(item) = work_queues.rpc_envelope_queue.pop() {
+                            Some(item)
                         // Check delayed blocks before gossip blocks, the gossip blocks might rely
                         // on the delayed ones.
                         } else if let Some(item) = work_queues.delayed_block_queue.pop() {
@@ -841,9 +852,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         } else if let Some(item) = work_queues.gossip_execution_payload_queue.pop()
                         {
                             Some(item)
-                        } else if let Some(item) = work_queues.gossip_blob_queue.pop() {
-                            Some(item)
                         } else if let Some(item) = work_queues.gossip_data_column_queue.pop() {
+                            Some(item)
+                        } else if let Some(item) = work_queues.unknown_block_data_column_queue.pop()
+                        {
                             Some(item)
                         } else if let Some(item) =
                             work_queues.gossip_partial_data_column_queue.pop()
@@ -1158,9 +1170,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::GossipBlock { .. } => {
                                 work_queues.gossip_block_queue.push(work, work_id)
                             }
-                            Work::GossipBlobSidecar { .. } => {
-                                work_queues.gossip_blob_queue.push(work, work_id)
-                            }
                             Work::GossipDataColumnSidecar { .. } => {
                                 work_queues.gossip_data_column_queue.push(work, work_id)
                             }
@@ -1201,6 +1210,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 work_queues.rpc_block_queue.push(work, work_id)
                             }
                             Work::RpcBlobs { .. } => work_queues.rpc_blob_queue.push(work, work_id),
+                            Work::RpcEnvelope(_) => {
+                                work_queues.rpc_envelope_queue.push(work, work_id)
+                            }
                             Work::RpcCustodyColumn { .. } => {
                                 work_queues.rpc_custody_column_queue.push(work, work_id)
                             }
@@ -1247,6 +1259,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::UnknownBlockAttestation { .. } => {
                                 work_queues.unknown_block_attestation_queue.push(work)
                             }
+                            Work::UnknownBlockDataColumn { .. } => work_queues
+                                .unknown_block_data_column_queue
+                                .push(work, work_id),
                             Work::UnknownBlockAggregate { .. } => {
                                 work_queues.unknown_block_aggregate_queue.push(work)
                             }
@@ -1297,6 +1312,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::UnknownBlockAttestation => {
                             work_queues.unknown_block_attestation_queue.len()
                         }
+                        WorkType::UnknownBlockDataColumn => {
+                            work_queues.unknown_block_data_column_queue.len()
+                        }
                         WorkType::GossipAttestationBatch => 0, // No queue
                         WorkType::GossipAggregate => work_queues.aggregate_queue.len(),
                         WorkType::UnknownBlockAggregate => {
@@ -1307,7 +1325,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         }
                         WorkType::GossipAggregateBatch => 0, // No queue
                         WorkType::GossipBlock => work_queues.gossip_block_queue.len(),
-                        WorkType::GossipBlobSidecar => work_queues.gossip_blob_queue.len(),
                         WorkType::GossipDataColumnSidecar => {
                             work_queues.gossip_data_column_queue.len()
                         }
@@ -1339,6 +1356,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::RpcBlobs | WorkType::IgnoredRpcBlock => {
                             work_queues.rpc_blob_queue.len()
                         }
+                        WorkType::RpcEnvelope => work_queues.rpc_envelope_queue.len(),
                         WorkType::RpcCustodyColumn => work_queues.rpc_custody_column_queue.len(),
                         WorkType::ColumnReconstruction => {
                             work_queues.column_reconstruction_queue.len()
@@ -1516,6 +1534,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             }),
             Work::UnknownBlockAttestation { process_fn }
             | Work::UnknownBlockAggregate { process_fn }
+            | Work::UnknownBlockDataColumn { process_fn }
             | Work::UnknownLightClientOptimisticUpdate { process_fn, .. } => {
                 task_spawner.spawn_blocking(process_fn)
             }
@@ -1535,10 +1554,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
             }
             | Work::RpcBlobs { process_fn }
             | Work::RpcCustodyColumn(process_fn)
+            | Work::RpcEnvelope(process_fn)
             | Work::ColumnReconstruction(process_fn) => task_spawner.spawn_async(process_fn),
             Work::IgnoredRpcBlock { process_fn } => task_spawner.spawn_blocking(process_fn),
             Work::GossipBlock(work)
-            | Work::GossipBlobSidecar(work)
             | Work::GossipDataColumnSidecar(work)
             | Work::GossipPartialDataColumnSidecar(work)
             | Work::GossipExecutionPayload(work) => task_spawner.spawn_async(async move {

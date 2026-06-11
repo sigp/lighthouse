@@ -1,6 +1,4 @@
-use crate::blob_verification::{
-    GossipVerifiedBlob, KzgVerifiedBlob, KzgVerifiedBlobList, verify_kzg_for_blob_list,
-};
+use crate::blob_verification::{KzgVerifiedBlob, KzgVerifiedBlobList, verify_kzg_for_blob_list};
 use crate::block_verification_types::{AvailabilityPendingExecutedBlock, AvailableExecutedBlock};
 use crate::data_availability_checker::overflow_lru_cache::{
     DataAvailabilityCheckerInner, ReconstructColumnsDecision,
@@ -364,24 +362,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_kzg_verified_data_columns(block_root, verified_custody_columns)
     }
 
-    /// Check if we've cached other blobs for this block. If it completes a set and we also
-    /// have a block cached, return the `Availability` variant triggering block import.
-    /// Otherwise cache the blob sidecar.
-    ///
-    /// This should only accept gossip verified blobs, so we should not have to worry about dupes.
-    #[instrument(skip_all, level = "trace")]
-    pub fn put_gossip_verified_blobs<
-        I: IntoIterator<Item = GossipVerifiedBlob<T, O>>,
-        O: ObservationStrategy,
-    >(
-        &self,
-        block_root: Hash256,
-        blobs: I,
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        self.availability_cache
-            .put_kzg_verified_blobs(block_root, blobs.into_iter().map(|b| b.into_inner()))
-    }
-
     #[instrument(skip_all, level = "trace")]
     pub fn put_kzg_verified_blobs<I: IntoIterator<Item = KzgVerifiedBlob<T::EthSpec>>>(
         &self,
@@ -689,7 +669,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
 /// Verify a batch of data columns belonging to a single block, picking the right commitment
 /// source for the block's fork (Fulu: inline on column; Gloas: from the embedded payload bid).
-fn verify_columns_against_block<E: EthSpec>(
+pub fn verify_columns_against_block<E: EthSpec>(
     kzg: &Kzg,
     block: &SignedBeaconBlock<E>,
     columns: &[Arc<DataColumnSidecar<E>>],
@@ -812,7 +792,12 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
 #[derive(Debug, Clone)]
 // TODO(#8633) move this to `block_verification_types.rs`
 pub enum AvailableBlockData<E: EthSpec> {
-    /// Block is pre-Deneb or has zero blobs
+    /// Block has no inline DA object for block import.
+    ///
+    /// This covers:
+    /// - pre-Deneb blocks,
+    /// - blocks with zero blobs, and
+    /// - Gloas blocks, where DA is checked on the payload envelope instead.
     NoData,
     /// Block is post-Deneb, pre-PeerDAS and has more than zero blobs
     Blobs(BlobSidecarList<E>),
@@ -881,8 +866,6 @@ pub struct AvailableBlock<E: EthSpec> {
     #[educe(Hash(ignore))]
     /// Timestamp at which this block first became available (UNIX timestamp, time since 1970).
     blobs_available_timestamp: Option<Duration>,
-    #[educe(Hash(ignore))]
-    pub spec: Arc<ChainSpec>,
 }
 
 impl<E: EthSpec> AvailableBlock<E> {
@@ -915,12 +898,8 @@ impl<E: EthSpec> AvailableBlock<E> {
         match &block_data {
             AvailableBlockData::NoData => {
                 // For Gloas, DA is checked for the PayloadEnvelope, not for the block.
-                if !block.fork_name_unchecked().gloas_enabled() {
-                    if columns_required {
-                        return Err(AvailabilityCheckError::MissingCustodyColumns);
-                    } else if blobs_required {
-                        return Err(AvailabilityCheckError::MissingBlobs);
-                    }
+                if !block.fork_name_unchecked().gloas_enabled() && columns_required {
+                    return Err(AvailabilityCheckError::MissingCustodyColumns);
                 }
             }
             AvailableBlockData::Blobs(blobs) => {
@@ -976,8 +955,20 @@ impl<E: EthSpec> AvailableBlock<E> {
             block,
             blob_data: block_data,
             blobs_available_timestamp: None,
-            spec: spec.clone(),
         })
+    }
+
+    pub fn new_gloas(block: Arc<SignedBeaconBlock<E>>) -> Result<Self, String> {
+        if block.fork_name_unchecked().gloas_enabled() {
+            Ok(Self {
+                block_root: block.canonical_root(),
+                block,
+                blob_data: AvailableBlockData::NoData,
+                blobs_available_timestamp: None,
+            })
+        } else {
+            Err("Block is not gloas".to_owned())
+        }
     }
 
     pub fn block(&self) -> &SignedBeaconBlock<E> {
@@ -1031,7 +1022,6 @@ impl<E: EthSpec> AvailableBlock<E> {
                 }
             },
             blobs_available_timestamp: self.blobs_available_timestamp,
-            spec: self.spec.clone(),
         })
     }
 }
@@ -1322,7 +1312,7 @@ mod test {
 
         let available_blocks = blocks_with_columns
             .into_iter()
-            .map(|block| block.into_available_block())
+            .map(|block| block.into_available_block().unwrap().0)
             .collect::<Vec<_>>();
 
         // WHEN verifying all blocks together (totalling 256 data columns)

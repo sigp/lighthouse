@@ -20,7 +20,7 @@ use types::{ChainSpec, Epoch, EthSpec, ForkName};
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
 pub type ProductionClient<E> =
-    Client<Witness<SystemTimeSlotClock, E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>;
+    Client<Witness<SystemTimeSlotClock, E, BeaconNodeBackend, BeaconNodeBackend>>;
 
 /// The beacon node `Client` that is used in production.
 ///
