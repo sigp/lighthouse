@@ -29,6 +29,7 @@ use state_processing::{
 };
 use std::marker::PhantomData;
 use std::sync::{Arc, LazyLock};
+use store::{AnchorInfo, StoreOp};
 use tempfile::tempdir;
 use types::{test_utils::generate_deterministic_keypair, *};
 
@@ -433,6 +434,164 @@ async fn chain_segment_full_segment() {
         blocks.last().unwrap().canonical_root(),
         "harness should have last block as head"
     );
+}
+
+/// Checks that post-gloas `filter_chain_segment` queues the anchor slots envelope when range
+/// sync re-delivers it after checkpoint sync.
+#[tokio::test]
+async fn filter_chain_segment_picks_up_only_the_anchor_envelope() {
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
+    let (chain_segment, chain_segment_sidecars) = get_chain_segment().await;
+
+    // Need two recent Gloas blocks with envelopes: the anchor and a non-anchor.
+    let gloas_snapshots: Vec<&BeaconSnapshot<E>> = chain_segment
+        .iter()
+        .rev()
+        .filter(|s| {
+            s.execution_envelope.is_some() && s.beacon_block.fork_name_unchecked().gloas_enabled()
+        })
+        .take(2)
+        .collect();
+    if gloas_snapshots.len() < 2 {
+        return;
+    }
+    let anchor_snapshot = gloas_snapshots[0];
+    let other_snapshot = gloas_snapshots[1];
+
+    // Import the segment so the blocks are known.
+    store_envelopes_for_chain_segment(chain_segment, &harness);
+    let blocks = chain_segment_blocks(chain_segment, chain_segment_sidecars, harness.chain.clone());
+    harness
+        .chain
+        .slot_clock
+        .set_slot(blocks.last().unwrap().slot().as_u64());
+    harness
+        .chain
+        .process_chain_segment(blocks, NotifyExecutionLayer::Yes)
+        .await
+        .into_block_error()
+        .expect("should import chain segment");
+
+    let anchor_root = anchor_snapshot.beacon_block_root;
+    let anchor_block = Arc::new(
+        harness
+            .chain
+            .get_block(&anchor_root)
+            .await
+            .unwrap()
+            .unwrap(),
+    );
+    let anchor_envelope = anchor_snapshot.execution_envelope.clone().unwrap();
+    let anchor_slot = anchor_block.slot();
+
+    // Make this block the anchor.
+    let prev = harness.chain.store.get_anchor_info();
+    harness
+        .chain
+        .store
+        .compare_and_set_anchor_info_with_write(
+            prev.clone(),
+            AnchorInfo {
+                anchor_slot,
+                ..prev
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        harness
+            .chain
+            .block_root_at_slot(anchor_slot, WhenSlotSkipped::Prev)
+            .unwrap(),
+        Some(anchor_root),
+    );
+
+    // Drop the anchor's envelope to mimic the post checkpoint sync state.
+    harness
+        .chain
+        .store
+        .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeletePayloadEnvelope(anchor_root)])
+        .unwrap();
+    assert!(
+        !harness
+            .chain
+            .store
+            .payload_envelope_exists(&anchor_root)
+            .unwrap()
+    );
+
+    // Anchor envelope doesn't exist in the store. Queue envelope for import.
+    let filtered = harness
+        .chain
+        .filter_chain_segment(vec![build_range_sync_block(
+            anchor_block.clone(),
+            Some(anchor_envelope.clone()),
+            &None,
+            harness.chain.clone(),
+        )])
+        .unwrap();
+    assert!(
+        filtered.blocks.is_empty(),
+        "anchor block should be skipped, not imported"
+    );
+    assert_eq!(
+        filtered.anchor_envelope.map(|(root, ..)| root),
+        Some(anchor_root),
+        "anchor envelope should be queued"
+    );
+
+    // Anchor slot does not have an envelope, nothing to queue for import.
+    let filtered = harness
+        .chain
+        .filter_chain_segment(vec![build_range_sync_block(
+            anchor_block.clone(),
+            None,
+            &None,
+            harness.chain.clone(),
+        )])
+        .unwrap();
+    assert!(filtered.anchor_envelope.is_none());
+
+    // Non-anchor block missing its envelope, not queued for import.
+    let other_root = other_snapshot.beacon_block_root;
+    let other_block = Arc::new(harness.chain.get_block(&other_root).await.unwrap().unwrap());
+    let other_envelope = other_snapshot.execution_envelope.clone().unwrap();
+    harness
+        .chain
+        .store
+        .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeletePayloadEnvelope(other_root)])
+        .unwrap();
+    let filtered = harness
+        .chain
+        .filter_chain_segment(vec![build_range_sync_block(
+            other_block,
+            Some(other_envelope),
+            &None,
+            harness.chain.clone(),
+        )])
+        .unwrap();
+    assert!(
+        filtered.anchor_envelope.is_none(),
+        "non-anchor block must not be queued even with a missing envelope"
+    );
+
+    // Put anchor envelope in the store
+    harness
+        .chain
+        .store
+        .put_payload_envelope(&anchor_root, &anchor_envelope)
+        .unwrap();
+
+    // Nothing to import, the anchor envelope is already in the store.
+    let filtered = harness
+        .chain
+        .filter_chain_segment(vec![build_range_sync_block(
+            anchor_block,
+            Some(anchor_envelope),
+            &None,
+            harness.chain.clone(),
+        )])
+        .unwrap();
+    assert!(filtered.anchor_envelope.is_none());
 }
 
 #[tokio::test]
