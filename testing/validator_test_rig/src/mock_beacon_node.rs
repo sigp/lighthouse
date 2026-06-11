@@ -362,8 +362,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
 
     /// Mocks `POST /eth/v1/beacon/execution_payload_envelopes` (SSZ) returning error.
     pub fn mock_post_beacon_execution_payload_envelope_ssz_error(&mut self) -> Mock {
-        let path_pattern =
-            Regex::new(r"^/eth/v1/beacon/execution_payload_envelopes(\?.*)?$").unwrap();
+        let path_pattern = Regex::new(r"^/eth/v1/beacon/execution_payload_envelopes$").unwrap();
 
         self.server
             .mock("POST", Matcher::Regex(path_pattern.to_string()))
