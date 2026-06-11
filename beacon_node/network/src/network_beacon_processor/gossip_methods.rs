@@ -62,7 +62,8 @@ use beacon_processor::{
     DuplicateCache, GossipAggregatePackage, GossipAttestationBatch,
     work_reprocessing_queue::{
         QueuedAggregate, QueuedGossipBlock, QueuedGossipDataColumn, QueuedGossipEnvelope,
-        QueuedLightClientUpdate, QueuedUnaggregate, ReprocessQueueMessage,
+        QueuedLightClientUpdate, QueuedPayloadAttestation, QueuedUnaggregate,
+        ReprocessQueueMessage,
     },
 };
 
@@ -3915,13 +3916,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         payload_attestation_message: Box<PayloadAttestationMessage>,
+        allow_reprocess: bool,
     ) {
-        let message_slot = payload_attestation_message.data.slot;
-        let result = self
-            .chain
-            .verify_payload_attestation_message_for_gossip(*payload_attestation_message);
+        // Clone the message for verification, retaining the original so that it can be
+        // re-queued if it references a block we haven't seen yet.
+        let result = self.chain.verify_payload_attestation_message_for_gossip(
+            payload_attestation_message.as_ref().clone(),
+        );
 
-        self.process_gossip_payload_attestation_result(result, message_id, peer_id, message_slot);
+        self.process_gossip_payload_attestation_result(
+            result,
+            message_id,
+            peer_id,
+            payload_attestation_message,
+            allow_reprocess,
+        );
     }
 
     fn process_gossip_payload_attestation_result(
@@ -3929,7 +3938,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         result: Result<VerifiedPayloadAttestationMessage<T>, PayloadAttestationError>,
         message_id: MessageId,
         peer_id: PeerId,
-        message_slot: Slot,
+        payload_attestation_message: Box<PayloadAttestationMessage>,
+        allow_reprocess: bool,
     ) {
         match result {
             Ok(verified) => {
@@ -3970,19 +3980,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     peer_id,
                     message_id,
                     error,
-                    message_slot,
+                    payload_attestation_message,
+                    allow_reprocess,
                 );
             }
         }
     }
 
     fn handle_payload_attestation_verification_failure(
-        &self,
+        self: &Arc<Self>,
         peer_id: PeerId,
         message_id: MessageId,
         error: PayloadAttestationError,
-        message_slot: Slot,
+        payload_attestation_message: Box<PayloadAttestationMessage>,
+        allow_reprocess: bool,
     ) {
+        let message_slot = payload_attestation_message.data.slot;
         match &error {
             PayloadAttestationError::FutureSlot { .. } => {
                 self.gossip_penalize_peer(
@@ -4002,11 +4015,47 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     %message_slot,
                     "Payload attestation references unknown block"
                 );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                // We don't know the block yet, get the sync manager to handle the block lookup
                 self.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
                     peer_id,
                     *beacon_block_root,
-                ))
+                ));
+
+                if allow_reprocess {
+                    // Queue the payload attestation for re-processing
+                    let processor = self.clone();
+                    let msg = ReprocessQueueMessage::UnknownBlockPayloadAttestation(
+                        QueuedPayloadAttestation {
+                            beacon_block_root: *beacon_block_root,
+                            process_fn: Box::new(move || {
+                                processor.process_gossip_payload_attestation(
+                                    message_id,
+                                    peer_id,
+                                    payload_attestation_message,
+                                    false,
+                                )
+                            }),
+                        },
+                    );
+
+                    if let Err(e) = self.beacon_processor_send.try_send(WorkEvent {
+                        drop_during_sync: false,
+                        work: Work::Reprocess(msg),
+                    }) {
+                        error!(
+                            error = %e,
+                            ?beacon_block_root,
+                            %message_slot,
+                            "Failed to send payload attestation for re-processing"
+                        )
+                    }
+                } else {
+                    self.propagate_validation_result(
+                        message_id,
+                        peer_id,
+                        MessageAcceptance::Ignore,
+                    );
+                }
             }
             PayloadAttestationError::NotInPTC { .. } => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);

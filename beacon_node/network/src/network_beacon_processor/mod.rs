@@ -485,6 +485,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 message_id,
                 peer_id,
                 payload_attestation_message,
+                true,
             )
         };
 
