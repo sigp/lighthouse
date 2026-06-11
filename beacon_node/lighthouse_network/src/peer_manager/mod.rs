@@ -491,15 +491,7 @@ impl<E: EthSpec> PeerManager<E> {
             peer_info.set_supported_protocols(
                 info.protocols
                     .iter()
-                    .filter_map(|protocol| {
-                        // ReqResp protocol ids have the form
-                        // `/eth2/beacon_chain/req/<name>/<version>/<encoding>`.
-                        let protocol_str: &str = protocol.as_ref();
-                        protocol_str
-                            .strip_prefix("/eth2/beacon_chain/req/")
-                            .and_then(|rest| rest.split('/').next())
-                            .and_then(|name| Protocol::from_str(name).ok())
-                    })
+                    .filter_map(|protocol| rpc_protocol_from_id(protocol.as_ref()))
                     .collect(),
             );
 
@@ -1721,12 +1713,45 @@ enum ConnectingType {
     },
 }
 
+/// Parses a libp2p protocol id of the form `/eth2/beacon_chain/req/<name>/<version>/<encoding>`
+/// into the corresponding ReqResp [`Protocol`], returning `None` for non-ReqResp protocols.
+fn rpc_protocol_from_id(protocol_id: &str) -> Option<Protocol> {
+    protocol_id
+        .strip_prefix("/eth2/beacon_chain/req/")
+        .and_then(|rest| rest.split('/').next())
+        .and_then(|name| Protocol::from_str(name).ok())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::NetworkConfig;
     use crate::rpc::MetaDataV3;
     use types::{ChainSpec, ForkName, MainnetEthSpec as E};
+
+    #[test]
+    fn rpc_protocol_from_id_parses_reqresp_protocols() {
+        // Known ReqResp protocols are parsed from their name segment.
+        assert_eq!(
+            rpc_protocol_from_id("/eth2/beacon_chain/req/beacon_blocks_by_head/1/ssz_snappy"),
+            Some(Protocol::BlocksByHead)
+        );
+        assert_eq!(
+            rpc_protocol_from_id("/eth2/beacon_chain/req/beacon_blocks_by_root/2/ssz_snappy"),
+            Some(Protocol::BlocksByRoot)
+        );
+        assert_eq!(
+            rpc_protocol_from_id("/eth2/beacon_chain/req/status/1/ssz_snappy"),
+            Some(Protocol::Status)
+        );
+        // Non-ReqResp protocols and unknown names are ignored.
+        assert_eq!(rpc_protocol_from_id("/meshsub/1.1.0"), None);
+        assert_eq!(rpc_protocol_from_id("/ipfs/id/1.0.0"), None);
+        assert_eq!(
+            rpc_protocol_from_id("/eth2/beacon_chain/req/not_a_real_protocol/1/ssz_snappy"),
+            None
+        );
+    }
 
     async fn build_peer_manager(target_peer_count: usize) -> PeerManager<E> {
         build_peer_manager_with_trusted_peers(vec![], target_peer_count).await
