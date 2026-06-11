@@ -88,3 +88,58 @@ impl<E: EthSpec> ActiveRequestItems for DataColumnsByRootRequestItems<E> {
         std::mem::take(&mut self.items)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use beacon_chain::test_utils::{NumBlobs, generate_rand_block_and_data_columns, test_spec};
+    use types::{Epoch, ForkName, MinimalEthSpec as E};
+
+    /// A response missing any requested `(block_root, index)` must not report the request complete,
+    /// whether it covers all roots but misses an index, or all indices but misses a root.
+    #[test]
+    fn partial_response_does_not_complete() {
+        let mut spec = test_spec::<E>();
+        spec.fulu_fork_epoch = Some(Epoch::new(0));
+        let mut u = types::test_utils::test_unstructured();
+        let a = generate_rand_block_and_data_columns::<E>(
+            ForkName::Fulu,
+            NumBlobs::Number(1),
+            &mut u,
+            &spec,
+        )
+        .unwrap()
+        .1;
+        let b = generate_rand_block_and_data_columns::<E>(
+            ForkName::Fulu,
+            NumBlobs::Number(1),
+            &mut u,
+            &spec,
+        )
+        .unwrap()
+        .1;
+
+        // Request columns [0, 1] for two block roots: 4 items expected.
+        let params = DataColumnsByRootRequestParams {
+            block_roots: vec![a[0].block_root(), b[0].block_root()],
+            indices: vec![0, 1],
+        };
+
+        // All block roots, but index 1 missing.
+        let mut items = DataColumnsByRootRequestItems::<E>::new(params.clone());
+        assert_eq!(items.add(a[0].clone()), Ok(false));
+        assert_eq!(items.add(b[0].clone()), Ok(false));
+
+        // All indices, but block root `b` missing.
+        let mut items = DataColumnsByRootRequestItems::<E>::new(params.clone());
+        assert_eq!(items.add(a[0].clone()), Ok(false));
+        assert_eq!(items.add(a[1].clone()), Ok(false));
+
+        // The complete set resolves the request.
+        let mut items = DataColumnsByRootRequestItems::<E>::new(params);
+        assert_eq!(items.add(a[0].clone()), Ok(false));
+        assert_eq!(items.add(a[1].clone()), Ok(false));
+        assert_eq!(items.add(b[0].clone()), Ok(false));
+        assert_eq!(items.add(b[1].clone()), Ok(true));
+    }
+}
