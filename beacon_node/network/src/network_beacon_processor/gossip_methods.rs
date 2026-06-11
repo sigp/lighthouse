@@ -171,17 +171,6 @@ impl<E: EthSpec> FailedAtt<E> {
     }
 }
 
-/// `MessageAcceptance` doesn't implement clone so we do a manual match here.
-/// TODO: remove this once `Clone` is available on this type:
-/// https://github.com/libp2p/rust-libp2p/pull/6445
-fn clone_message_acceptance(a: &MessageAcceptance) -> MessageAcceptance {
-    match a {
-        MessageAcceptance::Accept => MessageAcceptance::Accept,
-        MessageAcceptance::Reject => MessageAcceptance::Reject,
-        MessageAcceptance::Ignore => MessageAcceptance::Ignore,
-    }
-}
-
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /* Auxiliary functions */
 
@@ -752,6 +741,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             %unknown_block_root,
                             "Unknown block root for column"
                         );
+                        // Data columns are only propagated once the block has been seen for both Fulu
+                        // and Gloas. `UnknownBlockHashFromAttestation` declares that `peer_id` has
+                        // imported `unknown_block_root`.
+                        self.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
+                            peer_id,
+                            unknown_block_root,
+                        ));
                         self.propagate_validation_result(
                             message_id.clone(),
                             peer_id,
@@ -942,14 +938,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         &metrics::BEACON_BLOB_DELAY_FULL_VERIFICATION,
                         processing_start_time.elapsed().as_millis() as i64,
                     );
-
-                    // If a block is in the da_checker, sync maybe awaiting for an event when block is finally
-                    // imported. A block can become imported both after processing a block or data column. If
-                    // importing a block results in `Imported`, notify. Do not notify of data column errors.
-                    self.send_sync_message(SyncMessage::GossipBlockProcessResult {
-                        block_root,
-                        imported: true,
-                    });
                 }
                 AvailabilityProcessingStatus::MissingComponents(slot, block_root) => {
                     trace!(
@@ -1104,10 +1092,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         %unknown_block_root,
                         "Unknown block root for partial column"
                     );
-                    // TODO(gloas): wire this into proper lookup sync. Sending
-                    // `UnknownBlockHashFromAttestation` here is a Fulu-shaped fallback that
-                    // mixes column processing with the attestation lookup path and is not
-                    // the right primitive for Gloas column lookups.
+                    // Data columns are only propagated once the block has been seen for both Fulu
+                    // and Gloas. `UnknownBlockHashFromAttestation` declares that `peer_id` has
+                    // imported `unknown_block_root`.
                     self.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
                         peer_id,
                         unknown_block_root,
@@ -1183,7 +1170,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_GOSSIP_PARTIAL_DATA_COLUMN_SIDECAR_MISSING_HEADER_TOTAL,
                 );
-                warn!(
+                debug!(
                     error = ?err,
                     %block_root,
                     %index,
@@ -1373,16 +1360,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // We can't really penalize here, as the error might be the fault of another peer
                 // contributing to the partial.
             }
-        }
-
-        // If a block is in the da_checker, sync maybe awaiting for an event when block is finally
-        // imported. A block can become imported both after processing a block or data column. If a
-        // importing a block results in `Imported`, notify. Do not notify of data column errors.
-        if matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))) {
-            self.send_sync_message(SyncMessage::GossipBlockProcessResult {
-                block_root,
-                imported: true,
-            });
         }
     }
 
@@ -1662,9 +1639,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 crit!(error = %e, "Internal block gossip validation error. Availability check during gossip validation");
                 (None, MessageAcceptance::Ignore)
             }
-            Err(e @ BlockError::InternalError(_))
-            | Err(e @ BlockError::EnvelopeBlockRootUnknown(_))
-            | Err(e @ BlockError::OptimisticSyncNotSupported { .. }) => {
+            // This error variant cannot be reached when doing gossip block validation: a block has
+            // no envelope to verify, and `BlockError::EnvelopeError` is only ever produced by the
+            // envelope import pipeline.
+            Err(e @ BlockError::EnvelopeError(_)) => {
+                crit!(error = %e, "Internal block gossip validation error. Envelope error during gossip validation");
+                return None;
+            }
+            Err(e @ BlockError::InternalError(_)) => {
                 error!(error = %e, "Internal block gossip validation error");
                 (None, MessageAcceptance::Ignore)
             }
@@ -1922,11 +1904,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         if let Err(e) = &result {
             self.maybe_store_invalid_block(&invalid_block_storage, block_root, &block, e);
         }
-
-        self.send_sync_message(SyncMessage::GossipBlockProcessResult {
-            block_root,
-            imported: matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))),
-        });
     }
 
     pub fn process_gossip_voluntary_exit(
@@ -2054,11 +2031,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         };
 
-        self.propagate_validation_result(
-            message_id,
-            peer_id,
-            clone_message_acceptance(&validation_result),
-        );
+        self.propagate_validation_result(message_id, peer_id, validation_result);
 
         if let Some(slashing) = verified_slashing_opt {
             metrics::inc_counter(&metrics::BEACON_PROCESSOR_PROPOSER_SLASHING_VERIFIED_TOTAL);
@@ -2120,11 +2093,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         };
 
-        self.propagate_validation_result(
-            message_id,
-            peer_id,
-            clone_message_acceptance(&validation_result),
-        );
+        self.propagate_validation_result(message_id, peer_id, validation_result);
 
         if let Some(slashing) = verified_slashing_opt {
             metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_VERIFIED_TOTAL);
@@ -2810,14 +2779,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 if allow_reprocess {
                     // We don't know the block, get the sync manager to handle the block lookup, and
                     // send the attestation to be scheduled for re-processing.
-                    self.sync_tx
-                        .send(SyncMessage::UnknownBlockHashFromAttestation(
-                            peer_id,
-                            *beacon_block_root,
-                        ))
-                        .unwrap_or_else(|_| {
-                            warn!(msg = "UnknownBlockHash", "Failed to send to sync service")
-                        });
+                    self.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
+                        peer_id,
+                        *beacon_block_root,
+                    ));
                     let msg = match failed_att {
                         FailedAtt::Aggregate {
                             attestation,
@@ -3810,7 +3775,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     EnvelopeError::PriorToFinalization { .. }
                     | EnvelopeError::BeaconChainError(_)
                     | EnvelopeError::BeaconStateError(_)
-                    | EnvelopeError::ImportError(_) => {
+                    // The following variants are produced during envelope import, not gossip
+                    // verification, so they cannot be reached here. Ignore them to be safe.
+                    | EnvelopeError::OptimisticSyncNotSupported { .. }
+                    | EnvelopeError::BlockRootNotInForkChoice(_)
+                    | EnvelopeError::InternalError(_) => {
                         self.propagate_validation_result(
                             message_id,
                             peer_id,
@@ -4089,13 +4058,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             | PayloadAttestationError::PriorPayloadAttestationMessageKnown { .. } => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
-            PayloadAttestationError::UnknownHeadBlock { .. } => {
+            PayloadAttestationError::UnknownHeadBlock { beacon_block_root } => {
                 debug!(
                     %peer_id,
                     %message_slot,
                     "Payload attestation references unknown block"
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                self.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
+                    peer_id,
+                    *beacon_block_root,
+                ))
             }
             PayloadAttestationError::NotInPTC { .. } => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
