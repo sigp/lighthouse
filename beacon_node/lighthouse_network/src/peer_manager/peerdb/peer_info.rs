@@ -61,7 +61,6 @@ pub struct PeerInfo<E: EthSpec> {
     /// The enr of the peer, if known.
     enr: Option<Enr>,
     /// The set of ReqResp protocols the peer advertised via `identify`. Empty until identified.
-    #[serde(skip)]
     supported_protocols: HashSet<RpcProtocol>,
 }
 
