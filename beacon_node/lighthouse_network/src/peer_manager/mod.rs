@@ -32,6 +32,7 @@ use peerdb::score::{PeerAction, ReportSource};
 pub use peerdb::sync_status::{SyncInfo, SyncStatus};
 use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::net::IpAddr;
+use std::str::FromStr;
 use strum::IntoEnumIterator;
 use types::data::{CustodyIndex, compute_subnets_from_custody_group, get_custody_groups};
 
@@ -487,6 +488,20 @@ impl<E: EthSpec> PeerManager<E> {
             let previous_listening_addresses =
                 peer_info.set_listening_addresses(info.listen_addrs.clone());
             peer_info.set_client(peerdb::client::Client::from_identify_info(info));
+            peer_info.set_supported_protocols(
+                info.protocols
+                    .iter()
+                    .filter_map(|protocol| {
+                        // ReqResp protocol ids have the form
+                        // `/eth2/beacon_chain/req/<name>/<version>/<encoding>`.
+                        let protocol_str: &str = protocol.as_ref();
+                        protocol_str
+                            .strip_prefix("/eth2/beacon_chain/req/")
+                            .and_then(|rest| rest.split('/').next())
+                            .and_then(|name| Protocol::from_str(name).ok())
+                    })
+                    .collect(),
+            );
 
             if previous_kind != peer_info.client().kind
                 || *peer_info.listening_addresses() != previous_listening_addresses
