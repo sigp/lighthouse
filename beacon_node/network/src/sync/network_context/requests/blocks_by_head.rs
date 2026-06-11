@@ -30,22 +30,19 @@ impl<E: EthSpec> ActiveRequestItems for BlocksByHeadRequestItems<E> {
     /// The active request SHOULD be dropped after `add` returns an error.
     fn add(&mut self, block: Self::Item) -> Result<bool, LookupVerifyError> {
         let block_root = get_block_root(&block);
-        match self.items.last() {
-            // The first block returned is the chain tip and must match the requested root.
-            None => {
-                if self.beacon_root != block_root {
-                    return Err(LookupVerifyError::UnrequestedBlockRoot(block_root));
-                }
-            }
+        if let Some(child) = self.items.last() {
             // Each subsequent block must be the parent of the previous one, with a strictly lower
             // slot, so the response forms a contiguous descending chain.
-            Some(child) => {
-                if child.parent_root() != block_root {
-                    return Err(LookupVerifyError::UnrequestedBlockRoot(block_root));
-                }
-                if block.slot() >= child.slot() {
-                    return Err(LookupVerifyError::UnrequestedSlot(block.slot()));
-                }
+            if child.parent_root() != block_root {
+                return Err(LookupVerifyError::UnrequestedBlockRoot(block_root));
+            }
+            if block.slot() >= child.slot() {
+                return Err(LookupVerifyError::UnrequestedSlot(block.slot()));
+            }
+        } else {
+            // The first block returned is the chain tip and must match the requested root.
+            if self.beacon_root != block_root {
+                return Err(LookupVerifyError::UnrequestedBlockRoot(block_root));
             }
         }
 

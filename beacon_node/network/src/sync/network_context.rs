@@ -118,16 +118,14 @@ pub struct AncestorBlocks<E: EthSpec> {
 }
 
 impl<E: EthSpec> AncestorBlocks<E> {
-    /// Splits a non-empty run of blocks (the requested root first, then its ancestors in descending
-    /// slot order) into the requested block and its ancestors. Returns `None` for an empty run.
-    pub fn from_vec(mut blocks: Vec<Arc<SignedBeaconBlock<E>>>) -> Option<Self> {
-        if blocks.is_empty() {
-            return None;
-        }
-        let first_block = blocks.remove(0);
+    /// Splits a run of blocks (the requested root first, then its ancestors in descending slot
+    /// order) into the requested block and its ancestors. Returns `None` for an empty run.
+    pub fn from_vec(blocks: Vec<Arc<SignedBeaconBlock<E>>>) -> Option<Self> {
+        let mut blocks = blocks.into_iter();
+        let first_block = blocks.next()?;
         Some(Self {
             first_block,
-            ancestor_blocks: blocks,
+            ancestor_blocks: blocks.collect(),
         })
     }
 }

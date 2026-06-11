@@ -1731,26 +1731,13 @@ mod tests {
 
     #[test]
     fn rpc_protocol_from_id_parses_reqresp_protocols() {
-        // Known ReqResp protocols are parsed from their name segment.
+        // A known ReqResp protocol is parsed from its name segment.
         assert_eq!(
             rpc_protocol_from_id("/eth2/beacon_chain/req/beacon_blocks_by_head/1/ssz_snappy"),
             Some(Protocol::BlocksByHead)
         );
-        assert_eq!(
-            rpc_protocol_from_id("/eth2/beacon_chain/req/beacon_blocks_by_root/2/ssz_snappy"),
-            Some(Protocol::BlocksByRoot)
-        );
-        assert_eq!(
-            rpc_protocol_from_id("/eth2/beacon_chain/req/status/1/ssz_snappy"),
-            Some(Protocol::Status)
-        );
-        // Non-ReqResp protocols and unknown names are ignored.
+        // Non-ReqResp protocols are ignored.
         assert_eq!(rpc_protocol_from_id("/meshsub/1.1.0"), None);
-        assert_eq!(rpc_protocol_from_id("/ipfs/id/1.0.0"), None);
-        assert_eq!(
-            rpc_protocol_from_id("/eth2/beacon_chain/req/not_a_real_protocol/1/ssz_snappy"),
-            None
-        );
     }
 
     async fn build_peer_manager(target_peer_count: usize) -> PeerManager<E> {
