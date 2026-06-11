@@ -2175,16 +2175,17 @@ run_lookups_tests!(
     depths: [1, 2],
 );
 
-/// A peer that supports `beacon_blocks_by_head` should fetch a whole unknown ancestor chain with a
-/// single request, caching every block, so no `beacon_blocks_by_root` requests are needed.
+/// A lone lookup over `beacon_blocks_by_head` fetches only a few ancestors; once the chain proves
+/// deep the next request fetches a large batch, caching every block, so no `beacon_blocks_by_root`
+/// requests are needed.
 #[tokio::test]
 async fn blocks_by_head_request_count_grows_for_a_chain() {
     // Peers advertise `beacon_blocks_by_head`, so lookups fetch via it.
     let mut r = TestRig::default(PeerSupport::SupportsByHead);
     // Deep enough that the lone count doesn't resolve it, forcing a second (chain) request, while
     // staying under `PARENT_DEPTH_TOLERANCE`.
-    let depth = BLOCKS_BY_HEAD_LONE_REQUEST_COUNT as usize + 4;
-    r.build_chain(depth).await;
+    r.build_chain(BLOCKS_BY_HEAD_CHAIN_REQUEST_COUNT as usize)
+        .await;
     let peer_id = r.new_connected_supernode_peer();
     // Trigger an unknown-parent lookup for the chain tip from that peer.
     let tip = r.get_last_block().block_cloned();
