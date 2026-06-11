@@ -111,6 +111,7 @@ pub struct BeaconProcessorQueueLengths {
     attestation_queue: usize,
     unknown_block_aggregate_queue: usize,
     unknown_block_attestation_queue: usize,
+    unknown_block_data_column_queue: usize,
     sync_message_queue: usize,
     sync_contribution_queue: usize,
     gossip_voluntary_exit_queue: usize,
@@ -125,7 +126,6 @@ pub struct BeaconProcessorQueueLengths {
     chain_segment_queue: usize,
     backfill_chain_segment: usize,
     gossip_block_queue: usize,
-    gossip_blob_queue: usize,
     gossip_data_column_queue: usize,
     gossip_partial_data_column_queue: usize,
     delayed_block_queue: usize,
@@ -175,6 +175,8 @@ impl BeaconProcessorQueueLengths {
         Ok(Self {
             aggregate_queue: 4096,
             unknown_block_aggregate_queue: 1024,
+            // Capacity for two slot's worth of data columns for a supernode.
+            unknown_block_data_column_queue: 256,
             // Capacity for a full slot's worth of attestations if subscribed to all subnets
             attestation_queue: std::cmp::max(
                 active_validator_count / slots_per_epoch,
@@ -202,7 +204,6 @@ impl BeaconProcessorQueueLengths {
             chain_segment_queue: 64,
             backfill_chain_segment: 64,
             gossip_block_queue: 1024,
-            gossip_blob_queue: 1024,
             gossip_data_column_queue: 1024,
             gossip_partial_data_column_queue: 1024,
             delayed_block_queue: 1024,
@@ -218,7 +219,7 @@ impl BeaconProcessorQueueLengths {
             payload_envelopes_brange_queue: 1024,
             payload_envelopes_broots_queue: 1024,
             gossip_bls_to_execution_change_queue: 16384,
-            // TODO(EIP-7732): verify 1024 is preferable. I used same value as `gossip_block_queue` and `gossip_blob_queue`
+            // TODO(EIP-7732): verify 1024 is preferable.
             gossip_execution_payload_queue: 1024,
             // TODO(EIP-7732) how big should this queue be?
             gossip_execution_payload_bid_queue: 1024,
@@ -247,6 +248,7 @@ pub struct WorkQueues<E: EthSpec> {
     pub attestation_debounce: TimeLatch,
     pub unknown_block_aggregate_queue: LifoQueue<Work<E>>,
     pub unknown_block_attestation_queue: LifoQueue<Work<E>>,
+    pub unknown_block_data_column_queue: FifoQueue<Work<E>>,
     pub sync_message_queue: LifoQueue<Work<E>>,
     pub sync_contribution_queue: LifoQueue<Work<E>>,
     pub gossip_voluntary_exit_queue: FifoQueue<Work<E>>,
@@ -261,7 +263,6 @@ pub struct WorkQueues<E: EthSpec> {
     pub chain_segment_queue: FifoQueue<Work<E>>,
     pub backfill_chain_segment: FifoQueue<Work<E>>,
     pub gossip_block_queue: FifoQueue<Work<E>>,
-    pub gossip_blob_queue: FifoQueue<Work<E>>,
     pub gossip_data_column_queue: FifoQueue<Work<E>>,
     pub gossip_partial_data_column_queue: FifoQueue<Work<E>>,
     pub delayed_block_queue: FifoQueue<Work<E>>,
@@ -305,6 +306,8 @@ impl<E: EthSpec> WorkQueues<E> {
             LifoQueue::new(queue_lengths.unknown_block_aggregate_queue);
         let unknown_block_attestation_queue =
             LifoQueue::new(queue_lengths.unknown_block_attestation_queue);
+        let unknown_block_data_column_queue =
+            FifoQueue::new(queue_lengths.unknown_block_data_column_queue);
 
         let sync_message_queue = LifoQueue::new(queue_lengths.sync_message_queue);
         let sync_contribution_queue = LifoQueue::new(queue_lengths.sync_contribution_queue);
@@ -332,7 +335,6 @@ impl<E: EthSpec> WorkQueues<E> {
         let chain_segment_queue = FifoQueue::new(queue_lengths.chain_segment_queue);
         let backfill_chain_segment = FifoQueue::new(queue_lengths.backfill_chain_segment);
         let gossip_block_queue = FifoQueue::new(queue_lengths.gossip_block_queue);
-        let gossip_blob_queue = FifoQueue::new(queue_lengths.gossip_blob_queue);
         let gossip_data_column_queue = FifoQueue::new(queue_lengths.gossip_data_column_queue);
         let gossip_partial_data_column_queue =
             FifoQueue::new(queue_lengths.gossip_partial_data_column_queue);
@@ -387,6 +389,7 @@ impl<E: EthSpec> WorkQueues<E> {
             attestation_debounce,
             unknown_block_aggregate_queue,
             unknown_block_attestation_queue,
+            unknown_block_data_column_queue,
             sync_message_queue,
             sync_contribution_queue,
             gossip_voluntary_exit_queue,
@@ -401,7 +404,6 @@ impl<E: EthSpec> WorkQueues<E> {
             column_reconstruction_queue,
             backfill_chain_segment,
             gossip_block_queue,
-            gossip_blob_queue,
             gossip_data_column_queue,
             gossip_partial_data_column_queue,
             delayed_block_queue,
