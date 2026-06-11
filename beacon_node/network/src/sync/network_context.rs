@@ -543,6 +543,24 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         active_request_count_by_peer
     }
 
+    /// Number of active `blocks_by_root` requests per peer.
+    fn active_blocks_by_root_requests_by_peer(&self) -> HashMap<PeerId, usize> {
+        let mut count_by_peer = HashMap::new();
+        for peer_id in self.blocks_by_root_requests.iter_request_peers() {
+            *count_by_peer.entry(peer_id).or_default() += 1;
+        }
+        count_by_peer
+    }
+
+    /// Number of active `blocks_by_head` requests per peer.
+    fn active_blocks_by_head_requests_by_peer(&self) -> HashMap<PeerId, usize> {
+        let mut count_by_peer = HashMap::new();
+        for peer_id in self.blocks_by_head_requests.iter_request_peers() {
+            *count_by_peer.entry(peer_id).or_default() += 1;
+        }
+        count_by_peer
+    }
+
     /// Retries only the specified failed columns by requesting them again.
     ///
     /// Note: This function doesn't retry the whole batch, but retries specific requests within
@@ -943,28 +961,34 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
         block_root: Hash256,
     ) -> Result<LookupRequestResult<Arc<SignedBeaconBlock<T::EthSpec>>>, RpcRequestSendError> {
+        let active_request_count_by_peer = self.active_request_count_by_peer();
+        let active_blocks_by_root_requests = self.active_blocks_by_root_requests_by_peer();
+        let active_blocks_by_head_requests = self.active_blocks_by_head_requests_by_peer();
         let Some(peer_id) = lookup_peers
             .read()
             .iter()
             .map(|peer| {
                 let supports_blocks_by_head = self.peer_supports_blocks_by_head(peer);
-                // Count concurrent requests to this peer on the protocol we would use. The spec
-                // limits concurrent requests per protocol ID, so only the relevant protocol counts.
-                let active_request_count = if supports_blocks_by_head {
-                    self.blocks_by_head_requests
-                        .active_request_count_of_peer(peer)
+                // The spec limits concurrent requests per protocol ID, so gate on the in-flight
+                // count for the protocol we would actually use.
+                let at_concurrency_limit = (if supports_blocks_by_head {
+                    active_blocks_by_head_requests
+                        .get(peer)
+                        .copied()
+                        .unwrap_or(0)
                 } else {
-                    self.blocks_by_root_requests
-                        .active_request_count_of_peer(peer)
-                };
+                    active_blocks_by_root_requests
+                        .get(peer)
+                        .copied()
+                        .unwrap_or(0)
+                }) >= MAX_CONCURRENT_REQUESTS;
                 (
-                    // Strictly de-prioritize peers already at the concurrent-request limit, so we
-                    // don't exceed `MAX_CONCURRENT_REQUESTS` per protocol ID.
-                    active_request_count >= MAX_CONCURRENT_REQUESTS,
+                    // Strictly de-prioritize peers already at the concurrent-request limit
+                    at_concurrency_limit,
                     // Prefer peers that support `beacon_blocks_by_head`
                     !supports_blocks_by_head,
-                    // Prefer peers with fewer concurrent requests on that protocol
-                    active_request_count,
+                    // Prefer peers with less overall requests
+                    active_request_count_by_peer.get(peer).copied().unwrap_or(0),
                     // Random factor to break ties, otherwise the PeerID breaks ties
                     rand::random::<u32>(),
                     peer,

@@ -246,14 +246,6 @@ impl<K: Copy + Eq + Hash + std::fmt::Display, T: ActiveRequestItems> ActiveReque
             .collect()
     }
 
-    /// Number of active requests to `peer_id` on this protocol.
-    pub fn active_request_count_of_peer(&self, peer_id: &PeerId) -> usize {
-        self.requests
-            .values()
-            .filter(|request| &request.peer_id == peer_id)
-            .count()
-    }
-
     pub fn iter_request_peers(&self) -> impl Iterator<Item = PeerId> + '_ {
         self.requests.values().map(|request| request.peer_id)
     }
