@@ -301,14 +301,14 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create()
     }
 
-    /// Mocks `GET /eth/v1/validator/execution_payload_envelope/{slot}` (SSZ)
+    /// Mocks `GET /eth/v1/validator/execution_payload_envelopes/{slot}` (SSZ)
     pub fn mock_get_validator_execution_payload_envelope_ssz(
         &mut self,
         envelope: &ExecutionPayloadEnvelope<E>,
         slot: Slot,
     ) -> Mock {
         let path_pattern = Regex::new(&format!(
-            r"^/eth/v1/validator/execution_payload_envelope/{}$",
+            r"^/eth/v1/validator/execution_payload_envelopes/{}$",
             slot.as_u64()
         ))
         .unwrap();
@@ -324,10 +324,10 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create()
     }
 
-    /// Mocks `GET /eth/v1/validator/execution_payload_envelope/{slot}` returning error.
+    /// Mocks `GET /eth/v1/validator/execution_payload_envelopes/{slot}` returning error.
     pub fn mock_get_validator_execution_payload_envelope_ssz_error(&mut self, slot: Slot) -> Mock {
         let path_pattern = Regex::new(&format!(
-            r"^/eth/v1/validator/execution_payload_envelope/{}$",
+            r"^/eth/v1/validator/execution_payload_envelopes/{}$",
             slot.as_u64()
         ))
         .unwrap();
@@ -340,9 +340,9 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create()
     }
 
-    /// Mocks `POST /eth/v1/beacon/execution_payload_envelope` (SSZ) to receive signed envelopes.
+    /// Mocks `POST /eth/v1/beacon/execution_payload_envelopes` (SSZ) to receive signed envelopes.
     pub fn mock_post_beacon_execution_payload_envelope_ssz(&mut self) -> Mock {
-        let path_pattern = Regex::new(r"^/eth/v1/beacon/execution_payload_envelope$").unwrap();
+        let path_pattern = Regex::new(r"^/eth/v1/beacon/execution_payload_envelopes$").unwrap();
 
         let received_envelopes = Arc::clone(&self.received_envelopes);
 
@@ -360,10 +360,10 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create()
     }
 
-    /// Mocks `POST /eth/v1/beacon/execution_payload_envelope` (SSZ) returning error.
+    /// Mocks `POST /eth/v1/beacon/execution_payload_envelopes` (SSZ) returning error.
     pub fn mock_post_beacon_execution_payload_envelope_ssz_error(&mut self) -> Mock {
         let path_pattern =
-            Regex::new(r"^/eth/v1/beacon/execution_payload_envelope(\?.*)?$").unwrap();
+            Regex::new(r"^/eth/v1/beacon/execution_payload_envelopes(\?.*)?$").unwrap();
 
         self.server
             .mock("POST", Matcher::Regex(path_pattern.to_string()))

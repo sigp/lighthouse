@@ -815,177 +815,43 @@ fn handle_block_post_error(err: eth2::Error, slot: Slot) -> Result<(), BlockErro
 #[cfg(test)]
 mod tests {
     use super::*;
-    use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
-    use beacon_node_fallback::{
-        BeaconNodeFallback, CandidateBeaconNode, Config as BeaconNodeConfig,
-    };
-    use bls::{Keypair, PublicKeyBytes};
-    use eth2_keystore::KeystoreBuilder;
-    use initialized_validators::InitializedValidators;
-    use lighthouse_validator_store::LighthouseValidatorStore;
-    use slashing_protection::{SLASHING_PROTECTION_FILENAME, SlashingDatabase};
     use slot_clock::ManualSlotClock;
-    use std::sync::Arc;
     use std::time::Duration;
-    use task_executor::test_utils::TestRuntime;
-    use tempfile::{TempDir, tempdir};
-    use types::{
-        BeaconBlock, ChainSpec, Epoch, EthSpec, ExecutionPayloadEnvelope, ForkName, Hash256,
-        MainnetEthSpec, Slot,
-    };
-    use validator_store::ValidatorStore;
-    use validator_test_rig::mock_beacon_node::MockBeaconNode;
+    use types::{BeaconBlock, ExecutionPayloadEnvelope, ForkName, Hash256, Slot};
+    use validator_test_rig::validator_client_harness::{E, S, ValidatorClientHarness};
 
     fn test_block_root() -> Hash256 {
         Hash256::repeat_byte(42)
     }
 
-    type E = MainnetEthSpec;
-    type S = LighthouseValidatorStore<ManualSlotClock, E>;
-
-    async fn create_validator_store(
-        slot_clock: ManualSlotClock,
-        spec: Arc<ChainSpec>,
-        executor: task_executor::TaskExecutor,
-        num_validators: usize,
-    ) -> (Arc<S>, Vec<PublicKeyBytes>, TempDir) {
-        let validator_dir = tempdir().unwrap();
-        let password = b"test";
-
-        let mut validator_definitions = Vec::with_capacity(num_validators);
-        let mut pubkeys = Vec::with_capacity(num_validators);
-
-        for i in 0..num_validators {
-            let keypair = Keypair::random();
-            let keystore = KeystoreBuilder::new(&keypair, password, String::new())
-                .unwrap()
-                .build()
-                .unwrap();
-            let keystore_path = validator_dir
-                .path()
-                .join(format!("voting-keystore-{i}.json"));
-            keystore
-                .to_json_writer(std::fs::File::create(&keystore_path).unwrap())
-                .unwrap();
-
-            let validator_definition = ValidatorDefinition::new_keystore_with_password(
-                keystore_path,
-                PasswordStorage::ValidatorDefinitions(
-                    String::from_utf8(password.to_vec()).unwrap().into(),
-                ),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-            .unwrap();
-
-            pubkeys.push(keypair.pk.into());
-            validator_definitions.push(validator_definition);
-        }
-
-        let initialized_validators = InitializedValidators::from_definitions(
-            validator_definitions.into(),
-            validator_dir.path().into(),
-            Default::default(),
-        )
-        .await
-        .unwrap();
-
-        let slashing_db_path = validator_dir.path().join(SLASHING_PROTECTION_FILENAME);
-        let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
-        slashing_protection
-            .register_validators(pubkeys.iter())
-            .unwrap();
-
-        let validator_store = Arc::new(LighthouseValidatorStore::<_, E>::new(
-            initialized_validators,
-            slashing_protection,
-            Hash256::ZERO,
-            spec,
-            None,
-            slot_clock,
-            &Default::default(),
-            executor,
-        ));
-
-        for (i, pubkey) in pubkeys.iter().enumerate() {
-            validator_store.set_validator_index(pubkey, i as u64);
-        }
-
-        (validator_store, pubkeys, validator_dir)
-    }
-
     struct TestHarness {
-        mock_beacon_node_1: MockBeaconNode<E>,
-        mock_beacon_node_2: MockBeaconNode<E>,
+        harness: ValidatorClientHarness,
         service: BlockService<S, ManualSlotClock>,
-        pubkeys: Vec<PublicKeyBytes>,
-        spec: Arc<ChainSpec>,
-        _test_runtime: TestRuntime,
-        _validator_dir: TempDir,
     }
 
     impl TestHarness {
-        async fn create_validators(num_validators: usize) -> Self {
-            let mut default_spec = MainnetEthSpec::default_spec();
-            default_spec.gloas_fork_epoch = Some(Epoch::new(0));
-            let spec = Arc::new(default_spec);
+        async fn new_with_validators(num_validators: usize) -> Self {
+            let harness = ValidatorClientHarness::new(num_validators).await;
 
-            let test_runtime = TestRuntime::default();
-            let executor = test_runtime.task_executor.clone();
-            let slot_duration = spec.get_slot_duration();
-            let slot_clock =
-                ManualSlotClock::new(Slot::new(0), Duration::from_secs(0), slot_duration);
-            slot_clock.advance_time(slot_duration);
-
-            let (validator_store, pubkeys, validator_dir) = create_validator_store(
-                slot_clock.clone(),
-                spec.clone(),
-                executor.clone(),
-                num_validators,
-            )
-            .await;
-
-            let mock_beacon_node_1 = MockBeaconNode::<E>::new().await;
-            let mock_beacon_node_2 = MockBeaconNode::<E>::new().await;
-
-            let beacon_node_1 =
-                CandidateBeaconNode::new(mock_beacon_node_1.beacon_api_client.clone(), 0);
-            let beacon_node_2 =
-                CandidateBeaconNode::new(mock_beacon_node_2.beacon_api_client.clone(), 1);
-
-            let beacon_node_fallback = Arc::new(BeaconNodeFallback::new(
-                vec![beacon_node_1, beacon_node_2],
-                BeaconNodeConfig::default(),
-                vec![],
-                spec.clone(),
-            ));
+            // advance the time to Slot 1
+            harness
+                .slot_clock
+                .advance_time(harness.spec.get_slot_duration());
 
             let service = BlockServiceBuilder::new()
-                .validator_store(validator_store)
-                .slot_clock(slot_clock)
-                .beacon_nodes(beacon_node_fallback.clone())
-                .executor(executor)
-                .chain_spec(spec.clone())
+                .validator_store(harness.validator_store.clone())
+                .slot_clock(harness.slot_clock.clone())
+                .beacon_nodes(harness.beacon_nodes.clone())
+                .executor(harness.executor())
+                .chain_spec(harness.spec.clone())
                 .build()
                 .unwrap();
 
-            Self {
-                mock_beacon_node_1,
-                mock_beacon_node_2,
-                service,
-                pubkeys,
-                spec,
-                _test_runtime: test_runtime,
-                _validator_dir: validator_dir,
-            }
+            Self { harness, service }
         }
 
         fn gloas_block(&self, slot: Slot, proposer_index: u64) -> BeaconBlock<E> {
-            let mut block = BeaconBlock::empty(&self.spec);
+            let mut block = BeaconBlock::empty(&self.harness.spec);
             *block.slot_mut() = slot;
             *block.proposer_index_mut() = proposer_index;
             block
@@ -1003,28 +869,27 @@ mod tests {
 
     #[tokio::test]
     async fn test_do_update() {
-        let mut harness = TestHarness::create_validators(1).await;
+        let mut test_harness = TestHarness::new_with_validators(1).await;
 
-        let validator_pubkey = harness.pubkeys[0];
+        let validator_pubkey = test_harness.harness.pubkeys[0];
         let proposer_index = 0;
 
         // Simulate a scenario where the slot is different form the notification slot
         // slot_clock is at Slot 1 (defined in TestHarness), but the notification slot is at Slot 2
         let different_notification_slot = Slot::new(2);
-        let block = harness.gloas_block(different_notification_slot, proposer_index);
+        let block = test_harness.gloas_block(different_notification_slot, proposer_index);
 
         let different_notification = BlockServiceNotification {
             slot: different_notification_slot,
             block_proposers: vec![validator_pubkey],
         };
 
-        let mock_different_slot = harness.mock_beacon_node_1.mock_get_validator_blocks_v4_ssz(
-            &block,
-            ForkName::Gloas,
-            different_notification_slot,
-        );
+        let mock_different_slot = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_validator_blocks_v4_ssz(&block, ForkName::Gloas, different_notification_slot);
 
-        harness
+        test_harness
             .service
             .do_update(different_notification)
             .await
@@ -1041,13 +906,16 @@ mod tests {
             block_proposers: vec![validator_pubkey],
         };
 
-        let mock_same_slot = harness.mock_beacon_node_1.mock_get_validator_blocks_v4_ssz(
-            &block,
-            ForkName::Gloas,
-            same_notification_slot,
-        );
+        let mock_same_slot = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_validator_blocks_v4_ssz(&block, ForkName::Gloas, same_notification_slot);
 
-        harness.service.do_update(same_notification).await.unwrap();
+        test_harness
+            .service
+            .do_update(same_notification)
+            .await
+            .unwrap();
         // Give any spawned tasks time to execute
         tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -1058,30 +926,34 @@ mod tests {
 
     #[tokio::test]
     async fn get_validator_block_and_publish_block_succeeds() {
-        let mut harness = TestHarness::create_validators(1).await;
+        let mut test_harness = TestHarness::new_with_validators(1).await;
 
         let slot = Slot::new(1);
-        let proposer_index = 0u64;
-        let validator_pubkey = harness.pubkeys[0];
+        let proposer_index = 0;
+        let validator_pubkey = test_harness.harness.pubkeys[0];
 
-        let block = harness.gloas_block(slot, proposer_index);
+        let block = test_harness.gloas_block(slot, proposer_index);
         let beacon_block_root = test_block_root();
-        let envelope = harness.execution_payload_envelope(beacon_block_root);
+        let envelope = test_harness.execution_payload_envelope(beacon_block_root);
 
-        harness
+        test_harness
+            .harness
             .mock_beacon_node_1
             .mock_get_validator_blocks_v4_ssz(&block, ForkName::Gloas, slot);
-        let mock_post_block = harness
+        let mock_post_block = test_harness
+            .harness
             .mock_beacon_node_1
             .mock_post_beacon_blocks_v2_ssz(ForkName::Gloas);
-        harness
+        test_harness
+            .harness
             .mock_beacon_node_1
             .mock_get_validator_execution_payload_envelope_ssz(&envelope, slot);
-        let mock_post_envelope = harness
+        let mock_post_envelope = test_harness
+            .harness
             .mock_beacon_node_1
             .mock_post_beacon_execution_payload_envelope_ssz();
 
-        let result = harness
+        let result = test_harness
             .service
             .clone()
             .get_validator_block_and_publish_block(slot, validator_pubkey, None)
@@ -1097,14 +969,16 @@ mod tests {
         mock_post_block.expect(1).assert();
         mock_post_envelope.expect(1).assert();
 
-        let received_blocks = harness
+        let received_blocks = test_harness
+            .harness
             .mock_beacon_node_1
             .received_full_blocks
             .lock()
             .unwrap();
         assert_eq!(received_blocks.len(), 1, "Expected one published block");
 
-        let received_envelopes = harness
+        let received_envelopes = test_harness
+            .harness
             .mock_beacon_node_1
             .received_envelopes
             .lock()
@@ -1119,28 +993,32 @@ mod tests {
 
     #[tokio::test]
     async fn get_validator_block_and_publish_block_fails() {
-        let mut harness = TestHarness::create_validators(1).await;
+        let mut test_harness = TestHarness::new_with_validators(1).await;
 
         let slot = Slot::new(1);
-        let validator_pubkey = harness.pubkeys[0];
+        let validator_pubkey = test_harness.harness.pubkeys[0];
 
         // Simulate both beacon nodes return error for get_validator_blocks
         // there is no JSON fallback in this case, so get_validator_blocks should fail
-        let mock_bn_1 = harness
+        let mock_bn_1 = test_harness
+            .harness
             .mock_beacon_node_1
             .mock_get_validator_blocks_v4_ssz_error(slot);
-        let mock_bn_2 = harness
+        let mock_bn_2 = test_harness
+            .harness
             .mock_beacon_node_2
             .mock_get_validator_blocks_v4_ssz_error(slot);
 
-        let mock_post_block = harness
+        let mock_post_block = test_harness
+            .harness
             .mock_beacon_node_1
             .mock_post_beacon_blocks_v2_ssz(ForkName::Gloas);
-        let mock_post_envelope = harness
+        let mock_post_envelope = test_harness
+            .harness
             .mock_beacon_node_1
             .mock_post_beacon_execution_payload_envelope_ssz();
 
-        let result = harness
+        let result = test_harness
             .service
             .clone()
             .get_validator_block_and_publish_block(slot, validator_pubkey, None)
@@ -1163,29 +1041,32 @@ mod tests {
 
     #[tokio::test]
     async fn get_validator_execution_payload_envelope_ssz_fails() {
-        let mut harness = TestHarness::create_validators(1).await;
+        let mut test_harness = TestHarness::new_with_validators(1).await;
 
         let slot = Slot::new(1);
-        let validator_pubkey = harness.pubkeys[0];
+        let validator_pubkey = test_harness.harness.pubkeys[0];
 
         // Both beacon nodes return error for envelope fetch
-        harness
+        test_harness
+            .harness
             .mock_beacon_node_1
             .mock_get_validator_execution_payload_envelope_ssz_error(slot);
-        harness
+        test_harness
+            .harness
             .mock_beacon_node_2
             .mock_get_validator_execution_payload_envelope_ssz_error(slot);
 
-        let mock_post_envelope = harness
+        let mock_post_envelope = test_harness
+            .harness
             .mock_beacon_node_1
             .mock_post_beacon_execution_payload_envelope_ssz();
 
         let proposer_fallback = ProposerFallback {
-            beacon_nodes: harness.service.beacon_nodes.clone(),
-            proposer_nodes: harness.service.proposer_nodes.clone(),
+            beacon_nodes: test_harness.service.beacon_nodes.clone(),
+            proposer_nodes: test_harness.service.proposer_nodes.clone(),
         };
 
-        let result = harness
+        let result = test_harness
             .service
             .fetch_sign_and_publish_payload_envelope(&proposer_fallback, slot, &validator_pubkey)
             .await;
@@ -1202,31 +1083,34 @@ mod tests {
 
     #[tokio::test]
     async fn post_beacon_execution_payload_envelope_ssz_fails() {
-        let mut harness = TestHarness::new(1).await;
+        let mut test_harness = TestHarness::new_with_validators(1).await;
 
         let slot = Slot::new(1);
-        let validator_pubkey = harness.pubkeys[0];
+        let validator_pubkey = test_harness.harness.pubkeys[0];
         let beacon_block_root = test_block_root();
-        let envelope = harness.execution_payload_envelope(beacon_block_root);
+        let envelope = test_harness.execution_payload_envelope(beacon_block_root);
 
-        harness
+        test_harness
+            .harness
             .mock_beacon_node_1
             .mock_get_validator_execution_payload_envelope_ssz(&envelope, slot);
 
         // Both beacon nodes return error for envelope publish
-        let mock_post_envelope_1 = harness
+        let mock_post_envelope_1 = test_harness
+            .harness
             .mock_beacon_node_1
             .mock_post_beacon_execution_payload_envelope_ssz_error();
-        let mock_post_envelope_2 = harness
+        let mock_post_envelope_2 = test_harness
+            .harness
             .mock_beacon_node_2
             .mock_post_beacon_execution_payload_envelope_ssz_error();
 
         let proposer_fallback = ProposerFallback {
-            beacon_nodes: harness.service.beacon_nodes.clone(),
-            proposer_nodes: harness.service.proposer_nodes.clone(),
+            beacon_nodes: test_harness.service.beacon_nodes.clone(),
+            proposer_nodes: test_harness.service.proposer_nodes.clone(),
         };
 
-        let result = harness
+        let result = test_harness
             .service
             .fetch_sign_and_publish_payload_envelope(&proposer_fallback, slot, &validator_pubkey)
             .await;
