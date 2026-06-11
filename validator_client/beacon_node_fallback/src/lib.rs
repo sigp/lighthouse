@@ -992,7 +992,7 @@ mod tests {
         spec: &ChainSpec,
     ) -> (MockBeaconNode<E>, CandidateBeaconNode) {
         let mut mock_beacon_node = MockBeaconNode::<E>::new().await;
-        mock_beacon_node.mock_config_spec(spec);
+        mock_beacon_node.mock_get_config_spec(spec);
 
         let beacon_node =
             CandidateBeaconNode::new(mock_beacon_node.beacon_api_client.clone(), index);

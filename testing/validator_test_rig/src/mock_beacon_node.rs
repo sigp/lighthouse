@@ -51,63 +51,6 @@ impl<E: EthSpec> MockBeaconNode<E> {
         self.server.reset();
     }
 
-    pub fn mock_config_spec(&mut self, spec: &ChainSpec) {
-        let path_pattern = Regex::new(r"^/eth/v1/config/spec$").unwrap();
-        let config_and_preset = ConfigAndPreset::from_chain_spec::<E>(spec);
-        let data = GenericResponse::from(config_and_preset);
-        self.server
-            .mock("GET", Matcher::Regex(path_pattern.to_string()))
-            .with_status(200)
-            .with_body(serde_json::to_string(&data).unwrap())
-            .create();
-    }
-
-    pub fn mock_get_node_syncing(&mut self, response: SyncingData) {
-        let path_pattern = Regex::new(r"^/eth/v1/node/syncing$").unwrap();
-
-        let data = GenericResponse::from(response);
-
-        self.server
-            .mock("GET", Matcher::Regex(path_pattern.to_string()))
-            .with_status(200)
-            .with_body(serde_json::to_string(&data).unwrap())
-            .create();
-    }
-
-    /// Mocks the `post_beacon_blinded_blocks_v2_ssz` response with an optional `delay`.
-    pub fn mock_post_beacon_blinded_blocks_v2_ssz(&mut self, delay: Duration) -> Mock {
-        let path_pattern = Regex::new(r"^/eth/v2/beacon/blinded_blocks$").unwrap();
-        let url = self.server.url();
-
-        let received_blinded_blocks = Arc::clone(&self.received_blinded_blocks);
-
-        self.server
-            .mock("POST", Matcher::Regex(path_pattern.to_string()))
-            .match_header("content-type", "application/octet-stream")
-            .with_status(200)
-            .with_body_from_request(move |request| {
-                info!(
-                    "{}",
-                    format!(
-                        "Received published block request on server {} with delay {} s",
-                        url,
-                        delay.as_secs(),
-                    )
-                );
-
-                let body = request.body().expect("Failed to get request body");
-                let block: SignedBlindedBeaconBlock<E> =
-                    SignedBlindedBeaconBlock::any_from_ssz_bytes(body)
-                        .expect("Failed to deserialize body as SignedBlindedBeaconBlock");
-
-                received_blinded_blocks.lock().unwrap().push(block);
-
-                std::thread::sleep(delay);
-                vec![]
-            })
-            .create()
-    }
-
     pub fn mock_offline_node(&mut self) -> Mock {
         let path_pattern = Regex::new(r"^/eth/v1/node/version$").unwrap();
 
@@ -133,6 +76,66 @@ impl<E: EthSpec> MockBeaconNode<E> {
                 }
             }"#,
             )
+            .create()
+    }
+
+    pub fn mock_get_config_spec(&mut self, spec: &ChainSpec) {
+        let path_pattern = Regex::new(r"^/eth/v1/config/spec$").unwrap();
+        let config_and_preset = ConfigAndPreset::from_chain_spec::<E>(spec);
+        let data = GenericResponse::from(config_and_preset);
+        self.server
+            .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .with_status(200)
+            .with_body(serde_json::to_string(&data).unwrap())
+            .create();
+    }
+
+    pub fn mock_get_node_syncing(&mut self, response: SyncingData) {
+        let path_pattern = Regex::new(r"^/eth/v1/node/syncing$").unwrap();
+
+        let data = GenericResponse::from(response);
+
+        self.server
+            .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .with_status(200)
+            .with_body(serde_json::to_string(&data).unwrap())
+            .create();
+    }
+
+    /// Mocks `GET /eth/v4/validator/blocks/{slot}` (SSZ)
+    pub fn mock_get_validator_blocks_v4_ssz(
+        &mut self,
+        block: &BeaconBlock<E>,
+        fork_name: ForkName,
+        slot: Slot,
+    ) -> Mock {
+        let path_pattern =
+            Regex::new(&format!(r"^/eth/v4/validator/blocks/{}", slot.as_u64())).unwrap();
+
+        let ssz_bytes = block.as_ssz_bytes();
+
+        self.server
+            .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .match_header("accept", "application/octet-stream")
+            .with_status(200)
+            // These headers are required for v4 get validator block endpoint: https://github.com/ethereum/beacon-APIs/pull/580
+            .with_header("Eth-Consensus-Version", &fork_name.to_string())
+            .with_header("Eth-Consensus-Block-Value", "0")
+            .with_header("Eth-Execution-Payload-Included", "false")
+            .with_body(ssz_bytes)
+            .create()
+    }
+
+    /// Mocks `GET /eth/v4/validator/blocks/{slot}` (SSZ) returning error
+    pub fn mock_get_validator_blocks_v4_ssz_error(&mut self, slot: Slot) -> Mock {
+        let path_pattern =
+            Regex::new(&format!(r"^/eth/v4/validator/blocks/{}", slot.as_u64())).unwrap();
+
+        self.server
+            .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .match_header("accept", "application/octet-stream")
+            .with_status(500)
+            .with_body(r#"{"message":"Internal server error"}"#)
             .create()
     }
 
@@ -175,6 +178,99 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .with_status(500)
             .with_header("content-type", "application/json")
             .with_body(r#"{"message":"Internal server error"}"#)
+            .create()
+    }
+
+    /// Mocks `GET /eth/v1/validator/execution_payload_envelopes/{slot}` (SSZ)
+    pub fn mock_get_validator_execution_payload_envelope_ssz(
+        &mut self,
+        envelope: &ExecutionPayloadEnvelope<E>,
+        slot: Slot,
+    ) -> Mock {
+        let path_pattern = Regex::new(&format!(
+            r"^/eth/v1/validator/execution_payload_envelopes/{}$",
+            slot.as_u64()
+        ))
+        .unwrap();
+
+        let ssz_bytes = envelope.as_ssz_bytes();
+
+        self.server
+            .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .match_header("accept", "application/octet-stream")
+            .with_status(200)
+            .with_header("content-type", "application/octet-stream")
+            .with_body(ssz_bytes)
+            .create()
+    }
+
+    /// Mocks `GET /eth/v1/validator/execution_payload_envelopes/{slot}` returning error.
+    pub fn mock_get_validator_execution_payload_envelope_ssz_error(&mut self, slot: Slot) -> Mock {
+        let path_pattern = Regex::new(&format!(
+            r"^/eth/v1/validator/execution_payload_envelopes/{}$",
+            slot.as_u64()
+        ))
+        .unwrap();
+
+        self.server
+            .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .match_header("accept", "application/octet-stream")
+            .with_status(500)
+            .with_body(r#"{"message":"Internal server error"}"#)
+            .create()
+    }
+
+    /// Mocks the `post_beacon_blinded_blocks_v2_ssz` response with an optional `delay`.
+    pub fn mock_post_beacon_blinded_blocks_v2_ssz(&mut self, delay: Duration) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v2/beacon/blinded_blocks$").unwrap();
+        let url = self.server.url();
+
+        let received_blinded_blocks = Arc::clone(&self.received_blinded_blocks);
+
+        self.server
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
+            .match_header("content-type", "application/octet-stream")
+            .with_status(200)
+            .with_body_from_request(move |request| {
+                info!(
+                    "{}",
+                    format!(
+                        "Received published block request on server {} with delay {} s",
+                        url,
+                        delay.as_secs(),
+                    )
+                );
+
+                let body = request.body().expect("Failed to get request body");
+                let block: SignedBlindedBeaconBlock<E> =
+                    SignedBlindedBeaconBlock::any_from_ssz_bytes(body)
+                        .expect("Failed to deserialize body as SignedBlindedBeaconBlock");
+
+                received_blinded_blocks.lock().unwrap().push(block);
+
+                std::thread::sleep(delay);
+                vec![]
+            })
+            .create()
+    }
+
+    /// Mocks `POST /eth/v2/beacon/blocks` (SSZ)
+    pub fn mock_post_beacon_blocks_v2_ssz(&mut self, fork_name: ForkName) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v2/beacon/blocks$").unwrap();
+
+        let received_full_blocks = Arc::clone(&self.received_full_blocks);
+
+        self.server
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
+            .match_header("content-type", "application/octet-stream")
+            .with_status(200)
+            .with_body_from_request(move |request| {
+                let body = request.body().expect("Failed to get request body");
+                let block = PublishBlockRequest::<E>::from_ssz_bytes(body, fork_name)
+                    .expect("Failed to deserialize PublishBlockRequest from SSZ");
+                received_full_blocks.lock().unwrap().push(block);
+                vec![]
+            })
             .create()
     }
 
@@ -239,102 +335,6 @@ impl<E: EthSpec> MockBeaconNode<E> {
         self.server
             .mock("POST", Matcher::Regex(path_pattern.to_string()))
             .match_header("content-type", "application/octet-stream")
-            .with_status(500)
-            .with_body(r#"{"message":"Internal server error"}"#)
-            .create()
-    }
-
-    /// Mocks `GET /eth/v4/validator/blocks/{slot}` (SSZ)
-    pub fn mock_get_validator_blocks_v4_ssz(
-        &mut self,
-        block: &BeaconBlock<E>,
-        fork_name: ForkName,
-        slot: Slot,
-    ) -> Mock {
-        let path_pattern =
-            Regex::new(&format!(r"^/eth/v4/validator/blocks/{}", slot.as_u64())).unwrap();
-
-        let ssz_bytes = block.as_ssz_bytes();
-
-        self.server
-            .mock("GET", Matcher::Regex(path_pattern.to_string()))
-            .match_header("accept", "application/octet-stream")
-            .with_status(200)
-            // These headers are required for v4 get validator block endpoint: https://github.com/ethereum/beacon-APIs/pull/580
-            .with_header("Eth-Consensus-Version", &fork_name.to_string())
-            .with_header("Eth-Consensus-Block-Value", "0")
-            .with_header("Eth-Execution-Payload-Included", "false")
-            .with_body(ssz_bytes)
-            .create()
-    }
-
-    /// Mocks `GET /eth/v4/validator/blocks/{slot}` (SSZ) returning error
-    pub fn mock_get_validator_blocks_v4_ssz_error(&mut self, slot: Slot) -> Mock {
-        let path_pattern =
-            Regex::new(&format!(r"^/eth/v4/validator/blocks/{}", slot.as_u64())).unwrap();
-
-        self.server
-            .mock("GET", Matcher::Regex(path_pattern.to_string()))
-            .match_header("accept", "application/octet-stream")
-            .with_status(500)
-            .with_body(r#"{"message":"Internal server error"}"#)
-            .create()
-    }
-
-    /// Mocks `POST /eth/v2/beacon/blocks` (SSZ)
-    pub fn mock_post_beacon_blocks_v2_ssz(&mut self, fork_name: ForkName) -> Mock {
-        let path_pattern = Regex::new(r"^/eth/v2/beacon/blocks$").unwrap();
-
-        let received_full_blocks = Arc::clone(&self.received_full_blocks);
-
-        self.server
-            .mock("POST", Matcher::Regex(path_pattern.to_string()))
-            .match_header("content-type", "application/octet-stream")
-            .with_status(200)
-            .with_body_from_request(move |request| {
-                let body = request.body().expect("Failed to get request body");
-                let block = PublishBlockRequest::<E>::from_ssz_bytes(body, fork_name)
-                    .expect("Failed to deserialize PublishBlockRequest from SSZ");
-                received_full_blocks.lock().unwrap().push(block);
-                vec![]
-            })
-            .create()
-    }
-
-    /// Mocks `GET /eth/v1/validator/execution_payload_envelopes/{slot}` (SSZ)
-    pub fn mock_get_validator_execution_payload_envelope_ssz(
-        &mut self,
-        envelope: &ExecutionPayloadEnvelope<E>,
-        slot: Slot,
-    ) -> Mock {
-        let path_pattern = Regex::new(&format!(
-            r"^/eth/v1/validator/execution_payload_envelopes/{}$",
-            slot.as_u64()
-        ))
-        .unwrap();
-
-        let ssz_bytes = envelope.as_ssz_bytes();
-
-        self.server
-            .mock("GET", Matcher::Regex(path_pattern.to_string()))
-            .match_header("accept", "application/octet-stream")
-            .with_status(200)
-            .with_header("content-type", "application/octet-stream")
-            .with_body(ssz_bytes)
-            .create()
-    }
-
-    /// Mocks `GET /eth/v1/validator/execution_payload_envelopes/{slot}` returning error.
-    pub fn mock_get_validator_execution_payload_envelope_ssz_error(&mut self, slot: Slot) -> Mock {
-        let path_pattern = Regex::new(&format!(
-            r"^/eth/v1/validator/execution_payload_envelopes/{}$",
-            slot.as_u64()
-        ))
-        .unwrap();
-
-        self.server
-            .mock("GET", Matcher::Regex(path_pattern.to_string()))
-            .match_header("accept", "application/octet-stream")
             .with_status(500)
             .with_body(r#"{"message":"Internal server error"}"#)
             .create()
