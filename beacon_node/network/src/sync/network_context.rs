@@ -83,13 +83,6 @@ macro_rules! new_range_request_span {
 pub const MAX_COLUMN_RETRIES: usize = 3;
 
 /// Number of ancestors a block lookup requests when fetching a block via `beacon_blocks_by_head`.
-/// The responder walks the block's parent chain and returns up to this many blocks (capped at
-/// `MAX_REQUEST_BLOCKS_DENEB`), letting a single request fetch a run of ancestors instead of one
-/// block per round-trip.
-// TODO(tree-sync): the ancestors beyond the requested root are currently discarded by block
-// lookups; they will be consumed to seed parent lookups in the header-backfill step.
-pub const BLOCKS_BY_HEAD_REQUEST_COUNT: u64 = 32;
-
 #[derive(Debug)]
 pub enum RpcEvent<T> {
     StreamTermination,
@@ -978,6 +971,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         lookup_id: SingleLookupId,
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
         block_root: Hash256,
+        by_head_count: u64,
     ) -> Result<LookupRequestResult<Arc<SignedBeaconBlock<T::EthSpec>>>, RpcRequestSendError> {
         let active_request_count_by_peer = self.active_request_count_by_peer();
         let blocks_by_root_per_peer = ActiveRequestsPerPeer::new(&self.blocks_by_root_requests);
@@ -1044,7 +1038,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // in a single request; otherwise fall back to `beacon_blocks_by_root` for the single block.
         Ok(LookupRequestResult::RequestSent(
             if self.peer_supports_blocks_by_head(&peer_id) {
-                self.send_blocks_by_head(peer_id, lookup_id, block_root)?
+                self.send_blocks_by_head(peer_id, lookup_id, block_root, by_head_count)?
             } else {
                 self.send_block_by_root_request(peer_id, lookup_id, block_root)?
             },
@@ -1117,6 +1111,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         lookup_id: SingleLookupId,
         block_root: Hash256,
+        count: u64,
     ) -> Result<Id, RpcRequestSendError> {
         let id = SingleLookupReqId {
             lookup_id,
@@ -1126,7 +1121,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // with the events handled by `Self::on_blocks_by_head_response`.
         let request = BlocksByHeadRequest {
             beacon_root: block_root,
-            count: BLOCKS_BY_HEAD_REQUEST_COUNT,
+            count,
         };
         self.network_send
             .send(NetworkMessage::SendRequest {
@@ -1155,7 +1150,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // false = the peer may return fewer blocks than requested (e.g. reached genesis or
             // finalization), so the request completes on stream termination.
             false,
-            BlocksByHeadRequestItems::new(block_root, BLOCKS_BY_HEAD_REQUEST_COUNT as usize),
+            BlocksByHeadRequestItems::new(block_root, count as usize),
             request_span,
         );
 

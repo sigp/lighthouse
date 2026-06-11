@@ -5,8 +5,10 @@ use crate::network_beacon_processor::sync_methods::WhichPeerToPenalize;
 use crate::network_beacon_processor::{
     ChainSegmentProcessId, InvalidBlockStorage, NetworkBeaconProcessor,
 };
+use crate::sync::block_lookups::{
+    BLOCKS_BY_HEAD_CHAIN_REQUEST_COUNT, BLOCKS_BY_HEAD_LONE_REQUEST_COUNT,
+};
 use crate::sync::block_lookups::{BlockLookupSummary, PARENT_DEPTH_TOLERANCE};
-use crate::sync::network_context::BLOCKS_BY_HEAD_REQUEST_COUNT;
 use crate::sync::{
     SyncMessage,
     manager::{BatchProcessResult, BlockProcessType, SyncManager},
@@ -2176,11 +2178,13 @@ run_lookups_tests!(
 /// A peer that supports `beacon_blocks_by_head` should fetch a whole unknown ancestor chain with a
 /// single request, caching every block, so no `beacon_blocks_by_root` requests are needed.
 #[tokio::test]
-async fn blocks_by_head_fetches_whole_chain_in_one_request() {
+async fn blocks_by_head_request_count_grows_for_a_chain() {
     // Peers advertise `beacon_blocks_by_head`, so lookups fetch via it.
     let mut r = TestRig::default(PeerSupport::SupportsByHead);
-    // A chain that fits in a single by-head response and stays under `PARENT_DEPTH_TOLERANCE`.
-    r.build_chain(BLOCKS_BY_HEAD_REQUEST_COUNT as usize).await;
+    // Deep enough that the lone count doesn't resolve it, forcing a second (chain) request, while
+    // staying under `PARENT_DEPTH_TOLERANCE`.
+    let depth = BLOCKS_BY_HEAD_LONE_REQUEST_COUNT as usize + 4;
+    r.build_chain(depth).await;
     let peer_id = r.new_connected_supernode_peer();
     // Trigger an unknown-parent lookup for the chain tip from that peer.
     let tip = r.get_last_block().block_cloned();
@@ -2188,10 +2192,27 @@ async fn blocks_by_head_fetches_whole_chain_in_one_request() {
     r.simulate(SimulateConfig::happy_path()).await;
 
     r.assert_successful_lookup_sync();
-    // One by-head request fetched and cached the whole ancestor chain, so no by-root was needed.
-    let counts = r.requests_count();
-    assert_eq!(counts.get("BlocksByHead").copied().unwrap_or(0), 1);
-    assert_eq!(counts.get("BlocksByRoot").copied().unwrap_or(0), 0);
+    // The lone first lookup fetches only a few ancestors; once the chain is proven deep the next
+    // request fetches a large batch. No by-root is used.
+    let by_head_counts = r
+        .requests
+        .iter()
+        .filter_map(|(req, _)| match req {
+            RequestType::BlocksByHead(req) => Some(req.count),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        by_head_counts,
+        vec![
+            BLOCKS_BY_HEAD_LONE_REQUEST_COUNT,
+            BLOCKS_BY_HEAD_CHAIN_REQUEST_COUNT
+        ]
+    );
+    assert_eq!(
+        r.requests_count().get("BlocksByRoot").copied().unwrap_or(0),
+        0
+    );
 }
 
 /// Assert that lookup sync succeeds with the happy case

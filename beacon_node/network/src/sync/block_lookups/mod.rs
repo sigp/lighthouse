@@ -24,9 +24,7 @@ use self::parent_chain::{NodeChain, compute_parent_chains};
 pub use self::single_block_lookup::DownloadResult;
 use self::single_block_lookup::{LookupRequestError, PeerType, SingleBlockLookup};
 use super::manager::BlockProcessType;
-use super::network_context::{
-    AncestorBlocks, BLOCKS_BY_HEAD_REQUEST_COUNT, RpcResponseError, SyncNetworkContext,
-};
+use super::network_context::{AncestorBlocks, RpcResponseError, SyncNetworkContext};
 use crate::metrics;
 use crate::network_beacon_processor::BlockProcessingResult;
 use crate::sync::SyncMessage;
@@ -53,12 +51,19 @@ use types::{
 pub mod parent_chain;
 mod single_block_lookup;
 
+/// `beacon_blocks_by_head` count for a lone lookup (nothing awaits it yet): fetch only a few
+/// ancestors so the common shallow case doesn't over-fetch.
+pub(crate) const BLOCKS_BY_HEAD_LONE_REQUEST_COUNT: u64 = 4;
+/// `beacon_blocks_by_head` count for a lookup that's part of a known parent chain: fetch a large
+/// batch to resolve a deep chain in few round-trips. Tune against mainnet metrics.
+pub(crate) const BLOCKS_BY_HEAD_CHAIN_REQUEST_COUNT: u64 = 32;
+
 /// The maximum depth we will search for a parent block. Once a lookup chain reaches this depth it
 /// is dropped and the head is force-transitioned to range sync.
 ///
 /// Allow one full `beacon_blocks_by_head` batch (plus its triggering child) so a single response
 /// can always seed an entire ancestor chain without tripping the limit.
-pub(crate) const PARENT_DEPTH_TOLERANCE: usize = BLOCKS_BY_HEAD_REQUEST_COUNT as usize + 1;
+pub(crate) const PARENT_DEPTH_TOLERANCE: usize = BLOCKS_BY_HEAD_CHAIN_REQUEST_COUNT as usize + 1;
 
 const IGNORED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 pub const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 4;
@@ -168,6 +173,21 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 .map(|lookup| lookup.into())
                 .collect::<Vec<_>>(),
         )
+    }
+
+    /// The `beacon_blocks_by_head` count to request when fetching `block_root`. A lookup that
+    /// nothing is waiting on is a lone island and fetches only a few ancestors; a lookup a child is
+    /// awaiting is part of a chain already proven to be deep, so it fetches a large batch.
+    fn by_head_request_count(&self, block_root: Hash256) -> u64 {
+        if self
+            .single_block_lookups
+            .values()
+            .any(|lookup| lookup.is_awaiting_block(block_root))
+        {
+            BLOCKS_BY_HEAD_CHAIN_REQUEST_COUNT
+        } else {
+            BLOCKS_BY_HEAD_LONE_REQUEST_COUNT
+        }
     }
 
     /* Lookup requests */
@@ -413,10 +433,21 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             return false;
         }
 
+        // Read the by-head count before inserting this lookup below: a lookup nothing yet awaits is
+        // a lone island and fetches a few ancestors; one a child already awaits is part of a deep
+        // chain and fetches a large batch.
+        let by_head_count = self.by_head_request_count(block_root);
+
         // If we know that this lookup has unknown parent (is awaiting a parent lookup to resolve),
         // signal here to hold processing downloaded data.
-        let mut lookup =
-            SingleBlockLookup::new(block_root, peers, peer_type, cx.next_id(), awaiting_parent);
+        let mut lookup = SingleBlockLookup::new(
+            block_root,
+            peers,
+            peer_type,
+            cx.next_id(),
+            awaiting_parent,
+            by_head_count,
+        );
         let _guard = lookup.span.clone().entered();
 
         // Add block components to the new request
