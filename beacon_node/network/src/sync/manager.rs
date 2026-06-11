@@ -1236,7 +1236,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         {
             self.on_range_components_response(
                 id.parent_request_id,
-                Some(peer_id),
+                peer_id,
                 RangeBlockComponent::PayloadEnvelope(id, resp),
             );
         }
@@ -1274,8 +1274,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         if let Some(resp) = self.network.on_blocks_by_range_response(id, peer_id, block) {
             self.on_range_components_response(
                 id.parent_request_id,
-                Some(peer_id),
-                RangeBlockComponent::Block(id, resp),
+                peer_id,
+                RangeBlockComponent::Block(id, resp, peer_id),
             );
         }
     }
@@ -1289,7 +1289,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         if let Some(resp) = self.network.on_blobs_by_range_response(id, peer_id, blob) {
             self.on_range_components_response(
                 id.parent_request_id,
-                Some(peer_id),
+                peer_id,
                 RangeBlockComponent::Blob(id, resp),
             );
         }
@@ -1329,10 +1329,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     .ok()
                     .map(|dl| dl.peer_group.clone())
                     .unwrap_or_else(|| PeerGroup::from_set(Default::default()));
-                let peer_id = peer_group.all().next().copied();
                 self.on_range_components_response(
                     components_by_range_id,
-                    peer_id,
+                    // Peer attributability is broken in range sync :)
+                    PeerId::random(),
                     RangeBlockComponent::CustodyResult(response, peer_group),
                 );
             }
@@ -1344,14 +1344,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     fn on_range_components_response(
         &mut self,
         range_request_id: ComponentsByRangeRequestId,
-        peer_id: Option<PeerId>,
+        peer_id: PeerId,
         range_block_component: RangeBlockComponent<T::EthSpec>,
     ) {
-        if let Some(resp) = self.network.range_block_component_response(
-            range_request_id,
-            peer_id,
-            range_block_component,
-        ) {
+        if let Some(resp) = self
+            .network
+            .range_block_component_response(range_request_id, range_block_component)
+        {
             match resp {
                 // On success the batch is attributed to the peer that provided its blocks.
                 Ok((peer_id, blocks)) => {
@@ -1390,7 +1389,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     RangeRequestId::RangeSync { chain_id, batch_id } => {
                         self.range_sync.inject_error(
                             &mut self.network,
-                            peer_id,
+                            Some(peer_id),
                             batch_id,
                             chain_id,
                             range_request_id.id,
@@ -1402,7 +1401,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         match self.backfill_sync.inject_error(
                             &mut self.network,
                             batch_id,
-                            peer_id.as_ref(),
+                            &peer_id,
                             range_request_id.id,
                             e,
                         ) {

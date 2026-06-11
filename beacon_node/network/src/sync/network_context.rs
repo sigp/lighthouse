@@ -249,6 +249,7 @@ pub enum RangeBlockComponent<E: EthSpec> {
     Block(
         BlocksByRangeRequestId,
         RpcResponseResult<Vec<Arc<SignedBeaconBlock<E>>>>,
+        PeerId,
     ),
     Blob(
         BlobsByRangeRequestId,
@@ -651,7 +652,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn range_block_component_response(
         &mut self,
         id: ComponentsByRangeRequestId,
-        peer_id: Option<PeerId>,
         range_block_component: RangeBlockComponent<T::EthSpec>,
     ) -> Option<Result<(PeerId, Vec<RangeSyncBlock<T::EthSpec>>), RpcResponseError>> {
         // Remove from map to allow passing &mut self to continue_requests
@@ -659,12 +659,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         // Add the incoming component
         let add_result = match range_block_component {
-            RangeBlockComponent::Block(req_id, resp) => resp.and_then(|(blocks, _)| {
-                request.add_blocks(req_id, blocks).map_err(|e| {
+            RangeBlockComponent::Block(req_id, resp, peer_id) => resp.and_then(|(blocks, _)| {
+                request.add_blocks(req_id, blocks, peer_id).map_err(|e| {
                     RpcResponseError::BlockComponentCouplingError(CouplingError::InternalError(e))
                 })?;
                 // Record the peer that provided the blocks for batch attribution.
-                request.block_peer = peer_id;
                 Ok(())
             }),
             RangeBlockComponent::Blob(req_id, resp) => resp.and_then(|(blobs, _)| {
@@ -705,16 +704,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
 
         // Check if all components have arrived
-        if let Some(blocks_result) = request.responses(
+        if let Some((blocks_result, block_peer)) = request.responses(
             self.chain.data_availability_checker.clone(),
             self.chain.spec.clone(),
         ) {
-            // The blocks have been received for `responses` to return `Some`, so `block_peer` is
-            // set; attribute the batch to it.
-            let Some(block_peer) = request.block_peer else {
-                self.components_by_range_requests.insert(id, request);
-                return None;
-            };
             Some(
                 blocks_result
                     .map(|blocks| (block_peer, blocks))

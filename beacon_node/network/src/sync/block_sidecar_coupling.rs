@@ -37,7 +37,8 @@ use crate::sync::network_context::{LookupRequestResult, PeerGroup, SyncNetworkCo
 /// them together and returns complete `RangeSyncBlock`s ready for processing.
 pub struct RangeBlockComponentsRequest<E: EthSpec> {
     /// Blocks we have received awaiting for their corresponding sidecar.
-    blocks_request: ByRangeRequest<BlocksByRangeRequestId, Vec<Arc<SignedBeaconBlock<E>>>>,
+    blocks_request:
+        ByRangeRequest<BlocksByRangeRequestId, (Vec<Arc<SignedBeaconBlock<E>>>, PeerId)>,
     /// Sidecars we have received awaiting for their corresponding block.
     block_data_request: RangeBlockDataRequest<E>,
     /// Payload envelopes for Gloas blocks.
@@ -47,8 +48,6 @@ pub struct RangeBlockComponentsRequest<E: EthSpec> {
             Vec<Arc<SignedExecutionPayloadEnvelope<E>>>,
         >,
     >,
-    /// The peer that provided this batch's blocks; the batch is attributed to it on completion.
-    pub(crate) block_peer: Option<PeerId>,
 }
 
 pub enum ByRangeRequest<I: PartialEq + std::fmt::Display, T> {
@@ -111,7 +110,6 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             blocks_request: ByRangeRequest::Active(blocks_req_id),
             block_data_request,
             payloads_request: payloads_req_id.map(ByRangeRequest::Active),
-            block_peer: None,
         }
     }
 
@@ -122,8 +120,9 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         &mut self,
         req_id: BlocksByRangeRequestId,
         blocks: Vec<Arc<SignedBeaconBlock<E>>>,
+        peer_id: PeerId,
     ) -> Result<(), String> {
-        self.blocks_request.finish(req_id, blocks)
+        self.blocks_request.finish(req_id, (blocks, peer_id))
     }
 
     /// Adds received blobs to the request.
@@ -191,7 +190,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         id: ComponentsByRangeRequestId,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<(), String> {
-        let Some(blocks) = self.blocks_request.to_finished() else {
+        let Some((blocks, _)) = self.blocks_request.to_finished() else {
             return Ok(());
         };
         let RangeBlockDataRequest::DataColumns(state @ DataColumnsRequest::NotStarted) =
@@ -259,11 +258,11 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         &mut self,
         da_checker: Arc<DataAvailabilityChecker<T>>,
         spec: Arc<ChainSpec>,
-    ) -> Option<Result<Vec<RangeSyncBlock<E>>, CouplingError>>
+    ) -> Option<(Result<Vec<RangeSyncBlock<E>>, CouplingError>, PeerId)>
     where
         T: BeaconChainTypes<EthSpec = E>,
     {
-        let Some(blocks) = self.blocks_request.to_finished() else {
+        let Some((blocks, block_peer)) = self.blocks_request.to_finished() else {
             return None;
         };
 
@@ -273,21 +272,17 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         }
 
         match &self.block_data_request {
-            RangeBlockDataRequest::NoData => Some(Self::responses_with_blobs(
-                blocks.to_vec(),
-                vec![],
-                da_checker,
-                spec,
+            RangeBlockDataRequest::NoData => Some((
+                Self::responses_with_blobs(blocks.to_vec(), vec![], da_checker, spec),
+                *block_peer,
             )),
             RangeBlockDataRequest::Blobs(request) => {
                 let Some(blobs) = request.to_finished() else {
                     return None;
                 };
-                Some(Self::responses_with_blobs(
-                    blocks.to_vec(),
-                    blobs.to_vec(),
-                    da_checker,
-                    spec,
+                Some((
+                    Self::responses_with_blobs(blocks.to_vec(), blobs.to_vec(), da_checker, spec),
+                    *block_peer,
                 ))
             }
             RangeBlockDataRequest::DataColumns(state) => {
@@ -302,12 +297,15 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                         .map(|payload_envelopes| payload_envelopes.to_vec())
                 });
 
-                Some(Self::responses_with_custody_columns(
-                    blocks.to_vec(),
-                    columns.clone(),
-                    da_checker,
-                    spec,
-                    payload_envelopes,
+                Some((
+                    Self::responses_with_custody_columns(
+                        blocks.to_vec(),
+                        columns.clone(),
+                        da_checker,
+                        spec,
+                        payload_envelopes,
+                    ),
+                    *block_peer,
                 ))
             }
         }
