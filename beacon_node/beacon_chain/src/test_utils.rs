@@ -122,7 +122,8 @@ pub fn get_kzg(spec: &ChainSpec) -> Arc<Kzg> {
 }
 
 #[cfg(feature = "ef_tests")]
-fn empty_anchor_block<E: EthSpec>(
+/// Build the minimal block needed to make a state-only EF vector loadable by gossip validation.
+fn fake_anchor_block<E: EthSpec>(
     mut state: BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(BeaconState<E>, SignedBeaconBlock<E>), String> {
@@ -365,8 +366,7 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
 
     /// Create a new ephemeral store from a test state without a fixture block.
     ///
-    /// Some EF networking vectors provide only `state.ssz_snappy`. This anchors that state with an
-    /// empty block so production validation can still load a head state.
+    /// Some EF networking vectors only provide a state. Add a synthetic head block for validation.
     #[cfg(feature = "ef_tests")]
     pub fn testing_state_ephemeral_store(mut self, state: BeaconState<E>) -> Self {
         let spec = self.spec.as_ref().expect("cannot build without spec");
@@ -376,8 +376,8 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
                 .unwrap(),
         );
         let mutator = move |builder: BeaconChainBuilder<_>| {
-            let (state, block) = empty_anchor_block(state, builder.get_spec())
-                .expect("should build empty anchor block");
+            let (state, block) = fake_anchor_block(state, builder.get_spec())
+                .expect("should build fake anchor block");
             builder
                 .testing_initial_state(state, block, None)
                 .expect("should build test initial state")

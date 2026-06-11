@@ -1216,8 +1216,8 @@ fn gossip_voluntary_exit() {
 
 #[test]
 fn gossip_beacon_attestation() {
-    GossipValidationHandler::<MinimalEthSpec>::new("gossip_beacon_attestation").run();
-    GossipValidationHandler::<MainnetEthSpec>::new("gossip_beacon_attestation").run();
+    GossipValidationHandler::<MinimalEthSpec>::electra_and_later("gossip_beacon_attestation").run();
+    GossipValidationHandler::<MainnetEthSpec>::electra_and_later("gossip_beacon_attestation").run();
 }
 
 #[test]

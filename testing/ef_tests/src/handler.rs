@@ -993,6 +993,10 @@ impl<E> GossipValidationHandler<E> {
             _phantom: PhantomData,
         }
     }
+
+    pub fn electra_and_later(handler_name: &'static str) -> Self {
+        Self::for_forks(handler_name, ForkName::list_all()[5..].to_vec())
+    }
 }
 
 impl<E: EthSpec + TypeName> Handler for GossipValidationHandler<E> {

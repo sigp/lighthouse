@@ -18,11 +18,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Attestation, AttesterSlashing, BeaconState, BlockImportSource, ChainSpec, Checkpoint, EthSpec,
-    ExecPayload, ForkName, Hash256, ProposerSlashing, SignedAggregateAndProof,
-    SignedAggregateAndProofBase, SignedAggregateAndProofElectra, SignedBeaconBlock,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation,
-    SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    AttesterSlashing, BeaconState, BlockImportSource, ChainSpec, Checkpoint, EthSpec, ExecPayload,
+    ForkName, Hash256, ProposerSlashing, SignedAggregateAndProof, SignedAggregateAndProofBase,
+    SignedAggregateAndProofElectra, SignedBeaconBlock, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -185,7 +185,7 @@ struct GossipTester<E: EthSpec> {
     current_time_ms: u64,
 }
 
-struct InitialAnchor<E: EthSpec> {
+struct InitialTestState<E: EthSpec> {
     state: BeaconState<E>,
     block: SignedBeaconBlock<E>,
     finalized_checkpoint: Option<Checkpoint>,
@@ -220,7 +220,7 @@ impl<E: EthSpec> GossipTester<E> {
         case: &GossipValidation<E>,
         spec: Arc<ChainSpec>,
         genesis_time: u64,
-        anchor: Option<&InitialAnchor<E>>,
+        anchor: Option<&InitialTestState<E>>,
     ) -> Result<BeaconChainHarness<EphemeralHarnessType<E>>, Error> {
         let state_slot = case.state.slot();
         let current_time_ms = case.current_time_ms(&spec, genesis_time);
@@ -288,7 +288,7 @@ impl<E: EthSpec> GossipTester<E> {
         &self,
         case: &GossipValidation<E>,
         blocks: &HashMap<String, SignedBeaconBlock<E>>,
-        anchor: Option<&InitialAnchor<E>>,
+        anchor: Option<&InitialTestState<E>>,
     ) -> Result<(), Error> {
         for (index, setup_block) in case.meta.blocks.iter().enumerate() {
             if setup_block.failed {
@@ -418,20 +418,10 @@ impl<E: EthSpec> GossipTester<E> {
         &self,
         path: &Path,
         message_meta: &MessageMeta,
-        fork_name: ForkName,
+        _fork_name: ForkName,
     ) -> Result<MessageAcceptance, Error> {
         let ssz_path = path.join(format!("{}.ssz_snappy", message_meta.message));
-        let attestation = if fork_name.electra_enabled() {
-            ssz_decode_file(&ssz_path)?
-        } else {
-            let legacy_attestation: Attestation<E> =
-                ssz_decode_file(&ssz_path).map(Attestation::Base)?;
-            match self.legacy_attestation_to_single(legacy_attestation) {
-                Ok(Some(attestation)) => attestation,
-                Ok(None) => return Ok(MessageAcceptance::Reject),
-                Err(e) => return Err(e),
-            }
-        };
+        let attestation: SingleAttestation = ssz_decode_file(&ssz_path)?;
         let subnet_id = SubnetId::new(message_meta.subnet_id.ok_or_else(|| {
             Error::FailedToParseTest("missing beacon_attestation subnet_id".into())
         })?);
@@ -541,76 +531,6 @@ impl<E: EthSpec> GossipTester<E> {
                 sync_contribution,
                 seen_duration,
             ))
-    }
-
-    #[allow(clippy::result_large_err)]
-    fn legacy_attestation_to_single(
-        &self,
-        attestation: Attestation<E>,
-    ) -> Result<Option<SingleAttestation>, Error> {
-        let Attestation::Base(attestation) = attestation else {
-            return Ok(None);
-        };
-
-        if attestation.aggregation_bits.num_set_bits() != 1 {
-            return Ok(None);
-        }
-
-        let target_root = attestation.data.target.root;
-        let committee_root = if self
-            .harness
-            .chain
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(&target_root)
-        {
-            target_root
-        } else {
-            self.harness
-                .chain
-                .canonical_head
-                .cached_head()
-                .head_block_root()
-        };
-        let committee_opt = match self.harness.chain.with_committee_cache(
-            committee_root,
-            attestation.data.slot.epoch(E::slots_per_epoch()),
-            |cached_shuffling, _| {
-                let committee_cache = cached_shuffling.committee_cache.as_ref();
-                Ok(committee_cache
-                    .get_beacon_committee(attestation.data.slot, attestation.data.index)
-                    .map(|beacon_committee| beacon_committee.committee.to_vec()))
-            },
-        ) {
-            Ok(committee_opt) => committee_opt,
-            Err(e) => {
-                return Err(Error::InternalError(format!(
-                    "unable to convert legacy attestation: {e:?}"
-                )));
-            }
-        };
-        let Some(committee) = committee_opt else {
-            return Ok(None);
-        };
-
-        if attestation.aggregation_bits.len() != committee.len() {
-            return Ok(None);
-        }
-
-        let Some(aggregation_bit) = attestation.aggregation_bits.iter().position(|bit| bit) else {
-            return Ok(None);
-        };
-        let Some(attester_index) = committee.get(aggregation_bit).copied() else {
-            return Ok(None);
-        };
-        let attester_index = attester_index as u64;
-
-        Ok(Some(SingleAttestation {
-            committee_index: attestation.data.index,
-            attester_index,
-            data: attestation.data,
-            signature: attestation.signature,
-        }))
     }
 
     fn message_seen_duration(&self, message_meta: &MessageMeta) -> Result<Duration, Error> {
@@ -783,9 +703,9 @@ impl<E: EthSpec> GossipValidation<E> {
     fn initial_anchor(
         &self,
         blocks: &HashMap<String, SignedBeaconBlock<E>>,
-    ) -> Result<Option<InitialAnchor<E>>, Error> {
+    ) -> Result<Option<InitialTestState<E>>, Error> {
         if let Some((index, block)) = self.first_setup_block_matching_state(blocks)? {
-            return Ok(Some(InitialAnchor {
+            return Ok(Some(InitialTestState {
                 state: self.state.clone(),
                 block,
                 finalized_checkpoint: self.finalized_checkpoint(blocks)?,

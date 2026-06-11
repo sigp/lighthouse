@@ -1069,9 +1069,9 @@ async fn import_gossip_block_unacceptably_early() {
         .start_of(rig.next_block.slot())
         .unwrap();
 
-    rig.chain.slot_clock.set_current_time(
-        slot_start - rig.chain.spec.maximum_gossip_clock_disparity() - Duration::from_millis(1),
-    );
+    rig.chain
+        .slot_clock
+        .set_current_time(slot_start - rig.chain.spec.get_slot_duration());
 
     assert_eq!(
         rig.chain.slot().unwrap(),

@@ -1182,13 +1182,10 @@ where
 {
     /// Start an ephemeral test chain from an existing block and its post-state.
     ///
-    /// EF networking tests provide `state.ssz_snappy` and setup blocks, not a full replayable chain
-    /// from genesis. Store the supplied initial block/state so later validation can load the
-    /// initial block's post-state as the parent state for child blocks.
+    /// EF networking tests provide a state and setup blocks, not a replayable chain from genesis.
+    /// Store the supplied block/state so child block validation can load the parent post-state.
     ///
-    /// The supplied `initial_state` may be non-epoch-boundary. Fork choice still starts from an
-    /// epoch-aligned checkpoint view derived from it, so the production fork-choice alignment check
-    /// remains intact.
+    /// Fork choice still starts from an epoch-aligned checkpoint derived from the test state.
     pub fn testing_initial_state(
         self,
         initial_state: BeaconState<E>,
@@ -1290,9 +1287,7 @@ where
             .unwrap_or_else(|| initial_block.slot().epoch(E::slots_per_epoch()));
         let fork_choice_slot = fork_choice_epoch.start_slot(E::slots_per_epoch());
 
-        // Keep two state views: `initial_state` is the exact post-state from the vector and must
-        // remain loadable by `initial_block.state_root()` for child block validation. Fork choice
-        // needs an epoch-aligned state, so derive that view separately for `from_anchor`.
+        // Keep the exact test state for validation, and a checkpoint-aligned copy for fork choice.
         let mut fork_choice_state = initial_state.clone();
         if fork_choice_state.slot() < fork_choice_slot {
             while fork_choice_state.slot() < fork_choice_slot {
@@ -1300,10 +1295,7 @@ where
                     .map_err(|e| format!("Error advancing fork choice state: {e:?}"))?;
             }
         } else {
-            // Some tests use a post-initial state that is already beyond the finalized checkpoint
-            // slot. There is no production transition that moves the state backwards, so the slot
-            // is adjusted only for the fork-choice checkpoint view. The original initial state is
-            // stored below for child pre-state lookup.
+            // Some vectors start after the checkpoint. Only the fork-choice view is moved back.
             *fork_choice_state.slot_mut() = fork_choice_slot;
         }
 
@@ -1328,6 +1320,7 @@ where
         let anchor_block = if anchor_block_root == initial_block_root {
             initial_block.clone()
         } else {
+            // The checkpoint block is missing from the vector. Add the header fork choice needs.
             let mut block = types::BeaconBlock::empty(&self.spec);
             *block.slot_mut() = fork_choice_slot;
             *block.state_root_mut() = fork_choice_state_root;
@@ -1364,8 +1357,7 @@ where
                 .map_err(|e| format!("Failed to initialize anchor info: {:?}", e))?,
         );
 
-        // EF networking vectors do not include a replayable genesis chain. Use initial-state-derived roots
-        // as builder metadata for this ephemeral test chain; they are not real genesis roots.
+        // These roots identify the ephemeral test chain; they are not real genesis roots.
         self.genesis_time = Some(genesis_time);
         self.genesis_block_root = Some(initial_block_root);
         self.genesis_state_root = Some(initial_state_root);
@@ -1407,6 +1399,7 @@ where
             .put_block(&initial_block_root, initial_block.clone())
             .map_err(|e| format!("Failed to store initial block: {e:?}"))?;
         if anchor_block_root != initial_block_root {
+            // Store both roots: fork choice uses the checkpoint, validation uses the fixture block.
             store
                 .put_block(&anchor_block_root, anchor_block.clone())
                 .map_err(|e| format!("Failed to store anchor block: {e:?}"))?;

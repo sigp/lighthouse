@@ -55,7 +55,7 @@ use state_processing::{
         signed_aggregate_selection_proof_signature_set, signed_aggregate_signature_set,
     },
 };
-use std::{borrow::Cow, time::Duration};
+use std::borrow::Cow;
 use strum::AsRefStr;
 use tracing::{debug, error};
 use tree_hash::TreeHash;
@@ -1260,10 +1260,7 @@ pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
 
     // Taking advantage of saturating subtraction on `Slot`.
     let earliest_slot = slot_clock
-        .now_with_past_tolerance(
-            spec.maximum_gossip_clock_disparity()
-                .saturating_add(Duration::from_millis(1)),
-        )
+        .now_with_past_tolerance(spec.maximum_gossip_clock_disparity())
         .ok_or(BeaconChainError::UnableToReadSlot)?
         - spec.attestation_propagation_slot_range;
 
