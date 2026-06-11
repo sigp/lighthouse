@@ -956,7 +956,7 @@ mod tests {
         let received_envelopes = test_harness
             .harness
             .mock_beacon_node_1
-            .received_envelopes
+            .execution_payload_envelope
             .lock()
             .unwrap();
         assert_eq!(received_envelopes.len(), 1, "Expected one envelope");

@@ -22,7 +22,7 @@ pub struct MockBeaconNode<E: EthSpec> {
     _phantom: PhantomData<E>,
     pub received_blinded_blocks: Arc<Mutex<Vec<SignedBlindedBeaconBlock<E>>>>,
     pub received_full_blocks: Arc<Mutex<Vec<PublishBlockRequest<E>>>>,
-    pub received_envelopes: Arc<Mutex<Vec<SignedExecutionPayloadEnvelope<E>>>>,
+    pub execution_payload_envelope: Arc<Mutex<Vec<SignedExecutionPayloadEnvelope<E>>>>,
     pub payload_attestation_message: Arc<Mutex<Vec<PayloadAttestationMessage>>>,
 }
 
@@ -40,7 +40,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
             _phantom: PhantomData,
             received_blinded_blocks: Arc::new(Mutex::new(Vec::new())),
             received_full_blocks: Arc::new(Mutex::new(Vec::new())),
-            received_envelopes: Arc::new(Mutex::new(Vec::new())),
+            execution_payload_envelope: Arc::new(Mutex::new(Vec::new())),
             payload_attestation_message: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -372,7 +372,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
     pub fn mock_post_beacon_execution_payload_envelope_ssz(&mut self) -> Mock {
         let path_pattern = Regex::new(r"^/eth/v1/beacon/execution_payload_envelopes$").unwrap();
 
-        let received_envelopes = Arc::clone(&self.received_envelopes);
+        let execution_payload_envelope = Arc::clone(&self.execution_payload_envelope);
 
         self.server
             .mock("POST", Matcher::Regex(path_pattern.to_string()))
@@ -382,7 +382,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
                 let body = request.body().expect("Failed to get request body");
                 let envelope = SignedExecutionPayloadEnvelope::<E>::from_ssz_bytes(body)
                     .expect("Failed to deserialize SignedExecutionPayloadEnvelope from SSZ");
-                received_envelopes.lock().unwrap().push(envelope);
+                execution_payload_envelope.lock().unwrap().push(envelope);
                 vec![]
             })
             .create()
