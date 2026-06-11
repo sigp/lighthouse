@@ -1552,10 +1552,13 @@ where
     /// Returns `true` if the block's parent is imported (and, for a post-Gloas FULL child, its
     /// parent's payload is imported too). See [`Self::get_parent_import_status`].
     pub fn is_parent_imported(&self, block: &SignedBeaconBlock<E>) -> bool {
+        // A block that is itself in fork choice (e.g. genesis, or a finalized block whose parent has
+        // been pruned) had an imported parent. `contains_block` is used rather than `get_block`
+        // because the anchor block is present in the index but has no queryable proto-node.
         matches!(
             self.get_parent_import_status(block),
             ParentImportStatus::Imported(_)
-        )
+        ) || self.contains_block(&block.canonical_root())
     }
 
     /// Returns the import status of the parent of `block`.
@@ -1575,10 +1578,6 @@ where
             } else {
                 ParentImportStatus::Imported(parent_block)
             }
-        } else if let Some(block) = self.get_block(&block.canonical_root()) {
-            // The block is itself imported (e.g. genesis, or a finalized block whose parent has been
-            // pruned), so its parent was imported too.
-            ParentImportStatus::Imported(block)
         } else {
             ParentImportStatus::UnknownBlock
         }
