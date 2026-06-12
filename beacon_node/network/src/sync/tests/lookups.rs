@@ -1506,6 +1506,17 @@ impl TestRig {
             panic!("Some downscore events: {:?}", self.penalties);
         }
     }
+
+    fn assert_no_block_requests(&self) {
+        assert_eq!(
+            self.requests
+                .iter()
+                .filter(|(request, _)| matches!(request, RequestType::BlocksByRoot(_)))
+                .collect::<Vec<_>>(),
+            Vec::<&(RequestType<E>, AppRequestId)>::new(),
+            "There should be no block requests"
+        );
+    }
     fn assert_failed_lookup_sync(&mut self) {
         assert!(self.created_lookups() > 0, "no created lookups");
         assert_eq!(self.completed_lookups(), 0, "some completed lookups");
@@ -1632,6 +1643,10 @@ impl TestRig {
 
     fn new_after_fulu() -> Option<Self> {
         genesis_fork().fulu_enabled().then(Self::default)
+    }
+
+    fn new_after_gloas() -> Option<Self> {
+        genesis_fork().gloas_enabled().then(Self::default)
     }
 
     pub fn new_fulu_peer_test(fulu_test_type: FuluTestType) -> Option<Self> {
@@ -2598,25 +2613,15 @@ async fn block_in_da_checker_skips_download_fulu() {
     r.trigger_with_block_at_slot(1);
     r.simulate(SimulateConfig::happy_path()).await;
     r.assert_successful_lookup_sync();
-    assert_eq!(
-        r.requests
-            .iter()
-            .filter(|(request, _)| matches!(request, RequestType::BlocksByRoot(_)))
-            .collect::<Vec<_>>(),
-        Vec::<&(RequestType<E>, AppRequestId)>::new(),
-        "There should be no block requests"
-    );
+    r.assert_no_block_requests();
 }
 
 #[tokio::test]
 /// Assert that if the lookup's block is in the da_checker we don't download it again (Gloas).
 async fn block_in_da_checker_skips_download_gloas() {
-    let Some(mut r) = TestRig::new_after_fulu() else {
+    let Some(mut r) = TestRig::new_after_gloas() else {
         return;
     };
-    if !r.is_after_gloas() {
-        return;
-    }
     // A Gloas block carries no inline DA, so a lone block never sits in the da_checker awaiting
     // components: only a FULL *child* proves the block published a payload and supplies the peers
     // that serve its columns/envelope. Build a parent + FULL child, insert the PARENT into the
@@ -2629,14 +2634,7 @@ async fn block_in_da_checker_skips_download_gloas() {
     r.trigger_unknown_parent_blocks_from_all_peers(&[child]);
     r.simulate(SimulateConfig::happy_path()).await;
     r.assert_successful_lookup_sync();
-    assert_eq!(
-        r.requests
-            .iter()
-            .filter(|(request, _)| matches!(request, RequestType::BlocksByRoot(_)))
-            .collect::<Vec<_>>(),
-        Vec::<&(RequestType<E>, AppRequestId)>::new(),
-        "There should be no block requests"
-    );
+    r.assert_no_block_requests();
 }
 
 macro_rules! fulu_peer_matrix_tests {
