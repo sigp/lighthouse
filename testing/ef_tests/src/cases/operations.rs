@@ -204,7 +204,12 @@ impl<E: EthSpec> Operation<E> for Deposit {
         ssz_decode_file(path)
     }
 
-    fn is_enabled_for_fork(_: ForkName) -> bool {
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        // The standalone `deposit` operation tests were removed in Fulu (deposits are processed
+        // via `deposit_request` from Electra onwards).
+        if fork_name.fulu_enabled() {
+            return false;
+        }
         // Some deposit tests require signature verification but are not marked as such.
         cfg!(not(feature = "fake_crypto"))
     }

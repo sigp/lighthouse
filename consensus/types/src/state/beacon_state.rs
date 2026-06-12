@@ -1473,7 +1473,15 @@ impl<E: EthSpec> BeaconState<E> {
         }
 
         // Not using the cached validator indices since they are shuffled.
-        let indices = self.get_active_validator_indices(epoch, spec)?;
+        let mut indices = self.get_active_validator_indices(epoch, spec)?;
+
+        // Post-Gloas, slashed validators are excluded from proposer selection
+        if self.fork_name_unchecked().gloas_enabled() {
+            let latest_block_slot = self.latest_block_header().slot;
+            let slashings_cache = self.slashings_cache();
+            slashings_cache.check_initialized(latest_block_slot)?;
+            indices.retain(|&index| !slashings_cache.is_slashed(index));
+        }
 
         let preimage = self.get_seed(epoch, Domain::BeaconProposer, spec)?;
         self.compute_proposer_indices(epoch, preimage.as_slice(), &indices, spec)

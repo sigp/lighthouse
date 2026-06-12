@@ -560,6 +560,25 @@ where
         }
     }
 
+    /// Returns the dependent root for `block_root`, per the spec `get_dependent_root` helper.
+    fn get_dependent_root(
+        &self,
+        block_root: Hash256,
+        current_slot: Slot,
+        spec: &ChainSpec,
+    ) -> Result<Option<Hash256>, Error<T::Error>> {
+        let epoch = current_slot.epoch(E::slots_per_epoch());
+        if epoch <= spec.min_seed_lookahead {
+            // Genesis block parent.
+            return Ok(Some(Hash256::zero()));
+        }
+        // Fork-aware decision slot: pre-Fulu it's the end of `epoch - 1`, post-Fulu it accounts
+        // for the proposer lookahead. Reuse `proposer_shuffling_decision_slot` so the proposer
+        // boost dependent root matches the proposer shuffling decision root.
+        let dependent_slot = spec.proposer_shuffling_decision_slot::<E>(epoch);
+        self.get_ancestor(block_root, dependent_slot)
+    }
+
     /// Run the fork choice rule to determine the head.
     ///
     /// ## Specification
@@ -806,7 +825,6 @@ where
         block_delay: Duration,
         state: &BeaconState<E>,
         payload_verification_status: PayloadVerificationStatus,
-        canonical_head_proposer_index: u64,
         spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_ON_BLOCK_TIMES);
@@ -871,19 +889,27 @@ where
 
         let attestation_threshold = spec.get_attestation_due::<E>(block.slot());
 
-        // Add proposer score boost if the block is the first timely block for this slot and its
-        // proposer matches the expected proposer on the canonical chain (per spec
-        // `update_proposer_boost_root`, introduced in v1.7.0-alpha.5).
+        // Add proposer score boost if the block is the first timely block for this slot and it
+        // shares the same dependent root as the canonical chain head (per spec
+        // `update_proposer_boost_root`).
         let is_before_attesting_interval = block_delay < attestation_threshold;
-
+        let is_timely = current_slot == block.slot() && is_before_attesting_interval;
         let is_first_block = self.fc_store.proposer_boost_root().is_zero();
-        let is_canonical_proposer = block.proposer_index() == canonical_head_proposer_index;
-        if current_slot == block.slot()
-            && is_before_attesting_interval
-            && is_first_block
-            && is_canonical_proposer
-        {
-            self.fc_store.set_proposer_boost_root(block_root);
+
+        if is_timely && is_first_block {
+            // Compute the head before adding this block to fork choice
+            let (head_root, _) = self.get_head(system_time_current_slot, spec)?;
+
+            // The block isn't in fork choice so resolve its dependent root via its parent.
+            let block_dependent_root =
+                self.get_dependent_root(block.parent_root(), current_slot, spec)?;
+            let head_dependent_root = self.get_dependent_root(head_root, current_slot, spec)?;
+
+            // Add proposer score boost if the block is timely, not conflicting with an
+            // existing block, with the same dependent root as the canonical chain head.
+            if block_dependent_root.is_some() && block_dependent_root == head_dependent_root {
+                self.fc_store.set_proposer_boost_root(block_root);
+            }
         }
 
         // Update store with checkpoints if necessary
@@ -1619,9 +1645,10 @@ where
         &self,
         block_root: &Hash256,
         parent_payload_status: PayloadStatus,
+        proposal_slot: Slot,
     ) -> Result<bool, Error<T::Error>> {
         self.proto_array
-            .should_build_on_full::<E>(block_root, parent_payload_status)
+            .should_build_on_full::<E>(block_root, parent_payload_status, proposal_slot)
             .map_err(Error::ProtoArrayStringError)
     }
 

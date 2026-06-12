@@ -136,9 +136,18 @@ impl<T: BeaconChainTypes> GossipVerifiedPayloadBid<T> {
 
         let fork_choice = ctx.canonical_head.fork_choice_read_lock();
 
-        if !fork_choice.contains_block(&bid_parent_block_root) {
-            return Err(PayloadBidError::ParentBlockRootUnknown {
+        // TODO(gloas) reprocess bids whose parent_block_root becomes known & canonical after a reorg?
+        let parent_block = fork_choice.get_block(&bid_parent_block_root).ok_or(
+            PayloadBidError::ParentBlockRootUnknown {
                 parent_block_root: bid_parent_block_root,
+            },
+        )?;
+
+        // [REJECT] The bid is for a higher slot than its parent block.
+        if bid_slot <= parent_block.slot {
+            return Err(PayloadBidError::BidNotDescendantOfParent {
+                bid_slot,
+                parent_slot: parent_block.slot,
             });
         }
 
