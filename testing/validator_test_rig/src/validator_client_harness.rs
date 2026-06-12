@@ -1,3 +1,7 @@
+//! This test generates insecure keys to speed up key generation process
+//! This should only be used in testing, not in production
+#![cfg(feature = "insecure_keys")]
+
 use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
 use beacon_node_fallback::{BeaconNodeFallback, CandidateBeaconNode, Config as BeaconNodeConfig};
 use bls::PublicKeyBytes;
