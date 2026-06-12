@@ -94,14 +94,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.subnet_id,
                 package.should_import,
                 true,
+                true,
                 package.seen_timestamp,
             )
         };
 
         // Define a closure for processing batches of attestations.
         let processor = self.clone();
-        let process_batch =
-            move |attestations| processor.process_gossip_attestation_batch(attestations, true);
+        let process_batch = move |attestations| {
+            processor.process_gossip_attestation_batch(attestations, true, true)
+        };
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
@@ -136,6 +138,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.peer_id,
                 package.aggregate,
                 true,
+                true,
                 package.seen_timestamp,
             )
         };
@@ -143,7 +146,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // Define a closure for processing batches of attestations.
         let processor = self.clone();
         let process_batch =
-            move |aggregates| processor.process_gossip_aggregate_batch(aggregates, true);
+            move |aggregates| processor.process_gossip_aggregate_batch(aggregates, true, true);
 
         let beacon_block_root = aggregate.message().aggregate().data().beacon_block_root;
         self.try_send(BeaconWorkEvent {
