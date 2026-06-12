@@ -4,9 +4,10 @@ use std::time::Duration;
 use eth2::types::{EventKind, SseExecutionPayload, SseExecutionPayloadAvailable};
 use fork_choice::PayloadVerificationStatus;
 use slot_clock::SlotClock;
+use state_processing::{VerifySignatures, envelope_processing::verify_execution_payload_envelope};
 use store::StoreOp;
 use tracing::{debug, error, info, info_span, instrument, warn};
-use types::{BlockImportSource, Hash256, SignedExecutionPayloadEnvelope};
+use types::{BlockImportSource, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope};
 
 use super::{
     AvailableEnvelope, AvailableExecutedEnvelope, EnvelopeError,
@@ -19,6 +20,7 @@ use crate::{
     metrics,
     payload_envelope_verification::{
         AvailabilityPendingExecutedEnvelope, ExecutionPendingEnvelope,
+        load_snapshot_from_state_root, payload_notifier::PayloadNotifier,
     },
     validator_monitor::get_slot_delay_ms,
 };
@@ -371,5 +373,59 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 },
             ));
         }
+    }
+
+    /// Process an envelope received during range sync. The associated block must already
+    /// be imported into fork choice. This performs signature verification, state processing,
+    /// EL verification and import.
+    #[instrument(skip_all, level = "debug")]
+    pub async fn process_range_sync_envelope(
+        self: &Arc<Self>,
+        available_envelope: AvailableEnvelope<T::EthSpec>,
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    ) -> Result<(), EnvelopeError> {
+        let signed_envelope = available_envelope.envelope().clone();
+
+        // Load the state snapshot for envelope processing
+        let state_root = block.state_root();
+        let snapshot = load_snapshot_from_state_root::<T>(block_root, state_root, &self.store)?;
+
+        // Verify envelope signature and state processing
+        verify_execution_payload_envelope(
+            &snapshot.pre_state,
+            &signed_envelope,
+            VerifySignatures::True,
+            snapshot.state_root,
+            &self.spec,
+        )?;
+
+        // Send to EL for verification
+        let payload_notifier = PayloadNotifier::new(
+            self.clone(),
+            signed_envelope.clone(),
+            block,
+            NotifyExecutionLayer::Yes,
+        )?;
+
+        let payload_verification_status = payload_notifier.notify_new_payload().await?;
+
+        // Import directly — we already have all components (envelope + columns).
+        let chain = self.clone();
+        let _ = self
+            .spawn_blocking_handle(
+                move || {
+                    chain.import_execution_payload_envelope(
+                        available_envelope,
+                        block_root,
+                        payload_verification_status,
+                    )
+                },
+                "range_sync_envelope_import",
+            )
+            .await
+            .map_err(|e| EnvelopeError::BeaconChainError(Box::new(e)))?;
+
+        Ok(())
     }
 }
