@@ -99,6 +99,13 @@ mod tests {
     /// whether it covers all roots but misses an index, or all indices but misses a root.
     #[test]
     fn partial_response_does_not_complete() {
+        // This test builds Fulu data columns, which is incompatible with a Gloas genesis.
+        if test_spec::<E>()
+            .fork_name_at_epoch(Epoch::new(0))
+            .gloas_enabled()
+        {
+            return;
+        }
         let mut spec = test_spec::<E>();
         spec.fulu_fork_epoch = Some(Epoch::new(0));
         let mut u = types::test_utils::test_unstructured();
