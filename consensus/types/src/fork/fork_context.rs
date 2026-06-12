@@ -93,14 +93,16 @@ impl ForkContext {
     pub fn current_fork_digest(&self) -> [u8; 4] {
         self.current_fork.read().fork_digest
     }
-
-    /// Returns the next fork digest. If there's no future fork, returns the current fork digest.
-    pub fn next_fork_digest(&self) -> Option<[u8; 4]> {
+    /// Per [spec](https://github.com/ethereum/consensus-specs/blob/1baa05e71148b0975e28918ac6022d2256b56f4a/specs/fulu/p2p-interface.md?plain=1#L636-L637)
+    /// `nfd` must be zero-valued when no next fork is scheduled.    
+    /// Returns the next fork digest. If there's no future fork, returns zero-valued bytes.
+    pub fn next_fork_digest(&self) -> [u8; 4] {
         let current_fork_epoch = self.current_fork_epoch();
         self.epoch_to_forks
             .range(current_fork_epoch..)
             .nth(1)
             .map(|(_, fork)| fork.fork_digest)
+            .unwrap_or_default()
     }
 
     /// Updates the `digest_epoch` field to a new digest epoch.
@@ -222,9 +224,44 @@ mod tests {
 
         let context = ForkContext::new::<E>(electra_slot, genesis_root, &spec);
 
-        let next_digest = context.next_fork_digest().unwrap();
+        let next_digest = context.next_fork_digest();
         let expected_digest = spec.compute_fork_digest(genesis_root, spec.fulu_fork_epoch.unwrap());
         assert_eq!(next_digest, expected_digest);
+    }
+
+    #[test]
+    fn test_next_fork_digest_returns_zero_when_no_next_fork() {
+        let spec = make_chain_spec();
+        let genesis_root = Hash256::ZERO;
+        // Epoch 100 is the last BPO fork in make_chain_spec
+        let last_bpo_slot = Epoch::new(100).end_slot(E::slots_per_epoch());
+
+        let context = ForkContext::new::<E>(last_bpo_slot, genesis_root, &spec);
+
+        // No next fork after the last BPO epoch — must return zero bytes per spec
+        assert_eq!(context.next_fork_digest(), [0u8; 4]);
+    }
+
+    #[test]
+    fn test_next_fork_digest_zero_after_runtime_transition_to_last_fork() {
+        let spec = make_chain_spec();
+        let genesis_root = Hash256::ZERO;
+        // Start at Gloas (epoch 7)
+        let gloas_epoch = spec.gloas_fork_epoch.unwrap();
+        let gloas_slot = gloas_epoch.end_slot(E::slots_per_epoch());
+
+        let context = ForkContext::new::<E>(gloas_slot, genesis_root, &spec);
+
+        // Before: next fork exists (BPO at epoch 50)
+        let bpo_50_digest = spec.compute_fork_digest(genesis_root, Epoch::new(50));
+        assert_eq!(context.next_fork_digest(), bpo_50_digest);
+
+        // Simulate runtime transition to the last BPO fork (epoch 100)
+        let last_digest = spec.compute_fork_digest(genesis_root, Epoch::new(100));
+        context.update_current_fork(ForkName::Gloas, last_digest, Epoch::new(100));
+
+        // After: no next fork — must return zero bytes per spec
+        assert_eq!(context.next_fork_digest(), [0u8; 4]);
     }
 
     #[test]

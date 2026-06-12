@@ -1,3 +1,4 @@
+use beacon_chain::payload_envelope_verification::AvailableEnvelope;
 use beacon_chain::{
     BeaconChainTypes,
     block_verification_types::{AvailableBlockData, RangeSyncBlock},
@@ -9,14 +10,15 @@ use lighthouse_network::{
     PeerId,
     service::api_types::{
         BlobsByRangeRequestId, BlocksByRangeRequestId, DataColumnsByRangeRequestId,
+        PayloadEnvelopesByRangeRequestId,
     },
 };
 use ssz_types::RuntimeVariableList;
 use std::{collections::HashMap, sync::Arc};
-use tracing::{Span, debug};
+use tracing::{Span, debug, warn};
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
-    Hash256, SignedBeaconBlock,
+    Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
 };
 
 use crate::sync::network_context::MAX_COLUMN_RETRIES;
@@ -37,6 +39,13 @@ pub struct RangeBlockComponentsRequest<E: EthSpec> {
     blocks_request: ByRangeRequest<BlocksByRangeRequestId, Vec<Arc<SignedBeaconBlock<E>>>>,
     /// Sidecars we have received awaiting for their corresponding block.
     block_data_request: RangeBlockDataRequest<E>,
+    /// Payload envelopes for Gloas blocks.
+    payloads_request: Option<
+        ByRangeRequest<
+            PayloadEnvelopesByRangeRequestId,
+            Vec<Arc<SignedExecutionPayloadEnvelope<E>>>,
+        >,
+    >,
     /// Span to track the range request and all children range requests.
     pub(crate) request_span: Span,
 }
@@ -71,6 +80,7 @@ pub enum CouplingError {
         exceeded_retries: bool,
     },
     BlobPeerFailure(String),
+    EnvelopePeerFailure(String),
 }
 
 impl<E: EthSpec> RangeBlockComponentsRequest<E> {
@@ -88,6 +98,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             Vec<(DataColumnsByRangeRequestId, Vec<ColumnIndex>)>,
             Vec<ColumnIndex>,
         )>,
+        payloads_req_id: Option<PayloadEnvelopesByRangeRequestId>,
         request_span: Span,
     ) -> Self {
         let block_data_request = if let Some(blobs_req_id) = blobs_req_id {
@@ -110,6 +121,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         Self {
             blocks_request: ByRangeRequest::Active(blocks_req_id),
             block_data_request,
+            payloads_request: payloads_req_id.map(ByRangeRequest::Active),
             request_span,
         }
     }
@@ -191,6 +203,17 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         }
     }
 
+    pub fn add_payload_envelopes(
+        &mut self,
+        req_id: PayloadEnvelopesByRangeRequestId,
+        envelopes: Vec<Arc<SignedExecutionPayloadEnvelope<E>>>,
+    ) -> Result<(), String> {
+        match &mut self.payloads_request {
+            Some(req) => req.finish(req_id, envelopes),
+            None => Err("received payload envelopes but none were expected".to_owned()),
+        }
+    }
+
     /// Attempts to construct RPC blocks from all received components.
     ///
     /// Returns `None` if not all expected requests have completed.
@@ -207,6 +230,11 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         let Some(blocks) = self.blocks_request.to_finished() else {
             return None;
         };
+
+        // Check if payload envelopes are still pending
+        if let Some(ByRangeRequest::Active(_)) = &self.payloads_request {
+            return None;
+        }
 
         // Increment the attempt once this function returns the response or errors
         match &mut self.block_data_request {
@@ -254,6 +282,12 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     }
                 }
 
+                let payload_envelopes = self.payloads_request.as_ref().and_then(|request| {
+                    request
+                        .to_finished()
+                        .map(|payload_envelopes| payload_envelopes.to_vec())
+                });
+
                 let resp = Self::responses_with_custody_columns(
                     blocks.to_vec(),
                     data_columns,
@@ -262,6 +296,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     *attempt,
                     da_checker,
                     spec,
+                    payload_envelopes,
                 );
 
                 if let Err(CouplingError::DataColumnPeerFailure {
@@ -352,6 +387,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         Ok(responses)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn responses_with_custody_columns<T>(
         blocks: Vec<Arc<SignedBeaconBlock<E>>>,
         data_columns: DataColumnSidecarList<E>,
@@ -360,10 +396,19 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         attempt: usize,
         da_checker: Arc<DataAvailabilityChecker<T>>,
         spec: Arc<ChainSpec>,
+        payload_envelopes: Option<Vec<Arc<SignedExecutionPayloadEnvelope<E>>>>,
     ) -> Result<Vec<RangeSyncBlock<E>>, CouplingError>
     where
         T: BeaconChainTypes<EthSpec = E>,
     {
+        // Index envelopes by beacon_block_root for correct coupling.
+        let mut envelopes_by_block_root = payload_envelopes.map(|envelopes| {
+            envelopes
+                .into_iter()
+                .map(|e| (e.beacon_block_root(), e))
+                .collect::<HashMap<_, _>>()
+        });
+
         // Group data columns by block_root and index
         let mut data_columns_by_block =
             HashMap::<Hash256, HashMap<ColumnIndex, Arc<DataColumnSidecar<E>>>>::new();
@@ -393,7 +438,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         let exceeded_retries = attempt >= MAX_COLUMN_RETRIES;
         for block in blocks {
             let block_root = get_block_root(&block);
-            range_sync_blocks.push(if block.num_expected_blobs() > 0 {
+            let custody_columns = if block.num_expected_blobs() > 0 {
                 let Some(mut data_columns_by_index) = data_columns_by_block.remove(&block_root)
                 else {
                     let responsible_peers = column_to_peer.iter().map(|c| (*c.0, *c.1)).collect();
@@ -401,7 +446,6 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                         error: format!("No columns for block {block_root:?} with data"),
                         faulty_peers: responsible_peers,
                         exceeded_retries,
-
                     });
                 };
 
@@ -415,16 +459,21 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                         custody_columns.push(CustodyDataColumn::from_asserted_custody(data_column));
                     } else {
                         let Some(responsible_peer) = column_to_peer.get(index) else {
-                            return Err(CouplingError::InternalError(format!("Internal error, no request made for column {}", index)));
+                            return Err(CouplingError::InternalError(format!(
+                                "Internal error, no request made for column {}",
+                                index
+                            )));
                         };
                         naughty_peers.push((*index, *responsible_peer));
                     }
                 }
                 if !naughty_peers.is_empty() {
                     return Err(CouplingError::DataColumnPeerFailure {
-                        error: format!("Peers did not return column for block_root {block_root:?} {naughty_peers:?}"),
+                        error: format!(
+                            "Peers did not return column for block_root {block_root:?} {naughty_peers:?}"
+                        ),
                         faulty_peers: naughty_peers,
-                        exceeded_retries
+                        exceeded_retries,
                     });
                 }
 
@@ -439,15 +488,31 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     );
                 }
 
-                let block_data = AvailableBlockData::new_with_data_columns(custody_columns.iter().map(|c| c.as_data_column().clone()).collect::<Vec<_>>());
-
-                RangeSyncBlock::new(block, block_data, &da_checker, spec.clone())
-                    .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
+                custody_columns
+                    .iter()
+                    .map(|c| c.as_data_column().clone())
+                    .collect::<Vec<_>>()
             } else {
-                // Block has no data, expects zero columns
+                vec![]
+            };
+            let range_sync_block = if let Some(envelopes_by_block_root) =
+                envelopes_by_block_root.as_mut()
+            {
+                let envelope = envelopes_by_block_root.remove(&block_root);
+                let available_envelope =
+                    envelope.map(|env| AvailableEnvelope::new(env, custody_columns));
+
+                RangeSyncBlock::new_gloas(block, available_envelope)
+                    .map_err(CouplingError::EnvelopePeerFailure)?
+            } else if custody_columns.is_empty() {
                 RangeSyncBlock::new(block, AvailableBlockData::NoData, &da_checker, spec.clone())
                     .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
-            });
+            } else {
+                let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
+                RangeSyncBlock::new(block, block_data, &da_checker, spec.clone())
+                    .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
+            };
+            range_sync_blocks.push(range_sync_block);
         }
 
         // Assert that there are no columns left for other blocks
@@ -456,6 +521,13 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             // log the error but don't return an error, we can still progress with responses.
             // this is most likely an internal error with overrequesting or a client bug.
             debug!(?remaining_roots, "Not all columns consumed for block");
+        }
+
+        // Recoverable error, log and continue
+        if let Some(envelopes_by_block_root) = envelopes_by_block_root
+            && !envelopes_by_block_root.is_empty()
+        {
+            warn!("Peer returned extra envelopes not matching any block");
         }
 
         Ok(range_sync_blocks)
@@ -489,21 +561,28 @@ mod tests {
     use crate::sync::network_context::MAX_COLUMN_RETRIES;
 
     use super::RangeBlockComponentsRequest;
+    use beacon_chain::block_verification_types::RangeSyncBlock;
     use beacon_chain::custody_context::NodeCustodyType;
+    use beacon_chain::data_availability_checker::DataAvailabilityChecker;
     use beacon_chain::test_utils::{
-        NumBlobs, generate_rand_block_and_blobs, generate_rand_block_and_data_columns,
-        test_da_checker, test_spec,
+        EphemeralHarnessType, NumBlobs, generate_rand_block_and_blobs,
+        generate_rand_block_and_data_columns, test_da_checker, test_spec,
     };
+    use bls::Signature;
     use lighthouse_network::{
         PeerId,
         service::api_types::{
             BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
-            DataColumnsByRangeRequestId, DataColumnsByRangeRequester, Id, RangeRequestId,
+            DataColumnsByRangeRequestId, DataColumnsByRangeRequester, Id,
+            PayloadEnvelopesByRangeRequestId, RangeRequestId,
         },
     };
     use std::{collections::HashMap, sync::Arc};
     use tracing::Span;
-    use types::{Epoch, ForkName, MinimalEthSpec as E, SignedBeaconBlock};
+    use types::{
+        ChainSpec, DataColumnSidecarList, Epoch, ExecutionPayloadEnvelope, ForkName,
+        MinimalEthSpec as E, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+    };
 
     fn components_id() -> ComponentsByRangeRequestId {
         ComponentsByRangeRequestId {
@@ -515,6 +594,15 @@ mod tests {
         }
     }
 
+    /// The custody-column coupling tests below build Fulu data-column sidecars directly, which is
+    /// incompatible with a Gloas genesis (Gloas columns have a different structure). Skip them when
+    /// `FORK_NAME` schedules Gloas at genesis. TODO(gloas): port the harness to build Gloas columns.
+    fn skip_under_gloas() -> bool {
+        test_spec::<E>()
+            .fork_name_at_epoch(Epoch::new(0))
+            .gloas_enabled()
+    }
+
     fn blocks_id(parent_request_id: ComponentsByRangeRequestId) -> BlocksByRangeRequestId {
         BlocksByRangeRequestId {
             id: 1,
@@ -524,6 +612,15 @@ mod tests {
 
     fn blobs_id(parent_request_id: ComponentsByRangeRequestId) -> BlobsByRangeRequestId {
         BlobsByRangeRequestId {
+            id: 1,
+            parent_request_id,
+        }
+    }
+
+    fn payloads_id(
+        parent_request_id: ComponentsByRangeRequestId,
+    ) -> PayloadEnvelopesByRangeRequestId {
+        PayloadEnvelopesByRangeRequestId {
             id: 1,
             parent_request_id,
         }
@@ -546,8 +643,166 @@ mod tests {
         info.responses(da_checker, spec).is_some()
     }
 
+    fn gloas_spec() -> ChainSpec {
+        let mut spec = test_spec::<E>();
+        spec.deneb_fork_epoch = Some(Epoch::new(0));
+        spec.fulu_fork_epoch = Some(Epoch::new(0));
+        spec.gloas_fork_epoch = Some(Epoch::new(0));
+        spec
+    }
+
+    fn matching_envelope(block: &SignedBeaconBlock<E>) -> Arc<SignedExecutionPayloadEnvelope<E>> {
+        let bid = &block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .expect("Gloas block should have payload bid")
+            .message;
+        let mut envelope = SignedExecutionPayloadEnvelope {
+            message: ExecutionPayloadEnvelope::empty(),
+            signature: Signature::empty(),
+        };
+        envelope.message.beacon_block_root = block.canonical_root();
+        envelope.message.parent_beacon_block_root = block.parent_root();
+        envelope.message.builder_index = bid.builder_index;
+        envelope.message.payload.slot_number = block.slot();
+        envelope.message.payload.parent_hash = bid.parent_block_hash;
+        envelope.message.payload.block_hash = bid.block_hash;
+        Arc::new(envelope)
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn make_gloas_blocks_and_columns(
+        count: usize,
+        spec: &ChainSpec,
+    ) -> Vec<(
+        Arc<SignedBeaconBlock<E>>,
+        DataColumnSidecarList<E>,
+        Arc<SignedExecutionPayloadEnvelope<E>>,
+    )> {
+        let mut u = types::test_utils::test_unstructured();
+        (0..count)
+            .map(|_| {
+                let (block, data_columns) = generate_rand_block_and_data_columns::<E>(
+                    ForkName::Gloas,
+                    NumBlobs::Number(1),
+                    &mut u,
+                    spec,
+                )
+                .unwrap();
+                let envelope = matching_envelope(&block);
+                (Arc::new(block), data_columns, envelope)
+            })
+            .collect()
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn add_all_columns(
+        info: &mut RangeBlockComponentsRequest<E>,
+        blocks: &[(
+            Arc<SignedBeaconBlock<E>>,
+            DataColumnSidecarList<E>,
+            Arc<SignedExecutionPayloadEnvelope<E>>,
+        )],
+        columns_req_id: &[(DataColumnsByRangeRequestId, Vec<u64>)],
+        expected_custody_columns: &[u64],
+    ) {
+        for (i, &column_index) in expected_custody_columns.iter().enumerate() {
+            let (req, _columns) = columns_req_id.get(i).unwrap();
+            info.add_custody_columns(
+                *req,
+                blocks
+                    .iter()
+                    .flat_map(|(_, columns, _)| {
+                        columns
+                            .iter()
+                            .filter(|column| *column.index() == column_index)
+                            .cloned()
+                    })
+                    .collect(),
+            )
+            .unwrap();
+        }
+    }
+
+    #[allow(clippy::type_complexity)]
+    struct GloasSetup {
+        info: RangeBlockComponentsRequest<E>,
+        da_checker: Arc<DataAvailabilityChecker<EphemeralHarnessType<E>>>,
+        spec: Arc<ChainSpec>,
+        blocks: Vec<(
+            Arc<SignedBeaconBlock<E>>,
+            DataColumnSidecarList<E>,
+            Arc<SignedExecutionPayloadEnvelope<E>>,
+        )>,
+        payloads_req_id: PayloadEnvelopesByRangeRequestId,
+        expected_custody_columns: Vec<u64>,
+    }
+
+    /// Builds a Gloas coupling request with `count` blocks and all custody columns added,
+    /// ready for the per-test payload-envelope step.
+    fn setup_gloas_coupling(count: usize) -> GloasSetup {
+        let spec = Arc::new(gloas_spec());
+        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
+        let expected_custody_columns = da_checker
+            .custody_context()
+            .sampling_columns_for_epoch(Epoch::new(0), &spec)
+            .to_vec();
+        let blocks = make_gloas_blocks_and_columns(count, &spec);
+
+        let components_id = components_id();
+        let blocks_req_id = blocks_id(components_id);
+        let payloads_req_id = payloads_id(components_id);
+        let columns_req_id = expected_custody_columns
+            .iter()
+            .enumerate()
+            .map(|(i, column)| {
+                (
+                    columns_id(
+                        i as Id,
+                        DataColumnsByRangeRequester::ComponentsByRange(components_id),
+                    ),
+                    vec![*column],
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut info = RangeBlockComponentsRequest::<E>::new(
+            blocks_req_id,
+            None,
+            Some((columns_req_id.clone(), expected_custody_columns.clone())),
+            Some(payloads_req_id),
+            Span::none(),
+        );
+
+        info.add_blocks(
+            blocks_req_id,
+            blocks.iter().map(|(block, _, _)| block.clone()).collect(),
+        )
+        .unwrap();
+        add_all_columns(
+            &mut info,
+            &blocks,
+            &columns_req_id,
+            &expected_custody_columns,
+        );
+
+        GloasSetup {
+            info,
+            da_checker,
+            spec,
+            blocks,
+            payloads_req_id,
+            expected_custody_columns,
+        }
+    }
+
     #[test]
     fn no_blobs_into_responses() {
+        // This exercises the pre-Gloas blobs/no-data coupling path. Gloas coupling is covered
+        // by the dedicated `setup_gloas_coupling` tests below.
+        if skip_under_gloas() {
+            return;
+        }
         let spec = Arc::new(test_spec::<E>());
 
         let mut u = types::test_utils::test_unstructured();
@@ -566,7 +821,7 @@ mod tests {
 
         let blocks_req_id = blocks_id(components_id());
         let mut info =
-            RangeBlockComponentsRequest::<E>::new(blocks_req_id, None, None, Span::none());
+            RangeBlockComponentsRequest::<E>::new(blocks_req_id, None, None, None, Span::none());
 
         // Send blocks and complete terminate response
         info.add_blocks(blocks_req_id, blocks).unwrap();
@@ -597,6 +852,7 @@ mod tests {
             blocks_req_id,
             Some(blobs_req_id),
             None,
+            None,
             Span::none(),
         );
 
@@ -619,6 +875,9 @@ mod tests {
 
     #[test]
     fn rpc_block_with_custody_columns() {
+        if skip_under_gloas() {
+            return;
+        }
         let mut spec = test_spec::<E>();
         spec.deneb_fork_epoch = Some(Epoch::new(0));
         spec.fulu_fork_epoch = Some(Epoch::new(0));
@@ -660,6 +919,7 @@ mod tests {
             blocks_req_id,
             None,
             Some((columns_req_id.clone(), expects_custody_columns.clone())),
+            None,
             Span::none(),
         );
         // Send blocks and complete terminate response
@@ -697,6 +957,9 @@ mod tests {
 
     #[test]
     fn rpc_block_with_custody_columns_batched() {
+        if skip_under_gloas() {
+            return;
+        }
         let mut spec = test_spec::<E>();
         spec.deneb_fork_epoch = Some(Epoch::new(0));
         spec.fulu_fork_epoch = Some(Epoch::new(0));
@@ -736,6 +999,7 @@ mod tests {
             blocks_req_id,
             None,
             Some((columns_req_id.clone(), expected_sampling_columns.clone())),
+            None,
             Span::none(),
         );
 
@@ -790,7 +1054,119 @@ mod tests {
     }
 
     #[test]
+    fn gloas_payload_envelopes_must_complete_before_responses() {
+        let GloasSetup {
+            mut info,
+            da_checker,
+            spec,
+            ..
+        } = setup_gloas_coupling(2);
+
+        // No payload envelopes added yet, so the request must not be complete.
+        assert!(info.responses(da_checker, spec).is_none());
+    }
+
+    #[test]
+    fn gloas_payload_envelopes_are_coupled_by_block_root() {
+        let GloasSetup {
+            mut info,
+            da_checker,
+            spec,
+            blocks,
+            payloads_req_id,
+            expected_custody_columns,
+        } = setup_gloas_coupling(2);
+
+        // Supply envelopes in reverse order to prove coupling is by block root, not position.
+        info.add_payload_envelopes(
+            payloads_req_id,
+            blocks
+                .iter()
+                .rev()
+                .map(|(_, _, envelope)| envelope.clone())
+                .collect(),
+        )
+        .unwrap();
+
+        let responses = info.responses(da_checker, spec).unwrap().unwrap();
+        assert_eq!(responses.len(), blocks.len());
+        for response in responses {
+            match response {
+                RangeSyncBlock::Gloas {
+                    block,
+                    envelope: Some(envelope),
+                } => {
+                    assert_eq!(
+                        envelope.envelope().beacon_block_root(),
+                        block.canonical_root()
+                    );
+                    assert_eq!(envelope.columns.len(), expected_custody_columns.len());
+                }
+                other => panic!("expected Gloas block with envelope, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn gloas_payload_envelopes_allow_missing_envelopes() {
+        let GloasSetup {
+            mut info,
+            da_checker,
+            spec,
+            blocks,
+            payloads_req_id,
+            ..
+        } = setup_gloas_coupling(2);
+
+        // Supply an envelope for only one of the two blocks.
+        info.add_payload_envelopes(payloads_req_id, vec![blocks[0].2.clone()])
+            .unwrap();
+
+        let responses = info.responses(da_checker, spec).unwrap().unwrap();
+        let count_with = |with_envelope: bool| {
+            responses
+                .iter()
+                .filter(|response| {
+                    matches!(response, RangeSyncBlock::Gloas { envelope, .. } if envelope.is_some() == with_envelope)
+                })
+                .count()
+        };
+        assert_eq!(count_with(true), 1);
+        assert_eq!(count_with(false), 1);
+    }
+
+    #[test]
+    fn gloas_payload_envelope_mismatch_fails_coupling() {
+        let GloasSetup {
+            mut info,
+            da_checker,
+            spec,
+            blocks,
+            payloads_req_id,
+            ..
+        } = setup_gloas_coupling(1);
+
+        let mut bad_envelope = (*blocks[0].2).clone();
+        bad_envelope.message.payload.slot_number += 1;
+        info.add_payload_envelopes(payloads_req_id, vec![Arc::new(bad_envelope)])
+            .unwrap();
+
+        let result = info.responses(da_checker, spec).unwrap();
+        assert!(
+            matches!(
+                result,
+                Err(super::CouplingError::EnvelopePeerFailure(ref error))
+                    if error.contains("SlotMismatch")
+            ),
+            "expected envelope slot mismatch, got {result:?}"
+        );
+    }
+
+    #[test]
     fn missing_custody_columns_from_faulty_peers() {
+        if skip_under_gloas() {
+            return;
+        }
         // GIVEN: A request expecting sampling columns from multiple peers
         let spec = Arc::new(test_spec::<E>());
         let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
@@ -830,6 +1206,7 @@ mod tests {
             blocks_req_id,
             None,
             Some((columns_req_id.clone(), expected_sampling_columns.clone())),
+            None,
             Span::none(),
         );
 
@@ -886,6 +1263,9 @@ mod tests {
 
     #[test]
     fn retry_logic_after_peer_failures() {
+        if skip_under_gloas() {
+            return;
+        }
         // GIVEN: A request expecting sampling columns where some peers initially fail
         let mut spec = test_spec::<E>();
         spec.deneb_fork_epoch = Some(Epoch::new(0));
@@ -928,6 +1308,7 @@ mod tests {
             blocks_req_id,
             None,
             Some((columns_req_id.clone(), expected_sampling_columns.clone())),
+            None,
             Span::none(),
         );
 
@@ -1002,6 +1383,9 @@ mod tests {
 
     #[test]
     fn max_retries_exceeded_behavior() {
+        if skip_under_gloas() {
+            return;
+        }
         // GIVEN: A request where peers consistently fail to provide required columns
         let mut spec = test_spec::<E>();
         spec.deneb_fork_epoch = Some(Epoch::new(0));
@@ -1044,6 +1428,7 @@ mod tests {
             blocks_req_id,
             None,
             Some((columns_req_id.clone(), expected_sampling_columns.clone())),
+            None,
             Span::none(),
         );
 

@@ -6,6 +6,7 @@ use beacon_chain::data_column_verification::{
     GossipDataColumnError, KzgVerifiedCustodyDataColumn, observe_gossip_data_column,
 };
 use beacon_chain::fetch_blobs::{FetchEngineBlobError, fetch_and_process_engine_blobs};
+use beacon_chain::partial_data_column_assembler::AssemblyColumn;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError};
 use beacon_processor::{
@@ -201,6 +202,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         subnet_id: DataColumnSubnetId,
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         seen_timestamp: Duration,
+        allow_reprocess: bool,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = async move {
@@ -211,6 +213,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     subnet_id,
                     column_sidecar,
                     seen_timestamp,
+                    allow_reprocess,
                 )
                 .await
         };
@@ -970,14 +973,35 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // Publish partial columns without eager send
         // TODO(gloas): implement publish partial columns without eager send
         if let Some(assembler) = self.chain.data_availability_checker.partial_assembler() {
-            let columns = assembler.get_partials_and_mark_as_local_fetched(block_root, &header);
+            let columns = assembler.get_columns_and_mark_as_local_fetched(block_root, &header);
+            // Republish both complete and incomplete columns as partials
+            let columns: Vec<_> = columns
+                .into_iter()
+                .filter_map(|column| match column {
+                    AssemblyColumn::Incomplete(partial) => Some(partial.into_inner()),
+                    AssemblyColumn::Complete(full) => {
+                        let DataColumnSidecar::Fulu(fulu) = full.as_data_column() else {
+                            return None;
+                        };
+                        match fulu.to_partial() {
+                            Ok(partial) => Some(Arc::new(partial)),
+                            Err(err) => {
+                                error!(
+                                    %block_root,
+                                    column_index = %full.index(),
+                                    ?err,
+                                    "Failed to convert complete column to partial for re-seeding"
+                                );
+                                None
+                            }
+                        }
+                    }
+                })
+                .collect();
             if !columns.is_empty() {
                 debug!(block = %block_root, "Publishing all partials after getBlobs");
                 self.send_network_message(NetworkMessage::PublishPartialColumns {
-                    columns: columns
-                        .into_iter()
-                        .map(|partial| partial.into_inner())
-                        .collect(),
+                    columns,
                     header,
                 });
             } else {
