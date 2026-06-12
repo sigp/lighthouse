@@ -1,7 +1,8 @@
 use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
 use beacon_node_fallback::{BeaconNodeFallback, CandidateBeaconNode, Config as BeaconNodeConfig};
-use bls::{Keypair, PublicKeyBytes};
-use eth2_keystore::KeystoreBuilder;
+use bls::PublicKeyBytes;
+use eth2_keystore::json_keystore::{Kdf, Scrypt};
+use eth2_keystore::{DKLEN, KeystoreBuilder};
 use initialized_validators::InitializedValidators;
 use lighthouse_validator_store::LighthouseValidatorStore;
 use slashing_protection::{SLASHING_PROTECTION_FILENAME, SlashingDatabase};
@@ -10,7 +11,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::test_utils::TestRuntime;
 use tempfile::{TempDir, tempdir};
-use types::{ChainSpec, Epoch, EthSpec, Hash256, MainnetEthSpec, Slot};
+use types::{
+    ChainSpec, Epoch, EthSpec, Hash256, MainnetEthSpec, Slot,
+    test_utils::generate_deterministic_keypair,
+};
 use validator_store::ValidatorStore;
 
 use crate::mock_beacon_node::MockBeaconNode;
@@ -91,9 +95,10 @@ pub async fn create_validator_store(
     let mut pubkeys = Vec::with_capacity(num_validators);
 
     for i in 0..num_validators {
-        let keypair = Keypair::random();
-        let keystore = KeystoreBuilder::new(&keypair, password, String::new())
+        let keypair = generate_deterministic_keypair(i);
+        let keystore = KeystoreBuilder::new(&keypair, password, "".into())
             .unwrap()
+            .kdf(insecure_kdf())
             .build()
             .unwrap();
         let keystore_path = validator_dir
@@ -151,4 +156,19 @@ pub async fn create_validator_store(
     }
 
     (validator_store, pubkeys, validator_dir)
+}
+
+// Use a weak scrypt to speed up key generation process
+// Copy from: lighthouse/common/validator_dir/src/insecure_keys.rs
+fn insecure_kdf() -> Kdf {
+    Kdf::Scrypt(Scrypt {
+        dklen: DKLEN,
+        // `n` is set very low, making it cheap to encrypt/decrypt keystores.
+        //
+        // This is very insecure, only use during testing.
+        n: 2,
+        p: 1,
+        r: 8,
+        salt: vec![1; 32].into(),
+    })
 }
