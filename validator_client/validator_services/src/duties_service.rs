@@ -1490,8 +1490,14 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
     }
 }
 
-/// Download the proposer duties for the current epoch and store them in `duties_service.proposers`.
-/// If there are any proposer for this slot, send out a notification to the block proposers.
+/// Notify the block service of any proposer duties in the local cache and, when required, download
+/// proposer duties from the beacon node.
+///
+/// This function is invoked once per slot. Block production notifications are sent on every
+/// invocation using the local cache. Beacon node HTTP requests are skipped unless duties are
+/// missing from the cache or it is the first slot of an epoch (to refresh the `dependent_root`).
+/// After the Fulu fork, duties for the next epoch are also fetched at epoch boundaries so that
+/// block production for the first slot of an epoch can use cached duties.
 ///
 /// ## Note
 ///
@@ -1507,12 +1513,6 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
 /// producers that were not included in the first notification. This should be safe enough.
 /// However, we also have the slashing protection as a second line of defence. These two factors
 /// provide an acceptable level of safety.
-///
-/// It's important to note that since there is a 0-epoch look-ahead (i.e., no look-ahead) for block
-/// proposers then it's very likely that a proposal for the first slot of the epoch will need go
-/// through the slow path every time. I.e., the proposal will only happen after we've been able to
-/// download and process the duties from the BN. This means it is very important to ensure this
-/// function is as fast as possible.
 async fn poll_beacon_proposers<S: ValidatorStore, T: SlotClock + 'static>(
     duties_service: &DutiesService<S, T>,
     block_service_tx: &mut Sender<BlockServiceNotification>,
@@ -1551,84 +1551,65 @@ async fn poll_beacon_proposers<S: ValidatorStore, T: SlotClock + 'static>(
     // Only download duties and push out additional block production events if we have some
     // validators.
     if !local_pubkeys.is_empty() {
-        let download_result = duties_service
-            .beacon_nodes
-            .first_success(|beacon_node| async move {
-                let _timer = validator_metrics::start_timer_vec(
-                    &validator_metrics::DUTIES_SERVICE_TIMES,
-                    &[validator_metrics::PROPOSER_DUTIES_HTTP_GET],
-                );
-                beacon_node
-                    .get_validator_duties_proposer(current_epoch)
-                    .await
-            })
-            .await;
+        let slots_per_epoch = S::E::slots_per_epoch();
+        let is_first_slot_of_epoch = current_slot % slots_per_epoch == 0;
+        let next_epoch = current_epoch + 1;
+        let fulu_active = duties_service
+            .spec
+            .fulu_fork_epoch
+            .is_some_and(|fork_epoch| current_epoch >= fork_epoch);
 
-        match download_result {
-            Ok(response) => {
-                let dependent_root = response.dependent_root;
+        let (need_current_epoch, need_next_epoch) = {
+            let proposers = duties_service.proposers.read();
+            let need_current_epoch =
+                is_first_slot_of_epoch || !proposers.contains_key(&current_epoch);
+            let need_next_epoch =
+                fulu_active && (is_first_slot_of_epoch || !proposers.contains_key(&next_epoch));
+            (need_current_epoch, need_next_epoch)
+        };
 
-                let relevant_duties = response
-                    .data
-                    .into_iter()
-                    .filter(|proposer_duty| local_pubkeys.contains(&proposer_duty.pubkey))
-                    .collect::<Vec<_>>();
-
-                debug!(
-                    %dependent_root,
-                    num_relevant_duties = relevant_duties.len(),
-                    "Downloaded proposer duties"
-                );
-
-                if let Some((prior_dependent_root, _)) = duties_service
-                    .proposers
-                    .write()
-                    .insert(current_epoch, (dependent_root, relevant_duties))
-                    && dependent_root != prior_dependent_root
-                {
-                    warn!(
-                        %prior_dependent_root,
-                        %dependent_root,
-                        msg = "this may happen from time to time",
-                        "Proposer duties re-org"
-                    )
-                }
-            }
-            // Don't return early here, we still want to try and produce blocks using the cached values.
-            Err(e) => error!(
-                err = %e,
-                "Failed to download proposer duties"
-            ),
+        let mut duties_updated = false;
+        if need_current_epoch {
+            duties_updated |=
+                download_proposer_duties_for_epoch(duties_service, current_epoch, &local_pubkeys)
+                    .await;
+        }
+        if need_next_epoch {
+            duties_updated |=
+                download_proposer_duties_for_epoch(duties_service, next_epoch, &local_pubkeys)
+                    .await;
         }
 
-        // Compute the block proposers for this slot again, now that we've received an update from
-        // the BN.
-        //
-        // Then, compute the difference between these two sets to obtain a set of block proposers
-        // which were not included in the initial notification to the `BlockService`.
-        let additional_block_producers = duties_service
-            .block_proposers(current_slot)
-            .difference(&initial_block_proposers)
-            .copied()
-            .collect::<HashSet<PublicKeyBytes>>();
+        if duties_updated {
+            // Compute the block proposers for this slot again, now that we've received an update
+            // from the BN.
+            //
+            // Then, compute the difference between these two sets to obtain a set of block proposers
+            // which were not included in the initial notification to the `BlockService`.
+            let additional_block_producers = duties_service
+                .block_proposers(current_slot)
+                .difference(&initial_block_proposers)
+                .copied()
+                .collect::<HashSet<PublicKeyBytes>>();
 
-        // If there are any new proposers for this slot, send a notification so they produce a
-        // block.
-        //
-        // See the function-level documentation for more reasoning about this behaviour.
-        if !additional_block_producers.is_empty() {
-            notify_block_production_service::<S>(
-                current_slot,
-                &additional_block_producers,
-                block_service_tx,
-                duties_service.validator_store.as_ref(),
-            )
-            .await;
-            debug!(
-                %current_slot,
-                "Detected new block proposer"
-            );
-            validator_metrics::inc_counter(&validator_metrics::PROPOSAL_CHANGED);
+            // If there are any new proposers for this slot, send a notification so they produce a
+            // block.
+            //
+            // See the function-level documentation for more reasoning about this behaviour.
+            if !additional_block_producers.is_empty() {
+                notify_block_production_service::<S>(
+                    current_slot,
+                    &additional_block_producers,
+                    block_service_tx,
+                    duties_service.validator_store.as_ref(),
+                )
+                .await;
+                debug!(
+                    %current_slot,
+                    "Detected new block proposer"
+                );
+                validator_metrics::inc_counter(&validator_metrics::PROPOSAL_CHANGED);
+            }
         }
     }
 
@@ -1639,6 +1620,73 @@ async fn poll_beacon_proposers<S: ValidatorStore, T: SlotClock + 'static>(
         .retain(|&epoch, _| epoch + HISTORICAL_DUTIES_EPOCHS >= current_epoch);
 
     Ok(())
+}
+
+/// Download proposer duties for `epoch` from the beacon node and store them in
+/// `duties_service.proposers`.
+///
+/// Returns `true` if the download succeeded.
+async fn download_proposer_duties_for_epoch<S: ValidatorStore, T: SlotClock + 'static>(
+    duties_service: &DutiesService<S, T>,
+    epoch: Epoch,
+    local_pubkeys: &HashSet<PublicKeyBytes>,
+) -> bool {
+    let download_result = duties_service
+        .beacon_nodes
+        .first_success(|beacon_node| async move {
+            let _timer = validator_metrics::start_timer_vec(
+                &validator_metrics::DUTIES_SERVICE_TIMES,
+                &[validator_metrics::PROPOSER_DUTIES_HTTP_GET],
+            );
+            beacon_node.get_validator_duties_proposer(epoch).await
+        })
+        .await;
+
+    match download_result {
+        Ok(response) => {
+            let dependent_root = response.dependent_root;
+
+            let relevant_duties = response
+                .data
+                .into_iter()
+                .filter(|proposer_duty| local_pubkeys.contains(&proposer_duty.pubkey))
+                .collect::<Vec<_>>();
+
+            debug!(
+                %epoch,
+                %dependent_root,
+                num_relevant_duties = relevant_duties.len(),
+                "Downloaded proposer duties"
+            );
+
+            if let Some((prior_dependent_root, _)) = duties_service
+                .proposers
+                .write()
+                .insert(epoch, (dependent_root, relevant_duties))
+                && dependent_root != prior_dependent_root
+            {
+                warn!(
+                    %epoch,
+                    %prior_dependent_root,
+                    %dependent_root,
+                    msg = "this may happen from time to time",
+                    "Proposer duties re-org"
+                )
+            }
+
+            true
+        }
+        // Don't return early from the caller; we still want to try and produce blocks using cached
+        // values.
+        Err(e) => {
+            error!(
+                err = %e,
+                %epoch,
+                "Failed to download proposer duties"
+            );
+            false
+        }
+    }
 }
 
 /// Notify the block service if it should produce a block.
