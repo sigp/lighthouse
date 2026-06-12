@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   bake:
-    runs-on: warp-ubuntu-latest-x64-8x
+    runs-on: warp-ubuntu-latest-x64-8x;snapshot.enabled=true
     steps:
       - name: Install system deps
         run: |
