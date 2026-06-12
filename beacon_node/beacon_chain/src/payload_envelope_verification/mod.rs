@@ -18,20 +18,19 @@
 //!
 //! ```
 
-use std::marker::PhantomData;
+use state_processing::envelope_processing::EnvelopeProcessingError;
 use std::sync::Arc;
-
-use state_processing::{BlockProcessingError, envelope_processing::EnvelopeProcessingError};
 use store::Error as DBError;
+use strum::AsRefStr;
 use tracing::instrument;
 use types::{
-    BeaconState, BeaconStateError, ChainSpec, DataColumnSidecarList, EthSpec, ExecutionBlockHash,
+    BeaconState, BeaconStateError, DataColumnSidecarList, EthSpec, ExecutionBlockHash,
     ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadEnvelope, Slot,
 };
 
 use crate::{
     BeaconChainError, BeaconChainTypes, BeaconStore, BlockError, ExecutionPayloadError,
-    PayloadVerificationOutcome,
+    PayloadVerificationError, PayloadVerificationOutcome,
 };
 
 pub mod execution_pending_envelope;
@@ -41,39 +40,22 @@ mod payload_notifier;
 
 pub use execution_pending_envelope::ExecutionPendingEnvelope;
 
-// TODO(gloas): could remove this type completely, or remove the generic
-#[derive(PartialEq)]
-pub struct EnvelopeImportData<E: EthSpec> {
-    pub block_root: Hash256,
-    _phantom: PhantomData<E>,
-}
-
-#[derive(Debug)]
-#[allow(dead_code)]
+#[derive(Debug, Clone)]
 pub struct AvailableEnvelope<E: EthSpec> {
-    execution_block_hash: ExecutionBlockHash,
     envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
-    columns: DataColumnSidecarList<E>,
-    /// Timestamp at which this envelope first became available (UNIX timestamp, time since 1970).
-    columns_available_timestamp: Option<std::time::Duration>,
-    pub spec: Arc<ChainSpec>,
+    pub columns: DataColumnSidecarList<E>,
 }
 
 impl<E: EthSpec> AvailableEnvelope<E> {
     pub fn new(
-        execution_block_hash: ExecutionBlockHash,
         envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
         columns: DataColumnSidecarList<E>,
-        columns_available_timestamp: Option<std::time::Duration>,
-        spec: Arc<ChainSpec>,
     ) -> Self {
-        Self {
-            execution_block_hash,
-            envelope,
-            columns,
-            columns_available_timestamp,
-            spec,
-        }
+        Self { envelope, columns }
+    }
+
+    pub fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelope<E>> {
+        &self.envelope
     }
 
     pub fn message(&self) -> &ExecutionPayloadEnvelope<E> {
@@ -94,14 +76,6 @@ impl<E: EthSpec> AvailableEnvelope<E> {
     }
 }
 
-pub enum MaybeAvailableEnvelope<E: EthSpec> {
-    Available(AvailableEnvelope<E>),
-    AvailabilityPending {
-        block_hash: ExecutionBlockHash,
-        envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
-    },
-}
-
 /// This snapshot is to be used for verifying a payload envelope.
 #[derive(Debug, Clone)]
 pub struct EnvelopeProcessingSnapshot<E: EthSpec> {
@@ -111,46 +85,25 @@ pub struct EnvelopeProcessingSnapshot<E: EthSpec> {
     pub beacon_block_root: Hash256,
 }
 
-/// A payload envelope that has gone through processing checks and execution by an EL client.
-/// This envelope hasn't necessarily completed data availability checks.
-///
-///
-/// It contains 2 variants:
-/// 1. `Available`: This envelope has been executed and also contains all data to consider it
-///    fully available.
-/// 2. `AvailabilityPending`: This envelope hasn't received all required blobs to consider it
-///    fully available.
-#[allow(dead_code)]
-pub enum ExecutedEnvelope<E: EthSpec> {
-    Available(AvailableExecutedEnvelope<E>),
-    // TODO(gloas): check data column availability via DA checker
-    AvailabilityPending(),
+/// A payload envelope that has completed all envelope processing checks, verification
+/// by an EL client but does not have all requisite columns to get imported into
+/// fork choice.
+pub struct AvailabilityPendingExecutedEnvelope<E: EthSpec> {
+    pub envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+    pub block_root: Hash256,
+    pub payload_verification_outcome: PayloadVerificationOutcome,
 }
 
-impl<E: EthSpec> ExecutedEnvelope<E> {
+impl<E: EthSpec> AvailabilityPendingExecutedEnvelope<E> {
     pub fn new(
-        envelope: MaybeAvailableEnvelope<E>,
-        import_data: EnvelopeImportData<E>,
+        envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+        block_root: Hash256,
         payload_verification_outcome: PayloadVerificationOutcome,
-        spec: Arc<ChainSpec>,
     ) -> Self {
-        match envelope {
-            MaybeAvailableEnvelope::Available(available_envelope) => {
-                Self::Available(AvailableExecutedEnvelope::new(
-                    available_envelope,
-                    import_data,
-                    payload_verification_outcome,
-                ))
-            }
-            // TODO(gloas): check data column availability via DA checker
-            MaybeAvailableEnvelope::AvailabilityPending {
-                block_hash,
-                envelope,
-            } => Self::Available(AvailableExecutedEnvelope::new(
-                AvailableEnvelope::new(block_hash, envelope, vec![], None, spec),
-                import_data,
-                payload_verification_outcome,
-            )),
+        Self {
+            envelope,
+            block_root,
+            payload_verification_outcome,
         }
     }
 }
@@ -159,25 +112,25 @@ impl<E: EthSpec> ExecutedEnvelope<E> {
 /// by an EL client **and** has all requisite blob data to be imported into fork choice.
 pub struct AvailableExecutedEnvelope<E: EthSpec> {
     pub envelope: AvailableEnvelope<E>,
-    pub import_data: EnvelopeImportData<E>,
+    pub block_root: Hash256,
     pub payload_verification_outcome: PayloadVerificationOutcome,
 }
 
 impl<E: EthSpec> AvailableExecutedEnvelope<E> {
     pub fn new(
         envelope: AvailableEnvelope<E>,
-        import_data: EnvelopeImportData<E>,
+        block_root: Hash256,
         payload_verification_outcome: PayloadVerificationOutcome,
     ) -> Self {
         Self {
             envelope,
-            import_data,
+            block_root,
             payload_verification_outcome,
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, AsRefStr)]
 pub enum EnvelopeError {
     /// The envelope's block root is unknown.
     BlockRootUnknown { block_root: Hash256 },
@@ -205,21 +158,23 @@ pub enum EnvelopeError {
         payload_slot: Slot,
         latest_finalized_slot: Slot,
     },
-    /// Optimistic sync is not supported for Gloas payload envelopes.
-    OptimisticSyncNotSupported { block_root: Hash256 },
     /// Some Beacon Chain Error
-    BeaconChainError(Arc<BeaconChainError>),
+    BeaconChainError(Box<BeaconChainError>),
     /// Some Beacon State error
     BeaconStateError(BeaconStateError),
-    /// Some BlockProcessingError (for electra operations)
-    BlockProcessingError(BlockProcessingError),
     /// Some EnvelopeProcessingError
     EnvelopeProcessingError(EnvelopeProcessingError),
     /// Error verifying the execution payload
     ExecutionPayloadError(ExecutionPayloadError),
-    /// An error from block-level checks reused during envelope import
-    BlockError(BlockError),
-    /// Internal error
+    /// Optimistic sync is not supported for Gloas payload envelopes.
+    OptimisticSyncNotSupported { block_root: Hash256 },
+    /// The envelope's beacon block was not present in fork choice at import time.
+    ///
+    /// Unlike [`EnvelopeError::BlockRootUnknown`] (raised during gossip verification, where the
+    /// block may simply not have arrived yet), this is raised during import where the block is
+    /// expected to already be present, so it indicates an internal inconsistency.
+    BlockRootNotInForkChoice(Hash256),
+    /// An internal error occurred while importing the envelope (e.g. updating fork choice).
     InternalError(String),
 }
 
@@ -229,9 +184,31 @@ impl std::fmt::Display for EnvelopeError {
     }
 }
 
+impl EnvelopeError {
+    pub fn penalize_peer(&self) -> bool {
+        match self {
+            EnvelopeError::BadSignature
+            | EnvelopeError::BuilderIndexMismatch { .. }
+            | EnvelopeError::SlotMismatch { .. }
+            | EnvelopeError::BlockHashMismatch { .. }
+            | EnvelopeError::UnknownValidator { .. }
+            | EnvelopeError::IncorrectBlockProposer { .. }
+            | EnvelopeError::EnvelopeProcessingError(_) => true,
+            EnvelopeError::ExecutionPayloadError(e) => e.penalize_peer(),
+            EnvelopeError::BlockRootUnknown { .. }
+            | EnvelopeError::PriorToFinalization { .. }
+            | EnvelopeError::BeaconChainError(_)
+            | EnvelopeError::BeaconStateError(_)
+            | EnvelopeError::OptimisticSyncNotSupported { .. }
+            | EnvelopeError::BlockRootNotInForkChoice(_)
+            | EnvelopeError::InternalError(_) => false,
+        }
+    }
+}
+
 impl From<BeaconChainError> for EnvelopeError {
     fn from(e: BeaconChainError) -> Self {
-        EnvelopeError::BeaconChainError(Arc::new(e))
+        EnvelopeError::BeaconChainError(Box::new(e))
     }
 }
 
@@ -249,17 +226,27 @@ impl From<BeaconStateError> for EnvelopeError {
 
 impl From<DBError> for EnvelopeError {
     fn from(e: DBError) -> Self {
-        EnvelopeError::BeaconChainError(Arc::new(BeaconChainError::DBError(e)))
+        EnvelopeError::BeaconChainError(Box::new(BeaconChainError::DBError(e)))
     }
 }
 
-impl From<BlockError> for EnvelopeError {
-    fn from(e: BlockError) -> Self {
-        EnvelopeError::BlockError(e)
+impl From<EnvelopeError> for BlockError {
+    fn from(e: EnvelopeError) -> Self {
+        BlockError::EnvelopeError(Box::new(e))
     }
 }
 
-/// Pull errors up from EnvelopeProcessingError to EnvelopeError
+impl From<PayloadVerificationError> for EnvelopeError {
+    fn from(e: PayloadVerificationError) -> Self {
+        match e {
+            PayloadVerificationError::ExecutionPayloadError(e) => {
+                EnvelopeError::ExecutionPayloadError(e)
+            }
+            PayloadVerificationError::BeaconChainError(e) => EnvelopeError::BeaconChainError(e),
+        }
+    }
+}
+
 impl From<EnvelopeProcessingError> for EnvelopeError {
     fn from(e: EnvelopeProcessingError) -> Self {
         match e {

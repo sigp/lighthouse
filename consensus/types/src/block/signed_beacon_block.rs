@@ -351,6 +351,12 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
         self.message()
             .body()
             .blob_kzg_commitments()
+            .or_else(|_| {
+                self.message()
+                    .body()
+                    .signed_execution_payload_bid()
+                    .map(|bid| &bid.message.blob_kzg_commitments)
+            })
             .map(|c| c.len())
             .unwrap_or(0)
     }
@@ -427,285 +433,85 @@ impl<E: EthSpec> From<SignedBeaconBlockAltair<E, BlindedPayload<E>>>
 }
 
 // Post-Bellatrix blocks can be "unblinded" by adding the full payload.
-// NOTE: It might be nice to come up with a `superstruct` pattern to abstract over this before
-// the first fork after Bellatrix.
-impl<E: EthSpec> SignedBeaconBlockBellatrix<E, BlindedPayload<E>> {
-    pub fn into_full_block(
-        self,
-        execution_payload: ExecutionPayloadBellatrix<E>,
-    ) -> SignedBeaconBlockBellatrix<E, FullPayload<E>> {
-        let SignedBeaconBlockBellatrix {
-            message:
-                BeaconBlockBellatrix {
-                    slot,
-                    proposer_index,
-                    parent_root,
-                    state_root,
-                    body:
-                        BeaconBlockBodyBellatrix {
-                            randao_reveal,
-                            eth1_data,
-                            graffiti,
-                            proposer_slashings,
-                            attester_slashings,
-                            attestations,
-                            deposits,
-                            voluntary_exits,
-                            sync_aggregate,
-                            execution_payload: BlindedPayloadBellatrix { .. },
+macro_rules! impl_into_full_block {
+    ($fork:ident, [ $($extra_field:ident),* $(,)? ]) => {
+        paste::paste! {
+            impl<E: EthSpec> [<SignedBeaconBlock $fork>]<E, BlindedPayload<E>> {
+                pub fn into_full_block(
+                    self,
+                    execution_payload: [<ExecutionPayload $fork>]<E>,
+                ) -> [<SignedBeaconBlock $fork>]<E, FullPayload<E>> {
+                    let [<SignedBeaconBlock $fork>] {
+                        message:
+                            [<BeaconBlock $fork>] {
+                                slot,
+                                proposer_index,
+                                parent_root,
+                                state_root,
+                                body:
+                                    [<BeaconBlockBody $fork>] {
+                                        randao_reveal,
+                                        eth1_data,
+                                        graffiti,
+                                        proposer_slashings,
+                                        attester_slashings,
+                                        attestations,
+                                        deposits,
+                                        voluntary_exits,
+                                        sync_aggregate,
+                                        execution_payload: [<BlindedPayload $fork>] { .. },
+                                        $($extra_field,)*
+                                    },
+                            },
+                        signature,
+                    } = self;
+                    [<SignedBeaconBlock $fork>] {
+                        message: [<BeaconBlock $fork>] {
+                            slot,
+                            proposer_index,
+                            parent_root,
+                            state_root,
+                            body: [<BeaconBlockBody $fork>] {
+                                randao_reveal,
+                                eth1_data,
+                                graffiti,
+                                proposer_slashings,
+                                attester_slashings,
+                                attestations,
+                                deposits,
+                                voluntary_exits,
+                                sync_aggregate,
+                                execution_payload: [<FullPayload $fork>] { execution_payload },
+                                $($extra_field,)*
+                            },
                         },
-                },
-            signature,
-        } = self;
-        SignedBeaconBlockBellatrix {
-            message: BeaconBlockBellatrix {
-                slot,
-                proposer_index,
-                parent_root,
-                state_root,
-                body: BeaconBlockBodyBellatrix {
-                    randao_reveal,
-                    eth1_data,
-                    graffiti,
-                    proposer_slashings,
-                    attester_slashings,
-                    attestations,
-                    deposits,
-                    voluntary_exits,
-                    sync_aggregate,
-                    execution_payload: FullPayloadBellatrix { execution_payload },
-                },
-            },
-            signature,
+                        signature,
+                    }
+                }
+            }
         }
-    }
+    };
 }
 
-impl<E: EthSpec> SignedBeaconBlockCapella<E, BlindedPayload<E>> {
-    pub fn into_full_block(
-        self,
-        execution_payload: ExecutionPayloadCapella<E>,
-    ) -> SignedBeaconBlockCapella<E, FullPayload<E>> {
-        let SignedBeaconBlockCapella {
-            message:
-                BeaconBlockCapella {
-                    slot,
-                    proposer_index,
-                    parent_root,
-                    state_root,
-                    body:
-                        BeaconBlockBodyCapella {
-                            randao_reveal,
-                            eth1_data,
-                            graffiti,
-                            proposer_slashings,
-                            attester_slashings,
-                            attestations,
-                            deposits,
-                            voluntary_exits,
-                            sync_aggregate,
-                            execution_payload: BlindedPayloadCapella { .. },
-                            bls_to_execution_changes,
-                        },
-                },
-            signature,
-        } = self;
-        SignedBeaconBlockCapella {
-            message: BeaconBlockCapella {
-                slot,
-                proposer_index,
-                parent_root,
-                state_root,
-                body: BeaconBlockBodyCapella {
-                    randao_reveal,
-                    eth1_data,
-                    graffiti,
-                    proposer_slashings,
-                    attester_slashings,
-                    attestations,
-                    deposits,
-                    voluntary_exits,
-                    sync_aggregate,
-                    execution_payload: FullPayloadCapella { execution_payload },
-                    bls_to_execution_changes,
-                },
-            },
-            signature,
-        }
-    }
-}
-
-impl<E: EthSpec> SignedBeaconBlockDeneb<E, BlindedPayload<E>> {
-    pub fn into_full_block(
-        self,
-        execution_payload: ExecutionPayloadDeneb<E>,
-    ) -> SignedBeaconBlockDeneb<E, FullPayload<E>> {
-        let SignedBeaconBlockDeneb {
-            message:
-                BeaconBlockDeneb {
-                    slot,
-                    proposer_index,
-                    parent_root,
-                    state_root,
-                    body:
-                        BeaconBlockBodyDeneb {
-                            randao_reveal,
-                            eth1_data,
-                            graffiti,
-                            proposer_slashings,
-                            attester_slashings,
-                            attestations,
-                            deposits,
-                            voluntary_exits,
-                            sync_aggregate,
-                            execution_payload: BlindedPayloadDeneb { .. },
-                            bls_to_execution_changes,
-                            blob_kzg_commitments,
-                        },
-                },
-            signature,
-        } = self;
-        SignedBeaconBlockDeneb {
-            message: BeaconBlockDeneb {
-                slot,
-                proposer_index,
-                parent_root,
-                state_root,
-                body: BeaconBlockBodyDeneb {
-                    randao_reveal,
-                    eth1_data,
-                    graffiti,
-                    proposer_slashings,
-                    attester_slashings,
-                    attestations,
-                    deposits,
-                    voluntary_exits,
-                    sync_aggregate,
-                    execution_payload: FullPayloadDeneb { execution_payload },
-                    bls_to_execution_changes,
-                    blob_kzg_commitments,
-                },
-            },
-            signature,
-        }
-    }
-}
-
-impl<E: EthSpec> SignedBeaconBlockElectra<E, BlindedPayload<E>> {
-    pub fn into_full_block(
-        self,
-        execution_payload: ExecutionPayloadElectra<E>,
-    ) -> SignedBeaconBlockElectra<E, FullPayload<E>> {
-        let SignedBeaconBlockElectra {
-            message:
-                BeaconBlockElectra {
-                    slot,
-                    proposer_index,
-                    parent_root,
-                    state_root,
-                    body:
-                        BeaconBlockBodyElectra {
-                            randao_reveal,
-                            eth1_data,
-                            graffiti,
-                            proposer_slashings,
-                            attester_slashings,
-                            attestations,
-                            deposits,
-                            voluntary_exits,
-                            sync_aggregate,
-                            execution_payload: BlindedPayloadElectra { .. },
-                            bls_to_execution_changes,
-                            blob_kzg_commitments,
-                            execution_requests,
-                        },
-                },
-            signature,
-        } = self;
-        SignedBeaconBlockElectra {
-            message: BeaconBlockElectra {
-                slot,
-                proposer_index,
-                parent_root,
-                state_root,
-                body: BeaconBlockBodyElectra {
-                    randao_reveal,
-                    eth1_data,
-                    graffiti,
-                    proposer_slashings,
-                    attester_slashings,
-                    attestations,
-                    deposits,
-                    voluntary_exits,
-                    sync_aggregate,
-                    execution_payload: FullPayloadElectra { execution_payload },
-                    bls_to_execution_changes,
-                    blob_kzg_commitments,
-                    execution_requests,
-                },
-            },
-            signature,
-        }
-    }
-}
-
-impl<E: EthSpec> SignedBeaconBlockFulu<E, BlindedPayload<E>> {
-    pub fn into_full_block(
-        self,
-        execution_payload: ExecutionPayloadFulu<E>,
-    ) -> SignedBeaconBlockFulu<E, FullPayload<E>> {
-        let SignedBeaconBlockFulu {
-            message:
-                BeaconBlockFulu {
-                    slot,
-                    proposer_index,
-                    parent_root,
-                    state_root,
-                    body:
-                        BeaconBlockBodyFulu {
-                            randao_reveal,
-                            eth1_data,
-                            graffiti,
-                            proposer_slashings,
-                            attester_slashings,
-                            attestations,
-                            deposits,
-                            voluntary_exits,
-                            sync_aggregate,
-                            execution_payload: BlindedPayloadFulu { .. },
-                            bls_to_execution_changes,
-                            blob_kzg_commitments,
-                            execution_requests,
-                        },
-                },
-            signature,
-        } = self;
-        SignedBeaconBlockFulu {
-            message: BeaconBlockFulu {
-                slot,
-                proposer_index,
-                parent_root,
-                state_root,
-                body: BeaconBlockBodyFulu {
-                    randao_reveal,
-                    eth1_data,
-                    graffiti,
-                    proposer_slashings,
-                    attester_slashings,
-                    attestations,
-                    deposits,
-                    voluntary_exits,
-                    sync_aggregate,
-                    execution_payload: FullPayloadFulu { execution_payload },
-                    bls_to_execution_changes,
-                    blob_kzg_commitments,
-                    execution_requests,
-                },
-            },
-            signature,
-        }
-    }
-}
+impl_into_full_block!(Bellatrix, []);
+impl_into_full_block!(Capella, [bls_to_execution_changes]);
+impl_into_full_block!(Deneb, [bls_to_execution_changes, blob_kzg_commitments]);
+impl_into_full_block!(
+    Electra,
+    [
+        bls_to_execution_changes,
+        blob_kzg_commitments,
+        execution_requests
+    ]
+);
+impl_into_full_block!(
+    Fulu,
+    [
+        bls_to_execution_changes,
+        blob_kzg_commitments,
+        execution_requests
+    ]
+);
 
 // We can convert gloas blocks without payloads into blocks "with" payloads.
 // TODO(EIP-7732) Look into whether we can remove this in the future since no blinded blocks post-gloas

@@ -13,7 +13,7 @@ impl<T: BeaconChainTypes> From<&SingleBlockLookup<T>> for Node {
     fn from(value: &SingleBlockLookup<T>) -> Self {
         Self {
             block_root: value.block_root(),
-            parent_root: value.awaiting_parent(),
+            parent_root: value.awaiting_parent().map(|a| a.parent_root()),
         }
     }
 }
