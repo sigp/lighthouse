@@ -3,10 +3,6 @@ name = "validator_test_rig"
 version = "0.1.0"
 edition = { workspace = true }
 
-[features]
-insecure_keys = []
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 account_utils = { workspace = true }
 beacon_node_fallback = { workspace = true }
