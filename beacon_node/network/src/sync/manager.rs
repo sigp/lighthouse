@@ -57,7 +57,8 @@ use lighthouse_network::service::api_types::{
     BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
     CustodyBackFillBatchRequestId, CustodyBackfillBatchId, CustodyRequester,
     DataColumnsByRangeRequestId, DataColumnsByRangeRequester, DataColumnsByRootRequestId,
-    DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
+    DataColumnsByRootRequester, Id, PayloadEnvelopesByRangeRequestId, SingleLookupReqId,
+    SyncRequestId,
 };
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::{PeerAction, PeerId};
@@ -504,6 +505,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncRequestId::DataColumnsByRange(req_id) => {
                 self.on_data_columns_by_range_response(req_id, peer_id, RpcEvent::RPCError(error))
             }
+            SyncRequestId::PayloadEnvelopesByRange(req_id) => self
+                .on_payload_envelopes_by_range_response(req_id, peer_id, RpcEvent::RPCError(error)),
         }
     }
 
@@ -1160,6 +1163,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     peer_id,
                     RpcEvent::from_chunk(envelope, seen_timestamp),
                 ),
+            SyncRequestId::PayloadEnvelopesByRange(req_id) => {
+                self.on_payload_envelopes_by_range_response(
+                    req_id,
+                    peer_id,
+                    RpcEvent::from_chunk(envelope, seen_timestamp),
+                );
+            }
             _ => {
                 crit!(%peer_id, "bad request id for payload envelope");
             }
@@ -1211,6 +1221,24 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }),
                 &mut self.network,
             )
+        }
+    }
+
+    fn on_payload_envelopes_by_range_response(
+        &mut self,
+        id: PayloadEnvelopesByRangeRequestId,
+        peer_id: PeerId,
+        envelope: RpcEvent<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+    ) {
+        if let Some(resp) = self
+            .network
+            .on_payload_envelopes_by_range_response(id, peer_id, envelope)
+        {
+            self.on_range_components_response(
+                id.parent_request_id,
+                peer_id,
+                RangeBlockComponent::PayloadEnvelope(id, resp),
+            );
         }
     }
 
