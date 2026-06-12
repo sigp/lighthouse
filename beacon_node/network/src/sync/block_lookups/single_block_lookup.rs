@@ -389,12 +389,15 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         let _guard = self.span.clone().entered();
 
         // === Block request ===
+        // Snapshot before borrowing `block_request.state` mutably in `maybe_start_downloading`.
+        let failed_peers = self.block_request.state.failed_peers().clone();
         self.block_request.state.maybe_start_downloading(|| {
             cx.block_lookup_request(
                 self.id,
                 self.peers.clone(),
                 self.block_root,
                 self.by_head_count,
+                &failed_peers,
             )
         })?;
         if self.awaiting_parent.is_none()
@@ -653,9 +656,13 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     pub fn on_block_download_response(
         &mut self,
         req_id: ReqId,
+        peer_id: PeerId,
         result: BlockDownloadResponse<T::EthSpec>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
+        if result.is_err() {
+            self.block_request.state.record_failed_peer(peer_id);
+        }
         self.block_request
             .state
             .on_download_response(req_id, result)?;
@@ -789,6 +796,9 @@ pub struct SingleLookupRequestState<T: Clone> {
     failed_processing: u8,
     /// How many times have we attempted to download this block or blob.
     failed_downloading: u8,
+    /// Peers that failed a download for this request. De-prioritized when picking a peer so retries
+    /// fall back to another peer (e.g. a `by_root` peer when a `by_head` peer is faulty).
+    failed_peers: HashSet<PeerId>,
 }
 
 impl<T: Clone> SingleLookupRequestState<T> {
@@ -797,7 +807,18 @@ impl<T: Clone> SingleLookupRequestState<T> {
             state: State::AwaitingDownload("not started"),
             failed_processing: 0,
             failed_downloading: 0,
+            failed_peers: HashSet::new(),
         }
+    }
+
+    /// Peers that failed a download for this request.
+    pub fn failed_peers(&self) -> &HashSet<PeerId> {
+        &self.failed_peers
+    }
+
+    /// Record that `peer_id` failed a download for this request.
+    pub fn record_failed_peer(&mut self, peer_id: PeerId) {
+        self.failed_peers.insert(peer_id);
     }
 
     pub fn is_awaiting_download(&self) -> bool {

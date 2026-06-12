@@ -972,6 +972,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
         block_root: Hash256,
         by_head_count: u64,
+        failed_peers: &HashSet<PeerId>,
     ) -> Result<LookupRequestResult<Arc<SignedBeaconBlock<T::EthSpec>>>, RpcRequestSendError> {
         let active_request_count_by_peer = self.active_request_count_by_peer();
         let blocks_by_root_per_peer = ActiveRequestsPerPeer::new(&self.blocks_by_root_requests);
@@ -991,6 +992,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 (
                     // Strictly de-prioritize peers already at the concurrent-request limit
                     at_concurrency_limit,
+                    // De-prioritize peers that already failed a download for this lookup, so a retry
+                    // falls back to a fresh peer (e.g. a by_root peer when a by_head peer is faulty)
+                    failed_peers.contains(peer),
                     // Prefer peers that support `beacon_blocks_by_head`
                     !supports_blocks_by_head,
                     // Prefer peers with less overall requests
@@ -1001,7 +1005,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 )
             })
             .min()
-            .map(|(_, _, _, _, peer)| *peer)
+            .map(|(_, _, _, _, _, peer)| *peer)
         else {
             // Allow lookup to not have any peers and do nothing. This is an optimization to not
             // lose progress of lookups created from a block with unknown parent before we receive
