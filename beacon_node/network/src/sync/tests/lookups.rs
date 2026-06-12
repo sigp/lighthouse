@@ -1839,13 +1839,13 @@ impl TestRig {
             "Added new peer for testing {peer_id:?}, custody: {peer_custody_str}"
         ));
         if self.by_head_support == ByHeadSupport::Supported {
-            self.set_by_head_supports_by_head(peer_id);
+            self.set_peer_supports_by_head(peer_id);
         }
         peer_id
     }
 
     /// Mark a peer as advertising the `beacon_blocks_by_head` protocol so block lookups will use it.
-    fn set_by_head_supports_by_head(&mut self, peer_id: PeerId) {
+    fn set_peer_supports_by_head(&mut self, peer_id: PeerId) {
         self.network_globals
             .peers
             .write()
@@ -1864,7 +1864,7 @@ impl TestRig {
             "Added new peer for testing {peer_id:?}, custody: supernode"
         ));
         if self.by_head_support == ByHeadSupport::Supported {
-            self.set_by_head_supports_by_head(peer_id);
+            self.set_peer_supports_by_head(peer_id);
         }
         peer_id
     }
@@ -1880,7 +1880,7 @@ impl TestRig {
                 .write()
                 .__add_connected_peer(true, key, &self.harness.spec);
         if self.by_head_support == ByHeadSupport::Supported {
-            self.set_by_head_supports_by_head(peer_id);
+            self.set_peer_supports_by_head(peer_id);
         }
         peer_id
     }
@@ -2214,6 +2214,34 @@ async fn blocks_by_head_request_count_grows_for_a_chain() {
         r.requests_count().get("BlocksByRoot").copied().unwrap_or(0),
         0
     );
+}
+
+/// A peer that fails a lookup download is de-prioritized for the retry, so the lookup falls back to
+/// another peer (here a `by_root` peer when the `by_head` peer is faulty) instead of re-picking the
+/// failing peer until the lookup is dropped.
+#[tokio::test]
+async fn lookup_falls_back_to_another_peer_after_a_failed_download() {
+    // Peers are `by_root` by default; one peer additionally supports `by_head`. Supernode peers so
+    // the block's data columns (post-Fulu) are served and the lookup can complete.
+    let mut r = TestRig::default(ByHeadSupport::Unsupported);
+    let block_root = r.build_chain(1).await;
+    let by_head_peer = r.new_connected_supernode_peer();
+    r.set_peer_supports_by_head(by_head_peer);
+    let by_root_peer = r.new_connected_supernode_peer();
+    // Trigger from the by-head peer first so the lookup's first download goes to it, then add the
+    // by-root peer to the same lookup.
+    r.trigger_unknown_block_from_attestation(block_root, by_head_peer);
+    r.trigger_unknown_block_from_attestation(block_root, by_root_peer);
+    r.assert_single_lookups_count(1);
+    // The first (by-head) download returns empty and fails; the retry must fall back to the by-root
+    // peer rather than re-picking the failed by-head peer.
+    r.simulate(SimulateConfig::new().return_no_blocks_once())
+        .await;
+
+    r.assert_successful_lookup_sync();
+    let counts = r.requests_count();
+    assert_eq!(counts.get("BlocksByHead").copied().unwrap_or(0), 1);
+    assert_eq!(counts.get("BlocksByRoot").copied().unwrap_or(0), 1);
 }
 
 /// Assert that lookup sync succeeds with the happy case
