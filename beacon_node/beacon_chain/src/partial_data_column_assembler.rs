@@ -106,7 +106,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
                 let merged = match existing.merge(&partial) {
                     Ok(merged) => merged,
                     Err(err) => {
-                        error!("Unexpected error merging partial data column: {:?}", err);
+                        error!(error = ?err, "Unexpected error merging partial data column");
                         continue;
                     }
                 };

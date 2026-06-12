@@ -1162,7 +1162,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_GOSSIP_PARTIAL_DATA_COLUMN_SIDECAR_MISSING_HEADER_TOTAL,
                 );
-                warn!(
+                debug!(
                     error = ?err,
                     %block_root,
                     %index,
