@@ -895,8 +895,16 @@ mod tests {
             .do_update(same_notification)
             .await
             .unwrap();
-        // Give any spawned tasks time to execute
-        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        // .matched() becomes true if mock_same_slot has been hit once
+        // mock_same_slot.matched() will be false when the spawned thread for get_validator_block_and_publish_block has not been created
+        // (therefore mock_same_slot hasn't been called/hit)
+        // Once a spawned thread is created, the while loop becomes false and exits the loop
+        // This ensures that a spawned thread is created for get_validator_block_and_publish_block
+        while !mock_same_slot.matched() && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
 
         // When the slot is the same as notification slot, the flow to produce and publish block proceeds normally
         // so the BN should be called once (in this case it succeeded on the first call)
