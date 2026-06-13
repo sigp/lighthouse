@@ -2740,23 +2740,70 @@ pub fn serve<T: BeaconChainTypes>(
                         )));
                     }
 
-                    let data = match chain
+                    let transactions = chain
                         .produce_inclusion_list(query.slot)
                         .await
-                        .map(api_types::GenericResponse::from)
-                    {
-                        Ok(data) => data,
-                        Err(e) => {
+                        .inspect_err(|e| {
                             error!(
                                 error = ?e,
                                 "Failed producing IL",
                             );
-                            return Err(warp_utils::reject::unhandled_error(e));
-                        }
-                    };
+                        })
+                        .map_err(warp_utils::reject::unhandled_error)?
+                        .ok_or_else(|| {
+                            warp_utils::reject::not_synced(
+                                "head is too old to produce an inclusion list".to_string(),
+                            )
+                        })?;
 
+                    let data =
+                        api_types::GenericResponse::from(types::InclusionListTransactions::<
+                            T::EthSpec,
+                        >(transactions));
                     Ok::<_, warp::reject::Rejection>(warp::reply::json(&data).into_response())
                 })
+            },
+        );
+
+    // POST validator/inclusion_list
+    let post_validator_inclusion_list = eth_v1
+        .clone()
+        .and(warp::path("validator"))
+        .and(warp::path("inclusion_list"))
+        .and(warp::path::end())
+        .and(warp_utils::json::json())
+        .and(consensus_version_header_filter.clone())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .and(network_tx_filter.clone())
+        .then(
+            |wrapped: api_types::GenericResponse<SignedInclusionList<T::EthSpec>>,
+             consensus_version: ForkName,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| async move {
+                let inclusion_list = wrapped.data;
+                let fork_at_slot = chain
+                    .spec
+                    .fork_name_at_slot::<T::EthSpec>(inclusion_list.message.slot);
+                if consensus_version != fork_at_slot {
+                    let result = Err(warp_utils::reject::custom_bad_request(format!(
+                        "Eth-Consensus-Version {consensus_version} does not match the fork at \
+                         the inclusion list slot ({fork_at_slot})"
+                    )));
+                    return convert_rejection::<warp::reply::Json>(result).await;
+                }
+
+                let result = crate::publish_inclusion_lists::publish_inclusion_lists(
+                    task_spawner,
+                    chain,
+                    vec![inclusion_list],
+                    network_tx,
+                )
+                .await
+                .map(|()| warp::reply::json(&()));
+
+                convert_rejection(result).await
             },
         );
     // POST validator/aggregate_and_proofs
@@ -3606,6 +3653,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_validator_duties_ptc)
                     .uor(post_validator_duties_sync)
                     .uor(post_validator_duties_inclusion_list)
+                    .uor(post_validator_inclusion_list)
                     .uor(post_validator_aggregate_and_proofs)
                     .uor(post_validator_contribution_and_proofs)
                     .uor(post_validator_beacon_committee_subscriptions)

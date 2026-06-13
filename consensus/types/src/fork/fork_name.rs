@@ -72,7 +72,6 @@ impl ForkName {
                 spec.deneb_fork_epoch = None;
                 spec.electra_fork_epoch = None;
                 spec.fulu_fork_epoch = None;
-                spec.heze_fork_epoch = None;
                 spec.gloas_fork_epoch = None;
                 spec.heze_fork_epoch = None;
                 spec
@@ -84,7 +83,6 @@ impl ForkName {
                 spec.deneb_fork_epoch = None;
                 spec.electra_fork_epoch = None;
                 spec.fulu_fork_epoch = None;
-                spec.heze_fork_epoch = None;
                 spec.gloas_fork_epoch = None;
                 spec.heze_fork_epoch = None;
                 spec
@@ -96,7 +94,6 @@ impl ForkName {
                 spec.deneb_fork_epoch = None;
                 spec.electra_fork_epoch = None;
                 spec.fulu_fork_epoch = None;
-                spec.heze_fork_epoch = None;
                 spec.gloas_fork_epoch = None;
                 spec.heze_fork_epoch = None;
                 spec
@@ -108,7 +105,6 @@ impl ForkName {
                 spec.deneb_fork_epoch = None;
                 spec.electra_fork_epoch = None;
                 spec.fulu_fork_epoch = None;
-                spec.heze_fork_epoch = None;
                 spec.gloas_fork_epoch = None;
                 spec.heze_fork_epoch = None;
                 spec
@@ -120,7 +116,6 @@ impl ForkName {
                 spec.deneb_fork_epoch = Some(Epoch::new(0));
                 spec.electra_fork_epoch = None;
                 spec.fulu_fork_epoch = None;
-                spec.heze_fork_epoch = None;
                 spec.gloas_fork_epoch = None;
                 spec.heze_fork_epoch = None;
                 spec

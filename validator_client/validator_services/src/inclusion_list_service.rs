@@ -119,11 +119,8 @@ pub struct Inner<S, T> {
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
     executor: TaskExecutor,
-    // TODO(focil)
-    #[allow(dead_code)]
     chain_spec: Arc<ChainSpec>,
     payload_envelope_rx: Option<Mutex<mpsc::Receiver<PayloadEnvelopeEvent>>>,
-    #[allow(dead_code)]
     disable: bool,
 }
 
@@ -151,6 +148,11 @@ impl<S, T> Deref for InclusionListService<S, T> {
 impl<S: ValidatorStore + 'static, T: SlotClock + 'static> InclusionListService<S, T> {
     /// Starts the service which periodically produces inclusion lists.
     pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
+        if self.disable {
+            info!("Inclusion list service disabled");
+            return Ok(());
+        }
+
         let slot_duration = spec.get_slot_duration();
 
         let duration_to_next_slot = self
@@ -169,17 +171,23 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> InclusionListService<S
         let interval_fut = async move {
             loop {
                 if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
-                    // Wait until the start of the next slot, then sleep to
-                    // inclusion_list_due_bps fraction into that slot.
+                    // The signed inclusion list must be *broadcast* by
+                    // `inclusion_list_due_bps` into the slot to be considered timely by
+                    // peers, so production (fetch from BN/EL, sign, publish) must start
+                    // with enough lead time to complete before that deadline.
                     let il_offset = slot_duration * il_due_fraction / 10000;
+                    let production_offset = il_offset.saturating_sub(slot_duration / 6);
 
                     // Compute the target slot (the slot we'll be in after waiting)
                     let target_slot = self.slot_clock.now().map(|s| s + 1).unwrap_or_default();
 
-                    // Race: wait for either the IL deadline or a payload envelope event
-                    // for the target slot.
-                    self.wait_for_il_trigger(duration_to_next_slot + il_offset, target_slot)
-                        .await;
+                    // Race: wait for either the production deadline or a payload envelope
+                    // event for the target slot, whichever comes first.
+                    self.wait_for_il_trigger(
+                        duration_to_next_slot + production_offset,
+                        target_slot,
+                    )
+                    .await;
 
                     if let Err(e) = self.spawn_inclusion_list_task(slot_duration, &chain_spec) {
                         crit!(
@@ -323,14 +331,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> InclusionListService<S
             return Ok(());
         }
 
-        // TODO(focil)
-        #[allow(unused_variables)]
-        let current_epoch = self
-            .slot_clock
-            .now()
-            .ok_or("Unable to determine current slot from clock")?
-            .epoch(S::E::slots_per_epoch());
-
         let inclusion_list_transactions = self
             .beacon_nodes
             .first_success(|beacon_node| async move {
@@ -340,7 +340,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> InclusionListService<S
                     .await
                     .map_err(|e| format!("Failed to produce inclusion list: {:?}", e))
                     .map(|result| result.ok_or("Inclusion list unavailable".to_string()))?
-                    .map(|result| result.data)
+                    .map(|result| result.data.0)
             })
             .await
             .map_err(|e| {
@@ -372,7 +372,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> InclusionListService<S
             let inclusion_list = InclusionList {
                 slot,
                 transactions: transactions.clone(),
-                inclusion_list_committee_root: duty.committee_root,
+                inclusion_list_committee_root: duty.inclusion_list_committee_root,
                 validator_index: duty.validator_index,
             };
             let inclusion_list = inclusion_list.clone();
@@ -434,32 +434,45 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> InclusionListService<S
             return Ok(());
         }
 
-        // Post the inclusion lists to the BN.
-        match self
-            .beacon_nodes
-            .request(ApiTopic::InclusionLists, |beacon_node| async move {
-                // TODO: add timer metric
-                beacon_node
-                    .post_beacon_pool_inclusion_lists(inclusion_lists)
-                    .await
-            })
+        // Post each inclusion list to the BN via the standard publish endpoint.
+        let fork_name = self.chain_spec.fork_name_at_slot::<S::E>(slot);
+        let publish_futures = inclusion_lists.iter().map(|inclusion_list| {
+            self.beacon_nodes
+                .request(ApiTopic::InclusionLists, move |beacon_node| async move {
+                    // TODO: add timer metric
+                    beacon_node
+                        .post_validator_inclusion_list(inclusion_list, fork_name)
+                        .await
+                })
+        });
+
+        let mut published = 0usize;
+        for (result, validator_index) in join_all(publish_futures)
             .await
+            .into_iter()
+            .zip(validator_indices)
         {
-            Ok(()) => info!(
-                il_count = inclusion_lists.len(),
+            match result {
+                Ok(()) => published += 1,
+                Err(e) => error!(
+                    error = %e,
+                    validator_index,
+                    ?slot,
+                    "Unable to publish inclusion list"
+                ),
+            }
+        }
+
+        if published > 0 {
+            info!(
+                il_count = published,
                 tx_count = inclusion_lists
                     .iter()
                     .map(|i| i.message.transactions.len())
                     .sum::<usize>(),
-                ?validator_indices,
                 ?slot,
                 "Successfully published inclusion lists",
-            ),
-            Err(e) => error!(
-                error = %e,
-                ?slot,
-                "Unable to publish inclusion lists"
-            ),
+            );
         }
 
         Ok(())

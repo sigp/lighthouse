@@ -5,7 +5,7 @@ use regex::bytes::Regex;
 use serde::Serialize;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use ssz_types::{RuntimeVariableList, VariableList, typenum::U256};
+use ssz_types::{BitVector, RuntimeVariableList, VariableList, typenum::U256};
 use std::fmt::Display;
 use std::marker::PhantomData;
 use std::ops::Deref;
@@ -18,7 +18,7 @@ use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnsByRootIdentifier, Epoch,
     EthSpec, ForkContext, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
-    SignedExecutionPayloadEnvelope, Slot,
+    SignedExecutionPayloadEnvelope, SignedInclusionList, Slot,
 };
 
 /// Maximum length of error message.
@@ -551,6 +551,16 @@ impl PayloadEnvelopesByRootRequest {
     }
 }
 
+/// Request a number of signed inclusion lists from a peer, by committee indices.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct InclusionListsByCommitteeIndicesRequest<E: EthSpec> {
+    /// The slot of the requested inclusion lists.
+    pub slot: Slot,
+
+    /// The inclusion list committee indices being requested.
+    pub committee_indices: BitVector<E::InclusionListCommitteeSize>,
+}
+
 /// Request a number of beacon blocks and blobs from a peer.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlobsByRootRequest {
@@ -644,6 +654,9 @@ pub enum RpcSuccessResponse<E: EthSpec> {
     /// A response to a get EXECUTION_PAYLOAD_ENVELOPES_BY_ROOT request.
     PayloadEnvelopesByRoot(Arc<SignedExecutionPayloadEnvelope<E>>),
 
+    /// A response to a get INCLUSION_LIST_BY_COMMITTEE_INDICES request.
+    InclusionListsByCommitteeIndices(Arc<SignedInclusionList<E>>),
+
     /// A response to a get BLOBS_BY_RANGE request
     BlobsByRange(Arc<BlobSidecar<E>>),
 
@@ -693,6 +706,9 @@ pub enum ResponseTermination {
     /// Execution payload envelopes by root stream termination.
     PayloadEnvelopesByRoot,
 
+    /// Inclusion lists by committee indices stream termination.
+    InclusionListsByCommitteeIndices,
+
     /// Blobs by range stream termination.
     BlobsByRange,
 
@@ -717,6 +733,9 @@ impl ResponseTermination {
             ResponseTermination::BlocksByHead => Protocol::BlocksByHead,
             ResponseTermination::PayloadEnvelopesByRange => Protocol::PayloadEnvelopesByRange,
             ResponseTermination::PayloadEnvelopesByRoot => Protocol::PayloadEnvelopesByRoot,
+            ResponseTermination::InclusionListsByCommitteeIndices => {
+                Protocol::InclusionListsByCommitteeIndices
+            }
             ResponseTermination::BlobsByRange => Protocol::BlobsByRange,
             ResponseTermination::BlobsByRoot => Protocol::BlobsByRoot,
             ResponseTermination::DataColumnsByRoot => Protocol::DataColumnsByRoot,
@@ -815,6 +834,9 @@ impl<E: EthSpec> RpcSuccessResponse<E> {
             RpcSuccessResponse::BlocksByHead(_) => Protocol::BlocksByHead,
             RpcSuccessResponse::PayloadEnvelopesByRange(_) => Protocol::PayloadEnvelopesByRange,
             RpcSuccessResponse::PayloadEnvelopesByRoot(_) => Protocol::PayloadEnvelopesByRoot,
+            RpcSuccessResponse::InclusionListsByCommitteeIndices(_) => {
+                Protocol::InclusionListsByCommitteeIndices
+            }
             RpcSuccessResponse::BlobsByRange(_) => Protocol::BlobsByRange,
             RpcSuccessResponse::BlobsByRoot(_) => Protocol::BlobsByRoot,
             RpcSuccessResponse::DataColumnsByRoot(_) => Protocol::DataColumnsByRoot,
@@ -836,6 +858,7 @@ impl<E: EthSpec> RpcSuccessResponse<E> {
                 Some(r.slot())
             }
             Self::PayloadEnvelopesByRoot(r) | Self::PayloadEnvelopesByRange(r) => Some(r.slot()),
+            Self::InclusionListsByCommitteeIndices(r) => Some(r.message.slot),
             Self::BlobsByRange(r) | Self::BlobsByRoot(r) => Some(r.slot()),
             Self::DataColumnsByRange(r) | Self::DataColumnsByRoot(r) => Some(r.slot()),
             Self::LightClientBootstrap(r) => Some(r.get_slot()),
@@ -901,6 +924,13 @@ impl<E: EthSpec> std::fmt::Display for RpcSuccessResponse<E> {
                     f,
                     "ExecutionPayloadEnvelopesByRoot: Envelope slot: {}",
                     envelope.slot()
+                )
+            }
+            RpcSuccessResponse::InclusionListsByCommitteeIndices(inclusion_list) => {
+                write!(
+                    f,
+                    "InclusionListsByCommitteeIndices: Inclusion list slot: {}",
+                    inclusion_list.message.slot
                 )
             }
             RpcSuccessResponse::BlobsByRange(blob) => {

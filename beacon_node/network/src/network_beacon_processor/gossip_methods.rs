@@ -2454,50 +2454,60 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
     }
 
-    // TODO(focil) unused variables
     pub fn process_gossip_inclusion_list(
         self: &Arc<Self>,
-        _message_id: MessageId,
-        _peer_id: PeerId,
+        message_id: MessageId,
+        peer_id: PeerId,
         il: SignedInclusionList<T::EthSpec>,
-        _seen_timestamp: Duration,
+        seen_timestamp: Duration,
     ) {
-        match GossipVerifiedInclusionList::verify(&il, &self.chain) {
+        match GossipVerifiedInclusionList::verify(&il, &self.chain, Some(seen_timestamp)) {
             Ok(gossip_verified_il) => {
                 debug!(
                     is_timely = gossip_verified_il.is_timely,
                     "Successfully verified gossip inclusion list"
                 );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
                 // Store validated inclusion list in the IL cache. This also catches
                 // equivocating IL's and handles them accordingly.
                 let is_timely = gossip_verified_il.is_timely;
                 self.chain
                     .on_verified_inclusion_list(gossip_verified_il.signed_il, is_timely);
             }
-            Err(err) => match err {
-                GossipInclusionListError::InvalidSlot { .. }
-                | GossipInclusionListError::ValidatorNotInCommittee
+            Err(
+                err @ (GossipInclusionListError::ValidatorNotInCommittee
+                | GossipInclusionListError::InvalidCommitteeRoot
                 | GossipInclusionListError::TooManyTransactions
-                | GossipInclusionListError::InvalidSignature
-                | GossipInclusionListError::PriorInclusionListKnown => {
-                    debug!(
-                        error = ?err,
-                        "Could not verify inclusion list for gossip. Rejecting the inclusion list"
-                    );
-                }
-                GossipInclusionListError::InvalidCommitteeRoot => {
-                    debug!(
-                        error=?err,
-                        "Could not verify inclusion list for gossip. Ignoring the inclusion list"
-                    );
-                }
-                GossipInclusionListError::BeaconChainError(_) => {
-                    crit!(
-                        error = ?err,
-                        "Internal error when verifying inclusion list"
-                    );
-                }
-            },
+                | GossipInclusionListError::InvalidSignature),
+            ) => {
+                debug!(
+                    error = ?err,
+                    "Could not verify inclusion list for gossip. Rejecting the inclusion list"
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "invalid_gossip_inclusion_list",
+                );
+            }
+            Err(
+                err @ (GossipInclusionListError::InvalidSlot { .. }
+                | GossipInclusionListError::PriorInclusionListKnown),
+            ) => {
+                debug!(
+                    error = ?err,
+                    "Could not verify inclusion list for gossip. Ignoring the inclusion list"
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            Err(err @ GossipInclusionListError::BeaconChainError(_)) => {
+                crit!(
+                    error = ?err,
+                    "Internal error when verifying inclusion list"
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
         }
     }
 

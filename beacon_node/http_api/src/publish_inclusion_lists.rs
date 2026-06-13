@@ -179,7 +179,7 @@ fn verify_and_publish_inclusion_list<T: BeaconChainTypes>(
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
 ) -> Result<(), Error> {
     let verified_inclusion_list = chain
-        .verify_inclusion_list_for_gossip(inclusion_list)
+        .verify_inclusion_list_for_gossip(inclusion_list, Some(seen_timestamp))
         .map_err(Error::Validation)?;
 
     network_tx

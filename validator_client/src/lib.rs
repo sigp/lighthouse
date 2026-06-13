@@ -677,10 +677,12 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start sync committee service: {}", e))?;
 
-        self.inclusion_list_service
-            .clone()
-            .start_update_service(&self.context.eth2_config.spec)
-            .map_err(|e| format!("Unable to start inclusion list service: {}", e))?;
+        if self.context.eth2_config.spec.is_focil_scheduled() {
+            self.inclusion_list_service
+                .clone()
+                .start_update_service(&self.context.eth2_config.spec)
+                .map_err(|e| format!("Unable to start inclusion list service: {}", e))?;
+        }
 
         if self.context.eth2_config.spec.is_gloas_scheduled() {
             self.payload_attestation_service

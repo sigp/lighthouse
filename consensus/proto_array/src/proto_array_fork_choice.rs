@@ -1042,6 +1042,18 @@ impl ProtoArrayForkChoice {
             .map_err(|e| format!("{e:?}"))
     }
 
+    /// Record whether a block root's payload satisfies the inclusion list. Read by
+    /// `should_extend_payload` and persisted via `SszContainerV29`.
+    pub fn record_payload_inclusion_list_satisfaction(
+        &mut self,
+        block_root: Hash256,
+        satisfied: bool,
+    ) {
+        self.proto_array
+            .payload_inclusion_list_satisfaction
+            .insert(block_root, satisfied);
+    }
+
     /// Returns whether the proposer should extend the parent's execution payload chain.
     ///
     /// This checks timeliness, data availability, and proposer boost conditions per the spec.

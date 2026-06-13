@@ -269,6 +269,15 @@ impl<T: BeaconChainTypes> Router<T> {
                             request,
                         ),
                 ),
+            RequestType::InclusionListsByCommitteeIndices(request) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_inclusion_lists_by_committee_indices_request(
+                            peer_id,
+                            inbound_request_id,
+                            request,
+                        ),
+                ),
             RequestType::BlobsByRange(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor.send_blobs_by_range_request(
                     peer_id,
@@ -359,6 +368,14 @@ impl<T: BeaconChainTypes> Router<T> {
             // so receiving a response is unexpected. Drop it without crashing.
             Response::BlocksByHead(_) => {
                 debug!("BlocksByHead response received but not requested by lighthouse");
+            }
+            // Lighthouse currently only serves InclusionListsByCommitteeIndices and does not
+            // issue it as a client, so receiving a response is unexpected. Drop it without
+            // crashing.
+            Response::InclusionListsByCommitteeIndices(_) => {
+                debug!(
+                    "InclusionListsByCommitteeIndices response received but not requested by lighthouse"
+                );
             }
             // Light client responses should not be received
             Response::LightClientBootstrap(_)

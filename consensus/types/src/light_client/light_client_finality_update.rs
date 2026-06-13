@@ -215,12 +215,12 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 Self::Capella(LightClientFinalityUpdateCapella::from_ssz_bytes(bytes)?)
             }
             ForkName::Deneb => Self::Deneb(LightClientFinalityUpdateDeneb::from_ssz_bytes(bytes)?),
-            ForkName::Electra | ForkName::Heze => {
+            ForkName::Electra => {
                 Self::Electra(LightClientFinalityUpdateElectra::from_ssz_bytes(bytes)?)
             }
             ForkName::Fulu => Self::Fulu(LightClientFinalityUpdateFulu::from_ssz_bytes(bytes)?),
             // TODO(gloas): implement Gloas light client
-            ForkName::Base | ForkName::Gloas => {
+            ForkName::Base | ForkName::Gloas | ForkName::Heze => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientFinalityUpdate decoding for {fork_name} not implemented"
                 )));
@@ -239,12 +239,10 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
             }
             ForkName::Capella => <LightClientFinalityUpdateCapella<E> as Encode>::ssz_fixed_len(),
             ForkName::Deneb => <LightClientFinalityUpdateDeneb<E> as Encode>::ssz_fixed_len(),
-            ForkName::Electra | ForkName::Heze => {
-                <LightClientFinalityUpdateElectra<E> as Encode>::ssz_fixed_len()
-            }
+            ForkName::Electra => <LightClientFinalityUpdateElectra<E> as Encode>::ssz_fixed_len(),
             ForkName::Fulu => <LightClientFinalityUpdateFulu<E> as Encode>::ssz_fixed_len(),
             // TODO(gloas): implement Gloas light client
-            ForkName::Gloas => 0,
+            ForkName::Gloas | ForkName::Heze => 0,
         };
         // `2 *` because there are two headers in the update
         fixed_size + 2 * LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
@@ -291,13 +289,13 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientFinalityU
             ForkName::Deneb => {
                 Self::Deneb(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
-            ForkName::Electra | ForkName::Heze => {
+            ForkName::Electra => {
                 Self::Electra(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
             ForkName::Fulu => {
                 Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
-            ForkName::Gloas => {
+            ForkName::Gloas | ForkName::Heze => {
                 // TODO(EIP-7732): check if this is correct
                 return Err(serde::de::Error::custom(format!(
                     "LightClientBootstrap failed to deserialize: unsupported fork '{}'",

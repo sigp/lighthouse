@@ -1731,6 +1731,10 @@ impl ProtoArray {
             }
         }
 
+        // Drop inclusion-list satisfaction entries for pruned blocks.
+        self.payload_inclusion_list_satisfaction
+            .retain(|root, _| self.indices.contains_key(root));
+
         Ok(())
     }
 

@@ -568,7 +568,8 @@ pub async fn handle_rpc<E: EthSpec>(
         ENGINE_FORKCHOICE_UPDATED_V1
         | ENGINE_FORKCHOICE_UPDATED_V2
         | ENGINE_FORKCHOICE_UPDATED_V3
-        | ENGINE_FORKCHOICE_UPDATED_V4 => {
+        | ENGINE_FORKCHOICE_UPDATED_V4
+        | ENGINE_FORKCHOICE_UPDATED_V5 => {
             let forkchoice_state: JsonForkchoiceStateV1 =
                 get_param(params, 0).map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
             let payload_attributes = match method {
@@ -618,6 +619,11 @@ pub async fn handle_rpc<E: EthSpec>(
                 ENGINE_FORKCHOICE_UPDATED_V4 => {
                     get_param::<Option<JsonPayloadAttributesV4>>(params, 1)
                         .map(|opt| opt.map(JsonPayloadAttributes::V4))
+                        .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
+                }
+                ENGINE_FORKCHOICE_UPDATED_V5 => {
+                    get_param::<Option<JsonPayloadAttributesV5>>(params, 1)
+                        .map(|opt| opt.map(JsonPayloadAttributes::V5))
                         .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
                 }
                 _ => unreachable!(),

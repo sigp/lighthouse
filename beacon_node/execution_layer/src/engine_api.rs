@@ -119,6 +119,7 @@ pub enum PayloadStatusV1Status {
     Syncing,
     Accepted,
     InvalidBlockHash,
+    InclusionListUnsatisfied,
 }
 
 #[derive(Clone, Debug, PartialEq)]

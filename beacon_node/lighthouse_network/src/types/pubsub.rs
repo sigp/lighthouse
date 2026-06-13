@@ -441,24 +441,17 @@ impl<E: EthSpec> PubsubMessage<E> {
                         )))
                     }
                     GossipKind::InclusionList => {
+                        // The inclusion_list topic only exists from the Heze fork. The gate is
+                        // on the topic's fork digest, not on attacker-controlled message
+                        // content; slot validity is checked in gossip verification.
                         match fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest) {
-                            Some(fork) if fork.electra_enabled() => {
+                            Some(fork) if fork.heze_enabled() => {
                                 let il = SignedInclusionList::from_ssz_bytes(data)
                                     .map_err(|e| format!("{:?}", e))?;
-                                let focil_enabled = fork_context.spec.is_focil_enabled_for_epoch(
-                                    il.message.slot.epoch(E::slots_per_epoch()),
-                                );
-                                if focil_enabled {
-                                    Ok(PubsubMessage::InclusionList(Box::new(il)))
-                                } else {
-                                    Err(format!(
-                                        "inclusion_List topic invalid for given fork digest {:?}",
-                                        gossip_topic.fork_digest
-                                    ))
-                                }
+                                Ok(PubsubMessage::InclusionList(Box::new(il)))
                             }
                             Some(_) | None => Err(format!(
-                                "inclusion_List topic invalid for given fork digest {:?}",
+                                "inclusion_list topic invalid for given fork digest {:?}",
                                 gossip_topic.fork_digest
                             )),
                         }

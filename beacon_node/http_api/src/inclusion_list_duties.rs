@@ -61,14 +61,13 @@ pub fn inclusion_list_duties<T: BeaconChainTypes>(
     }
 }
 
-// TODO(focil) unused chain
 /// Convert the internal representation of inclusion duties into the format returned to the HTTP
 /// client.
 fn convert_to_api_response<T: BeaconChainTypes>(
     duties: Vec<Option<InclusionListDuty>>,
     indices: &[usize],
     dependent_root: Hash256,
-    _chain: &BeaconChain<T>,
+    chain: &BeaconChain<T>,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
     // Protect against an inconsistent slot clock.
     if duties.len() != indices.len() {
@@ -79,26 +78,15 @@ fn convert_to_api_response<T: BeaconChainTypes>(
         )));
     }
 
-    // TODO(focil)
-    // let usize_indices = indices.iter().map(|i| *i as usize).collect::<Vec<_>>();
-    // let index_to_pubkey_map = chain
-    //     .validator_pubkey_bytes_many(indices)
-    //     .map_err(warp_utils::reject::unhandled_error)?;
-    // .map_err(warp_utils::reject::beacon_chain_error)?;
+    let execution_optimistic = chain
+        .is_optimistic_or_invalid_head()
+        .map_err(warp_utils::reject::unhandled_error)?;
 
-    let data = duties
-        .into_iter()
-        .zip(indices)
-        .filter_map(|(duty_opt, _)| {
-            let duty = duty_opt?;
-            Some(duty)
-        })
-        .collect::<Vec<_>>();
+    let data = duties.into_iter().flatten().collect::<Vec<_>>();
 
-    // TODO(focil): account for optimistic execution
     Ok(api_types::DutiesResponse {
         dependent_root,
-        execution_optimistic: None,
+        execution_optimistic: Some(execution_optimistic),
         data,
     })
 }

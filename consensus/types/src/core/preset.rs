@@ -304,8 +304,6 @@ impl ElectraPreset {
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct HezePreset {
-    #[serde(with = "serde_utils::quoted_u32")]
-    pub domain_inclusion_list_committee: u32,
     #[serde(with = "serde_utils::quoted_u64")]
     pub inclusion_list_committee_size: u64,
 }
@@ -313,7 +311,6 @@ pub struct HezePreset {
 impl HezePreset {
     pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
-            domain_inclusion_list_committee: spec.domain_inclusion_list_committee,
             inclusion_list_committee_size: spec.inclusion_list_committee_size,
         }
     }

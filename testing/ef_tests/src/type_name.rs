@@ -93,10 +93,25 @@ type_name_generic!(ExecutionPayloadHeaderDeneb, "ExecutionPayloadHeader");
 type_name_generic!(ExecutionPayloadHeaderElectra, "ExecutionPayloadHeader");
 type_name_generic!(ExecutionPayloadHeaderFulu, "ExecutionPayloadHeader");
 type_name_generic!(ExecutionPayloadBid);
+type_name_generic!(ExecutionPayloadBidGloas, "ExecutionPayloadBid");
+type_name_generic!(ExecutionPayloadBidHeze, "ExecutionPayloadBid");
 type_name_generic!(SignedExecutionPayloadBidGloas, "SignedExecutionPayloadBid");
+type_name_generic!(SignedExecutionPayloadBidHeze, "SignedExecutionPayloadBid");
 type_name_generic!(ExecutionRequests);
 type_name_generic!(ExecutionPayloadEnvelope);
+type_name_generic!(ExecutionPayloadEnvelopeGloas, "ExecutionPayloadEnvelope");
+type_name_generic!(ExecutionPayloadEnvelopeHeze, "ExecutionPayloadEnvelope");
 type_name_generic!(SignedExecutionPayloadEnvelope);
+type_name_generic!(
+    SignedExecutionPayloadEnvelopeGloas,
+    "SignedExecutionPayloadEnvelope"
+);
+type_name_generic!(
+    SignedExecutionPayloadEnvelopeHeze,
+    "SignedExecutionPayloadEnvelope"
+);
+type_name_generic!(InclusionList);
+type_name_generic!(SignedInclusionList);
 type_name_generic!(BlindedPayload, "ExecutionPayloadHeader");
 type_name!(Fork);
 type_name!(ForkData);

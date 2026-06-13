@@ -2323,12 +2323,12 @@ impl<E: EthSpec> BeaconState<E> {
         let validator_index = validator_index as u64;
         for slot in epoch.slot_iter(E::slots_per_epoch()) {
             let committee = self.get_inclusion_list_committee(slot, spec)?;
-            let committee_root = committee.tree_hash_root();
+            let inclusion_list_committee_root = committee.tree_hash_root();
             if committee.contains(&validator_index) {
                 return Ok(Some(InclusionListDuty {
                     slot,
                     validator_index,
-                    committee_root,
+                    inclusion_list_committee_root,
                     pubkey,
                 }));
             }

@@ -249,27 +249,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .on_valid_payload_envelope_received(block_root)
             .map_err(|e| EnvelopeError::InternalError(format!("{e:?}")))?;
 
-        // Check if the envelope's payload satisfies the inclusion list for this slot.
-        // This is used by fork choice's `should_extend_payload` tiebreaker to decide
-        // whether Full or Empty wins when weights are equal.
-        let il_slot = signed_envelope.message().slot();
-        let il_satisfied = {
-            let il_cache = self.inclusion_list_cache.read();
-            if let Some(il_transactions) = il_cache.get_inclusion_list_transactions(il_slot, false)
-            {
-                let envelope_message = signed_envelope.message();
-                let payload = envelope_message.payload();
-                let payload_transactions = payload.transactions();
-                let payload_tx_set: std::collections::HashSet<_> =
-                    payload_transactions.iter().collect();
-                il_transactions.iter().all(|tx| payload_tx_set.contains(tx))
-            } else {
-                // No inclusion list for this slot — considered satisfied
-                true
-            }
-        };
-
-        fork_choice.record_payload_inclusion_list_satisfaction(block_root, il_satisfied);
+        // Inclusion-list satisfaction is recorded by `PayloadNotifier::notify_new_payload`
+        // from the engine's `engine_newPayloadV6` verdict (VALID vs
+        // INCLUSION_LIST_UNSATISFIED), per the spec's
+        // `record_payload_inclusion_list_satisfaction`.
 
         // TODO(gloas) emit SSE event if the payload became the new head payload
 

@@ -8,7 +8,8 @@ use beacon_chain::{BeaconChainError, BeaconChainTypes, BlockProcessStatus, WhenS
 use itertools::{Itertools, process_results};
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, BlocksByHeadRequest, DataColumnsByRangeRequest,
-    DataColumnsByRootRequest, PayloadEnvelopesByRangeRequest, PayloadEnvelopesByRootRequest,
+    DataColumnsByRootRequest, InclusionListsByCommitteeIndicesRequest,
+    PayloadEnvelopesByRangeRequest, PayloadEnvelopesByRootRequest,
 };
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, ReportSource, Response, SyncInfo};
@@ -610,6 +611,104 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         }
         log_results(peer_id, requested_envelopes, send_envelope_count);
+
+        Ok(())
+    }
+
+    /// Handle a `InclusionListsByCommitteeIndices` request from the peer.
+    #[instrument(
+        name = "lh_handle_inclusion_lists_by_committee_indices_request",
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(peer_id = %peer_id, client = tracing::field::Empty)
+    )]
+    pub fn handle_inclusion_lists_by_committee_indices_request(
+        self: Arc<Self>,
+        peer_id: PeerId,
+        inbound_request_id: InboundRequestId,
+        request: InclusionListsByCommitteeIndicesRequest<T::EthSpec>,
+    ) {
+        let client = self.network_globals.client(&peer_id);
+        Span::current().record("client", field::display(client.kind));
+
+        self.terminate_response_stream(
+            peer_id,
+            inbound_request_id,
+            self.handle_inclusion_lists_by_committee_indices_request_inner(
+                peer_id,
+                inbound_request_id,
+                request,
+            ),
+            Response::InclusionListsByCommitteeIndices,
+        );
+    }
+
+    /// Handle a `InclusionListsByCommitteeIndices` request from the peer.
+    fn handle_inclusion_lists_by_committee_indices_request_inner(
+        &self,
+        peer_id: PeerId,
+        inbound_request_id: InboundRequestId,
+        request: InclusionListsByCommitteeIndicesRequest<T::EthSpec>,
+    ) -> Result<(), (RpcErrorResponse, &'static str)> {
+        let slot = request.slot;
+
+        // Compute the inclusion list committee for the requested slot from the head state. If
+        // the committee can't be computed we have nothing to serve, so terminate the stream
+        // with an empty successful response.
+        let committee = match self
+            .chain
+            .head_snapshot()
+            .beacon_state
+            .get_inclusion_list_committee(slot, &self.chain.spec)
+        {
+            Ok(committee) => committee,
+            Err(e) => {
+                debug!(
+                    %peer_id,
+                    %slot,
+                    error = ?e,
+                    "Unable to compute inclusion list committee for peer request"
+                );
+                return Ok(());
+            }
+        };
+
+        // Map the set bits in `committee_indices` to validator indices via the committee.
+        let validator_indices: Vec<u64> = request
+            .committee_indices
+            .iter()
+            .enumerate()
+            .filter(|(_, bit)| *bit)
+            .filter_map(|(i, _)| committee.get(i).copied())
+            .collect();
+
+        let inclusion_lists = self
+            .chain
+            .inclusion_list_cache
+            .read()
+            .get_inclusion_lists_for_validators(slot, &validator_indices);
+
+        let mut send_inclusion_list_count = 0;
+        for inclusion_list in inclusion_lists
+            .into_iter()
+            .take(self.chain.spec.max_request_inclusion_list as usize)
+        {
+            self.send_response(
+                peer_id,
+                inbound_request_id,
+                Response::InclusionListsByCommitteeIndices(Some(Arc::new(inclusion_list))),
+            );
+            send_inclusion_list_count += 1;
+        }
+
+        debug!(
+            %peer_id,
+            %slot,
+            requested = validator_indices.len(),
+            returned = send_inclusion_list_count,
+            "InclusionListsByCommitteeIndices outgoing response processed"
+        );
 
         Ok(())
     }

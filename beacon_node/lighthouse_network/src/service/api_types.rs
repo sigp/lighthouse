@@ -5,7 +5,7 @@ use std::sync::Arc;
 use types::{
     BlobSidecar, DataColumnSidecar, Epoch, EthSpec, LightClientBootstrap,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
-    SignedExecutionPayloadEnvelope,
+    SignedExecutionPayloadEnvelope, SignedInclusionList,
 };
 
 pub type Id = u32;
@@ -176,6 +176,8 @@ pub enum Response<E: EthSpec> {
     PayloadEnvelopesByRoot(Option<Arc<SignedExecutionPayloadEnvelope<E>>>),
     /// A response to a get `EXECUTION_PAYLOAD_ENVELOPES_BY_RANGE` request.
     PayloadEnvelopesByRange(Option<Arc<SignedExecutionPayloadEnvelope<E>>>),
+    /// A response to a get `INCLUSION_LIST_BY_COMMITTEE_INDICES` request.
+    InclusionListsByCommitteeIndices(Option<Arc<SignedInclusionList<E>>>),
     /// A response to a get BLOBS_BY_ROOT request.
     BlobsByRoot(Option<Arc<BlobSidecar<E>>>),
     /// A response to a get DATA_COLUMN_SIDECARS_BY_ROOT request.
@@ -214,6 +216,14 @@ impl<E: EthSpec> std::convert::From<Response<E>> for RpcResponse<E> {
                 None => {
                     RpcResponse::StreamTermination(ResponseTermination::PayloadEnvelopesByRange)
                 }
+            },
+            Response::InclusionListsByCommitteeIndices(r) => match r {
+                Some(il) => {
+                    RpcResponse::Success(RpcSuccessResponse::InclusionListsByCommitteeIndices(il))
+                }
+                None => RpcResponse::StreamTermination(
+                    ResponseTermination::InclusionListsByCommitteeIndices,
+                ),
             },
             Response::BlobsByRoot(r) => match r {
                 Some(b) => RpcResponse::Success(RpcSuccessResponse::BlobsByRoot(b)),

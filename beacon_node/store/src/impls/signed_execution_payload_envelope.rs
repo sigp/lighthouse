@@ -20,12 +20,15 @@ impl<E: EthSpec> StoreItem for SignedExecutionPayloadEnvelope<E> {
     }
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        if let Ok(envelope) = SignedExecutionPayloadEnvelopeHeze::from_ssz_bytes(bytes) {
-            return Ok(Self::Heze(envelope));
+        // The Gloas and Heze formats are currently byte-identical, so the variant decoded
+        // here is not authoritative. Readers that care about the fork variant must re-tag
+        // using the fork at the envelope's slot (see `HotColdDB::get_payload_envelope`).
+        if let Ok(envelope) = SignedExecutionPayloadEnvelopeGloas::from_ssz_bytes(bytes) {
+            return Ok(Self::Gloas(envelope));
         }
 
-        SignedExecutionPayloadEnvelopeGloas::from_ssz_bytes(bytes)
-            .map(Self::Gloas)
+        SignedExecutionPayloadEnvelopeHeze::from_ssz_bytes(bytes)
+            .map(Self::Heze)
             .map_err(Into::into)
     }
 }

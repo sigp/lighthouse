@@ -103,12 +103,10 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             }
             ForkName::Capella => Self::Capella(LightClientBootstrapCapella::from_ssz_bytes(bytes)?),
             ForkName::Deneb => Self::Deneb(LightClientBootstrapDeneb::from_ssz_bytes(bytes)?),
-            ForkName::Electra | ForkName::Heze => {
-                Self::Electra(LightClientBootstrapElectra::from_ssz_bytes(bytes)?)
-            }
+            ForkName::Electra => Self::Electra(LightClientBootstrapElectra::from_ssz_bytes(bytes)?),
             ForkName::Fulu => Self::Fulu(LightClientBootstrapFulu::from_ssz_bytes(bytes)?),
             // TODO(gloas): implement Gloas light client
-            ForkName::Base | ForkName::Gloas => {
+            ForkName::Base | ForkName::Gloas | ForkName::Heze => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientBootstrap decoding for {fork_name} not implemented"
                 )));
@@ -127,12 +125,12 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             }
             ForkName::Capella => <LightClientBootstrapCapella<E> as Encode>::ssz_fixed_len(),
             ForkName::Deneb => <LightClientBootstrapDeneb<E> as Encode>::ssz_fixed_len(),
-            ForkName::Electra | ForkName::Heze => {
-                <LightClientBootstrapElectra<E> as Encode>::ssz_fixed_len()
-            }
+            ForkName::Electra => <LightClientBootstrapElectra<E> as Encode>::ssz_fixed_len(),
             ForkName::Fulu => <LightClientBootstrapFulu<E> as Encode>::ssz_fixed_len(),
             // TODO(gloas): implement Gloas light client
-            ForkName::Gloas => <LightClientBootstrapAltair<E> as Encode>::ssz_fixed_len(),
+            ForkName::Gloas | ForkName::Heze => {
+                <LightClientBootstrapAltair<E> as Encode>::ssz_fixed_len()
+            }
         };
         fixed_len + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
     }
@@ -169,7 +167,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
                     .try_into()
                     .map_err(LightClientError::SszTypesError)?,
             }),
-            ForkName::Electra | ForkName::Heze => Self::Electra(LightClientBootstrapElectra {
+            ForkName::Electra => Self::Electra(LightClientBootstrapElectra {
                 header: LightClientHeaderElectra::block_to_light_client_header(block)?,
                 current_sync_committee,
                 current_sync_committee_branch: current_sync_committee_branch
@@ -184,7 +182,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
                     .map_err(LightClientError::SszTypesError)?,
             }),
             // TODO(gloas): implement Gloas light client
-            ForkName::Gloas => return Err(LightClientError::GloasNotImplemented),
+            ForkName::Gloas | ForkName::Heze => return Err(LightClientError::GloasNotImplemented),
         };
 
         Ok(light_client_bootstrap)
@@ -224,7 +222,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
                     .try_into()
                     .map_err(LightClientError::SszTypesError)?,
             }),
-            ForkName::Electra | ForkName::Heze => Self::Electra(LightClientBootstrapElectra {
+            ForkName::Electra => Self::Electra(LightClientBootstrapElectra {
                 header: LightClientHeaderElectra::block_to_light_client_header(block)?,
                 current_sync_committee,
                 current_sync_committee_branch: current_sync_committee_branch
@@ -239,7 +237,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
                     .map_err(LightClientError::SszTypesError)?,
             }),
             // TODO(gloas): implement Gloas light client
-            ForkName::Gloas => return Err(LightClientError::GloasNotImplemented),
+            ForkName::Gloas | ForkName::Heze => return Err(LightClientError::GloasNotImplemented),
         };
 
         Ok(light_client_bootstrap)
@@ -273,13 +271,13 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientBootstrap
             ForkName::Deneb => {
                 Self::Deneb(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
-            ForkName::Electra | ForkName::Heze => {
+            ForkName::Electra => {
                 Self::Electra(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
             ForkName::Fulu => {
                 Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
-            ForkName::Gloas => {
+            ForkName::Gloas | ForkName::Heze => {
                 // TODO(EIP-7732): check if this is correct
                 return Err(serde::de::Error::custom(format!(
                     "LightClientBootstrap failed to deserialize: unsupported fork '{}'",

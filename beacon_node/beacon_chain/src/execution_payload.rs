@@ -117,6 +117,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
                 self.block.message().try_into()?,
             )
             .await
+            .map(|(verification_status, _)| verification_status)
         }
     }
 }
@@ -135,7 +136,7 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
     slot: Slot,
     parent_beacon_block_root: Hash256,
     new_payload_request: NewPayloadRequest<'_, T::EthSpec>,
-) -> Result<PayloadVerificationStatus, PayloadVerificationError> {
+) -> Result<(PayloadVerificationStatus, PayloadStatus), PayloadVerificationError> {
     let execution_layer = chain
         .execution_layer
         .as_ref()
@@ -148,9 +149,14 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
 
     match new_payload_response {
         Ok(status) => match status {
-            PayloadStatus::Valid => Ok(PayloadVerificationStatus::Verified),
+            PayloadStatus::Valid => Ok((PayloadVerificationStatus::Verified, status)),
+            // Inclusion list satisfaction MUST NOT affect payload validation; the payload
+            // itself is valid. The verdict is surfaced to the caller via the raw status.
+            PayloadStatus::InclusionListUnsatisfied => {
+                Ok((PayloadVerificationStatus::Verified, status))
+            }
             PayloadStatus::Syncing | PayloadStatus::Accepted => {
-                Ok(PayloadVerificationStatus::Optimistic)
+                Ok((PayloadVerificationStatus::Optimistic, status))
             }
             PayloadStatus::Invalid {
                 latest_valid_hash,

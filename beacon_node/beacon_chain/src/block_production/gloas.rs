@@ -228,7 +228,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await?;
 
         let (execution_payload_bid, payload_data) =
-            self.select_payload_bid(local_signed_bid, local_build, builder_boost_factor);
+            self.select_payload_bid(local_signed_bid, local_build, builder_boost_factor, &state);
 
         // Part 3/3 (blocking)
         //
@@ -976,31 +976,83 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Look up the highest gossip-verified bid for the `(slot, parent_block_hash,
     /// parent_block_root)` of the local bid, then choose the winner.
-    // TODO(focil): When the bid cache supports Heze-typed bids, validate that any external
-    // builder bid's `inclusion_list_bits` satisfies `is_inclusion_list_bits_inclusive` with
-    // `only_timely=False` before accepting it. Currently the cache is Gloas-typed so this
-    // check cannot be performed.
-    // See: https://github.com/ethereum/consensus-specs/blob/master/specs/heze/validator.md#signed-execution-payload-bid
     fn select_payload_bid(
         &self,
         local_signed_bid: SignedExecutionPayloadBid<T::EthSpec>,
         local_build: LocalBuildResult<T::EthSpec>,
         builder_boost_factor: Option<u64>,
+        state: &BeaconState<T::EthSpec>,
     ) -> (
         SignedExecutionPayloadBid<T::EthSpec>,
         Option<ExecutionPayloadData<T::EthSpec>>,
     ) {
-        let cached_bid = self.gossip_verified_payload_bid_cache.get_highest_bid(
-            local_signed_bid.message().slot(),
-            local_signed_bid.message().parent_block_hash(),
-            local_signed_bid.message().parent_block_root(),
-        );
+        let cached_bid = self
+            .gossip_verified_payload_bid_cache
+            .get_highest_bid(
+                local_signed_bid.message().slot(),
+                local_signed_bid.message().parent_block_hash(),
+                local_signed_bid.message().parent_block_root(),
+            )
+            .filter(|bid| self.is_external_bid_acceptable(bid.as_ref(), state));
         select_payload_bid_pure(
             local_signed_bid,
             local_build,
             cached_bid,
             builder_boost_factor,
         )
+    }
+
+    /// Checks an external builder bid before it may be selected over the local bid:
+    /// the bid's fork variant must match the fork at its slot, and per
+    /// `validator.md#signed-execution-payload-bid` a Heze bid's `inclusion_list_bits`
+    /// must be a superset of the locally observed bits (`only_timely=False`).
+    fn is_external_bid_acceptable(
+        &self,
+        bid: &SignedExecutionPayloadBid<T::EthSpec>,
+        state: &BeaconState<T::EthSpec>,
+    ) -> bool {
+        let bid_slot = bid.message().slot();
+        let heze_expected = self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(bid_slot)
+            .heze_enabled();
+        match bid {
+            SignedExecutionPayloadBid::Gloas(_) => !heze_expected,
+            SignedExecutionPayloadBid::Heze(inner) => {
+                if !heze_expected {
+                    return false;
+                }
+                let il_slot = bid_slot.saturating_sub(1_u64);
+                let committee = match state.get_inclusion_list_committee(il_slot, &self.spec) {
+                    Ok(committee) => committee,
+                    Err(e) => {
+                        warn!(
+                            error = ?e,
+                            %bid_slot,
+                            "Failed to compute inclusion list committee for bid validation"
+                        );
+                        return false;
+                    }
+                };
+                let inclusive = self
+                    .inclusion_list_cache
+                    .read()
+                    .is_inclusion_list_bits_inclusive(
+                        il_slot,
+                        &committee,
+                        &inner.message.inclusion_list_bits,
+                        false,
+                    );
+                if !inclusive {
+                    warn!(
+                        %bid_slot,
+                        builder_index = inner.message.builder_index,
+                        "Ignoring builder bid with non-inclusive inclusion_list_bits"
+                    );
+                }
+                inclusive
+            }
+        }
     }
 }
 

@@ -1726,6 +1726,17 @@ impl<E: EthSpec> Network<E> {
                             request_type,
                         })
                     }
+                    RequestType::InclusionListsByCommitteeIndices(_) => {
+                        metrics::inc_counter_vec(
+                            &metrics::TOTAL_RPC_REQUESTS,
+                            &["inclusion_lists_by_committee_indices"],
+                        );
+                        Some(NetworkEvent::RequestReceived {
+                            peer_id,
+                            inbound_request_id,
+                            request_type,
+                        })
+                    }
                     RequestType::BlobsByRange(_) => {
                         metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_range"]);
                         Some(NetworkEvent::RequestReceived {
@@ -1853,6 +1864,12 @@ impl<E: EthSpec> Network<E> {
                         peer_id,
                         Response::PayloadEnvelopesByRoot(Some(resp)),
                     ),
+                    RpcSuccessResponse::InclusionListsByCommitteeIndices(resp) => self
+                        .build_response(
+                            id,
+                            peer_id,
+                            Response::InclusionListsByCommitteeIndices(Some(resp)),
+                        ),
                     RpcSuccessResponse::BlobsByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlobsByRoot(Some(resp)))
                     }
@@ -1893,6 +1910,9 @@ impl<E: EthSpec> Network<E> {
                     }
                     ResponseTermination::PayloadEnvelopesByRoot => {
                         Response::PayloadEnvelopesByRoot(None)
+                    }
+                    ResponseTermination::InclusionListsByCommitteeIndices => {
+                        Response::InclusionListsByCommitteeIndices(None)
                     }
                     ResponseTermination::BlobsByRange => Response::BlobsByRange(None),
                     ResponseTermination::BlobsByRoot => Response::BlobsByRoot(None),

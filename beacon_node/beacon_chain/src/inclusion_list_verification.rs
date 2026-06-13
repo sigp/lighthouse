@@ -3,9 +3,10 @@ use crate::{
 };
 
 use slot_clock::{SlotClock, timestamp_now};
+use std::time::Duration;
 use strum::AsRefStr;
 use tree_hash::TreeHash;
-use types::{Domain, SignedInclusionList, SignedRoot, Slot};
+use types::{Domain, EthSpec, SignedInclusionList, SignedRoot, Slot};
 
 #[derive(Debug, AsRefStr)]
 pub enum GossipInclusionListError {
@@ -19,7 +20,6 @@ pub enum GossipInclusionListError {
     InvalidSignature,
     BeaconChainError(Box<BeaconChainError>),
     PriorInclusionListKnown,
-    // TODO: equivocation e.g. PriorInclusionListKnown
 }
 
 impl From<BeaconChainError> for GossipInclusionListError {
@@ -37,8 +37,8 @@ impl<T: BeaconChainTypes> GossipVerifiedInclusionList<T> {
     pub fn verify(
         signed_il: &SignedInclusionList<T::EthSpec>,
         chain: &BeaconChain<T>,
+        seen_timestamp: Option<Duration>,
     ) -> Result<Self, GossipInclusionListError> {
-        // the slot is equal to the previous slot or the current slot
         let message_slot = signed_il.message.slot;
 
         let current_slot = chain
@@ -59,7 +59,15 @@ impl<T: BeaconChainTypes> GossipVerifiedInclusionList<T> {
 
         // [IGNORE] The slot `message.slot` is equal to the current slot
         // (with a MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance)
-        if message_slot != current_slot && message_slot != current_slot + 1 {
+        let earliest_permissible_slot = chain
+            .slot_clock
+            .now_with_past_tolerance(chain.spec.maximum_gossip_clock_disparity())
+            .ok_or(BeaconChainError::UnableToReadSlot)?;
+        let latest_permissible_slot = chain
+            .slot_clock
+            .now_with_future_tolerance(chain.spec.maximum_gossip_clock_disparity())
+            .ok_or(BeaconChainError::UnableToReadSlot)?;
+        if message_slot < earliest_permissible_slot || message_slot > latest_permissible_slot {
             return Err(GossipInclusionListError::InvalidSlot {
                 message_slot,
                 current_slot,
@@ -81,8 +89,9 @@ impl<T: BeaconChainTypes> GossipVerifiedInclusionList<T> {
             return Err(GossipInclusionListError::ValidatorNotInCommittee);
         }
 
-        // the signature is valid w.r.t. the validator index
-        let epoch = chain.epoch()?;
+        // The signature is valid w.r.t. the validator index, using the domain at the
+        // epoch of `message.slot` per `is_valid_inclusion_list_signature`.
+        let epoch = message_slot.epoch(T::EthSpec::slots_per_epoch());
         let fork = chain.spec.fork_at_epoch(epoch);
         let genesis_validators_root = chain.genesis_validators_root;
         let domain = chain.spec.get_domain(
@@ -104,19 +113,24 @@ impl<T: BeaconChainTypes> GossipVerifiedInclusionList<T> {
             return Err(GossipInclusionListError::InvalidSignature);
         }
 
-        // TODO(focil): Per spec p2p-interface.md rule 5, the first OR second valid message
-        // should be allowed (to enable equivocation detection in the cache). Currently this
-        // rejects any second message, making the cache's equivocation logic dead code.
-        // See: https://github.com/ethereum/consensus-specs/blob/master/specs/heze/p2p-interface.md#inclusion_list
+        // [IGNORE] The message is either the first or second valid message received from the
+        // validator. A second, distinct message is admitted so equivocation evidence is
+        // forwarded and recorded; duplicates and third-or-later messages are ignored.
         if chain.inclusion_list_seen(signed_il) {
             return Err(GossipInclusionListError::PriorInclusionListKnown);
         }
 
         let slot_duration_ms = chain.spec.get_slot_duration().as_millis() as u64;
         let inclusion_list_due_ms = slot_duration_ms * chain.spec.inclusion_list_due_bps / 10000;
-        let il_delay_ms =
-            get_slot_delay_ms(timestamp_now(), message_slot, &chain.slot_clock).as_millis() as u64;
-        let is_timely = il_delay_ms <= inclusion_list_due_ms;
+        // Timeliness is measured from when the message was received, not when this
+        // verification runs, so processor queueing delay cannot mark a timely IL late.
+        let il_delay_ms = get_slot_delay_ms(
+            seen_timestamp.unwrap_or_else(timestamp_now),
+            message_slot,
+            &chain.slot_clock,
+        )
+        .as_millis() as u64;
+        let is_timely = il_delay_ms < inclusion_list_due_ms;
 
         Ok(Self {
             signed_il: signed_il.clone(),

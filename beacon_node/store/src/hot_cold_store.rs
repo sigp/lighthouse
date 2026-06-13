@@ -749,11 +749,18 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
             .get_bytes(SignedExecutionPayloadEnvelope::<E>::db_column(), key)?
         {
             Some(bytes) => {
-                // TODO(heze): determine fork from slot when Gloas/Heze SSZ formats diverge
+                // The Gloas and Heze envelope SSZ formats are currently identical, so decode
+                // as Gloas first and re-tag the variant using the fork at the envelope's slot.
                 let envelope = SignedExecutionPayloadEnvelope::from_ssz_bytes_by_fork(
                     &bytes,
                     ForkName::Gloas,
                 )?;
+                let fork_name = self.spec.fork_name_at_slot::<E>(envelope.slot());
+                let envelope = if fork_name.heze_enabled() {
+                    SignedExecutionPayloadEnvelope::from_ssz_bytes_by_fork(&bytes, fork_name)?
+                } else {
+                    envelope
+                };
                 Ok(Some(envelope))
             }
             None => Ok(None),

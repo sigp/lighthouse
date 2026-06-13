@@ -38,7 +38,8 @@ pub use execution_requests::{
     ConsolidationRequests, DepositRequests, ExecutionRequests, RequestType, WithdrawalRequests,
 };
 pub use inclusion_list::{
-    InclusionList, InclusionListCommittee, InclusionListDuty, SignedInclusionList,
+    InclusionList, InclusionListCommittee, InclusionListDuty, InclusionListTransactions,
+    SignedInclusionList,
 };
 pub use payload::{
     AbstractExecPayload, BlindedPayload, BlindedPayloadBellatrix, BlindedPayloadCapella,

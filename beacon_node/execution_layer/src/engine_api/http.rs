@@ -737,8 +737,6 @@ impl HttpJsonRpc {
         .await
     }
 
-    pub async fn update_payload_with_inclusion_list<E: EthSpec>(&self) {}
-
     pub async fn get_inclusion_list<E: EthSpec>(
         &self,
         parent_hash: ExecutionBlockHash,
@@ -1090,19 +1088,6 @@ impl HttpJsonRpc {
                     .try_into()
                     .map_err(Error::BadResponse)
             }
-            ForkName::Heze => {
-                let response: JsonGetPayloadResponseHeze<E> = self
-                    .rpc_request(
-                        ENGINE_GET_PAYLOAD_V4,
-                        params,
-                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
-                    )
-                    .await?;
-
-                JsonGetPayloadResponse::Heze(response)
-                    .try_into()
-                    .map_err(Error::BadResponse)
-            }
             _ => Err(Error::UnsupportedForkVariant(format!(
                 "called get_payload_v4 with {}",
                 fork_name
@@ -1127,18 +1112,6 @@ impl HttpJsonRpc {
                     )
                     .await?;
                 JsonGetPayloadResponse::Fulu(response)
-                    .try_into()
-                    .map_err(Error::BadResponse)
-            }
-            ForkName::Heze => {
-                let response: JsonGetPayloadResponseHeze<E> = self
-                    .rpc_request(
-                        ENGINE_GET_PAYLOAD_V5,
-                        params,
-                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
-                    )
-                    .await?;
-                JsonGetPayloadResponse::Heze(response)
                     .try_into()
                     .map_err(Error::BadResponse)
             }
@@ -1277,9 +1250,12 @@ impl HttpJsonRpc {
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
+        // The third param is `custodyColumns: DATA|null`; we do not advertise a custody
+        // bitmap to the EL, which is allowed by the spec.
         let params = json!([
             JsonForkchoiceStateV1::from(forkchoice_state),
-            payload_attributes.map(JsonPayloadAttributes::from)
+            payload_attributes.map(JsonPayloadAttributes::from),
+            serde_json::Value::Null,
         ]);
 
         let response: JsonForkchoiceUpdatedV1Response = self

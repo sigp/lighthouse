@@ -29,7 +29,7 @@ use bls::{
 use eth2::types::{GraffitiPolicy, SignedBlockContentsTuple};
 use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
-    ExecutionLayer, NewPayloadRequest, NewPayloadRequestGloas,
+    ExecutionLayer, NewPayloadRequest, NewPayloadRequestGloas, NewPayloadRequestHeze,
     auth::JwtKey,
     test_utils::{DEFAULT_JWT_SECRET, ExecutionBlockGenerator, MockBuilder, MockExecutionLayer},
 };
@@ -2950,15 +2950,25 @@ where
             .map(kzg_commitment_to_versioned_hash)
             .collect();
 
-        let envelope_message = signed_envelope.message();
-        let request = NewPayloadRequest::Gloas(NewPayloadRequestGloas {
-            execution_payload: envelope_message
-                .payload_gloas()
-                .expect("should be Gloas envelope"),
-            versioned_hashes,
-            parent_beacon_block_root: block.message().parent_root(),
-            execution_requests: envelope_message.execution_requests(),
-        });
+        let request = match &signed_envelope {
+            SignedExecutionPayloadEnvelope::Heze(inner) => {
+                NewPayloadRequest::Heze(NewPayloadRequestHeze {
+                    execution_payload: &inner.message.payload,
+                    versioned_hashes,
+                    parent_beacon_block_root: block.message().parent_root(),
+                    execution_requests: &inner.message.execution_requests,
+                    il_transactions: Default::default(),
+                })
+            }
+            SignedExecutionPayloadEnvelope::Gloas(inner) => {
+                NewPayloadRequest::Gloas(NewPayloadRequestGloas {
+                    execution_payload: &inner.message.payload,
+                    versioned_hashes,
+                    parent_beacon_block_root: block.message().parent_root(),
+                    execution_requests: &inner.message.execution_requests,
+                })
+            }
+        };
 
         self.chain
             .execution_layer

@@ -272,11 +272,13 @@ mod ssz_static {
     use types::state::HistoricalSummary;
     use types::{
         AttesterSlashingBase, AttesterSlashingElectra, Builder, BuilderPendingPayment,
-        BuilderPendingWithdrawal, ConsolidationRequest, DepositRequest, ExecutionPayloadBid,
-        ExecutionPayloadEnvelope, IndexedPayloadAttestation, LightClientBootstrapAltair,
-        PayloadAttestation, PayloadAttestationData, PayloadAttestationMessage, PendingDeposit,
-        PendingPartialWithdrawal, SignedExecutionPayloadBidGloas, SignedExecutionPayloadEnvelope,
-        WithdrawalRequest, *,
+        BuilderPendingWithdrawal, ConsolidationRequest, DepositRequest, ExecutionPayloadBidGloas,
+        ExecutionPayloadBidHeze, ExecutionPayloadEnvelopeGloas, ExecutionPayloadEnvelopeHeze,
+        InclusionList, IndexedPayloadAttestation, LightClientBootstrapAltair, PayloadAttestation,
+        PayloadAttestationData, PayloadAttestationMessage, PendingDeposit,
+        PendingPartialWithdrawal, SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze,
+        SignedExecutionPayloadEnvelopeGloas, SignedExecutionPayloadEnvelopeHeze,
+        SignedInclusionList, WithdrawalRequest, *,
     };
 
     ssz_static_test!(attestation_data, AttestationData);
@@ -680,16 +682,22 @@ mod ssz_static {
 
     #[test]
     fn execution_payload_bid() {
-        SszStaticHandler::<ExecutionPayloadBid<MinimalEthSpec>, MinimalEthSpec>::gloas_and_later()
+        SszStaticHandler::<ExecutionPayloadBidGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_only()
             .run();
-        SszStaticHandler::<ExecutionPayloadBid<MainnetEthSpec>, MainnetEthSpec>::gloas_and_later()
+        SszStaticHandler::<ExecutionPayloadBidGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only()
+            .run();
+        SszStaticHandler::<ExecutionPayloadBidHeze<MinimalEthSpec>, MinimalEthSpec>::heze_only()
+            .run();
+        SszStaticHandler::<ExecutionPayloadBidHeze<MainnetEthSpec>, MainnetEthSpec>::heze_only()
             .run();
     }
 
     #[test]
     fn signed_execution_payload_bid() {
-        SszStaticHandler::<SignedExecutionPayloadBidGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_and_later().run();
-        SszStaticHandler::<SignedExecutionPayloadBidGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_and_later().run();
+        SszStaticHandler::<SignedExecutionPayloadBidGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_only().run();
+        SszStaticHandler::<SignedExecutionPayloadBidGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only().run();
+        SszStaticHandler::<SignedExecutionPayloadBidHeze<MinimalEthSpec>, MinimalEthSpec>::heze_only().run();
+        SszStaticHandler::<SignedExecutionPayloadBidHeze<MainnetEthSpec>, MainnetEthSpec>::heze_only().run();
     }
 
     #[test]
@@ -855,17 +863,25 @@ mod ssz_static {
 
     #[test]
     fn execution_payload_envelope() {
-        SszStaticHandler::<ExecutionPayloadEnvelope<MinimalEthSpec>, MinimalEthSpec>::gloas_and_later()
+        SszStaticHandler::<ExecutionPayloadEnvelopeGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_only()
             .run();
-        SszStaticHandler::<ExecutionPayloadEnvelope<MainnetEthSpec>, MainnetEthSpec>::gloas_and_later()
+        SszStaticHandler::<ExecutionPayloadEnvelopeGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only()
+            .run();
+        SszStaticHandler::<ExecutionPayloadEnvelopeHeze<MinimalEthSpec>, MinimalEthSpec>::heze_only()
+            .run();
+        SszStaticHandler::<ExecutionPayloadEnvelopeHeze<MainnetEthSpec>, MainnetEthSpec>::heze_only()
             .run();
     }
 
     #[test]
     fn signed_execution_payload_envelope() {
-        SszStaticHandler::<SignedExecutionPayloadEnvelope<MinimalEthSpec>, MinimalEthSpec>::gloas_and_later()
+        SszStaticHandler::<SignedExecutionPayloadEnvelopeGloas<MinimalEthSpec>, MinimalEthSpec>::gloas_only()
             .run();
-        SszStaticHandler::<SignedExecutionPayloadEnvelope<MainnetEthSpec>, MainnetEthSpec>::gloas_and_later()
+        SszStaticHandler::<SignedExecutionPayloadEnvelopeGloas<MainnetEthSpec>, MainnetEthSpec>::gloas_only()
+            .run();
+        SszStaticHandler::<SignedExecutionPayloadEnvelopeHeze<MinimalEthSpec>, MinimalEthSpec>::heze_only()
+            .run();
+        SszStaticHandler::<SignedExecutionPayloadEnvelopeHeze<MainnetEthSpec>, MainnetEthSpec>::heze_only()
             .run();
     }
 
@@ -879,6 +895,21 @@ mod ssz_static {
     fn signed_proposer_preferences() {
         SszStaticHandler::<SignedProposerPreferences, MinimalEthSpec>::gloas_and_later().run();
         SszStaticHandler::<SignedProposerPreferences, MainnetEthSpec>::gloas_and_later().run();
+    }
+
+    // Heze and later
+    #[test]
+    fn inclusion_list() {
+        SszStaticHandler::<InclusionList<MinimalEthSpec>, MinimalEthSpec>::heze_and_later().run();
+        SszStaticHandler::<InclusionList<MainnetEthSpec>, MainnetEthSpec>::heze_and_later().run();
+    }
+
+    #[test]
+    fn signed_inclusion_list() {
+        SszStaticHandler::<SignedInclusionList<MinimalEthSpec>, MinimalEthSpec>::heze_and_later()
+            .run();
+        SszStaticHandler::<SignedInclusionList<MainnetEthSpec>, MainnetEthSpec>::heze_and_later()
+            .run();
     }
 }
 

@@ -20,6 +20,10 @@ pub enum PayloadStatus {
     InvalidBlockHash {
         validation_error: Option<String>,
     },
+    /// The payload is valid but does not satisfy the inclusion list constraints (EIP-7805).
+    ///
+    /// Per the spec, inclusion list satisfaction MUST NOT affect payload validation.
+    InclusionListUnsatisfied,
 }
 
 /// Processes the response from the execution engine.
@@ -95,6 +99,19 @@ pub fn process_payload_status(
                 }
 
                 Ok(PayloadStatus::Accepted)
+            }
+            PayloadStatusV1Status::InclusionListUnsatisfied => {
+                // In the interests of being liberal with what we accept, only raise a
+                // warning here.
+                if response.latest_valid_hash.is_some() {
+                    warn!(
+                        msg = "expected a null latest_valid_hash",
+                        status = ?response.status,
+                    "Malformed response from execution engine"
+                    )
+                }
+
+                Ok(PayloadStatus::InclusionListUnsatisfied)
             }
         },
     }

@@ -27,6 +27,8 @@ fn get_harness_heze(validator_count: usize) -> BeaconChainHarness<EphemeralHarne
     spec.capella_fork_epoch = Some(Epoch::new(0));
     spec.deneb_fork_epoch = Some(Epoch::new(0));
     spec.electra_fork_epoch = Some(Epoch::new(0));
+    spec.fulu_fork_epoch = Some(Epoch::new(0));
+    spec.gloas_fork_epoch = Some(Epoch::new(0));
     spec.heze_fork_epoch = Some(Epoch::new(0));
     let spec = Arc::new(spec);
 
@@ -85,7 +87,7 @@ pub async fn get_valid_signed_inclusion_list<T: BeaconChainTypes>(
     let inclusion_list = InclusionList {
         slot: current_duty_for_slot.slot,
         validator_index: current_duty_for_slot.validator_index,
-        inclusion_list_committee_root: current_duty_for_slot.committee_root,
+        inclusion_list_committee_root: current_duty_for_slot.inclusion_list_committee_root,
         transactions: <_>::default(),
     };
 
@@ -164,7 +166,7 @@ impl InclusionListGossipTester {
     pub fn import_valid_inclusion_list(self) -> Self {
         self.harness
             .chain
-            .verify_inclusion_list_for_gossip(&self.inclusion_list)
+            .verify_inclusion_list_for_gossip(&self.inclusion_list, None)
             .unwrap();
 
         self.harness
@@ -192,7 +194,7 @@ impl InclusionListGossipTester {
         let err = self
             .harness
             .chain
-            .verify_inclusion_list_for_gossip(&il)
+            .verify_inclusion_list_for_gossip(&il, None)
             .err()
             .unwrap_or_else(|| {
                 panic!(

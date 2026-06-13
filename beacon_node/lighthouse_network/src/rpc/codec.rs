@@ -15,7 +15,6 @@ use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
-use types::SignedExecutionPayloadEnvelope;
 use types::{
     BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EthSpec, ForkContext,
     ForkName, ForkVersionDecode, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
@@ -24,6 +23,7 @@ use types::{
     SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockFulu,
     SignedBeaconBlockGloas, SignedBeaconBlockHeze,
 };
+use types::{SignedExecutionPayloadEnvelope, SignedInclusionList};
 use unsigned_varint::codec::Uvi;
 
 const CONTEXT_BYTES_LEN: usize = 4;
@@ -80,6 +80,7 @@ impl<E: EthSpec> SSZSnappyInboundCodec<E> {
                 RpcSuccessResponse::BlocksByHead(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::PayloadEnvelopesByRange(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::PayloadEnvelopesByRoot(res) => res.as_ssz_bytes(),
+                RpcSuccessResponse::InclusionListsByCommitteeIndices(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::BlobsByRange(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::BlobsByRoot(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::DataColumnsByRoot(res) => res.as_ssz_bytes(),
@@ -363,6 +364,7 @@ impl<E: EthSpec> Encoder<RequestType<E>> for SSZSnappyOutboundCodec<E> {
             RequestType::BlocksByHead(req) => req.as_ssz_bytes(),
             RequestType::PayloadEnvelopesByRange(req) => req.as_ssz_bytes(),
             RequestType::PayloadEnvelopesByRoot(req) => req.beacon_block_roots.as_ssz_bytes(),
+            RequestType::InclusionListsByCommitteeIndices(req) => req.as_ssz_bytes(),
             RequestType::BlobsByRange(req) => req.as_ssz_bytes(),
             RequestType::BlobsByRoot(req) => req.blob_ids.as_ssz_bytes(),
             RequestType::DataColumnsByRange(req) => req.as_ssz_bytes(),
@@ -571,6 +573,11 @@ fn handle_rpc_request<E: EthSpec>(
                 )?,
             }),
         )),
+        SupportedProtocol::InclusionListsByCommitteeIndicesV1 => {
+            Ok(Some(RequestType::InclusionListsByCommitteeIndices(
+                InclusionListsByCommitteeIndicesRequest::from_ssz_bytes(decoded_buffer)?,
+            )))
+        }
         SupportedProtocol::BlobsByRangeV1 => Ok(Some(RequestType::BlobsByRange(
             BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
         ))),
@@ -710,6 +717,27 @@ fn handle_rpc_response<E: EthSpec>(
                     Err(RPCError::ErrorResponse(
                         RpcErrorResponse::InvalidRequest,
                         "Invalid fork name for payload envelopes by root".to_string(),
+                    ))
+                }
+            }
+            None => Err(RPCError::ErrorResponse(
+                RpcErrorResponse::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
+        SupportedProtocol::InclusionListsByCommitteeIndicesV1 => match fork_name {
+            Some(fork_name) => {
+                if fork_name.heze_enabled() {
+                    Ok(Some(RpcSuccessResponse::InclusionListsByCommitteeIndices(
+                        Arc::new(SignedInclusionList::from_ssz_bytes(decoded_buffer)?),
+                    )))
+                } else {
+                    Err(RPCError::ErrorResponse(
+                        RpcErrorResponse::InvalidRequest,
+                        "Invalid fork name for inclusion lists by committee indices".to_string(),
                     ))
                 }
             }
@@ -1361,6 +1389,12 @@ mod tests {
             }
             RequestType::PayloadEnvelopesByRoot(peroot) => {
                 assert_eq!(decoded, RequestType::PayloadEnvelopesByRoot(peroot))
+            }
+            RequestType::InclusionListsByCommitteeIndices(ilbci) => {
+                assert_eq!(
+                    decoded,
+                    RequestType::InclusionListsByCommitteeIndices(ilbci)
+                )
             }
             RequestType::BlobsByRoot(bbroot) => {
                 assert_eq!(decoded, RequestType::BlobsByRoot(bbroot))

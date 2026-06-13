@@ -115,6 +115,8 @@ pub struct RPCRateLimiter {
     envrange_rl: Limiter<PeerId>,
     /// PayloadEnvelopesByRoot rate limiter.
     envroots_rl: Limiter<PeerId>,
+    /// InclusionListsByCommitteeIndices rate limiter.
+    ilbci_rl: Limiter<PeerId>,
     /// DataColumnsByRoot rate limiter.
     dcbroot_rl: Limiter<PeerId>,
     /// DataColumnsByRange rate limiter.
@@ -160,6 +162,8 @@ pub struct RPCRateLimiterBuilder {
     perange_quota: Option<Quota>,
     /// Quota for the ExecutionPayloadEnvelopesByRoot protocol.
     peroots_quota: Option<Quota>,
+    /// Quota for the InclusionListsByCommitteeIndices protocol.
+    ilbci_quota: Option<Quota>,
     /// Quota for the BlobsByRange protocol.
     blbrange_quota: Option<Quota>,
     /// Quota for the BlobsByRoot protocol.
@@ -192,6 +196,7 @@ impl RPCRateLimiterBuilder {
             Protocol::BlocksByHead => self.bbhead_quota = q,
             Protocol::PayloadEnvelopesByRange => self.perange_quota = q,
             Protocol::PayloadEnvelopesByRoot => self.peroots_quota = q,
+            Protocol::InclusionListsByCommitteeIndices => self.ilbci_quota = q,
             Protocol::BlobsByRange => self.blbrange_quota = q,
             Protocol::BlobsByRoot => self.blbroot_quota = q,
             Protocol::DataColumnsByRoot => self.dcbroot_quota = q,
@@ -225,6 +230,9 @@ impl RPCRateLimiterBuilder {
         let peroots_quota = self
             .peroots_quota
             .ok_or("PayloadEnvelopesByRoot quota not specified")?;
+        let ilbci_quota = self
+            .ilbci_quota
+            .ok_or("InclusionListsByCommitteeIndices quota not specified")?;
         let lc_bootstrap_quota = self
             .lcbootstrap_quota
             .ok_or("LightClientBootstrap quota not specified")?;
@@ -263,6 +271,7 @@ impl RPCRateLimiterBuilder {
         let bbhead_rl = Limiter::from_quota(bbhead_quota)?;
         let envrange_rl = Limiter::from_quota(perange_quota)?;
         let envroots_rl = Limiter::from_quota(peroots_quota)?;
+        let ilbci_rl = Limiter::from_quota(ilbci_quota)?;
         let blbrange_rl = Limiter::from_quota(blbrange_quota)?;
         let blbroot_rl = Limiter::from_quota(blbroots_quota)?;
         let dcbroot_rl = Limiter::from_quota(dcbroot_quota)?;
@@ -289,6 +298,7 @@ impl RPCRateLimiterBuilder {
             bbhead_rl,
             envrange_rl,
             envroots_rl,
+            ilbci_rl,
             blbrange_rl,
             blbroot_rl,
             dcbroot_rl,
@@ -345,6 +355,7 @@ impl RPCRateLimiter {
             blocks_by_head_quota,
             payload_envelopes_by_range_quota,
             payload_envelopes_by_root_quota,
+            inclusion_lists_by_committee_indices_quota,
             blobs_by_range_quota,
             blobs_by_root_quota,
             data_columns_by_root_quota,
@@ -370,6 +381,10 @@ impl RPCRateLimiter {
             .set_quota(
                 Protocol::PayloadEnvelopesByRoot,
                 payload_envelopes_by_root_quota,
+            )
+            .set_quota(
+                Protocol::InclusionListsByCommitteeIndices,
+                inclusion_lists_by_committee_indices_quota,
             )
             .set_quota(Protocol::BlobsByRange, blobs_by_range_quota)
             .set_quota(Protocol::BlobsByRoot, blobs_by_root_quota)
@@ -421,6 +436,7 @@ impl RPCRateLimiter {
             Protocol::BlocksByHead => &mut self.bbhead_rl,
             Protocol::PayloadEnvelopesByRange => &mut self.envrange_rl,
             Protocol::PayloadEnvelopesByRoot => &mut self.envroots_rl,
+            Protocol::InclusionListsByCommitteeIndices => &mut self.ilbci_rl,
             Protocol::BlobsByRange => &mut self.blbrange_rl,
             Protocol::BlobsByRoot => &mut self.blbroot_rl,
             Protocol::DataColumnsByRoot => &mut self.dcbroot_rl,
@@ -448,6 +464,7 @@ impl RPCRateLimiter {
             bbhead_rl,
             envrange_rl,
             envroots_rl,
+            ilbci_rl,
             blbrange_rl,
             blbroot_rl,
             dcbroot_rl,
@@ -468,6 +485,7 @@ impl RPCRateLimiter {
         bbhead_rl.prune(time_since_start);
         envrange_rl.prune(time_since_start);
         envroots_rl.prune(time_since_start);
+        ilbci_rl.prune(time_since_start);
         blbrange_rl.prune(time_since_start);
         blbroot_rl.prune(time_since_start);
         dcbrange_rl.prune(time_since_start);

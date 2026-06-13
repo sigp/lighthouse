@@ -3254,7 +3254,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_validator_inclusion_list<E: EthSpec>(
         &self,
         slot: Slot,
-    ) -> Result<Option<GenericResponse<Transactions<E>>>, Error> {
+    ) -> Result<Option<GenericResponse<InclusionListTransactions<E>>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -3267,6 +3267,30 @@ impl BeaconNodeHttpClient {
 
         self.get_opt_with_timeout(path, self.timeouts.inclusion_list)
             .await
+    }
+
+    /// `POST validator/inclusion_list`
+    pub async fn post_validator_inclusion_list<E: EthSpec>(
+        &self,
+        inclusion_list: &SignedInclusionList<E>,
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("inclusion_list");
+
+        self.post_generic_with_consensus_version(
+            path,
+            &GenericResponseRef::from(inclusion_list),
+            Some(self.timeouts.inclusion_list),
+            fork_name,
+        )
+        .await?;
+
+        Ok(())
     }
 
     /// `POST lighthouse/liveness`

@@ -784,6 +784,10 @@ where
     ) {
         self.fc_store
             .record_payload_inclusion_list_satisfaction(block_root, satisfied);
+        // The proto-array copy is the one consulted by `should_extend_payload` and the
+        // one persisted to disk, so it must be kept in sync.
+        self.proto_array
+            .record_payload_inclusion_list_satisfaction(block_root, satisfied);
     }
 
     /// Returns `true` if the block root has been recorded as satisfying the inclusion list.

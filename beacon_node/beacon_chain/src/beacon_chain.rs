@@ -1748,9 +1748,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // We elect to cache the state here, because it should always be the head state
         let head_beacon_state =
             self.get_state(&head_block.state_root, Some(head_block.slot), true)?;
-        let Some(head_beacon_state) = head_beacon_state else {
+        let Some(mut head_beacon_state) = head_beacon_state else {
             return Err(Error::MissingBeaconState(head_block.root));
         };
+
+        // The head state may lag the requested epoch (e.g. skipped slots over the epoch
+        // boundary, or a next-epoch duties request). Advance it so committee computation
+        // uses the correct epoch.
+        if head_beacon_state.current_epoch() < epoch {
+            partial_state_advance(
+                &mut head_beacon_state,
+                Some(head_block.state_root),
+                epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                &self.spec,
+            )
+            .map_err(Error::StateAdvanceError)?;
+            head_beacon_state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+        }
+
         let duties = validator_indices_pubkeys
             .iter()
             .map(|(validator_index, pubkey_bytes)| {
@@ -2257,29 +2272,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         let current_slot = self.slot()?;
-        let _next_slot = current_slot.safe_add(1)?;
 
-        // Don't bother with the inclusion list if the head is not the current slot.
-        //
-        // This prevents the routine from running during sync.
-        if head_slot != current_slot {
+        // Per the spec, the inclusion list is built against the block for the current slot
+        // if it has been confirmed as head, or against the local head otherwise. Only skip
+        // production when the head is so far behind that the node is clearly syncing.
+        if head_slot + T::EthSpec::slots_per_epoch() < current_slot {
             info!(?head_slot, ?current_slot, "Head too old for inclusion list");
             return Ok(None);
         }
-
-        // Don't bother with the inclusion list if the request slot is not the next
-        // slot.
-        //
-        // NOTE: does this represent a critical error? should we return an error here or log crit?
-        // is this check redundant?
-        // if request_slot != next_slot {
-        //     info!(
-        //         ?request_slot,
-        //         ?next_slot,
-        //         "Inclusion list request slot not equal to next slot"
-        //     );
-        //     return Ok(None);
-        // }
 
         info!(
             %parent_hash,
@@ -2617,12 +2617,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn verify_inclusion_list_for_gossip(
         &self,
         inclusion_list: &SignedInclusionList<T::EthSpec>,
+        seen_timestamp: Option<Duration>,
     ) -> Result<GossipVerifiedInclusionList<T>, GossipInclusionListError> {
         metrics::inc_counter(&metrics::INCLUSION_LIST_PROCESSING_REQUESTS);
         let _timer =
             metrics::start_timer(&metrics::UNAGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
 
-        GossipVerifiedInclusionList::verify(inclusion_list, self).inspect(|v| {
+        GossipVerifiedInclusionList::verify(inclusion_list, self, seen_timestamp).inspect(|v| {
             metrics::inc_counter(&metrics::INCLUSION_LIST_PROCESSING_SUCCESSES);
             if let Some(event_handler) = self.event_handler.as_ref() {
                 event_handler.register(EventKind::InclusionList(SseInclusionList {
@@ -6801,6 +6802,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     );
                     Ok(())
                 }
+                // `INCLUSION_LIST_UNSATISFIED` is only specified for `engine_newPayload`,
+                // not fork choice updates.
+                PayloadStatus::InclusionListUnsatisfied => {
+                    warn!(
+                        msg = "execution engine provided an unexpected response to a fork \
+                        choice update. although this is not a serious issue, please raise \
+                        an issue.",
+                        "Fork choice update received INCLUSION_LIST_UNSATISFIED"
+                    );
+                    Ok(())
+                }
                 PayloadStatus::Invalid {
                     latest_valid_hash,
                     ref validation_error,
@@ -7720,9 +7732,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         is_timely: bool,
     ) {
         info!(is_timely, "Adding verified inclusion list to the cache");
-        self.inclusion_list_cache
-            .write()
-            .on_inclusion_list(signed_il, is_timely);
+        let mut cache = self.inclusion_list_cache.write();
+        cache.on_inclusion_list(signed_il, is_timely);
+        if let Some(current_slot) = self.slot_clock.now() {
+            cache.prune(current_slot);
+        }
     }
 
     pub fn inclusion_list_seen(&self, signed_il: &SignedInclusionList<T::EthSpec>) -> bool {

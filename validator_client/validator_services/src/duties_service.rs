@@ -728,30 +728,34 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
 
     /*
      * Spawn the task which keeps track of local inclusion list duties.
+     * Only started if the FOCIL fork is scheduled on this network.
      */
-    let duties_service = core_duties_service.clone();
-    core_duties_service.executor.spawn(
-        async move {
-            loop {
-                if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
-                    sleep(duration).await;
-                } else {
-                    // Just sleep for one slot if we are unable to read the system clock, this gives
-                    // us an opportunity for the clock to eventually come good.
-                    sleep(duties_service.slot_clock.slot_duration()).await;
-                    continue;
-                }
+    if core_duties_service.spec.is_focil_scheduled() {
+        let duties_service = core_duties_service.clone();
+        core_duties_service.executor.spawn(
+            async move {
+                loop {
+                    if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
+                        sleep(duration).await;
+                    } else {
+                        // Just sleep for one slot if we are unable to read the system clock, this gives
+                        // us an opportunity for the clock to eventually come good.
+                        sleep(duties_service.slot_clock.slot_duration()).await;
+                        continue;
+                    }
 
-                if let Err(e) = poll_beacon_inclusion_list_duties::<S, T>(&duties_service).await {
-                    error!(
-                        error = ?e,
-                       "Failed to poll inclusion list duties"
-                    );
+                    if let Err(e) = poll_beacon_inclusion_list_duties::<S, T>(&duties_service).await
+                    {
+                        error!(
+                            error = ?e,
+                           "Failed to poll inclusion list duties"
+                        );
+                    }
                 }
-            }
-        },
-        "duties_service_inclusion_list_committee",
-    );
+            },
+            "duties_service_inclusion_list_committee",
+        );
+    }
 
     // Spawn the task which keeps track of local PTC duties.
     // Only start PTC duties service if Gloas fork is scheduled.
@@ -1835,11 +1839,10 @@ async fn poll_beacon_inclusion_list_duties_for_epoch<S: ValidatorStore, T: SlotC
 
     // Update the duties service with the new `InclusionListDuty` messages.
     let mut inclusion_list_duties = duties_service.inclusion_list_duties.write();
-    // TODO(focil) this variable is unused at the moment
-    let _current_slot = duties_service
-        .slot_clock
-        .now_or_genesis()
-        .unwrap_or_default();
+    let updated_pubkeys = new_duties
+        .iter()
+        .map(|duty| duty.pubkey)
+        .collect::<HashSet<_>>();
     for duty in new_duties {
         let inclusion_list_duty_map = inclusion_list_duties.entry(duty.pubkey).or_default();
 
@@ -1867,6 +1870,17 @@ async fn poll_beacon_inclusion_list_duties_for_epoch<S: ValidatorStore, T: SlotC
             hash_map::Entry::Vacant(vacant) => {
                 vacant.insert((dependent_root, duty));
             }
+        }
+    }
+
+    // Remove stale duties: a validator that was re-queried under the new dependent root
+    // but received no duty (e.g. the shuffling changed after a re-org) no longer has an
+    // inclusion list duty for this epoch.
+    for pubkey in validators_to_update {
+        if !updated_pubkeys.contains(pubkey)
+            && let Some(duty_map) = inclusion_list_duties.get_mut(pubkey)
+        {
+            duty_map.remove(&epoch);
         }
     }
     drop(inclusion_list_duties);

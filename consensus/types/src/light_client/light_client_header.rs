@@ -91,14 +91,14 @@ impl<E: EthSpec> LightClientHeader<E> {
             ForkName::Deneb => LightClientHeader::Deneb(
                 LightClientHeaderDeneb::block_to_light_client_header(block)?,
             ),
-            ForkName::Electra | ForkName::Heze => LightClientHeader::Electra(
+            ForkName::Electra => LightClientHeader::Electra(
                 LightClientHeaderElectra::block_to_light_client_header(block)?,
             ),
             ForkName::Fulu => {
                 LightClientHeader::Fulu(LightClientHeaderFulu::block_to_light_client_header(block)?)
             }
             // TODO(gloas): implement Gloas light client
-            ForkName::Gloas => return Err(LightClientError::GloasNotImplemented),
+            ForkName::Gloas | ForkName::Heze => return Err(LightClientError::GloasNotImplemented),
         };
         Ok(header)
     }
@@ -114,14 +114,14 @@ impl<E: EthSpec> LightClientHeader<E> {
             ForkName::Deneb => {
                 LightClientHeader::Deneb(LightClientHeaderDeneb::from_ssz_bytes(bytes)?)
             }
-            ForkName::Electra | ForkName::Heze => {
+            ForkName::Electra => {
                 LightClientHeader::Electra(LightClientHeaderElectra::from_ssz_bytes(bytes)?)
             }
             ForkName::Fulu => {
                 LightClientHeader::Fulu(LightClientHeaderFulu::from_ssz_bytes(bytes)?)
             }
             // TODO(gloas): implement Gloas light client
-            ForkName::Base | ForkName::Gloas => {
+            ForkName::Base | ForkName::Gloas | ForkName::Heze => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientHeader decoding for {fork_name} not implemented"
                 )));
@@ -352,7 +352,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientHeader<E>
         };
         Ok(match context {
             // TODO(gloas): implement Gloas light client
-            ForkName::Base | ForkName::Gloas => {
+            ForkName::Base | ForkName::Gloas | ForkName::Heze => {
                 return Err(serde::de::Error::custom(format!(
                     "LightClientFinalityUpdate failed to deserialize: unsupported fork '{}'",
                     context
@@ -367,7 +367,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientHeader<E>
             ForkName::Deneb => {
                 Self::Deneb(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
-            ForkName::Electra | ForkName::Heze => {
+            ForkName::Electra => {
                 Self::Electra(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
             ForkName::Fulu => {

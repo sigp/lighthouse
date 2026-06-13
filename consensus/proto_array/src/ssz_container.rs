@@ -40,6 +40,7 @@ pub struct SszContainer {
     pub indices: Vec<(Hash256, usize)>,
     #[superstruct(only(V28))]
     pub previous_proposer_boost: ProposerBoost,
+    #[superstruct(only(V29))]
     pub payload_inclusion_list_satisfaction: Vec<(Hash256, bool)>,
 }
 
@@ -130,7 +131,6 @@ impl From<SszContainerV29> for SszContainerV28 {
             indices: v29.indices,
             // Proposer boost is not tracked in V29 (computed on-the-fly), so reset it.
             previous_proposer_boost: ProposerBoost::default(),
-            payload_inclusion_list_satisfaction: v29.payload_inclusion_list_satisfaction,
         }
     }
 }

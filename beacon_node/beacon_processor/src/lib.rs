@@ -441,6 +441,7 @@ pub enum Work<E: EthSpec> {
     BlocksByHeadRequest(AsyncFn),
     PayloadEnvelopesByRangeRequest(AsyncFn),
     PayloadEnvelopesByRootRequest(AsyncFn),
+    InclusionListsByCommitteeIndicesRequest(BlockingFn),
     BlobsByRangeRequest(BlockingFn),
     BlobsByRootsRequest(BlockingFn),
     DataColumnsByRootsRequest(BlockingFn),
@@ -504,6 +505,7 @@ pub enum WorkType {
     BlocksByHeadRequest,
     PayloadEnvelopesByRangeRequest,
     PayloadEnvelopesByRootRequest,
+    InclusionListsByCommitteeIndicesRequest,
     BlobsByRangeRequest,
     BlobsByRootsRequest,
     DataColumnsByRootsRequest,
@@ -568,6 +570,9 @@ impl<E: EthSpec> Work<E> {
             Work::BlocksByHeadRequest(_) => WorkType::BlocksByHeadRequest,
             Work::PayloadEnvelopesByRangeRequest(_) => WorkType::PayloadEnvelopesByRangeRequest,
             Work::PayloadEnvelopesByRootRequest(_) => WorkType::PayloadEnvelopesByRootRequest,
+            Work::InclusionListsByCommitteeIndicesRequest(_) => {
+                WorkType::InclusionListsByCommitteeIndicesRequest
+            }
             Work::BlobsByRangeRequest(_) => WorkType::BlobsByRangeRequest,
             Work::BlobsByRootsRequest(_) => WorkType::BlobsByRootsRequest,
             Work::DataColumnsByRootsRequest(_) => WorkType::DataColumnsByRootsRequest,
@@ -1037,6 +1042,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         } else if let Some(item) = work_queues.payload_envelopes_broots_queue.pop()
                         {
                             Some(item)
+                        } else if let Some(item) =
+                            work_queues.inclusion_lists_by_committee_indices_queue.pop()
+                        {
+                            Some(item)
                         // Check slashings after all other consensus messages so we prioritize
                         // following head.
                         //
@@ -1241,6 +1250,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::PayloadEnvelopesByRootRequest { .. } => work_queues
                                 .payload_envelopes_broots_queue
                                 .push(work, work_id),
+                            Work::InclusionListsByCommitteeIndicesRequest { .. } => work_queues
+                                .inclusion_lists_by_committee_indices_queue
+                                .push(work, work_id),
                             Work::BlobsByRangeRequest { .. } => {
                                 work_queues.blob_brange_queue.push(work, work_id)
                             }
@@ -1372,6 +1384,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         }
                         WorkType::PayloadEnvelopesByRootRequest => {
                             work_queues.payload_envelopes_broots_queue.len()
+                        }
+                        WorkType::InclusionListsByCommitteeIndicesRequest => {
+                            work_queues.inclusion_lists_by_committee_indices_queue.len()
                         }
                         WorkType::BlobsByRangeRequest => work_queues.blob_brange_queue.len(),
                         WorkType::BlobsByRootsRequest => work_queues.blob_broots_queue.len(),
@@ -1566,7 +1581,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
             Work::BlobsByRangeRequest(process_fn)
             | Work::BlobsByRootsRequest(process_fn)
             | Work::DataColumnsByRootsRequest(process_fn)
-            | Work::DataColumnsByRangeRequest(process_fn) => {
+            | Work::DataColumnsByRangeRequest(process_fn)
+            | Work::InclusionListsByCommitteeIndicesRequest(process_fn) => {
                 task_spawner.spawn_blocking(process_fn)
             }
             Work::BlocksByRangeRequest(work)
