@@ -3,7 +3,6 @@ use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yam
 use ::fork_choice::{AttestationFromBlock, PayloadVerificationStatus, ProposerHeadError};
 use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
 use beacon_chain::block_verification_types::LookupBlock;
-use beacon_chain::chain_config::DisallowedReOrgOffsets;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::{
@@ -1040,7 +1039,6 @@ impl<E: EthSpec> Tester<E> {
             canonical_head,
             ReOrgThreshold(self.spec.reorg_head_weight_threshold),
             ReOrgThreshold(self.spec.reorg_parent_weight_threshold),
-            &DisallowedReOrgOffsets::default(),
             Epoch::new(self.spec.reorg_max_epochs_since_finalization),
         );
         let proposer_head = match proposer_head_result {
