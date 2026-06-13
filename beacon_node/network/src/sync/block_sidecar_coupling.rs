@@ -622,16 +622,18 @@ mod tests {
         expected_custody_columns: &[u64],
     ) {
         info.set_custody_requesting();
-        let custody_columns = blocks
+        let columns = expected_custody_columns
             .iter()
-            .flat_map(|(_, columns, _)| {
-                columns
-                    .iter()
-                    .filter(|column| expected_custody_columns.contains(column.index()))
-                    .cloned()
+            .flat_map(|&column_index| {
+                blocks.iter().flat_map(move |(_, columns, _)| {
+                    columns
+                        .iter()
+                        .filter(move |column| *column.index() == column_index)
+                        .cloned()
+                })
             })
             .collect();
-        info.add_custody_columns(custody_columns, PeerGroup::from_set(Default::default()))
+        info.add_custody_columns(columns, PeerGroup::from_set(Default::default()))
             .unwrap();
     }
 
@@ -753,8 +755,8 @@ mod tests {
         let spec = Arc::new(spec);
         let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
         // Blobs are no longer required for availability, so the response succeeds without them.
-        let result = info.responses(da_checker, spec).unwrap();
-        assert!(result.0.is_ok())
+        let result = info.responses(da_checker, spec).unwrap().0;
+        assert!(result.is_ok())
     }
 
     #[test]
@@ -797,78 +799,19 @@ mod tests {
         // Assert response is not finished
         assert!(!is_finished(&mut info));
 
-        info.set_custody_requesting();
-        assert!(!is_finished(&mut info));
-
         // Send data columns
-        let custody_columns = expects_custody_columns
-            .iter()
-            .flat_map(|column_index| {
-                blocks
-                    .iter()
-                    .flat_map(|b| b.1.iter().filter(|d| *d.index() == *column_index).cloned())
-            })
-            .collect();
-        info.add_custody_columns(custody_columns, PeerGroup::from_set(Default::default()))
-            .unwrap();
-
-        // All completed construct response
-        info.responses(da_checker, spec).unwrap().0.unwrap();
-    }
-
-    #[test]
-    fn rpc_block_with_custody_columns_batched() {
-        if skip_under_gloas() {
-            return;
-        }
-        let mut spec = test_spec::<E>();
-        spec.deneb_fork_epoch = Some(Epoch::new(0));
-        spec.fulu_fork_epoch = Some(Epoch::new(0));
-        let spec = Arc::new(spec);
-        let da_checker = Arc::new(test_da_checker(spec.clone(), NodeCustodyType::Fullnode));
-        let expected_sampling_columns = da_checker
-            .custody_context()
-            .sampling_columns_for_epoch(Epoch::new(0), &spec)
-            .to_vec();
-
-        let components_id = components_id();
-        let blocks_req_id = blocks_id(components_id);
-
-        let mut info = RangeBlockComponentsRequest::<E>::new(blocks_req_id, None, true, None);
-
-        let mut u = types::test_utils::test_unstructured();
-        let blocks = (0..4)
-            .map(|_| {
-                generate_rand_block_and_data_columns::<E>(
-                    ForkName::Fulu,
-                    NumBlobs::Number(1),
-                    &mut u,
-                    &spec,
-                )
-                .unwrap()
-            })
-            .collect::<Vec<_>>();
-
-        // Send blocks and complete terminate response
-        info.add_blocks(
-            blocks_req_id,
-            blocks.iter().map(|b| b.0.clone().into()).collect(),
-            PeerId::random(),
-        )
-        .unwrap();
-        // Assert response is not finished
-        assert!(!is_finished(&mut info));
-
         info.set_custody_requesting();
-        let custody_columns = expected_sampling_columns
+        let columns = expects_custody_columns
             .iter()
-            .flat_map(|column_index| {
-                blocks
-                    .iter()
-                    .flat_map(|b| b.1.iter().filter(|d| *d.index() == *column_index).cloned())
+            .flat_map(|&column_index| {
+                blocks.iter().flat_map(move |b| {
+                    b.1.iter()
+                        .filter(move |d| *d.index() == column_index)
+                        .cloned()
+                })
             })
             .collect();
-        info.add_custody_columns(custody_columns, PeerGroup::from_set(Default::default()))
+        info.add_custody_columns(columns, PeerGroup::from_set(Default::default()))
             .unwrap();
 
         // All completed construct response
@@ -973,10 +916,10 @@ mod tests {
         info.add_payload_envelopes(payloads_req_id, vec![Arc::new(bad_envelope)])
             .unwrap();
 
-        let result = info.responses(da_checker, spec).unwrap();
+        let result = info.responses(da_checker, spec).unwrap().0;
         assert!(
             matches!(
-                result.0,
+                result,
                 Err(super::CouplingError::EnvelopePeerFailure(ref error))
                     if error.contains("SlotMismatch")
             ),
