@@ -236,11 +236,8 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore, MemoryStore> {
             cold_db: MemoryStore::open(),
             blobs_db: MemoryStore::open(),
             hot_db: MemoryStore::open(),
-            block_cache: if config.block_cache_size > 0 {
-                Some(Mutex::new(BlockCache::new(config.block_cache_size)))
-            } else {
-                None
-            },
+            block_cache: (config.block_cache_size > 0)
+                .then(|| Mutex::new(BlockCache::new(config.block_cache_size))),
             state_cache: Mutex::new(StateCache::new(
                 config.state_cache_size,
                 config.state_cache_headroom,
@@ -292,11 +289,8 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend> {
             blobs_db: BeaconNodeBackend::open(&config, blobs_db_path)?,
             cold_db: BeaconNodeBackend::open(&config, cold_path)?,
             hot_db,
-            block_cache: if config.block_cache_size > 0 {
-                Some(Mutex::new(BlockCache::new(config.block_cache_size)))
-            } else {
-                None
-            },
+            block_cache: (config.block_cache_size > 0)
+                .then(|| Mutex::new(BlockCache::new(config.block_cache_size))),
             state_cache: Mutex::new(StateCache::new(
                 config.state_cache_size,
                 config.state_cache_headroom,
