@@ -555,7 +555,10 @@ where
             return Ok(Some(Hash256::zero()));
         }
 
-        let dependent_slot = spec.proposer_shuffling_decision_slot::<E>(epoch);
+        let dependent_slot = epoch
+            .saturating_sub(spec.min_seed_lookahead)
+            .start_slot(E::slots_per_epoch())
+            .saturating_sub(1_u64);
 
         self.get_ancestor(block_root, dependent_slot)
     }
@@ -801,10 +804,17 @@ where
             return Ok(());
         }
 
-        // Provide the slot (as per the system clock) to the `fc_store` and then return its view of
-        // the current slot. The `fc_store` will ensure that the `current_slot` is never
-        // decreasing, a property which we must maintain.
-        let current_slot = self.update_time(system_time_current_slot)?;
+        let head_root = if system_time_current_slot == self.fc_store.get_current_slot() {
+            // Fork choice has already run for the current slot, so we can safely use the cached
+            // head without recomputing it.
+            self.cached_fork_choice_view().head_block_root
+        } else {
+            // Fork choice hasn't run for the current slot yet: run it, updating the fork choice
+            // store's current slot in the process.
+            self.get_head(system_time_current_slot, spec)?.0
+        };
+        let current_slot = self.fc_store.get_current_slot();
+        debug_assert_eq!(current_slot, system_time_current_slot);
 
         // Parent block must be known.
         let parent_block = self
@@ -862,12 +872,6 @@ where
         let is_first_block = self.fc_store.proposer_boost_root().is_zero();
 
         if is_timely && is_first_block {
-            let cached_head_root = self.cached_fork_choice_view().head_block_root;
-            let head_root = match self.get_block(&cached_head_root) {
-                Some(head) if head.slot == block.slot() => cached_head_root,
-                _ => self.get_head(system_time_current_slot, spec)?.0,
-            };
-
             // The block isn't in fork choice so resolve its dependent root via its parent.
             let block_dependent_root =
                 self.get_dependent_root(block.parent_root(), current_slot, spec)?;
@@ -1613,10 +1617,10 @@ where
         &self,
         block_root: &Hash256,
         parent_payload_status: PayloadStatus,
-        proposal_slot: Slot,
+        current_slot: Slot,
     ) -> Result<bool, Error<T::Error>> {
         self.proto_array
-            .should_build_on_full::<E>(block_root, parent_payload_status, proposal_slot)
+            .should_build_on_full::<E>(block_root, parent_payload_status, current_slot)
             .map_err(Error::ProtoArrayStringError)
     }
 

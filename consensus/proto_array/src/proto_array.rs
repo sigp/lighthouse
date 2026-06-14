@@ -1575,7 +1575,7 @@ impl ProtoArray {
         &self,
         fc_node: &IndexedForkChoiceNode,
         proto_node: &ProtoNode,
-        proposal_slot: Slot,
+        current_slot: Slot,
     ) -> Result<bool, Error> {
         if fc_node.payload_status == PayloadStatus::Pending {
             return Err(Error::InvalidPayloadStatus {
@@ -1588,7 +1588,7 @@ impl ProtoArray {
             return Ok(false);
         }
 
-        if proto_node.slot().saturating_add(1u64) != proposal_slot {
+        if proto_node.slot().saturating_add(1u64) != current_slot {
             return Ok(true);
         }
 
