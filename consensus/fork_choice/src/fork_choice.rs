@@ -554,10 +554,10 @@ where
             // Genesis block parent.
             return Ok(Some(Hash256::zero()));
         }
-        // Fork-aware decision slot: pre-Fulu it's the end of `epoch - 1`, post-Fulu it accounts
-        // for the proposer lookahead. Reuse `proposer_shuffling_decision_slot` so the proposer
-        // boost dependent root matches the proposer shuffling decision root.
-        let dependent_slot = spec.proposer_shuffling_decision_slot::<E>(epoch);
+        let dependent_slot = epoch
+            .saturating_sub(spec.min_seed_lookahead)
+            .start_slot(E::slots_per_epoch())
+            .saturating_sub(1_u64);
         self.get_ancestor(block_root, dependent_slot)
     }
 
@@ -863,8 +863,11 @@ where
         let is_first_block = self.fc_store.proposer_boost_root().is_zero();
 
         if is_timely && is_first_block {
-            // Compute the head before adding this block to fork choice
-            let (head_root, _) = self.get_head(system_time_current_slot, spec)?;
+            let cached_head_root = self.cached_fork_choice_view().head_block_root;
+            let head_root = match self.get_block(&cached_head_root) {
+                Some(head) if head.slot == block.slot() => cached_head_root,
+                _ => self.get_head(system_time_current_slot, spec)?.0,
+            };
 
             // The block isn't in fork choice so resolve its dependent root via its parent.
             let block_dependent_root =

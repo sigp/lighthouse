@@ -422,6 +422,7 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
 
         // Processing requires the committee caches.
         pre_state.build_all_committee_caches(spec).unwrap();
+        pre_state.build_slashings_cache().unwrap();
 
         let mut state = pre_state.clone();
         let mut expected = self.post.clone();
