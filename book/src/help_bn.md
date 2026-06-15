@@ -308,12 +308,7 @@ Options:
       --proposer-reorg-cutoff <MILLISECONDS>
           DEPRECATED. This flag has no effect.
       --proposer-reorg-disallowed-offsets <N1,N2,...>
-          Comma-separated list of integer offsets which can be used to avoid
-          proposing reorging blocks at certain slots. An offset of N means that
-          reorging proposals will not be attempted at any slot such that `slot %
-          SLOTS_PER_EPOCH == N`. By default only re-orgs at offset 0 will be
-          avoided. Any offsets supplied with this flag will impose additional
-          restrictions.
+          DEPRECATED. This flag has no effect.
       --proposer-reorg-epochs-since-finalization <EPOCHS>
           DEPRECATED. This flag has no effect.
       --proposer-reorg-parent-threshold <PERCENT>

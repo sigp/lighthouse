@@ -1375,12 +1375,7 @@ pub fn cli_app() -> Command {
                 .long("proposer-reorg-disallowed-offsets")
                 .action(ArgAction::Set)
                 .value_name("N1,N2,...")
-                .help("Comma-separated list of integer offsets which can be used to avoid \
-                       proposing reorging blocks at certain slots. An offset of N means that \
-                       reorging proposals will not be attempted at any slot such that \
-                       `slot % SLOTS_PER_EPOCH == N`. By default only re-orgs at offset 0 will be \
-                       avoided. Any offsets supplied with this flag will impose additional \
-                       restrictions.")
+                .help("DEPRECATED. This flag has no effect.")
                 .conflicts_with("disable-proposer-reorgs")
                 .display_order(0)
         )
