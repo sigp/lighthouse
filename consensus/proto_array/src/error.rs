@@ -50,7 +50,6 @@ pub enum Error {
         block_root: Hash256,
         parent_root: Hash256,
     },
-    InvalidEpochOffset(u64),
     Arith(ArithError),
     InvalidNodeVariant {
         block_root: Hash256,
