@@ -5328,7 +5328,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(Box::new(DoNotReOrg::HeadNotLate.into()));
         }
 
-
         // Only attempt a re-org if we have a proposer registered for the re-org slot. This check
         // runs after the cheaper checks above because it may compute (and cache) the proposer
         // shuffling for the re-org slot's epoch on a cache miss.
