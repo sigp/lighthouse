@@ -239,7 +239,7 @@ impl Config {
             }
         }
 
-        config.graffiti_policy = if validator_client_config.graffiti_append {
+        config.graffiti_policy = if validator_client_config.graffiti_append.unwrap_or(true) {
             Some(GraffitiPolicy::AppendClientVersions)
         } else {
             Some(GraffitiPolicy::PreserveUserGraffiti)

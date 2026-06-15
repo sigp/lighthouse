@@ -2,6 +2,7 @@ use beacon_node_fallback::{ApiTopic, beacon_node_health::BeaconNodeSyncDistanceT
 
 use crate::exec::CommandLineTestExec;
 use bls::{Keypair, PublicKeyBytes};
+use eth2::types::GraffitiPolicy;
 use initialized_validators::DEFAULT_WEB3SIGNER_KEEP_ALIVE;
 use sensitive_url::SensitiveUrl;
 use std::fs::File;
@@ -258,6 +259,58 @@ fn graffiti_file_with_pk_flag() {
                     .to_string(),
                 "0x6e6963652d677261666669746900000000000000000000000000000000000000"
             )
+        });
+}
+
+// Tests for graffiti-append flag
+#[test]
+fn graffiti_append_default() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert_eq!(
+            config.graffiti_policy,
+            Some(GraffitiPolicy::AppendClientVersions)
+        );
+    });
+}
+
+#[test]
+fn graffiti_append_true_flag() {
+    CommandLineTest::new()
+        .flag("graffiti-append", Some("true"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.graffiti_policy,
+                Some(GraffitiPolicy::AppendClientVersions)
+            );
+        });
+}
+
+#[test]
+fn graffiti_append_false_flag() {
+    CommandLineTest::new()
+        .flag("graffiti-append", Some("false"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.graffiti_policy,
+                Some(GraffitiPolicy::PreserveUserGraffiti)
+            );
+        });
+}
+
+// Retain previous behaviour: `--graffiti-append` with no value is the same as
+// `--graffiti-append true`.
+#[test]
+fn graffiti_append_no_value() {
+    CommandLineTest::new()
+        .flag("graffiti-append", None)
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.graffiti_policy,
+                Some(GraffitiPolicy::AppendClientVersions)
+            );
         });
 }
 
