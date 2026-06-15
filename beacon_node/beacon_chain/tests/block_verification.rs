@@ -2389,6 +2389,104 @@ async fn range_sync_block_new_gloas_rejects_block_hash_mismatch() {
     );
 }
 
+/// Produces a Gloas block + envelope on top of the current head and imports the block (but not its
+/// envelope), so the block is known to fork choice with its payload not yet received.
+async fn import_gloas_block_without_envelope(
+    harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+) -> (
+    Arc<SignedBeaconBlock<E>>,
+    SignedExecutionPayloadEnvelope<E>,
+    Hash256,
+) {
+    harness.advance_slot();
+
+    let state = harness.get_current_state();
+    let slot = harness.get_current_slot();
+    let (block_contents, envelope, _) = harness.make_block_with_envelope(state, slot).await;
+    let block = block_contents.0.clone();
+    let block_root = block.canonical_root();
+    let envelope = envelope.expect("gloas block should have envelope");
+
+    harness
+        .process_block(slot, block_root, block_contents)
+        .await
+        .expect("block should import");
+
+    (block, envelope, block_root)
+}
+
+/// A relevant envelope (payload not yet received) lets an already-imported block back through
+/// `filter_chain_segment` so it can be re-processed with its envelope.
+#[tokio::test]
+async fn filter_chain_segment_keeps_imported_block_with_relevant_envelope() {
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(1)).gloas_enabled() {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec.into())
+        .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
+        .node_custody_type(NodeCustodyType::Supernode)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    let (block, envelope, _) = import_gloas_block_without_envelope(&harness).await;
+
+    let available_envelope = AvailableEnvelope::new(Arc::new(envelope), vec![]);
+    let segment = vec![RangeSyncBlock::new_gloas(block, Some(available_envelope)).unwrap()];
+
+    let Ok(filtered) = harness.chain.filter_chain_segment(segment) else {
+        panic!("filter should succeed");
+    };
+
+    assert_eq!(
+        filtered.len(),
+        1,
+        "block with a relevant envelope should not be filtered as a duplicate"
+    );
+}
+
+/// Once the payload has been received the envelope is no longer relevant, so an already-imported
+/// block is filtered out of the segment as a duplicate.
+#[tokio::test]
+async fn filter_chain_segment_drops_imported_block_when_payload_received() {
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(1)).gloas_enabled() {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec.into())
+        .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
+        .node_custody_type(NodeCustodyType::Supernode)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    let (block, envelope, block_root) = import_gloas_block_without_envelope(&harness).await;
+
+    harness
+        .chain
+        .canonical_head
+        .fork_choice_write_lock()
+        .on_valid_payload_envelope_received(block_root)
+        .expect("payload should be marked received");
+
+    let available_envelope = AvailableEnvelope::new(Arc::new(envelope), vec![]);
+    let segment = vec![RangeSyncBlock::new_gloas(block, Some(available_envelope)).unwrap()];
+
+    let Ok(filtered) = harness.chain.filter_chain_segment(segment) else {
+        panic!("filter should succeed");
+    };
+
+    assert!(
+        filtered.is_empty(),
+        "block whose payload was already received should be filtered as a duplicate"
+    );
+}
+
 // Test that RpcBlock::new() rejects blocks when blob count doesn't match expected.
 #[tokio::test]
 async fn range_sync_block_construction_fails_with_wrong_blob_count() {
