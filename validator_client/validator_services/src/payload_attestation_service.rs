@@ -5,7 +5,7 @@ use slot_clock::{SlotClock};
 use std::ops::Deref;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use tokio::time::{sleep};
+use tokio::time::sleep;
 use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, error, info, warn};
 use types::{ChainSpec, EthSpec, Slot, Hash256};
