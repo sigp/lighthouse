@@ -227,10 +227,10 @@ Flags:
           automatically enabled for <= 64 validators. Enabling this metric for
           higher validator counts will lead to higher volume of prometheus
           metrics being collected.
-      --graffiti-append
-          When used, client version info will be prepended to user custom
-          graffiti, with a space in between. This should only be used with a
-          Lighthouse beacon node.
+      --graffiti-append [<GRAFFITI_APPEND>]
+          Client version info will be appended to user custom graffiti, with a
+          space in between. This should only be set to false when using a
+          Lighthouse beacon node. [default: true] [possible values: true, false]
   -h, --help
           Prints help information
       --http
