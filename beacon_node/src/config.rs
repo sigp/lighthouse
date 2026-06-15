@@ -1434,9 +1434,7 @@ pub fn set_network_config(
         config.disable_quic_support = true;
     }
 
-    if parse_flag(cli_args, "disable-mplex") {
-        config.enable_mplex = false;
-    }
+    config.enable_mplex = parse_required(cli_args, "enable-mplex")?;
 
     if parse_flag(cli_args, "disable-upnp") {
         config.upnp_enabled = false;

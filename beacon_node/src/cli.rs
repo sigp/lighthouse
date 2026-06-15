@@ -388,11 +388,12 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("disable-mplex")
-                .long("disable-mplex")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .help("Disables the mplex multiplexer. By default mplex is enabled alongside yamux; yamux is preferred when both are available.")
+            Arg::new("enable-mplex")
+                .long("enable-mplex")
+                .value_name("BOOLEAN")
+                .action(ArgAction::Set)
+                .default_value("true")
+                .help("Enables the mplex multiplexer alongside yamux. Yamux is preferred when both are available. Enabled by default; set to \"false\" to disable.")
                 .display_order(0)
         )
         .arg(

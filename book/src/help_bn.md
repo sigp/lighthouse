@@ -84,6 +84,10 @@ Options:
       --discovery-port6 <PORT>
           The UDP port that discovery will listen on over IPv6 if listening over
           both IPv4 and IPv6. Defaults to `port6`
+      --enable-mplex <BOOLEAN>
+          Enables the mplex multiplexer alongside yamux. Yamux is preferred when
+          both are available. Enabled by default; set to "false" to disable.
+          [default: true]
       --enr-address <ADDRESS>...
           The IP address/ DNS address to broadcast to other peers on how to
           reach this node. If a DNS address is provided, the enr-address is set
@@ -463,9 +467,6 @@ Flags:
           If present, do not configure the system allocator. Providing this flag
           will generally increase memory usage, it should only be provided when
           debugging specific memory allocation issues.
-      --disable-mplex
-          Disables the mplex multiplexer. By default mplex is enabled alongside
-          yamux; yamux is preferred when both are available.
       --disable-optimistic-finalized-sync
           Force Lighthouse to verify every execution block hash with the
           execution client during finalized sync. By default block hashes will
