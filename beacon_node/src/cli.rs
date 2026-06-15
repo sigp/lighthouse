@@ -388,11 +388,11 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("enable-mplex")
-                .long("enable-mplex")
+            Arg::new("disable-mplex")
+                .long("disable-mplex")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
-                .help("Enables mplex multiplexer alongside yamux. Yamux is preferred when both are available.")
+                .help("Disables the mplex multiplexer. By default mplex is enabled alongside yamux; yamux is preferred when both are available.")
                 .display_order(0)
         )
         .arg(

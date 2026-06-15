@@ -463,6 +463,9 @@ Flags:
           If present, do not configure the system allocator. Providing this flag
           will generally increase memory usage, it should only be provided when
           debugging specific memory allocation issues.
+      --disable-mplex
+          Disables the mplex multiplexer. By default mplex is enabled alongside
+          yamux; yamux is preferred when both are available.
       --disable-optimistic-finalized-sync
           Force Lighthouse to verify every execution block hash with the
           execution client during finalized sync. By default block hashes will
@@ -489,9 +492,6 @@ Flags:
           Sets the local ENR IP address and port to match those set for
           lighthouse. Specifically, the IP address will be the value of
           --listen-address and the UDP port will be --discovery-port.
-      --enable-mplex
-          Enables mplex multiplexer alongside yamux. Yamux is preferred when
-          both are available.
       --enable-partial-columns
           Enable partial messages for data columns. This can reduce the amount
           of data sent over the network. Enabled by default on Hoodi and
