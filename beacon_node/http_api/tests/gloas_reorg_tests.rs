@@ -197,7 +197,6 @@ pub async fn re_org_parent_is_full_marginal_win() {
     .await;
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn proposer_boost_re_org_parent_empty() {
     proposer_boost_re_org_test(ReOrgTest {
