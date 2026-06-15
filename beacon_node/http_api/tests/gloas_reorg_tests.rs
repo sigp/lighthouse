@@ -7,7 +7,7 @@
 //!
 use beacon_chain::{
     ChainConfig,
-    chain_config::{DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR},
+    chain_config::DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
     custody_context::NodeCustodyType,
     test_utils::{
         AttestationStrategy, BlockStrategy, LightClientStrategy, MakeAttestationOptions,
@@ -274,10 +274,7 @@ pub async fn proposer_boost_re_org_test(
         Some(spec),
         validator_count,
         None,
-        Some(Box::new(move |builder| {
-            builder
-                .chain_config(chain_config)
-        })),
+        Some(Box::new(move |builder| builder.chain_config(chain_config))),
         Default::default(),
         false,
         NodeCustodyType::Fullnode,
