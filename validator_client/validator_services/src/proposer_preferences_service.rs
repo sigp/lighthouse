@@ -251,8 +251,10 @@ mod tests {
     use futures::FutureExt;
     use slot_clock::ManualSlotClock;
     use std::time::Duration;
-    use types::{EthSpec, ForkName, Hash256, MainnetEthSpec, Slot};
-    use validator_test_rig::validator_client_harness::{S, ValidatorClientHarness};
+    use types::{Address, EthSpec, ForkName, Hash256, MainnetEthSpec, Slot};
+    use validator_test_rig::validator_client_harness::{
+        S, ValidatorClientHarness, ValidatorStoreConfig,
+    };
 
     struct TestHarness {
         harness: ValidatorClientHarness,
@@ -261,18 +263,12 @@ mod tests {
 
     impl TestHarness {
         async fn new_with_validators(num_validators: usize) -> Self {
-            let harness = ValidatorClientHarness::new(num_validators).await;
-            // let slot_clock = harness.slot_clock.clone();
-            // let spec = harness.spec.clone();
-            // let executor = harness.test_runtime.task_executor.clone();
-
-            // let (validator_store, _pubkeys, _validator_dir) = create_validator_store(
-            //     slot_clock.clone(),
-            //     spec.clone(),
-            //     executor.clone(),
-            //     num_validators,
-            // )
-            // .await;
+            let config = ValidatorStoreConfig {
+                // Need to have a fee_recipient for proposer preferences
+                fee_recipient: Some(Address::ZERO),
+                ..Default::default()
+            };
+            let harness = ValidatorClientHarness::new_with_config(num_validators, &config).await;
 
             let duties_service = Arc::new(
                 DutiesServiceBuilder::new()

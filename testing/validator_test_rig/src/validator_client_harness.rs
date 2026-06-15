@@ -3,7 +3,7 @@ use beacon_node_fallback::{BeaconNodeFallback, CandidateBeaconNode, Config as Be
 use bls::{Keypair, PublicKeyBytes};
 use eth2_keystore::KeystoreBuilder;
 use initialized_validators::InitializedValidators;
-use lighthouse_validator_store::LighthouseValidatorStore;
+pub use lighthouse_validator_store::{Config as ValidatorStoreConfig, LighthouseValidatorStore};
 use slashing_protection::{SLASHING_PROTECTION_FILENAME, SlashingDatabase};
 use slot_clock::{ManualSlotClock, SlotClock};
 use std::sync::Arc;
@@ -32,6 +32,10 @@ pub struct ValidatorClientHarness {
 
 impl ValidatorClientHarness {
     pub async fn new(num_validators: usize) -> Self {
+        Self::new_with_config(num_validators, &Default::default()).await
+    }
+
+    pub async fn new_with_config(num_validators: usize, config: &ValidatorStoreConfig) -> Self {
         let mut default_spec = MainnetEthSpec::default_spec();
         default_spec.gloas_fork_epoch = Some(Epoch::new(0));
         let spec = Arc::new(default_spec);
@@ -46,6 +50,7 @@ impl ValidatorClientHarness {
             spec.clone(),
             executor.clone(),
             num_validators,
+            config,
         )
         .await;
 
@@ -83,6 +88,7 @@ pub async fn create_validator_store(
     spec: Arc<ChainSpec>,
     executor: task_executor::TaskExecutor,
     num_validators: usize,
+    config: &ValidatorStoreConfig,
 ) -> (Arc<S>, Vec<PublicKeyBytes>, TempDir) {
     let validator_dir = tempdir().unwrap();
     let password = b"test";
@@ -142,7 +148,7 @@ pub async fn create_validator_store(
         spec,
         None,
         slot_clock,
-        &Default::default(),
+        config,
         executor,
     ));
 
