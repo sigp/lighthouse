@@ -12,7 +12,7 @@ use std::sync::Arc;
 use types::data::BlobIdentifier;
 use types::{
     BeaconBlockRef, BeaconState, BlindedPayload, ChainSpec, Epoch, EthSpec, Hash256,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    SignedBeaconBlock, SignedBeaconBlockHeader, SignedExecutionPayloadEnvelope, Slot,
 };
 
 /// A wrapper around a `SignedBeaconBlock`. This varaint is constructed
@@ -109,6 +109,15 @@ impl<E: EthSpec> RangeSyncBlock<E> {
                 .as_ref()
                 .map(|envelope| envelope.columns.clone())
                 .filter(|columns| !columns.is_empty()),
+        }
+    }
+
+    pub fn as_envelope(&self) -> Option<&SignedExecutionPayloadEnvelope<E>> {
+        match self {
+            RangeSyncBlock::Base(_) => None,
+            RangeSyncBlock::Gloas { envelope, .. } => {
+                envelope.as_ref().map(|e| e.envelope().as_ref())
+            }
         }
     }
 }

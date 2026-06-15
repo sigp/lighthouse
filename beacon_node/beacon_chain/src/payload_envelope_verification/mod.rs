@@ -25,12 +25,13 @@ use strum::AsRefStr;
 use tracing::instrument;
 use types::{
     BeaconState, BeaconStateError, DataColumnSidecarList, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadEnvelope, Slot,
+    ExecutionPayloadEnvelope, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
 };
 
 use crate::{
-    BeaconChainError, BeaconChainTypes, BeaconStore, BlockError, ExecutionPayloadError,
-    PayloadVerificationError, PayloadVerificationOutcome,
+    BeaconChain, BeaconChainError, BeaconChainTypes, BeaconStore, BlockError,
+    ExecutionPayloadError, PayloadVerificationError, PayloadVerificationOutcome,
+    payload_envelope_verification::gossip_verified_envelope::verify_envelope_consistency,
 };
 
 pub mod execution_pending_envelope;
@@ -166,8 +167,6 @@ pub enum EnvelopeError {
     EnvelopeProcessingError(EnvelopeProcessingError),
     /// Error verifying the execution payload
     ExecutionPayloadError(ExecutionPayloadError),
-    /// Optimistic sync is not supported for Gloas payload envelopes.
-    OptimisticSyncNotSupported { block_root: Hash256 },
     /// The envelope's beacon block was not present in fork choice at import time.
     ///
     /// Unlike [`EnvelopeError::BlockRootUnknown`] (raised during gossip verification, where the
@@ -199,7 +198,6 @@ impl EnvelopeError {
             | EnvelopeError::PriorToFinalization { .. }
             | EnvelopeError::BeaconChainError(_)
             | EnvelopeError::BeaconStateError(_)
-            | EnvelopeError::OptimisticSyncNotSupported { .. }
             | EnvelopeError::BlockRootNotInForkChoice(_)
             | EnvelopeError::InternalError(_) => false,
         }
@@ -291,4 +289,42 @@ pub(crate) fn load_snapshot_from_state_root<T: BeaconChainTypes>(
         state_root: block_state_root,
         beacon_block_root,
     })
+}
+
+/// Performs simple, cheap checks to ensure that the envelope is relevant to be imported.
+///
+/// `Ok(block_root` is returned if the envelope passes these checks and should progress with
+/// verification.
+///
+/// Returns an error if the envelope is not relevant or if an error occurs during a verification step.
+pub fn check_envelope_relevancy<T: BeaconChainTypes>(
+    block: &SignedBeaconBlock<T::EthSpec>,
+    signed_envelope: &SignedExecutionPayloadEnvelope<T::EthSpec>,
+    chain: &BeaconChain<T>,
+) -> Result<bool, EnvelopeError> {
+    let envelope = &signed_envelope.message;
+    let Ok(bid) = block.message().body().signed_execution_payload_bid() else {
+        return Err(EnvelopeError::InternalError(
+            "Block is pre-gloas".to_string(),
+        ));
+    };
+
+    let latest_finalized_slot = chain
+        .canonical_head
+        .cached_head()
+        .finalized_checkpoint()
+        .epoch
+        .start_slot(T::EthSpec::slots_per_epoch());
+
+    verify_envelope_consistency(envelope, block, &bid.message, latest_finalized_slot)?;
+
+    if chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .is_payload_received(&envelope.beacon_block_root)
+    {
+        return Ok(false);
+    }
+
+    Ok(true)
 }

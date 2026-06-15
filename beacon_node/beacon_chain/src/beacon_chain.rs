@@ -64,6 +64,7 @@ use crate::payload_attestation_verification::VerifiedPayloadAttestationMessage;
 use crate::payload_bid_verification::payload_bid_cache::GossipVerifiedPayloadBidCache;
 #[cfg(not(test))]
 use crate::payload_envelope_streamer::{EnvelopeRequestSource, launch_payload_envelope_stream};
+use crate::payload_envelope_verification::check_envelope_relevancy;
 use crate::pending_payload_cache::PendingPayloadCache;
 use crate::pending_payload_cache::{
     Availability as PayloadAvailability,
@@ -3000,7 +3001,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
 
-            match check_block_relevancy(block.as_block(), block_root, self) {
+            let is_envelope_relevant = if let Some(envelope) = block.as_envelope() {
+                // If the envelope is relevant we skip the duplicate import check in
+                // `check_block_relevancy`
+                match check_envelope_relevancy(block.as_block(), envelope, self) {
+                    Ok(_) => true,
+                    Err(_) => false,
+                }
+            } else {
+                false
+            };
+
+            match check_block_relevancy(block.as_block(), block_root, is_envelope_relevant, self) {
                 // If the block is relevant, add it to the filtered chain segment.
                 Ok(_) => filtered_chain_segment.push((block_root, block)),
                 // If the block is already known, simply ignore this block.
