@@ -7,7 +7,7 @@
 //!
 use beacon_chain::{
     ChainConfig,
-    chain_config::{DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, DisallowedReOrgOffsets},
+    chain_config::{DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR},
     custody_context::NodeCustodyType,
     test_utils::{
         AttestationStrategy, BlockStrategy, LightClientStrategy, MakeAttestationOptions,
@@ -112,8 +112,6 @@ pub struct ReOrgTest {
     misprediction: bool,
     /// Whether to expect withdrawals to change on epoch boundaries.
     expect_withdrawals_change_on_epoch: bool,
-    /// Epoch offsets to avoid proposing reorg blocks at.
-    disallowed_offsets: Vec<u64>,
 }
 
 impl Default for ReOrgTest {
@@ -134,7 +132,6 @@ impl Default for ReOrgTest {
             should_re_org: true,
             misprediction: false,
             expect_withdrawals_change_on_epoch: false,
-            disallowed_offsets: vec![],
         }
     }
 }
@@ -235,7 +232,6 @@ pub async fn proposer_boost_re_org_test(
         should_re_org,
         misprediction,
         expect_withdrawals_change_on_epoch,
-        disallowed_offsets,
     }: ReOrgTest,
 ) {
     assert!(head_slot > 0);
@@ -281,9 +277,6 @@ pub async fn proposer_boost_re_org_test(
         Some(Box::new(move |builder| {
             builder
                 .chain_config(chain_config)
-                .proposer_re_org_disallowed_offsets(
-                    DisallowedReOrgOffsets::new::<E>(disallowed_offsets).unwrap(),
-                )
         })),
         Default::default(),
         false,
