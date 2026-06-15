@@ -1456,13 +1456,19 @@ impl<E: EthSpec> Network<E> {
                     }
                 }
             }
-            Event::Subscribed { peer_id, topic, .. } => {
+            Event::Subscribed {
+                peer_id,
+                topic,
+                supports_partial,
+                ..
+            } => {
                 if let Ok(topic) = GossipTopic::decode(topic.as_str()) {
                     if let Some(subnet_id) = topic.subnet_id() {
-                        self.network_globals
-                            .peers
-                            .write()
-                            .add_subscription(&peer_id, subnet_id);
+                        self.network_globals.peers.write().add_subscription(
+                            &peer_id,
+                            subnet_id,
+                            supports_partial,
+                        );
                     }
                     // Try to send the cached messages for this topic
                     if let Some(msgs) = self.gossip_cache.retrieve(&topic) {

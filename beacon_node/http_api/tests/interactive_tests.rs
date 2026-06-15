@@ -2,7 +2,6 @@
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::{
     ChainConfig,
-    chain_config::DisallowedReOrgOffsets,
     test_utils::{
         AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy, test_spec,
     },
@@ -188,8 +187,6 @@ pub struct ReOrgTest {
     misprediction: bool,
     /// Whether to expect withdrawals to change on epoch boundaries.
     expect_withdrawals_change_on_epoch: bool,
-    /// Epoch offsets to avoid proposing reorg blocks at.
-    disallowed_offsets: Vec<u64>,
 }
 
 impl Default for ReOrgTest {
@@ -205,7 +202,6 @@ impl Default for ReOrgTest {
             should_re_org: true,
             misprediction: false,
             expect_withdrawals_change_on_epoch: false,
-            disallowed_offsets: vec![],
         }
     }
 }
@@ -217,11 +213,13 @@ pub async fn proposer_boost_re_org_zero_weight() {
     proposer_boost_re_org_test(ReOrgTest::default()).await;
 }
 
+// Since Fulu, proposer shuffling is stable across epoch boundaries, so re-orgs of the last block
+// in an epoch are permitted.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn proposer_boost_re_org_epoch_boundary() {
     proposer_boost_re_org_test(ReOrgTest {
         head_slot: Slot::new(E::slots_per_epoch() - 1),
-        should_re_org: false,
+        should_re_org: true,
         ..Default::default()
     })
     .await;
@@ -317,32 +315,6 @@ pub async fn proposer_boost_re_org_head_distance() {
     .await;
 }
 
-// Check that a re-org at a disallowed offset fails.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn proposer_boost_re_org_disallowed_offset() {
-    let offset = 4;
-    proposer_boost_re_org_test(ReOrgTest {
-        head_slot: Slot::new(E::slots_per_epoch() + offset - 1),
-        disallowed_offsets: vec![offset],
-        should_re_org: false,
-        ..Default::default()
-    })
-    .await;
-}
-
-// Check that a re-org at the *only* allowed offset succeeds.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn proposer_boost_re_org_disallowed_offset_exact() {
-    let offset = 4;
-    let disallowed_offsets = (0..E::slots_per_epoch()).filter(|o| *o != offset).collect();
-    proposer_boost_re_org_test(ReOrgTest {
-        head_slot: Slot::new(E::slots_per_epoch() + offset - 1),
-        disallowed_offsets,
-        ..Default::default()
-    })
-    .await;
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn proposer_boost_re_org_very_unhealthy() {
     proposer_boost_re_org_test(ReOrgTest {
@@ -390,7 +362,6 @@ pub async fn proposer_boost_re_org_test(
         should_re_org,
         misprediction,
         expect_withdrawals_change_on_epoch,
-        disallowed_offsets,
     }: ReOrgTest,
 ) {
     assert!(head_slot > 0);
@@ -419,11 +390,7 @@ pub async fn proposer_boost_re_org_test(
         Some(spec),
         validator_count,
         None,
-        Some(Box::new(move |builder| {
-            builder.proposer_re_org_disallowed_offsets(
-                DisallowedReOrgOffsets::new::<E>(disallowed_offsets).unwrap(),
-            )
-        })),
+        None,
         Default::default(),
         false,
         NodeCustodyType::Fullnode,
