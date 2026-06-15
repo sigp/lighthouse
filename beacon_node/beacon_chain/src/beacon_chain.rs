@@ -3001,16 +3001,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
 
-            let is_envelope_relevant = if let Some(envelope) = block.as_envelope() {
-                // If the envelope is relevant we skip the duplicate import check in
-                // `check_block_relevancy`
-                match check_envelope_relevancy(block.as_block(), envelope, self) {
-                    Ok(_) => true,
-                    Err(_) => false,
-                }
-            } else {
-                false
-            };
+            // If the envelope is relevant we skip the duplicate import check in
+            // `check_block_relevancy`. A verification error or an already-received payload
+            // both leave the envelope irrelevant.
+            let is_envelope_relevant = block
+                .as_envelope()
+                .and_then(|envelope| {
+                    check_envelope_relevancy(block.as_block(), envelope, self).ok()
+                })
+                .unwrap_or(false);
 
             match check_block_relevancy(block.as_block(), block_root, is_envelope_relevant, self) {
                 // If the block is relevant, add it to the filtered chain segment.

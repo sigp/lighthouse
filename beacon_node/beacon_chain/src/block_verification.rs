@@ -1881,7 +1881,7 @@ pub fn check_block_relevancy<T: BeaconChainTypes>(
 
     // Check if the block is already known. We know it is post-finalization, so it is
     // sufficient to check the fork choice. This check can optionally be skipped.
-    if skip_import_check
+    if !skip_import_check
         && chain
             .canonical_head
             .fork_choice_read_lock()

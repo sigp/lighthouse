@@ -293,10 +293,10 @@ pub(crate) fn load_snapshot_from_state_root<T: BeaconChainTypes>(
 
 /// Performs simple, cheap checks to ensure that the envelope is relevant to be imported.
 ///
-/// `Ok(block_root` is returned if the envelope passes these checks and should progress with
-/// verification.
+/// Returns `Ok(true)` if the envelope passes these checks and should progress with verification,
+/// or `Ok(false)` if its payload has already been received and is no longer relevant.
 ///
-/// Returns an error if the envelope is not relevant or if an error occurs during a verification step.
+/// Returns an error if a verification step fails.
 pub fn check_envelope_relevancy<T: BeaconChainTypes>(
     block: &SignedBeaconBlock<T::EthSpec>,
     signed_envelope: &SignedExecutionPayloadEnvelope<T::EthSpec>,
