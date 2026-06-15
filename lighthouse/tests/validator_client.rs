@@ -299,11 +299,19 @@ fn graffiti_append_false_flag() {
         });
 }
 
+// Retain previous behaviour: `--graffiti-append` with no value is the same as
+// `--graffiti-append true`.
 #[test]
-#[should_panic]
-fn graffiti_append_old_behaviour() {
-    // Previously the flag is a bool, so passing a None here should panic
-    CommandLineTest::new().flag("graffiti-append", None).run();
+fn graffiti_append_no_value() {
+    CommandLineTest::new()
+        .flag("graffiti-append", None)
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.graffiti_policy,
+                Some(GraffitiPolicy::AppendClientVersions)
+            );
+        });
 }
 
 // Tests for suggested-fee-recipient flags.
