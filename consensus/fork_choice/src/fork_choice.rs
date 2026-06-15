@@ -3,8 +3,8 @@ use crate::{ForkChoiceStore, InvalidationOperation};
 use fixed_bytes::FixedBytesExtended;
 use logging::crit;
 use proto_array::{
-    Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, JustifiedBalances, LatestMessage,
-    PayloadStatus, ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
+    Block as ProtoBlock, ExecutionStatus, JustifiedBalances, LatestMessage, PayloadStatus,
+    ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
 };
 use ssz_derive::{Decode, Encode};
 use state_processing::{
@@ -622,7 +622,6 @@ where
         canonical_head: Hash256,
         re_org_head_threshold: ReOrgThreshold,
         re_org_parent_threshold: ReOrgThreshold,
-        disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error<proto_array::Error>>> {
         // Ensure that fork choice has already been updated for the current slot. This prevents
@@ -655,7 +654,6 @@ where
                 self.fc_store.justified_balances(),
                 re_org_head_threshold,
                 re_org_parent_threshold,
-                disallowed_offsets,
                 max_epochs_since_finalization,
             )
             .map_err(ProposerHeadError::convert_inner_error)
@@ -666,7 +664,6 @@ where
         canonical_head: Hash256,
         re_org_head_threshold: ReOrgThreshold,
         re_org_parent_threshold: ReOrgThreshold,
-        disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error<proto_array::Error>>> {
         let current_slot = self.fc_store.get_current_slot();
@@ -677,7 +674,6 @@ where
                 self.fc_store.justified_balances(),
                 re_org_head_threshold,
                 re_org_parent_threshold,
-                disallowed_offsets,
                 max_epochs_since_finalization,
             )
             .map_err(ProposerHeadError::convert_inner_error)
