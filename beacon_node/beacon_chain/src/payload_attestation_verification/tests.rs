@@ -47,6 +47,7 @@ impl TestContext {
             .spec(spec)
             .deterministic_keypairs(num_validators)
             .fresh_ephemeral_store()
+            .mock_execution_layer()
             .testing_slot_clock(slot_clock)
             .build();
 
@@ -296,14 +297,16 @@ fn duplicate_after_valid() {
     ));
 }
 
-#[test]
-fn harness_builds_and_imports_payload_attestation_messages() {
+#[tokio::test]
+async fn harness_builds_and_imports_payload_attestation_messages() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
     let ctx = TestContext::new();
     let slot = Slot::new(1);
+    let beacon_block_root = ctx.harness.extend_to_slot(slot).await;
     let state = &ctx.harness.chain.head_snapshot().beacon_state;
+    assert_eq!(state.slot(), slot);
     let ptc = state.get_ptc(slot, &ctx.harness.spec).unwrap();
     let mut ptc_weights = std::collections::HashMap::new();
     for validator_index in ptc.0.iter().copied() {
@@ -325,7 +328,7 @@ fn harness_builds_and_imports_payload_attestation_messages() {
     let (messages, attesters) = ctx.harness.make_payload_attestation_messages_with_opts(
         &ctx.harness.get_all_validators(),
         state,
-        ctx.genesis_block_root,
+        beacon_block_root,
         slot,
         MakePayloadAttestationOptions {
             votes,
@@ -369,14 +372,16 @@ fn harness_builds_and_imports_payload_attestation_messages() {
     );
 }
 
-#[test]
-fn harness_packs_payload_attestation_messages_by_ptc_weight() {
+#[tokio::test]
+async fn harness_packs_payload_attestation_messages_by_ptc_weight() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
     let ctx = TestContext::new();
     let slot = Slot::new(1);
+    let beacon_block_root = ctx.harness.extend_to_slot(slot).await;
     let state = &ctx.harness.chain.head_snapshot().beacon_state;
+    assert_eq!(state.slot(), slot);
     let ptc = state.get_ptc(slot, &ctx.harness.spec).unwrap();
     let mut ptc_weights = std::collections::HashMap::new();
     let mut ptc_validator_order = vec![];
@@ -412,7 +417,7 @@ fn harness_packs_payload_attestation_messages_by_ptc_weight() {
     let (messages, attesters) = ctx.harness.make_payload_attestation_messages_with_opts(
         &ctx.harness.get_all_validators(),
         state,
-        ctx.genesis_block_root,
+        beacon_block_root,
         slot,
         MakePayloadAttestationOptions {
             votes: vec![PayloadAttestationVote {
