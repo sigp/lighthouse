@@ -5137,6 +5137,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             })
     }
 
+    // TODO(gloas): wrong for Gloas, needs an update
     pub fn overridden_forkchoice_update_params_or_failure_reason(
         &self,
         canonical_forkchoice_params: &ForkchoiceUpdateParameters,
@@ -5199,53 +5200,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(Box::new(DoNotReOrg::HeadDistance.into()));
         }
 
-        // Only attempt a re-org if we have a proposer registered for the re-org slot.
-        let proposing_at_re_org_slot = {
-            // We know our re-org block is not on the epoch boundary, so it has the same proposer
-            // shuffling as the head (but not necessarily the parent which may lie in the previous
-            // epoch).
-            let shuffling_decision_root = if self
-                .spec
-                .fork_name_at_slot::<T::EthSpec>(re_org_block_slot)
-                .fulu_enabled()
-            {
-                info.head_node.current_epoch_shuffling_id()
-            } else {
-                info.head_node.next_epoch_shuffling_id()
-            }
-            .shuffling_decision_block;
-            let proposer_index = self
-                .beacon_proposer_cache
-                .lock()
-                .get_slot::<T::EthSpec>(shuffling_decision_root, re_org_block_slot)
-                .ok_or_else(|| {
-                    debug!(
-                        slot = %re_org_block_slot,
-                        decision_root = ?shuffling_decision_root,
-                        "Fork choice override proposer shuffling miss"
-                    );
-                    Box::new(DoNotReOrg::NotProposing.into())
-                })?
-                .index as u64;
-
-            self.execution_layer
-                .as_ref()
-                .ok_or(ProposerHeadError::Error(Error::ExecutionLayerMissing))?
-                .has_proposer_preparation_data_blocking(proposer_index)
-        };
-        if !proposing_at_re_org_slot {
-            return Err(Box::new(DoNotReOrg::NotProposing.into()));
-        }
-
-        // Spec-aligned re-org weight checks. For Gloas (V29) nodes this uses
-        // payload-aware bucket weights matching `is_parent_strong`/`is_head_weak`;
-        // for pre-Gloas (V17) nodes `attestation_score` falls back to `weight()`.
-        let parent_payload_status = info.head_node.get_parent_payload_status();
-        let parent_weight = info.parent_node.attestation_score(parent_payload_status);
-        let head_weight = info
-            .head_node
-            .attestation_score(fork_choice::PayloadStatus::Pending)
-            .saturating_add(info.head_node.equivocating_attestation_score().unwrap_or(0));
+        // TODO(gloas): reorg weight logic needs updating for Gloas. For now use
+        // total weight which is correct for pre-Gloas and conservative for post-Gloas.
+        let head_weight = info.head_node.weight();
+        let parent_weight = info.parent_node.weight();
 
         let (head_weak, parent_strong) = if fork_choice_slot == re_org_block_slot {
             (
@@ -5350,8 +5308,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .parent_node
             .execution_status()
             .ok()
-            .and_then(|execution_status| execution_status.block_hash())
-            .or_else(|| info.parent_node.execution_payload_block_hash().ok());
+            .and_then(|execution_status| execution_status.block_hash());
         let forkchoice_update_params = ForkchoiceUpdateParameters {
             head_root: info.parent_node.root(),
             head_hash: parent_head_hash,
