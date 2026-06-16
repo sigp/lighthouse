@@ -62,12 +62,14 @@ impl ForkChoiceUpdates {
         self.updates.contains_key(&block_hash)
     }
 
-    /// Find the first fork choice update for `head_block_hash` with payload attributes for a
-    /// block proposal at `proposal_timestamp`.
+    /// Find the first fork choice update for `head_block_hash` with payload attributes matching
+    /// the proposal and parent being tested.
     fn first_update_with_payload_attributes(
         &self,
         head_block_hash: ExecutionBlockHash,
         proposal_timestamp: u64,
+        parent_beacon_block_root: Option<Hash256>,
+        slot_number: Option<u64>,
     ) -> Option<ForkChoiceUpdateMetadata> {
         self.updates
             .get(&head_block_hash)?
@@ -77,11 +79,35 @@ impl ForkChoiceUpdates {
                     .payload_attributes
                     .as_ref()
                     .is_some_and(|payload_attributes| {
-                        payload_attributes.timestamp() == proposal_timestamp
+                        if payload_attributes.timestamp() != proposal_timestamp {
+                            return false;
+                        }
+
+                        if let Some(parent_beacon_block_root) = parent_beacon_block_root
+                            && payload_attributes.parent_beacon_block_root().ok()
+                                != Some(parent_beacon_block_root)
+                        {
+                            return false;
+                        }
+
+                        if let Some(slot_number) = slot_number
+                            && payload_attributes.slot_number().ok() != Some(slot_number)
+                        {
+                            return false;
+                        }
+
+                        true
                     })
             })
             .cloned()
     }
+}
+
+#[derive(Clone, Copy)]
+enum ExpectedFirstUpdateLookahead {
+    Payload,
+    ForkChoice,
+    BlockProduction,
 }
 
 pub struct ReOrgTest {
@@ -109,7 +135,7 @@ pub struct ReOrgTest {
     /// This can be the payload status of A or B depending on whether we reorged or not.
     expected_parent_payload_status: PayloadStatus,
     should_re_org: bool,
-    misprediction: bool,
+    expected_first_update_lookahead: ExpectedFirstUpdateLookahead,
     /// Whether to expect withdrawals to change on epoch boundaries.
     expect_withdrawals_change_on_epoch: bool,
 }
@@ -130,20 +156,22 @@ impl Default for ReOrgTest {
             percent_parent_ptc_absent_votes: 0,
             expected_parent_payload_status: PayloadStatus::Full,
             should_re_org: true,
-            misprediction: false,
+            expected_first_update_lookahead: ExpectedFirstUpdateLookahead::Payload,
             expect_withdrawals_change_on_epoch: false,
         }
     }
 }
 
 // This test doesn't actually exercise the re-org code path because the chain just naturally
-// re-orgs to A-empty at the start of slot C anyway.
+// re-orgs to A-empty at the start of slot C anyway. That only happens after the 500ms
+// pre-slot fork choice recompute.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn re_org_parent_is_empty_easy() {
     proposer_boost_re_org_test(ReOrgTest {
         percent_skip_empty_votes: 100,
         percent_skip_full_votes: 0,
         expected_parent_payload_status: PayloadStatus::Empty,
+        expected_first_update_lookahead: ExpectedFirstUpdateLookahead::ForkChoice,
         ..Default::default()
     })
     .await;
@@ -157,7 +185,8 @@ pub async fn re_org_parent_is_empty_easy() {
 // We should re-org B and build on A-Empty.
 //
 // This test doesn't actually exercise the re-org code path because the chain just naturally
-// re-orgs to A-empty at the start of slot C anyway.
+// re-orgs to A-empty at the start of slot C anyway. That only happens after the 500ms
+// pre-slot fork choice recompute.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn re_org_parent_is_empty_marginal_win() {
     proposer_boost_re_org_test(ReOrgTest {
@@ -167,6 +196,7 @@ pub async fn re_org_parent_is_empty_marginal_win() {
         percent_parent_ptc_present_votes: 100,
         percent_parent_ptc_absent_votes: 0,
         expected_parent_payload_status: PayloadStatus::Empty,
+        expected_first_update_lookahead: ExpectedFirstUpdateLookahead::ForkChoice,
         ..Default::default()
     })
     .await;
@@ -178,8 +208,8 @@ pub async fn re_org_parent_is_empty_marginal_win() {
 // A-Full has 100% PTC support, but this should be completely ignored.
 //
 // We should re-org B and build on A-Full.
-// This test doesn't actually exercise the re-org code path because the chain just naturally
-// re-orgs to A-empty at the start of slot C anyway.
+// Since Gloas fork choice updates are not overridden for proposer re-orgs, the first fcU for this
+// parent is sent during block production.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn re_org_parent_is_full_marginal_win() {
     proposer_boost_re_org_test(ReOrgTest {
@@ -189,6 +219,7 @@ pub async fn re_org_parent_is_full_marginal_win() {
         percent_parent_ptc_present_votes: 100,
         percent_parent_ptc_absent_votes: 0,
         expected_parent_payload_status: PayloadStatus::Full,
+        expected_first_update_lookahead: ExpectedFirstUpdateLookahead::BlockProduction,
         ..Default::default()
     })
     .await;
@@ -204,6 +235,7 @@ pub async fn proposer_boost_re_org_parent_empty() {
         percent_parent_ptc_absent_votes: 0,
         head_parent_payload_status: PayloadStatus::Empty,
         expected_parent_payload_status: PayloadStatus::Empty,
+        expected_first_update_lookahead: ExpectedFirstUpdateLookahead::BlockProduction,
         ..Default::default()
     })
     .await;
@@ -230,7 +262,7 @@ pub async fn proposer_boost_re_org_test(
         percent_parent_ptc_absent_votes,
         expected_parent_payload_status,
         should_re_org,
-        misprediction,
+        expected_first_update_lookahead,
         expect_withdrawals_change_on_epoch,
     }: ReOrgTest,
 ) {
@@ -605,6 +637,18 @@ pub async fn proposer_boost_re_org_test(
             block.execution_payload().unwrap().block_hash()
         }
     };
+    let exec_parent_hash = |block: BeaconBlockRef<E>| -> ExecutionBlockHash {
+        if is_gloas {
+            block
+                .body()
+                .signed_execution_payload_bid()
+                .unwrap()
+                .message
+                .parent_block_hash
+        } else {
+            block.execution_payload().unwrap().parent_hash()
+        }
+    };
 
     let block_a_exec_hash = exec_block_hash(block_a.0.message());
     let block_b_exec_hash = exec_block_hash(block_b.0.message());
@@ -665,28 +709,52 @@ pub async fn proposer_boost_re_org_test(
     );
 
     // Check the timing of the first fork choice update with payload attributes for block C.
-    let c_parent_hash = if should_re_org {
-        block_a_exec_hash
+    let c_parent_block = if should_re_org {
+        block_a.0.message()
     } else {
-        block_b_exec_hash
+        block_b.0.message()
+    };
+    let c_parent_hash = if expected_parent_payload_status == PayloadStatus::Full {
+        exec_block_hash(c_parent_block)
+    } else {
+        exec_parent_hash(c_parent_block)
     };
     let first_update = forkchoice_updates
-        .first_update_with_payload_attributes(c_parent_hash, block_c_timestamp)
+        .first_update_with_payload_attributes(
+            c_parent_hash,
+            block_c_timestamp,
+            is_gloas.then(|| block_c.parent_root()),
+            is_gloas.then(|| slot_c.as_u64()),
+        )
         .unwrap();
     let payload_attribs = first_update.payload_attributes.as_ref().unwrap();
 
-    // Check that withdrawals from the payload attributes match those computed from the parent's
-    // advanced state.
-    let expected_withdrawals = if should_re_org {
-        let mut state_a_advanced = state_a.clone();
-        complete_state_advance(&mut state_a_advanced, None, slot_c, &harness.chain.spec).unwrap();
-        get_expected_withdrawals(&state_a_advanced, &harness.chain.spec)
+    // Check that withdrawals from the payload attributes match those computed from the state used
+    // by the path that produced the matching fcU.
+    let parent_state_advanced = if should_re_org {
+        let mut state = state_a.clone();
+        complete_state_advance(&mut state, None, slot_c, &harness.chain.spec).unwrap();
+        state
     } else {
-        get_expected_withdrawals(&state_b, &harness.chain.spec)
-    }
-    .unwrap()
-    .withdrawals()
-    .to_vec();
+        state_b.clone()
+    };
+    let expected_withdrawals = if is_gloas
+        && matches!(
+            expected_first_update_lookahead,
+            ExpectedFirstUpdateLookahead::BlockProduction
+        )
+        && expected_parent_payload_status == PayloadStatus::Empty
+    {
+        parent_state_advanced
+            .payload_expected_withdrawals()
+            .unwrap()
+            .to_vec()
+    } else {
+        get_expected_withdrawals(&parent_state_advanced, &harness.chain.spec)
+            .unwrap()
+            .withdrawals()
+            .to_vec()
+    };
     let payload_attribs_withdrawals = payload_attribs.withdrawals().unwrap();
     assert_eq!(expected_withdrawals, *payload_attribs_withdrawals);
     assert!(!expected_withdrawals.is_empty());
@@ -709,22 +777,16 @@ pub async fn proposer_boost_re_org_test(
         .checked_sub(first_update.received_at)
         .unwrap();
 
-    if !misprediction {
-        assert_eq!(
-            lookahead,
-            payload_lookahead,
-            "observed_lookahead={lookahead:?}, expected={payload_lookahead:?}, timestamp={}, prev_randao={:?}",
-            payload_attribs.timestamp(),
-            payload_attribs.prev_randao(),
-        );
-    } else {
-        // On a misprediction we issue the first fcU 500ms before creating a block!
-        assert_eq!(
-            lookahead,
-            fork_choice_lookahead,
-            "timestamp={}, prev_randao={:?}",
-            payload_attribs.timestamp(),
-            payload_attribs.prev_randao(),
-        );
-    }
+    let expected_lookahead = match expected_first_update_lookahead {
+        ExpectedFirstUpdateLookahead::Payload => payload_lookahead,
+        ExpectedFirstUpdateLookahead::ForkChoice => fork_choice_lookahead,
+        ExpectedFirstUpdateLookahead::BlockProduction => Duration::ZERO,
+    };
+    assert_eq!(
+        lookahead,
+        expected_lookahead,
+        "observed_lookahead={lookahead:?}, expected={expected_lookahead:?}, timestamp={}, prev_randao={:?}",
+        payload_attribs.timestamp(),
+        payload_attribs.prev_randao(),
+    );
 }
