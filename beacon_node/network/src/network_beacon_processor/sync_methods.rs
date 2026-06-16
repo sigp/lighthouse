@@ -376,6 +376,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let result: Result<AvailabilityProcessingStatus, BlockError> =
             result.map_err(|e| BlockError::InternalError(format!("envelope: {e}")));
 
+        if matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))) {
+            self.chain.recompute_head_at_current_slot().await;
+        }
+
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type,
             result: result.into(),

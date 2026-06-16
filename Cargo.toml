@@ -127,7 +127,7 @@ delay_map = "0.4"
 deposit_contract = { path = "common/deposit_contract" }
 directory = { path = "common/directory" }
 dirs = "3"
-discv5 = { version = "0.10", features = ["libp2p"] }
+discv5 = { version = "0.11", features = ["libp2p"] }
 doppelganger_service = { path = "validator_client/doppelganger_service" }
 educe = "0.6"
 eip_3076 = { path = "common/eip_3076" }
