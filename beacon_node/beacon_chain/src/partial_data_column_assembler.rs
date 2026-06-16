@@ -1,10 +1,9 @@
 use crate::data_column_verification::{
     KzgVerifiedCustodyDataColumn, KzgVerifiedCustodyPartialDataColumn,
 };
-use lru::LruCache;
+use hashlink::lru_cache::LruCache;
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tracing::error;
 use types::core::{Epoch, EthSpec, Hash256};
@@ -44,7 +43,7 @@ pub struct PartialMergeResult<E: EthSpec> {
 }
 
 impl<E: EthSpec> PartialDataColumnAssembler<E> {
-    pub fn new(capacity: NonZeroUsize) -> Self {
+    pub fn new(capacity: usize) -> Self {
         Self {
             assemblies: RwLock::new(LruCache::new(capacity)),
         }
@@ -55,7 +54,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
     pub fn init(&self, block_root: Hash256, header: Arc<PartialDataColumnHeader<E>>) -> bool {
         let mut assemblies = self.assemblies.write();
 
-        if assemblies.contains(&block_root) {
+        if assemblies.contains_key(&block_root) {
             return false;
         }
 
@@ -65,7 +64,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
             columns: HashMap::new(),
         };
 
-        assemblies.put(block_root, assembly);
+        assemblies.insert(block_root, assembly);
 
         true
     }
@@ -79,11 +78,13 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         header: Arc<PartialDataColumnHeader<E>>,
     ) -> Option<PartialMergeResult<E>> {
         let mut assemblies = self.assemblies.write();
-        let assembly = assemblies.get_or_insert_mut(block_root, || PartialAssembly {
-            header: header.clone(),
-            has_local_blobs: false,
-            columns: HashMap::new(),
-        });
+        let assembly = assemblies
+            .entry(block_root)
+            .or_insert_with(|| PartialAssembly {
+                header: header.clone(),
+                has_local_blobs: false,
+                columns: HashMap::new(),
+            });
 
         let mut full_columns = Vec::new();
         let mut updated_partials = Vec::new();
@@ -165,15 +166,17 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         };
 
         let mut assemblies = self.assemblies.write();
-        let assembly = assemblies.get_or_insert_mut(block_root, || PartialAssembly {
-            header: Arc::new(PartialDataColumnHeader {
-                kzg_commitments: fulu.kzg_commitments.clone(),
-                signed_block_header: fulu.signed_block_header.clone(),
-                kzg_commitments_inclusion_proof: fulu.kzg_commitments_inclusion_proof.clone(),
-            }),
-            has_local_blobs: false,
-            columns: Default::default(),
-        });
+        let assembly = assemblies
+            .entry(block_root)
+            .or_insert_with(|| PartialAssembly {
+                header: Arc::new(PartialDataColumnHeader {
+                    kzg_commitments: fulu.kzg_commitments.clone(),
+                    signed_block_header: fulu.signed_block_header.clone(),
+                    kzg_commitments_inclusion_proof: fulu.kzg_commitments_inclusion_proof.clone(),
+                }),
+                has_local_blobs: false,
+                columns: Default::default(),
+            });
         let prev = assembly
             .columns
             .insert(column.index(), AssemblyColumn::Complete(column.clone()));
@@ -215,11 +218,13 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         header: &Arc<PartialDataColumnHeader<E>>,
     ) -> Vec<AssemblyColumn<E>> {
         let mut assemblies = self.assemblies.write();
-        let assembly = assemblies.get_or_insert_mut(block_root, || PartialAssembly {
-            header: header.clone(),
-            has_local_blobs: true,
-            columns: Default::default(),
-        });
+        let assembly = assemblies
+            .entry(block_root)
+            .or_insert_with(|| PartialAssembly {
+                header: header.clone(),
+                has_local_blobs: true,
+                columns: Default::default(),
+            });
 
         assembly.has_local_blobs = true;
 
@@ -253,7 +258,7 @@ impl<E: EthSpec> PartialDataColumnAssembler<E> {
         }
 
         for root in to_remove {
-            assemblies.pop(&root);
+            assemblies.remove(&root);
         }
     }
 }
@@ -362,7 +367,7 @@ mod tests {
     }
 
     fn make_assembler() -> PartialDataColumnAssembler<E> {
-        PartialDataColumnAssembler::new(NonZeroUsize::new(16).unwrap())
+        PartialDataColumnAssembler::new(16)
     }
 
     // -- init and get_header tests --

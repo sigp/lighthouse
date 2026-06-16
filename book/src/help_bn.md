@@ -84,6 +84,10 @@ Options:
       --discovery-port6 <PORT>
           The UDP port that discovery will listen on over IPv6 if listening over
           both IPv4 and IPv6. Defaults to `port6`
+      --enable-mplex [<BOOLEAN>]
+          Enables the mplex multiplexer alongside yamux. Yamux is preferred when
+          both are available. Enabled by default; set to "false" to disable.
+          [default: true]
       --enable-partial-columns [<BOOLEAN>]
           Enable partial messages for data columns. This can reduce the amount
           of data sent over the network. Enabled by default on Hoodi and
@@ -490,9 +494,6 @@ Flags:
           Sets the local ENR IP address and port to match those set for
           lighthouse. Specifically, the IP address will be the value of
           --listen-address and the UDP port will be --discovery-port.
-      --enable-mplex
-          Enables mplex multiplexer alongside yamux. Yamux is preferred when
-          both are available.
       --enable-private-discovery
           Lighthouse by default does not discover private IP addresses. Set this
           flag to enable connection attempts to local addresses.
