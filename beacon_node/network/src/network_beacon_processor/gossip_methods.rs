@@ -70,6 +70,45 @@ use beacon_processor::{
 /// messages.
 const STRICT_LATE_MESSAGE_PENALTIES: bool = false;
 
+/// Tracks which kinds of attestation re-processing are still permitted for a gossip attestation
+/// or aggregate.
+///
+/// A new attestation may be re-queued for an unknown block, then (post-Gloas) for an unknown
+/// payload envelope, and finally not at all. Each re-queue narrows the allowance to the next
+/// variant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReprocessAllowance {
+    /// Re-queue for either an unknown block or an unknown payload envelope.
+    BlockAndPayload,
+    /// Re-queue only for an unknown payload envelope (already re-queued once for the block).
+    PayloadOnly,
+    /// Do not re-queue again.
+    None,
+}
+
+impl ReprocessAllowance {
+    /// Whether the attestation may be re-queued for an unknown block.
+    fn allows_block(self) -> bool {
+        matches!(self, ReprocessAllowance::BlockAndPayload)
+    }
+
+    /// Whether the attestation may be re-queued for an unknown payload envelope.
+    fn allows_payload(self) -> bool {
+        matches!(
+            self,
+            ReprocessAllowance::BlockAndPayload | ReprocessAllowance::PayloadOnly
+        )
+    }
+
+    /// Re-queuing always narrows the allowance so a message can't loop indefinitely.
+    fn next_requeue(self) -> Self {
+        match self {
+            ReprocessAllowance::BlockAndPayload => ReprocessAllowance::PayloadOnly,
+            ReprocessAllowance::PayloadOnly | ReprocessAllowance::None => ReprocessAllowance::None,
+        }
+    }
+}
+
 /// An attestation that has been validated by the `BeaconChain`.
 ///
 /// Since this struct implements `beacon_chain::VerifiedAttestation`, it would be a logic error to
@@ -233,8 +272,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         attestation: Box<SingleAttestation>,
         subnet_id: SubnetId,
         should_import: bool,
-        allow_reprocess: bool,
-        allow_payload_reprocess: bool,
+        reprocess_allowance: ReprocessAllowance,
         seen_timestamp: Duration,
     ) {
         let result = match self
@@ -257,8 +295,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             message_id,
             peer_id,
             subnet_id,
-            allow_reprocess,
-            allow_payload_reprocess,
+            reprocess_allowance,
             should_import,
             seen_timestamp,
         );
@@ -267,8 +304,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn process_gossip_attestation_batch(
         self: Arc<Self>,
         packages: GossipAttestationBatch,
-        allow_reprocess: bool,
-        allow_payload_reprocess: bool,
+        reprocess_allowance: ReprocessAllowance,
     ) {
         let attestations_and_subnets = packages
             .iter()
@@ -329,8 +365,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.message_id,
                 package.peer_id,
                 package.subnet_id,
-                allow_reprocess,
-                allow_payload_reprocess,
+                reprocess_allowance,
                 package.should_import,
                 package.seen_timestamp,
             );
@@ -346,8 +381,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         subnet_id: SubnetId,
-        allow_reprocess: bool,
-        allow_payload_reprocess: bool,
+        reprocess_allowance: ReprocessAllowance,
         should_import: bool,
         seen_timestamp: Duration,
     ) {
@@ -431,8 +465,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         should_import,
                         seen_timestamp,
                     },
-                    allow_reprocess,
-                    allow_payload_reprocess,
+                    reprocess_allowance,
                     error,
                     seen_timestamp,
                 );
@@ -452,8 +485,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
-        allow_reprocess: bool,
-        allow_payload_reprocess: bool,
+        reprocess_allowance: ReprocessAllowance,
         seen_timestamp: Duration,
     ) {
         let beacon_block_root = aggregate.message().aggregate().data().beacon_block_root;
@@ -477,8 +509,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             beacon_block_root,
             message_id,
             peer_id,
-            allow_reprocess,
-            allow_payload_reprocess,
+            reprocess_allowance,
             seen_timestamp,
         );
     }
@@ -486,8 +517,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn process_gossip_aggregate_batch(
         self: Arc<Self>,
         packages: Vec<GossipAggregatePackage<T::EthSpec>>,
-        allow_reprocess: bool,
-        allow_payload_reprocess: bool,
+        reprocess_allowance: ReprocessAllowance,
     ) {
         let aggregates = packages.iter().map(|package| package.aggregate.as_ref());
 
@@ -541,22 +571,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.beacon_block_root,
                 package.message_id,
                 package.peer_id,
-                allow_reprocess,
-                allow_payload_reprocess,
+                reprocess_allowance,
                 package.seen_timestamp,
             );
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn process_gossip_aggregate_result(
         self: &Arc<Self>,
         result: Result<VerifiedAggregate<T>, RejectedAggregate<T::EthSpec>>,
         beacon_block_root: Hash256,
         message_id: MessageId,
         peer_id: PeerId,
-        allow_reprocess: bool,
-        allow_payload_reprocess: bool,
+        reprocess_allowance: ReprocessAllowance,
         seen_timestamp: Duration,
     ) {
         match result {
@@ -636,8 +663,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         attestation: signed_aggregate,
                         seen_timestamp,
                     },
-                    allow_reprocess,
-                    allow_payload_reprocess,
+                    reprocess_allowance,
                     error,
                     seen_timestamp,
                 );
@@ -2452,14 +2478,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Handle an error whilst verifying an `Attestation` or `SignedAggregateAndProof` from the
     /// network.
-    #[allow(clippy::too_many_arguments)]
     fn handle_attestation_verification_failure(
         self: &Arc<Self>,
         peer_id: PeerId,
         message_id: MessageId,
         failed_att: FailedAtt<T::EthSpec>,
-        allow_reprocess: bool,
-        allow_payload_reprocess: bool,
+        reprocess_allowance: ReprocessAllowance,
         error: AttnError,
         seen_timestamp: Duration,
     ) {
@@ -2718,7 +2742,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     block = ?beacon_block_root,
                     "Attestation for unknown block"
                 );
-                if allow_reprocess {
+                if reprocess_allowance.allows_block() {
                     // We don't know the block, get the sync manager to handle the block lookup, and
                     // send the attestation to be scheduled for re-processing.
                     self.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
@@ -2741,11 +2765,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                         message_id,
                                         peer_id,
                                         attestation,
-                                        // Re-queued once for the unknown block; don't re-queue for
-                                        // the block again, but still allow re-queuing for an unknown
-                                        // payload envelope.
-                                        false,
-                                        true,
+                                        reprocess_allowance.next_requeue(),
                                         seen_timestamp,
                                     )
                                 }),
@@ -2770,11 +2790,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                         attestation,
                                         subnet_id,
                                         should_import,
-                                        // Re-queued once for the unknown block; don't re-queue for
-                                        // the block again, but still allow re-queuing for an unknown
-                                        // payload envelope.
-                                        false,
-                                        true,
+                                        reprocess_allowance.next_requeue(),
                                         seen_timestamp,
                                     )
                                 }),
@@ -2812,7 +2828,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     block = ?beacon_block_root,
                     "Payload-present attestation for block with unseen payload envelope"
                 );
-                if allow_payload_reprocess {
+                if reprocess_allowance.allows_payload() {
                     // We haven't seen the block's payload envelope yet. Ask the sync manager to
                     // retrieve it, and schedule the attestation for re-processing once it arrives.
                     self.send_sync_message(SyncMessage::UnknownPayloadEnvelopeFromAttestation(
@@ -2835,10 +2851,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                         message_id,
                                         peer_id,
                                         attestation,
-                                        // Terminal re-process: don't re-queue for the block or the
-                                        // payload envelope again.
-                                        false,
-                                        false,
+                                        reprocess_allowance.next_requeue(),
                                         seen_timestamp,
                                     )
                                 }),
@@ -2863,10 +2876,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                         attestation,
                                         subnet_id,
                                         should_import,
-                                        // Terminal re-process: don't re-queue for the block or the
-                                        // payload envelope again.
-                                        false,
-                                        false,
+                                        reprocess_allowance.next_requeue(),
                                         seen_timestamp,
                                     )
                                 }),
