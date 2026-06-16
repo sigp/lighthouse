@@ -686,6 +686,8 @@ pub fn cli_app() -> Command {
                 data sent over the network. Enabled by default on Hoodi and Sepolia; set to \
                 \"false\" to opt out.")
                 .action(ArgAction::Set)
+                .num_args(0..=1)
+                .default_missing_value("true")
                 .display_order(0)
         )
         /*

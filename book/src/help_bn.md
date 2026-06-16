@@ -84,7 +84,7 @@ Options:
       --discovery-port6 <PORT>
           The UDP port that discovery will listen on over IPv6 if listening over
           both IPv4 and IPv6. Defaults to `port6`
-      --enable-partial-columns <BOOLEAN>
+      --enable-partial-columns [<BOOLEAN>]
           Enable partial messages for data columns. This can reduce the amount
           of data sent over the network. Enabled by default on Hoodi and
           Sepolia; set to "false" to opt out.

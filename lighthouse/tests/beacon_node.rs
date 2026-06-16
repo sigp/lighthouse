@@ -2804,6 +2804,18 @@ fn partial_columns() {
 }
 
 #[test]
+fn partial_columns_no_value() {
+    // Passing the flag without a value should enable partial columns.
+    CommandLineTest::new()
+        .flag("enable-partial-columns", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_partial_columns);
+            assert!(config.chain.enable_partial_columns);
+        });
+}
+
+#[test]
 fn partial_columns_default_hoodi() {
     CommandLineTest::new()
         .flag("network", Some("hoodi"))
