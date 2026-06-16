@@ -20,12 +20,12 @@ ethereum_ssz = { workspace = true }
 execution_layer = { workspace = true }
 fixed_bytes = { workspace = true }
 futures = { workspace = true }
+hashlink = { workspace = true }
 health_metrics = { workspace = true }
 hex = { workspace = true }
 lighthouse_network = { workspace = true }
 lighthouse_version = { workspace = true }
 logging = { workspace = true }
-lru = { workspace = true }
 metrics = { workspace = true }
 network = { workspace = true }
 network_utils = { workspace = true }
