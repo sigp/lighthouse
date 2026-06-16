@@ -621,10 +621,6 @@ mod tests {
         .unwrap();
 
         let current_slot = harness.get_current_slot();
-        let cached_head = chain.canonical_head.cached_head();
-        let canonical_head_proposer_index = chain
-            .canonical_head_proposer_index(current_slot, &cached_head)
-            .unwrap();
 
         chain
             .canonical_head
@@ -636,7 +632,6 @@ mod tests {
                 Duration::ZERO,
                 &post_state,
                 PayloadVerificationStatus::Verified,
-                canonical_head_proposer_index,
                 &chain.spec,
             )
             .unwrap();
