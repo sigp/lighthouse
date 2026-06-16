@@ -1,14 +1,14 @@
 use crate::duties_service::DutiesService;
 use beacon_node_fallback::{BeaconNodeFallback, beacon_head_monitor::PayloadAvailableEvent};
 use logging::crit;
-use slot_clock::{SlotClock};
+use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use tokio::time::sleep;
 use tokio::sync::{Mutex, mpsc};
+use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
-use types::{ChainSpec, EthSpec, Slot, Hash256};
+use types::{ChainSpec, EthSpec, Hash256, Slot};
 use validator_store::ValidatorStore;
 
 pub struct Inner<S, T> {
@@ -54,7 +54,7 @@ where
         beacon_nodes: Arc<BeaconNodeFallback<T>>,
         executor: TaskExecutor,
         chain_spec: Arc<ChainSpec>,
-        payload_available_rx: Option<Mutex<mpsc::Receiver<PayloadAvailableEvent>>>, 
+        payload_available_rx: Option<Mutex<mpsc::Receiver<PayloadAvailableEvent>>>,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -109,7 +109,7 @@ where
                 }
             }
         }
-    }    
+    }
 
     async fn run_update(&self) {
         let (attestation_slot, beacon_node_data) = if self.payload_available_rx.is_some() {
@@ -144,7 +144,9 @@ where
         let service = self.clone();
         self.executor.spawn(
             async move {
-                service.produce_and_publish(attestation_slot, beacon_node_data).await;
+                service
+                    .produce_and_publish(attestation_slot, beacon_node_data)
+                    .await;
             },
             "payload_attestation_producer",
         );
@@ -243,13 +245,11 @@ where
         } else {
             match self
                 .beacon_nodes
-                .first_success(|beacon_node| {
-                    async move {
-                        beacon_node
-                            .get_validator_payload_attestation_data(slot)
-                            .await
-                            .map(|opt| opt.map(|resp| resp.into_data()))
-                    }
+                .first_success(|beacon_node| async move {
+                    beacon_node
+                        .get_validator_payload_attestation_data(slot)
+                        .await
+                        .map(|opt| opt.map(|resp| resp.into_data()))
                 })
                 .await
             {
@@ -365,9 +365,10 @@ mod tests {
     use crate::duties_service::DutiesServiceBuilder;
     use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
     use beacon_node_fallback::{
-        BeaconNodeFallback, CandidateBeaconNode, Config as BeaconNodeConfig, beacon_head_monitor::PayloadAvailableEvent,
+        BeaconNodeFallback, CandidateBeaconNode, Config as BeaconNodeConfig,
+        beacon_head_monitor::PayloadAvailableEvent,
     };
-    use bls::{Keypair, PublicKeyBytes, FixedBytesExtended};
+    use bls::{FixedBytesExtended, Keypair, PublicKeyBytes};
     use eth2::types::PtcDuty;
     use eth2_keystore::KeystoreBuilder;
     use futures::FutureExt;
@@ -539,13 +540,13 @@ mod tests {
             let mut default_spec = MainnetEthSpec::default_spec();
             default_spec.gloas_fork_epoch = Some(Epoch::new(0));
             let spec = Arc::new(default_spec);
-        
+
             let test_runtime = TestRuntime::default();
             let executor = test_runtime.task_executor.clone();
             let slot_duration = spec.get_slot_duration();
             let slot_clock =
                 ManualSlotClock::new(Slot::new(0), Duration::from_secs(0), slot_duration);
-        
+
             let (validator_store, pubkeys, validator_dir) = create_validator_store(
                 slot_clock.clone(),
                 spec.clone(),
@@ -553,22 +554,22 @@ mod tests {
                 num_validators,
             )
             .await;
-        
+
             let mock_beacon_node_1 = MockBeaconNode::<E>::new().await;
             let mock_beacon_node_2 = MockBeaconNode::<E>::new().await;
-        
+
             let beacon_node_1 =
                 CandidateBeaconNode::new(mock_beacon_node_1.beacon_api_client.clone(), 0);
             let beacon_node_2 =
                 CandidateBeaconNode::new(mock_beacon_node_2.beacon_api_client.clone(), 1);
-        
+
             let beacon_node_fallback = Arc::new(BeaconNodeFallback::new(
                 vec![beacon_node_1, beacon_node_2],
                 BeaconNodeConfig::default(),
                 vec![],
                 spec.clone(),
             ));
-        
+
             let duties_service = Arc::new(
                 DutiesServiceBuilder::new()
                     .validator_store(validator_store.clone())
@@ -579,7 +580,7 @@ mod tests {
                     .build()
                     .unwrap(),
             );
-        
+
             // Key difference: Some(Mutex::new(payload_rx)) instead of None
             let service = PayloadAttestationService::new(
                 duties_service,
@@ -590,7 +591,7 @@ mod tests {
                 spec,
                 Some(Mutex::new(payload_rx)),
             );
-        
+
             Self {
                 mock_beacon_node_1,
                 mock_beacon_node_2,
@@ -600,7 +601,7 @@ mod tests {
                 _validator_dir: validator_dir,
             }
         }
-        
+
         fn insert_ptc_duties(&self, slot: Slot) {
             let duties = self
                 .pubkeys
@@ -1079,5 +1080,4 @@ mod tests {
         );
         assert_eq!(event.block_root, Hash256::from_low_u64_be(2));
     }
-
 }

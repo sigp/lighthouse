@@ -18,7 +18,7 @@ pub struct HeadEvent {
     pub slot: types::Slot,
     pub beacon_block_root: Hash256,
 }
-// This is used to send a signal when a payload is available to the 
+// This is used to send a signal when a payload is available to the
 // `PayloadAttestationService` for further processing.
 #[derive(Debug)]
 pub struct PayloadAvailableEvent {
@@ -26,7 +26,6 @@ pub struct PayloadAvailableEvent {
     pub slot: types::Slot,
     pub block_root: Hash256,
 }
-
 
 /// Cache to maintain the latest head received from each of the beacon nodes
 /// in the `BeaconNodeFallback`.
@@ -260,7 +259,10 @@ pub async fn poll_payload_available_event_from_beacon_nodes<E: EthSpec, T: SlotC
                 }
             }
             Ok(event) => {
-                warn!(event_kind = event.topic_name(), "Unexpected event in payload_available stream");
+                warn!(
+                    event_kind = event.topic_name(),
+                    "Unexpected event in payload_available stream"
+                );
                 continue;
             }
             Err(e) => {

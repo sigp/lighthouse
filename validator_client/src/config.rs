@@ -384,7 +384,8 @@ impl Config {
         config.enable_latency_measurement_service =
             !validator_client_config.disable_latency_measurement_service;
         config.enable_beacon_head_monitor = !validator_client_config.disable_beacon_head_monitor;
-        config.enable_payload_available_monitor = !validator_client_config.disable_payload_available_monitor;
+        config.enable_payload_available_monitor =
+            !validator_client_config.disable_payload_available_monitor;
 
         config.validator_registration_batch_size =
             validator_client_config.validator_registration_batch_size;

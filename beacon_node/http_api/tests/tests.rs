@@ -8188,6 +8188,7 @@ async fn beacon_get_state_hashes() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::large_stack_frames)]
 async fn beacon_get_state_info() {
     ApiTester::new()
         .await
@@ -8249,6 +8250,7 @@ async fn beacon_get_state_info_fulu() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::large_stack_frames)]
 async fn beacon_get_blocks() {
     ApiTester::new()
         .await

@@ -1226,6 +1226,7 @@ fn unwrap_err<T, U>(result: Result<T, U>) -> U {
 }
 
 #[tokio::test]
+#[allow(clippy::large_stack_frames)]
 async fn block_gossip_verification() {
     let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
     let (chain_segment, ref_blobs) = get_chain_segment().await;

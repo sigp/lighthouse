@@ -1080,6 +1080,7 @@ impl TestRig {
     /// G (full) -> A (full) -> B (FULL:  bid.parent_block_hash == A.block_hash)
     ///             A        -> C (EMPTY: bid.parent_block_hash == G.block_hash)
     /// ```
+    #[allow(clippy::large_stack_frames)]
     pub(super) async fn build_full_empty_fork(&mut self) -> (Hash256, Hash256, Hash256) {
         // Initialise a new beacon chain (mirrors `build_chain`).
         let external_harness = self.get_external_harness_with_genesis();

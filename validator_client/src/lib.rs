@@ -13,7 +13,8 @@ use tokio::sync::Mutex;
 
 use account_utils::validator_definitions::ValidatorDefinitions;
 use beacon_node_fallback::{
-    BeaconNodeFallback, CandidateBeaconNode, beacon_head_monitor::{HeadEvent, PayloadAvailableEvent},
+    BeaconNodeFallback, CandidateBeaconNode,
+    beacon_head_monitor::{HeadEvent, PayloadAvailableEvent},
     start_fallback_updater_service,
 };
 use clap::ArgMatches;
@@ -575,7 +576,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             beacon_nodes.clone(),
             context.executor.clone(),
             context.eth2_config.spec.clone(),
-            payload_available_rx
+            payload_available_rx,
         );
 
         let proposer_preferences_service = ProposerPreferencesService::new(

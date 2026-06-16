@@ -5,7 +5,10 @@
 pub mod beacon_head_monitor;
 pub mod beacon_node_health;
 
-use beacon_head_monitor::{BeaconHeadCache, HeadEvent, PayloadAvailableEvent, poll_head_event_from_beacon_nodes, poll_payload_available_event_from_beacon_nodes};
+use beacon_head_monitor::{
+    BeaconHeadCache, HeadEvent, PayloadAvailableEvent, poll_head_event_from_beacon_nodes,
+    poll_payload_available_event_from_beacon_nodes,
+};
 use beacon_node_health::{
     BeaconNodeHealth, BeaconNodeSyncDistanceTiers, ExecutionEngineHealth, IsOptimistic,
     SyncDistanceTier, check_node_health,
@@ -104,12 +107,13 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
         let pa_future = async move {
             loop {
                 if let Err(error) =
-                    poll_payload_available_event_from_beacon_nodes::<E, T>(
-                        beacon_nodes_ref.clone()
-                    )
-                    .await
+                    poll_payload_available_event_from_beacon_nodes::<E, T>(beacon_nodes_ref.clone())
+                        .await
                 {
-                    warn!(error, "payload_available service failed, retrying next slot");
+                    warn!(
+                        error,
+                        "payload_available service failed, retrying next slot"
+                    );
                     let sleep_time = beacon_nodes_ref
                         .slot_clock
                         .as_ref()
@@ -119,9 +123,9 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
                 }
             }
         };
-        
+
         executor.spawn(pa_future, "payload_available_monitoring");
-    }    
+    }
 
     let future = async move {
         loop {
@@ -491,7 +495,6 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
     ) {
         self.payload_available_send = Some(payload_available_send);
     }
-    
 
     /// The count of candidates, regardless of their state.
     pub async fn num_total(&self) -> usize {

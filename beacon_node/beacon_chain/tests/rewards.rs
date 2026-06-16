@@ -304,6 +304,7 @@ async fn test_rewards_base_slashings() {
 }
 
 #[tokio::test]
+#[allow(clippy::large_stack_frames)]
 async fn test_rewards_base_multi_inclusion() {
     let spec = ForkName::Base.make_genesis_spec(E::default_spec());
     let harness = get_harness(spec);
