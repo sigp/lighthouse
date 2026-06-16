@@ -4248,12 +4248,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let cached_head = self.canonical_head.cached_head();
         let old_head_slot = cached_head.head_slot();
 
-        // Compute the expected proposer for `current_slot` on the canonical chain. This is used by
-        // `on_block` to gate proposer boost on the block's proposer matching the canonical proposer
-        // (per spec `update_proposer_boost_root` added in v1.7.0-alpha.5).
-        let canonical_head_proposer_index =
-            self.canonical_head_proposer_index(current_slot, &cached_head)?;
-
         // Take an upgradable read lock on fork choice so we can check if this block has already
         // been imported. We don't want to repeat work importing a block that is already imported.
         let fork_choice_reader = self.canonical_head.fork_choice_upgradable_read_lock();
@@ -4285,7 +4279,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     block_delay,
                     &state,
                     payload_verification_status,
-                    canonical_head_proposer_index,
                     &self.spec,
                 )
                 .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
@@ -5031,42 +5024,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             parent_block_number,
             parent_beacon_block_root: proposer_head,
         }))
-    }
-
-    /// Compute the expected beacon proposer for `slot` on the canonical chain extending `cached_head`.
-    ///
-    /// Uses the beacon proposer cache to avoid recomputing the shuffling on every block import.
-    ///
-    /// This is used by `update_proposer_boost_root` to gate proposer boost on the block's proposer
-    /// matching the canonical proposer, per consensus-specs v1.7.0-alpha.5.
-    ///
-    /// This function should never error unless there is some corruption of the head state. If a
-    /// state advance is needed, it will be handled by the proposer cache.
-    pub fn canonical_head_proposer_index(
-        &self,
-        slot: Slot,
-        cached_head: &CachedHead<T::EthSpec>,
-    ) -> Result<u64, Error> {
-        let proposal_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
-        let head_block_root = cached_head.head_block_root();
-        let head_state = &cached_head.snapshot.beacon_state;
-
-        let shuffling_decision_root = head_state.proposer_shuffling_decision_root_at_epoch(
-            proposal_epoch,
-            head_block_root,
-            &self.spec,
-        )?;
-
-        self.with_proposer_cache::<_, Error>(
-            shuffling_decision_root,
-            proposal_epoch,
-            |proposers| {
-                proposers
-                    .get_slot::<T::EthSpec>(slot)
-                    .map(|p| p.index as u64)
-            },
-            || Ok((cached_head.head_state_root(), head_state.clone())),
-        )
     }
 
     pub fn get_expected_withdrawals(

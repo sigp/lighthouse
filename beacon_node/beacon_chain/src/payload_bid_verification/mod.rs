@@ -37,6 +37,8 @@ pub enum PayloadBidError {
     },
     /// The bids slot is not the current slot or the next slot.
     InvalidBidSlot { bid_slot: Slot },
+    /// The bid's slot is not greater than the slot of its parent block.
+    BidNotDescendantOfParent { bid_slot: Slot, parent_slot: Slot },
     /// The slot clock cannot be read.
     UnableToReadSlot,
     /// No proposer preferences for the current slot.
