@@ -75,15 +75,17 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
     }
 
     async fn run_update(&self) {
-        let Some((current_epoch, fork_name)) = self.wait_for_next_epoch().await else {
+        let Some((current_epoch, fork_name)) = self.get_current_epoch().await else {
             return;
         };
 
         self.publish_proposer_preferences(current_epoch, fork_name)
             .await;
+
+        self.wait_until_next_epoch().await;
     }
 
-    async fn wait_for_next_epoch(&self) -> Option<(Epoch, ForkName)> {
+    async fn get_current_epoch(&self) -> Option<(Epoch, ForkName)> {
         let slot_duration = self.chain_spec.get_slot_duration();
 
         let Some(current_slot) = self.slot_clock.now() else {
@@ -108,13 +110,16 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
         let current_epoch = current_slot.epoch(S::E::slots_per_epoch());
         let fork_name = self.chain_spec.fork_name_at_slot::<S::E>(current_slot);
 
+        Some((current_epoch, fork_name))
+    }
+
+    async fn wait_until_next_epoch(&self) {
+        let slot_duration = self.chain_spec.get_slot_duration();
         let duration_to_next_epoch = self
             .slot_clock
             .duration_to_next_epoch(S::E::slots_per_epoch())
             .unwrap_or_else(|| slot_duration * S::E::slots_per_epoch() as u32);
         sleep(duration_to_next_epoch).await;
-
-        Some((current_epoch, fork_name))
     }
 
     pub async fn publish_proposer_preferences(&self, current_epoch: Epoch, fork_name: ForkName) {
@@ -320,31 +325,52 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_wait_for_next_epoch() {
+    async fn test_get_current_epoch() {
+        let harness = TestHarness::new_with_validators(1).await;
+        let service = &harness.service;
+
+        let result = service.get_current_epoch().await;
+        // The testnet starts with slot 0, hence Epoch 0
+        assert_eq!(result, Some((Epoch::new(0), ForkName::Gloas)));
+    }
+
+    #[tokio::test]
+    async fn test_wait_until_next_epoch() {
         tokio::time::pause();
 
         let harness = TestHarness::new_with_validators(1).await;
         let service = &harness.service;
-        let service_wait = service.wait_for_next_epoch();
-        tokio::pin!(service_wait);
 
-        assert!(service_wait.as_mut().now_or_never().is_none());
+        // sleep_until_next_epoch advances past epoch boundary
+        let sleep_fut = service.wait_until_next_epoch();
+        tokio::pin!(sleep_fut);
 
-        let duration_to_next_epoch = harness
-            .service
+        // This first call of .now_or_never() starts the timer and registers the sleep timer with tokio
+        assert!(sleep_fut.as_mut().now_or_never().is_none());
+
+        let duration_to_next_epoch = service
             .slot_clock
             .duration_to_next_epoch(MainnetEthSpec::slots_per_epoch())
             .unwrap();
 
-        advance_time(&harness.service.slot_clock, duration_to_next_epoch).await;
+        // After the advance_time, the time should be at exactly the sleep deadline (32*12s = 384s)
+        // The timer hasn't fired yet because tokio requires time to be strictly past the deadline.
+        advance_time(&service.slot_clock, duration_to_next_epoch).await;
         assert!(
-            service_wait.as_mut().now_or_never().is_none(),
-            "Function should return None before the sleep duration has elapsed"
+            sleep_fut.as_mut().now_or_never().is_none(),
+            "Should return None before the sleep duration has elapsed"
         );
 
-        advance_time(&harness.service.slot_clock, Duration::from_secs(1)).await;
-        let result = service_wait.as_mut().now_or_never().unwrap();
-        assert_eq!(result, Some((Epoch::new(0), ForkName::Gloas)));
+        // After the advance_time below, the time has now pass the deadline
+        advance_time(&service.slot_clock, Duration::from_secs(1)).await;
+        assert!(
+            sleep_fut.as_mut().now_or_never().is_some(),
+            "Sleep should complete after passing the boundary"
+        );
+
+        // After sleeping, get_current_epoch should return epoch 1
+        let result = service.get_current_epoch().await;
+        assert_eq!(result, Some((Epoch::new(1), ForkName::Gloas)));
     }
 
     #[tokio::test]
