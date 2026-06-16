@@ -1,7 +1,5 @@
 use crate::exec::{CommandLineTestExec, CompletedTest};
-use beacon_node::beacon_chain::chain_config::{
-    DEFAULT_SYNC_TOLERANCE_EPOCHS, DisallowedReOrgOffsets,
-};
+use beacon_node::beacon_chain::chain_config::DEFAULT_SYNC_TOLERANCE_EPOCHS;
 use beacon_node::beacon_chain::custody_context::NodeCustodyType;
 use beacon_node::{
     ClientConfig as Config, beacon_chain::graffiti_calculator::GraffitiOrigin,
@@ -2361,35 +2359,10 @@ fn disable_proposer_re_orgs() {
 }
 
 #[test]
-fn proposer_re_org_disallowed_offsets_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.re_org_disallowed_offsets,
-                DisallowedReOrgOffsets::new::<MainnetEthSpec>(vec![0]).unwrap()
-            )
-        });
-}
-
-#[test]
-fn proposer_re_org_disallowed_offsets_override() {
+fn proposer_re_org_disallowed_offsets_deprecated() {
+    // The deprecated flag should be accepted but have no effect.
     CommandLineTest::new()
         .flag("proposer-reorg-disallowed-offsets", Some("1,2,3"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.re_org_disallowed_offsets,
-                DisallowedReOrgOffsets::new::<MainnetEthSpec>(vec![1, 2, 3]).unwrap()
-            )
-        });
-}
-
-#[test]
-#[should_panic]
-fn proposer_re_org_disallowed_offsets_invalid() {
-    CommandLineTest::new()
-        .flag("proposer-reorg-disallowed-offsets", Some("32,33,34"))
         .run_with_zero_port();
 }
 
@@ -2809,6 +2782,45 @@ fn invalid_block_roots_default_mainnet() {
         .run_with_zero_port()
         .with_config(|config| {
             assert!(config.chain.invalid_block_roots.is_empty());
+        })
+}
+
+#[test]
+fn enable_mplex_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_mplex);
+        })
+}
+
+#[test]
+fn enable_mplex_true() {
+    CommandLineTest::new()
+        .flag("enable-mplex", Some("true"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_mplex);
+        })
+}
+
+#[test]
+fn enable_mplex_false() {
+    CommandLineTest::new()
+        .flag("enable-mplex", Some("false"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.network.enable_mplex);
+        })
+}
+
+#[test]
+fn enable_mplex_no_value() {
+    CommandLineTest::new()
+        .flag("enable-mplex", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_mplex);
         })
 }
 

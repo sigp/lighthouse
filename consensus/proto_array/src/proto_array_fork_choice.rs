@@ -386,10 +386,6 @@ pub enum DoNotReOrg {
     MissingHeadFinalizedCheckpoint,
     ParentDistance,
     HeadDistance,
-    ShufflingUnstable,
-    DisallowedOffset {
-        offset: u64,
-    },
     JustificationAndFinalizationNotCompetitive,
     ChainNotFinalizing {
         epochs_since_finalization: u64,
@@ -414,10 +410,6 @@ impl std::fmt::Display for DoNotReOrg {
             Self::MissingHeadFinalizedCheckpoint => write!(f, "finalized checkpoint missing"),
             Self::ParentDistance => write!(f, "parent too far from head"),
             Self::HeadDistance => write!(f, "head too far from current slot"),
-            Self::ShufflingUnstable => write!(f, "shuffling unstable at epoch boundary"),
-            Self::DisallowedOffset { offset } => {
-                write!(f, "re-orgs disabled at offset {offset}")
-            }
             Self::JustificationAndFinalizationNotCompetitive => {
                 write!(f, "justification or finalization not competitive")
             }
@@ -462,31 +454,6 @@ impl std::fmt::Display for DoNotReOrg {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ReOrgThreshold(pub u64);
-
-/// New-type for disallowed re-org slots.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct DisallowedReOrgOffsets {
-    // Vecs are faster than hashmaps for small numbers of items.
-    offsets: Vec<u64>,
-}
-
-impl Default for DisallowedReOrgOffsets {
-    fn default() -> Self {
-        DisallowedReOrgOffsets { offsets: vec![0] }
-    }
-}
-
-impl DisallowedReOrgOffsets {
-    pub fn new<E: EthSpec>(offsets: Vec<u64>) -> Result<Self, Error> {
-        for &offset in &offsets {
-            if offset >= E::slots_per_epoch() {
-                return Err(Error::InvalidEpochOffset(offset));
-            }
-        }
-        Ok(Self { offsets })
-    }
-}
 
 #[derive(PartialEq)]
 pub struct ProtoArrayForkChoice {
@@ -728,7 +695,6 @@ impl ProtoArrayForkChoice {
         justified_balances: &JustifiedBalances,
         re_org_head_threshold: ReOrgThreshold,
         re_org_parent_threshold: ReOrgThreshold,
-        disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let info = self.get_proposer_head_info::<E>(
@@ -737,7 +703,6 @@ impl ProtoArrayForkChoice {
             justified_balances,
             re_org_head_threshold,
             re_org_parent_threshold,
-            disallowed_offsets,
             max_epochs_since_finalization,
         )?;
 
@@ -788,7 +753,6 @@ impl ProtoArrayForkChoice {
         justified_balances: &JustifiedBalances,
         re_org_head_threshold: ReOrgThreshold,
         re_org_parent_threshold: ReOrgThreshold,
-        disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let mut nodes = self
@@ -825,18 +789,6 @@ impl ProtoArrayForkChoice {
         let parent_slot_ok = parent_slot + 1 == head_slot;
         if !parent_slot_ok {
             return Err(DoNotReOrg::ParentDistance.into());
-        }
-
-        // Check shuffling stability.
-        let shuffling_stable = re_org_block_slot % E::slots_per_epoch() != 0;
-        if !shuffling_stable {
-            return Err(DoNotReOrg::ShufflingUnstable.into());
-        }
-
-        // Check allowed slot offsets.
-        let offset = (re_org_block_slot % E::slots_per_epoch()).as_u64();
-        if disallowed_offsets.offsets.contains(&offset) {
-            return Err(DoNotReOrg::DisallowedOffset { offset }.into());
         }
 
         // Check FFG.
@@ -1020,7 +972,7 @@ impl ProtoArrayForkChoice {
         &self,
         block_root: &Hash256,
         parent_payload_status: PayloadStatus,
-        proposal_slot: Slot,
+        current_slot: Slot,
     ) -> Result<bool, String> {
         let block_index = self
             .proto_array
@@ -1038,7 +990,7 @@ impl ProtoArrayForkChoice {
             payload_status: parent_payload_status,
         };
         self.proto_array
-            .should_build_on_full::<E>(&fc_node, proto_node, proposal_slot)
+            .should_build_on_full::<E>(&fc_node, proto_node, current_slot)
             .map_err(|e| format!("{e:?}"))
     }
 

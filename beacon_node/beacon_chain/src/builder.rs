@@ -30,7 +30,6 @@ use kzg::Kzg;
 use logging::crit;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
-use proto_array::DisallowedReOrgOffsets;
 use rand::RngCore;
 use rayon::prelude::*;
 use slasher::Slasher;
@@ -173,15 +172,6 @@ where
     /// Set to `None` for no limit.
     pub fn import_max_skip_slots(mut self, n: Option<u64>) -> Self {
         self.chain_config.import_max_skip_slots = n;
-        self
-    }
-
-    /// Sets the proposer re-org disallowed offsets list.
-    pub fn proposer_re_org_disallowed_offsets(
-        mut self,
-        disallowed_offsets: DisallowedReOrgOffsets,
-    ) -> Self {
-        self.chain_config.re_org_disallowed_offsets = disallowed_offsets;
         self
     }
 

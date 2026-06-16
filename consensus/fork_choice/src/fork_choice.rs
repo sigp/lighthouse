@@ -3,8 +3,8 @@ use crate::{ForkChoiceStore, InvalidationOperation};
 use fixed_bytes::FixedBytesExtended;
 use logging::crit;
 use proto_array::{
-    Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, JustifiedBalances, LatestMessage,
-    PayloadStatus, ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
+    Block as ProtoBlock, ExecutionStatus, JustifiedBalances, LatestMessage, PayloadStatus,
+    ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
 };
 use ssz_derive::{Decode, Encode};
 use state_processing::{
@@ -568,14 +568,16 @@ where
         spec: &ChainSpec,
     ) -> Result<Option<Hash256>, Error<T::Error>> {
         let epoch = current_slot.epoch(E::slots_per_epoch());
+
         if epoch <= spec.min_seed_lookahead {
-            // Genesis block parent.
             return Ok(Some(Hash256::zero()));
         }
-        // Fork-aware decision slot: pre-Fulu it's the end of `epoch - 1`, post-Fulu it accounts
-        // for the proposer lookahead. Reuse `proposer_shuffling_decision_slot` so the proposer
-        // boost dependent root matches the proposer shuffling decision root.
-        let dependent_slot = spec.proposer_shuffling_decision_slot::<E>(epoch);
+
+        let dependent_slot = epoch
+            .saturating_sub(spec.min_seed_lookahead)
+            .start_slot(E::slots_per_epoch())
+            .saturating_sub(1_u64);
+
         self.get_ancestor(block_root, dependent_slot)
     }
 
@@ -659,7 +661,6 @@ where
         canonical_head: Hash256,
         re_org_head_threshold: ReOrgThreshold,
         re_org_parent_threshold: ReOrgThreshold,
-        disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error<proto_array::Error>>> {
         // Ensure that fork choice has already been updated for the current slot. This prevents
@@ -692,7 +693,6 @@ where
                 self.fc_store.justified_balances(),
                 re_org_head_threshold,
                 re_org_parent_threshold,
-                disallowed_offsets,
                 max_epochs_since_finalization,
             )
             .map_err(ProposerHeadError::convert_inner_error)
@@ -703,7 +703,6 @@ where
         canonical_head: Hash256,
         re_org_head_threshold: ReOrgThreshold,
         re_org_parent_threshold: ReOrgThreshold,
-        disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error<proto_array::Error>>> {
         let current_slot = self.fc_store.get_current_slot();
@@ -714,7 +713,6 @@ where
                 self.fc_store.justified_balances(),
                 re_org_head_threshold,
                 re_org_parent_threshold,
-                disallowed_offsets,
                 max_epochs_since_finalization,
             )
             .map_err(ProposerHeadError::convert_inner_error)
@@ -840,10 +838,17 @@ where
             return Ok(());
         }
 
-        // Provide the slot (as per the system clock) to the `fc_store` and then return its view of
-        // the current slot. The `fc_store` will ensure that the `current_slot` is never
-        // decreasing, a property which we must maintain.
-        let current_slot = self.update_time(system_time_current_slot)?;
+        let head_root = if system_time_current_slot == self.fc_store.get_current_slot() {
+            // Fork choice has already run for the current slot, so we can safely use the cached
+            // head without recomputing it.
+            self.cached_fork_choice_view().head_block_root
+        } else {
+            // Fork choice hasn't run for the current slot yet: run it, updating the fork choice
+            // store's current slot in the process.
+            self.get_head(system_time_current_slot, spec)?.0
+        };
+        let current_slot = self.fc_store.get_current_slot();
+        debug_assert_eq!(current_slot, system_time_current_slot);
 
         // Parent block must be known.
         let parent_block = self
@@ -901,9 +906,6 @@ where
         let is_first_block = self.fc_store.proposer_boost_root().is_zero();
 
         if is_timely && is_first_block {
-            // Compute the head before adding this block to fork choice
-            let (head_root, _) = self.get_head(system_time_current_slot, spec)?;
-
             // The block isn't in fork choice so resolve its dependent root via its parent.
             let block_dependent_root =
                 self.get_dependent_root(block.parent_root(), current_slot, spec)?;
@@ -1649,10 +1651,10 @@ where
         &self,
         block_root: &Hash256,
         parent_payload_status: PayloadStatus,
-        proposal_slot: Slot,
+        current_slot: Slot,
     ) -> Result<bool, Error<T::Error>> {
         self.proto_array
-            .should_build_on_full::<E>(block_root, parent_payload_status, proposal_slot)
+            .should_build_on_full::<E>(block_root, parent_payload_status, current_slot)
             .map_err(Error::ProtoArrayStringError)
     }
 

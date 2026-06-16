@@ -19,8 +19,8 @@ use crate::{
     parse_data_column_key,
 };
 use fixed_bytes::FixedBytesExtended;
+use hashlink::lru_cache::LruCache;
 use itertools::{Itertools, process_results};
-use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
 use serde::{Deserialize, Serialize};
@@ -34,7 +34,6 @@ use std::cmp::{Ordering, min};
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::marker::PhantomData;
-use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -97,7 +96,7 @@ struct BlockCache<E: EthSpec> {
 }
 
 impl<E: EthSpec> BlockCache<E> {
-    pub fn new(size: NonZeroUsize) -> Self {
+    pub fn new(size: usize) -> Self {
         Self {
             block_cache: LruCache::new(size),
             blob_cache: LruCache::new(size),
@@ -106,14 +105,15 @@ impl<E: EthSpec> BlockCache<E> {
         }
     }
     pub fn put_block(&mut self, block_root: Hash256, block: SignedBeaconBlock<E>) {
-        self.block_cache.put(block_root, block);
+        self.block_cache.insert(block_root, block);
     }
     pub fn put_blobs(&mut self, block_root: Hash256, blobs: BlobSidecarList<E>) {
-        self.blob_cache.put(block_root, blobs);
+        self.blob_cache.insert(block_root, blobs);
     }
     pub fn put_data_column(&mut self, block_root: Hash256, data_column: Arc<DataColumnSidecar<E>>) {
         self.data_column_cache
-            .get_or_insert_mut(block_root, Default::default)
+            .entry(block_root)
+            .or_insert_with(Default::default)
             .insert(*data_column.index(), data_column);
     }
     pub fn put_data_column_custody_info(
@@ -143,13 +143,13 @@ impl<E: EthSpec> BlockCache<E> {
         self.data_column_custody_info_cache.clone()
     }
     pub fn delete_block(&mut self, block_root: &Hash256) {
-        let _ = self.block_cache.pop(block_root);
+        let _ = self.block_cache.remove(block_root);
     }
     pub fn delete_blobs(&mut self, block_root: &Hash256) {
-        let _ = self.blob_cache.pop(block_root);
+        let _ = self.blob_cache.remove(block_root);
     }
     pub fn delete_data_columns(&mut self, block_root: &Hash256) {
-        let _ = self.data_column_cache.pop(block_root);
+        let _ = self.data_column_cache.remove(block_root);
     }
     pub fn delete(&mut self, block_root: &Hash256) {
         self.delete_block(block_root);
@@ -236,17 +236,16 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore, MemoryStore> {
             cold_db: MemoryStore::open(),
             blobs_db: MemoryStore::open(),
             hot_db: MemoryStore::open(),
-            block_cache: NonZeroUsize::new(config.block_cache_size)
-                .map(BlockCache::new)
-                .map(Mutex::new),
+            block_cache: (config.block_cache_size > 0)
+                .then(|| Mutex::new(BlockCache::new(config.block_cache_size))),
             state_cache: Mutex::new(StateCache::new(
                 config.state_cache_size,
                 config.state_cache_headroom,
                 config.hot_hdiff_buffer_cache_size,
             )),
             historic_state_cache: Mutex::new(HistoricStateCache::new(
-                config.cold_hdiff_buffer_cache_size,
-                config.historic_state_cache_size,
+                config.cold_hdiff_buffer_cache_size.get(),
+                config.historic_state_cache_size.get(),
             )),
             config,
             hierarchy,
@@ -290,17 +289,16 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend> {
             blobs_db: BeaconNodeBackend::open(&config, blobs_db_path)?,
             cold_db: BeaconNodeBackend::open(&config, cold_path)?,
             hot_db,
-            block_cache: NonZeroUsize::new(config.block_cache_size)
-                .map(BlockCache::new)
-                .map(Mutex::new),
+            block_cache: (config.block_cache_size > 0)
+                .then(|| Mutex::new(BlockCache::new(config.block_cache_size))),
             state_cache: Mutex::new(StateCache::new(
                 config.state_cache_size,
                 config.state_cache_headroom,
                 config.hot_hdiff_buffer_cache_size,
             )),
             historic_state_cache: Mutex::new(HistoricStateCache::new(
-                config.cold_hdiff_buffer_cache_size,
-                config.historic_state_cache_size,
+                config.cold_hdiff_buffer_cache_size.get(),
+                config.historic_state_cache_size.get(),
             )),
             config,
             hierarchy,

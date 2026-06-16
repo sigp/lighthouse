@@ -84,6 +84,10 @@ Options:
       --discovery-port6 <PORT>
           The UDP port that discovery will listen on over IPv6 if listening over
           both IPv4 and IPv6. Defaults to `port6`
+      --enable-mplex [<BOOLEAN>]
+          Enables the mplex multiplexer alongside yamux. Yamux is preferred when
+          both are available. Enabled by default; set to "false" to disable.
+          [default: true]
       --enr-address <ADDRESS>...
           The IP address/ DNS address to broadcast to other peers on how to
           reach this node. If a DNS address is provided, the enr-address is set
@@ -308,12 +312,7 @@ Options:
       --proposer-reorg-cutoff <MILLISECONDS>
           DEPRECATED. This flag has no effect.
       --proposer-reorg-disallowed-offsets <N1,N2,...>
-          Comma-separated list of integer offsets which can be used to avoid
-          proposing reorging blocks at certain slots. An offset of N means that
-          reorging proposals will not be attempted at any slot such that `slot %
-          SLOTS_PER_EPOCH == N`. By default only re-orgs at offset 0 will be
-          avoided. Any offsets supplied with this flag will impose additional
-          restrictions.
+          DEPRECATED. This flag has no effect.
       --proposer-reorg-epochs-since-finalization <EPOCHS>
           DEPRECATED. This flag has no effect.
       --proposer-reorg-parent-threshold <PERCENT>
@@ -494,9 +493,6 @@ Flags:
           Sets the local ENR IP address and port to match those set for
           lighthouse. Specifically, the IP address will be the value of
           --listen-address and the UDP port will be --discovery-port.
-      --enable-mplex
-          Enables mplex multiplexer alongside yamux. Yamux is preferred when
-          both are available.
       --enable-partial-columns
           Enable partial messages for data columns. This can reduce the amount
           of data sent over the network. Enabled by default on Hoodi and

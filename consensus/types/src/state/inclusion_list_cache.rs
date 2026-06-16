@@ -37,7 +37,7 @@ impl<E: EthSpec> InclusionListCache<E> {
     /// Drop inclusion lists older than `RETAIN_SLOTS` behind `current_slot`.
     pub fn prune(&mut self, current_slot: Slot) {
         self.inner_map
-            .retain(|slot, _| *slot + RETAIN_SLOTS >= current_slot);
+            .retain(|slot, _| slot.saturating_add(RETAIN_SLOTS) >= current_slot);
     }
 
     /// Returns `true` if this message should be IGNOREd per the p2p rule:
