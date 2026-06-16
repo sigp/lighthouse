@@ -1105,8 +1105,10 @@ impl PendingDepositsContext {
         let pending_deposits = state.pending_deposits()?;
 
         for deposit in pending_deposits.iter() {
-            // Do not process deposit requests if the Eth1 bridge deposits are not yet applied.
-            if deposit.slot > spec.genesis_slot
+            // Do not process deposit requests if pre-Fulu and the Eth1 bridge deposits are not yet applied.
+            // Support for the former Eth1 bridge deposit mechanism was removed in Fulu.
+            if !state.fork_name_unchecked().fulu_enabled()
+                && deposit.slot > spec.genesis_slot
                 && state.eth1_deposit_index() < state.deposit_requests_start_index()?
             {
                 break;
