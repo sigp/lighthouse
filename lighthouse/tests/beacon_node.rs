@@ -2786,6 +2786,45 @@ fn invalid_block_roots_default_mainnet() {
 }
 
 #[test]
+fn enable_mplex_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_mplex);
+        })
+}
+
+#[test]
+fn enable_mplex_true() {
+    CommandLineTest::new()
+        .flag("enable-mplex", Some("true"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_mplex);
+        })
+}
+
+#[test]
+fn enable_mplex_false() {
+    CommandLineTest::new()
+        .flag("enable-mplex", Some("false"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.network.enable_mplex);
+        })
+}
+
+#[test]
+fn enable_mplex_no_value() {
+    CommandLineTest::new()
+        .flag("enable-mplex", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_mplex);
+        })
+}
+
+#[test]
 fn partial_columns() {
     CommandLineTest::new()
         .flag("enable-partial-columns", None)

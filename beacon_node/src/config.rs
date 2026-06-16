@@ -7,7 +7,7 @@ use beacon_chain::graffiti_calculator::GraffitiOrigin;
 use bls::PublicKeyBytes;
 use clap::{ArgMatches, Id, parser::ValueSource};
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
-use clap_utils::{parse_flag, parse_required};
+use clap_utils::{parse_flag, parse_optional, parse_required};
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
@@ -1434,8 +1434,8 @@ pub fn set_network_config(
         config.disable_quic_support = true;
     }
 
-    if parse_flag(cli_args, "enable-mplex") {
-        config.enable_mplex = true;
+    if let Some(enable_mplex) = parse_optional(cli_args, "enable-mplex")? {
+        config.enable_mplex = enable_mplex;
     }
 
     if parse_flag(cli_args, "disable-upnp") {
