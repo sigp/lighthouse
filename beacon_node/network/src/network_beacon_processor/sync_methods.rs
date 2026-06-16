@@ -1,4 +1,4 @@
-use crate::metrics::{self, register_process_result_metrics};
+use crate::metrics::{self, EnvelopeSource, register_process_result_metrics};
 use crate::network_beacon_processor::{FUTURE_SLOT_TOLERANCE, NetworkBeaconProcessor};
 use crate::sync::BatchProcessResult;
 use crate::sync::manager::CustodyBatchProcessResult;
@@ -373,22 +373,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         // The payload envelope is imported; release any attestations awaiting this block's payload
         // so they can be re-processed (parity with the gossip import path).
-        if let Ok(AvailabilityProcessingStatus::Imported(_, block_root)) = &result
-            && self
-                .beacon_processor_send
-                .try_send(WorkEvent {
-                    drop_during_sync: false,
-                    work: Work::Reprocess(ReprocessQueueMessage::PayloadEnvelopeImported {
-                        block_root: *block_root,
-                    }),
-                })
-                .is_err()
-        {
-            error!(
-                source = "rpc",
-                ?block_root,
-                "Failed to inform payload envelope import"
-            );
+        if let Ok(AvailabilityProcessingStatus::Imported(_, block_root)) = &result {
+            self.notify_payload_envelope_imported(*block_root, EnvelopeSource::Rpc);
         }
 
         self.send_sync_message(SyncMessage::BlockComponentProcessed {

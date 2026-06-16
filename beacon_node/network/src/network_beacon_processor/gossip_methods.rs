@@ -1,5 +1,5 @@
 use crate::{
-    metrics::{self, register_process_result_metrics},
+    metrics::{self, EnvelopeSource, register_process_result_metrics},
     network_beacon_processor::{InvalidBlockStorage, NetworkBeaconProcessor},
     service::NetworkMessage,
     sync::SyncMessage,
@@ -3907,7 +3907,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Ok(AvailabilityProcessingStatus::Imported(_, block_root)) => {
                 // The payload envelope is imported (`is_payload_received` is now true); release any
                 // attestations awaiting this block's payload so they can be re-processed.
-                self.notify_payload_envelope_imported(*block_root);
+                self.notify_payload_envelope_imported(*block_root, EnvelopeSource::Gossip);
             }
             Ok(_) => {}
             Err(e) => {
@@ -3930,7 +3930,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .fork_name_at_slot::<T::EthSpec>(slot)
             .gloas_enabled()
         {
-            self.notify_payload_envelope_imported(block_root);
+            self.notify_payload_envelope_imported(block_root, EnvelopeSource::Gossip);
         } else {
             self.notify_block_imported(block_root);
         }
@@ -3955,8 +3955,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Inform the reprocess queue that `block_root`'s payload envelope has been imported, releasing
-    /// any attestations awaiting the payload.
-    fn notify_payload_envelope_imported(&self, block_root: Hash256) {
+    /// any attestations awaiting the payload. `source` identifies the import path for logging.
+    pub(crate) fn notify_payload_envelope_imported(
+        &self,
+        block_root: Hash256,
+        source: EnvelopeSource,
+    ) {
         if self
             .beacon_processor_send
             .try_send(WorkEvent {
@@ -3968,7 +3972,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .is_err()
         {
             error!(
-                source = "gossip",
+                source = source.as_ref(),
                 ?block_root,
                 "Failed to inform payload envelope import"
             )
