@@ -4218,3 +4218,42 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ReprocessAllowance::{BlockAndPayload, None, PayloadOnly};
+
+    #[test]
+    fn reprocess_allowance_gates() {
+        // A block re-queue is only permitted for a freshly received attestation.
+        assert!(BlockAndPayload.allows_block());
+        assert!(!PayloadOnly.allows_block());
+        assert!(!None.allows_block());
+
+        // A payload-envelope re-queue is permitted until we've already re-queued for it.
+        assert!(BlockAndPayload.allows_payload());
+        assert!(PayloadOnly.allows_payload());
+        assert!(!None.allows_payload());
+    }
+
+    #[test]
+    fn reprocess_allowance_progression() {
+        // Each re-queue narrows the allowance to the next variant in the progression.
+        assert_eq!(BlockAndPayload.next_requeue(), PayloadOnly);
+        assert_eq!(PayloadOnly.next_requeue(), None);
+        assert_eq!(None.next_requeue(), None);
+    }
+
+    #[test]
+    fn reprocess_allowance_is_bounded() {
+        // Safety property: from any starting state, re-queuing twice reaches the terminal `None`,
+        // so an attestation can never loop indefinitely.
+        for start in [BlockAndPayload, PayloadOnly, None] {
+            assert_eq!(
+                start.next_requeue().next_requeue(),
+                None,
+                "re-queuing twice from {start:?} should be terminal"
+            );
+        }
+    }
+}
