@@ -84,7 +84,7 @@ Options:
       --discovery-port6 <PORT>
           The UDP port that discovery will listen on over IPv6 if listening over
           both IPv4 and IPv6. Defaults to `port6`
-      --enable-mplex <BOOLEAN>
+      --enable-mplex [<BOOLEAN>]
           Enables the mplex multiplexer alongside yamux. Yamux is preferred when
           both are available. Enabled by default; set to "false" to disable.
           [default: true]
