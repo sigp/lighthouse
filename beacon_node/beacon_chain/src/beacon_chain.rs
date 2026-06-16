@@ -6651,6 +6651,47 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             payload_attributes
         };
 
+        // For Heze (FOCIL), the inclusion list for `prepare_slot - 1` is usually not observed
+        // until ~2/3 into the prior slot, which is typically *after* the proposer was first
+        // prepared. The `payload_attributes` resolved above is frequently the cached entry from
+        // that first (too-early) preparation, so it carries a stale/empty inclusion list. Refresh
+        // it from the current cache on every prep run and re-store it, so the proposer-prep
+        // `forkchoiceUpdated` that actually drives the EL payload build (sent close to the
+        // proposal slot) reflects the latest observed ILs. Without this the built payload omits
+        // the mandated IL transactions and gets re-orged for `INCLUSION_LIST_UNSATISFIED`.
+        let payload_attributes = if self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(prepare_slot)
+            .heze_enabled()
+        {
+            let il_slot = prepare_slot.saturating_sub(1_u64);
+            let il_txs = self
+                .inclusion_list_cache
+                .read()
+                .get_inclusion_list_transactions(il_slot, false)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|tx| tx.to_vec())
+                .collect::<Vec<Vec<u8>>>();
+            let mut refreshed = payload_attributes;
+            if let PayloadAttributes::V5(ref mut attrs) = refreshed {
+                attrs.inclusion_list_transactions = il_txs;
+            }
+            // Re-store so the proposer-prep `forkchoiceUpdated` picks up the refreshed attributes.
+            execution_layer
+                .insert_proposer(
+                    prepare_slot,
+                    head_root,
+                    head_payload_status,
+                    proposer,
+                    refreshed.clone(),
+                )
+                .await;
+            refreshed
+        } else {
+            payload_attributes
+        };
+
         // Push a server-sent event (probably to a block builder or relay).
         if let Some(event_handler) = &self.event_handler
             && event_handler.has_payload_attributes_subscribers()

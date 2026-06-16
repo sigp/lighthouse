@@ -1264,6 +1264,12 @@ where
             .read()
             .get_inclusion_list_transactions(il_slot, false)
             .unwrap_or_default();
+        debug!(
+            il_tx_count = il_txs.len(),
+            %il_slot,
+            produce_slot = %builder_params.slot,
+            "Building execution payload with inclusion list"
+        );
         Some(
             il_txs
                 .into_iter()
