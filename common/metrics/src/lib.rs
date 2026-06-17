@@ -51,7 +51,10 @@
 //! ```
 
 use prometheus::{Error, HistogramOpts, Opts};
-use std::time::Duration;
+use std::{
+    sync::atomic::{AtomicU64, Ordering},
+    time::Duration,
+};
 
 use prometheus::core::{Atomic, GenericGauge, GenericGaugeVec};
 pub use prometheus::{
@@ -310,13 +313,35 @@ pub fn inc_counter_by(counter: &Result<IntCounter>, value: u64) {
 
 /// Updates a counter from an observed absolute value.
 ///
-/// If `value` is ahead of the current counter value, increments by the positive
-/// delta. Decreases are ignored so the counter never moves backwards.
-pub fn set_counter_from_absolute(counter: &Result<IntCounter>, value: u64) {
+/// If `value` is ahead of the last observed absolute value, increments by the
+/// positive delta. Decreases are ignored so the counter never moves backwards.
+///
+/// `last_observed` should be dedicated to the same source value as `counter`.
+pub fn set_counter_from_absolute(
+    counter: &Result<IntCounter>,
+    last_observed: &AtomicU64,
+    value: u64,
+) {
     if let Ok(counter) = counter {
-        let current = counter.get();
-        if value > current {
-            counter.inc_by(value - current);
+        let mut current = last_observed.load(Ordering::Relaxed);
+
+        loop {
+            if value <= current {
+                return;
+            }
+
+            match last_observed.compare_exchange_weak(
+                current,
+                value,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => {
+                    counter.inc_by(value - current);
+                    return;
+                }
+                Err(observed) => current = observed,
+            }
         }
     }
 }
@@ -458,6 +483,7 @@ impl<T> TryExt for Option<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{sync::Barrier, thread};
 
     #[test]
     fn set_counter_from_absolute_only_applies_positive_deltas() {
@@ -466,17 +492,46 @@ mod tests {
             "counter helper test",
         )
         .expect("should create counter"));
+        let last_observed = AtomicU64::new(0);
 
-        set_counter_from_absolute(&counter, 10);
+        set_counter_from_absolute(&counter, &last_observed, 10);
         assert_eq!(counter.as_ref().expect("counter should exist").get(), 10);
 
-        set_counter_from_absolute(&counter, 15);
+        set_counter_from_absolute(&counter, &last_observed, 15);
         assert_eq!(counter.as_ref().expect("counter should exist").get(), 15);
 
-        set_counter_from_absolute(&counter, 15);
+        set_counter_from_absolute(&counter, &last_observed, 15);
         assert_eq!(counter.as_ref().expect("counter should exist").get(), 15);
 
-        set_counter_from_absolute(&counter, 12);
+        set_counter_from_absolute(&counter, &last_observed, 12);
+        assert_eq!(counter.as_ref().expect("counter should exist").get(), 15);
+    }
+
+    #[test]
+    fn set_counter_from_absolute_deduplicates_concurrent_updates() {
+        let counter = Ok(IntCounter::new(
+            "set_counter_from_absolute_concurrent_test_total",
+            "counter helper concurrency test",
+        )
+        .expect("should create counter"));
+        let last_observed = AtomicU64::new(10);
+        counter.as_ref().expect("counter should exist").inc_by(10);
+
+        let barrier = Barrier::new(2);
+        thread::scope(|scope| {
+            for _ in 0..2 {
+                let barrier = &barrier;
+                let counter = &counter;
+                let last_observed = &last_observed;
+
+                scope.spawn(move || {
+                    barrier.wait();
+                    set_counter_from_absolute(counter, last_observed, 15);
+                });
+            }
+        });
+
+        assert_eq!(last_observed.load(Ordering::Acquire), 15);
         assert_eq!(counter.as_ref().expect("counter should exist").get(), 15);
     }
 }

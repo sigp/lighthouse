@@ -1,7 +1,7 @@
 use crate::observe::Observe;
 use eth2::lighthouse::{ProcessHealth, SystemHealth};
 use metrics::*;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, atomic::AtomicU64};
 
 pub static PROCESS_NUM_THREADS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
@@ -33,6 +33,7 @@ pub static PROCESS_SECONDS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
         "Total cpu time taken by the current process",
     )
 });
+static PROCESS_SECONDS_LAST_OBSERVED: AtomicU64 = AtomicU64::new(0);
 pub static SYSTEM_VIRT_MEM_TOTAL: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge("system_virt_mem_total_bytes", "Total system virtual memory")
 });
@@ -135,7 +136,11 @@ pub fn scrape_process_health_metrics() {
         set_gauge(&PROCESS_RES_MEM, health.pid_mem_resident_set_size as i64);
         set_gauge(&PROCESS_VIRT_MEM, health.pid_mem_virtual_memory_size as i64);
         set_gauge(&PROCESS_SHR_MEM, health.pid_mem_shared_memory_size as i64);
-        set_counter_from_absolute(&PROCESS_SECONDS, health.pid_process_seconds_total);
+        set_counter_from_absolute(
+            &PROCESS_SECONDS,
+            &PROCESS_SECONDS_LAST_OBSERVED,
+            health.pid_process_seconds_total,
+        );
     }
 }
 
