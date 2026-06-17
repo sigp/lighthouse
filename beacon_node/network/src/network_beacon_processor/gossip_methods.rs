@@ -3807,13 +3807,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // TODO(gloas) metrics
         // register_process_result_metrics(&result, metrics::BlockSource::Gossip, "envelope");
 
-        if let Err(e) = &result {
-            debug!(
-                ?beacon_block_root,
-                %peer_id,
-                error = ?e,
-                "Execution payload envelope processing failed"
-            );
+        match &result {
+            Ok(AvailabilityProcessingStatus::Imported(_)) => {
+                self.chain.recompute_head_at_current_slot().await;
+            }
+            Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {}
+            Err(e) => {
+                debug!(
+                    ?beacon_block_root,
+                    %peer_id,
+                    error = ?e,
+                    "Execution payload envelope processing failed"
+                );
+            }
         }
     }
 
@@ -3841,7 +3847,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | PayloadBidError::InvalidBuilder { .. }
                 | PayloadBidError::InvalidFeeRecipient
                 | PayloadBidError::ExecutionPaymentNonZero { .. }
-                | PayloadBidError::InvalidBlobKzgCommitments { .. },
+                | PayloadBidError::InvalidBlobKzgCommitments { .. }
+                | PayloadBidError::BidNotDescendantOfParent { .. },
             ) => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(
@@ -4019,6 +4026,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     peer_id,
                     *beacon_block_root,
                 ))
+            }
+            PayloadAttestationError::BlockNotAtSlot { .. } => {
+                debug!(
+                    %peer_id,
+                    %message_slot,
+                    "Payload attestation references block at wrong slot"
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
             PayloadAttestationError::NotInPTC { .. } => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
