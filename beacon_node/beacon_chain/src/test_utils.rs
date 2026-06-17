@@ -1450,6 +1450,7 @@ where
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn produce_single_attestation_for_block(
         &self,
         slot: Slot,
@@ -1459,6 +1460,7 @@ where
         state_root: Hash256,
         aggregation_bit_index: usize,
         validator_index: usize,
+        payload_present: bool,
     ) -> Result<SingleAttestation, BeaconChainError> {
         let epoch = slot.epoch(E::slots_per_epoch());
 
@@ -1494,7 +1496,7 @@ where
                 epoch,
                 root: target_root,
             },
-            false,
+            payload_present,
             &self.spec,
         )?;
 
@@ -1702,7 +1704,14 @@ where
         attestation_slot: Slot,
         opts: MakeAttestationOptions,
     ) -> (Vec<CommitteeSingleAttestations>, Vec<usize>) {
-        let MakeAttestationOptions { limit, fork, .. } = opts;
+        let MakeAttestationOptions {
+            limit,
+            fork,
+            payload_present_override,
+        } = opts;
+        // `index == 1` (payload-present) is only meaningful post-Gloas. Default to not claiming the
+        // payload, matching the historical behaviour of this helper.
+        let payload_present = payload_present_override.unwrap_or(false);
         let committee_count = state.get_committee_count_at_slot(state.slot()).unwrap();
         let num_attesters = AtomicUsize::new(0);
 
@@ -1737,6 +1746,7 @@ where
                                 state_root,
                                 i,
                                 *validator_index,
+                                payload_present,
                             )
                             .unwrap();
 
