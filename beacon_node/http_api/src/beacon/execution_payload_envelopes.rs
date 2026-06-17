@@ -8,7 +8,9 @@ use crate::version::{
 };
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use beacon_chain::payload_envelope_verification::EnvelopeError;
-use beacon_chain::{BeaconChain, BeaconChainTypes, NotifyExecutionLayer};
+use beacon_chain::{
+    AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, NotifyExecutionLayer,
+};
 use bytes::Bytes;
 use eth2::types as api_types;
 use lighthouse_network::PubsubMessage;
@@ -160,12 +162,16 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         )
         .await;
 
-    if let Err(e) = import_result {
-        warn!(%slot, error = ?e, "Failed to import execution payload envelope");
-        return Err(warp_utils::reject::custom_server_error(format!(
-            "envelope import failed: {e}"
-        )));
-    }
+    let mut envelope_imported = match &import_result {
+        Ok(AvailabilityProcessingStatus::Imported(_, _)) => true,
+        Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => false,
+        Err(e) => {
+            warn!(%slot, error = ?e, "Failed to import execution payload envelope");
+            return Err(warp_utils::reject::custom_server_error(format!(
+                "envelope import failed: {e}"
+            )));
+        }
+    };
 
     // From here on the envelope is on the wire. `take_blobs` already consumed the cache
     // entry, so a retry would not republish columns; returning Err would mislead the
@@ -201,17 +207,25 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
                 .collect::<Vec<_>>();
 
             // Local processing only — envelope already broadcast, so log and fall through.
-            if !sampling_columns.is_empty()
-                && let Err(e) =
-                    Box::pin(chain.process_gossip_data_columns(sampling_columns, || Ok(()))).await
-            {
-                error!(
-                    %slot,
-                    error = ?e,
-                    "Failed to process sampling data columns during envelope publication"
-                );
+            if !sampling_columns.is_empty() {
+                match Box::pin(chain.process_gossip_data_columns(sampling_columns, || Ok(()))).await
+                {
+                    Ok(AvailabilityProcessingStatus::Imported(_, _)) => envelope_imported = true,
+                    Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {}
+                    Err(e) => {
+                        error!(
+                            %slot,
+                            error = ?e,
+                            "Failed to process sampling data columns during envelope publication"
+                        );
+                    }
+                }
             }
         }
+    }
+
+    if envelope_imported {
+        chain.recompute_head_at_current_slot().await;
     }
 
     Ok(warp::reply().into_response())

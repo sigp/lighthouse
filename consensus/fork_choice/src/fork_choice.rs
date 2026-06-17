@@ -3,8 +3,8 @@ use crate::{ForkChoiceStore, InvalidationOperation};
 use fixed_bytes::FixedBytesExtended;
 use logging::crit;
 use proto_array::{
-    Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, JustifiedBalances, LatestMessage,
-    PayloadStatus, ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
+    Block as ProtoBlock, ExecutionStatus, JustifiedBalances, LatestMessage, PayloadStatus,
+    ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
 };
 use ssz_derive::{Decode, Encode};
 use state_processing::{
@@ -542,6 +542,27 @@ where
         }
     }
 
+    /// Returns the dependent root for `block_root`, per the spec `get_dependent_root` helper.
+    fn get_dependent_root(
+        &self,
+        block_root: Hash256,
+        current_slot: Slot,
+        spec: &ChainSpec,
+    ) -> Result<Option<Hash256>, Error<T::Error>> {
+        let epoch = current_slot.epoch(E::slots_per_epoch());
+
+        if epoch <= spec.min_seed_lookahead {
+            return Ok(Some(Hash256::zero()));
+        }
+
+        let dependent_slot = epoch
+            .saturating_sub(spec.min_seed_lookahead)
+            .start_slot(E::slots_per_epoch())
+            .saturating_sub(1_u64);
+
+        self.get_ancestor(block_root, dependent_slot)
+    }
+
     /// Run the fork choice rule to determine the head.
     ///
     /// ## Specification
@@ -622,7 +643,6 @@ where
         canonical_head: Hash256,
         re_org_head_threshold: ReOrgThreshold,
         re_org_parent_threshold: ReOrgThreshold,
-        disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error<proto_array::Error>>> {
         // Ensure that fork choice has already been updated for the current slot. This prevents
@@ -655,7 +675,6 @@ where
                 self.fc_store.justified_balances(),
                 re_org_head_threshold,
                 re_org_parent_threshold,
-                disallowed_offsets,
                 max_epochs_since_finalization,
             )
             .map_err(ProposerHeadError::convert_inner_error)
@@ -666,7 +685,6 @@ where
         canonical_head: Hash256,
         re_org_head_threshold: ReOrgThreshold,
         re_org_parent_threshold: ReOrgThreshold,
-        disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error<proto_array::Error>>> {
         let current_slot = self.fc_store.get_current_slot();
@@ -677,7 +695,6 @@ where
                 self.fc_store.justified_balances(),
                 re_org_head_threshold,
                 re_org_parent_threshold,
-                disallowed_offsets,
                 max_epochs_since_finalization,
             )
             .map_err(ProposerHeadError::convert_inner_error)
@@ -772,7 +789,6 @@ where
         block_delay: Duration,
         state: &BeaconState<E>,
         payload_verification_status: PayloadVerificationStatus,
-        canonical_head_proposer_index: u64,
         spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_ON_BLOCK_TIMES);
@@ -784,10 +800,17 @@ where
             return Ok(());
         }
 
-        // Provide the slot (as per the system clock) to the `fc_store` and then return its view of
-        // the current slot. The `fc_store` will ensure that the `current_slot` is never
-        // decreasing, a property which we must maintain.
-        let current_slot = self.update_time(system_time_current_slot)?;
+        let head_root = if system_time_current_slot == self.fc_store.get_current_slot() {
+            // Fork choice has already run for the current slot, so we can safely use the cached
+            // head without recomputing it.
+            self.cached_fork_choice_view().head_block_root
+        } else {
+            // Fork choice hasn't run for the current slot yet: run it, updating the fork choice
+            // store's current slot in the process.
+            self.get_head(system_time_current_slot, spec)?.0
+        };
+        let current_slot = self.fc_store.get_current_slot();
+        debug_assert_eq!(current_slot, system_time_current_slot);
 
         // Parent block must be known.
         let parent_block = self
@@ -837,19 +860,24 @@ where
 
         let attestation_threshold = spec.get_attestation_due::<E>(block.slot());
 
-        // Add proposer score boost if the block is the first timely block for this slot and its
-        // proposer matches the expected proposer on the canonical chain (per spec
-        // `update_proposer_boost_root`, introduced in v1.7.0-alpha.5).
+        // Add proposer score boost if the block is the first timely block for this slot and it
+        // shares the same dependent root as the canonical chain head (per spec
+        // `update_proposer_boost_root`).
         let is_before_attesting_interval = block_delay < attestation_threshold;
-
+        let is_timely = current_slot == block.slot() && is_before_attesting_interval;
         let is_first_block = self.fc_store.proposer_boost_root().is_zero();
-        let is_canonical_proposer = block.proposer_index() == canonical_head_proposer_index;
-        if current_slot == block.slot()
-            && is_before_attesting_interval
-            && is_first_block
-            && is_canonical_proposer
-        {
-            self.fc_store.set_proposer_boost_root(block_root);
+
+        if is_timely && is_first_block {
+            // The block isn't in fork choice so resolve its dependent root via its parent.
+            let block_dependent_root =
+                self.get_dependent_root(block.parent_root(), current_slot, spec)?;
+            let head_dependent_root = self.get_dependent_root(head_root, current_slot, spec)?;
+
+            // Add proposer score boost if the block is timely, not conflicting with an
+            // existing block, with the same dependent root as the canonical chain head.
+            if block_dependent_root.is_some() && block_dependent_root == head_dependent_root {
+                self.fc_store.set_proposer_boost_root(block_root);
+            }
         }
 
         // Update store with checkpoints if necessary
@@ -866,22 +894,29 @@ where
         // Update unrealized justified/finalized checkpoints.
         let block_epoch = block.slot().epoch(E::slots_per_epoch());
 
-        // If the parent checkpoints are already at the same epoch as the block being imported,
-        // it's impossible for the unrealized checkpoints to differ from the parent's. This
-        // holds true because:
+        // If the block has no slashings and the parent checkpoints are already at the same epoch as
+        // the block being imported, it's impossible for the unrealized checkpoints to differ from
+        // the parent's. This holds true because:
         //
         // 1. A child block cannot have lower FFG checkpoints than its parent.
         // 2. A block in epoch `N` cannot contain attestations which would justify an epoch higher than `N`.
         // 3. A block in epoch `N` cannot contain attestations which would finalize an epoch higher than `N - 1`.
         //
+        // Slashings are excluded from this optimization because they can reduce unslashed
+        // participation in the child state and therefore lower the child's unrealized checkpoints.
+        //
         // This is an optimization. It should reduce the amount of times we run
         // `process_justification_and_finalization` by approximately 1/3rd when the chain is
         // performing optimally.
+        let has_slashings = !block.body().proposer_slashings().is_empty()
+            || block.body().attester_slashings_len() > 0;
         let parent_checkpoints = parent_block
             .unrealized_justified_checkpoint
             .zip(parent_block.unrealized_finalized_checkpoint)
             .filter(|(parent_justified, parent_finalized)| {
-                parent_justified.epoch == block_epoch && parent_finalized.epoch + 1 == block_epoch
+                !has_slashings
+                    && parent_justified.epoch == block_epoch
+                    && parent_finalized.epoch.saturating_add(1u64) == block_epoch
             });
 
         let (unrealized_justified_checkpoint, unrealized_finalized_checkpoint) =
@@ -1036,6 +1071,8 @@ where
                 execution_payload_parent_hash,
                 execution_payload_block_hash,
                 proposer_index: Some(block.proposer_index()),
+                // Set on payload-envelope import, not block import.
+                payload_received: false,
             },
             current_slot,
             spec,
@@ -1585,9 +1622,10 @@ where
         &self,
         block_root: &Hash256,
         parent_payload_status: PayloadStatus,
+        current_slot: Slot,
     ) -> Result<bool, Error<T::Error>> {
         self.proto_array
-            .should_build_on_full::<E>(block_root, parent_payload_status)
+            .should_build_on_full::<E>(block_root, parent_payload_status, current_slot)
             .map_err(Error::ProtoArrayStringError)
     }
 
