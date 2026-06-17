@@ -308,6 +308,19 @@ pub fn inc_counter_by(counter: &Result<IntCounter>, value: u64) {
     }
 }
 
+/// Updates a counter from an observed absolute value.
+///
+/// If `value` is ahead of the current counter value, increments by the positive
+/// delta. Decreases are ignored so the counter never moves backwards.
+pub fn set_counter_from_absolute(counter: &Result<IntCounter>, value: u64) {
+    if let Ok(counter) = counter {
+        let current = counter.get();
+        if value > current {
+            counter.inc_by(value - current);
+        }
+    }
+}
+
 pub fn set_gauge_vec(int_gauge_vec: &Result<IntGaugeVec>, name: &[&str], value: i64) {
     if let Some(gauge) = get_int_gauge(int_gauge_vec, name) {
         gauge.set(value);
@@ -439,5 +452,31 @@ impl<T> TryExt for Option<T> {
             timer.stop_and_discard();
         }
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn set_counter_from_absolute_only_applies_positive_deltas() {
+        let counter = Ok(IntCounter::new(
+            "set_counter_from_absolute_test_total",
+            "counter helper test",
+        )
+        .expect("should create counter"));
+
+        set_counter_from_absolute(&counter, 10);
+        assert_eq!(counter.as_ref().expect("counter should exist").get(), 10);
+
+        set_counter_from_absolute(&counter, 15);
+        assert_eq!(counter.as_ref().expect("counter should exist").get(), 15);
+
+        set_counter_from_absolute(&counter, 15);
+        assert_eq!(counter.as_ref().expect("counter should exist").get(), 15);
+
+        set_counter_from_absolute(&counter, 12);
+        assert_eq!(counter.as_ref().expect("counter should exist").get(), 15);
     }
 }
