@@ -182,24 +182,33 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
             .first_success(|beacon_node| {
                 let signed = signed.clone();
                 async move {
-                    match beacon_node
+                    beacon_node
                         .post_validator_proposer_preferences_ssz(&signed, fork_name)
                         .await
-                    {
-                        Ok(()) => Ok(()),
-                        Err(ssz_err) => {
-                            debug!(error = ?ssz_err, "SSZ publish failed, falling back to JSON");
+                        .map_err(|e| format!("Failed to publish proposer preferences (SSZ): {e:?}"))
+                }
+            })
+            .await;
+
+        let result = match result {
+            Ok(()) => Ok(()),
+            Err(ssz_err) => {
+                debug!(error = %ssz_err, "SSZ publish failed, falling back to JSON");
+                self.beacon_nodes
+                    .first_success(|beacon_node| {
+                        let signed = signed.clone();
+                        async move {
                             beacon_node
                                 .post_validator_proposer_preferences(&signed, fork_name)
                                 .await
                                 .map_err(|e| {
-                                    format!("Failed to publish proposer preferences: {e:?}")
+                                    format!("Failed to publish proposer preferences (JSON): {e:?}")
                                 })
                         }
-                    }
-                }
-            })
-            .await;
+                    })
+                    .await
+            }
+        };
 
         match result {
             Ok(()) => {
