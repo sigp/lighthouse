@@ -1569,10 +1569,13 @@ impl ProtoArray {
 
     /// Called by the proposer to decide whether to build on the full or empty
     /// parent pending node. Returns false if the PTC has voted the data as unavailable.
+    /// For a parent from an earlier slot the `Empty` or `Full` node has already been resolved
+    /// by attestation weight in `get_head`.
     pub fn should_build_on_full<E: EthSpec>(
         &self,
         fc_node: &IndexedForkChoiceNode,
         proto_node: &ProtoNode,
+        current_slot: Slot,
     ) -> Result<bool, Error> {
         if fc_node.payload_status == PayloadStatus::Pending {
             return Err(Error::InvalidPayloadStatus {
@@ -1584,10 +1587,23 @@ impl ProtoArray {
         if fc_node.payload_status == PayloadStatus::Empty {
             return Ok(false);
         }
+
+        if proto_node.slot().saturating_add(1u64) != current_slot {
+            return Ok(true);
+        }
+
         // Check that false votes have not achieved an absolute majority. This allows the payload to be
         // considered available when either a majority have voted true or not enough votes have
         // been cast either way.
-        Ok(!proto_node.payload_data_availability::<E>(false)?)
+        if proto_node.payload_data_availability::<E>(false)? {
+            return Ok(false);
+        }
+
+        if proto_node.payload_timeliness::<E>(false)? {
+            return Ok(false);
+        }
+
+        Ok(true)
     }
 
     pub fn should_extend_payload<E: EthSpec>(
