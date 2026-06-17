@@ -1064,6 +1064,8 @@ where
                 execution_payload_parent_hash,
                 execution_payload_block_hash,
                 proposer_index: Some(block.proposer_index()),
+                // Set on payload-envelope import, not block import.
+                payload_received: false,
             },
             current_slot,
             spec,
