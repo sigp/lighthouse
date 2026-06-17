@@ -163,7 +163,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         .await;
 
     let mut envelope_imported = match &import_result {
-        Ok(AvailabilityProcessingStatus::Imported(_)) => true,
+        Ok(AvailabilityProcessingStatus::Imported(_, _)) => true,
         Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => false,
         Err(e) => {
             warn!(%slot, error = ?e, "Failed to import execution payload envelope");
@@ -210,7 +210,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
             if !sampling_columns.is_empty() {
                 match Box::pin(chain.process_gossip_data_columns(sampling_columns, || Ok(()))).await
                 {
-                    Ok(AvailabilityProcessingStatus::Imported(_)) => envelope_imported = true,
+                    Ok(AvailabilityProcessingStatus::Imported(_, _)) => envelope_imported = true,
                     Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {}
                     Err(e) => {
                         error!(
