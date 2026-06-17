@@ -1,5 +1,6 @@
 use crate::duties_service::DutiesService;
 use beacon_node_fallback::{BeaconNodeFallback, beacon_head_monitor::PayloadAvailableEvent};
+use eth2::types::PtcDuty;
 use logging::crit;
 use slot_clock::SlotClock;
 use std::ops::Deref;
@@ -8,7 +9,7 @@ use task_executor::TaskExecutor;
 use tokio::sync::{Mutex, mpsc};
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
-use types::{ChainSpec, EthSpec, Hash256, Slot};
+use types::{ChainSpec, EthSpec, Hash256, PayloadAttestationData, Slot};
 use validator_store::ValidatorStore;
 
 pub struct Inner<S, T> {
@@ -19,7 +20,6 @@ pub struct Inner<S, T> {
     executor: TaskExecutor,
     chain_spec: Arc<ChainSpec>,
     payload_available_rx: Option<Mutex<mpsc::Receiver<PayloadAvailableEvent>>>,
-    latest_voted_slot: Mutex<Slot>,
 }
 
 pub struct PayloadAttestationService<S, T> {
@@ -65,7 +65,6 @@ where
                 executor,
                 chain_spec,
                 payload_available_rx,
-                latest_voted_slot: Mutex::new(Slot::default()),
             }),
         }
     }
@@ -80,7 +79,9 @@ where
 
         let interval_fut = async move {
             loop {
-                self.run_update().await;
+                if let Err(e) = self.spawn_payload_attestation_tasks().await {
+                    error!(error = e, "Failed to produce payload attestations");
+                }
             }
         };
 
@@ -111,45 +112,67 @@ where
         }
     }
 
-    async fn run_update(&self) {
+    async fn spawn_payload_attestation_tasks(&self) -> Result<(), String> {
         let (attestation_slot, beacon_node_data) = if self.payload_available_rx.is_some() {
             tokio::select! {
                 result = self.wait_for_attestation_slot() => {
-                    let Some(slot) = result else { return; };
+                    let Some(slot) = result else { return Ok(()); };
                     (slot, None)
                 }
                 event = self.poll_for_payload_available_event() => {
                     let Some(slot) = self.slot_clock.now() else {
                         error!("Failed to read slot clock after payload available event");
-                        return;
+                        return Ok(());
                     };
                     (slot, event.map(|ev| (ev.beacon_node_index, ev.block_root)))
                 }
             }
         } else {
             let Some(slot) = self.wait_for_attestation_slot().await else {
-                return;
+                return Ok(());
             };
             (slot, None)
         };
 
-        let mut last_slot = self.latest_voted_slot.lock().await;
-        if attestation_slot <= *last_slot {
-            debug!(%attestation_slot, "Payload attestation already produced for this slot");
-            return;
+        let triggered_early = beacon_node_data.is_some();
+        let mut data_result = self
+            .produce_payload_attestation_data(attestation_slot, beacon_node_data)
+            .await;
+
+        if triggered_early && !matches!(data_result, Ok(Some(_))) {
+            if let Err(ref e) = data_result {
+                warn!(error = %e, %attestation_slot, "Early attempt failed, retrying at deadline");
+            }
+            let deadline = self
+                .slot_clock
+                .duration_to_slot(attestation_slot + 1)
+                .and_then(|d| d.checked_add(self.chain_spec.get_payload_attestation_due()))
+                .map(|d| d.saturating_sub(self.chain_spec.get_slot_duration()))
+                .unwrap_or_default();
+            sleep(deadline).await;
+            data_result = self
+                .produce_payload_attestation_data(attestation_slot, None)
+                .await;
         }
-        *last_slot = attestation_slot;
-        drop(last_slot);
+
+        let Some((duties, attestation_data)) = data_result? else {
+            return Ok(());
+        };
 
         let service = self.clone();
         self.executor.spawn(
             async move {
-                service
-                    .produce_and_publish(attestation_slot, beacon_node_data)
-                    .await;
+                if let Err(e) = service
+                    .sign_and_publish(attestation_slot, duties, attestation_data)
+                    .await
+                {
+                    crit!(error = e, %attestation_slot, "Failed to publish payload attestations");
+                }
             },
             "payload_attestation_producer",
         );
+
+        Ok(())
     }
 
     async fn wait_for_attestation_slot(&self) -> Option<Slot> {
@@ -192,55 +215,50 @@ where
         Some(attestation_slot)
     }
 
-    async fn produce_and_publish(&self, slot: Slot, beacon_node_data: Option<(usize, Hash256)>) {
+    /// Produce the payload attestation data for `slot`, returned alongside the duties to sign.
+    ///
+    /// Returns `Ok(None)` when there is nothing to publish (no duties, or no block for the slot)
+    /// and `Err` when data production failed.
+    async fn produce_payload_attestation_data(
+        &self,
+        slot: Slot,
+        beacon_node_data: Option<(usize, Hash256)>,
+    ) -> Result<Option<(Vec<PtcDuty>, PayloadAttestationData)>, String> {
         let duties = self.duties_service.get_ptc_duties_for_slot(slot);
-
         if duties.is_empty() {
-            return;
+            return Ok(None);
         }
 
-        debug!(
-            %slot,
-            duty_count = duties.len(),
-            "Producing payload attestations"
-        );
+        debug!(%slot, duty_count = duties.len(), "Producing payload attestations");
 
-        let mut attestation_data_from_event = None;
+        let mut payload_data_from_event = None;
 
         if let Some((beacon_node_index, expected_block_root)) = beacon_node_data {
             match self
                 .beacon_nodes
-                .run_on_candidate_index(beacon_node_index, |beacon_node| {
-                    async move {
-                        let data = beacon_node
-                            .get_validator_payload_attestation_data(slot)
-                            .await
-                            .map_err(|e| format!("Failed to get payload attestation data: {e:?}"))?
-                            .map(|resp| resp.into_data())
-                            .ok_or_else(|| format!("No payload attestation data on node {beacon_node_index}"))?;
-
-                        if data.beacon_block_root != expected_block_root {
-                            return Err(format!(
-                                "Payload attestation block root mismatch: expected {expected_block_root:?}, got {:?}",
-                                data.beacon_block_root
-                            ));
-                        }
-                        Ok(data)
+                .run_on_candidate_index(beacon_node_index, |beacon_node| async move {
+                    let data = beacon_node
+                        .get_validator_payload_attestation_data(slot)
+                        .await
+                        .map_err(|e| format!("Failed to get payload attestation data: {e:?}"))?
+                        .map(|resp| resp.into_data())
+                        .ok_or_else(|| format!("No payload attestation data on node {beacon_node_index}"))?;
+                    if data.beacon_block_root != expected_block_root {
+                        return Err(format!(
+                            "Payload attestation block root mismatch: expected {expected_block_root:?}, got {:?}",
+                            data.beacon_block_root
+                        ));
                     }
+                    Ok(data)
                 })
                 .await
             {
-                Ok(data) => {
-                    attestation_data_from_event = Some(data);
-                }
-                Err(e) => {
-                    warn!(error = ?e, %slot, "Failed to attest based on payload available event");
-                }
+                Ok(data) => payload_data_from_event = Some(data),
+                Err(e) => warn!(error = ?e, %slot, "Failed to attest based on payload available event"),
             }
         }
 
-        // If the early attempt failed or wasn't triggered, wait for the deadline then try all BNs.
-        let attestation_data = if let Some(data) = attestation_data_from_event {
+        let attestation_data = if let Some(data) = payload_data_from_event {
             data
         } else {
             match self
@@ -255,20 +273,10 @@ where
             {
                 Ok(Some(data)) => data,
                 Ok(None) => {
-                    debug!(
-                        %slot,
-                        "No block received for slot, skipping payload attestation"
-                    );
-                    return;
+                    debug!(%slot, "No block received for slot, skipping payload attestation");
+                    return Ok(None);
                 }
-                Err(e) => {
-                    error!(
-                        error = %e,
-                        %slot,
-                        "Failed to produce payload attestation data"
-                    );
-                    return;
-                }
+                Err(e) => return Err(e.to_string()),
             }
         };
 
@@ -279,6 +287,17 @@ where
             "Received payload attestation data"
         );
 
+        Ok(Some((duties, attestation_data)))
+    }
+
+    /// Sign `attestation_data` for each duty and publish the resulting messages, preferring SSZ
+    /// and falling back to JSON.
+    async fn sign_and_publish(
+        &self,
+        slot: Slot,
+        duties: Vec<PtcDuty>,
+        attestation_data: PayloadAttestationData,
+    ) -> Result<(), String> {
         let mut messages = Vec::with_capacity(duties.len());
 
         for duty in &duties {
@@ -302,7 +321,7 @@ where
         }
 
         if messages.is_empty() {
-            return;
+            return Ok(());
         }
 
         let count = messages.len();
@@ -320,42 +339,31 @@ where
             })
             .await;
 
-        let result = match result {
-            Ok(()) => Ok(()),
-            Err(_) => {
-                debug!(%slot, "SSZ publish failed, falling back to JSON");
-                self.beacon_nodes
-                    .first_success(|beacon_node| {
-                        let messages = messages.clone();
-                        async move {
-                            beacon_node
-                                .post_beacon_pool_payload_attestations(&messages, fork_name)
-                                .await
-                                .map_err(|e| {
-                                    format!("Failed to publish payload attestations (JSON): {e:?}")
-                                })
-                        }
-                    })
-                    .await
-            }
-        };
-
-        match result {
-            Ok(()) => {
-                info!(
-                    %slot,
-                    %count,
-                    "Successfully published payload attestations"
-                );
-            }
-            Err(e) => {
-                crit!(
-                    error = %e,
-                    %slot,
-                    "Failed to publish payload attestations"
-                );
-            }
+        if result.is_err() {
+            debug!(%slot, "SSZ publish failed, falling back to JSON");
+            self.beacon_nodes
+                .first_success(|beacon_node| {
+                    let messages = messages.clone();
+                    async move {
+                        beacon_node
+                            .post_beacon_pool_payload_attestations(&messages, fork_name)
+                            .await
+                            .map_err(|e| {
+                                format!("Failed to publish payload attestations (JSON): {e:?}")
+                            })
+                    }
+                })
+                .await
+                .map_err(|e| e.to_string())?;
         }
+
+        info!(
+            %slot,
+            %count,
+            "Successfully published payload attestations"
+        );
+
+        Ok(())
     }
 }
 
@@ -693,7 +701,15 @@ mod tests {
             .mock_post_beacon_pool_payload_attestations();
 
         let service = harness.service;
-        service.produce_and_publish(attestation_slot, None).await;
+        let (duties, attestation_data) = service
+            .produce_payload_attestation_data(attestation_slot, None)
+            .await
+            .unwrap()
+            .unwrap();
+        service
+            .sign_and_publish(attestation_slot, duties, attestation_data)
+            .await
+            .unwrap();
 
         let messages = harness
             .mock_beacon_node_1
@@ -755,7 +771,15 @@ mod tests {
             .mock_post_beacon_pool_payload_attestations();
 
         let service = harness.service;
-        service.produce_and_publish(attestation_slot, None).await;
+        let (duties, attestation_data) = service
+            .produce_payload_attestation_data(attestation_slot, None)
+            .await
+            .unwrap()
+            .unwrap();
+        service
+            .sign_and_publish(attestation_slot, duties, attestation_data)
+            .await
+            .unwrap();
 
         // first_success function tries both beacon nodes for SSZ post payload attestation:
         // first pass: both fail (mock_ssz returns 500, mock_json does not support SSZ)
@@ -789,9 +813,16 @@ mod tests {
 
         let service = harness.service;
 
-        // when there is no duty, produce_and_publish should return early
+        // when there is no duty, data production returns `None` so there is nothing to publish
         // therefore, the beacon node is not called, expected to hit 0
-        service.produce_and_publish(Slot::new(1), None).await;
+        let data = service
+            .produce_payload_attestation_data(Slot::new(1), None)
+            .await
+            .unwrap();
+        assert!(
+            data.is_none(),
+            "Expected no data to be produced without duties"
+        );
         mock.expect(0).assert();
 
         assert!(
@@ -829,8 +860,11 @@ mod tests {
             .mock_post_beacon_pool_payload_attestations();
 
         let service = harness.service;
-        // The produce_and_publish() should return early before reaching the POST endpoint
-        service.produce_and_publish(attestation_slot, None).await;
+        // Data production should error before any signing/publishing happens.
+        let result = service
+            .produce_payload_attestation_data(attestation_slot, None)
+            .await;
+        assert!(result.is_err());
 
         // Both beacon nodes should not be called at all
         mock_ssz.expect(0).assert();
@@ -876,7 +910,15 @@ mod tests {
             .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
 
         let service = harness.service;
-        service.produce_and_publish(attestation_slot, None).await;
+        let (duties, attestation_data) = service
+            .produce_payload_attestation_data(attestation_slot, None)
+            .await
+            .unwrap()
+            .unwrap();
+        service
+            .sign_and_publish(attestation_slot, duties, attestation_data)
+            .await
+            .unwrap();
 
         let messages = harness
             .mock_beacon_node_1
@@ -924,9 +966,15 @@ mod tests {
             .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
 
         let service = harness.service;
+        let (duties, attestation_data) = service
+            .produce_payload_attestation_data(attestation_slot, Some((0, expected_block_root)))
+            .await
+            .unwrap()
+            .unwrap();
         service
-            .produce_and_publish(attestation_slot, Some((0, expected_block_root)))
-            .await;
+            .sign_and_publish(attestation_slot, duties, attestation_data)
+            .await
+            .unwrap();
 
         mock_ssz.expect(1).assert();
 
@@ -971,9 +1019,15 @@ mod tests {
             .mock_post_beacon_pool_payload_attestations_ssz(Duration::from_secs(0));
 
         let service = harness.service;
+        let (duties, attestation_data) = service
+            .produce_payload_attestation_data(attestation_slot, Some((0, event_block_root)))
+            .await
+            .unwrap()
+            .unwrap();
         service
-            .produce_and_publish(attestation_slot, Some((0, event_block_root)))
-            .await;
+            .sign_and_publish(attestation_slot, duties, attestation_data)
+            .await
+            .unwrap();
 
         // Despite the mismatch, the fallback path still published successfully.
         mock_ssz.expect(1).assert();
@@ -1023,9 +1077,15 @@ mod tests {
             .mock_post_beacon_pool_payload_attestations();
 
         let service = harness.service;
+        let (duties, attestation_data) = service
+            .produce_payload_attestation_data(attestation_slot, Some((0, expected_block_root)))
+            .await
+            .unwrap()
+            .unwrap();
         service
-            .produce_and_publish(attestation_slot, Some((0, expected_block_root)))
-            .await;
+            .sign_and_publish(attestation_slot, duties, attestation_data)
+            .await
+            .unwrap();
 
         // SSZ was attempted (and failed), JSON fallback succeeded.
         mock_ssz_error.expect(2).assert(); // first_success retries both nodes before giving up

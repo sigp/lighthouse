@@ -330,6 +330,7 @@ impl ForkChoiceTestDefinition {
                         execution_payload_parent_hash,
                         execution_payload_block_hash,
                         proposer_index: Some(0),
+                        payload_received: false,
                     };
                     fork_choice
                         .process_block::<MainnetEthSpec>(block, slot, &spec, Duration::ZERO)

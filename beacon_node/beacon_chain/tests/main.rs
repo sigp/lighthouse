@@ -12,4 +12,5 @@ mod schema_stability;
 mod store_tests;
 mod sync_committee_verification;
 mod tests;
+mod unrealized_checkpoints;
 mod validator_monitor;
