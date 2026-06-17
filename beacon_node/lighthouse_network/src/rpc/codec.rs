@@ -167,6 +167,12 @@ impl<E: EthSpec> Decoder for SSZSnappyInboundCodec<E> {
         if self.protocol.versioned_protocol == SupportedProtocol::MetaDataV3 {
             return Ok(Some(RequestType::MetaData(MetadataRequest::new_v3())));
         }
+        if self.protocol.versioned_protocol == SupportedProtocol::LightClientOptimisticUpdateV1 {
+            return Ok(Some(RequestType::LightClientOptimisticUpdate));
+        }
+        if self.protocol.versioned_protocol == SupportedProtocol::LightClientFinalityUpdateV1 {
+            return Ok(Some(RequestType::LightClientFinalityUpdate));
+        }
         let Some(length) = handle_length(&mut self.inner, &mut self.len, src)? else {
             return Ok(None);
         };
@@ -602,11 +608,25 @@ fn handle_rpc_request<E: EthSpec>(
                 root: Hash256::from_ssz_bytes(decoded_buffer)?,
             },
         ))),
+        // LightClientOptimisticUpdate and LightClientFinalityUpdate requests 
+        // return early from InboundUpgrade and do not reach the decoder.
         SupportedProtocol::LightClientOptimisticUpdateV1 => {
-            Ok(Some(RequestType::LightClientOptimisticUpdate))
+            if !decoded_buffer.is_empty() {
+                Err(RPCError::InvalidData(
+                    "LightClientOptimisticUpdate request should be empty".to_string(),
+                ))
+            } else {
+                Ok(Some(RequestType::LightClientOptimisticUpdate))
+            }
         }
         SupportedProtocol::LightClientFinalityUpdateV1 => {
-            Ok(Some(RequestType::LightClientFinalityUpdate))
+            if !decoded_buffer.is_empty() {
+                Err(RPCError::InvalidData(
+                    "LightClientFinalityUpdate request should be empty".to_string(),
+                ))
+            } else {
+                Ok(Some(RequestType::LightClientFinalityUpdate))
+            }
         }
         SupportedProtocol::LightClientUpdatesByRangeV1 => {
             Ok(Some(RequestType::LightClientUpdatesByRange(
