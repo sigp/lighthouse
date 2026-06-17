@@ -166,16 +166,20 @@ where
 
     let slots_per_epoch = E::slots_per_epoch();
 
+    // Minimum warm-up for the parent to reach FFG steady state (justified == epoch, finalized ==
+    // epoch - 1); 2 epochs is too few.
+    let warmup_epochs: u64 = 3;
     harness.advance_slot();
     harness
         .extend_chain(
-            slots_per_epoch as usize * 5,
+            slots_per_epoch as usize * warmup_epochs as usize,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
         .await;
 
-    let parent_epoch = Epoch::new(5);
+    let parent_epoch = Epoch::new(warmup_epochs);
+    // ceil(Minimal::slots_per_epoch() * 2/3) = 6
     let parent_slot = parent_epoch.start_slot(slots_per_epoch) + 6;
     let parent_root = harness.extend_to_slot(parent_slot).await;
 
@@ -210,6 +214,8 @@ where
     let (_, _, _, current_participation, _, _, _, _) = parent_state
         .mutable_validator_fields()
         .expect("parent state should have Altair validator fields");
+    // Slash this epoch's timely-target voters (they count toward the current-epoch target balance),
+    // excluding the child proposer, to drop target balance below the 2/3 justification threshold.
     let slash_indices = current_participation
         .iter()
         .enumerate()
@@ -289,16 +295,12 @@ where
         .build_caches(&harness.chain.spec)
         .expect("should build child state caches");
 
-    let slashed = slash_indices
+    let slashed = child_state
+        .validators()
         .iter()
-        .filter(|index| {
-            child_state
-                .validators()
-                .get(**index as usize)
-                .expect("slashed validator should exist")
-                .slashed
-        })
-        .count();
+        .enumerate()
+        .filter_map(|(index, validator)| validator.slashed.then_some(index as u64))
+        .collect::<Vec<_>>();
     let child_total_active_balance = child_state
         .get_total_active_balance()
         .expect("should get child total active balance");
@@ -313,7 +315,7 @@ where
         child_justification_and_finalization.current_justified_checkpoint();
     let expected_child_finalized = child_justification_and_finalization.finalized_checkpoint();
 
-    assert_eq!(slashed, slash_indices.len());
+    assert_eq!(slashed, slash_indices);
     assert!(
         child_current_target_balance < ceil_two_thirds(child_total_active_balance),
         "slashings should reduce current target balance below the justification threshold"
