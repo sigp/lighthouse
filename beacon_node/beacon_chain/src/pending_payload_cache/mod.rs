@@ -15,13 +15,12 @@ use crate::payload_envelope_verification::{
     AvailabilityPendingExecutedEnvelope, AvailableExecutedEnvelope,
 };
 use crate::{BeaconChainTypes, CustodyContext, metrics};
+use hashlink::lru_cache::LruCache;
 use kzg::Kzg;
-use lru::LruCache;
 use parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Debug;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tracing::{Span, debug, error, instrument};
 use types::{
@@ -41,7 +40,6 @@ use crate::metrics::{
 use crate::observed_data_sidecars::ObservationStrategy;
 use pending_components::{PendingComponents, ReconstructColumnsDecision};
 use types::SignedExecutionPayloadBid;
-use types::new_non_zero_usize;
 
 /// The LRU Cache stores `PendingComponents`, which store the block root, the execution payload bid, and its associated column data.
 /// The execution payload bid stores the kzg commitments which we use to verify against incoming column data.
@@ -49,7 +47,7 @@ use types::new_non_zero_usize;
 ///
 /// `PendingComponents` are now never removed from the cache manually and are only removed via LRU
 /// eviction to prevent race conditions (#7961), so we expect this cache to be full all the time.
-const AVAILABILITY_CACHE_CAPACITY: NonZeroUsize = new_non_zero_usize(32);
+const AVAILABILITY_CACHE_CAPACITY: usize = 32;
 
 /// This type is returned after adding a bid / column to the `DataAvailabilityChecker`.
 ///
@@ -206,7 +204,9 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     /// This will silently drop the bid if a bid for this block root already exists in the cache.
     pub fn insert_bid(&self, block_root: Hash256, bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>) {
         let mut write_lock = self.availability_cache.write();
-        write_lock.get_or_insert_mut(block_root, || PendingComponents::new(block_root, bid));
+        write_lock
+            .entry(block_root)
+            .or_insert_with(|| PendingComponents::new(block_root, bid));
     }
 
     /// Perform KZG verification on RPC custody columns and insert them into the cache.
@@ -423,7 +423,8 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
 
         {
             let pending_components = write_lock
-                .get_or_insert_mut(block_root, || PendingComponents::new(block_root, bid));
+                .entry(block_root)
+                .or_insert_with(|| PendingComponents::new(block_root, bid));
             update_fn(pending_components)
         }
 
@@ -496,7 +497,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
             }
         }
         for key in keys_to_remove {
-            write_lock.pop(&key);
+            write_lock.remove(&key);
         }
 
         Ok(())
