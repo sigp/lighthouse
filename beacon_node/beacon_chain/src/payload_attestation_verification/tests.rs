@@ -1,25 +1,14 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use bls::{Keypair, Signature};
-use fork_choice::ForkChoice;
-use genesis::{generate_deterministic_keypairs, interop_genesis_state};
-use parking_lot::RwLock;
-use proto_array::PayloadStatus;
+use bls::Signature;
 use slot_clock::{SlotClock, TestingSlotClock};
-use state_processing::AllCaches;
-use state_processing::genesis::genesis_block;
-use store::{HotColdDB, StoreConfig};
 use types::{
-    ChainSpec, Checkpoint, Domain, Epoch, EthSpec, Hash256, MinimalEthSpec, PayloadAttestationData,
-    PayloadAttestationMessage, SignedBeaconBlock, SignedRoot, Slot,
+    Domain, Epoch, EthSpec, ForkName, Hash256, MinimalEthSpec, PayloadAttestationData,
+    PayloadAttestationMessage, SignedRoot, Slot,
 };
 
 use crate::{
-    beacon_fork_choice_store::BeaconForkChoiceStore,
-    beacon_snapshot::BeaconSnapshot,
-    canonical_head::CanonicalHead,
-    observed_attesters::ObservedPayloadAttesters,
     payload_attestation_verification::{
         Error as PayloadAttestationError,
         gossip_verified_payload_attestation::{
@@ -27,7 +16,6 @@ use crate::{
         },
     },
     test_utils::{BeaconChainHarness, EphemeralHarnessType, fork_name_from_env, test_spec},
-    validator_pubkey_cache::ValidatorPubkeyCache,
 };
 
 type E = MinimalEthSpec;
@@ -36,96 +24,48 @@ type T = EphemeralHarnessType<E>;
 const NUM_VALIDATORS: usize = 64;
 
 struct TestContext {
-    canonical_head: CanonicalHead<T>,
-    observed_payload_attesters: RwLock<ObservedPayloadAttesters<E>>,
-    validator_pubkey_cache: RwLock<ValidatorPubkeyCache<T>>,
-    slot_clock: TestingSlotClock,
-    keypairs: Vec<Keypair>,
-    spec: ChainSpec,
+    harness: BeaconChainHarness<T>,
     genesis_block_root: Hash256,
-    store: Arc<store::HotColdDB<E, store::MemoryStore, store::MemoryStore>>,
 }
 
 impl TestContext {
     fn new() -> Self {
-        let spec = test_spec::<E>();
-        let store = Arc::new(
-            HotColdDB::open_ephemeral(StoreConfig::default(), Arc::new(spec.clone()))
-                .expect("should open ephemeral store"),
-        );
-
-        let keypairs = generate_deterministic_keypairs(NUM_VALIDATORS);
-
-        let mut state =
-            interop_genesis_state::<E>(&keypairs, 0, Hash256::repeat_byte(0x42), None, &spec)
-                .expect("should build genesis state");
-
-        *state.finalized_checkpoint_mut() = Checkpoint {
-            epoch: Epoch::new(1),
-            root: Hash256::ZERO,
-        };
-
-        let mut block = genesis_block(&state, &spec).expect("should build genesis block");
-        *block.state_root_mut() = state
-            .update_tree_hash_cache()
-            .expect("should hash genesis state");
-        let signed_block = SignedBeaconBlock::from_block(block, Signature::empty());
-        let block_root = signed_block.canonical_root();
-
-        let snapshot = BeaconSnapshot::new(
-            Arc::new(signed_block.clone()),
-            None,
-            block_root,
-            state.clone(),
-        );
-
-        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store.clone(), snapshot.clone())
-            .expect("should create fork choice store");
-        let fork_choice =
-            ForkChoice::from_anchor(fc_store, block_root, &signed_block, &state, None, &spec)
-                .expect("should create fork choice");
-
-        let canonical_head =
-            CanonicalHead::new(fork_choice, Arc::new(snapshot), PayloadStatus::Pending);
-
+        let spec = Arc::new(test_spec::<E>());
         let slot_clock = TestingSlotClock::new(
             Slot::new(0),
             Duration::from_secs(0),
             spec.get_slot_duration(),
         );
-        // Advance past genesis so `now_with_past_tolerance` doesn't underflow.
-        slot_clock.set_current_time(spec.get_slot_duration());
+        let harness = BeaconChainHarness::builder(E::default())
+            .spec(spec)
+            .deterministic_keypairs(NUM_VALIDATORS)
+            .fresh_ephemeral_store()
+            .testing_slot_clock(slot_clock)
+            .build();
 
-        let validator_pubkey_cache =
-            ValidatorPubkeyCache::new(&state, store.clone()).expect("should create pubkey cache");
+        // Advance past genesis so `now_with_past_tolerance` doesn't underflow.
+        harness
+            .chain
+            .slot_clock
+            .set_current_time(harness.spec.get_slot_duration());
+        let genesis_block_root = harness.chain.genesis_block_root;
 
         Self {
-            canonical_head,
-            observed_payload_attesters: RwLock::new(ObservedPayloadAttesters::default()),
-            validator_pubkey_cache: RwLock::new(validator_pubkey_cache),
-            slot_clock,
-            keypairs,
-            spec,
-            genesis_block_root: block_root,
-            store,
+            harness,
+            genesis_block_root,
         }
     }
 
     fn gossip_ctx(&self) -> GossipVerificationContext<'_, T> {
-        GossipVerificationContext {
-            slot_clock: &self.slot_clock,
-            spec: &self.spec,
-            observed_payload_attesters: &self.observed_payload_attesters,
-            canonical_head: &self.canonical_head,
-            validator_pubkey_cache: &self.validator_pubkey_cache,
-            store: &self.store,
-        }
+        self.harness.chain.payload_attestation_gossip_context()
     }
 
     fn ptc_members(&self, slot: Slot) -> Vec<usize> {
-        let head = self.canonical_head.cached_head();
+        let head = self.harness.chain.canonical_head.cached_head();
         let state = &head.snapshot.beacon_state;
-        let ptc = state.get_ptc(slot, &self.spec).expect("should get PTC");
+        let ptc = state
+            .get_ptc(slot, &self.harness.spec)
+            .expect("should get PTC");
         ptc.0.to_vec()
     }
 
@@ -134,16 +74,18 @@ impl TestContext {
         data: PayloadAttestationData,
         validator_index: u64,
     ) -> PayloadAttestationMessage {
-        let head = self.canonical_head.cached_head();
+        let head = self.harness.chain.canonical_head.cached_head();
         let state = &head.snapshot.beacon_state;
-        let domain = self.spec.get_domain(
+        let domain = self.harness.spec.get_domain(
             data.slot.epoch(E::slots_per_epoch()),
             Domain::PTCAttester,
             &state.fork(),
             state.genesis_validators_root(),
         );
         let message = data.signing_root(domain);
-        let signature = self.keypairs[validator_index as usize].sk.sign(message);
+        let signature = self.harness.validator_keypairs[validator_index as usize]
+            .sk
+            .sign(message);
         PayloadAttestationMessage {
             validator_index,
             data,
@@ -192,7 +134,7 @@ fn past_slot() {
         return;
     }
     let ctx = TestContext::new();
-    ctx.slot_clock.set_slot(5);
+    ctx.harness.chain.slot_clock.set_slot(5);
     let gossip = ctx.gossip_ctx();
 
     let msg = make_payload_attestation(Slot::new(0), 0, ctx.genesis_block_root);
@@ -225,13 +167,32 @@ fn unknown_head_block() {
 }
 
 #[test]
+fn block_not_at_slot() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
+
+    // The genesis block is at slot 0, but the message claims slot 1. A PTC member assigned to an
+    // empty slot must not attest, so this must be ignored (per consensus-specs #5281).
+    let msg = make_payload_attestation(Slot::new(1), 0, ctx.genesis_block_root);
+    let result = VerifiedPayloadAttestationMessage::new(msg, &gossip);
+    assert!(
+        matches!(result, Err(PayloadAttestationError::BlockNotAtSlot { .. })),
+        "expected BlockNotAtSlot, got: {:?}",
+        result
+    );
+}
+
+#[test]
 fn not_in_ptc() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    let slot = Slot::new(1);
+    let slot = Slot::new(0);
 
     let ptc_members = ctx.ptc_members(slot);
     let non_ptc_validator = (0..NUM_VALIDATORS as u64)
@@ -253,7 +214,7 @@ fn invalid_signature() {
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    let slot = Slot::new(1);
+    let slot = Slot::new(0);
 
     let ptc_members = ctx.ptc_members(slot);
     let validator_index = ptc_members[0] as u64;
@@ -273,7 +234,7 @@ fn valid_payload_attestation() {
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    let slot = Slot::new(1);
+    let slot = Slot::new(0);
 
     let ptc_members = ctx.ptc_members(slot);
     let validator_index = ptc_members[0] as u64;
@@ -300,7 +261,7 @@ fn duplicate_after_valid() {
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    let slot = Slot::new(1);
+    let slot = Slot::new(0);
 
     let ptc_members = ctx.ptc_members(slot);
     let validator_index = ptc_members[0] as u64;
@@ -328,26 +289,98 @@ fn duplicate_after_valid() {
     ));
 }
 
-/// Exercises the `partial_state_advance` fallback in gossip verification when
-/// the head state is too stale to compute PTC membership (e.g., during a
-/// network liveness failure with many missed slots).
 #[tokio::test]
-async fn stale_head_with_partial_advance() {
+async fn ptc_cache_is_primed_at_gloas_fork_boundary() {
+    // Only run this test once, when FORK_NAME=gloas exactly.
+    let mut spec = test_spec::<E>();
+    if spec.fork_name_at_epoch(Epoch::new(0)) != ForkName::Gloas {
+        return;
+    }
+
+    let gloas_fork_epoch = Epoch::new(2);
+    spec.gloas_fork_epoch = Some(gloas_fork_epoch);
+    assert_eq!(
+        spec.fork_name_at_epoch(gloas_fork_epoch - 1),
+        ForkName::Fulu
+    );
+    assert_eq!(spec.fork_name_at_epoch(gloas_fork_epoch), ForkName::Gloas);
+
+    let slots_per_epoch = E::slots_per_epoch();
+    let fork_boundary_slot = gloas_fork_epoch.start_slot(slots_per_epoch);
+    let test_slots = (fork_boundary_slot.as_u64()
+        ..fork_boundary_slot.as_u64() + slots_per_epoch * 2)
+        .map(Slot::new);
+
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(Arc::new(spec))
+        .deterministic_keypairs(NUM_VALIDATORS)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    for slot in test_slots {
+        harness.extend_to_slot(slot).await;
+        assert!(
+            harness
+                .chain
+                .shuffling_cache
+                .read()
+                .check_gloas_ptcs_invariant(&harness.spec),
+            "shuffling cache should satisfy the Gloas PTC invariant"
+        );
+
+        let head = harness.chain.canonical_head.cached_head();
+        let state = &head.snapshot.beacon_state;
+        let ptc = state.get_ptc(slot, &harness.spec).expect("should get PTC");
+        let validator_index = *ptc.0.first().expect("PTC should have a member") as u64;
+        let data = PayloadAttestationData {
+            beacon_block_root: head.head_block_root(),
+            slot,
+            payload_present: true,
+            blob_data_available: true,
+        };
+        let domain = harness.spec.get_domain(
+            data.slot.epoch(slots_per_epoch),
+            Domain::PTCAttester,
+            &state.fork(),
+            state.genesis_validators_root(),
+        );
+        let signature = harness.validator_keypairs[validator_index as usize]
+            .sk
+            .sign(data.signing_root(domain));
+        let msg = PayloadAttestationMessage {
+            validator_index,
+            data,
+            signature,
+        };
+
+        let result = harness
+            .chain
+            .verify_payload_attestation_message_for_gossip(msg);
+        assert!(
+            result.is_ok(),
+            "expected PTC payload attestation to verify at slot {}, got: {:?}",
+            slot,
+            result.unwrap_err()
+        );
+    }
+}
+
+/// Check that a payload attestation whose assigned slot is empty is ignored.
+#[tokio::test]
+async fn stale_head_empty_slot_payload_attestation_ignored() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
 
     let slots_per_epoch = E::slots_per_epoch();
-    // Head at epoch 1, message at epoch 5 — 4 epochs of missed slots.
-    // This exceeds min_seed_lookahead (1), triggering the fallback path:
-    // get_advanced_hot_state loads the stored state, then partial_state_advance
-    // advances it through epoch boundaries to populate ptc_window.
+    // Head at epoch 1, message at epoch 5: 4 epochs of missed slots.
     let head_slot = Slot::new(slots_per_epoch);
     let missed_epochs = 4;
     let target_slot = Slot::new(slots_per_epoch * (1 + missed_epochs));
-    let target_epoch = target_slot.epoch(slots_per_epoch);
 
-    // GIVEN a chain with blocks through epoch 1 (so the store has states).
+    // Given a chain with blocks through epoch 1, then a slot clock advanced 4 epochs without
+    // producing blocks (simulating missed slots).
     let harness = BeaconChainHarness::builder(E::default())
         .default_spec()
         .deterministic_keypairs(64)
@@ -355,45 +388,114 @@ async fn stale_head_with_partial_advance() {
         .mock_execution_layer()
         .build();
     harness.extend_to_slot(head_slot).await;
-
-    let head = harness.chain.canonical_head.cached_head();
-    let head_epoch = head.snapshot.beacon_state.current_epoch();
-    assert!(
-        target_epoch > head_epoch + harness.spec.min_seed_lookahead,
-        "precondition: message epoch must exceed head + min_seed_lookahead to trigger fallback"
-    );
-
-    // GIVEN a slot clock advanced to epoch 5 without producing blocks
-    // (simulating missed slots during a liveness failure).
     harness.chain.slot_clock.set_slot(target_slot.as_u64());
 
-    // Advance a reference state to compute the PTC at the target slot.
-    let mut reference_state = head.snapshot.beacon_state.clone();
-    state_processing::state_advance::partial_state_advance(
-        &mut reference_state,
-        Some(head.snapshot.beacon_state_root()),
-        target_slot,
-        &harness.spec,
-    )
-    .expect("should advance reference state");
-    reference_state
-        .build_all_caches(&harness.spec)
-        .expect("should build caches");
+    let head = harness.chain.canonical_head.cached_head();
 
-    let ptc = reference_state
+    // When a payload attestation for empty target slot references a stale block root
+    // it is ignored because target_slot != block.slot
+    let data = PayloadAttestationData {
+        beacon_block_root: head.head_block_root(),
+        slot: target_slot,
+        payload_present: true,
+        blob_data_available: true,
+    };
+    let msg = PayloadAttestationMessage {
+        validator_index: 0,
+        data,
+        signature: Signature::empty(),
+    };
+
+    let result = harness
+        .chain
+        .verify_payload_attestation_message_for_gossip(msg);
+    assert!(
+        matches!(result, Err(PayloadAttestationError::BlockNotAtSlot { .. })),
+        "expected BlockNotAtSlot, got: {result:?}"
+    );
+}
+
+/// Exercises payload attestation gossip verification for a non-canonical block whose PTC differs
+/// from the canonical chain's PTC for the same slot.
+#[tokio::test]
+async fn side_chain_payload_attestation_uses_side_chain_ptc() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let slots_per_epoch = E::slots_per_epoch();
+    let fork_slot = Slot::new(slots_per_epoch);
+    let target_slot = Slot::new(slots_per_epoch * 4);
+    let target_epoch = target_slot.epoch(slots_per_epoch);
+
+    let harness = BeaconChainHarness::builder(E::default())
+        .default_spec()
+        .deterministic_keypairs(NUM_VALIDATORS)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    // Build a common prefix through epoch 1.
+    harness.extend_to_slot(fork_slot).await;
+    let fork_state = harness.chain.head_snapshot().beacon_state.clone();
+
+    // Build two branches for several epochs. The side chain skips its first slot, giving it
+    // different RANDAO mixes and therefore a different PTC by the target slot. The canonical chain
+    // is processed second and receives sub-finality attestations, so it remains the head without
+    // finalizing past the side-chain fork point.
+    let side_slots: Vec<_> = ((fork_slot + 2).as_u64()..=target_slot.as_u64())
+        .map(Slot::new)
+        .collect();
+    let canonical_slots: Vec<_> = ((fork_slot + 1).as_u64()..=target_slot.as_u64())
+        .map(Slot::new)
+        .collect();
+    let canonical_validators = (0..NUM_VALIDATORS / 2).collect::<Vec<_>>();
+
+    let results = harness
+        .add_blocks_on_multiple_chains(vec![
+            (fork_state.clone(), side_slots, vec![]),
+            (fork_state, canonical_slots, canonical_validators),
+        ])
+        .await;
+
+    let side_head_root: Hash256 = results[0].2.into();
+    let side_head_state = &results[0].3;
+    let canonical_head_root: Hash256 = results[1].2.into();
+    let canonical_head_state = &results[1].3;
+
+    assert_ne!(side_head_root, canonical_head_root);
+    assert_eq!(
+        harness.chain.head_snapshot().beacon_block_root,
+        canonical_head_root
+    );
+
+    let side_ptc = side_head_state
         .get_ptc(target_slot, &harness.spec)
-        .expect("should get PTC from reference state");
-    let validator_index = *ptc.0.first().expect("PTC should have at least one member") as u64;
+        .expect("should get side-chain PTC");
+    let canonical_ptc = canonical_head_state
+        .get_ptc(target_slot, &harness.spec)
+        .expect("should get canonical PTC");
+    assert_ne!(
+        side_ptc, canonical_ptc,
+        "precondition: side-chain PTC should differ from canonical PTC"
+    );
 
-    // WHEN a properly-signed payload attestation from a PTC member is verified.
+    let validator_index = side_ptc
+        .0
+        .iter()
+        .copied()
+        .find(|validator_index| !canonical_ptc.0.contains(validator_index))
+        .expect("should find a validator in the side-chain PTC only")
+        as u64;
+
     let domain = harness.spec.get_domain(
         target_epoch,
         Domain::PTCAttester,
-        &reference_state.fork(),
-        reference_state.genesis_validators_root(),
+        &side_head_state.fork(),
+        side_head_state.genesis_validators_root(),
     );
     let data = PayloadAttestationData {
-        beacon_block_root: head.head_block_root(),
+        beacon_block_root: side_head_root,
         slot: target_slot,
         payload_present: true,
         blob_data_available: true,
@@ -408,15 +510,9 @@ async fn stale_head_with_partial_advance() {
         signature,
     };
 
-    // THEN verification succeeds despite the head being 4 epochs stale.
-    let result = harness
+    let verified = harness
         .chain
-        .verify_payload_attestation_message_for_gossip(msg);
-    assert!(
-        result.is_ok(),
-        "expected Ok (head epoch {}, message epoch {}), got: {:?}",
-        head_epoch,
-        target_epoch,
-        result.unwrap_err()
-    );
+        .verify_payload_attestation_message_for_gossip(msg)
+        .expect("side-chain payload attestation should verify");
+    assert_eq!(verified.ptc(), &side_ptc);
 }

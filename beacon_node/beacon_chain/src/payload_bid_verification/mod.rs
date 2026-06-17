@@ -37,6 +37,8 @@ pub enum PayloadBidError {
     },
     /// The bids slot is not the current slot or the next slot.
     InvalidBidSlot { bid_slot: Slot },
+    /// The bid's slot is not greater than the slot of its parent block.
+    BidNotDescendantOfParent { bid_slot: Slot, parent_slot: Slot },
     /// The slot clock cannot be read.
     UnableToReadSlot,
     /// No proposer preferences for the current slot.
@@ -48,7 +50,7 @@ pub enum PayloadBidError {
     },
     /// The bids fee recipient doesn't match the proposer preferences fee recipient.
     InvalidFeeRecipient,
-    /// The bids gas limit doesn't match the proposer preferences gas limit.
+    /// The bid's gas limit is not compatible with the proposer's target gas limit.
     InvalidGasLimit,
     /// The bids execution payment is non-zero
     ExecutionPaymentNonZero { execution_payment: u64 },

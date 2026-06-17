@@ -36,7 +36,7 @@ use types::{
 use warp::{Filter, Rejection, Reply};
 use warp_utils::reject::convert_rejection;
 
-pub mod execution_payload_envelope;
+pub mod execution_payload_envelopes;
 
 /// Uses the `chain.validator_pubkey_cache` to resolve a pubkey to a validator
 /// index and then ensures that the validator exists in the given `state`.
@@ -277,8 +277,10 @@ pub fn get_validator_attestation_data<T: BeaconChainTypes>(
                         )));
                     }
 
+                    // Always use committee_index 0 regardless of the query parameter, since
+                    // attestation data does not depend on the committee index post-Electra.
                     chain
-                        .produce_unaggregated_attestation(query.slot, query.committee_index)
+                        .produce_unaggregated_attestation(query.slot, 0)
                         .map(|attestation| attestation.data().clone())
                         .map(GenericResponse::from)
                         .map_err(warp_utils::reject::unhandled_error)
