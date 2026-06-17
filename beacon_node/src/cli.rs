@@ -390,9 +390,12 @@ pub fn cli_app() -> Command {
         .arg(
             Arg::new("enable-mplex")
                 .long("enable-mplex")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .help("Enables mplex multiplexer alongside yamux. Yamux is preferred when both are available.")
+                .value_name("BOOLEAN")
+                .action(ArgAction::Set)
+                .num_args(0..=1)
+                .default_value("true")
+                .default_missing_value("true")
+                .help("Enables the mplex multiplexer alongside yamux. Yamux is preferred when both are available. Enabled by default; set to \"false\" to disable.")
                 .display_order(0)
         )
         .arg(
@@ -681,21 +684,13 @@ pub fn cli_app() -> Command {
         .arg(
             Arg::new("enable-partial-columns")
                 .long("enable-partial-columns")
+                .value_name("BOOLEAN")
                 .help("Enable partial messages for data columns. This can reduce the amount of \
-                data sent over the network. Enabled by default on Hoodi and Sepolia; use \
-                --disable-partial-columns to opt out.")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new("disable-partial-columns")
-                .long("disable-partial-columns")
-                .help("Disable partial messages for data columns. Use this on Hoodi or Sepolia \
-                to opt out of the default-enabled behavior.")
-                .action(ArgAction::SetTrue)
-                .conflicts_with("enable-partial-columns")
-                .help_heading(FLAG_HEADER)
+                data sent over the network. Enabled by default on Hoodi and Sepolia; set to \
+                \"false\" to opt out.")
+                .action(ArgAction::Set)
+                .num_args(0..=1)
+                .default_missing_value("true")
                 .display_order(0)
         )
         /*

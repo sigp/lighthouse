@@ -708,14 +708,18 @@ mod ssz_static {
 
     #[test]
     fn blob_sidecar() {
-        SszStaticHandler::<BlobSidecar<MinimalEthSpec>, MinimalEthSpec>::deneb_and_later().run();
-        SszStaticHandler::<BlobSidecar<MainnetEthSpec>, MainnetEthSpec>::deneb_and_later().run();
+        SszStaticHandler::<BlobSidecar<MinimalEthSpec>, MinimalEthSpec>::deneb_only().run();
+        SszStaticHandler::<BlobSidecar<MainnetEthSpec>, MainnetEthSpec>::deneb_only().run();
+        SszStaticHandler::<BlobSidecar<MinimalEthSpec>, MinimalEthSpec>::electra_only().run();
+        SszStaticHandler::<BlobSidecar<MainnetEthSpec>, MainnetEthSpec>::electra_only().run();
     }
 
     #[test]
     fn blob_identifier() {
-        SszStaticHandler::<BlobIdentifier, MinimalEthSpec>::deneb_and_later().run();
-        SszStaticHandler::<BlobIdentifier, MainnetEthSpec>::deneb_and_later().run();
+        SszStaticHandler::<BlobIdentifier, MinimalEthSpec>::deneb_only().run();
+        SszStaticHandler::<BlobIdentifier, MainnetEthSpec>::deneb_only().run();
+        SszStaticHandler::<BlobIdentifier, MinimalEthSpec>::electra_only().run();
+        SszStaticHandler::<BlobIdentifier, MainnetEthSpec>::electra_only().run();
     }
 
     #[test]
@@ -1026,6 +1030,12 @@ fn fork_choice_get_head() {
 }
 
 #[test]
+fn fork_choice_on_attestation() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("on_attestation").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("on_attestation").run();
+}
+
+#[test]
 fn fork_choice_on_block() {
     ForkChoiceHandler::<MinimalEthSpec>::new("on_block").run();
     ForkChoiceHandler::<MainnetEthSpec>::new("on_block").run();
@@ -1047,12 +1057,6 @@ fn fork_choice_reorg() {
 fn fork_choice_withholding() {
     ForkChoiceHandler::<MinimalEthSpec>::new("withholding").run();
     // There is no mainnet variant for this test.
-}
-
-#[test]
-fn fork_choice_should_override_forkchoice_update() {
-    ForkChoiceHandler::<MinimalEthSpec>::new("should_override_forkchoice_update").run();
-    ForkChoiceHandler::<MainnetEthSpec>::new("should_override_forkchoice_update").run();
 }
 
 #[test]

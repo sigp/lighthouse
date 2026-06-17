@@ -117,9 +117,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
 
                 // TODO(gloas) do we need to send a `PayloadImported` event to the reprocess queue?
-                // TODO(gloas) do we need to recompute head?
-                // should canonical_head return the block and the payload now?
-                self.recompute_head_at_current_slot().await;
 
                 metrics::inc_counter(&metrics::ENVELOPE_PROCESSING_SUCCESSES);
 

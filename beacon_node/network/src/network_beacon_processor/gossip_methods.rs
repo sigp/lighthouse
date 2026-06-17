@@ -3905,6 +3905,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match &result {
             Ok(AvailabilityProcessingStatus::Imported(_, block_root)) => {
+                self.chain.recompute_head_at_current_slot().await;
                 // The payload envelope is imported (`is_payload_received` is now true); release any
                 // attestations awaiting this block's payload so they can be re-processed.
                 self.notify_payload_envelope_imported(*block_root, EnvelopeSource::Gossip);
@@ -4003,7 +4004,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | PayloadBidError::InvalidBuilder { .. }
                 | PayloadBidError::InvalidFeeRecipient
                 | PayloadBidError::ExecutionPaymentNonZero { .. }
-                | PayloadBidError::InvalidBlobKzgCommitments { .. },
+                | PayloadBidError::InvalidBlobKzgCommitments { .. }
+                | PayloadBidError::BidNotDescendantOfParent { .. },
             ) => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(
@@ -4181,6 +4183,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     peer_id,
                     *beacon_block_root,
                 ))
+            }
+            PayloadAttestationError::BlockNotAtSlot { .. } => {
+                debug!(
+                    %peer_id,
+                    %message_slot,
+                    "Payload attestation references block at wrong slot"
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
             PayloadAttestationError::NotInPTC { .. } => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
