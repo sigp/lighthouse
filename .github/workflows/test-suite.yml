@@ -304,7 +304,7 @@ jobs:
           cache-target: release
     - name: Create log dir
       run: mkdir ${{ runner.temp }}/basic_simulator_logs
-    - name: Run a basic beacon chain sim that starts from Deneb
+    - name: Run a basic beacon chain sim
       run: cargo run --release --bin simulator basic-sim --disable-stdout-logging --log-dir ${{ runner.temp }}/basic_simulator_logs
     - name: Upload logs
       if: always()

@@ -4,7 +4,7 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
-use crate::json_structures::{BlobAndProofV1, BlobAndProofV2, BlobAndProofV3};
+use crate::json_structures::{BlobAndProofV2, BlobAndProofV3};
 use crate::payload_cache::PayloadCache;
 use arc_swap::ArcSwapOption;
 use auth::{Auth, JwtKey, strip_prefix};
@@ -1719,23 +1719,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 .transpose()
         } else {
             Err(Error::PayloadBodiesByRangeNotSupported)
-        }
-    }
-
-    pub async fn get_blobs_v1(
-        &self,
-        query: Vec<Hash256>,
-    ) -> Result<Vec<Option<BlobAndProofV1<E>>>, Error> {
-        let capabilities = self.get_engine_capabilities(None).await?;
-
-        if capabilities.get_blobs_v1 {
-            self.engine()
-                .request(|engine| async move { engine.api.get_blobs_v1(query).await })
-                .await
-                .map_err(Box::new)
-                .map_err(Error::EngineError)
-        } else {
-            Err(Error::GetBlobsNotSupported)
         }
     }
 

@@ -124,6 +124,14 @@ pub enum Operation {
         #[serde(default)]
         proposer_boost_root: Option<Hash256>,
     },
+    /// Assert the root returned by `latest_parent_full_block` for `block_root`.
+    AssertLatestFullPayloadBlock {
+        block_root: Hash256,
+        expected: Option<Hash256>,
+        /// Override the proposer boost root. Defaults to `Hash256::zero()`.
+        #[serde(default)]
+        proposer_boost_root: Option<Hash256>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,7 +152,7 @@ impl ForkChoiceTestDefinition {
     pub fn run(self) {
         let spec = self.spec.unwrap_or_else(|| {
             let mut spec = MainnetEthSpec::default_spec();
-            spec.proposer_score_boost = Some(50);
+            spec.proposer_score_boost = 50;
             // Legacy test definitions target pre-Gloas behaviour unless explicitly overridden.
             spec.gloas_fork_epoch = None;
             spec
@@ -603,6 +611,24 @@ impl ForkChoiceTestDefinition {
                     assert_eq!(
                         actual, expected_status,
                         "canonical payload status mismatch at op index {}",
+                        op_index
+                    );
+                }
+                Operation::AssertLatestFullPayloadBlock {
+                    block_root,
+                    expected,
+                    proposer_boost_root,
+                } => {
+                    let actual = fork_choice
+                        .latest_parent_full_block::<MainnetEthSpec>(
+                            block_root,
+                            proposer_boost_root.unwrap_or_else(Hash256::zero),
+                            &spec,
+                        )
+                        .unwrap();
+                    assert_eq!(
+                        actual, expected,
+                        "latest_parent_full_block mismatch at op index {}",
                         op_index
                     );
                 }
