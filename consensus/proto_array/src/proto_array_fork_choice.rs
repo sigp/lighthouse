@@ -242,6 +242,8 @@ pub struct Block {
     pub execution_payload_parent_hash: Option<ExecutionBlockHash>,
     pub execution_payload_block_hash: Option<ExecutionBlockHash>,
     pub proposer_index: Option<u64>,
+    /// Whether the block's execution payload envelope has been received. Always `false` pre-Gloas.
+    pub payload_received: bool,
 }
 
 impl Block {
@@ -502,6 +504,7 @@ impl ProtoArrayForkChoice {
             execution_payload_parent_hash,
             execution_payload_block_hash,
             proposer_index: Some(proposer_index),
+            payload_received: false,
         };
 
         proto_array
@@ -959,6 +962,7 @@ impl ProtoArrayForkChoice {
             execution_payload_parent_hash: block.execution_payload_parent_hash().ok(),
             execution_payload_block_hash: block.execution_payload_block_hash().ok(),
             proposer_index: block.proposer_index().ok(),
+            payload_received: block.payload_received().unwrap_or(false),
         })
     }
 
@@ -1383,6 +1387,7 @@ mod test_compute_deltas {
                     execution_payload_parent_hash: None,
                     execution_payload_block_hash: None,
                     proposer_index: Some(0),
+                    payload_received: false,
                 },
                 genesis_slot + 1,
                 &spec,
@@ -1411,6 +1416,7 @@ mod test_compute_deltas {
                     execution_payload_parent_hash: None,
                     execution_payload_block_hash: None,
                     proposer_index: Some(0),
+                    payload_received: false,
                 },
                 genesis_slot + 1,
                 &spec,
@@ -1547,6 +1553,7 @@ mod test_compute_deltas {
                         execution_payload_parent_hash: None,
                         execution_payload_block_hash: None,
                         proposer_index: Some(0),
+                        payload_received: false,
                     },
                     Slot::from(block.slot),
                     &spec,
