@@ -168,11 +168,6 @@ pub enum EnvelopeError {
     /// Error verifying the execution payload
     ExecutionPayloadError(ExecutionPayloadError),
     /// Optimistic sync is not supported for Gloas payload envelopes.
-    ///
-    /// Proto-array only tracks `payload_received` as a bool, so it cannot represent an
-    /// optimistically-imported payload that the EL may later invalidate. Until fork choice can
-    /// track optimistic payload status, we reject optimistic envelopes rather than treat them as
-    /// valid.
     OptimisticSyncNotSupported { block_root: Hash256 },
     /// The envelope's beacon block was not present in fork choice at import time.
     ///

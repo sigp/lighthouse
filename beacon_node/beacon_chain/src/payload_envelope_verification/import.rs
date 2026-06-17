@@ -173,6 +173,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(BeaconChainError::TokioJoin)?
             .ok_or(BeaconChainError::RuntimeShutdown)??;
 
+        // TODO(gloas): optimistic sync is not supported for Gloas, maybe we could re-add it
+        if payload_verification_outcome
+            .payload_verification_status
+            .is_optimistic()
+        {
+            return Err(EnvelopeError::OptimisticSyncNotSupported { block_root });
+        }
+
         Ok(AvailabilityPendingExecutedEnvelope::new(
             signed_envelope,
             block_root,
@@ -222,14 +230,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         payload_verification_status: PayloadVerificationStatus,
     ) -> Result<Hash256, EnvelopeError> {
-        // TODO(gloas): optimistic sync is not supported for Gloas. Proto-array only tracks
-        // `payload_received` as a bool, so an optimistically-imported payload would be treated as
-        // valid with no way to invalidate it if the EL later rejects it. Reject here (covering both
-        // the gossip and range-sync paths) until fork choice can track optimistic payload status.
-        if payload_verification_status.is_optimistic() {
-            return Err(EnvelopeError::OptimisticSyncNotSupported { block_root });
-        }
-
         // Everything in this initial section is on the hot path for processing the envelope.
         // Take an upgradable read lock on fork choice so we can check if this block has already
         // been imported. We don't want to repeat work importing a block that is already imported.

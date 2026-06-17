@@ -3715,6 +3715,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | EnvelopeError::BeaconStateError(_)
                     // The following variants are produced during envelope import, not gossip
                     // verification, so they cannot be reached here. Ignore them to be safe.
+                    | EnvelopeError::OptimisticSyncNotSupported { .. }
                     | EnvelopeError::BlockRootNotInForkChoice(_)
                     | EnvelopeError::InternalError(_) => {
                         self.propagate_validation_result(
