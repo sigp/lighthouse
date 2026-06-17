@@ -1,4 +1,4 @@
-use crate::metrics::{self, register_process_result_metrics};
+use crate::metrics::{self, EnvelopeSource, register_process_result_metrics};
 use crate::network_beacon_processor::{FUTURE_SLOT_TOLERANCE, NetworkBeaconProcessor};
 use crate::sync::BatchProcessResult;
 use crate::sync::manager::CustodyBatchProcessResult;
@@ -158,8 +158,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             return;
         };
 
-        let slot = block.slot();
-        let parent_root = block.message().parent_root();
         let commitments_formatted = block.as_block().commitments_formatted();
 
         debug!(
@@ -186,17 +184,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         // RPC block imported, regardless of process type
         match result.as_ref() {
-            Ok(AvailabilityProcessingStatus::Imported(hash)) => {
+            Ok(AvailabilityProcessingStatus::Imported(slot, hash)) => {
                 info!(
                     %slot,
                     %hash,
                     "New RPC block received",
                 );
                 // Trigger processing for work referencing this block.
-                let reprocess_msg = ReprocessQueueMessage::BlockImported {
-                    block_root: *hash,
-                    parent_root,
-                };
+                let reprocess_msg = ReprocessQueueMessage::BlockImported { block_root: *hash };
                 if self
                     .beacon_processor_send
                     .try_send(WorkEvent {
@@ -213,7 +208,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 };
                 self.chain.block_times_cache.write().set_time_observed(
                     *hash,
-                    slot,
+                    *slot,
                     seen_timestamp,
                     None,
                     None,
@@ -294,7 +289,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match &result {
             Ok(availability) => match availability {
-                AvailabilityProcessingStatus::Imported(hash) => {
+                AvailabilityProcessingStatus::Imported(_, hash) => {
                     debug!(
                         result = "imported block and custody columns",
                         block_hash = %hash,
@@ -376,8 +371,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let result: Result<AvailabilityProcessingStatus, BlockError> =
             result.map_err(|e| BlockError::InternalError(format!("envelope: {e}")));
 
-        if matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))) {
+        // The payload envelope is imported; release any attestations awaiting this block's payload
+        // so they can be re-processed (parity with the gossip import path).
+        if let Ok(AvailabilityProcessingStatus::Imported(_, block_root)) = &result {
             self.chain.recompute_head_at_current_slot().await;
+            self.notify_payload_envelope_imported(*block_root, EnvelopeSource::Rpc);
         }
 
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
@@ -1022,7 +1020,7 @@ impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingR
             ))
         }
         match result {
-            Ok(AvailabilityProcessingStatus::Imported(_)) => Self::Imported(true, "imported"),
+            Ok(AvailabilityProcessingStatus::Imported(..)) => Self::Imported(true, "imported"),
             Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
                 Self::Imported(false, "missing_components")
             }
