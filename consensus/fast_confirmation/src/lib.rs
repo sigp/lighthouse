@@ -737,7 +737,9 @@ impl FastConfirmationRule {
         // `Ok(None)` = the confirmed chain is safe (re-confirmable). `Ok(Some(reason))` = it
         // isn't, with `reason` naming which check failed (surfaced as the revert metric label).
         let observed_jcp = &self.current_epoch_observed_justified_checkpoint;
-        if !self.is_ancestor(confirmed_root, observed_jcp.root, proto_array)? {
+        let confirmed_observed_epoch_checkpoint =
+            self.get_checkpoint_for_block::<E>(confirmed_root, observed_jcp.epoch, proto_array)?;
+        if *observed_jcp != confirmed_observed_epoch_checkpoint {
             return Ok(Some("off_justified_chain"));
         }
 
