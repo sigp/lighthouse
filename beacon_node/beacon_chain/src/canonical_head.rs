@@ -750,12 +750,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // The current head's pulled-up state (spec `get_pulled_up_head_state`). FCR errors
             // must never affect consensus, so on failure we log and skip it this tick.
-            let fcr_head_state = match self.fcr_pulled_up_head_state(
-                head_root,
-                fcr_current_slot,
-                new_head_proto_block.state_root,
-            ) {
-                Ok(state) => Some(state),
+            let fcr_head_state = match self.fcr_pulled_up_head_state(head_root, fcr_current_slot) {
+                Ok(Some(state)) => Some(state),
+                Ok(None) => {
+                    warn!("FCR: no head state cached, skipping tick");
+                    None
+                }
                 Err(e) => {
                     error!(error = ?e, "FCR: could not obtain head state, skipping tick");
                     None
@@ -1024,20 +1024,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// The current head's state pulled up to `slot` (spec `get_pulled_up_head_state`), with
-    /// committee caches built, as the Fast Confirmation Rule requires. Served from the state
-    /// cache the `state_advance_timer` fills each slot, loaded+advanced on a miss.
+    /// committee caches built, as the Fast Confirmation Rule requires.
+    ///
+    /// This method uses the state cache, which should be populated by `state_advance_timer` each
+    /// slot. It returns `Ok(None)` if no suitable cached state is found.
     fn fcr_pulled_up_head_state(
         &self,
         head_root: Hash256,
         slot: Slot,
-        state_root: Hash256,
-    ) -> Result<BeaconState<T::EthSpec>, Error> {
-        let (_, mut state) = self
+    ) -> Result<Option<BeaconState<T::EthSpec>>, Error> {
+        let Some((_, mut state)) = self
             .store
-            .get_advanced_hot_state(head_root, slot, state_root)?
-            .ok_or(Error::MissingBeaconState(state_root))?;
-        state.build_all_caches(&self.spec)?;
-        Ok(state)
+            .get_advanced_hot_state_from_cache(head_root, slot)
+        else {
+            return Ok(None);
+        };
+
+        // Check the slot: get_advanced_hot_state_from_cache is best-effort and can return a state
+        // at any slot <= slot.
+        if state.slot() == slot {
+            state.build_all_caches(&self.spec)?;
+            Ok(Some(state))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Perform updates to caches and other components after the canonical head has been changed.
