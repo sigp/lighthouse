@@ -24,14 +24,17 @@ use beacon_chain::block_verification_types::{AsBlock, RangeSyncBlock};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessStatus, EngineState};
 use custody::CustodyRequestResult;
 use fnv::FnvHashMap;
-use lighthouse_network::rpc::methods::{BlobsByRangeRequest, DataColumnsByRangeRequest};
+use lighthouse_network::rpc::methods::{
+    BlobsByRangeRequest, DataColumnsByRangeRequest, PayloadEnvelopesByRangeRequest,
+};
 use lighthouse_network::rpc::{BlocksByRangeRequest, GoodbyeReason, RPCError, RequestType};
 pub use lighthouse_network::service::api_types::RangeRequestId;
 use lighthouse_network::service::api_types::{
     AppRequestId, BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
     CustodyBackFillBatchRequestId, CustodyBackfillBatchId, CustodyId, CustodyRequester,
     DataColumnsByRangeRequestId, DataColumnsByRangeRequester, DataColumnsByRootRequestId,
-    DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
+    DataColumnsByRootRequester, Id, PayloadEnvelopesByRangeRequestId, SingleLookupReqId,
+    SyncRequestId,
 };
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource};
 use parking_lot::RwLock;
@@ -39,7 +42,7 @@ pub use requests::LookupVerifyError;
 use requests::{
     ActiveRequests, BlobsByRangeRequestItems, BlocksByRangeRequestItems, BlocksByRootRequestItems,
     DataColumnsByRangeRequestItems, DataColumnsByRootRequestItems,
-    PayloadEnvelopesByRootRequestItems,
+    PayloadEnvelopesByRangeRequestItems, PayloadEnvelopesByRootRequestItems,
 };
 #[cfg(test)]
 use slot_clock::SlotClock;
@@ -53,8 +56,8 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tracing::{Span, debug, debug_span, error, warn};
 use types::{
-    BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, ForkContext,
-    Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
+    BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
+    ForkContext, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
 };
 
 pub mod custody;
@@ -98,6 +101,7 @@ pub type CustodyByRootResult<T> =
     Result<DownloadResult<DataColumnSidecarList<T>>, RpcResponseError>;
 
 #[derive(Debug)]
+#[allow(private_interfaces)]
 pub enum RpcResponseError {
     RpcError(#[allow(dead_code)] RPCError),
     VerifyError(LookupVerifyError),
@@ -216,6 +220,11 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     /// A mapping of active DataColumnsByRange requests
     data_columns_by_range_requests:
         ActiveRequests<DataColumnsByRangeRequestId, DataColumnsByRangeRequestItems<T::EthSpec>>,
+    /// A mapping of active PayloadEnvelopesByRange requests
+    payload_envelopes_by_range_requests: ActiveRequests<
+        PayloadEnvelopesByRangeRequestId,
+        PayloadEnvelopesByRangeRequestItems<T::EthSpec>,
+    >,
     /// Mapping of active custody column requests for a block root
     custody_by_root_requests: FnvHashMap<CustodyRequester, ActiveCustodyRequest<T>>,
 
@@ -252,6 +261,10 @@ pub enum RangeBlockComponent<E: EthSpec> {
     CustodyColumns(
         DataColumnsByRangeRequestId,
         RpcResponseResult<Vec<Arc<DataColumnSidecar<E>>>>,
+    ),
+    PayloadEnvelope(
+        PayloadEnvelopesByRangeRequestId,
+        RpcResponseResult<Vec<Arc<SignedExecutionPayloadEnvelope<E>>>>,
     ),
 }
 
@@ -301,6 +314,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             blocks_by_range_requests: ActiveRequests::new("blocks_by_range"),
             blobs_by_range_requests: ActiveRequests::new("blobs_by_range"),
             data_columns_by_range_requests: ActiveRequests::new("data_columns_by_range"),
+            payload_envelopes_by_range_requests: ActiveRequests::new("payload_envelopes_by_range"),
             custody_by_root_requests: <_>::default(),
             components_by_range_requests: FnvHashMap::default(),
             custody_backfill_data_column_batch_requests: FnvHashMap::default(),
@@ -308,6 +322,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             chain,
             fork_context,
         }
+    }
+
+    pub fn spec(&self) -> &ChainSpec {
+        &self.chain.spec
     }
 
     pub fn send_sync_message(&mut self, sync_message: SyncMessage<T::EthSpec>) {
@@ -329,6 +347,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             blocks_by_range_requests,
             blobs_by_range_requests,
             data_columns_by_range_requests,
+            payload_envelopes_by_range_requests,
             // custody_by_root_requests is a meta request of data_columns_by_root_requests
             custody_by_root_requests: _,
             // components_by_range_requests is a meta request of various _by_range requests
@@ -364,18 +383,23 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .active_requests_of_peer(peer_id)
             .into_iter()
             .map(|req_id| SyncRequestId::DataColumnsByRange(*req_id));
+        let payload_envelope_by_range_ids = payload_envelopes_by_range_requests
+            .active_requests_of_peer(peer_id)
+            .into_iter()
+            .map(|req_id| SyncRequestId::PayloadEnvelopesByRange(*req_id));
         blocks_by_root_ids
             .chain(payload_envelopes_by_root_ids)
             .chain(data_column_by_root_ids)
             .chain(blocks_by_range_ids)
             .chain(blobs_by_range_ids)
             .chain(data_column_by_range_ids)
+            .chain(payload_envelope_by_range_ids)
             .collect()
     }
 
-    pub fn get_custodial_peers(&self, column_index: ColumnIndex) -> Vec<PeerId> {
+    pub fn get_custodial_peers(&self, column_index: ColumnIndex, block_slot: Slot) -> Vec<PeerId> {
         self.network_globals()
-            .custody_peers_for_column(column_index)
+            .custody_peers_for_column(column_index, block_slot)
     }
 
     pub fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
@@ -426,6 +450,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             blocks_by_range_requests,
             blobs_by_range_requests,
             data_columns_by_range_requests,
+            payload_envelopes_by_range_requests,
             // custody_by_root_requests is a meta request of data_columns_by_root_requests
             custody_by_root_requests: _,
             // components_by_range_requests is a meta request of various _by_range requests
@@ -448,6 +473,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .chain(blocks_by_range_requests.iter_request_peers())
             .chain(blobs_by_range_requests.iter_request_peers())
             .chain(data_columns_by_range_requests.iter_request_peers())
+            .chain(payload_envelopes_by_range_requests.iter_request_peers())
         {
             *active_request_count_by_peer.entry(peer_id).or_default() += 1;
         }
@@ -580,24 +606,26 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         };
 
         // Attempt to find all required custody peers before sending any request or creating an ID
-        let columns_by_range_peers_to_request =
-            if matches!(batch_type, ByRangeRequestType::BlocksAndColumns) {
-                let epoch = Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch());
-                let column_indexes = self
-                    .chain
-                    .sampling_columns_for_epoch(epoch)
-                    .iter()
-                    .cloned()
-                    .collect();
-                Some(self.select_columns_by_range_peers_to_request(
-                    &column_indexes,
-                    column_peers,
-                    active_request_count_by_peer,
-                    peers_to_deprioritize,
-                )?)
-            } else {
-                None
-            };
+        let columns_by_range_peers_to_request = if matches!(
+            batch_type,
+            ByRangeRequestType::BlocksAndColumns | ByRangeRequestType::BlocksAndEnvelopesAndColumns
+        ) {
+            let epoch = Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch());
+            let column_indexes = self
+                .chain
+                .sampling_columns_for_epoch(epoch)
+                .iter()
+                .cloned()
+                .collect();
+            Some(self.select_columns_by_range_peers_to_request(
+                &column_indexes,
+                column_peers,
+                active_request_count_by_peer,
+                peers_to_deprioritize,
+            )?)
+        } else {
+            None
+        };
 
         // Create the overall components_by_range request ID before its individual components
         let id = ComponentsByRangeRequestId {
@@ -661,6 +689,26 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             })
             .transpose()?;
 
+        let payloads_req_id =
+            if matches!(batch_type, ByRangeRequestType::BlocksAndEnvelopesAndColumns) {
+                Some(self.send_payload_envelopes_by_range_request(
+                    block_peer,
+                    PayloadEnvelopesByRangeRequest {
+                        start_slot: *request.start_slot(),
+                        count: *request.count(),
+                    },
+                    id,
+                    new_range_request_span!(
+                        self,
+                        "outgoing_envelopes_by_range",
+                        range_request_span.clone(),
+                        block_peer
+                    ),
+                )?)
+            } else {
+                None
+            };
+
         let epoch = Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch());
         let info = RangeBlockComponentsRequest::new(
             blocks_req_id,
@@ -671,6 +719,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     self.chain.sampling_columns_for_epoch(epoch).to_vec(),
                 )
             }),
+            payloads_req_id,
             range_request_span,
         );
         self.components_by_range_requests.insert(id, info);
@@ -766,6 +815,17 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     resp.and_then(|(custody_columns, _)| {
                         request
                             .add_custody_columns(req_id, custody_columns)
+                            .map_err(|e| {
+                                RpcResponseError::BlockComponentCouplingError(
+                                    CouplingError::InternalError(e),
+                                )
+                            })
+                    })
+                }
+                RangeBlockComponent::PayloadEnvelope(req_id, resp) => {
+                    resp.and_then(|(envelopes, _)| {
+                        request
+                            .add_payload_envelopes(req_id, envelopes)
                             .map_err(|e| {
                                 RpcResponseError::BlockComponentCouplingError(
                                     CouplingError::InternalError(e),
@@ -921,19 +981,23 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     }
 
     /// Request a payload envelope for a block root via PayloadEnvelopesByRoot RPC.
-    #[allow(dead_code)]
     pub fn payload_lookup_request(
         &mut self,
         lookup_id: SingleLookupId,
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
         block_root: Hash256,
-    ) -> Result<LookupRequestResult<()>, RpcRequestSendError> {
+    ) -> Result<
+        LookupRequestResult<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+        RpcRequestSendError,
+    > {
         // Skip the download if fork-choice already saw this envelope (e.g. imported via gossip
-        // before the lookup got here).
-        if self.chain.envelope_is_known_to_fork_choice(&block_root) {
+        // before the lookup got here). Return the cached envelope so the request completes.
+        if self.chain.envelope_is_known_to_fork_choice(&block_root)
+            && let Ok(Some(envelope)) = self.chain.get_payload_envelope(&block_root)
+        {
             return Ok(LookupRequestResult::NoRequestNeeded(
                 "envelope already known to fork-choice",
-                (),
+                Arc::new(envelope),
             ));
         }
 
@@ -1052,6 +1116,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         block_slot: Slot,
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
     ) -> Result<LookupRequestResult<DataColumnSidecarList<T::EthSpec>>, RpcRequestSendError> {
+        // Code below will issue column requests even if `lookup_peers` is empty. This is not okay,
+        // as we want to have at least one signal that some of our peers has already seen the
+        // block's data.
+        if lookup_peers.read().is_empty() {
+            return Ok(LookupRequestResult::Pending("no peers"));
+        }
+
         let custody_indexes_imported = self
             .chain
             .cached_data_column_indexes(&block_root, block_slot)
@@ -1090,6 +1161,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let requester = CustodyRequester(id);
         let mut request = ActiveCustodyRequest::new(
             block_root,
+            block_slot,
             CustodyId { requester },
             &custody_indexes_to_fetch,
             lookup_peers,
@@ -1253,6 +1325,43 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         Ok((id, requested_columns))
     }
 
+    fn send_payload_envelopes_by_range_request(
+        &mut self,
+        peer_id: PeerId,
+        request: PayloadEnvelopesByRangeRequest,
+        parent_request_id: ComponentsByRangeRequestId,
+        request_span: Span,
+    ) -> Result<PayloadEnvelopesByRangeRequestId, RpcRequestSendError> {
+        let id = PayloadEnvelopesByRangeRequestId {
+            id: self.next_id(),
+            parent_request_id,
+        };
+
+        self.send_network_msg(NetworkMessage::SendRequest {
+            peer_id,
+            request: RequestType::PayloadEnvelopesByRange(request.clone()),
+            app_request_id: AppRequestId::Sync(SyncRequestId::PayloadEnvelopesByRange(id)),
+        })
+        .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
+
+        debug!(
+            method = "PayloadEnvelopesByRange",
+            slots = request.count,
+            peer = %peer_id,
+            %id,
+            "Sync RPC request sent"
+        );
+
+        self.payload_envelopes_by_range_requests.insert(
+            id,
+            peer_id,
+            false,
+            PayloadEnvelopesByRangeRequestItems::new(request),
+            request_span,
+        );
+        Ok(id)
+    }
+
     pub fn is_execution_engine_online(&self) -> bool {
         self.execution_engine_state == EngineState::Online
     }
@@ -1333,7 +1442,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             "To deal with alignment with deneb boundaries, batches need to be of just one epoch"
         );
 
-        if self
+        if self.chain.spec.fork_name_at_epoch(epoch).gloas_enabled() {
+            // TODO(gloas): Not precise and we can be post-gloas and not require columns
+            ByRangeRequestType::BlocksAndEnvelopesAndColumns
+        } else if self
             .chain
             .data_availability_checker
             .data_columns_required_for_epoch(epoch)
@@ -1469,6 +1581,19 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.on_rpc_response_result(resp, peer_id)
     }
 
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn on_payload_envelopes_by_range_response(
+        &mut self,
+        id: PayloadEnvelopesByRangeRequestId,
+        peer_id: PeerId,
+        rpc_event: RpcEvent<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+    ) -> Option<RpcResponseResult<Vec<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>>> {
+        let resp = self
+            .payload_envelopes_by_range_requests
+            .on_response(id, rpc_event);
+        self.on_rpc_response_result(resp, peer_id)
+    }
+
     /// Common handler for consistent scoring of RpcResponseError
     fn on_rpc_response_result<R>(
         &mut self,
@@ -1567,7 +1692,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             })
     }
 
-    #[allow(dead_code)]
     pub fn send_payload_for_processing(
         &self,
         block_root: Hash256,

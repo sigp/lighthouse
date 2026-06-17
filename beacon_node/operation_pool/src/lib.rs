@@ -546,9 +546,15 @@ impl<E: EthSpec> OperationPool<E> {
             }
         });
 
+        let max_attester_slashings = if state.fork_name_unchecked().electra_enabled() {
+            E::max_attester_slashings_electra()
+        } else {
+            E::MaxAttesterSlashings::to_usize()
+        };
+
         maximum_cover(
             relevant_attester_slashings,
-            E::MaxAttesterSlashings::to_usize(),
+            max_attester_slashings,
             "attester_slashings",
         )
         .into_iter()
@@ -925,6 +931,29 @@ mod release_tests {
         harness.advance_slot();
 
         harness
+    }
+
+    /// The maximum number of attester slashings allowed in a block for the state's fork.
+    fn max_attester_slashings<E: EthSpec>(state: &BeaconState<E>) -> usize {
+        if state.fork_name_unchecked().electra_enabled() {
+            E::max_attester_slashings_electra()
+        } else {
+            E::MaxAttesterSlashings::to_usize()
+        }
+    }
+
+    /// Given the candidate slashings ordered most-profitable first, return the prefix that a
+    /// block on the state's fork would actually include (i.e. the N most profitable, where N
+    /// is the per-block attester slashing limit). This keeps the max-cover assertions generic
+    /// across forks.
+    fn most_profitable_slashings<E: EthSpec, T>(
+        state: &BeaconState<E>,
+        ordered_by_profitability: Vec<T>,
+    ) -> Vec<T> {
+        ordered_by_profitability
+            .into_iter()
+            .take(max_attester_slashings(state))
+            .collect()
     }
 
     /// Test state for attestation-related tests.
@@ -1594,7 +1623,10 @@ mod release_tests {
         op_pool.insert_attester_slashing(slashing_4.clone().validate(&state, spec).unwrap());
 
         let best_slashings = op_pool.get_slashings_and_exits(&state, &harness.spec);
-        assert_eq!(best_slashings.1, vec![slashing_4, slashing_3]);
+        assert_eq!(
+            best_slashings.1,
+            most_profitable_slashings(&state, vec![slashing_4, slashing_3])
+        );
     }
 
     // Check that we get maximum coverage for attester slashings with overlapping indices
@@ -1616,7 +1648,10 @@ mod release_tests {
         op_pool.insert_attester_slashing(slashing_4.clone().validate(&state, spec).unwrap());
 
         let best_slashings = op_pool.get_slashings_and_exits(&state, &harness.spec);
-        assert_eq!(best_slashings.1, vec![slashing_1, slashing_3]);
+        assert_eq!(
+            best_slashings.1,
+            most_profitable_slashings(&state, vec![slashing_1, slashing_3])
+        );
     }
 
     // Max coverage of attester slashings taking into account proposer slashings
@@ -1638,7 +1673,10 @@ mod release_tests {
         op_pool.insert_attester_slashing(a_slashing_3.clone().validate(&state, spec).unwrap());
 
         let best_slashings = op_pool.get_slashings_and_exits(&state, &harness.spec);
-        assert_eq!(best_slashings.1, vec![a_slashing_1, a_slashing_3]);
+        assert_eq!(
+            best_slashings.1,
+            most_profitable_slashings(&state, vec![a_slashing_1, a_slashing_3])
+        );
     }
 
     //Max coverage checking that non overlapping indices are still recognized for their value
@@ -1661,7 +1699,10 @@ mod release_tests {
         op_pool.insert_attester_slashing(slashing_3.clone().validate(&state, spec).unwrap());
 
         let best_slashings = op_pool.get_slashings_and_exits(&state, &harness.spec);
-        assert_eq!(best_slashings.1, vec![slashing_1, slashing_3]);
+        assert_eq!(
+            best_slashings.1,
+            most_profitable_slashings(&state, vec![slashing_1, slashing_3])
+        );
     }
 
     // Max coverage should be affected by the overall effective balances
@@ -1684,7 +1725,10 @@ mod release_tests {
         op_pool.insert_attester_slashing(slashing_3.clone().validate(&state, spec).unwrap());
 
         let best_slashings = op_pool.get_slashings_and_exits(&state, &harness.spec);
-        assert_eq!(best_slashings.1, vec![slashing_2, slashing_3]);
+        assert_eq!(
+            best_slashings.1,
+            most_profitable_slashings(&state, vec![slashing_2, slashing_3])
+        );
     }
 
     /// End-to-end test of basic sync contribution handling.
@@ -2175,6 +2219,53 @@ mod release_tests {
         // Pruning the attester slashings should remove all but slashing4.
         op_pool.prune_attester_slashings(&electra_head.beacon_state);
         assert_eq!(op_pool.attester_slashings.read().len(), 1);
+    }
+
+    /// Regression test to ensure that we are using the correct spec value for max attester slashings post-Electra.
+    #[tokio::test]
+    async fn attester_slashings_capped_at_electra_limit() {
+        let (harness, spec) = cross_fork_harness::<MainnetEthSpec>();
+        let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
+        let electra_fork_epoch = spec.electra_fork_epoch.unwrap();
+        let deneb_fork_epoch = spec.deneb_fork_epoch.unwrap();
+
+        let op_pool = OperationPool::<MainnetEthSpec>::new();
+
+        harness
+            .extend_to_slot(electra_fork_epoch.start_slot(slots_per_epoch))
+            .await;
+        let electra_head = harness.chain.canonical_head.cached_head().snapshot;
+        assert!(
+            electra_head
+                .beacon_state
+                .fork_name_unchecked()
+                .electra_enabled()
+        );
+
+        // Create two slashings
+        for validators in [vec![0], vec![1]] {
+            let slashing = harness.make_attester_slashing_with_epochs(
+                validators,
+                Some(Epoch::new(0)),
+                Some(deneb_fork_epoch - 1),
+                Some(Epoch::new(0)),
+                Some(deneb_fork_epoch - 1),
+            );
+            let verified = slashing
+                .validate(&electra_head.beacon_state, &harness.chain.spec)
+                .unwrap();
+            op_pool.insert_attester_slashing(verified);
+        }
+        assert_eq!(op_pool.attester_slashings.read().len(), 2);
+
+        // Despite two valid slashings being pending, only one may be extracted post-Electra.
+        let mut to_be_slashed = HashSet::new();
+        let attester_slashings =
+            op_pool.get_attester_slashings(&electra_head.beacon_state, &mut to_be_slashed);
+        assert_eq!(
+            attester_slashings.len(),
+            MainnetEthSpec::max_attester_slashings_electra()
+        );
     }
 
     fn make_payload_attestation_message(

@@ -91,18 +91,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ahash"
-version = "0.8.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a15f179cd60c4584b8a8c596927aadc462e27f2ca70c04e0071964a73ba7a75"
-dependencies = [
- "cfg-if",
- "once_cell",
- "version_check",
- "zerocopy",
-]
-
-[[package]]
 name = "aho-corasick"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -376,7 +364,7 @@ dependencies = [
  "either",
  "futures",
  "futures-utils-wasm",
- "lru 0.13.0",
+ "lru",
  "parking_lot",
  "pin-project",
  "reqwest",
@@ -695,7 +683,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -706,7 +694,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1242,13 +1230,13 @@ dependencies = [
  "fork_choice",
  "futures",
  "genesis",
+ "hashlink",
  "hex",
  "int_to_bytes",
  "itertools 0.14.0",
  "kzg",
  "lighthouse_version",
  "logging",
- "lru 0.12.5",
  "maplit",
  "merkle_proof",
  "metrics",
@@ -1401,7 +1389,7 @@ dependencies = [
  "bitflags 2.10.0",
  "cexpr",
  "clang-sys",
- "itertools 0.12.1",
+ "itertools 0.13.0",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -2709,9 +2697,9 @@ dependencies = [
 
 [[package]]
 name = "discv5"
-version = "0.10.2"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f170f4f6ed0e1df52bf43b403899f0081917ecf1500bfe312505cc3b515a8899"
+checksum = "470ad731fddfc5b184e8bd2e3e24ddc6c7b006212af2b3989fd37a3de1217b4b"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -2722,18 +2710,17 @@ dependencies = [
  "enr",
  "fnv",
  "futures",
- "hashlink 0.9.1",
+ "hashlink",
  "hex",
  "hkdf",
  "lazy_static",
  "libp2p-identity",
- "lru 0.12.5",
  "more-asserts",
  "multiaddr",
  "parking_lot",
  "rand 0.8.5",
  "smallvec",
- "socket2 0.5.10",
+ "socket2 0.6.4",
  "tokio",
  "tracing",
  "uint 0.10.0",
@@ -3129,7 +3116,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3409,13 +3396,13 @@ dependencies = [
  "fork_choice",
  "hash-db",
  "hash256-std-hasher",
+ "hashlink",
  "hex",
  "jsonwebtoken",
  "keccak-hash",
  "kzg",
  "lighthouse_version",
  "logging",
- "lru 0.12.5",
  "metrics",
  "parking_lot",
  "pretty_reqwest_error",
@@ -3995,9 +3982,6 @@ name = "hashbrown"
 version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
-dependencies = [
- "ahash",
-]
 
 [[package]]
 name = "hashbrown"
@@ -4019,15 +4003,6 @@ dependencies = [
  "foldhash 0.2.0",
  "serde",
  "serde_core",
-]
-
-[[package]]
-name = "hashlink"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ba4ff7128dee98c7dc9794b6a411377e1404dba1c97deb8d1a55297bd25d8af"
-dependencies = [
- "hashbrown 0.14.5",
 ]
 
 [[package]]
@@ -4281,12 +4256,12 @@ dependencies = [
  "fixed_bytes",
  "futures",
  "genesis",
+ "hashlink",
  "health_metrics",
  "hex",
  "lighthouse_network",
  "lighthouse_version",
  "logging",
- "lru 0.12.5",
  "metrics",
  "network",
  "network_utils",
@@ -4450,7 +4425,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.4",
  "tokio",
  "tower-service",
  "tracing",
@@ -5228,7 +5203,7 @@ dependencies = [
  "futures",
  "futures-timer",
  "getrandom 0.2.16",
- "hashlink 0.11.0",
+ "hashlink",
  "hex_fmt",
  "libp2p-core",
  "libp2p-identity",
@@ -5388,7 +5363,7 @@ dependencies = [
  "futures",
  "futures-timer",
  "getrandom 0.2.16",
- "hashlink 0.11.0",
+ "hashlink",
  "libp2p-core",
  "libp2p-identity",
  "libp2p-swarm-derive",
@@ -5590,6 +5565,7 @@ dependencies = [
  "fixed_bytes",
  "fnv",
  "futures",
+ "hashlink",
  "hex",
  "if-addrs 0.14.0",
  "itertools 0.14.0",
@@ -5597,7 +5573,6 @@ dependencies = [
  "libp2p-mplex",
  "lighthouse_version",
  "logging",
- "lru 0.12.5",
  "lru_cache",
  "metrics",
  "network_utils",
@@ -5742,15 +5717,6 @@ dependencies = [
  "flate2",
  "regex",
  "thiserror 1.0.69",
-]
-
-[[package]]
-name = "lru"
-version = "0.12.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "234cf4f4a04dc1f57e24b96cc0cd600cf2af460d4161ac5ecdd0af8e1f3b2a38"
-dependencies = [
- "hashbrown 0.15.5",
 ]
 
 [[package]]
@@ -6346,7 +6312,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7184,7 +7150,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -7197,7 +7163,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -7268,7 +7234,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.1",
  "rustls 0.23.40",
- "socket2 0.5.10",
+ "socket2 0.6.4",
  "thiserror 2.0.17",
  "tokio",
  "tracing",
@@ -7305,9 +7271,9 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.4",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -7774,7 +7740,7 @@ dependencies = [
  "bitflags 2.10.0",
  "fallible-iterator",
  "fallible-streaming-iterator",
- "hashlink 0.11.0",
+ "hashlink",
  "libsqlite3-sys",
  "smallvec",
  "sqlite-wasm-rs",
@@ -7852,7 +7818,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8456,10 +8422,10 @@ dependencies = [
  "filesystem",
  "fixed_bytes",
  "flate2",
+ "hashlink",
  "libmdbx",
  "lmdb-rkv",
  "lmdb-rkv-sys",
- "lru 0.12.5",
  "maplit",
  "metrics",
  "parking_lot",
@@ -8575,7 +8541,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52d1cfed4120b4d927bf7c0f86d2087a4a7d6027c906d9f9d525a80573b9be51"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8693,10 +8659,10 @@ dependencies = [
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "fixed_bytes",
+ "hashlink",
  "itertools 0.14.0",
  "leveldb",
  "logging",
- "lru 0.12.5",
  "metrics",
  "milhouse",
  "parking_lot",
@@ -8920,7 +8886,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9892,24 +9858,32 @@ dependencies = [
 name = "validator_services"
 version = "0.1.0"
 dependencies = [
+ "account_utils",
  "beacon_node_fallback",
  "bls",
  "either",
  "eth2",
+ "eth2_keystore",
  "futures",
  "graffiti_file",
+ "initialized_validators",
+ "lighthouse_validator_store",
  "logging",
+ "mockito",
  "parking_lot",
  "reqwest",
  "safe_arith",
+ "slashing_protection",
  "slot_clock",
  "task_executor",
+ "tempfile",
  "tokio",
  "tracing",
  "tree_hash",
  "types",
  "validator_metrics",
  "validator_store",
+ "validator_test_rig",
 ]
 
 [[package]]
@@ -9928,6 +9902,7 @@ name = "validator_test_rig"
 version = "0.1.0"
 dependencies = [
  "eth2",
+ "ethereum_ssz",
  "mockito",
  "regex",
  "reqwest",
@@ -10275,7 +10250,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -10867,7 +10842,7 @@ checksum = "631a50d867fafb7093e709d75aaee9e0e0d5deb934021fcea25ac2fe09edc51e"
 dependencies = [
  "arraydeque",
  "encoding_rs",
- "hashlink 0.11.0",
+ "hashlink",
 ]
 
 [[package]]

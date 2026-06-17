@@ -11,7 +11,6 @@ use slot_clock::SlotClock;
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Debug;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
@@ -20,7 +19,7 @@ use types::data::{BlobIdentifier, FixedBlobSidecarList, PartialDataColumn};
 use types::{
     BlobSidecar, BlobSidecarList, BlockImportSource, ChainSpec, DataColumnSidecar,
     DataColumnSidecarList, Epoch, EthSpec, Hash256, PartialDataColumnSidecarError,
-    PartialDataColumnSidecarRef, SignedBeaconBlock, Slot, new_non_zero_usize,
+    PartialDataColumnSidecarRef, SignedBeaconBlock, Slot,
 };
 
 mod error;
@@ -49,7 +48,7 @@ pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCh
 ///
 /// `PendingComponents` are now never removed from the cache manually are only removed via LRU
 /// eviction to prevent race conditions (#7961), so we expect this cache to be full all the time.
-const OVERFLOW_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
+const OVERFLOW_LRU_CAPACITY: usize = 32;
 
 /// Cache to hold fully valid data that can't be imported to fork-choice yet. After Dencun hard-fork
 /// blocks have a sidecar of data that is received separately from the network. We call the concept
@@ -124,13 +123,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         enable_partial_columns: bool,
     ) -> Result<Self, AvailabilityCheckError> {
         let inner = DataAvailabilityCheckerInner::new(
-            OVERFLOW_LRU_CAPACITY_NON_ZERO,
+            OVERFLOW_LRU_CAPACITY,
             custody_context.clone(),
             spec.clone(),
         )?;
         let partial_assembler = if enable_partial_columns {
             Some(Arc::new(PartialDataColumnAssembler::new(
-                OVERFLOW_LRU_CAPACITY_NON_ZERO,
+                OVERFLOW_LRU_CAPACITY,
             )))
         } else {
             None
@@ -669,7 +668,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
 /// Verify a batch of data columns belonging to a single block, picking the right commitment
 /// source for the block's fork (Fulu: inline on column; Gloas: from the embedded payload bid).
-fn verify_columns_against_block<E: EthSpec>(
+pub fn verify_columns_against_block<E: EthSpec>(
     kzg: &Kzg,
     block: &SignedBeaconBlock<E>,
     columns: &[Arc<DataColumnSidecar<E>>],
@@ -792,7 +791,12 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
 #[derive(Debug, Clone)]
 // TODO(#8633) move this to `block_verification_types.rs`
 pub enum AvailableBlockData<E: EthSpec> {
-    /// Block is pre-Deneb or has zero blobs
+    /// Block has no inline DA object for block import.
+    ///
+    /// This covers:
+    /// - pre-Deneb blocks,
+    /// - blocks with zero blobs, and
+    /// - Gloas blocks, where DA is checked on the payload envelope instead.
     NoData,
     /// Block is post-Deneb, pre-PeerDAS and has more than zero blobs
     Blobs(BlobSidecarList<E>),
@@ -951,6 +955,19 @@ impl<E: EthSpec> AvailableBlock<E> {
             blob_data: block_data,
             blobs_available_timestamp: None,
         })
+    }
+
+    pub fn new_gloas(block: Arc<SignedBeaconBlock<E>>) -> Result<Self, String> {
+        if block.fork_name_unchecked().gloas_enabled() {
+            Ok(Self {
+                block_root: block.canonical_root(),
+                block,
+                blob_data: AvailableBlockData::NoData,
+                blobs_available_timestamp: None,
+            })
+        } else {
+            Err("Block is not gloas".to_owned())
+        }
     }
 
     pub fn block(&self) -> &SignedBeaconBlock<E> {
@@ -1294,7 +1311,7 @@ mod test {
 
         let available_blocks = blocks_with_columns
             .into_iter()
-            .map(|block| block.into_available_block())
+            .map(|block| block.into_available_block().unwrap().0)
             .collect::<Vec<_>>();
 
         // WHEN verifying all blocks together (totalling 256 data columns)
