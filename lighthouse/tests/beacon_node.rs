@@ -2827,7 +2827,7 @@ fn enable_mplex_no_value() {
 #[test]
 fn partial_columns() {
     CommandLineTest::new()
-        .flag("enable-partial-columns", None)
+        .flag("enable-partial-columns", Some("true"))
         .run_with_zero_port()
         .with_config(|config| {
             assert!(config.network.enable_partial_columns);
@@ -2840,6 +2840,18 @@ fn partial_columns() {
             assert!(!config.network.enable_partial_columns);
             assert!(!config.chain.enable_partial_columns);
         })
+}
+
+#[test]
+fn partial_columns_no_value() {
+    // Passing the flag without a value should enable partial columns.
+    CommandLineTest::new()
+        .flag("enable-partial-columns", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_partial_columns);
+            assert!(config.chain.enable_partial_columns);
+        });
 }
 
 #[test]
@@ -2865,10 +2877,10 @@ fn partial_columns_default_sepolia() {
 }
 
 #[test]
-fn partial_columns_disable_overrides_hoodi_default() {
+fn partial_columns_false_overrides_hoodi_default() {
     CommandLineTest::new()
         .flag("network", Some("hoodi"))
-        .flag("disable-partial-columns", None)
+        .flag("enable-partial-columns", Some("false"))
         .run_with_zero_port()
         .with_config(|config| {
             assert!(!config.network.enable_partial_columns);
@@ -2877,24 +2889,12 @@ fn partial_columns_disable_overrides_hoodi_default() {
 }
 
 #[test]
-fn partial_columns_disable_on_mainnet_no_op() {
+fn partial_columns_false_on_mainnet() {
     CommandLineTest::new()
-        .flag("disable-partial-columns", None)
+        .flag("enable-partial-columns", Some("false"))
         .run_with_zero_port()
         .with_config(|config| {
             assert!(!config.network.enable_partial_columns);
             assert!(!config.chain.enable_partial_columns);
         });
-}
-
-#[test]
-fn partial_columns_enable_disable_conflict() {
-    let mut cmd = base_cmd();
-    cmd.arg("--enable-partial-columns")
-        .arg("--disable-partial-columns");
-    let output = cmd.output().expect("should run command");
-    assert!(
-        !output.status.success(),
-        "expected clap to reject --enable-partial-columns and --disable-partial-columns together",
-    );
 }
