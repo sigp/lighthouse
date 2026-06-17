@@ -1,7 +1,5 @@
 use crate::exec::{CommandLineTestExec, CompletedTest};
-use beacon_node::beacon_chain::chain_config::{
-    DEFAULT_SYNC_TOLERANCE_EPOCHS, DisallowedReOrgOffsets,
-};
+use beacon_node::beacon_chain::chain_config::DEFAULT_SYNC_TOLERANCE_EPOCHS;
 use beacon_node::beacon_chain::custody_context::NodeCustodyType;
 use beacon_node::{
     ClientConfig as Config, beacon_chain::graffiti_calculator::GraffitiOrigin,
@@ -2361,35 +2359,10 @@ fn disable_proposer_re_orgs() {
 }
 
 #[test]
-fn proposer_re_org_disallowed_offsets_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.re_org_disallowed_offsets,
-                DisallowedReOrgOffsets::new::<MainnetEthSpec>(vec![0]).unwrap()
-            )
-        });
-}
-
-#[test]
-fn proposer_re_org_disallowed_offsets_override() {
+fn proposer_re_org_disallowed_offsets_deprecated() {
+    // The deprecated flag should be accepted but have no effect.
     CommandLineTest::new()
         .flag("proposer-reorg-disallowed-offsets", Some("1,2,3"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.re_org_disallowed_offsets,
-                DisallowedReOrgOffsets::new::<MainnetEthSpec>(vec![1, 2, 3]).unwrap()
-            )
-        });
-}
-
-#[test]
-#[should_panic]
-fn proposer_re_org_disallowed_offsets_invalid() {
-    CommandLineTest::new()
-        .flag("proposer-reorg-disallowed-offsets", Some("32,33,34"))
         .run_with_zero_port();
 }
 
@@ -2813,9 +2786,48 @@ fn invalid_block_roots_default_mainnet() {
 }
 
 #[test]
+fn enable_mplex_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_mplex);
+        })
+}
+
+#[test]
+fn enable_mplex_true() {
+    CommandLineTest::new()
+        .flag("enable-mplex", Some("true"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_mplex);
+        })
+}
+
+#[test]
+fn enable_mplex_false() {
+    CommandLineTest::new()
+        .flag("enable-mplex", Some("false"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.network.enable_mplex);
+        })
+}
+
+#[test]
+fn enable_mplex_no_value() {
+    CommandLineTest::new()
+        .flag("enable-mplex", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_mplex);
+        })
+}
+
+#[test]
 fn partial_columns() {
     CommandLineTest::new()
-        .flag("enable-partial-columns", None)
+        .flag("enable-partial-columns", Some("true"))
         .run_with_zero_port()
         .with_config(|config| {
             assert!(config.network.enable_partial_columns);
@@ -2828,6 +2840,18 @@ fn partial_columns() {
             assert!(!config.network.enable_partial_columns);
             assert!(!config.chain.enable_partial_columns);
         })
+}
+
+#[test]
+fn partial_columns_no_value() {
+    // Passing the flag without a value should enable partial columns.
+    CommandLineTest::new()
+        .flag("enable-partial-columns", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_partial_columns);
+            assert!(config.chain.enable_partial_columns);
+        });
 }
 
 #[test]
@@ -2853,10 +2877,10 @@ fn partial_columns_default_sepolia() {
 }
 
 #[test]
-fn partial_columns_disable_overrides_hoodi_default() {
+fn partial_columns_false_overrides_hoodi_default() {
     CommandLineTest::new()
         .flag("network", Some("hoodi"))
-        .flag("disable-partial-columns", None)
+        .flag("enable-partial-columns", Some("false"))
         .run_with_zero_port()
         .with_config(|config| {
             assert!(!config.network.enable_partial_columns);
@@ -2865,24 +2889,12 @@ fn partial_columns_disable_overrides_hoodi_default() {
 }
 
 #[test]
-fn partial_columns_disable_on_mainnet_no_op() {
+fn partial_columns_false_on_mainnet() {
     CommandLineTest::new()
-        .flag("disable-partial-columns", None)
+        .flag("enable-partial-columns", Some("false"))
         .run_with_zero_port()
         .with_config(|config| {
             assert!(!config.network.enable_partial_columns);
             assert!(!config.chain.enable_partial_columns);
         });
-}
-
-#[test]
-fn partial_columns_enable_disable_conflict() {
-    let mut cmd = base_cmd();
-    cmd.arg("--enable-partial-columns")
-        .arg("--disable-partial-columns");
-    let output = cmd.output().expect("should run command");
-    assert!(
-        !output.status.success(),
-        "expected clap to reject --enable-partial-columns and --disable-partial-columns together",
-    );
 }

@@ -127,7 +127,7 @@ delay_map = "0.4"
 deposit_contract = { path = "common/deposit_contract" }
 directory = { path = "common/directory" }
 dirs = "3"
-discv5 = { version = "0.10", features = ["libp2p"] }
+discv5 = { version = "0.11", features = ["libp2p"] }
 doppelganger_service = { path = "validator_client/doppelganger_service" }
 educe = "0.6"
 eip_3076 = { path = "common/eip_3076" }
@@ -152,7 +152,7 @@ fs2 = "0.4"
 futures = "0.3"
 genesis = { path = "beacon_node/genesis" }
 graffiti_file = { path = "validator_client/graffiti_file" }
-hashlink = "0.9.0"
+hashlink = "0.11"
 health_metrics = { path = "common/health_metrics" }
 hex = "0.4"
 http_api = { path = "beacon_node/http_api" }
@@ -170,7 +170,6 @@ lockfile = { path = "common/lockfile" }
 log = "0.4"
 logging = { path = "common/logging" }
 logroller = "0.1.8"
-lru = "0.12"
 lru_cache = { path = "common/lru_cache" }
 malloc_utils = { path = "common/malloc_utils" }
 maplit = "1"
