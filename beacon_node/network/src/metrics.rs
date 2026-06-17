@@ -22,6 +22,13 @@ pub(crate) enum BlockSource {
     Rpc,
 }
 
+/// The path through which a payload envelope was imported.
+#[derive(Debug, Clone, Copy, AsRefStr)]
+pub(crate) enum EnvelopeSource {
+    Gossip,
+    Rpc,
+}
+
 pub static BEACON_BLOCK_MESH_PEERS_PER_CLIENT: LazyLock<Result<IntGaugeVec>> =
     LazyLock::new(|| {
         try_create_int_gauge_vec(

@@ -266,7 +266,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         Err(BlockError::DuplicateFullyImported(root)) => {
             if publish_fn_completed.load(Ordering::SeqCst) {
                 post_block_import_logging_and_response(
-                    Ok(AvailabilityProcessingStatus::Imported(root)),
+                    Ok(AvailabilityProcessingStatus::Imported(slot, root)),
                     validation_level,
                     block,
                     is_locally_built_block,
@@ -474,7 +474,7 @@ async fn post_block_import_logging_and_response<T: BeaconChainTypes>(
         // result of the block being imported from gossip, OR it could be that it finished importing
         // after processing of a gossip blob. In the latter case we MUST run fork choice to
         // re-compute the head.
-        Ok(AvailabilityProcessingStatus::Imported(root))
+        Ok(AvailabilityProcessingStatus::Imported(_, root))
         | Err(BlockError::DuplicateFullyImported(root)) => {
             let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
             info!(

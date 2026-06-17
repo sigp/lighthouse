@@ -5,8 +5,11 @@ on:
   schedule:
     # Every week (Sunday at 00:00 UTC)
     - cron: "0 0 * * 0"
-  pull_request:
-    branches: [stable, unstable]
+  push:
+    # The warpbuild snapshot is global across all branches, so only `stable`
+    # bakes it. This avoids non-stable branches (and Mergify merge-queue PRs)
+    # clobbering the shared snapshot and racking up duplicate bakes.
+    branches: [stable]
     paths:
       - '.github/workflows/warpbuild-ubuntu-latest-snapshot.yml'
 
@@ -16,7 +19,7 @@ concurrency:
 
 jobs:
   bake:
-    runs-on: warp-ubuntu-latest-x64-8x
+    runs-on: warp-ubuntu-latest-x64-8x;snapshot.enabled=true
     steps:
       - name: Install system deps
         run: |

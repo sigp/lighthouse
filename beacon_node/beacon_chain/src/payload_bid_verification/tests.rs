@@ -223,6 +223,7 @@ impl TestContext {
                     execution_payload_parent_hash: Some(ExecutionBlockHash::zero()),
                     execution_payload_block_hash: Some(ExecutionBlockHash::repeat_byte(0xab)),
                     proposer_index: Some(0),
+                    payload_received: false,
                 },
                 Slot::new(1),
                 &self.spec,
@@ -310,7 +311,7 @@ fn builder_already_seen_for_slot() {
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    let slot = Slot::new(0);
+    let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
     let bid = make_signed_bid(slot, 42, Address::ZERO, 30_000_000, 100, Hash256::ZERO);
@@ -336,7 +337,7 @@ fn bid_value_below_cached() {
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    let slot = Slot::new(0);
+    let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
     let high_bid = GossipVerifiedPayloadBid {
@@ -384,7 +385,7 @@ fn fee_recipient_mismatch() {
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    let slot = Slot::new(0);
+    let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::repeat_byte(0xaa), 30_000_000);
 
     let bid = make_signed_bid(
@@ -406,7 +407,7 @@ fn gas_limit_mismatch() {
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    let slot = Slot::new(0);
+    let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
     let bid = make_signed_bid(
@@ -428,7 +429,7 @@ fn execution_payment_nonzero() {
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    let slot = Slot::new(0);
+    let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
     let bid = Arc::new(SignedExecutionPayloadBid {
@@ -455,7 +456,7 @@ fn unknown_builder_index() {
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    let slot = Slot::new(0);
+    let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
     // Use a builder_index that doesn't exist in the registry.
@@ -483,7 +484,7 @@ fn inactive_builder() {
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    let slot = Slot::new(0);
+    let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
     let bid = make_signed_bid(
@@ -508,7 +509,7 @@ fn builder_cant_cover_bid() {
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    let slot = Slot::new(0);
+    let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
     // Builder index 0 exists but bid value far exceeds their balance.
@@ -534,7 +535,7 @@ fn parent_block_root_unknown() {
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    let slot = Slot::new(0);
+    let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
     // Parent block root not in fork choice.
@@ -556,7 +557,9 @@ fn parent_block_root_not_canonical() {
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    let slot = Slot::new(0);
+    // The non-canonical fork block is at slot 1, so use slot 2 to satisfy the `bid.slot > parent
+    // block slot` rule and exercise the  bid descendant from parent check specifically.
+    let slot = Slot::new(2);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
     let fork_root = ctx.insert_non_canonical_block();
@@ -571,13 +574,43 @@ fn parent_block_root_not_canonical() {
 }
 
 #[test]
+fn bid_slot_not_after_parent() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
+    // The genesis (parent) block is at slot 0, so a bid at slot 0 is not for a higher slot than
+    // its parent and must be rejected.
+    let slot = Slot::new(0);
+    seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
+
+    let bid = make_signed_bid(
+        slot,
+        0,
+        Address::ZERO,
+        30_000_000,
+        0,
+        ctx.genesis_block_root,
+    );
+    let result = GossipVerifiedPayloadBid::new(bid, &gossip);
+    assert!(
+        matches!(
+            result,
+            Err(PayloadBidError::BidNotDescendantOfParent { .. })
+        ),
+        "expected BidNotDescendantOfParent, got: {result:?}"
+    );
+}
+
+#[test]
 fn invalid_blob_kzg_commitments() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    let slot = Slot::new(0);
+    let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
     let max_blobs = ctx
@@ -614,7 +647,7 @@ fn bad_signature() {
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    let slot = Slot::new(0);
+    let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
     // All checks pass but signature is empty/invalid.
@@ -643,7 +676,7 @@ fn valid_bid() {
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    let slot = Slot::new(0);
+    let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
     let bid = ctx.sign_bid(ExecutionPayloadBid {
@@ -670,7 +703,7 @@ fn two_builders_coexist_in_cache() {
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    let slot = Slot::new(0);
+    let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
     let bid_0 = ctx.sign_bid(ExecutionPayloadBid {
@@ -725,7 +758,7 @@ fn bid_equal_to_cached_value_rejected() {
     }
     let ctx = TestContext::new();
     let gossip = ctx.gossip_ctx();
-    let slot = Slot::new(0);
+    let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
     // Seed a cached bid with value 100.

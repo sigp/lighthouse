@@ -880,8 +880,11 @@ pub fn process_deposit_requests_pre_gloas<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     for request in deposit_requests {
-        // Set deposit receipt start index
-        if state.deposit_requests_start_index()? == spec.unset_deposit_requests_start_index {
+        // Set deposit receipt start index if pre-Fulu.
+        // Support for the former Eth1 bridge deposit mechanism was removed in Fulu.
+        if !state.fork_name_unchecked().fulu_enabled()
+            && state.deposit_requests_start_index()? == spec.unset_deposit_requests_start_index
+        {
             *state.deposit_requests_start_index_mut()? = request.index
         }
         let slot = state.slot();

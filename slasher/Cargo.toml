@@ -22,9 +22,9 @@ ethereum_ssz_derive = { workspace = true }
 filesystem = { workspace = true }
 fixed_bytes = { workspace = true }
 flate2 = { version = "1.0.14", features = ["zlib"], default-features = false }
+hashlink = { workspace = true }
 lmdb-rkv = { git = "https://github.com/sigp/lmdb-rs", rev = "f33845c6469b94265319aac0ed5085597862c27e", optional = true }
 lmdb-rkv-sys = { git = "https://github.com/sigp/lmdb-rs", rev = "f33845c6469b94265319aac0ed5085597862c27e", optional = true }
-lru = { workspace = true }
 
 # MDBX is pinned at the last version with Windows and macOS support.
 mdbx = { package = "libmdbx", git = "https://github.com/sigp/libmdbx-rs", rev = "e6ff4b9377c1619bcf0bfdf52bee5a980a432a1a", optional = true }
