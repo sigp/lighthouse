@@ -3828,7 +3828,6 @@ async fn test_import_historical_data_columns_batch_no_block_found() {
 /// Test that blocks and attestations that refer to states around an unaligned split state are
 /// processed correctly.
 #[tokio::test]
-#[allow(clippy::large_stack_frames)]
 async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     let temp = tempdir().unwrap();
     let store = get_store(&temp);
