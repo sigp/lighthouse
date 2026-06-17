@@ -374,6 +374,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // The payload envelope is imported; release any attestations awaiting this block's payload
         // so they can be re-processed (parity with the gossip import path).
         if let Ok(AvailabilityProcessingStatus::Imported(_, block_root)) = &result {
+            self.chain.recompute_head_at_current_slot().await;
             self.notify_payload_envelope_imported(*block_root, EnvelopeSource::Rpc);
         }
 

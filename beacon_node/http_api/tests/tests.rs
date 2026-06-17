@@ -4856,6 +4856,19 @@ impl ApiTester {
             assert_eq!(result, expected);
         }
 
+        // The committee_index in the response must always be 0 post-Electra,
+        // regardless of the query parameter.
+        let committee_count = state.get_committee_count_at_slot(slot).unwrap();
+        if committee_count > 0 {
+            let result = self
+                .client
+                .get_validator_attestation_data(slot, 1)
+                .await
+                .unwrap()
+                .data;
+            assert_eq!(result.index, 0);
+        }
+
         self
     }
 
