@@ -367,7 +367,7 @@ impl CommitteeCache {
         self.shuffling_positions
             .get(validator_index)?
             .0
-            .map(|p| p.get().saturating_sub(1))
+            .map(|p| p.get() - 1)
     }
 }
 
