@@ -9,7 +9,6 @@ use eth2::types::BlobsBundle;
 use execution_layer::json_structures::{BlobAndProof, BlobAndProofV1, BlobAndProofV2};
 use execution_layer::test_utils::generate_blobs;
 use maplit::hashset;
-use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 use task_executor::test_utils::TestRuntime;
 use types::{
@@ -201,7 +200,10 @@ mod get_blobs_v2 {
             .returning(|_, _| None);
         mock_process_engine_blobs_result(
             &mut mock_adapter,
-            Ok(AvailabilityProcessingStatus::Imported(block_root)),
+            Ok(AvailabilityProcessingStatus::Imported(
+                block.slot(),
+                block_root,
+            )),
         );
 
         // Trigger fetch blobs on the block
@@ -218,7 +220,10 @@ mod get_blobs_v2 {
 
         assert_eq!(
             processing_status,
-            Some(AvailabilityProcessingStatus::Imported(block_root))
+            Some(AvailabilityProcessingStatus::Imported(
+                block.slot(),
+                block_root
+            ))
         );
 
         let published_columns = extract_published_blobs(publish_fn_args);
@@ -339,7 +344,7 @@ fn mock_beacon_adapter(fork_name: ForkName, get_blobs_v3: bool) -> MockFetchBlob
     let test_runtime = TestRuntime::default();
     let spec = Arc::new(fork_name.make_genesis_spec(E::default_spec()));
     let kzg = get_kzg(&spec);
-    let partial_assembler = PartialDataColumnAssembler::new(NonZeroUsize::new(32).unwrap());
+    let partial_assembler = PartialDataColumnAssembler::new(32);
 
     let mut mock_adapter = MockFetchBlobsBeaconAdapter::default();
     mock_adapter.expect_spec().return_const(spec.clone());

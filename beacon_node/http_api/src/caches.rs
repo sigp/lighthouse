@@ -1,6 +1,5 @@
-use lru::LruCache;
+use hashlink::lru_cache::LruCache;
 use parking_lot::Mutex;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 use types::{AttestationShufflingId, CommitteeCache, Epoch};
 
@@ -25,7 +24,7 @@ pub struct HistoricalCommitteeCache {
 }
 
 impl HistoricalCommitteeCache {
-    pub fn new(size: NonZeroUsize) -> Self {
+    pub fn new(size: usize) -> Self {
         Self {
             committees: Mutex::new(LruCache::new(size)),
         }
@@ -38,6 +37,6 @@ impl HistoricalCommitteeCache {
     }
 
     pub fn insert(&self, id: HistoricalShufflingId, cache: Arc<CommitteeCache>) {
-        self.committees.lock().put(id, cache);
+        self.committees.lock().insert(id, cache);
     }
 }

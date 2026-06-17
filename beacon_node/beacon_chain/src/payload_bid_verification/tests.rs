@@ -223,6 +223,7 @@ impl TestContext {
                     execution_payload_parent_hash: Some(ExecutionBlockHash::zero()),
                     execution_payload_block_hash: Some(ExecutionBlockHash::repeat_byte(0xab)),
                     proposer_index: Some(0),
+                    payload_received: false,
                 },
                 Slot::new(1),
                 &self.spec,
