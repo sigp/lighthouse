@@ -196,7 +196,7 @@ pub enum WhenSlotSkipped {
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum AvailabilityProcessingStatus {
     MissingComponents(Slot, Hash256),
-    Imported(Hash256),
+    Imported(Slot, Hash256),
 }
 
 impl TryInto<SignedBeaconBlockHash> for AvailabilityProcessingStatus {
@@ -204,7 +204,7 @@ impl TryInto<SignedBeaconBlockHash> for AvailabilityProcessingStatus {
 
     fn try_into(self) -> Result<SignedBeaconBlockHash, Self::Error> {
         match self {
-            AvailabilityProcessingStatus::Imported(hash) => Ok(hash.into()),
+            AvailabilityProcessingStatus::Imported(_, hash) => Ok(hash.into()),
             _ => Err(()),
         }
     }
@@ -215,7 +215,7 @@ impl TryInto<Hash256> for AvailabilityProcessingStatus {
 
     fn try_into(self) -> Result<Hash256, Self::Error> {
         match self {
-            AvailabilityProcessingStatus::Imported(hash) => Ok(hash),
+            AvailabilityProcessingStatus::Imported(_, hash) => Ok(hash),
             _ => Err(()),
         }
     }
@@ -3155,9 +3155,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 {
                     Ok(status) => {
                         match status {
-                            AvailabilityProcessingStatus::Imported(block_root) => {
+                            AvailabilityProcessingStatus::Imported(slot, block_root) => {
                                 // The block was imported successfully.
-                                imported_blocks.push((block_root, block_slot));
+                                imported_blocks.push((block_root, slot));
                             }
                             AvailabilityProcessingStatus::MissingComponents(slot, block_root) => {
                                 warn!(
@@ -3804,10 +3804,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Verify and import the block.
         match import_block.await {
             // The block was successfully verified and imported. Yay.
-            Ok(status @ AvailabilityProcessingStatus::Imported(block_root)) => {
+            Ok(status @ AvailabilityProcessingStatus::Imported(slot, block_root)) => {
                 debug!(
                     ?block_root,
-                    %block_slot,
+                    %slot,
                     source = %block_source,
                     "Beacon block imported"
                 );
@@ -4145,6 +4145,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             payload_verification_outcome,
         } = *block;
 
+        let slot = block.slot();
         let BlockImportData {
             block_root,
             state,
@@ -4179,7 +4180,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await??
         };
 
-        Ok(AvailabilityProcessingStatus::Imported(block_root))
+        Ok(AvailabilityProcessingStatus::Imported(slot, block_root))
     }
 
     /// Accepts a fully-verified and available block and imports it into the chain without performing any
@@ -4244,12 +4245,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let cached_head = self.canonical_head.cached_head();
         let old_head_slot = cached_head.head_slot();
 
-        // Compute the expected proposer for `current_slot` on the canonical chain. This is used by
-        // `on_block` to gate proposer boost on the block's proposer matching the canonical proposer
-        // (per spec `update_proposer_boost_root` added in v1.7.0-alpha.5).
-        let canonical_head_proposer_index =
-            self.canonical_head_proposer_index(current_slot, &cached_head)?;
-
         // Take an upgradable read lock on fork choice so we can check if this block has already
         // been imported. We don't want to repeat work importing a block that is already imported.
         let fork_choice_reader = self.canonical_head.fork_choice_upgradable_read_lock();
@@ -4281,7 +4276,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     block_delay,
                     &state,
                     payload_verification_status,
-                    canonical_head_proposer_index,
                     &self.spec,
                 )
                 .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
@@ -5029,42 +5023,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }))
     }
 
-    /// Compute the expected beacon proposer for `slot` on the canonical chain extending `cached_head`.
-    ///
-    /// Uses the beacon proposer cache to avoid recomputing the shuffling on every block import.
-    ///
-    /// This is used by `update_proposer_boost_root` to gate proposer boost on the block's proposer
-    /// matching the canonical proposer, per consensus-specs v1.7.0-alpha.5.
-    ///
-    /// This function should never error unless there is some corruption of the head state. If a
-    /// state advance is needed, it will be handled by the proposer cache.
-    pub fn canonical_head_proposer_index(
-        &self,
-        slot: Slot,
-        cached_head: &CachedHead<T::EthSpec>,
-    ) -> Result<u64, Error> {
-        let proposal_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
-        let head_block_root = cached_head.head_block_root();
-        let head_state = &cached_head.snapshot.beacon_state;
-
-        let shuffling_decision_root = head_state.proposer_shuffling_decision_root_at_epoch(
-            proposal_epoch,
-            head_block_root,
-            &self.spec,
-        )?;
-
-        self.with_proposer_cache::<_, Error>(
-            shuffling_decision_root,
-            proposal_epoch,
-            |proposers| {
-                proposers
-                    .get_slot::<T::EthSpec>(slot)
-                    .map(|p| p.index as u64)
-            },
-            || Ok((cached_head.head_state_root(), head_state.clone())),
-        )
-    }
-
     pub fn get_expected_withdrawals(
         &self,
         forkchoice_update_params: &ForkchoiceUpdateParameters,
@@ -5203,7 +5161,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 head_block_root,
                 re_org_head_threshold,
                 re_org_parent_threshold,
-                &self.config.re_org_disallowed_offsets,
                 re_org_max_epochs_since_finalization,
             )
             .map_err(|e| e.map_inner_error(Error::ProposerHeadForkChoiceError))?;
@@ -5238,44 +5195,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
         if !current_slot_ok {
             return Err(Box::new(DoNotReOrg::HeadDistance.into()));
-        }
-
-        // Only attempt a re-org if we have a proposer registered for the re-org slot.
-        let proposing_at_re_org_slot = {
-            // We know our re-org block is not on the epoch boundary, so it has the same proposer
-            // shuffling as the head (but not necessarily the parent which may lie in the previous
-            // epoch).
-            let shuffling_decision_root = if self
-                .spec
-                .fork_name_at_slot::<T::EthSpec>(re_org_block_slot)
-                .fulu_enabled()
-            {
-                info.head_node.current_epoch_shuffling_id()
-            } else {
-                info.head_node.next_epoch_shuffling_id()
-            }
-            .shuffling_decision_block;
-            let proposer_index = self
-                .beacon_proposer_cache
-                .lock()
-                .get_slot::<T::EthSpec>(shuffling_decision_root, re_org_block_slot)
-                .ok_or_else(|| {
-                    debug!(
-                        slot = %re_org_block_slot,
-                        decision_root = ?shuffling_decision_root,
-                        "Fork choice override proposer shuffling miss"
-                    );
-                    Box::new(DoNotReOrg::NotProposing.into())
-                })?
-                .index as u64;
-
-            self.execution_layer
-                .as_ref()
-                .ok_or(ProposerHeadError::Error(Error::ExecutionLayerMissing))?
-                .has_proposer_preparation_data_blocking(proposer_index)
-        };
-        if !proposing_at_re_org_slot {
-            return Err(Box::new(DoNotReOrg::NotProposing.into()));
         }
 
         // TODO(gloas): reorg weight logic needs updating for Gloas. For now use
@@ -5319,6 +5238,64 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.block_observed_after_attestation_deadline(head_block_root, head_slot);
         if !head_block_late {
             return Err(Box::new(DoNotReOrg::HeadNotLate.into()));
+        }
+
+        // Only attempt a re-org if we have a proposer registered for the re-org slot. This check
+        // runs after the cheaper checks above because it may compute (and cache) the proposer
+        // shuffling for the re-org slot's epoch on a cache miss.
+        let proposing_at_re_org_slot = {
+            // Since Fulu, proposer shuffling is computed one epoch in advance, so the shuffling
+            // for the re-org block's epoch is always decided by an ancestor of the head, even
+            // when the re-org block lies in the epoch after the head (epoch boundary re-org).
+            let proposal_in_head_epoch = re_org_block_slot.epoch(T::EthSpec::slots_per_epoch())
+                == head_slot.epoch(T::EthSpec::slots_per_epoch());
+            let shuffling_decision_root = if self
+                .spec
+                .fork_name_at_slot::<T::EthSpec>(re_org_block_slot)
+                .fulu_enabled()
+                && proposal_in_head_epoch
+            {
+                info.head_node.current_epoch_shuffling_id()
+            } else {
+                info.head_node.next_epoch_shuffling_id()
+            }
+            .shuffling_decision_block;
+            let proposer_index = self
+                .with_proposer_cache::<u64, Error>(
+                    shuffling_decision_root,
+                    re_org_block_slot.epoch(T::EthSpec::slots_per_epoch()),
+                    |proposers| {
+                        proposers
+                            .get_slot::<T::EthSpec>(re_org_block_slot)
+                            .map(|proposer| proposer.index as u64)
+                    },
+                    || {
+                        debug!(
+                            slot = %re_org_block_slot,
+                            decision_root = ?shuffling_decision_root,
+                            "Fork choice override proposer shuffling miss"
+                        );
+                        let head = self.canonical_head.cached_head();
+                        Ok((head.head_state_root(), head.snapshot.beacon_state.clone()))
+                    },
+                )
+                .map_err(|e| match e {
+                    Error::ProposerCacheIncorrectState { .. } => {
+                        // The head changed while we were computing the proposer shuffling.
+                        // Decline the re-org rather than erroring out.
+                        warn!("Head changed during fork choice override check");
+                        Box::new(ProposerHeadError::from(DoNotReOrg::NotProposing))
+                    }
+                    e => Box::new(ProposerHeadError::Error(e)),
+                })?;
+
+            self.execution_layer
+                .as_ref()
+                .ok_or(ProposerHeadError::Error(Error::ExecutionLayerMissing))?
+                .has_proposer_preparation_data_blocking(proposer_index)
+        };
+        if !proposing_at_re_org_slot {
+            return Err(Box::new(DoNotReOrg::NotProposing.into()));
         }
 
         // TODO(gloas): V29 nodes don't carry execution_status, so this returns

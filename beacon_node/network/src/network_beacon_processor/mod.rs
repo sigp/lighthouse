@@ -39,6 +39,8 @@ use {
 
 pub use sync_methods::{BlockProcessingResult, ChainSegmentProcessId};
 
+use gossip_methods::ReprocessAllowance;
+
 pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
 
 mod gossip_methods;
@@ -93,15 +95,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.attestation,
                 package.subnet_id,
                 package.should_import,
-                true,
+                ReprocessAllowance::BlockAndPayload,
                 package.seen_timestamp,
             )
         };
 
         // Define a closure for processing batches of attestations.
         let processor = self.clone();
-        let process_batch =
-            move |attestations| processor.process_gossip_attestation_batch(attestations, true);
+        let process_batch = move |attestations| {
+            processor
+                .process_gossip_attestation_batch(attestations, ReprocessAllowance::BlockAndPayload)
+        };
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
@@ -135,15 +139,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.message_id,
                 package.peer_id,
                 package.aggregate,
-                true,
+                ReprocessAllowance::BlockAndPayload,
                 package.seen_timestamp,
             )
         };
 
         // Define a closure for processing batches of attestations.
         let processor = self.clone();
-        let process_batch =
-            move |aggregates| processor.process_gossip_aggregate_batch(aggregates, true);
+        let process_batch = move |aggregates| {
+            processor
+                .process_gossip_aggregate_batch(aggregates, ReprocessAllowance::BlockAndPayload)
+        };
 
         let beacon_block_root = aggregate.message().aggregate().data().beacon_block_root;
         self.try_send(BeaconWorkEvent {
@@ -932,7 +938,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         .await
         {
             Ok(Some(availability)) => match availability {
-                AvailabilityProcessingStatus::Imported(_) => {
+                AvailabilityProcessingStatus::Imported(..) => {
                     debug!(
                         result = "imported block and custody columns",
                         %block_root,
@@ -1020,7 +1026,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Ok(Some((availability_processing_status, data_columns_to_publish))) => {
                 self.publish_data_columns_gradually(data_columns_to_publish, block_root);
                 match &availability_processing_status {
-                    AvailabilityProcessingStatus::Imported(hash) => {
+                    AvailabilityProcessingStatus::Imported(_, hash) => {
                         debug!(
                             result = "imported block and custody columns",
                             block_hash = %hash,

@@ -393,9 +393,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .collect()
     }
 
-    pub fn get_custodial_peers(&self, column_index: ColumnIndex) -> Vec<PeerId> {
+    pub fn get_custodial_peers(&self, column_index: ColumnIndex, block_slot: Slot) -> Vec<PeerId> {
         self.network_globals()
-            .custody_peers_for_column(column_index)
+            .custody_peers_for_column(column_index, block_slot)
     }
 
     pub fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
@@ -1028,6 +1028,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         let mut request = ActiveCustodyRequest::new(
             block_roots.to_vec(),
+            block_epoch.start_slot(T::EthSpec::slots_per_epoch()),
             CustodyId { requester },
             &custody_indexes_to_fetch,
             lookup_peers,

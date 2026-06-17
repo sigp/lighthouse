@@ -1989,7 +1989,7 @@ impl TestRig {
         block: Arc<SignedBeaconBlock<E>>,
     ) {
         match self.import_block_to_da_checker(block).await {
-            AvailabilityProcessingStatus::Imported(_) => {
+            AvailabilityProcessingStatus::Imported(..) => {
                 panic!("block removed from da_checker, available")
             }
             AvailabilityProcessingStatus::MissingComponents(_, block_root) => {
