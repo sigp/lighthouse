@@ -60,6 +60,7 @@ use logging::crit;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard};
 use slot_clock::SlotClock;
 use state_processing::AllCaches;
+use state_processing::state_advance::complete_state_advance;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{
@@ -1036,28 +1037,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// The current head's state pulled up to `slot` (spec `get_pulled_up_head_state`), with
     /// committee caches built, as the Fast Confirmation Rule requires.
     ///
-    /// This method uses the state cache, which should be populated by `state_advance_timer` each
-    /// slot. It returns `Ok(None)` if no suitable cached state is found.
+    /// The state is taken from the cache (populated by `state_advance_timer`) and advanced to
+    /// `slot` if it lags behind. Returns `Ok(None)` if no state for `head_root` is cached.
     fn fcr_pulled_up_head_state(
         &self,
         head_root: Hash256,
         slot: Slot,
     ) -> Result<Option<BeaconState<T::EthSpec>>, Error> {
-        let Some((_, mut state)) = self
+        let Some((state_root, mut state)) = self
             .store
             .get_advanced_hot_state_from_cache(head_root, slot)
         else {
             return Ok(None);
         };
 
-        // Check the slot: get_advanced_hot_state_from_cache is best-effort and can return a state
-        // at any slot <= slot.
-        if state.slot() == slot {
-            state.build_all_caches(&self.spec)?;
-            Ok(Some(state))
-        } else {
-            Ok(None)
-        }
+        // The cache is best-effort and may return a state at any slot <= `slot`; advance it so FCR
+        // sees the head pulled up to the current slot.
+        // TODO(fcr): Consider changing to same epoch state
+        complete_state_advance(&mut state, Some(state_root), slot, &self.spec)?;
+        state.build_all_caches(&self.spec)?;
+        Ok(Some(state))
     }
 
     /// Perform updates to caches and other components after the canonical head has been changed.
