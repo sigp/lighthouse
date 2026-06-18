@@ -121,8 +121,8 @@ impl ActiveRequestsPerPeer {
         Self { count_by_peer }
     }
 
-    fn get(&self, peer_id: &PeerId) -> usize {
-        self.count_by_peer.get(peer_id).copied().unwrap_or(0)
+    fn at_concurrency_limit(&self, peer_id: &PeerId) -> bool {
+        self.count_by_peer.get(peer_id).copied().unwrap_or(0) >= MAX_CONCURRENT_REQUESTS
     }
 }
 
@@ -568,7 +568,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     // If contains -> 1 (order after), not contains -> 0 (order first)
                     peers_to_deprioritize.contains(peer),
                     // Strictly de-prioritize peers already at the per-protocol concurrency limit
-                    blocks_by_range_per_peer.get(peer) >= MAX_CONCURRENT_REQUESTS,
+                    blocks_by_range_per_peer.at_concurrency_limit(peer),
                     // Random factor to break ties, otherwise the PeerID breaks ties
                     rand::random::<u32>(),
                     peer,
@@ -669,6 +669,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let payloads_req_id =
             if matches!(batch_type, ByRangeRequestType::BlocksAndEnvelopesAndColumns) {
                 Some(self.send_payload_envelopes_by_range_request(
+                    // Peer selection: for a given peer, the count of sent blocks_by_range requests
+                    // equals the count of sent payloads_by_range requests. So we are under the
+                    // concurrency limit for payloads_by_range requests
                     block_peer,
                     PayloadEnvelopesByRangeRequest {
                         start_slot: *request.start_slot(),
@@ -731,7 +734,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         // Strictly de-prioritize peers already at the per-protocol concurrency limit
                         // Note: do not account for to-be-sent requests on
                         // `data_columns_by_range_by_peer` as we always send at most one request
-                        data_columns_by_range_per_peer.get(peer),
+                        data_columns_by_range_per_peer.at_concurrency_limit(peer),
                         // Random factor to break ties, otherwise the PeerID breaks ties
                         rand::random::<u32>(),
                         peer,
@@ -864,7 +867,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .map(|peer| {
                 (
                     // Strictly de-prioritize peers already at the per-protocol concurrency limit
-                    blocks_by_root_per_peer.get(peer) >= MAX_CONCURRENT_REQUESTS,
+                    blocks_by_root_per_peer.at_concurrency_limit(peer),
                     // Random factor to break ties, otherwise the PeerID breaks ties
                     rand::random::<u32>(),
                     peer,
@@ -985,7 +988,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .map(|peer| {
                 (
                     // Strictly de-prioritize peers already at the per-protocol concurrency limit
-                    payload_envelopes_by_root_per_peer.get(peer) >= MAX_CONCURRENT_REQUESTS,
+                    payload_envelopes_by_root_per_peer.at_concurrency_limit(peer),
                     rand::random::<u32>(),
                     peer,
                 )
