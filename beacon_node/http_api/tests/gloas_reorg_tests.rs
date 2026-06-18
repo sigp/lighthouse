@@ -11,7 +11,7 @@ use beacon_chain::{
     custody_context::NodeCustodyType,
     test_utils::{
         AttestationStrategy, BlockStrategy, LightClientStrategy, MakeAttestationOptions,
-        MakePayloadAttestationOptions, PayloadAttestationVote, SyncCommitteeStrategy,
+        MakePayloadAttestationOptions, PayloadAttestationVote, SyncCommitteeStrategy, test_spec,
     },
 };
 use eth2::types::ProduceBlockV3Response;
@@ -28,8 +28,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Address, BeaconBlockRef, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256,
-    MinimalEthSpec, ProposerPreparationData, Slot,
+    Address, BeaconBlockRef, EthSpec, ExecPayload, ExecutionBlockHash, Hash256, MinimalEthSpec,
+    ProposerPreparationData, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -413,7 +413,7 @@ pub async fn proposer_boost_re_org_test(
 ) {
     assert!(head_slot > 0);
 
-    let spec = ForkName::latest().make_genesis_spec(E::default_spec());
+    let spec = test_spec::<E>();
 
     // Ensure there are enough validators to have `ATTESTERS_PER_SLOT`.
     assert!(ATTESTERS_PER_SLOT >= E::ptc_size());
