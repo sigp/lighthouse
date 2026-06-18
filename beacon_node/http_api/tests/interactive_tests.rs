@@ -22,8 +22,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Address, BeaconBlockRef, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256,
-    MainnetEthSpec, MinimalEthSpec, ProposerPreparationData, Slot,
+    Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec,
+    MinimalEthSpec, ProposerPreparationData, Slot,
 };
 
 type E = MainnetEthSpec;
