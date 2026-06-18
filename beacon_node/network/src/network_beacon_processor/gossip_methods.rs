@@ -1083,8 +1083,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 debug!(block = %block_root, "Triggering getBlobs after receiving partial header");
                 // We want to publish immediately when this finishes
                 let publish_blobs = true;
-                self.fetch_engine_blobs_and_publish(header.into_header(), block_root, publish_blobs)
-                    .await
+                let header = header.into_header();
+                self.fetch_engine_blobs_and_publish_full(header.clone(), block_root, publish_blobs)
+                    .await;
+                self.publish_partial_data_columns(header, block_root).await;
             }
         }
     }
@@ -1815,8 +1817,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.executor.spawn(
             async move {
                 if let Ok(header) = PartialDataColumnHeader::try_from(block_clone.as_ref()) {
+                    let header = Arc::new(header);
                     self_clone
-                        .fetch_engine_blobs_and_publish(Arc::new(header), block_root, publish_blobs)
+                        .fetch_engine_blobs_and_publish_full(
+                            header.clone(),
+                            block_root,
+                            publish_blobs,
+                        )
+                        .await;
+                    self_clone
+                        .publish_partial_data_columns(header, block_root)
                         .await
                 }
             }

@@ -911,170 +911,177 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         });
     }
 
-    pub async fn fetch_engine_blobs_and_publish(
+    pub async fn fetch_engine_blobs_and_publish_full(
         self: &Arc<Self>,
         header: Arc<PartialDataColumnHeader<T::EthSpec>>,
         block_root: Hash256,
         publish_blobs: bool,
     ) {
-        // Blocks without blobs have nothing to fetch and nothing to advertise.
-        if header.kzg_commitments.is_empty() {
+        if !self.chain.config.disable_get_blobs {
             return;
         }
         let epoch = header.slot().epoch(T::EthSpec::slots_per_epoch());
         let custody_columns = self.chain.sampling_columns_for_epoch(epoch);
 
-        if !self.chain.config.disable_get_blobs {
-            let self_cloned = self.clone();
-            let publish_fn = move |columns: Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>| {
-                if publish_blobs {
-                    self_cloned.publish_data_columns_gradually(
-                        columns.into_iter().map(|c| c.clone_arc()).collect(),
-                        block_root,
+        let self_cloned = self.clone();
+        let publish_fn = move |columns: Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>| {
+            if publish_blobs {
+                self_cloned.publish_data_columns_gradually(
+                    columns.into_iter().map(|c| c.clone_arc()).collect(),
+                    block_root,
+                );
+            }
+        };
+
+        match fetch_and_process_engine_blobs(
+            self.chain.clone(),
+            block_root,
+            header,
+            custody_columns,
+            publish_fn,
+        )
+        .await
+        {
+            Ok(Some(availability)) => match availability {
+                AvailabilityProcessingStatus::Imported(..) => {
+                    debug!(
+                        result = "imported block and custody columns",
+                        %block_root,
+                        "Block components retrieved from EL"
                     );
+                    self.chain.recompute_head_at_current_slot().await;
+                }
+                AvailabilityProcessingStatus::MissingComponents(_, _) => {
+                    debug!(
+                        %block_root,
+                        "Still missing blobs after engine blobs processed successfully"
+                    );
+                }
+            },
+            Ok(None) => {
+                debug!(
+                    %block_root,
+                    "Fetch blobs completed without import"
+                );
+            }
+            Err(FetchEngineBlobError::BlobProcessingError(BlockError::DuplicateFullyImported(
+                ..,
+            ))) => {
+                debug!(
+                    %block_root,
+                    "Fetch blobs duplicate import"
+                );
+            }
+            Err(e) => {
+                error!(
+                    error = ?e,
+                    %block_root,
+                    "Error fetching or processing blobs from EL"
+                );
+            }
+        }
+    }
+
+    pub async fn publish_partial_data_columns(
+        self: &Arc<Self>,
+        header: Arc<PartialDataColumnHeader<T::EthSpec>>,
+        block_root: Hash256,
+    ) {
+        if header.kzg_commitments.is_empty() {
+            return;
+        }
+
+        // TODO(gloas): implement publish partial columns
+        let Some(assembler) = self.chain.data_availability_checker.partial_assembler() else {
+            // Partials are disabled.
+            return;
+        };
+        let epoch = header.slot().epoch(T::EthSpec::slots_per_epoch());
+        let custody_columns = self.chain.sampling_columns_for_epoch(epoch);
+        let columns = assembler.get_columns_and_mark_as_local_fetched(block_root, &header);
+
+        let mut present_indices: HashSet<ColumnIndex> = HashSet::with_capacity(columns.len());
+        let mut messages: Vec<PubsubPartialMessage<T::EthSpec>> = Vec::with_capacity(columns.len());
+        for column in columns {
+            // Republish both complete and incomplete columns as partials
+            let partial_column = match column {
+                AssemblyColumn::Incomplete(partial) => partial.into_inner(),
+                AssemblyColumn::Complete(full) => {
+                    let DataColumnSidecar::Fulu(fulu) = full.as_data_column() else {
+                        continue;
+                    };
+                    match fulu.to_partial() {
+                        Ok(partial) => Arc::new(partial),
+                        Err(err) => {
+                            error!(
+                                %block_root,
+                                column_index = %full.index(),
+                                ?err,
+                                "Failed to convert complete column to partial for re-seeding"
+                            );
+                            continue;
+                        }
+                    }
                 }
             };
 
-            match fetch_and_process_engine_blobs(
-                self.chain.clone(),
-                block_root,
-                header.clone(),
-                custody_columns,
-                publish_fn,
-            )
-            .await
-            {
-                Ok(Some(availability)) => match availability {
-                    AvailabilityProcessingStatus::Imported(..) => {
-                        debug!(
-                            result = "imported block and custody columns",
-                            %block_root,
-                            "Block components retrieved from EL"
-                        );
-                        self.chain.recompute_head_at_current_slot().await;
-                    }
-                    AvailabilityProcessingStatus::MissingComponents(_, _) => {
-                        debug!(
-                            %block_root,
-                            "Still missing blobs after engine blobs processed successfully"
-                        );
-                    }
-                },
-                Ok(None) => {
-                    debug!(
-                        %block_root,
-                        "Fetch blobs completed without import"
-                    );
-                }
-                Err(FetchEngineBlobError::BlobProcessingError(
-                    BlockError::DuplicateFullyImported(..),
-                )) => {
-                    debug!(
-                        %block_root,
-                        "Fetch blobs duplicate import"
-                    );
-                }
-                Err(e) => {
-                    error!(
-                        error = ?e,
-                        %block_root,
-                        "Error fetching or processing blobs from EL"
-                    );
-                }
-            }
+            present_indices.insert(partial_column.index);
+            let mut request_cells = partial_column.sidecar.cells_present_bitmap.clone_zeroed();
+            request_cells.not_inplace();
+            messages.push(PubsubPartialMessage::DataColumnFulu {
+                column: partial_column,
+                request_cells,
+                header: header.clone(),
+            });
         }
 
-        // Publish partial columns without eager send
-        // TODO(gloas): implement publish partial columns without eager send
-        if let Some(assembler) = self.chain.data_availability_checker.partial_assembler()
-            && publish_blobs
-        {
-            let columns = assembler.get_columns_and_mark_as_local_fetched(block_root, &header);
-
-            let mut present_indices: HashSet<ColumnIndex> = HashSet::with_capacity(columns.len());
-            let mut messages: Vec<PubsubPartialMessage<T::EthSpec>> =
-                Vec::with_capacity(columns.len());
-            for column in columns {
-                // Republish both complete and incomplete columns as partials
-                let partial_column = match column {
-                    AssemblyColumn::Incomplete(partial) => partial.into_inner(),
-                    AssemblyColumn::Complete(full) => {
-                        let DataColumnSidecar::Fulu(fulu) = full.as_data_column() else {
-                            continue;
-                        };
-                        match fulu.to_partial() {
-                            Ok(partial) => Arc::new(partial),
-                            Err(err) => {
-                                error!(
-                                    %block_root,
-                                    column_index = %full.index(),
-                                    ?err,
-                                    "Failed to convert complete column to partial for re-seeding"
-                                );
-                                continue;
-                            }
-                        }
-                    }
-                };
-
-                present_indices.insert(partial_column.index);
-                let mut request_cells = partial_column.sidecar.cells_present_bitmap.clone_zeroed();
-                request_cells.not_inplace();
-                messages.push(PubsubPartialMessage::DataColumnFulu {
-                    column: partial_column,
-                    request_cells,
-                    header: header.clone(),
-                });
+        // For each custody column without any local partial, send an empty placeholder
+        // that requests all cells.
+        let num_cells = header.kzg_commitments.len();
+        for col_idx in custody_columns {
+            if present_indices.contains(col_idx) {
+                continue;
             }
-
-            // For each custody column without any local partial, send an empty placeholder
-            // that requests all cells.
-            let num_cells = header.kzg_commitments.len();
-            for col_idx in custody_columns {
-                if present_indices.contains(col_idx) {
-                    continue;
-                }
-                // `kzg_commitments.len()` is bounded by `MaxBlobCommitmentsPerBlock`, so the
-                // bitmap constructor is infallible.
-                let Ok(cells_present_bitmap) = CellBitmap::<T::EthSpec>::with_capacity(num_cells)
-                else {
-                    crit!(
-                        %block_root,
-                        num_cells,
-                        column_index = %col_idx,
-                        "CellBitmap construction failed despite being bounded by MaxBlobCommitmentsPerBlock"
-                    );
-                    continue;
-                };
-                let request_cells = cells_present_bitmap.not();
-                messages.push(PubsubPartialMessage::DataColumnFulu {
-                    column: Arc::new(PartialDataColumn {
-                        block_root,
-                        index: *col_idx,
-                        sidecar: PartialDataColumnSidecar {
-                            cells_present_bitmap,
-                            column: VariableList::empty(),
-                            kzg_proofs: VariableList::empty(),
-                            header: None.into(),
-                        },
-                    }),
-                    request_cells,
-                    header: header.clone(),
-                });
-            }
-
-            if !messages.is_empty() {
-                debug!(
-                    block = %block_root,
-                    count = messages.len(),
-                    "Publishing all partials"
+            // `kzg_commitments.len()` is bounded by `MaxBlobCommitmentsPerBlock`, so the
+            // bitmap constructor is infallible.
+            let Ok(cells_present_bitmap) = CellBitmap::<T::EthSpec>::with_capacity(num_cells)
+            else {
+                crit!(
+                    %block_root,
+                    num_cells,
+                    column_index = %col_idx,
+                    "CellBitmap construction failed despite being bounded by MaxBlobCommitmentsPerBlock"
                 );
-                self.send_network_message(NetworkMessage::PublishPartialColumns { messages });
-            } else {
-                // This should not happen, as any custody columns will have at least an empty
-                // partial published.
-                warn!(block = %block_root, "No partials to publish");
-            }
+                continue;
+            };
+            let request_cells = cells_present_bitmap.not();
+            messages.push(PubsubPartialMessage::DataColumnFulu {
+                column: Arc::new(PartialDataColumn {
+                    block_root,
+                    index: *col_idx,
+                    sidecar: PartialDataColumnSidecar {
+                        cells_present_bitmap,
+                        column: VariableList::empty(),
+                        kzg_proofs: VariableList::empty(),
+                        header: None.into(),
+                    },
+                }),
+                request_cells,
+                header: header.clone(),
+            });
+        }
+
+        if !messages.is_empty() {
+            debug!(
+                block = %block_root,
+                count = messages.len(),
+                "Publishing all partials"
+            );
+            self.send_network_message(NetworkMessage::PublishPartialColumns { messages });
+        } else {
+            // This should not happen, as any custody columns will have at least an empty
+            // partial published.
+            warn!(block = %block_root, "No partials to publish");
         }
     }
 

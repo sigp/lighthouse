@@ -222,7 +222,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // to be sent from the peers if we already have them.
                 if let Ok(header) = signed_beacon_block.as_ref().try_into() {
                     let publish_blobs = false;
-                    self.fetch_engine_blobs_and_publish(
+                    self.fetch_engine_blobs_and_publish_full(
                         Arc::new(header),
                         block_root,
                         publish_blobs,
