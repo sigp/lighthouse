@@ -257,17 +257,9 @@ impl<E: EthSpec> PeerDB<E> {
             .iter()
             .filter(move |(_, info)| {
                 info.is_connected()
-                    && match info.sync_status() {
-                        SyncStatus::Synced { info } => {
-                            info.has_slot(epoch.start_slot(E::slots_per_epoch()))
-                        }
-                        SyncStatus::Advanced { info } => {
-                            info.has_slot(epoch.start_slot(E::slots_per_epoch()))
-                        }
-                        SyncStatus::IrrelevantPeer
-                        | SyncStatus::Behind { .. }
-                        | SyncStatus::Unknown => false,
-                    }
+                    && info.is_synced_or_advanced_with_available_slot(
+                        epoch.start_slot(E::slots_per_epoch()),
+                    )
             })
             .map(|(peer_id, _)| peer_id)
     }
@@ -301,10 +293,11 @@ impl<E: EthSpec> PeerDB<E> {
     }
 
     /// Returns an iterator of all good gossipsub peers that are supposed to be custodying
-    /// the given subnet id.
+    /// the given subnet id, with data available at the given slot.
     pub fn good_custody_subnet_peer(
         &self,
         subnet: DataColumnSubnetId,
+        slot: Slot,
     ) -> impl Iterator<Item = &PeerId> {
         self.peers
             .iter()
@@ -314,7 +307,7 @@ impl<E: EthSpec> PeerDB<E> {
                 info.is_connected()
                     && info.is_good_gossipsub_peer()
                     && is_custody_subnet_peer
-                    && info.is_synced_or_advanced()
+                    && info.is_synced_or_advanced_with_available_slot(slot)
             })
             .map(|(peer_id, _)| peer_id)
     }
@@ -330,14 +323,9 @@ impl<E: EthSpec> PeerDB<E> {
 
         let good_sync_peers_for_epoch = self.peers.values().filter(|&info| {
             info.is_connected()
-                && match info.sync_status() {
-                    SyncStatus::Synced { info } | SyncStatus::Advanced { info } => {
-                        info.has_slot(epoch.start_slot(E::slots_per_epoch()))
-                    }
-                    SyncStatus::IrrelevantPeer
-                    | SyncStatus::Behind { .. }
-                    | SyncStatus::Unknown => false,
-                }
+                && info.is_synced_or_advanced_with_available_slot(
+                    epoch.start_slot(E::slots_per_epoch()),
+                )
         });
 
         for info in good_sync_peers_for_epoch {
@@ -714,9 +702,14 @@ impl<E: EthSpec> PeerDB<E> {
 
     /// Adds a gossipsub subscription to a peer in the peerdb.
     // VISIBILITY: The behaviour is able to adjust subscriptions.
-    pub(crate) fn add_subscription(&mut self, peer_id: &PeerId, subnet: Subnet) {
+    pub(crate) fn add_subscription(
+        &mut self,
+        peer_id: &PeerId,
+        subnet: Subnet,
+        supports_partials: bool,
+    ) {
         if let Some(info) = self.peers.get_mut(peer_id) {
-            info.insert_subnet(subnet);
+            info.insert_subnet(subnet, supports_partials);
         }
     }
 
@@ -793,12 +786,39 @@ impl<E: EthSpec> PeerDB<E> {
         );
     }
 
-    /// Updates the connection state. MUST ONLY BE USED IN TESTS.
-    pub fn __add_connected_peer_testing_only(
+    /// Adds a connected peer to the PeerDB and sets the custody subnets.
+    /// WARNING: This updates the connection state. MUST ONLY BE USED IN TESTS.
+    pub fn __add_connected_peer_with_custody_subnets(
         &mut self,
         supernode: bool,
         spec: &ChainSpec,
         enr_key: CombinedKey,
+    ) -> PeerId {
+        let peer_id = self.__add_connected_peer(supernode, enr_key, spec);
+
+        let subnets = if supernode {
+            (0..spec.data_column_sidecar_subnet_count)
+                .map(|subnet_id| subnet_id.into())
+                .collect()
+        } else {
+            let node_id = peer_id_to_node_id(&peer_id).expect("convert peer_id to node_id");
+            compute_subnets_for_node::<E>(node_id.raw(), spec.custody_requirement, spec)
+                .expect("should compute custody subnets")
+        };
+
+        let peer_info = self.peers.get_mut(&peer_id).expect("peer exists");
+        peer_info.set_custody_subnets(subnets);
+
+        peer_id
+    }
+
+    /// Adds a connected peer to the PeerDB and updates the connection state.
+    /// MUST ONLY BE USED IN TESTS.
+    pub fn __add_connected_peer(
+        &mut self,
+        supernode: bool,
+        enr_key: CombinedKey,
+        spec: &ChainSpec,
     ) -> PeerId {
         let mut enr = Enr::builder().build(&enr_key).unwrap();
         let peer_id = enr.peer_id();
@@ -835,22 +855,19 @@ impl<E: EthSpec> PeerDB<E> {
             },
         );
 
-        if supernode {
-            let peer_info = self.peers.get_mut(&peer_id).expect("peer exists");
-            let all_subnets = (0..spec.data_column_sidecar_subnet_count)
-                .map(|subnet_id| subnet_id.into())
-                .collect();
-            peer_info.set_custody_subnets(all_subnets);
-        } else {
-            let peer_info = self.peers.get_mut(&peer_id).expect("peer exists");
-            let node_id = peer_id_to_node_id(&peer_id).expect("convert peer_id to node_id");
-            let subnets =
-                compute_subnets_for_node::<E>(node_id.raw(), spec.custody_requirement, spec)
-                    .expect("should compute custody subnets");
-            peer_info.set_custody_subnets(subnets);
-        }
-
         peer_id
+    }
+
+    /// MUST ONLY BE USED IN TESTS.
+    pub fn __set_custody_subnets(
+        &mut self,
+        peer_id: &PeerId,
+        custody_subnets: HashSet<DataColumnSubnetId>,
+    ) -> Result<(), String> {
+        self.peers
+            .get_mut(peer_id)
+            .map(|info| info.set_custody_subnets(custody_subnets))
+            .ok_or_else(|| "Cannot set custody subnets, peer not found".to_string())
     }
 
     /// The connection state of the peer has been changed. Modify the peer in the db to ensure all
@@ -2179,6 +2196,89 @@ mod tests {
         assert_eq!(
             pdb.peer_info(&trusted_peer).unwrap().score().score(),
             Score::max_score().score()
+        );
+    }
+
+    #[test]
+    fn test_good_custody_subnet_peer_respects_earliest_available_slot() {
+        let mut pdb = get_db();
+        let subnet = DataColumnSubnetId::new(0);
+        let request_slot = Slot::new(10);
+
+        fn sync_info(earliest_available_slot: Option<Slot>) -> SyncInfo {
+            SyncInfo {
+                head_slot: Slot::new(100),
+                head_root: Hash256::ZERO,
+                finalized_epoch: Epoch::new(0),
+                finalized_root: Hash256::ZERO,
+                earliest_available_slot,
+            }
+        }
+
+        let add_custody_peer = |pdb: &mut PeerDB<M>, sync_status: SyncStatus| {
+            let peer_id = PeerId::random();
+            pdb.connect_ingoing(&peer_id, "/ip4/0.0.0.0".parse().unwrap(), None);
+            pdb.__set_custody_subnets(&peer_id, HashSet::from([subnet]))
+                .unwrap();
+            pdb.update_sync_status(&peer_id, sync_status);
+            peer_id
+        };
+
+        let peer_with_data = add_custody_peer(
+            &mut pdb,
+            SyncStatus::Synced {
+                info: sync_info(Some(Slot::new(5))),
+            },
+        );
+        let peer_at_boundary = add_custody_peer(
+            &mut pdb,
+            SyncStatus::Synced {
+                info: sync_info(Some(request_slot)),
+            },
+        );
+        let peer_pruned = add_custody_peer(
+            &mut pdb,
+            SyncStatus::Synced {
+                info: sync_info(Some(Slot::new(11))),
+            },
+        );
+        let peer_no_eas = add_custody_peer(
+            &mut pdb,
+            SyncStatus::Synced {
+                info: sync_info(None),
+            },
+        );
+        let peer_behind = add_custody_peer(
+            &mut pdb,
+            SyncStatus::Behind {
+                info: sync_info(Some(Slot::new(0))),
+            },
+        );
+
+        let good_peers = pdb
+            .good_custody_subnet_peer(subnet, request_slot)
+            .copied()
+            .collect::<HashSet<_>>();
+
+        assert!(
+            good_peers.contains(&peer_with_data),
+            "peer with earliest_available_slot before the request slot should be returned"
+        );
+        assert!(
+            good_peers.contains(&peer_at_boundary),
+            "peer with earliest_available_slot equal to the request slot should be returned"
+        );
+        assert!(
+            !good_peers.contains(&peer_pruned),
+            "peer with earliest_available_slot after the request slot should be excluded"
+        );
+        assert!(
+            good_peers.contains(&peer_no_eas),
+            "peer without an advertised earliest_available_slot should be returned"
+        );
+        assert!(
+            !good_peers.contains(&peer_behind),
+            "behind peer should be excluded regardless of earliest_available_slot"
         );
     }
 

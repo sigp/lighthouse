@@ -1,3 +1,4 @@
+use crate::sync::block_lookups::DownloadResult;
 use crate::sync::network_context::{
     DataColumnsByRootRequestId, DataColumnsByRootSingleBlockRequest,
 };
@@ -12,7 +13,7 @@ use std::hash::{BuildHasher, RandomState};
 use std::time::{Duration, Instant};
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 use tracing::{Span, debug, debug_span, warn};
-use types::{DataColumnSidecar, Hash256, data::ColumnIndex};
+use types::{DataColumnSidecar, Hash256, Slot, data::ColumnIndex};
 use types::{DataColumnSidecarList, EthSpec};
 
 use super::{LookupRequestResult, PeerGroup, RpcResponseResult, SyncNetworkContext};
@@ -21,6 +22,7 @@ const MAX_STALE_NO_PEERS_DURATION: Duration = Duration::from_secs(30);
 
 pub struct ActiveCustodyRequest<T: BeaconChainTypes> {
     block_root: Hash256,
+    block_slot: Slot,
     custody_id: CustodyId,
     /// List of column indices this request needs to download to complete successfully
     column_requests: FnvHashMap<ColumnIndex, ColumnRequest<T::EthSpec>>,
@@ -56,12 +58,12 @@ struct ActiveBatchColumnsRequest {
     span: Span,
 }
 
-pub type CustodyRequestResult<E> =
-    Result<Option<(DataColumnSidecarList<E>, PeerGroup, Duration)>, Error>;
+pub type CustodyRequestResult<E> = Result<Option<DownloadResult<DataColumnSidecarList<E>>>, Error>;
 
 impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
     pub(crate) fn new(
         block_root: Hash256,
+        block_slot: Slot,
         custody_id: CustodyId,
         column_indices: &[ColumnIndex],
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
@@ -73,6 +75,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         );
         Self {
             block_root,
+            block_slot,
             custody_id,
             column_requests: HashMap::from_iter(
                 column_indices
@@ -227,7 +230,11 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                 .into_iter()
                 .max()
                 .unwrap_or_else(|| cx.chain.slot_clock.now_duration().unwrap_or_default());
-            return Ok(Some((columns, peer_group, max_seen_timestamp)));
+            return Ok(Some(DownloadResult::new(
+                columns,
+                peer_group,
+                max_seen_timestamp,
+            )));
         }
 
         let active_request_count_by_peer = cx.active_request_count_by_peer();
@@ -305,6 +312,10 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     // must have its columns in custody. In that case, set `true = enforce max_requests`
                     // and downscore if data_columns_by_root does not return the expected custody
                     // columns. For the rest of peers, don't downscore if columns are missing.
+                    //
+                    // Post-Gloas the lookup peer set is the `gloas_child_peers`: peers that imported
+                    // a FULL child, which requires the parent's columns. They provably custody the
+                    // columns, so withholding is penalizable just like pre-Gloas.
                     lookup_peers.contains(&peer_id),
                 )
                 .map_err(Error::SendFailed)?;
@@ -338,7 +349,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                         },
                     );
                 }
-                LookupRequestResult::NoRequestNeeded(_) => unreachable!(),
+                LookupRequestResult::NoRequestNeeded(..) => unreachable!(),
                 LookupRequestResult::Pending(_) => unreachable!(),
             }
         }
@@ -357,7 +368,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         // We draw from the total set of peers, but prioritize those peers who we have
         // received an attestation or a block from (`lookup_peers`), as the `lookup_peers` may take
         // time to build up and we are likely to not find any column peers initially.
-        let custodial_peers = cx.get_custodial_peers(column_index);
+        let custodial_peers = cx.get_custodial_peers(column_index, self.block_slot);
         let mut prioritized_peers = custodial_peers
             .iter()
             .filter(|peer| {

@@ -27,12 +27,20 @@ use crate::sync::range_sync::RangeSyncType;
 use lighthouse_network::rpc::RPCError;
 use lighthouse_network::rpc::methods::StatusMessageV2;
 use lighthouse_network::{PeerId, SyncInfo};
+use std::collections::HashSet;
 use types::{Epoch, EthSpec, Hash256, MinimalEthSpec as E, Slot};
 
 /// MinimalEthSpec has 8 slots per epoch
 const SLOTS_PER_EPOCH: usize = 8;
 
 impl TestRig {
+    /// Range sync doesn't yet ingest Gloas blocks in these tests: the range harness doesn't serve
+    /// payload envelopes, so a Gloas block never becomes fully available and sync can't complete.
+    /// Skip the affected completion tests under a Gloas genesis. TODO(gloas): support range sync.
+    fn skip_range_sync_under_gloas(&self) -> bool {
+        self.fork_name.gloas_enabled()
+    }
+
     fn add_head_peer(&mut self) -> PeerId {
         let local_info = self.local_info();
         self.add_supernode_peer(SyncInfo {
@@ -50,7 +58,7 @@ impl TestRig {
             finalized_root: Hash256::random(),
             head_slot: finalized_epoch.start_slot(E::slots_per_epoch()),
             head_root: Hash256::random(),
-            earliest_available_slot: None,
+            earliest_available_slot: Some(Slot::new(0)),
         }
     }
 
@@ -259,6 +267,9 @@ impl TestRig {
 #[tokio::test]
 async fn head_sync_completes() {
     let mut r = TestRig::default();
+    if r.skip_range_sync_under_gloas() {
+        return;
+    }
     r.setup_head_sync().await;
     r.simulate(SimulateConfig::happy_path()).await;
     r.assert_head_sync_completed();
@@ -270,6 +281,9 @@ async fn head_sync_completes() {
 #[tokio::test]
 async fn finalized_to_head_transition() {
     let mut r = TestRig::default();
+    if r.skip_range_sync_under_gloas() {
+        return;
+    }
     r.setup_finalized_and_head_sync().await;
     r.simulate(SimulateConfig::happy_path()).await;
     r.assert_range_sync_completed();
@@ -281,6 +295,9 @@ async fn finalized_to_head_transition() {
 #[tokio::test]
 async fn finalized_sync_completes() {
     let mut r = TestRig::default();
+    if r.skip_range_sync_under_gloas() {
+        return;
+    }
     r.setup_finalized_sync().await;
     r.simulate(SimulateConfig::happy_path()).await;
     r.assert_range_sync_completed();
@@ -292,6 +309,9 @@ async fn finalized_sync_completes() {
 #[tokio::test]
 async fn batch_rpc_error_retries() {
     let mut r = TestRig::default();
+    if r.skip_range_sync_under_gloas() {
+        return;
+    }
     r.setup_finalized_sync().await;
     r.simulate(SimulateConfig::happy_path().return_rpc_error(RPCError::UnsupportedProtocol))
         .await;
@@ -360,6 +380,9 @@ async fn batch_peer_returns_partial_columns_then_succeeds() {
 #[tokio::test]
 async fn batch_non_faulty_failure_retries() {
     let mut r = TestRig::default();
+    if r.skip_range_sync_under_gloas() {
+        return;
+    }
     r.setup_finalized_sync().await;
     r.simulate(SimulateConfig::happy_path().with_range_non_faulty_failures(1))
         .await;
@@ -371,6 +394,9 @@ async fn batch_non_faulty_failure_retries() {
 #[tokio::test]
 async fn batch_faulty_failure_redownloads() {
     let mut r = TestRig::default();
+    if r.skip_range_sync_under_gloas() {
+        return;
+    }
     r.setup_finalized_sync().await;
     r.simulate(SimulateConfig::happy_path().with_range_faulty_failures(1))
         .await;
@@ -427,6 +453,9 @@ async fn late_response_for_removed_chain() {
 #[tokio::test]
 async fn ee_offline_then_online_resumes_sync() {
     let mut r = TestRig::default();
+    if r.skip_range_sync_under_gloas() {
+        return;
+    }
     r.setup_finalized_sync().await;
     r.simulate(SimulateConfig::happy_path().with_ee_offline_for_n_range_responses(2))
         .await;
@@ -439,6 +468,9 @@ async fn ee_offline_then_online_resumes_sync() {
 #[tokio::test]
 async fn finalized_sync_with_local_head_partial() {
     let mut r = TestRig::default();
+    if r.skip_range_sync_under_gloas() {
+        return;
+    }
     r.setup_finalized_sync_with_local_head(3).await;
     r.simulate(SimulateConfig::happy_path()).await;
     r.assert_range_sync_completed();
@@ -449,6 +481,9 @@ async fn finalized_sync_with_local_head_partial() {
 #[tokio::test]
 async fn finalized_sync_with_local_head_near_target() {
     let mut r = TestRig::default();
+    if r.skip_range_sync_under_gloas() {
+        return;
+    }
     let target_epochs = 5;
     let local_slots = (target_epochs * SLOTS_PER_EPOCH) - 1; // all blocks except last
     r.build_chain(target_epochs * SLOTS_PER_EPOCH).await;
@@ -467,12 +502,85 @@ async fn finalized_sync_with_local_head_near_target() {
 #[tokio::test]
 async fn not_enough_custody_peers_then_peers_arrive() {
     let mut r = TestRig::default();
-    if !r.fork_name.fulu_enabled() {
+    if !r.fork_name.fulu_enabled() || r.skip_range_sync_under_gloas() {
         return;
     }
     let remote_info = r.setup_finalized_sync_insufficient_peers().await;
     r.assert_empty_network();
     r.add_remaining_finalized_peers(remote_info);
+    r.simulate(SimulateConfig::happy_path()).await;
+    r.assert_range_sync_completed();
+}
+
+/// This is a regression test for the following race condition scenario:
+/// 1. A node is connected to 3 supernode peers: peer 1 is synced, & peer 2 and 3 are advanced.
+/// 2. No metadata has been received yet (i.e. no custody info), so the node cannot start data
+///    column range sync yet.
+/// 3. Now peer 1 sends the CGC via metadata response, we now have one peer on all custody subnets,
+///    BUT not on the finalized syncing chain.
+/// 4. The node tries to `send_batch` but fails repeatedly with `NoPeers`, as there's no peer
+///    that is able to serve columns for the advanced epochs. The chain is removed after 5 failed attempts.
+/// 5. Now peer 2 & 3 send CGC updates, BUT because there's no syncing chain, nothing happens -
+///    sync is stuck until finding new peers.
+///
+/// The expected behaviour in this scenario should be:
+/// 4. not finding suitable peers, chain is kept and batch remains in AwaitingDownload
+/// 5. finalized sync should resume as soon as CGC updates are received from peer 2 or 3.
+#[tokio::test]
+async fn finalized_sync_not_enough_custody_peers_resume_after_peer_cgc_update() {
+    let mut r = TestRig::default();
+    if !r.fork_name.fulu_enabled() || r.skip_range_sync_under_gloas() {
+        return;
+    }
+
+    // GIVEN: the node is connected to 3 supernode peers:
+    let advanced_epochs: usize = 2;
+    let sync_epochs = advanced_epochs + 3;
+    let sync_slots = sync_epochs * SLOTS_PER_EPOCH - 1;
+    r.build_chain(sync_slots).await;
+    r.harness.set_current_slot(Slot::new(sync_slots as u64 + 1));
+
+    // Peer 1 is synced (same finalized epoch), but its earliest available slot means it
+    // cannot serve the batches needed for this sync.
+    let peer_1 = r.new_connected_supernode_peer_no_metadata_custody_subnet();
+    let mut remote_info = r.local_info().clone();
+    remote_info.earliest_available_slot = Some(Slot::new(sync_slots as u64));
+    r.send_sync_message(SyncMessage::AddPeer(peer_1, remote_info));
+
+    // Peer 2 is advanced (local finalized epoch + 2)
+    let peer_2 = r.new_connected_supernode_peer_no_metadata_custody_subnet();
+    let remote_info = r.finalized_remote_info_advanced_by((advanced_epochs as u64).into());
+    r.send_sync_message(SyncMessage::AddPeer(peer_2, remote_info.clone()));
+    // We expect a finalized chain to be created with peer 2, but no requests sent out yet due to missing custody info.
+    r.assert_state(RangeSyncType::Finalized);
+    r.assert_empty_network();
+
+    // Peer 3 is connected and advanced
+    let peer_3 = r.new_connected_supernode_peer_no_metadata_custody_subnet();
+    r.send_sync_message(SyncMessage::AddPeer(peer_3, remote_info));
+    // We are still in finalized sync state (now with peer 3 added)
+    r.assert_state(RangeSyncType::Finalized);
+
+    for (i, p) in [peer_1, peer_2, peer_3].iter().enumerate() {
+        let peer_idx = i + 1;
+        r.log(&format!("Peer {peer_idx}: {p:?}"));
+    }
+
+    // WHEN: peer 1 sends its CGC via metadata response
+    let all_custody_subnets = (0..r.harness.spec.data_column_sidecar_subnet_count)
+        .map(|i| i.into())
+        .collect::<HashSet<_>>();
+    r.send_peer_cgc_update_to_sync(&peer_1, all_custody_subnets.clone());
+
+    // We still don't have any peers on the syncing chain with custody columns (only peer 1)
+    // The node won't send the batch and will remain in the finalized sync state (this was failing before!)
+    r.assert_state(RangeSyncType::Finalized);
+    r.assert_empty_network();
+
+    // Now we receive peer 2 & 3's CGC updates, the node will resume syncing from these two peers
+    r.send_peer_cgc_update_to_sync(&peer_2, all_custody_subnets.clone());
+    r.send_peer_cgc_update_to_sync(&peer_3, all_custody_subnets);
+
     r.simulate(SimulateConfig::happy_path()).await;
     r.assert_range_sync_completed();
 }

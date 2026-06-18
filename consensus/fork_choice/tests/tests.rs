@@ -79,7 +79,7 @@ impl ForkChoiceTest {
     /// Get a value from the `ForkChoice` instantiation.
     fn get<T, U>(&self, func: T) -> U
     where
-        T: Fn(&BeaconForkChoiceStore<E, MemoryStore<E>, MemoryStore<E>>) -> U,
+        T: Fn(&BeaconForkChoiceStore<E, MemoryStore, MemoryStore>) -> U,
     {
         func(
             self.harness
@@ -316,7 +316,6 @@ impl ForkChoiceTest {
                 Duration::from_secs(0),
                 &state,
                 PayloadVerificationStatus::Verified,
-                block.message().proposer_index(),
                 &self.harness.chain.spec,
             )
             .unwrap();
@@ -360,7 +359,6 @@ impl ForkChoiceTest {
                 Duration::from_secs(0),
                 &state,
                 PayloadVerificationStatus::Verified,
-                block.message().proposer_index(),
                 &self.harness.chain.spec,
             )
             .expect_err("on_block did not return an error");

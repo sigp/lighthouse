@@ -967,13 +967,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .start_slot(T::EthSpec::slots_per_epoch()),
         );
 
-        self.observed_blob_sidecars.write().prune(
-            new_view
-                .finalized_checkpoint
-                .epoch
-                .start_slot(T::EthSpec::slots_per_epoch()),
-        );
-
         self.observed_column_sidecars.write().prune(
             new_view
                 .finalized_checkpoint
@@ -987,6 +980,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .epoch
                 .start_slot(T::EthSpec::slots_per_epoch()),
         );
+
+        // Prune the Gloas pending-payload cache. Anything older than the data-availability
+        // boundary cannot still be in flight; finalised entries are also safe to drop.
+        if self.spec.gloas_fork_epoch.is_some() {
+            let finalized_epoch = new_view.finalized_checkpoint.epoch;
+            let current_epoch = new_snapshot
+                .beacon_state
+                .slot()
+                .epoch(T::EthSpec::slots_per_epoch());
+            if let Some(min_epochs_for_blobs) = self
+                .spec
+                .min_epoch_data_availability_boundary(current_epoch)
+            {
+                let cutoff_epoch = std::cmp::max(finalized_epoch + 1, min_epochs_for_blobs);
+                if let Err(e) = self.pending_payload_cache.do_maintenance(cutoff_epoch) {
+                    error!(error = ?e, "Failed to prune pending payload cache on finalization");
+                }
+            }
+        }
 
         if let Some(event_handler) = self.event_handler.as_ref()
             && event_handler.has_finalized_subscribers()
