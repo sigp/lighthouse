@@ -729,13 +729,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         // If contains -> 1 (order after), not contains -> 0 (order first)
                         peers_to_deprioritize.contains(peer),
                         // Strictly de-prioritize peers already at the per-protocol concurrency limit
-                        data_columns_by_range_per_peer.get(peer)
-                            + if columns_to_request_by_peer.contains_key(peer) {
-                                1
-                            } else {
-                                0
-                            }
-                            >= MAX_CONCURRENT_REQUESTS,
+                        // Note: do not account for to-by-sent requests on
+                        // `data_columns_by_range_by_peer` as we always send at most one request
+                        data_columns_by_range_per_peer.get(peer),
                         // Random factor to break ties, otherwise the PeerID breaks ties
                         rand::random::<u32>(),
                         peer,
