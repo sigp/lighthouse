@@ -922,7 +922,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
         let epoch = header.slot().epoch(T::EthSpec::slots_per_epoch());
         let custody_columns = self.chain.sampling_columns_for_epoch(epoch);
-
         let self_cloned = self.clone();
         let publish_fn = move |columns: Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>| {
             if publish_blobs {
